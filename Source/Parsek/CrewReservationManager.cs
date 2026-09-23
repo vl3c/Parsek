@@ -1069,7 +1069,7 @@ namespace Parsek
         /// </summary>
         public static void RecomputeAfterTombstones()
         {
-            RecomputeFromEffectiveLedger("after tombstones", null, applyToRoster: true);
+            RecomputeFromEffectiveLedger("after tombstones", null, applyToRoster: true, walkNowUT: null);
         }
 
         internal static void RecomputeAfterCutoffWalk(double utCutoff)
@@ -1077,13 +1077,19 @@ namespace Parsek
             RecomputeFromEffectiveLedger(
                 "after cutoff walk",
                 "cutoffUT=" + utCutoff.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
-                applyToRoster: false);
+                applyToRoster: false,
+                walkNowUT: utCutoff);
         }
 
+        /// <param name="walkNowUT">The clock the rebuilt reservations are judged against
+        /// (<c>KerbalsModule.ResolveWalkClockUT</c>): the cutoff of the walk this
+        /// recompute follows, so a rewind / time-jump walk judges "is he reserved now"
+        /// at its own target, not at whatever Planetarium still reads.</param>
         private static void RecomputeFromEffectiveLedger(
             string reason,
             string detail,
-            bool applyToRoster)
+            bool applyToRoster,
+            double? walkNowUT)
         {
             var kerbals = LedgerOrchestrator.Kerbals;
             if (kerbals == null)
@@ -1108,14 +1114,15 @@ namespace Parsek
                     if (a.Type != GameActionType.KerbalAssignment
                         && a.Type != GameActionType.KerbalHire
                         && a.Type != GameActionType.KerbalRescue
-                        && a.Type != GameActionType.KerbalStandIn)
+                        && a.Type != GameActionType.KerbalStandIn
+                        && a.Type != GameActionType.KerbalRecovered)
                         continue;
                     kerbalActions.Add(a);
                 }
             }
 
             kerbals.Reset();
-            kerbals.PrePass(kerbalActions);
+            kerbals.PrePass(kerbalActions, walkNowUT);
             for (int i = 0; i < kerbalActions.Count; i++)
                 kerbals.ProcessAction(kerbalActions[i]);
             kerbals.PostWalk();
@@ -1147,6 +1154,9 @@ namespace Parsek
                 else temporary++;
             }
 
+            // The count is the RAW reservation set (harness specs and tests pin this line
+            // verbatim); how many of those are still held at the walk's clock is the
+            // PostWalk summary's released= term.
             string detailPart = string.IsNullOrEmpty(detail) ? "" : $" ({detail})";
             ParsekLog.Info("CrewReservations",
                 $"Recomputed {reason}: {remaining} reservations remain " +

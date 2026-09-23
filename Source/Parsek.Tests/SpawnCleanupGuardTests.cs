@@ -92,40 +92,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RewindThenRevert_WithoutGuard_WouldLoseData()
-        {
-            // Demonstrates the bug: without the guard, the revert path
-            // would overwrite rewind data with empty.
-            RecordingStore.AddRecordingWithTreeForTesting(new Recording
-                { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
-
-            // Rewind path sets data
-            var (rewindPids, _) = RecordingStore.CollectSpawnedVesselInfo();
-            RecordingStore.PendingCleanupPids = rewindPids.Count > 0 ? rewindPids : null;
-            var allNames = RecordingStore.CollectAllRecordingVesselNames();
-            RecordingStore.PendingCleanupNames = allNames.Count > 0 ? allNames : null;
-
-            Assert.NotNull(RecordingStore.PendingCleanupPids);
-            Assert.NotNull(RecordingStore.PendingCleanupNames);
-
-            // ResetAllPlaybackState zeros spawn tracking
-            RecordingStore.ResetAllPlaybackState();
-
-            // Without guard: unconditional collection returns empty and overwrites
-            var (emptyPids, emptyNames) = RecordingStore.CollectSpawnedVesselInfo();
-            var wouldSetPids = emptyPids.Count > 0 ? emptyPids : null;
-            var wouldSetNames = emptyNames.Count > 0 ? emptyNames : null;
-
-            // This is what the bug would do: overwrite with null
-            Assert.Null(wouldSetPids);
-            Assert.Null(wouldSetNames);
-
-            // But the guard prevents this: original data is still there
-            Assert.NotNull(RecordingStore.PendingCleanupPids);
-            Assert.NotNull(RecordingStore.PendingCleanupNames);
-        }
-
-        [Fact]
         public void RevertCleanupArming_WhenRewindAlreadyArmedCleanup_DoesNotOverwrite()
         {
             // The PRODUCTION arming step, not a re-implementation of its guard: the

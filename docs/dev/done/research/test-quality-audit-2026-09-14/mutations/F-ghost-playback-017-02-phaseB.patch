@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostExtender.cs b/Source/Parsek/GhostExtender.cs
+index 661fc25dc..6b1713682 100644
+--- a/Source/Parsek/GhostExtender.cs
++++ b/Source/Parsek/GhostExtender.cs
+@@ -53,7 +53,7 @@ namespace Parsek
+             {
+                 ParsekLog.Verbose(Tag,
+                     string.Format(ic,
+-                        "ChooseStrategy: Orbital (body={0} sma={1:F0} ecc={2:F4})",
++                        "ChooseStrategy: Orbital (sma={1:F0} ecc={2:F4})",
+                         rec.TerminalOrbitBody, rec.TerminalOrbitSemiMajorAxis, rec.TerminalOrbitEccentricity));
+                 return GhostExtensionStrategy.Orbital;
+             }

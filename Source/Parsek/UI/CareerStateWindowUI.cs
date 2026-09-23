@@ -9,13 +9,14 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Career State window — surfaces the four career modules (Contracts, Strategies,
-    /// Facilities, Milestones) in a tabbed window with current-vs-projected columns.
+    /// Career State window - surfaces the four career modules (Contracts, Strategies,
+    /// Facilities, Milestones) in a tabbed window. Every tab reads "what is true now" and
+    /// "what the recorded timeline still does": a Pending-in-timeline group for rows the
+    /// future adds, and a Timeline-end column for what it does to the rows that exist now.
+    /// Which tabs draw depends on the game mode (<see cref="VisibleTabsFor"/>).
     ///
-    /// Phase 1 (this file in its current form): view-model + Build() walk + humanization
-    /// helpers only. No DrawIfOpen yet; Phase 2 adds the window chrome.
-    ///
-    /// Design doc: docs/dev/plans/career-state-window.md (#416).
+    /// Design doc: docs/dev/done/plans/career-state-window.md (#416); the current shape is
+    /// recorded in docs/dev/design-gui-inventory.md (Career State).
     /// </summary>
     internal class CareerStateWindowUI
     {
@@ -58,7 +59,8 @@ namespace Parsek
         // active-state texture as the "on" background so expanded sections look pressed
         // (mirrors TimelineWindowUI.toggleButtonStyle).
         private GUIStyle toggleButtonStyle;
-        private GUIStyle pendingStyle;
+        private GUIStyle alertStyle;
+        private GUIStyle nameCellStyle;
         private GUIStyle grayStyle;
         private GUIStyle bannerStyle;
 
@@ -83,51 +85,56 @@ namespace Parsek
 
         private const float DefaultWindowHeight = 400f;
         internal const float MinWindowWidth = 520f;
-        internal const float MinWindowHeight = 200f;
+        // Tall enough that the chrome (banner, tabs, section bar, group label, column
+        // header, help strip, Close) still leaves four or five table rows visible; at the
+        // old 200 px the scroll body was about 20 px tall and showed no row at all.
+        internal const float MinWindowHeight = 320f;
         // Internal so the design-7.2 mode-change close set (`ParsekUI.BuildGatedWindowCloseSet`)
         // can carry the id, which lets the in-game lock-leak test assert directly against
         // InputLockManager instead of hardcoding a duplicate string.
         internal const string CareerStateInputLockId = "Parsek_CareerStateWindow";
 
-        // Column widths — shared between header and body for alignment (mirrors RecordingsTableUI:30-42).
-        // Contracts tab.
-        private const float ColW_ContractTitle = 240f;
-        private const float ColW_AcceptUT = 90f;
-        private const float ColW_DeadlineUT = 90f;
-        // Internal: the milestone-column fit is asserted by a test rather than trusted from
-        // the comment on ColW_Rewards below.
-        internal const float ColW_PendingTag = 70f;
-        // Strategies tab.
-        private const float ColW_StrategyTitle = 220f;
-        private const float ColW_ActivateUT = 90f;
-        private const float ColW_Flow = 140f;
-        // Milestones tab.
-        internal const float ColW_MilestoneUT = 90f;
-        internal const float ColW_MilestoneTitle = 200f;
-        // Sized to hold a THREE-PART reward on ONE line, which the 180f it used to be did
-        // not: `ksc-career-milestones-advanced.gui.json` from the 2026-09-11 GUI census shows
-        // two such cells rendered 36 px tall inside a 21 px row grid - IMGUI wrapped them,
-        // and a wrapped label in a fixed-stride row overlaps its neighbours.
+        // Column widths - shared between header and body. The NAME column of every table
+        // is not in this list: it takes GUILayout.ExpandWidth(true) in the header and in
+        // every row (the Kerbals window's pattern), so a long contract title stops wrapping
+        // and the header strip spans the whole table. The fixed columns are sized for a
+        // compact KSP date ("Y12, D426, 05:17", 16 characters) at the 7 px/char bound
+        // TooltipEchoBudgetTests uses, plus cell padding.
+        internal const float ColW_Date = 145f;
+        // A date plus its relative tail: "Y12, D426, 05:17 (overdue 99d)", 30 characters.
+        internal const float ColW_Deadline = 220f;
+        // The longest outcome: "upgrades to L3, Y12, D426, 05:17" (32 characters); two
+        // facility changes at once share the cell and may wrap, which is rare enough.
+        internal const float ColW_TimelineEnd = 240f;
+        // Strategies: "Reputation -> Science @ 100.0%" is 30 characters.
+        internal const float ColW_Flow = 230f;
+        // Facilities: "L3 (destroyed)" / "destroyed".
+        internal const float ColW_Level = 120f;
+        // Milestones tab. Sized to hold a THREE-PART reward on ONE line: a wrapped label
+        // in a fixed-stride row overlaps its neighbours (the 2026-09-11 census showed two
+        // such cells 36 px tall at the old 180f).
         //
         // The reward values are unbounded in Parsek code - the patch stores whatever KSP
         // passes to ProgressNode.AwardProgress - so the width is sized against a DOCUMENTED
         // bound rather than a derived cap: 7 digits of funds, 4 of reputation, 4 + one decimal
         // of science ("+ 9999999 funds  + 9999 rep  + 9999.9 sci", 41 characters), which is
         // about 200x the stock-Normal milestone payout. 41 chars at the 7 px/char pessimistic
-        // advance TooltipEchoBudgetTests uses for this font is 287 px, plus a 30 px cell
-        // padding allowance = 317, so 320 clears it and leaves the table 680 px wide inside
-        // the window's 820 px default. The derivation, with the KSP-side factors it rests on,
-        // is on CareerStateWindowUITests.MilestoneRewardsColumn_HoldsAThreePartRewardOnOneLine,
+        // advance is 287 px, plus a 30 px cell padding allowance = 317, so 320 clears it. The
+        // derivation is on CareerStateWindowUITests.MilestoneRewardsColumn_HoldsAThreePartRewardOnOneLine,
         // which asserts the fit rather than trusting this comment.
         internal const float ColW_Rewards = 320f;
-        // Facilities tab.
-        private const float ColW_FacilityTitle = 200f;
-        private const float ColW_Level = 120f;
-        private const float ColW_Status = 180f;
+        // The smallest width the expanding name column is budgeted, for the fit test.
+        internal const float MinNameColumnWidth = 160f;
+        // The floor the expanding name cell may shrink to, in header and rows alike. Name
+        // cells do not wrap (nameCellStyle clips instead), so a narrow window keeps one
+        // row per line - a wrapped title made one row four lines tall at the 520 px
+        // minimum and left no room for a second row.
+        internal const float NameCellMinWidth = 80f;
 
         // Disclosure arrows (mirrors KerbalsWindowUI:34-35).
 
-        // Transient fold state for Contracts/Strategies "Pending in timeline" section headers.
+        // Transient fold state for the Contracts / Strategies / Milestones "Pending in
+        // timeline" section headers.
         // Default-unfolded means we only store names that are currently folded. Tab switches
         // do NOT clear this set — folds persist across the window's lifetime.
         internal readonly HashSet<string> foldedGroups = new HashSet<string>(StringComparer.Ordinal);
@@ -136,6 +143,7 @@ namespace Parsek
         // production share the exact strings.
         internal const string GroupKey_ContractsPending = "Contracts.Pending";
         internal const string GroupKey_StrategiesPending = "Strategies.Pending";
+        internal const string GroupKey_MilestonesPending = "Milestones.Pending";
 
         // GUIContent (not bare strings) so each tab explains itself in the bottom help
         // strip on hover. Every tab shows the same two-part shape - what is true now, and
@@ -144,11 +152,11 @@ namespace Parsek
         private static readonly GUIContent[] TabLabels = new[]
         {
             new GUIContent("Contracts",
-                "Contracts you hold now, and the ones your recorded flights still complete."),
+                "Contracts you hold now, and the ones your recorded flights accept later."),
             new GUIContent("Strategies",
                 "Strategies running now, and the ones the recorded timeline activates later."),
             new GUIContent("Facilities",
-                "KSC building levels now, and the levels the recorded timeline ends on."),
+                "KSC buildings now, and what the recorded timeline upgrades, wrecks or repairs."),
             new GUIContent("Milestones",
                 "First-time achievements your recorded flights claim, and what each one paid.")
         };
@@ -245,6 +253,28 @@ namespace Parsek
             public double NextRelevantActionUT;
             public bool HasDivergence;
             public bool IsTransientFallback;
+            // Display text, formatted ONCE per rebuild (FillDisplayText) so OnGUI's
+            // several events per frame never re-run the KSP date formatter.
+            public string BannerText;
+            // How often (game seconds) the rebuild predicate re-formats: 60 while every
+            // drawn date and relative tail has minute resolution, 1 while a deadline sits
+            // within two minutes of live UT and its tail can read in seconds.
+            public double RefreshSeconds;
+        }
+
+        /// <summary>
+        /// What the recorded timeline does to a contract or strategy row before it ends.
+        /// Carried on the row so the "Timeline end" cell can say it instead of a bare
+        /// "(closing)": a future FAILURE costs funds and reputation and must not read
+        /// like a completion.
+        /// </summary>
+        internal enum TimelineEndKind
+        {
+            None = 0,
+            Completed,
+            Failed,
+            Cancelled,
+            Deactivated,
         }
 
         internal struct ContractsTabVM
@@ -256,7 +286,14 @@ namespace Parsek
             public int MissionControlLevel;          // MissionControl level at liveUT (drives slot count per LedgerOrchestrator.UpdateSlotLimitsFromFacilities)
             public int ProjectedMissionControlLevel; // MissionControl level at terminal UT
             public List<ContractRow> CurrentRows;
+            // Active at the timeline's terminal UT (drives the "at timeline end" slot count).
             public List<ContractRow> ProjectedRows;
+            // Every contract the recorded timeline ACCEPTS after live UT, including the ones
+            // it also completes / fails / cancels before its end - the "Pending in timeline"
+            // group. A superset of ProjectedRows' pending entries: a contract accepted and
+            // closed in the future is in neither CurrentRows nor ProjectedRows.
+            public List<ContractRow> PendingRows;
+            public string HeaderText;
         }
 
         internal struct ContractRow
@@ -266,11 +303,15 @@ namespace Parsek
             public double AcceptUT;
             public double DeadlineUT;   // NaN if none
             public bool IsPendingAccept;
-            // Active now but will complete / fail / cancel before the timeline's terminal UT
-            // (only meaningful on CurrentRows entries). Surfaces as "(closing)" in the Status
-            // column so the player sees that A will disappear, not just that pending-B will
-            // appear.
+            // Completes / fails / cancels before the timeline's terminal UT. Mirrors
+            // EndKind != None; kept as a flag because the gallery's coverage keys name it.
             public bool IsClosingByTimelineEnd;
+            public TimelineEndKind EndKind;
+            public double EndUT;        // meaningful only when EndKind != None
+            public string AcceptText;
+            public string DeadlineText;
+            public bool DeadlineOverdue;
+            public string TimelineEndText;
         }
 
         internal struct StrategiesTabVM
@@ -283,6 +324,10 @@ namespace Parsek
             public int ProjectedAdminLevel;
             public List<StrategyRow> CurrentRows;
             public List<StrategyRow> ProjectedRows;
+            // Every strategy the recorded timeline activates after live UT (see
+            // ContractsTabVM.PendingRows).
+            public List<StrategyRow> PendingRows;
+            public string HeaderText;
         }
 
         internal struct StrategyRow
@@ -294,9 +339,13 @@ namespace Parsek
             public StrategyResource TargetResource;
             public float Commitment;
             public bool IsPendingActivate;
-            // Active now but will deactivate before the timeline's terminal UT (only
-            // meaningful on CurrentRows entries).
+            // Deactivates before the timeline's terminal UT (EndKind == Deactivated).
             public bool IsClosingByTimelineEnd;
+            public TimelineEndKind EndKind;
+            public double EndUT;
+            public string ActivateText;
+            public string FlowText;
+            public string TimelineEndText;
         }
 
         internal struct FacilitiesTabVM
@@ -313,6 +362,16 @@ namespace Parsek
             public int ProjectedLevel;
             public bool ProjectedDestroyed;
             public bool HasUpcomingChange;
+            // UT of the last future action that set the terminal level, and of the last
+            // intact <-> destroyed TRANSITION of the facility as a whole (a facility is
+            // several buildings; one more building falling in an already-destroyed
+            // facility is not a transition). Meaningful only when that half differs
+            // between now and the timeline end.
+            public double LevelChangeUT;
+            public double DestroyedChangeUT;
+            // Career: "L2" / "L2 (destroyed)"; Science: "destroyed" / "intact".
+            public string LevelText;
+            public string TimelineEndText;
         }
 
         internal struct MilestonesTabVM
@@ -320,6 +379,7 @@ namespace Parsek
             public int CurrentCreditedCount;
             public int ProjectedCreditedCount;
             public List<MilestoneRow> Rows;
+            public string HeaderText;
         }
 
         internal struct MilestoneRow
@@ -331,6 +391,8 @@ namespace Parsek
             public float RepAwarded;
             public float ScienceAwarded;
             public bool IsPendingCredit;
+            public string CreditedText;
+            public string RewardsText;
         }
 
         // Internal per-walk accumulator for contracts. Keyed by ContractId; stores the
@@ -353,10 +415,25 @@ namespace Parsek
             public float Commitment;
         }
 
+        // A KSC facility is several DestructibleBuildings (the ledger keys a destruction
+        // by the building's own id, "SpaceCenter/LaunchPad/Facility/<part>"), so a
+        // facility is destroyed while ANY of its buildings is.
         private sealed class FacilityAcc
         {
-            public int Level;
-            public bool Destroyed;
+            public int Level = 1;
+            public readonly HashSet<string> DestroyedBuildings =
+                new HashSet<string>(StringComparer.Ordinal);
+            public double LevelUT = double.NaN;
+            // UT of the facility's last intact <-> destroyed transition (see
+            // ApplyBuildingDestroyedState), not of the last building action.
+            public double DestroyedUT = double.NaN;
+            public bool Destroyed => DestroyedBuildings.Count > 0;
+        }
+
+        private sealed class EndAcc
+        {
+            public TimelineEndKind Kind;
+            public double UT;
         }
 
         // ================================================================
@@ -370,6 +447,18 @@ namespace Parsek
         ///
         /// Only <see cref="GameAction.Effective"/> actions mutate contract/milestone
         /// state (mirrors ContractsModule/MilestonesModule.ProcessAction).
+        ///
+        /// <para>A building's destroyed state NOW comes from
+        /// <paramref name="liveDestroyedBuildingIds"/> (stock's ScenarioDestructibles,
+        /// read by the caller), never from the ledger: a building repaired at the KSC
+        /// reaches no ledger action, so a past FacilityDestruction would read as destroyed
+        /// forever. The ledger only supplies what the recorded future does after
+        /// <paramref name="liveUT"/> (a destruction in a committed flight, or a repair
+        /// action the ledger itself carries). Null means no live data: nothing is
+        /// destroyed now.</para>
+        ///
+        /// <para><paramref name="formatDate"/> formats every date cell once here
+        /// (<see cref="FillDisplayText"/>); null falls back to raw UT.</para>
         /// </summary>
         internal static CareerStateViewModel Build(
             IReadOnlyList<GameAction> actions,
@@ -378,14 +467,18 @@ namespace Parsek
             ContractsModule contracts,
             StrategiesModule strategies,
             FacilitiesModule facilities,
-            MilestonesModule milestones)
+            MilestonesModule milestones,
+            Func<double, string> formatDate = null,
+            ICollection<string> liveDestroyedBuildingIds = null)
         {
             if (contracts == null || strategies == null || facilities == null
                 || milestones == null || actions == null)
             {
                 ParsekLog.Warn("UI",
                     "CareerStateWindow: Build called with null module or actions; returning empty VM");
-                return EmptyVM(liveUT, mode, isTransientFallback: true);
+                var empty = EmptyVM(liveUT, mode, isTransientFallback: true);
+                FillDisplayText(ref empty, formatDate);
+                return empty;
             }
 
             // Terminal-state accumulators, walked forward through the action list.
@@ -394,6 +487,25 @@ namespace Parsek
             var facilityStateTerm = new Dictionary<string, FacilityAcc>(StringComparer.Ordinal);
             var creditedMilestonesTerm = new HashSet<string>(StringComparer.Ordinal);
             var allMilestoneRows = new List<MilestoneRow>();
+
+            // Future-only accumulators: what the recorded timeline accepts / activates after
+            // live UT, and how each contract / strategy it touches ends. An ending is only
+            // ever read for a row that is NOT active at the terminal UT, so the last removal
+            // recorded for an id is the one that matters.
+            var pendingContracts = new Dictionary<string, ContractAcc>(StringComparer.Ordinal);
+            var pendingStrategies = new Dictionary<string, StrategyAcc>(StringComparer.Ordinal);
+            var contractEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
+            var strategyEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
+            // How the instance active NOW ends: the first removal after live UT of an
+            // entry accepted / activated at or before it. Kept apart from the per-id
+            // endings above because a later re-accept / re-activation clears those, and
+            // the row that is true now still ends at that first removal.
+            var currentContractEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
+            var currentStrategyEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
+            // Destructions / repairs after live UT, in walk order; applied on top of the
+            // live destroyed set after the walk. Ones at or before live UT are ignored.
+            var futureBuildingChanges = new List<GameAction>();
+            int pastBuildingActionsIgnored = 0;
 
             // Mode gating (design doc E1/E2). These flags drive both row visibility
             // and which future actions can visibly change the cached window.
@@ -462,6 +574,10 @@ namespace Parsek
                             DeadlineUT = a.DeadlineUT
                         };
                         activeContractsTerm[cid] = acc;
+                        if (a.UT > liveUT)
+                            pendingContracts[cid] = acc;
+                        // A re-accept supersedes an earlier ending of the same id.
+                        contractEnds.Remove(cid);
                         break;
 
                     case GameActionType.ContractComplete:
@@ -472,7 +588,27 @@ namespace Parsek
                             LogSkip(a.Type.ToString(), "Ineffective", a);
                             break;
                         }
-                        activeContractsTerm.Remove(a.ContractId ?? "");
+                        {
+                            string rid = a.ContractId ?? "";
+                            ContractAcc removed;
+                            if (a.UT > liveUT
+                                && activeContractsTerm.TryGetValue(rid, out removed)
+                                && removed.AcceptUT <= liveUT
+                                && !currentContractEnds.ContainsKey(rid))
+                            {
+                                currentContractEnds[rid] = new EndAcc
+                                {
+                                    Kind = ContractEndKindFor(a.Type),
+                                    UT = a.UT
+                                };
+                            }
+                            activeContractsTerm.Remove(rid);
+                            contractEnds[rid] = new EndAcc
+                            {
+                                Kind = ContractEndKindFor(a.Type),
+                                UT = a.UT
+                            };
+                        }
                         break;
 
                     case GameActionType.StrategyActivate:
@@ -482,7 +618,7 @@ namespace Parsek
                             break;
                         }
                         string sid = a.StrategyId ?? "";
-                        activeStrategiesTerm[sid] = new StrategyAcc
+                        var sacc = new StrategyAcc
                         {
                             StrategyId = sid,
                             Title = ResolveStrategyTitle(sid),
@@ -491,6 +627,10 @@ namespace Parsek
                             TargetResource = a.TargetResource,
                             Commitment = a.Commitment
                         };
+                        activeStrategiesTerm[sid] = sacc;
+                        if (a.UT > liveUT)
+                            pendingStrategies[sid] = sacc;
+                        strategyEnds.Remove(sid);
                         break;
 
                     case GameActionType.StrategyDeactivate:
@@ -499,7 +639,27 @@ namespace Parsek
                             LogSkip("StrategyDeactivate", "Ineffective", a);
                             break;
                         }
-                        activeStrategiesTerm.Remove(a.StrategyId ?? "");
+                        {
+                            string rsid = a.StrategyId ?? "";
+                            StrategyAcc removedStrategy;
+                            if (a.UT > liveUT
+                                && activeStrategiesTerm.TryGetValue(rsid, out removedStrategy)
+                                && removedStrategy.ActivateUT <= liveUT
+                                && !currentStrategyEnds.ContainsKey(rsid))
+                            {
+                                currentStrategyEnds[rsid] = new EndAcc
+                                {
+                                    Kind = TimelineEndKind.Deactivated,
+                                    UT = a.UT
+                                };
+                            }
+                            activeStrategiesTerm.Remove(rsid);
+                            strategyEnds[rsid] = new EndAcc
+                            {
+                                Kind = TimelineEndKind.Deactivated,
+                                UT = a.UT
+                            };
+                        }
                         break;
 
                     case GameActionType.FacilityUpgrade:
@@ -509,45 +669,27 @@ namespace Parsek
                                 LogSkip("FacilityUpgrade", "Ineffective", a);
                                 break;
                             }
-                            string fid = KspFacilityIds.ToDisplayFacilityId(a.FacilityId ?? "");
-                            FacilityAcc f;
-                            if (!facilityStateTerm.TryGetValue(fid, out f))
-                                f = new FacilityAcc { Level = 1, Destroyed = false };
+                            FacilityAcc f = GetOrAddFacility(
+                                facilityStateTerm, FacilityIdForBuilding(a.FacilityId));
                             f.Level = a.ToLevel;
-                            facilityStateTerm[fid] = f;
+                            f.LevelUT = a.UT;
                         }
                         break;
 
                     case GameActionType.FacilityDestruction:
-                        {
-                            if (!a.Effective)
-                            {
-                                LogSkip("FacilityDestruction", "Ineffective", a);
-                                break;
-                            }
-                            string fid = a.FacilityId ?? "";
-                            FacilityAcc f;
-                            if (!facilityStateTerm.TryGetValue(fid, out f))
-                                f = new FacilityAcc { Level = 1, Destroyed = false };
-                            f.Destroyed = true;
-                            facilityStateTerm[fid] = f;
-                        }
-                        break;
-
                     case GameActionType.FacilityRepair:
+                        if (!a.Effective)
                         {
-                            if (!a.Effective)
-                            {
-                                LogSkip("FacilityRepair", "Ineffective", a);
-                                break;
-                            }
-                            string fid = a.FacilityId ?? "";
-                            FacilityAcc f;
-                            if (!facilityStateTerm.TryGetValue(fid, out f))
-                                f = new FacilityAcc { Level = 1, Destroyed = false };
-                            f.Destroyed = false;
-                            facilityStateTerm[fid] = f;
+                            LogSkip(a.Type.ToString(), "Ineffective", a);
+                            break;
                         }
+                        // The destroyed state NOW is stock's (liveDestroyedBuildingIds): a
+                        // KSC repair never reaches the ledger, so a past destruction here
+                        // says nothing about today.
+                        if (a.UT <= liveUT)
+                            pastBuildingActionsIgnored++;
+                        else
+                            futureBuildingChanges.Add(a);
                         break;
 
                     case GameActionType.MilestoneAchievement:
@@ -571,7 +713,7 @@ namespace Parsek
                             allMilestoneRows.Add(new MilestoneRow
                             {
                                 MilestoneId = mid,
-                                DisplayTitle = SpaceBeforeCapitals(mid),
+                                DisplayTitle = HumanizeMilestoneTitle(mid),
                                 CreditedUT = a.UT,
                                 FundsAwarded = a.MilestoneFundsAwarded,
                                 RepAwarded = a.MilestoneRepAwarded,
@@ -596,6 +738,10 @@ namespace Parsek
                 creditedMilestonesCurSnap = new HashSet<string>(creditedMilestonesTerm, StringComparer.Ordinal);
             }
 
+            ApplyBuildingDestroyedState(
+                facilityStateCurSnap, facilityStateTerm,
+                liveDestroyedBuildingIds, futureBuildingChanges);
+
             // --- Facility levels for slot math (matches LedgerOrchestrator.UpdateSlotLimitsFromFacilities) ---
             // Contracts draw slots from MissionControl level; Strategies draw from Administration level.
             int missionControlLevelCur = 1;
@@ -619,6 +765,9 @@ namespace Parsek
             var contractsVM = CreateContractsTabVM(
                 activeContractsCurSnap,
                 activeContractsTerm,
+                pendingContracts,
+                contractEnds,
+                currentContractEnds,
                 missionControlLevelCur,
                 missionControlLevelTerm,
                 liveUT,
@@ -626,6 +775,9 @@ namespace Parsek
             var strategiesVM = CreateStrategiesTabVM(
                 activeStrategiesCurSnap,
                 activeStrategiesTerm,
+                pendingStrategies,
+                strategyEnds,
+                currentStrategyEnds,
                 adminLevelCur,
                 adminLevelTerm,
                 liveUT,
@@ -644,7 +796,11 @@ namespace Parsek
             // --- Divergence (any tab where current != projected). ---
             bool divergence =
                 contractsVM.CurrentActive != contractsVM.ProjectedActive
+                || contractsVM.PendingRows.Count > 0
+                || AnyRowEnds(contractsVM.CurrentRows)
                 || strategiesVM.CurrentActive != strategiesVM.ProjectedActive
+                || strategiesVM.PendingRows.Count > 0
+                || AnyRowEnds(strategiesVM.CurrentRows)
                 || milestonesVM.CurrentCreditedCount != milestonesVM.ProjectedCreditedCount
                 || AnyFacilityUpcomingChange(facilitiesVM.Rows)
                 || adminLevelCur != adminLevelTerm;
@@ -662,6 +818,7 @@ namespace Parsek
                 HasDivergence = divergence,
                 IsTransientFallback = false
             };
+            FillDisplayText(ref vm, formatDate);
 
             ParsekLog.Verbose("UI",
                 "CareerStateWindow: rebuilt VM "
@@ -670,8 +827,16 @@ namespace Parsek
                 + $"divergence={divergence} "
                 + $"mode={mode} "
                 + $"contracts={contractsVM.CurrentActive}/{contractsVM.ProjectedActive} "
+                + $"contractsPending={contractsVM.PendingRows.Count} "
                 + $"strategies={strategiesVM.CurrentActive}/{strategiesVM.ProjectedActive} "
+                + $"strategiesPending={strategiesVM.PendingRows.Count} "
                 + $"facilities={facilitiesVM.Rows.Count} "
+                + "liveDestroyedBuildings=" + (liveDestroyedBuildingIds == null
+                    ? "unknown"
+                    : liveDestroyedBuildingIds.Count.ToString(CultureInfo.InvariantCulture)) + " "
+                + $"futureBuildingChanges={futureBuildingChanges.Count} "
+                + $"pastBuildingActionsIgnored={pastBuildingActionsIgnored} "
+                + "refresh=" + vm.RefreshSeconds.ToString("F0", CultureInfo.InvariantCulture) + "s "
                 + $"milestones={milestonesVM.CurrentCreditedCount}/{milestonesVM.ProjectedCreditedCount}");
 
             return vm;
@@ -681,9 +846,92 @@ namespace Parsek
         // Helpers
         // ================================================================
 
+        internal static TimelineEndKind ContractEndKindFor(GameActionType type)
+        {
+            switch (type)
+            {
+                case GameActionType.ContractComplete: return TimelineEndKind.Completed;
+                case GameActionType.ContractFail: return TimelineEndKind.Failed;
+                case GameActionType.ContractCancel: return TimelineEndKind.Cancelled;
+                default: return TimelineEndKind.None;
+            }
+        }
+
+        /// <summary>
+        /// The facility a ledger facility id belongs to. An upgrade carries the facility's
+        /// own id (<c>SpaceCenter/LaunchPad</c>), a destruction or repair the id of ONE of
+        /// its destructible buildings (<c>SpaceCenter/LaunchPad/Facility/&lt;part&gt;</c>),
+        /// so both are reduced to the segment after <c>SpaceCenter/</c>. A bare id
+        /// (<c>LaunchPad</c>) is already a facility id.
+        /// </summary>
+        internal static string FacilityIdForBuilding(string buildingId)
+        {
+            if (string.IsNullOrEmpty(buildingId)) return "";
+            const string prefix = "SpaceCenter/";
+            string rest = buildingId.StartsWith(prefix, StringComparison.Ordinal)
+                ? buildingId.Substring(prefix.Length)
+                : buildingId;
+            int slash = rest.IndexOf('/');
+            return slash < 0 ? rest : rest.Substring(0, slash);
+        }
+
+        private static FacilityAcc GetOrAddFacility(
+            Dictionary<string, FacilityAcc> map, string facilityId)
+        {
+            FacilityAcc f;
+            if (!map.TryGetValue(facilityId, out f))
+            {
+                f = new FacilityAcc();
+                map[facilityId] = f;
+            }
+            return f;
+        }
+
+        /// <summary>
+        /// Fills the destroyed half of both facility snapshots: NOW is the live set,
+        /// the timeline end is the live set with every future destruction / repair
+        /// applied in order. A facility's change time is the moment it as a whole goes
+        /// from intact to destroyed (or back), so a second building falling in an
+        /// already-destroyed facility does not move it.
+        /// </summary>
+        private static void ApplyBuildingDestroyedState(
+            Dictionary<string, FacilityAcc> current,
+            Dictionary<string, FacilityAcc> terminal,
+            ICollection<string> liveDestroyedBuildingIds,
+            List<GameAction> futureBuildingChanges)
+        {
+            if (liveDestroyedBuildingIds != null)
+            {
+                foreach (string building in liveDestroyedBuildingIds)
+                {
+                    if (string.IsNullOrEmpty(building)) continue;
+                    string fid = FacilityIdForBuilding(building);
+                    GetOrAddFacility(current, fid).DestroyedBuildings.Add(building);
+                    GetOrAddFacility(terminal, fid).DestroyedBuildings.Add(building);
+                }
+            }
+            if (futureBuildingChanges == null) return;
+            for (int i = 0; i < futureBuildingChanges.Count; i++)
+            {
+                GameAction a = futureBuildingChanges[i];
+                string building = a.FacilityId ?? "";
+                FacilityAcc f = GetOrAddFacility(terminal, FacilityIdForBuilding(building));
+                bool wasDestroyed = f.Destroyed;
+                if (a.Type == GameActionType.FacilityDestruction)
+                    f.DestroyedBuildings.Add(building);
+                else
+                    f.DestroyedBuildings.Remove(building);
+                if (f.Destroyed != wasDestroyed)
+                    f.DestroyedUT = a.UT;
+            }
+        }
+
         private static ContractsTabVM CreateContractsTabVM(
             Dictionary<string, ContractAcc> activeContractsCurSnap,
             Dictionary<string, ContractAcc> activeContractsTerm,
+            Dictionary<string, ContractAcc> pendingContracts,
+            Dictionary<string, EndAcc> contractEnds,
+            Dictionary<string, EndAcc> currentContractEnds,
             int missionControlLevelCur,
             int missionControlLevelTerm,
             double liveUT,
@@ -693,6 +941,7 @@ namespace Parsek
             {
                 CurrentRows = new List<ContractRow>(),
                 ProjectedRows = new List<ContractRow>(),
+                PendingRows = new List<ContractRow>(),
                 MissionControlLevel = missionControlLevelCur,
                 ProjectedMissionControlLevel = missionControlLevelTerm,
                 CurrentMaxSlots = LedgerOrchestrator.GetContractSlots(missionControlLevelCur),
@@ -701,47 +950,81 @@ namespace Parsek
             if (contractsVisible)
             {
                 foreach (var kvp in activeContractsCurSnap)
-                {
-                    var c = kvp.Value;
-                    // Active now but not in the terminal snapshot -> will complete/fail/cancel
-                    // before timeline end. Surfaces as "(closing)" so the UI doesn't silently
-                    // hide disappearing contracts (bug: without this, only pending-new rows
-                    // show the delta, leaving contracts that wind down invisible).
-                    bool closing = !activeContractsTerm.ContainsKey(c.ContractId);
-                    contractsVM.CurrentRows.Add(new ContractRow
-                    {
-                        ContractId = c.ContractId,
-                        DisplayTitle = c.Title,
-                        AcceptUT = c.AcceptUT,
-                        DeadlineUT = c.DeadlineUT,
-                        IsPendingAccept = false,
-                        IsClosingByTimelineEnd = closing
-                    });
-                }
+                    contractsVM.CurrentRows.Add(
+                        CurrentContractRowFor(kvp.Value, currentContractEnds));
                 foreach (var kvp in activeContractsTerm)
                 {
                     var c = kvp.Value;
-                    bool pending = c.AcceptUT > liveUT;
-                    contractsVM.ProjectedRows.Add(new ContractRow
-                    {
-                        ContractId = c.ContractId,
-                        DisplayTitle = c.Title,
-                        AcceptUT = c.AcceptUT,
-                        DeadlineUT = c.DeadlineUT,
-                        IsPendingAccept = pending
-                    });
+                    contractsVM.ProjectedRows.Add(
+                        ContractRowFor(c, c.AcceptUT > liveUT, activeContractsTerm, contractEnds));
                 }
+                foreach (var kvp in pendingContracts)
+                    contractsVM.PendingRows.Add(
+                        ContractRowFor(kvp.Value, true, activeContractsTerm, contractEnds));
                 contractsVM.CurrentRows.Sort(CompareContractRowByAcceptUT);
                 contractsVM.ProjectedRows.Sort(CompareContractRowByAcceptUT);
+                contractsVM.PendingRows.Sort(CompareContractRowByAcceptUT);
             }
             contractsVM.CurrentActive = contractsVM.CurrentRows.Count;
             contractsVM.ProjectedActive = contractsVM.ProjectedRows.Count;
             return contractsVM;
         }
 
+        // A row active now: it ends at the first removal after live UT, even when the
+        // recorded future accepts the same id again later (that instance is a pending row).
+        private static ContractRow CurrentContractRowFor(
+            ContractAcc c, Dictionary<string, EndAcc> currentContractEnds)
+        {
+            EndAcc end;
+            bool ends = currentContractEnds.TryGetValue(c.ContractId, out end);
+            return new ContractRow
+            {
+                ContractId = c.ContractId,
+                DisplayTitle = c.Title,
+                AcceptUT = c.AcceptUT,
+                DeadlineUT = c.DeadlineUT,
+                IsPendingAccept = false,
+                IsClosingByTimelineEnd = ends,
+                EndKind = ends ? end.Kind : TimelineEndKind.None,
+                EndUT = ends ? end.UT : double.NaN
+            };
+        }
+
+        private static ContractRow ContractRowFor(
+            ContractAcc c, bool pending,
+            Dictionary<string, ContractAcc> activeContractsTerm,
+            Dictionary<string, EndAcc> contractEnds)
+        {
+            // Not active at the terminal UT -> the recorded timeline completes, fails or
+            // cancels it; the ending recorded for the id says which, and when.
+            TimelineEndKind kind = TimelineEndKind.None;
+            double endUT = double.NaN;
+            EndAcc end;
+            if (!activeContractsTerm.ContainsKey(c.ContractId)
+                && contractEnds.TryGetValue(c.ContractId, out end))
+            {
+                kind = end.Kind;
+                endUT = end.UT;
+            }
+            return new ContractRow
+            {
+                ContractId = c.ContractId,
+                DisplayTitle = c.Title,
+                AcceptUT = c.AcceptUT,
+                DeadlineUT = c.DeadlineUT,
+                IsPendingAccept = pending,
+                IsClosingByTimelineEnd = kind != TimelineEndKind.None,
+                EndKind = kind,
+                EndUT = endUT
+            };
+        }
+
         private static StrategiesTabVM CreateStrategiesTabVM(
             Dictionary<string, StrategyAcc> activeStrategiesCurSnap,
             Dictionary<string, StrategyAcc> activeStrategiesTerm,
+            Dictionary<string, StrategyAcc> pendingStrategies,
+            Dictionary<string, EndAcc> strategyEnds,
+            Dictionary<string, EndAcc> currentStrategyEnds,
             int adminLevelCur,
             int adminLevelTerm,
             double liveUT,
@@ -751,6 +1034,7 @@ namespace Parsek
             {
                 CurrentRows = new List<StrategyRow>(),
                 ProjectedRows = new List<StrategyRow>(),
+                PendingRows = new List<StrategyRow>(),
                 AdminLevel = adminLevelCur,
                 ProjectedAdminLevel = adminLevelTerm,
                 CurrentMaxSlots = LedgerOrchestrator.GetStrategySlots(adminLevelCur),
@@ -759,44 +1043,75 @@ namespace Parsek
             if (strategiesVisible)
             {
                 foreach (var kvp in activeStrategiesCurSnap)
-                {
-                    var s = kvp.Value;
-                    // Active now but not in the terminal snapshot -> will deactivate by
-                    // timeline end. Surfaces as "(closing)" in the Status column.
-                    bool closing = !activeStrategiesTerm.ContainsKey(s.StrategyId);
-                    strategiesVM.CurrentRows.Add(new StrategyRow
-                    {
-                        StrategyId = s.StrategyId,
-                        DisplayTitle = s.Title,
-                        ActivateUT = s.ActivateUT,
-                        SourceResource = s.SourceResource,
-                        TargetResource = s.TargetResource,
-                        Commitment = s.Commitment,
-                        IsPendingActivate = false,
-                        IsClosingByTimelineEnd = closing
-                    });
-                }
+                    strategiesVM.CurrentRows.Add(
+                        CurrentStrategyRowFor(kvp.Value, currentStrategyEnds));
                 foreach (var kvp in activeStrategiesTerm)
                 {
                     var s = kvp.Value;
-                    bool pending = s.ActivateUT > liveUT;
-                    strategiesVM.ProjectedRows.Add(new StrategyRow
-                    {
-                        StrategyId = s.StrategyId,
-                        DisplayTitle = s.Title,
-                        ActivateUT = s.ActivateUT,
-                        SourceResource = s.SourceResource,
-                        TargetResource = s.TargetResource,
-                        Commitment = s.Commitment,
-                        IsPendingActivate = pending
-                    });
+                    strategiesVM.ProjectedRows.Add(
+                        StrategyRowFor(s, s.ActivateUT > liveUT, activeStrategiesTerm, strategyEnds));
                 }
+                foreach (var kvp in pendingStrategies)
+                    strategiesVM.PendingRows.Add(
+                        StrategyRowFor(kvp.Value, true, activeStrategiesTerm, strategyEnds));
                 strategiesVM.CurrentRows.Sort(CompareStrategyRowByActivateUT);
                 strategiesVM.ProjectedRows.Sort(CompareStrategyRowByActivateUT);
+                strategiesVM.PendingRows.Sort(CompareStrategyRowByActivateUT);
             }
             strategiesVM.CurrentActive = strategiesVM.CurrentRows.Count;
             strategiesVM.ProjectedActive = strategiesVM.ProjectedRows.Count;
             return strategiesVM;
+        }
+
+        // See CurrentContractRowFor: a strategy active now, deactivated later and
+        // activated again after that is two rows, and this one says when it deactivates.
+        private static StrategyRow CurrentStrategyRowFor(
+            StrategyAcc s, Dictionary<string, EndAcc> currentStrategyEnds)
+        {
+            EndAcc end;
+            bool ends = currentStrategyEnds.TryGetValue(s.StrategyId, out end);
+            return new StrategyRow
+            {
+                StrategyId = s.StrategyId,
+                DisplayTitle = s.Title,
+                ActivateUT = s.ActivateUT,
+                SourceResource = s.SourceResource,
+                TargetResource = s.TargetResource,
+                Commitment = s.Commitment,
+                IsPendingActivate = false,
+                IsClosingByTimelineEnd = ends,
+                EndKind = ends ? end.Kind : TimelineEndKind.None,
+                EndUT = ends ? end.UT : double.NaN
+            };
+        }
+
+        private static StrategyRow StrategyRowFor(
+            StrategyAcc s, bool pending,
+            Dictionary<string, StrategyAcc> activeStrategiesTerm,
+            Dictionary<string, EndAcc> strategyEnds)
+        {
+            TimelineEndKind kind = TimelineEndKind.None;
+            double endUT = double.NaN;
+            EndAcc end;
+            if (!activeStrategiesTerm.ContainsKey(s.StrategyId)
+                && strategyEnds.TryGetValue(s.StrategyId, out end))
+            {
+                kind = end.Kind;
+                endUT = end.UT;
+            }
+            return new StrategyRow
+            {
+                StrategyId = s.StrategyId,
+                DisplayTitle = s.Title,
+                ActivateUT = s.ActivateUT,
+                SourceResource = s.SourceResource,
+                TargetResource = s.TargetResource,
+                Commitment = s.Commitment,
+                IsPendingActivate = pending,
+                IsClosingByTimelineEnd = kind != TimelineEndKind.None,
+                EndKind = kind,
+                EndUT = endUT
+            };
         }
 
         private static FacilitiesTabVM CreateFacilitiesTabVM(
@@ -812,22 +1127,24 @@ namespace Parsek
                     string fid = FACILITY_DISPLAY_ORDER[i];
                     FacilityAcc cur;
                     if (!facilityStateCurSnap.TryGetValue(fid, out cur))
-                        cur = new FacilityAcc { Level = 1, Destroyed = false };
+                        cur = new FacilityAcc();
                     FacilityAcc term;
                     if (!facilityStateTerm.TryGetValue(fid, out term))
-                        term = new FacilityAcc { Level = 1, Destroyed = false };
+                        term = new FacilityAcc();
 
                     bool upcoming = (cur.Level != term.Level) || (cur.Destroyed != term.Destroyed);
 
                     facilitiesVM.Rows.Add(new FacilityRow
                     {
                         FacilityId = fid,
-                        DisplayTitle = SpaceBeforeCapitals(fid),
+                        DisplayTitle = ResolveFacilityDisplayName(fid),
                         CurrentLevel = cur.Level,
                         CurrentDestroyed = cur.Destroyed,
                         ProjectedLevel = term.Level,
                         ProjectedDestroyed = term.Destroyed,
-                        HasUpcomingChange = upcoming
+                        HasUpcomingChange = upcoming,
+                        LevelChangeUT = term.LevelUT,
+                        DestroyedChangeUT = term.DestroyedUT
                     });
                 }
             }
@@ -876,6 +1193,7 @@ namespace Parsek
                 {
                     CurrentRows = new List<ContractRow>(),
                     ProjectedRows = new List<ContractRow>(),
+                    PendingRows = new List<ContractRow>(),
                     MissionControlLevel = 1,
                     ProjectedMissionControlLevel = 1,
                     CurrentMaxSlots = LedgerOrchestrator.GetContractSlots(1),
@@ -885,6 +1203,7 @@ namespace Parsek
                 {
                     CurrentRows = new List<StrategyRow>(),
                     ProjectedRows = new List<StrategyRow>(),
+                    PendingRows = new List<StrategyRow>(),
                     AdminLevel = 1,
                     ProjectedAdminLevel = 1,
                     CurrentMaxSlots = LedgerOrchestrator.GetStrategySlots(1),
@@ -939,7 +1258,6 @@ namespace Parsek
             if (vm.IsTransientFallback)
                 return true;
 
-            bool displaysLiveUT = ModeDisplaysLiveUT(currentMode);
             bool hasVisibleTimelineState = ModeHasVisibleTimelineState(currentMode);
 
             // Science Sandbox still has time-sensitive facility/milestone rows even
@@ -948,7 +1266,14 @@ namespace Parsek
             if (hasVisibleTimelineState && liveUT < vm.LiveUT)
                 return true;
 
-            if (displaysLiveUT && GetDisplayedUtText(vm.LiveUT) != GetDisplayedUtText(liveUT))
+            // The banner's date and the deadline tails are minute-resolution text, so a
+            // rebuild per game second only re-formatted identical strings. A deadline
+            // within a couple of minutes of now drops the cadence to one second
+            // (RefreshSeconds), where its tail reads in seconds. Science mode has no live
+            // date to show but still re-reads stock's destroyed buildings on the same
+            // minute cadence, so a building destroyed while the window is open appears.
+            if (hasVisibleTimelineState
+                && RefreshBucket(vm.LiveUT, vm.RefreshSeconds) != RefreshBucket(liveUT, vm.RefreshSeconds))
                 return true;
 
             return hasVisibleTimelineState
@@ -1006,11 +1331,6 @@ namespace Parsek
             }
         }
 
-        private static bool ModeDisplaysLiveUT(Game.Modes mode)
-        {
-            return mode == Game.Modes.CAREER;
-        }
-
         private static bool ModeShowsContracts(Game.Modes mode)
         {
             return mode == Game.Modes.CAREER;
@@ -1058,11 +1378,14 @@ namespace Parsek
             var dst = new Dictionary<string, FacilityAcc>(src.Count, StringComparer.Ordinal);
             foreach (var kvp in src)
             {
-                dst[kvp.Key] = new FacilityAcc
+                var copy = new FacilityAcc
                 {
                     Level = kvp.Value.Level,
-                    Destroyed = kvp.Value.Destroyed
+                    LevelUT = kvp.Value.LevelUT,
+                    DestroyedUT = kvp.Value.DestroyedUT
                 };
+                copy.DestroyedBuildings.UnionWith(kvp.Value.DestroyedBuildings);
+                dst[kvp.Key] = copy;
             }
             return dst;
         }
@@ -1071,6 +1394,20 @@ namespace Parsek
         {
             for (int i = 0; i < rows.Count; i++)
                 if (rows[i].HasUpcomingChange) return true;
+            return false;
+        }
+
+        private static bool AnyRowEnds(List<ContractRow> rows)
+        {
+            for (int i = 0; i < rows.Count; i++)
+                if (rows[i].EndKind != TimelineEndKind.None) return true;
+            return false;
+        }
+
+        private static bool AnyRowEnds(List<StrategyRow> rows)
+        {
+            for (int i = 0; i < rows.Count; i++)
+                if (rows[i].EndKind != TimelineEndKind.None) return true;
             return false;
         }
 
@@ -1231,6 +1568,171 @@ namespace Parsek
             return sb.ToString();
         }
 
+        /// <summary>
+        /// A milestone id as the player reads it. Delegates to the Timeline's own
+        /// humanizer so the two windows name the same achievement the same way:
+        /// <c>Kerbin/Science</c> -> <c>Kerbin - Science</c>, <c>FirstLaunch</c> ->
+        /// <c>First Launch</c>. (SpaceBeforeCapitals alone produced <c>Kerbin/ Science</c>,
+        /// because the slash is not uppercase.)
+        /// </summary>
+        internal static string HumanizeMilestoneTitle(string milestoneId)
+        {
+            if (string.IsNullOrEmpty(milestoneId)) return milestoneId;
+            return TimelineEntryDisplay.HumanizeMilestoneId(milestoneId);
+        }
+
+        /// <summary>
+        /// Test seam for the live destroyed-building read. When non-null,
+        /// <see cref="ReadLiveDestroyedBuildingIds"/> returns its answer instead of stock's.
+        /// </summary>
+        internal static Func<ICollection<string>> LiveDestroyedBuildingsForTesting;
+
+        /// <summary>
+        /// The KSC buildings destroyed right now, by DestructibleBuilding id
+        /// (<c>SpaceCenter/LaunchPad/Facility/...</c>), from stock's own record:
+        /// <c>ScenarioDestructibles.protoDestructibles</c>. That table is filled from the
+        /// save in every scene the scenario runs in (Space Center, Flight, Editor,
+        /// Tracking Station), so it answers even where the buildings are not loaded; an
+        /// entry with a live building reads the building, the others read the persisted
+        /// <c>intact</c> value. Read once per view-model rebuild, never per frame.
+        /// Null when stock cannot answer (headless, or the scenario absent).
+        /// </summary>
+        internal static ICollection<string> ReadLiveDestroyedBuildingIds()
+        {
+            var seam = LiveDestroyedBuildingsForTesting;
+            if (seam != null) return seam();
+            try
+            {
+                return ReadLiveDestroyedBuildingIdsCore();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("UI",
+                    "CareerStateWindow.liveDestroyedThrew",
+                    $"CareerStateWindow: live destroyed-building read threw ex={ex.GetType().Name}; treating every building as intact");
+                return null;
+            }
+        }
+
+        // NoInlining for the same reason as LookupStockFacilityNameCore: mono resolves a
+        // KSP type's failing initializer when it JITs the calling method.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static ICollection<string> ReadLiveDestroyedBuildingIdsCore()
+        {
+            var table = ScenarioDestructibles.protoDestructibles;
+            if (table == null) return null;
+            var destroyed = new List<string>();
+            int live = 0, persisted = 0;
+            foreach (var kvp in table)
+            {
+                ScenarioDestructibles.ProtoDestructible proto = kvp.Value;
+                if (proto == null) continue;
+                bool? intact = null;
+                if (proto.dBuildingRefs != null && proto.dBuildingRefs.Count > 0
+                    && proto.dBuildingRefs[0] != null)
+                {
+                    intact = proto.dBuildingRefs[0].IsIntact;
+                    live++;
+                }
+                else if (proto.configNode != null && proto.configNode.HasValue("intact"))
+                {
+                    bool parsed;
+                    if (bool.TryParse(proto.configNode.GetValue("intact"), out parsed))
+                        intact = parsed;
+                    persisted++;
+                }
+                if (intact == false)
+                    destroyed.Add(kvp.Key);
+            }
+            ParsekLog.Verbose("UI",
+                $"CareerStateWindow: live destroyed-building read buildings={table.Count} live={live} persisted={persisted} destroyed={destroyed.Count}");
+            return destroyed;
+        }
+
+        /// <summary>
+        /// Test seam for the stock facility display-name lookup. When non-null, Build()
+        /// calls it instead of <c>ScenarioUpgradeableFacilities.GetFacilityName</c>.
+        /// </summary>
+        internal static Func<string, string> FacilityNameLookupForTesting;
+
+        // Stock names resolved once per facility id. Only successful lookups are cached,
+        // so a lookup attempted before KSP's Localizer is up is retried on the next build.
+        private static readonly Dictionary<string, string> facilityNameCache =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The facility's display name: stock's own localized name
+        /// (<c>ScenarioUpgradeableFacilities.GetFacilityName</c>, e.g. "Research and
+        /// Development", "Launchpad") when KSP can answer, else the humanized id.
+        /// </summary>
+        internal static string ResolveFacilityDisplayName(string facilityId)
+        {
+            if (string.IsNullOrEmpty(facilityId)) return facilityId;
+            var lookup = FacilityNameLookupForTesting;
+            string stock;
+            if (lookup != null)
+            {
+                stock = lookup(facilityId);
+            }
+            else
+            {
+                if (facilityNameCache.TryGetValue(facilityId, out string cached))
+                    return cached;
+                stock = LookupStockFacilityName(facilityId);
+                if (IsUsableStockName(stock))
+                    facilityNameCache[facilityId] = stock;
+            }
+            return IsUsableStockName(stock) ? stock : HumanizeFacilityId(facilityId);
+        }
+
+        private static bool IsUsableStockName(string name)
+        {
+            // An unresolved localization tag comes back verbatim ("#autoLOC_6001646").
+            return !string.IsNullOrEmpty(name) && name[0] != '#';
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static string LookupStockFacilityName(string facilityId)
+        {
+            try
+            {
+                return LookupStockFacilityNameCore(facilityId);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited("UI",
+                    "CareerStateWindow.facilityNameThrew",
+                    $"CareerStateWindow: facility name lookup threw id={facilityId} ex={ex.GetType().Name}");
+                return null;
+            }
+        }
+
+        // Separate NoInlining core: mono resolves a KSP type's failing initializer when it
+        // JITs the CALLING method, so the call that can throw headlessly sits one frame
+        // below the try/catch that handles it.
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static string LookupStockFacilityNameCore(string facilityId)
+        {
+            SpaceCenterFacility facility;
+            if (!Enum.TryParse(facilityId, false, out facility)) return null;
+            return ScenarioUpgradeableFacilities.GetFacilityName(facility);
+        }
+
+        /// <summary>
+        /// Fallback facility name when stock cannot answer (headless tests, an unknown
+        /// id): PascalCase split, with the conjunction lowercased the way stock writes it
+        /// ("ResearchAndDevelopment" -> "Research and Development").
+        /// </summary>
+        internal static string HumanizeFacilityId(string facilityId)
+        {
+            string spaced = SpaceBeforeCapitals(facilityId);
+            if (string.IsNullOrEmpty(spaced)) return spaced;
+            return spaced.Replace(" And ", " and ");
+        }
+
         // ================================================================
         // Window chrome (Phase 2)
         // ================================================================
@@ -1307,20 +1809,105 @@ namespace Parsek
         /// </summary>
         internal bool HasInputLock => careerStateWindowHasInputLock;
 
+        // Logical tab indices. Stable across game modes: they are what the seam's
+        // `UiAction op=tab window=career` vocabulary and SelectedTabForTesting speak, and
+        // a mode that hides a tab simply never draws its button (VisibleTabsFor).
+        internal const int TabContracts = 0;
+        internal const int TabStrategies = 1;
+        internal const int TabFacilities = 2;
+        internal const int TabMilestones = 3;
+
+        private static readonly int[] CareerTabs =
+            { TabContracts, TabStrategies, TabFacilities, TabMilestones };
+        private static readonly int[] ScienceTabsWithFacilities = { TabFacilities, TabMilestones };
+        private static readonly int[] ScienceTabs = { TabMilestones };
+        private static readonly int[] NoTabs = new int[0];
+
+        // Toolbar label subsets, keyed by the (static, shared) visible-tab array itself.
+        private static readonly Dictionary<int[], GUIContent[]> tabLabelSubsets =
+            new Dictionary<int[], GUIContent[]>();
+
         /// <summary>
         /// Test seam for the transient tab selection. Writable so the in-game
         /// `ModeRoundTripPreservesWindowState` check can set a distinguishable bit of state
         /// and assert the design-7.2 auto-close preserved it (edge case 1: nothing is
         /// destroyed, only hidden).
+        ///
+        /// <para>A write is coerced onto a tab the current mode actually draws (read from
+        /// the cached view model), so the automation seam's read-back reports
+        /// <c>tab-not-applied</c> for a Science-mode `tab=contracts` instead of a capture
+        /// labelled Contracts that shows Milestones. With no cached view model yet the value
+        /// is stored as written and the draw coerces it.</para>
         /// </summary>
         internal int SelectedTabForTesting
         {
             get { return selectedTab; }
-            set { selectedTab = value; }
+            set
+            {
+                selectedTab = cachedVM.HasValue
+                    ? CoerceTab(value, VisibleTabsFor(cachedVM.Value.Mode, cachedVM.Value.Facilities))
+                    : value;
+            }
         }
 
         /// <summary>Number of tabs this window draws (test seam for the round-trip check).</summary>
         internal static int TabCountForTesting => TabLabels.Length;
+
+        /// <summary>
+        /// The tabs a game mode draws, in order.
+        /// <list type="bullet">
+        /// <item>Career: all four.</item>
+        /// <item>Science: Milestones, plus Facilities only while a building is destroyed now
+        /// or at the timeline end. Stock registers no facility-upgrade scenario in a Science
+        /// save and treats every building as fully upgraded, so there are no levels to show;
+        /// buildings CAN still be destroyed there (ScenarioDestructibles is registered for
+        /// every mode and the default difficulty keeps IndestructibleFacilities off).
+        /// Contracts and Strategies do not exist in Science mode.</item>
+        /// <item>Sandbox and the mission modes: none - career state is not tracked, and the
+        /// banner says so.</item>
+        /// </list>
+        /// </summary>
+        internal static int[] VisibleTabsFor(Game.Modes mode, FacilitiesTabVM facilities)
+        {
+            if (mode == Game.Modes.CAREER) return CareerTabs;
+            if (mode == Game.Modes.SCIENCE_SANDBOX)
+                return AnyFacilityRowVisible(facilities.Rows, mode)
+                    ? ScienceTabsWithFacilities
+                    : ScienceTabs;
+            return NoTabs;
+        }
+
+        /// <summary>
+        /// The tab to draw for a stored selection: the selection itself when the mode draws
+        /// it (or draws no tabs at all), else the first tab the mode does draw.
+        /// </summary>
+        internal static int CoerceTab(int tab, int[] visibleTabs)
+        {
+            if (visibleTabs == null || visibleTabs.Length == 0) return tab;
+            if (Array.IndexOf(visibleTabs, tab) >= 0) return tab;
+            return visibleTabs[0];
+        }
+
+        /// <summary>
+        /// Whether the Career launcher on the main window is offered in this game mode.
+        /// Sandbox and the mission modes track no career state, so every tab would be an
+        /// empty sentence; the launcher is hidden there rather than opening a dead window.
+        /// </summary>
+        internal static bool ModeOffersLauncher(Game.Modes mode)
+        {
+            return ModeHasVisibleTimelineState(mode);
+        }
+
+        private static GUIContent[] TabLabelsFor(int[] visibleTabs)
+        {
+            GUIContent[] labels;
+            if (tabLabelSubsets.TryGetValue(visibleTabs, out labels)) return labels;
+            labels = new GUIContent[visibleTabs.Length];
+            for (int i = 0; i < visibleTabs.Length; i++)
+                labels[i] = TabLabels[visibleTabs[i]];
+            tabLabelSubsets[visibleTabs] = labels;
+            return labels;
+        }
 
         internal void ReleaseInputLock()
         {
@@ -1358,14 +1945,22 @@ namespace Parsek
             toggleButtonStyle.onNormal.textColor = Color.white;
             toggleButtonStyle.onHover.textColor = Color.white;
 
-            // Pending rows: muted amber to mark "not yet lived" entries.
-            pendingStyle = new GUIStyle(GUI.skin.label)
+            // Amber marks a CELL that needs attention (an overdue deadline, a recorded
+            // failure, a destroyed building). Rows that are merely in the future are not
+            // coloured: they already sit under a "Pending in timeline" header, and a
+            // second marker on every such row would bury the warnings.
+            alertStyle = new GUIStyle(GUI.skin.label)
             {
                 normal = { textColor = new Color(0.95f, 0.78f, 0.45f) }
             };
             grayStyle = new GUIStyle(GUI.skin.label)
             {
                 normal = { textColor = new Color(0.75f, 0.75f, 0.75f) }
+            };
+            nameCellStyle = new GUIStyle(GUI.skin.label)
+            {
+                wordWrap = false,
+                clipping = TextClipping.Clip
             };
             bannerStyle = new GUIStyle(GUI.skin.label)
             {
@@ -1412,37 +2007,56 @@ namespace Parsek
                     LedgerOrchestrator.Contracts,
                     LedgerOrchestrator.Strategies,
                     LedgerOrchestrator.Facilities,
-                    LedgerOrchestrator.Milestones);
+                    LedgerOrchestrator.Milestones,
+                    FormatDate,
+                    ReadLiveDestroyedBuildingIds());
             }
 
             var vm = cachedVM.Value;
 
             // Mode banner (design doc §5.4).
-            DrawModeBanner(vm);
+            GUILayout.Label(vm.BannerText ?? FormatModeBanner(vm, FormatDate), bannerStyle);
             LogModeRender(vm.Mode, ref lastRenderedMode);
 
-            // Tab bar.
-            // Use the pressed-style button (see toggleButtonStyle in EnsureStyles) so
-            // the selected tab is visibly pushed in — matches the Timeline window's
-            // filter-toggle idiom. Default Toolbar rendering is too subtle about which
-            // tab is currently selected.
-            int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
-            if (newTab != selectedTab)
+            // Tab bar, over the tabs this mode draws. Use the pressed-style button (see
+            // toggleButtonStyle in EnsureStyles) so the selected tab is visibly pushed in -
+            // matches the Timeline window's filter-toggle idiom. A mode with a single tab
+            // draws no bar (a one-button selector selects nothing).
+            int[] visibleTabs = VisibleTabsFor(vm.Mode, vm.Facilities);
+            if (visibleTabs.Length > 0)
             {
-                SwitchTab(selectedTab, newTab);
-                selectedTab = newTab;
-                careerStateScrollPos.y = 0f;
+                int coerced = CoerceTab(selectedTab, visibleTabs);
+                if (coerced != selectedTab)
+                {
+                    ParsekLog.Verbose("UI",
+                        $"CareerStateWindow: tab {selectedTab} not drawn in mode={vm.Mode}; showing tab {coerced}");
+                    selectedTab = coerced;
+                    careerStateScrollPos.y = 0f;
+                }
+                if (visibleTabs.Length > 1)
+                {
+                    int pos = Array.IndexOf(visibleTabs, selectedTab);
+                    int newPos = GUILayout.Toolbar(pos, TabLabelsFor(visibleTabs), toggleButtonStyle);
+                    if (newPos != pos && newPos >= 0 && newPos < visibleTabs.Length)
+                    {
+                        SwitchTab(selectedTab, visibleTabs[newPos]);
+                        selectedTab = visibleTabs[newPos];
+                        careerStateScrollPos.y = 0f;
+                    }
+                }
             }
 
             careerStateScrollPos = GUILayout.BeginScrollView(careerStateScrollPos, GUILayout.ExpandHeight(true));
 
-            switch (selectedTab)
+            if (visibleTabs.Length > 0)
             {
-                case 0: DrawContractsTab(vm.Contracts, vm.Mode); break;
-                case 1: DrawStrategiesTab(vm.Strategies, vm.Mode); break;
-                case 2: DrawFacilitiesTab(vm.Facilities, vm.Mode); break;
-                case 3: DrawMilestonesTab(vm.Milestones, vm.Mode); break;
-                default: DrawContractsTab(vm.Contracts, vm.Mode); break;
+                switch (selectedTab)
+                {
+                    case TabStrategies: DrawStrategiesTab(vm.Strategies, vm.LiveUT); break;
+                    case TabFacilities: DrawFacilitiesTab(vm.Facilities, vm.Mode); break;
+                    case TabMilestones: DrawMilestonesTab(vm.Milestones); break;
+                    default: DrawContractsTab(vm.Contracts, vm.LiveUT); break;
+                }
             }
 
             GUILayout.EndScrollView();
@@ -1464,108 +2078,206 @@ namespace Parsek
             GUI.DragWindow();
         }
 
-        private void DrawModeBanner(CareerStateViewModel vm)
+        /// <summary>Refresh cadence while every drawn date has minute resolution.</summary>
+        internal const double MinuteRefreshSeconds = 60.0;
+
+        /// <summary>
+        /// Refresh cadence while a deadline is close enough to live UT that its relative
+        /// tail reads in seconds (<c>(in 45s)</c> / <c>(overdue 12s)</c>).
+        /// </summary>
+        internal const double SecondRefreshSeconds = 1.0;
+
+        // A deadline within this many seconds of live UT (either side) switches the
+        // window to per-second refresh. Two minutes, not one: the rebuild that first sees
+        // it may run up to a minute late.
+        private const double SecondResolutionWindowSeconds = 120.0;
+
+        /// <summary>
+        /// Formats every string the draw needs, once. OnGUI runs several events per
+        /// frame, so formatting inside the draw re-ran the KSP date formatter and the
+        /// reward builders on every one of them. Also sets
+        /// <see cref="CareerStateViewModel.RefreshSeconds"/>.
+        /// </summary>
+        internal static void FillDisplayText(ref CareerStateViewModel vm,
+                                             Func<double, string> formatDate)
         {
-            string line;
-            if (vm.Mode == Game.Modes.CAREER)
+            var ic = CultureInfo.InvariantCulture;
+            bool secondResolution = false;
+
+            var c = vm.Contracts;
+            c.HeaderText = "Mission Control L" + c.MissionControlLevel.ToString(ic)
+                + " - slots " + c.CurrentActive.ToString(ic) + "/" + c.CurrentMaxSlots.ToString(ic)
+                + " now, " + c.ProjectedActive.ToString(ic) + "/" + c.ProjectedMaxSlots.ToString(ic)
+                + " at timeline end";
+            secondResolution |= FillContractText(c.CurrentRows, vm.LiveUT, formatDate);
+            secondResolution |= FillContractText(c.ProjectedRows, vm.LiveUT, formatDate);
+            secondResolution |= FillContractText(c.PendingRows, vm.LiveUT, formatDate);
+            vm.Contracts = c;
+
+            var st = vm.Strategies;
+            st.HeaderText = "Administration L" + st.AdminLevel.ToString(ic)
+                + " - slots " + st.CurrentActive.ToString(ic) + "/" + st.CurrentMaxSlots.ToString(ic)
+                + " now, " + st.ProjectedActive.ToString(ic) + "/" + st.ProjectedMaxSlots.ToString(ic)
+                + " at timeline end";
+            FillStrategyText(st.CurrentRows, formatDate);
+            FillStrategyText(st.ProjectedRows, formatDate);
+            FillStrategyText(st.PendingRows, formatDate);
+            vm.Strategies = st;
+
+            bool showLevels = vm.Mode == Game.Modes.CAREER;
+            List<FacilityRow> facilityRows = vm.Facilities.Rows;
+            if (facilityRows != null)
             {
-                line = $"Career mode - UT {GetDisplayedUtText(vm.LiveUT)}";
-                if (vm.HasDivergence)
+                for (int i = 0; i < facilityRows.Count; i++)
                 {
-                    line += $"  (timeline ends at UT {GetDisplayedUtText(vm.TerminalUT)})";
+                    FacilityRow r = facilityRows[i];
+                    r.LevelText = showLevels ? FormatFacilityRow_Level(r) : FormatFacilityRow_State(r);
+                    r.TimelineEndText = FormatFacilityRow_TimelineEnd(r, showLevels, formatDate);
+                    facilityRows[i] = r;
                 }
             }
-            else if (vm.Mode == Game.Modes.SCIENCE_SANDBOX)
+
+            var m = vm.Milestones;
+            m.HeaderText = "Milestones (" + m.CurrentCreditedCount.ToString(ic) + " credited / "
+                + m.ProjectedCreditedCount.ToString(ic) + " at timeline end)";
+            if (m.Rows != null)
             {
-                line = "Science mode - contracts and strategies unavailable";
+                for (int i = 0; i < m.Rows.Count; i++)
+                {
+                    MilestoneRow r = m.Rows[i];
+                    r.CreditedText = FormatMilestoneRow_UT(r, formatDate);
+                    r.RewardsText = FormatMilestoneRow_Rewards(r);
+                    m.Rows[i] = r;
+                }
             }
-            else
+            vm.Milestones = m;
+
+            vm.BannerText = FormatModeBanner(vm, formatDate);
+            vm.RefreshSeconds = secondResolution ? SecondRefreshSeconds : MinuteRefreshSeconds;
+        }
+
+        // Returns whether any row's deadline tail is near enough to read in seconds.
+        private static bool FillContractText(List<ContractRow> rows, double liveUT,
+                                             Func<double, string> formatDate)
+        {
+            if (rows == null) return false;
+            bool near = false;
+            for (int i = 0; i < rows.Count; i++)
             {
-                // SANDBOX, MISSION_BUILDER, MISSION: all treated as sandbox-equivalent.
-                line = "Sandbox mode - career state is not tracked";
+                ContractRow r = rows[i];
+                r.AcceptText = FormatContractRow_Accept(r, formatDate);
+                r.DeadlineText = FormatContractRow_Deadline(r, liveUT, formatDate);
+                r.DeadlineOverdue = IsDeadlineOverdue(r, liveUT);
+                r.TimelineEndText = FormatContractRow_TimelineEnd(r, formatDate);
+                rows[i] = r;
+                if (!double.IsNaN(r.DeadlineUT)
+                    && Math.Abs(r.DeadlineUT - liveUT) < SecondResolutionWindowSeconds)
+                    near = true;
             }
-            GUILayout.Label(line, bannerStyle);
+            return near;
+        }
+
+        private static void FillStrategyText(List<StrategyRow> rows,
+                                             Func<double, string> formatDate)
+        {
+            if (rows == null) return;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                StrategyRow r = rows[i];
+                r.ActivateText = FormatStrategyRow_Activate(r, formatDate);
+                r.FlowText = FormatStrategyRow_Flow(r);
+                r.TimelineEndText = FormatStrategyRow_TimelineEnd(r, formatDate);
+                rows[i] = r;
+            }
+        }
+
+        /// <summary>
+        /// The refresh bucket a live UT falls in: the rebuild predicate re-formats when
+        /// it changes. Minute buckets line up with the KSP clock's minute boundaries
+        /// (the compact date's finest unit), so the banner turns over on time.
+        /// </summary>
+        internal static long RefreshBucket(double ut, double refreshSeconds)
+        {
+            double period = refreshSeconds > 0.0 ? refreshSeconds : MinuteRefreshSeconds;
+            return (long)Math.Floor(ut / period);
+        }
+
+        /// <summary>
+        /// The italic line above the tabs. Career shows the live date and, when the
+        /// recorded timeline still changes something, the date it ends on; Science and
+        /// Sandbox say what the mode leaves out.
+        /// </summary>
+        internal static string FormatModeBanner(CareerStateViewModel vm,
+                                                Func<double, string> formatDate)
+        {
+            if (vm.Mode == Game.Modes.CAREER)
+            {
+                string line = "Career mode - " + FormatDateCell(vm.LiveUT, formatDate);
+                if (vm.HasDivergence)
+                    line += "  (timeline ends " + FormatDateCell(vm.TerminalUT, formatDate) + ")";
+                return line;
+            }
+            if (vm.Mode == Game.Modes.SCIENCE_SANDBOX)
+                return "Science mode - no contracts, strategies or building levels";
+            // SANDBOX, MISSION_BUILDER, MISSION: all treated as sandbox-equivalent.
+            return "Sandbox mode - career state is not tracked";
         }
 
         // ================================================================
         // Per-tab renderers
         // ================================================================
 
-        private void DrawContractsTab(ContractsTabVM tab, Game.Modes mode)
+        private const string TimelineEndTooltip =
+            "What the recorded timeline does to this row before it ends.";
+
+        private void DrawContractsTab(ContractsTabVM tab, double liveUT)
         {
-            if (mode == Game.Modes.SANDBOX || mode == Game.Modes.MISSION_BUILDER || mode == Game.Modes.MISSION)
-            {
-                GUILayout.Label("Career state is not tracked in Sandbox mode.", grayStyle);
-                return;
-            }
-            if (mode == Game.Modes.SCIENCE_SANDBOX)
-            {
-                GUILayout.Label("Contracts are unavailable in Science mode.", grayStyle);
-                return;
-            }
-
             var ic = CultureInfo.InvariantCulture;
+            GUILayout.Label(tab.HeaderText ?? "", sectionHeaderStyle);
+
+            bool split = tab.PendingRows.Count > 0;
+            bool showEnd = AnyRowEnds(tab.CurrentRows) || AnyRowEnds(tab.PendingRows);
+
             GUILayout.Label(
-                $"Mission Control L{tab.MissionControlLevel.ToString(ic)} - slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} at timeline end",
-                sectionHeaderStyle);
+                (split ? "Active now (" : "Active (") + tab.CurrentRows.Count.ToString(ic) + ")",
+                groupHeaderStyle);
+            DrawContractsColumnHeader(showEnd);
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
+            if (tab.CurrentRows.Count == 0)
+                GUILayout.Label("  (no active contracts)", grayStyle);
+            for (int i = 0; i < tab.CurrentRows.Count; i++)
+                DrawContractRow(tab.CurrentRows[i], liveUT, showEnd);
+            GUILayout.EndVertical();
 
-            bool sameAsProjected = RowsEqual(tab.CurrentRows, tab.ProjectedRows);
-            if (sameAsProjected)
-            {
-                GUILayout.Label($"Active ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
-                DrawContractsColumnHeader();
-                GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
-                if (tab.CurrentRows.Count == 0)
-                    GUILayout.Label("  (no active contracts)", grayStyle);
-                for (int i = 0; i < tab.CurrentRows.Count; i++)
-                    DrawContractRow(tab.CurrentRows[i], GUI.skin.label);
-                GUILayout.EndVertical();
-            }
-            else
-            {
-                GUILayout.Label($"Active now ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
-                DrawContractsColumnHeader();
-                GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
-                if (tab.CurrentRows.Count == 0)
-                    GUILayout.Label("  (no active contracts)", grayStyle);
-                for (int i = 0; i < tab.CurrentRows.Count; i++)
-                    DrawContractRow(tab.CurrentRows[i], GUI.skin.label);
-                GUILayout.EndVertical();
+            if (!split) return;
 
-                // "Pending in timeline" is the projected rows minus the current rows.
-                GUILayout.Space(3);
-                int pendingCount = 0;
-                for (int i = 0; i < tab.ProjectedRows.Count; i++)
-                    if (tab.ProjectedRows[i].IsPendingAccept) pendingCount++;
+            GUILayout.Space(3);
+            if (!DrawPendingToggle(GroupKey_ContractsPending, tab.PendingRows.Count))
+                return;
+            DrawContractsColumnHeader(showEnd);
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
+            for (int i = 0; i < tab.PendingRows.Count; i++)
+                DrawContractRow(tab.PendingRows[i], liveUT, showEnd);
+            GUILayout.EndVertical();
+        }
 
-                bool expanded = !foldedGroups.Contains(GroupKey_ContractsPending);
-                string headerText = $"Pending in timeline ({pendingCount.ToString(ic)})";
-                bool newExpanded = GUILayout.Toggle(expanded,
-                    new GUIContent(headerText,
-                        "Rows your recorded flights still have to deliver; click to fold."),
-                    toggleButtonStyle,
-                    GUILayout.ExpandWidth(true));
-                if (newExpanded != expanded)
-                {
-                    ToggleSection(foldedGroups, GroupKey_ContractsPending);
-                }
-                bool folded = !newExpanded;
-
-                if (!folded)
-                {
-                    DrawContractsColumnHeader();
-                    GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
-                    if (pendingCount == 0)
-                        GUILayout.Label("  (none)", grayStyle);
-                    for (int i = 0; i < tab.ProjectedRows.Count; i++)
-                    {
-                        var r = tab.ProjectedRows[i];
-                        if (!r.IsPendingAccept) continue;
-                        DrawContractRow(r, pendingStyle);
-                    }
-                    GUILayout.EndVertical();
-                }
-            }
+        /// <summary>
+        /// Draws one "Pending in timeline (n)" fold toggle and returns whether its group is
+        /// expanded. The three pending groups (Contracts, Strategies, Milestones) share it.
+        /// </summary>
+        private bool DrawPendingToggle(string foldKey, int count)
+        {
+            bool expanded = !foldedGroups.Contains(foldKey);
+            string headerText = "Pending in timeline ("
+                + count.ToString(CultureInfo.InvariantCulture) + ")";
+            bool newExpanded = GUILayout.Toggle(expanded,
+                new GUIContent(headerText,
+                    "Rows your recorded flights still have to deliver; click to fold."),
+                toggleButtonStyle,
+                GUILayout.ExpandWidth(true));
+            if (newExpanded != expanded)
+                ToggleSection(foldedGroups, foldKey);
+            return newExpanded;
         }
 
         // All four tables in this window (Contracts / Strategies / Facilities /
@@ -1578,281 +2290,300 @@ namespace Parsek
         // 4px right of its header. The header is INSIDE the same scroll view as the
         // body, so it must NOT reserve a scrollbar gutter - it shrinks with the body
         // already. Contract: ParsekUI.TableRowHorizontalInsetPx.
-        private void DrawContractsColumnHeader()
+        //
+        // The FIRST (name) column of every table expands in header and rows alike; the
+        // zero horizontal inset of both parents gives it the same width on both sides,
+        // so the fixed columns to its right stay under their headers.
+        private void DrawContractsColumnHeader(bool showEnd)
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label("Contract", columnHeaderStyle, GUILayout.Width(ColW_ContractTitle));
+            GUILayout.Label("Contract", columnHeaderStyle,
+                GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
             GUILayout.Label(
-                new GUIContent("Accepted UT",
-                    "When the contract was taken on, in Universal Time (the game's own clock)."),
-                columnHeaderStyle, GUILayout.Width(ColW_AcceptUT));
+                new GUIContent("Accepted", "When the contract was taken on."),
+                columnHeaderStyle, GUILayout.Width(ColW_Date));
             GUILayout.Label(
-                new GUIContent("Deadline UT",
-                    "When the contract expires, in Universal Time (the game's own clock)."),
-                columnHeaderStyle, GUILayout.Width(ColW_DeadlineUT));
-            GUILayout.Label(
-                new GUIContent("Status",
-                    "Whether this row is true now or still waiting on a recorded flight."),
-                columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
+                new GUIContent("Deadline",
+                    "When the contract expires, and how long that is from now."),
+                columnHeaderStyle, GUILayout.Width(ColW_Deadline));
+            if (showEnd)
+                GUILayout.Label(new GUIContent("Timeline end", TimelineEndTooltip),
+                    columnHeaderStyle, GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
         }
 
-        private void DrawContractRow(ContractRow r, GUIStyle rowStyle)
+        private void DrawContractRow(ContractRow r, double liveUT, bool showEnd)
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label(FormatContractRow_Title(r), rowStyle, GUILayout.Width(ColW_ContractTitle));
-            GUILayout.Label(FormatContractRow_Accept(r), rowStyle, GUILayout.Width(ColW_AcceptUT));
-            GUILayout.Label(FormatContractRow_Deadline(r), rowStyle, GUILayout.Width(ColW_DeadlineUT));
-            GUILayout.Label(FormatContractRow_Pending(r), rowStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.Label(FormatContractRow_Title(r), nameCellStyle,
+                GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
+            GUILayout.Label(r.AcceptText ?? "", GUI.skin.label,
+                GUILayout.Width(ColW_Date));
+            GUILayout.Label(r.DeadlineText ?? "",
+                r.DeadlineOverdue ? alertStyle : GUI.skin.label,
+                GUILayout.Width(ColW_Deadline));
+            if (showEnd)
+                GUILayout.Label(r.TimelineEndText ?? "",
+                    IsTimelineEndAlert(r.EndKind) ? alertStyle : GUI.skin.label,
+                    GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
         }
 
-        private void DrawStrategiesTab(StrategiesTabVM tab, Game.Modes mode)
+        private void DrawStrategiesTab(StrategiesTabVM tab, double liveUT)
         {
-            if (mode == Game.Modes.SANDBOX || mode == Game.Modes.MISSION_BUILDER || mode == Game.Modes.MISSION)
-            {
-                GUILayout.Label("Career state is not tracked in Sandbox mode.", grayStyle);
-                return;
-            }
-            if (mode == Game.Modes.SCIENCE_SANDBOX)
-            {
-                GUILayout.Label("Strategies are unavailable in Science mode.", grayStyle);
-                return;
-            }
-
             var ic = CultureInfo.InvariantCulture;
+            GUILayout.Label(tab.HeaderText ?? "", sectionHeaderStyle);
+
+            bool split = tab.PendingRows.Count > 0;
+            bool showEnd = AnyRowEnds(tab.CurrentRows) || AnyRowEnds(tab.PendingRows);
+
             GUILayout.Label(
-                $"Administration L{tab.AdminLevel.ToString(ic)} - slots {tab.CurrentActive.ToString(ic)}/{tab.CurrentMaxSlots.ToString(ic)} now, {tab.ProjectedActive.ToString(ic)}/{tab.ProjectedMaxSlots.ToString(ic)} at timeline end",
-                sectionHeaderStyle);
+                (split ? "Active now (" : "Active (") + tab.CurrentRows.Count.ToString(ic) + ")",
+                groupHeaderStyle);
+            DrawStrategiesColumnHeader(showEnd);
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
+            if (tab.CurrentRows.Count == 0)
+                GUILayout.Label("  (no active strategies)", grayStyle);
+            for (int i = 0; i < tab.CurrentRows.Count; i++)
+                DrawStrategyRow(tab.CurrentRows[i], showEnd);
+            GUILayout.EndVertical();
 
-            bool sameAsProjected = StrategyRowsEqual(tab.CurrentRows, tab.ProjectedRows);
-            if (sameAsProjected)
-            {
-                GUILayout.Label($"Active ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
-                DrawStrategiesColumnHeader();
-                GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
-                if (tab.CurrentRows.Count == 0)
-                    GUILayout.Label("  (no active strategies)", grayStyle);
-                for (int i = 0; i < tab.CurrentRows.Count; i++)
-                    DrawStrategyRow(tab.CurrentRows[i], GUI.skin.label);
-                GUILayout.EndVertical();
-            }
-            else
-            {
-                GUILayout.Label($"Active now ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
-                DrawStrategiesColumnHeader();
-                GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
-                if (tab.CurrentRows.Count == 0)
-                    GUILayout.Label("  (no active strategies)", grayStyle);
-                for (int i = 0; i < tab.CurrentRows.Count; i++)
-                    DrawStrategyRow(tab.CurrentRows[i], GUI.skin.label);
-                GUILayout.EndVertical();
+            if (!split) return;
 
-                GUILayout.Space(3);
-                int pendingCount = 0;
-                for (int i = 0; i < tab.ProjectedRows.Count; i++)
-                    if (tab.ProjectedRows[i].IsPendingActivate) pendingCount++;
-
-                bool expanded = !foldedGroups.Contains(GroupKey_StrategiesPending);
-                string headerText = $"Pending in timeline ({pendingCount.ToString(ic)})";
-                bool newExpanded = GUILayout.Toggle(expanded,
-                    new GUIContent(headerText,
-                        "Rows your recorded flights still have to deliver; click to fold."),
-                    toggleButtonStyle,
-                    GUILayout.ExpandWidth(true));
-                if (newExpanded != expanded)
-                {
-                    ToggleSection(foldedGroups, GroupKey_StrategiesPending);
-                }
-                bool folded = !newExpanded;
-
-                if (!folded)
-                {
-                    DrawStrategiesColumnHeader();
-                    GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
-                    if (pendingCount == 0)
-                        GUILayout.Label("  (none)", grayStyle);
-                    for (int i = 0; i < tab.ProjectedRows.Count; i++)
-                    {
-                        var r = tab.ProjectedRows[i];
-                        if (!r.IsPendingActivate) continue;
-                        DrawStrategyRow(r, pendingStyle);
-                    }
-                    GUILayout.EndVertical();
-                }
-            }
+            GUILayout.Space(3);
+            if (!DrawPendingToggle(GroupKey_StrategiesPending, tab.PendingRows.Count))
+                return;
+            DrawStrategiesColumnHeader(showEnd);
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
+            for (int i = 0; i < tab.PendingRows.Count; i++)
+                DrawStrategyRow(tab.PendingRows[i], showEnd);
+            GUILayout.EndVertical();
         }
 
-        private void DrawStrategiesColumnHeader()
+        private void DrawStrategiesColumnHeader(bool showEnd)
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label("Strategy", columnHeaderStyle, GUILayout.Width(ColW_StrategyTitle));
+            GUILayout.Label("Strategy", columnHeaderStyle,
+                GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
             GUILayout.Label(
-                new GUIContent("Activated UT",
-                    "When the strategy was switched on, in Universal Time (the game's own clock)."),
-                columnHeaderStyle, GUILayout.Width(ColW_ActivateUT));
+                new GUIContent("Activated", "When the strategy was switched on."),
+                columnHeaderStyle, GUILayout.Width(ColW_Date));
             GUILayout.Label(
                 new GUIContent("Flow",
                     "What the strategy converts into what, and at what commitment."),
                 columnHeaderStyle, GUILayout.Width(ColW_Flow));
-            GUILayout.Label(
-                new GUIContent("Status",
-                    "Whether this row is true now or still waiting on a recorded flight."),
-                columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
+            if (showEnd)
+                GUILayout.Label(new GUIContent("Timeline end", TimelineEndTooltip),
+                    columnHeaderStyle, GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
         }
 
-        private void DrawStrategyRow(StrategyRow r, GUIStyle rowStyle)
+        private void DrawStrategyRow(StrategyRow r, bool showEnd)
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label(FormatStrategyRow_Title(r), rowStyle, GUILayout.Width(ColW_StrategyTitle));
-            GUILayout.Label(FormatStrategyRow_Activate(r), rowStyle, GUILayout.Width(ColW_ActivateUT));
-            GUILayout.Label(FormatStrategyRow_Flow(r), rowStyle, GUILayout.Width(ColW_Flow));
-            GUILayout.Label(FormatStrategyRow_Pending(r), rowStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.Label(FormatStrategyRow_Title(r), nameCellStyle,
+                GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
+            GUILayout.Label(r.ActivateText ?? "", GUI.skin.label,
+                GUILayout.Width(ColW_Date));
+            GUILayout.Label(r.FlowText ?? "", GUI.skin.label, GUILayout.Width(ColW_Flow));
+            if (showEnd)
+                GUILayout.Label(r.TimelineEndText ?? "", GUI.skin.label,
+                    GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
         }
 
         private void DrawFacilitiesTab(FacilitiesTabVM tab, Game.Modes mode)
         {
-            if (mode == Game.Modes.SANDBOX || mode == Game.Modes.MISSION_BUILDER || mode == Game.Modes.MISSION)
+            // No section bar: it only repeated the tab name. Career lists all nine
+            // buildings with their level; Science lists only the destroyed ones (the tab
+            // is not drawn at all while none is), with no level column.
+            bool showLevels = mode == Game.Modes.CAREER;
+            bool showEnd = false;
+            for (int i = 0; i < tab.Rows.Count; i++)
             {
-                GUILayout.Label("Career state is not tracked in Sandbox mode.", grayStyle);
-                return;
-            }
-
-            GUILayout.Label("Facilities", sectionHeaderStyle);
-            DrawFacilitiesColumnHeader();
-            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
-            if (tab.Rows.Count == 0)
-            {
-                GUILayout.Label("  (no facility data)", grayStyle);
-            }
-            else
-            {
-                for (int i = 0; i < tab.Rows.Count; i++)
+                if (FacilityRowVisible(tab.Rows[i], mode)
+                    && FacilityRowChanges(tab.Rows[i], showLevels))
                 {
-                    var row = tab.Rows[i];
-                    GUIStyle rowStyle = row.HasUpcomingChange ? pendingStyle : GUI.skin.label;
-                    DrawFacilityRow(row, rowStyle);
+                    showEnd = true;
+                    break;
                 }
             }
+
+            DrawFacilitiesColumnHeader(showLevels, showEnd);
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
+            int drawn = 0;
+            for (int i = 0; i < tab.Rows.Count; i++)
+            {
+                if (!FacilityRowVisible(tab.Rows[i], mode)) continue;
+                DrawFacilityRow(tab.Rows[i], showLevels, showEnd);
+                drawn++;
+            }
+            if (drawn == 0)
+                GUILayout.Label("  (no facility data)", grayStyle);
             GUILayout.EndVertical();
         }
 
-        private void DrawFacilitiesColumnHeader()
+        private void DrawFacilitiesColumnHeader(bool showLevels, bool showEnd)
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label("Facility", columnHeaderStyle, GUILayout.Width(ColW_FacilityTitle));
+            GUILayout.Label("Facility", columnHeaderStyle,
+                GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
             GUILayout.Label(
-                new GUIContent("Level",
-                    "Upgrade level now, and the level the recorded timeline ends on."),
+                showLevels
+                    ? new GUIContent("Level",
+                        "Upgrade level now, and whether the building is destroyed.")
+                    : new GUIContent("State", "Whether the building is destroyed now."),
                 columnHeaderStyle, GUILayout.Width(ColW_Level));
-            GUILayout.Label(
-                new GUIContent("Status",
-                    "Whether this row is true now or still waiting on a recorded flight."),
-                columnHeaderStyle, GUILayout.Width(ColW_Status));
+            if (showEnd)
+                GUILayout.Label(new GUIContent("Timeline end", TimelineEndTooltip),
+                    columnHeaderStyle, GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
         }
 
-        private void DrawFacilityRow(FacilityRow r, GUIStyle rowStyle)
+        private void DrawFacilityRow(FacilityRow r, bool showLevels, bool showEnd)
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label(FormatFacilityRow_Title(r), rowStyle, GUILayout.Width(ColW_FacilityTitle));
-            GUILayout.Label(FormatFacilityRow_Level(r), rowStyle, GUILayout.Width(ColW_Level));
-            GUILayout.Label(FormatFacilityRow_Status(r), rowStyle, GUILayout.Width(ColW_Status));
+            GUILayout.Label(FormatFacilityRow_Title(r), nameCellStyle,
+                GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
+            GUILayout.Label(r.LevelText ?? "",
+                r.CurrentDestroyed ? alertStyle : GUI.skin.label,
+                GUILayout.Width(ColW_Level));
+            if (showEnd)
+                GUILayout.Label(r.TimelineEndText ?? "",
+                    r.ProjectedDestroyed && !r.CurrentDestroyed ? alertStyle : GUI.skin.label,
+                    GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
         }
 
-        private void DrawMilestonesTab(MilestonesTabVM tab, Game.Modes mode)
+        private void DrawMilestonesTab(MilestonesTabVM tab)
         {
-            if (mode == Game.Modes.SANDBOX || mode == Game.Modes.MISSION_BUILDER || mode == Game.Modes.MISSION)
-            {
-                GUILayout.Label("Career state is not tracked in Sandbox mode.", grayStyle);
-                return;
-            }
-
             var ic = CultureInfo.InvariantCulture;
+            GUILayout.Label(tab.HeaderText ?? "", sectionHeaderStyle);
+
+            int pending = CountPendingMilestones(tab.Rows);
+            bool split = pending > 0;
+            int credited = tab.Rows.Count - pending;
+
             GUILayout.Label(
-                $"Milestones ({tab.CurrentCreditedCount.ToString(ic)} credited / {tab.ProjectedCreditedCount.ToString(ic)} at timeline end)",
-                sectionHeaderStyle);
+                (split ? "Credited now (" : "Credited (") + credited.ToString(ic) + ")",
+                groupHeaderStyle);
             DrawMilestonesColumnHeader();
             GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
-            if (tab.Rows.Count == 0)
-            {
+            if (credited == 0)
                 GUILayout.Label("  (no milestones credited)", grayStyle);
-            }
-            else
-            {
-                for (int i = 0; i < tab.Rows.Count; i++)
-                {
-                    var row = tab.Rows[i];
-                    GUIStyle rowStyle = row.IsPendingCredit ? pendingStyle : GUI.skin.label;
-                    DrawMilestoneRow(row, rowStyle);
-                }
-            }
+            for (int i = 0; i < tab.Rows.Count; i++)
+                if (!tab.Rows[i].IsPendingCredit)
+                    DrawMilestoneRow(tab.Rows[i]);
+            GUILayout.EndVertical();
+
+            if (!split) return;
+
+            GUILayout.Space(3);
+            if (!DrawPendingToggle(GroupKey_MilestonesPending, pending))
+                return;
+            DrawMilestonesColumnHeader();
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
+            for (int i = 0; i < tab.Rows.Count; i++)
+                if (tab.Rows[i].IsPendingCredit)
+                    DrawMilestoneRow(tab.Rows[i]);
             GUILayout.EndVertical();
         }
 
         private void DrawMilestonesColumnHeader()
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
+            GUILayout.Label("Milestone", columnHeaderStyle,
+                GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
             GUILayout.Label(
-                new GUIContent("Credited UT",
-                    "When the milestone was reached, in Universal Time (the game's own clock)."),
-                columnHeaderStyle, GUILayout.Width(ColW_MilestoneUT));
-            GUILayout.Label("Milestone", columnHeaderStyle, GUILayout.Width(ColW_MilestoneTitle));
+                new GUIContent("Credited", "When the milestone was reached."),
+                columnHeaderStyle, GUILayout.Width(ColW_Date));
             GUILayout.Label(
                 new GUIContent("Rewards",
                     "Funds, science and reputation this first-time achievement paid out."),
                 columnHeaderStyle, GUILayout.Width(ColW_Rewards));
-            GUILayout.Label(
-                new GUIContent("Status",
-                    "Whether this row is true now or still waiting on a recorded flight."),
-                columnHeaderStyle, GUILayout.Width(ColW_PendingTag));
             GUILayout.EndHorizontal();
         }
 
-        private void DrawMilestoneRow(MilestoneRow r, GUIStyle rowStyle)
+        private void DrawMilestoneRow(MilestoneRow r)
         {
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-            GUILayout.Label(FormatMilestoneRow_UT(r), rowStyle, GUILayout.Width(ColW_MilestoneUT));
-            GUILayout.Label(FormatMilestoneRow_Title(r), rowStyle, GUILayout.Width(ColW_MilestoneTitle));
-            GUILayout.Label(FormatMilestoneRow_Rewards(r), rowStyle, GUILayout.Width(ColW_Rewards));
-            GUILayout.Label(FormatMilestoneRow_Pending(r), rowStyle, GUILayout.Width(ColW_PendingTag));
+            GUILayout.Label(FormatMilestoneRow_Title(r), nameCellStyle,
+                GUILayout.ExpandWidth(true), GUILayout.MinWidth(NameCellMinWidth));
+            GUILayout.Label(r.CreditedText ?? "", GUI.skin.label,
+                GUILayout.Width(ColW_Date));
+            GUILayout.Label(r.RewardsText ?? "", GUI.skin.label,
+                GUILayout.Width(ColW_Rewards));
             GUILayout.EndHorizontal();
-        }
-
-        // Equality helpers for the "collapse to single Active section" decision.
-        // Two rows are equal when their id + AcceptUT/ActivateUT match; we don't
-        // compare IsPending* because collapsed view only fires when current ==
-        // projected (which implies no pending rows).
-        private static bool RowsEqual(List<ContractRow> a, List<ContractRow> b)
-        {
-            if (a.Count != b.Count) return false;
-            for (int i = 0; i < a.Count; i++)
-            {
-                if (!string.Equals(a[i].ContractId, b[i].ContractId, StringComparison.Ordinal)) return false;
-                if (a[i].AcceptUT != b[i].AcceptUT) return false;
-            }
-            return true;
-        }
-
-        private static bool StrategyRowsEqual(List<StrategyRow> a, List<StrategyRow> b)
-        {
-            if (a.Count != b.Count) return false;
-            for (int i = 0; i < a.Count; i++)
-            {
-                if (!string.Equals(a[i].StrategyId, b[i].StrategyId, StringComparison.Ordinal)) return false;
-                if (a[i].ActivateUT != b[i].ActivateUT) return false;
-            }
-            return true;
         }
 
         // ================================================================
         // Formatting helpers (pure, InvariantCulture, testable)
         // ================================================================
 
-        // ---- Per-column contract helpers (Phase 2b column-aligned rows) ----
+        /// <summary>
+        /// The window's live date formatter: the Timeline's own compact KSP date
+        /// (<c>TimelineWindowUI.FormatTimelineEntryTimeLabel</c>, the same one the
+        /// Kerbals window uses), e.g. <c>Y1, D51, 05:17</c>, with its raw-UT fallback
+        /// outside KSP. The pure formatters below take it as a delegate.
+        /// </summary>
+        internal static string FormatDate(double ut)
+        {
+            return TimelineWindowUI.FormatTimelineEntryTimeLabel(ut, 0.0, false);
+        }
+
+        /// <summary>A date cell: <c>--</c> for NaN, else the formatter's text.</summary>
+        internal static string FormatDateCell(double ut, Func<double, string> formatDate)
+        {
+            if (double.IsNaN(ut)) return "--";
+            if (formatDate == null) return ut.ToString("F0", CultureInfo.InvariantCulture);
+            string text = formatDate(ut);
+            return string.IsNullOrEmpty(text) ? "--" : text;
+        }
+
+        /// <summary>
+        /// The relative tail after a deadline: <c>(in 12d)</c> while it lies ahead of
+        /// <paramref name="liveUT"/>, <c>(overdue 3d)</c> once it has passed. Only the
+        /// largest unit of the house compact duration, in the player's calendar.
+        /// </summary>
+        internal static string FormatRelativeTail(double targetUT, double liveUT)
+        {
+            double delta = targetUT - liveUT;
+            string span = LargestUnit(ParsekTimeFormat.FormatDuration(Math.Abs(delta)));
+            return delta > 0 ? "(in " + span + ")" : "(overdue " + span + ")";
+        }
+
+        private static string LargestUnit(string compactDuration)
+        {
+            if (string.IsNullOrEmpty(compactDuration)) return compactDuration;
+            int space = compactDuration.IndexOf(' ');
+            return space < 0 ? compactDuration : compactDuration.Substring(0, space);
+        }
+
+        /// <summary>
+        /// The "Timeline end" text for a contract or strategy: what the recorded timeline
+        /// does to it and when, or empty when it is still running at the end.
+        /// A failure is upper-cased: it costs funds and reputation.
+        /// </summary>
+        internal static string FormatTimelineEnd(TimelineEndKind kind, double endUT,
+                                                 Func<double, string> formatDate)
+        {
+            switch (kind)
+            {
+                case TimelineEndKind.Completed: return "completes " + FormatDateCell(endUT, formatDate);
+                case TimelineEndKind.Failed: return "FAILS " + FormatDateCell(endUT, formatDate);
+                case TimelineEndKind.Cancelled: return "cancelled " + FormatDateCell(endUT, formatDate);
+                case TimelineEndKind.Deactivated: return "deactivates " + FormatDateCell(endUT, formatDate);
+                default: return "";
+            }
+        }
+
+        /// <summary>Whether a Timeline-end cell is drawn in the alert colour.</summary>
+        internal static bool IsTimelineEndAlert(TimelineEndKind kind)
+        {
+            return kind == TimelineEndKind.Failed;
+        }
+
+        // ---- Per-column contract helpers ----
 
         /// <summary>
         /// Returns the contract display title, falling back to the raw id and
@@ -1863,51 +2594,33 @@ namespace Parsek
             return string.IsNullOrEmpty(r.DisplayTitle) ? (r.ContractId ?? "(unknown)") : r.DisplayTitle;
         }
 
-        /// <summary>
-        /// Returns the accepted UT as an InvariantCulture F0 string (no unit
-        /// prefix — the column header carries the "Accepted UT" label).
-        /// </summary>
-        internal static string FormatContractRow_Accept(ContractRow r)
+        internal static string FormatContractRow_Accept(ContractRow r, Func<double, string> formatDate)
         {
-            return r.AcceptUT.ToString("F0", CultureInfo.InvariantCulture);
+            return FormatDateCell(r.AcceptUT, formatDate);
         }
 
         /// <summary>
-        /// Returns the deadline UT as F0, or the literal "--" when the deadline
-        /// is NaN.
+        /// The deadline date plus its relative tail (<c>Y1, D90 (in 12d)</c>), or the
+        /// literal <c>--</c> for a contract with no deadline.
         /// </summary>
-        internal static string FormatContractRow_Deadline(ContractRow r)
+        internal static string FormatContractRow_Deadline(ContractRow r, double liveUT,
+                                                          Func<double, string> formatDate)
         {
             if (double.IsNaN(r.DeadlineUT)) return "--";
-            return r.DeadlineUT.ToString("F0", CultureInfo.InvariantCulture);
+            return FormatDateCell(r.DeadlineUT, formatDate) + " "
+                + FormatRelativeTail(r.DeadlineUT, liveUT);
         }
 
-        /// <summary>
-        /// Returns "(pending)" when the row is flagged pending-accept, else
-        /// empty. The status column renders this verbatim.
-        /// </summary>
-        internal static string FormatContractRow_Pending(ContractRow r)
+        /// <summary>Whether the deadline has already passed at <paramref name="liveUT"/>.</summary>
+        internal static bool IsDeadlineOverdue(ContractRow r, double liveUT)
         {
-            if (r.IsPendingAccept) return "(pending)";
-            if (r.IsClosingByTimelineEnd) return "(closing)";
-            return "";
+            return !double.IsNaN(r.DeadlineUT) && r.DeadlineUT <= liveUT;
         }
 
-        /// <summary>
-        /// Single-string formatter retained as a thin wrapper for the Phase 2
-        /// substring tests. New callers should use the per-column helpers; the
-        /// Phase 2b tab renderers do.
-        /// </summary>
-        internal static string FormatContractRow(ContractRow r)
+        internal static string FormatContractRow_TimelineEnd(ContractRow r,
+                                                             Func<double, string> formatDate)
         {
-            string title = FormatContractRow_Title(r);
-            string deadline = double.IsNaN(r.DeadlineUT)
-                ? "(deadline --)"
-                : $"deadline UT {FormatContractRow_Deadline(r)}";
-            string baseLine = $"{title}  accepted UT {FormatContractRow_Accept(r)}  {deadline}";
-            if (r.IsPendingAccept) baseLine += " (pending)";
-            else if (r.IsClosingByTimelineEnd) baseLine += " (closing)";
-            return baseLine;
+            return FormatTimelineEnd(r.EndKind, r.EndUT, formatDate);
         }
 
         // ---- Per-column strategy helpers ----
@@ -1917,9 +2630,9 @@ namespace Parsek
             return string.IsNullOrEmpty(r.DisplayTitle) ? (r.StrategyId ?? "(unknown)") : r.DisplayTitle;
         }
 
-        internal static string FormatStrategyRow_Activate(StrategyRow r)
+        internal static string FormatStrategyRow_Activate(StrategyRow r, Func<double, string> formatDate)
         {
-            return r.ActivateUT.ToString("F0", CultureInfo.InvariantCulture);
+            return FormatDateCell(r.ActivateUT, formatDate);
         }
 
         /// <summary>
@@ -1933,24 +2646,10 @@ namespace Parsek
             return $"{r.SourceResource} -> {r.TargetResource} @ {pct}";
         }
 
-        internal static string FormatStrategyRow_Pending(StrategyRow r)
+        internal static string FormatStrategyRow_TimelineEnd(StrategyRow r,
+                                                             Func<double, string> formatDate)
         {
-            if (r.IsPendingActivate) return "(pending)";
-            if (r.IsClosingByTimelineEnd) return "(closing)";
-            return "";
-        }
-
-        /// <summary>
-        /// Single-string formatter retained as a thin wrapper for Phase 2 tests.
-        /// </summary>
-        internal static string FormatStrategyRow(StrategyRow r)
-        {
-            string title = FormatStrategyRow_Title(r);
-            string baseLine =
-                $"{title}  activated UT {FormatStrategyRow_Activate(r)}  {FormatStrategyRow_Flow(r)}";
-            if (r.IsPendingActivate) baseLine += " (pending)";
-            else if (r.IsClosingByTimelineEnd) baseLine += " (closing)";
-            return baseLine;
+            return FormatTimelineEnd(r.EndKind, r.EndUT, formatDate);
         }
 
         // ---- Per-column facility helpers ----
@@ -1961,43 +2660,79 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns "L{cur}" or "L{cur} -> L{proj} (upcoming)" when an upgrade
-        /// is pending. Destroyed-state lives in the Status column, not here.
+        /// The Career Level cell: the level now, with <c>(destroyed)</c> when the
+        /// building is down. What the timeline changes lives in the Timeline-end cell.
         /// </summary>
         internal static string FormatFacilityRow_Level(FacilityRow r)
         {
-            if (r.HasUpcomingChange && r.CurrentLevel != r.ProjectedLevel)
-                return $"L{r.CurrentLevel} -> L{r.ProjectedLevel} (upcoming)";
-            return $"L{r.CurrentLevel}";
+            string level = "L" + r.CurrentLevel.ToString(CultureInfo.InvariantCulture);
+            return r.CurrentDestroyed ? level + " (destroyed)" : level;
+        }
+
+        /// <summary>The Science-mode State cell (no levels exist there).</summary>
+        internal static string FormatFacilityRow_State(FacilityRow r)
+        {
+            return r.CurrentDestroyed ? "destroyed" : "intact";
         }
 
         /// <summary>
-        /// Returns "(destroyed)" / "(destroyed, repair pending)" / empty for
-        /// the Status column. Non-destroyed facilities return empty so the
-        /// column stays visually quiet.
+        /// Whether the recorded timeline changes this facility before it ends. Level
+        /// changes count only where levels are shown (Career).
         /// </summary>
-        internal static string FormatFacilityRow_Status(FacilityRow r)
+        internal static bool FacilityRowChanges(FacilityRow r, bool showLevels)
         {
-            if (!r.CurrentDestroyed) return "";
-            return r.ProjectedDestroyed ? "(destroyed)" : "(destroyed, repair pending)";
+            return (showLevels && r.CurrentLevel != r.ProjectedLevel)
+                || r.CurrentDestroyed != r.ProjectedDestroyed;
         }
 
         /// <summary>
-        /// Single-string formatter retained as a thin wrapper for Phase 2 tests.
+        /// The facility Timeline-end text: <c>upgrades to L2, Y1, D40</c>,
+        /// <c>destroyed Y1, D40</c>, <c>repaired Y1, D40</c>, joined with "; " when both
+        /// halves change, empty when nothing does.
         /// </summary>
-        internal static string FormatFacilityRow(FacilityRow r)
+        internal static string FormatFacilityRow_TimelineEnd(FacilityRow r, bool showLevels,
+                                                             Func<double, string> formatDate)
         {
-            string baseLine = $"{FormatFacilityRow_Title(r)}  {FormatFacilityRow_Level(r)}";
-            string status = FormatFacilityRow_Status(r);
-            if (!string.IsNullOrEmpty(status)) baseLine += "  " + status;
-            return baseLine;
+            string text = "";
+            if (showLevels && r.CurrentLevel != r.ProjectedLevel)
+            {
+                text = (r.ProjectedLevel > r.CurrentLevel ? "upgrades to L" : "downgrades to L")
+                    + r.ProjectedLevel.ToString(CultureInfo.InvariantCulture)
+                    + ", " + FormatDateCell(r.LevelChangeUT, formatDate);
+            }
+            if (r.CurrentDestroyed != r.ProjectedDestroyed)
+            {
+                string destroyed = (r.ProjectedDestroyed ? "destroyed " : "repaired ")
+                    + FormatDateCell(r.DestroyedChangeUT, formatDate);
+                text = text.Length == 0 ? destroyed : text + "; " + destroyed;
+            }
+            return text;
+        }
+
+        /// <summary>
+        /// Whether a facility row is listed in this mode: every building in Career, only a
+        /// building destroyed now or at the timeline end in Science, none elsewhere.
+        /// </summary>
+        internal static bool FacilityRowVisible(FacilityRow r, Game.Modes mode)
+        {
+            if (mode == Game.Modes.CAREER) return true;
+            if (mode == Game.Modes.SCIENCE_SANDBOX) return r.CurrentDestroyed || r.ProjectedDestroyed;
+            return false;
+        }
+
+        private static bool AnyFacilityRowVisible(List<FacilityRow> rows, Game.Modes mode)
+        {
+            if (rows == null) return false;
+            for (int i = 0; i < rows.Count; i++)
+                if (FacilityRowVisible(rows[i], mode)) return true;
+            return false;
         }
 
         // ---- Per-column milestone helpers ----
 
-        internal static string FormatMilestoneRow_UT(MilestoneRow r)
+        internal static string FormatMilestoneRow_UT(MilestoneRow r, Func<double, string> formatDate)
         {
-            return r.CreditedUT.ToString("F0", CultureInfo.InvariantCulture);
+            return FormatDateCell(r.CreditedUT, formatDate);
         }
 
         internal static string FormatMilestoneRow_Title(MilestoneRow r)
@@ -2028,24 +2763,13 @@ namespace Parsek
             return sb.ToString();
         }
 
-        internal static string FormatMilestoneRow_Pending(MilestoneRow r)
+        internal static int CountPendingMilestones(List<MilestoneRow> rows)
         {
-            return r.IsPendingCredit ? "(pending)" : "";
-        }
-
-        /// <summary>
-        /// Single-string formatter retained as a thin wrapper for Phase 2 tests.
-        /// </summary>
-        internal static string FormatMilestoneRow(MilestoneRow r)
-        {
-            var sb = new StringBuilder();
-            sb.Append("UT ").Append(FormatMilestoneRow_UT(r));
-            sb.Append("   ").Append(FormatMilestoneRow_Title(r));
-            string rewards = FormatMilestoneRow_Rewards(r);
-            if (!string.IsNullOrEmpty(rewards))
-                sb.Append("  ").Append(rewards);
-            if (r.IsPendingCredit) sb.Append(" (pending)");
-            return sb.ToString();
+            if (rows == null) return 0;
+            int n = 0;
+            for (int i = 0; i < rows.Count; i++)
+                if (rows[i].IsPendingCredit) n++;
+            return n;
         }
 
         // ================================================================
@@ -2097,15 +2821,15 @@ namespace Parsek
         /// <summary>
         /// Every fold key this window keeps, in tab order.
         ///
-        /// <para>Two, and the window has no others: the Facilities and Milestones tabs have
-        /// no folds, and the only other UI state here is the tab index. Named as a list so
+        /// <para>Three, and the window has no others: the Facilities tab has no fold, and
+        /// the only other UI state here is the tab index. Named as a list so
         /// the seam's <c>key=all</c> / <c>key=none</c> form has something to enumerate
         /// instead of a copy of the two constants; the list is BUILT from those constants,
         /// so it cannot drift from them.</para>
         /// </summary>
         internal static readonly string[] FoldGroupKeys = new[]
         {
-            GroupKey_ContractsPending, GroupKey_StrategiesPending,
+            GroupKey_ContractsPending, GroupKey_StrategiesPending, GroupKey_MilestonesPending,
         };
 
         /// <summary>

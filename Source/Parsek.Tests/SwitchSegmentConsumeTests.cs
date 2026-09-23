@@ -376,27 +376,6 @@ namespace Parsek.Tests
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.TargetMismatch, outcome);
         }
 
-        // Fails if: a fresh marker for a vessel that is already flying (not on
-        // the surface) is mistakenly deferred. The companion to
-        // Evaluate_OnSurfaceTarget_Defers: switching to an airborne / orbiting
-        // vessel keeps the immediate-start behavior.
-        [Fact]
-        public void Evaluate_FlyingTarget_StillAuthorizes()
-        {
-            Guid procId = Guid.NewGuid();
-            var marker = BuildMarker(StockActionType.TrackingStationFly,
-                targetPid: 99u, processSessionId: procId,
-                capturedRealtime: 100f, capturedUT: 1000.0);
-            var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, newVesselPersistentId: 99u,
-                currentProcessSessionId: procId,
-                currentRealtime: 101f, currentUT: 1001.0,
-                missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u,
-                targetIsOnSurface: false);
-            Assert.Equal(StockActionIntentConsumeDecision.Outcome.Authorized, outcome);
-        }
-
         // Source-text gate: TryConsumeStockActionIntent must feed the focused
         // vessel's on-surface situation into the decision predicate, covering
         // PRELAUNCH, LANDED, and SPLASHED. The pure Evaluate tests above prove

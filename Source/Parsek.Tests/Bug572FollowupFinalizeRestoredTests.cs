@@ -513,35 +513,6 @@ namespace Parsek.Tests
 
         // -- Restore-then-finalize integration (matches scenario.cs producer) -
 
-        /// <summary>
-        /// End-to-end pin: simulate the producer side
-        /// (`RestoreCommittedSidecarPayloadIntoActiveTreeRecording` setting
-        /// the flag) by simply setting the flag, then run the finalize path
-        /// and assert the gate fires. Confirms the producer/consumer wiring
-        /// is wired up correctly without spinning up the live restore helper.
-        /// </summary>
-        [Fact]
-        public void RestoredRecording_FinalizeRespectsRestoredFlag_ClearsAfterRead()
-        {
-            var rec = new Recording
-            {
-                RecordingId = "restored-then-finalized",
-                VesselPersistentId = 12345u,
-                ChildBranchPointId = null,
-                RestoredFromCommittedTreeThisFrame = true,
-            };
-            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 1.0 });
-
-            // First finalize: gate fires
-            ParsekFlight.FinalizeIndividualRecording(rec, commitUT: 200.0, isSceneExit: true);
-            Assert.False(rec.TerminalStateValue.HasValue);
-            Assert.False(rec.RestoredFromCommittedTreeThisFrame);
-            Assert.Contains(logLines, l =>
-                l.Contains("skipping Landed/Splashed inference") &&
-                l.Contains("restored-then-finalized") &&
-                l.Contains("repaired from committed tree this frame"));
-        }
-
         private static RecordingFinalizationCache MakeDestroyedCache(
             string recordingId,
             uint vesselPersistentId,

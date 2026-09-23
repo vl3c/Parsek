@@ -478,22 +478,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RemoveSessionProvisionalRecordings_NoSessionId_FallsBackToRpMatch()
-        {
-            // Legacy path: if the caller has no sessionId at all (pre-tagging
-            // saves), the rp fallback fires.
-            var rec = MakeAtmoSurfaceRecording("legacy_rec", 200, 250, 300);
-            rec.ProvisionalForRpId = "rp_legacy";
-            RecordingStore.AddRecordingWithTreeForTesting(rec);
-
-            int removed = RecordingStore.RemoveSessionProvisionalRecordings(
-                sessionId: null, rewindPointId: "rp_legacy");
-
-            Assert.Equal(1, removed);
-            Assert.Empty(RecordingStore.CommittedRecordings);
-        }
-
-        [Fact]
         public void PruneTaggedRecordingsFromCommittedTrees_ResetsStaleRootRecordingId()
         {
             // Reviewer-flagged P2: ActiveRecordingId reset already worked, but

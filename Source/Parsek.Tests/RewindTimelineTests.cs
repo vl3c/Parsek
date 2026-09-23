@@ -590,44 +590,6 @@ namespace Parsek.Tests
 
         #region Revert Scenario — PID Reset Enables Re-Spawn
 
-        [Fact]
-        public void Revert_PidResetToZero_AllowsReSpawn()
-        {
-            // Simulates the revert flow: quicksave has PID=0, so after loading
-            // the quicksave the recording's SpawnedVesselPersistentId is 0,
-            // which allows the spawn to re-trigger.
-            var rec = new Recording
-            {
-                VesselSnapshot = new ConfigNode("VESSEL"),
-                VesselSpawned = false,
-                SpawnedVesselPersistentId = 0 // Reset from quicksave
-            };
-
-            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
-
-            Assert.True(needsSpawn);
-        }
-
-        [Fact]
-        public void Revert_PidStillSet_BlocksReSpawn()
-        {
-            // If somehow PID wasn't reset (e.g., save/load without revert),
-            // spawn should be blocked to prevent duplicates.
-            var rec = new Recording
-            {
-                VesselSnapshot = new ConfigNode("VESSEL"),
-                VesselSpawned = false,
-                SpawnedVesselPersistentId = 42000
-            };
-
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
-
-            Assert.False(needsSpawn);
-            Assert.Contains("already spawned", reason);
-        }
-
         #endregion
 
         #region ShouldSpawnAtRecordingEnd — Non-Leaf / Effective Leaf

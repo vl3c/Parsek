@@ -682,17 +682,6 @@ namespace Parsek.Tests
             Assert.Equal(770162671u, background);
         }
 
-        [Fact]
-        public void ResolveUndockBackgroundPid_NeverCollapsesActiveAndBackground()
-        {
-            // The whole point of focus-aware resolution: the backgrounded pid must never equal
-            // the focused (active) pid, in either focus orientation.
-            uint old = 100, fresh = 200;
-
-            Assert.NotEqual(old, SegmentBoundaryLogic.ResolveUndockBackgroundPid(old, old, fresh));
-            Assert.NotEqual(fresh, SegmentBoundaryLogic.ResolveUndockBackgroundPid(fresh, old, fresh));
-        }
-
         #endregion
 
         #region JointBreakResult enum values

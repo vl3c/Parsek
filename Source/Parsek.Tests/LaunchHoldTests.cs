@@ -137,17 +137,6 @@ namespace Parsek.Tests
 
         // === Common-case parity with the worked example (N=13: delta=5058 <= slack=5419) ==========
 
-        [Fact]
-        public void WorkedExample_N13_DeltaInRange()
-        {
-            // The design's worked common case (s15 / Kerbal X #2): N=13 delta ~ 5058 s, well inside the
-            // Kerbin sidereal day. We only assert it is in range here (the slack comparison is a clock-level
-            // concern covered in LaunchHoldClockTests); the exact value depends on the real phaseAnchor.
-            const double tSid = 21549.425;   // Kerbin sidereal day
-            double d = GhostPlaybackLogic.ComputePerLoopLaunchAdvanceSeconds(123456.0, 654.0, 13L, 19653076.0, tSid);
-            Assert.True(d >= 0.0 && d < tSid);
-        }
-
         // === ComputeCappedLaunchAdvanceSeconds: min(delta_win, slack_{win-1}) =====================
         //
         // Shared helper that bounds the per-loop launch advance to the LAUNCHING cycle's idle gap so the

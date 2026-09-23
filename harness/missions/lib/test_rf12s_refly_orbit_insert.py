@@ -205,7 +205,10 @@ class RfoSchemaAndShellTests(unittest.TestCase):
         declared = set(schema["params"].keys())
         self.assertEqual({"pitchDeg", "headingDeg", "throttle", "targetPeriapsisMeters",
                           "periapsisDebounceFrames", "minStartAltitudeMeters", "minCrew",
-                          "igniteFrames", "burnFrames"}, declared)
+                          "igniteFrames", "burnFrames", "raiseApoapsisMeters",
+                          "raisePitchDeg", "circStartVerticalSpeedMps",
+                          "circPitchGainDegPerMps", "circPitchMinDeg", "circPitchMaxDeg",
+                          "coastFrames"}, declared)
         with open(os.path.join(_HERE, "mlib.py"), encoding="utf-8") as f:
             src = f.read()
         body = src[src.index("def rfo_params_from_dict"):src.index("class RfoState")]
@@ -232,6 +235,164 @@ class RfoSchemaAndShellTests(unittest.TestCase):
             for line in f:
                 self.assertFalse(line.startswith("import krpc")
                                  or line.startswith("from krpc"))
+
+
+PROGRAM = dict(raiseApoapsisMeters=80000.0, raisePitchDeg=45.0,
+               circStartVerticalSpeedMps=30.0, circPitchGainDegPerMps=0.5,
+               circPitchMinDeg=-10.0, circPitchMaxDeg=45.0, coastFrames=5)
+
+
+def raising(**extra):
+    params = dict(PROGRAM)
+    params.update(extra)
+    st, actions = mlib.rfo_decide(fresh(**params), snap())
+    assert st.phase == mlib.RFO_RAISE
+    return st, actions
+
+
+def coasting(**extra):
+    st, _ = raising(**extra)
+    st, _ = mlib.rfo_decide(st, snap(available_thrust=250000.0, apoapsis=80500.0,
+                                     vertical_speed=800.0))
+    assert st.phase == mlib.RFO_COAST
+    return st
+
+
+class RfoPitchProgramTests(unittest.TestCase):
+    # RF-13: the host restores the stack at 29 km climbing near-vertically, and no
+    # fixed pitch made orbit from there (four measured burns). The program flies
+    # raise -> coast -> circularize instead.
+    def test_program_off_by_default_keeps_the_single_burn(self):
+        self.assertFalse(mlib.rfo_params_from_dict({}).program)
+        self.assertEqual(mlib.RFO_BURN, burning().phase)
+
+    def test_program_keys_are_read(self):
+        p = mlib.rfo_params_from_dict(dict(PROGRAM, coastFrames=321))
+        self.assertTrue(p.program)
+        self.assertEqual((80000.0, 45.0, 30.0, 0.5, -10.0, 45.0, 321),
+                         (p.raise_apoapsis, p.raise_pitch_deg,
+                          p.circ_start_vertical_speed, p.circ_pitch_gain,
+                          p.circ_pitch_min, p.circ_pitch_max, p.coast_frames))
+
+    def test_ignition_enters_raise_at_the_raise_pitch(self):
+        st, actions = raising()
+        self.assertEqual((45.0, 90.0), actions[2].pitch_heading)
+        self.assertEqual(45.0, st.last_pitch_cmd)
+
+    def test_raise_cuts_on_apoapsis_and_coasts(self):
+        st, _ = raising()
+        st, a = mlib.rfo_decide(st, snap(available_thrust=250000.0, apoapsis=70000.0,
+                                         vertical_speed=800.0))
+        self.assertEqual(mlib.RFO_RAISE, st.phase)
+        self.assertEqual([], a)
+        st, a = mlib.rfo_decide(st, snap(available_thrust=250000.0, apoapsis=80500.0,
+                                         vertical_speed=800.0))
+        self.assertEqual(mlib.RFO_COAST, st.phase)
+        self.assertEqual(80500.0, st.raise_cut_apoapsis)
+        self.assertEqual([mlib.ACTION_CUT_THROTTLE, mlib.ACTION_AP_SET_PITCH_HEADING],
+                         [x.kind for x in a])
+        self.assertEqual((-10.0, 90.0), a[1].pitch_heading)  # climbing: the floor
+
+    def test_raise_apoapsis_without_ignition_never_cuts(self):
+        st, _ = raising()
+        st, _ = mlib.rfo_decide(st, snap(available_thrust=0.0, apoapsis=90000.0))
+        self.assertEqual(mlib.RFO_RAISE, st.phase)
+
+    def test_raise_flameout_fails_by_name(self):
+        st, _ = raising()
+        st, _ = mlib.rfo_decide(st, snap(available_thrust=250000.0, apoapsis=60000.0))
+        st, _ = mlib.rfo_decide(st, snap(available_thrust=0.0, apoapsis=65000.0))
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, st.verdict)
+        self.assertIn("propellant exhausted raising the apoapsis", st.loss_reason)
+
+    def test_raise_engine_never_lit_fails_by_name(self):
+        st, _ = raising(igniteFrames=2)
+        for _ in range(2):
+            st, _ = mlib.rfo_decide(st, snap(available_thrust=0.0))
+        self.assertIn("engine never lit", st.loss_reason)
+
+    def test_raise_bound_flakes_by_name(self):
+        st, _ = raising(burnFrames=2)
+        for _ in range(2):
+            st, _ = mlib.rfo_decide(st, snap(available_thrust=1.0, apoapsis=60000.0))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.RFO_RAISE, st.flake_phase)
+
+    def test_coast_holds_throttle_zero_until_near_apoapsis(self):
+        st = coasting()
+        st, a = mlib.rfo_decide(st, snap(vertical_speed=200.0, altitude=70000.0))
+        self.assertEqual(mlib.RFO_COAST, st.phase)
+        self.assertNotIn(mlib.ACTION_SET_THROTTLE, [x.kind for x in a])
+        st, a = mlib.rfo_decide(st, snap(vertical_speed=25.0, altitude=79000.0))
+        self.assertEqual(mlib.RFO_BURN, st.phase)
+        self.assertEqual(79000.0, st.circ_start_altitude)
+        self.assertEqual(mlib.ACTION_SET_THROTTLE, a[-1].kind)
+
+    def test_unreadable_vertical_speed_does_not_start_the_burn(self):
+        st = coasting()
+        st, _ = mlib.rfo_decide(st, snap(vertical_speed=float("nan")))
+        self.assertEqual(mlib.RFO_COAST, st.phase)
+
+    def test_coast_bound_flakes_by_name(self):
+        st = coasting(coastFrames=2)
+        for _ in range(2):
+            st, _ = mlib.rfo_decide(st, snap(vertical_speed=300.0))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("coast exceeded 2 frames", st.flake_reason)
+
+    def test_circ_pitch_law_clamps_and_rounds(self):
+        p = mlib.rfo_params_from_dict(PROGRAM)
+        self.assertEqual(-10.0, mlib.rfo_circ_pitch(p, 100.0))
+        self.assertEqual(0.0, mlib.rfo_circ_pitch(p, 0.0))
+        self.assertEqual(20.0, mlib.rfo_circ_pitch(p, -40.4))
+        self.assertEqual(45.0, mlib.rfo_circ_pitch(p, -500.0))
+        self.assertEqual(0.0, mlib.rfo_circ_pitch(p, float("nan")))
+
+    def test_circ_burn_steers_on_whole_degrees_and_cuts_on_periapsis(self):
+        st = coasting()
+        st, _ = mlib.rfo_decide(st, snap(vertical_speed=20.0, altitude=79000.0))
+        self.assertEqual(mlib.RFO_BURN, st.phase)
+        self.assertEqual(-10.0, st.last_pitch_cmd)
+        st, a = mlib.rfo_decide(st, snap(available_thrust=250000.0, vertical_speed=-20.0,
+                                         periapsis=-200000.0))
+        self.assertEqual([(10.0, 90.0)], [x.pitch_heading for x in a])
+        st, a = mlib.rfo_decide(st, snap(available_thrust=250000.0, vertical_speed=-20.6,
+                                         periapsis=-100000.0))
+        self.assertEqual([], a)  # 10.3 rounds to the commanded 10
+        st, _ = mlib.rfo_decide(st, snap(available_thrust=250000.0, vertical_speed=-20.0,
+                                         periapsis=76000.0))
+        st, a = mlib.rfo_decide(st, snap(available_thrust=250000.0, vertical_speed=-20.0,
+                                         periapsis=76500.0))
+        self.assertEqual(mlib.RFO_ORBIT, st.phase)
+        self.assertEqual((mlib.RFO_IGNITE, mlib.RFO_RAISE, mlib.RFO_COAST, mlib.RFO_BURN,
+                          mlib.RFO_ORBIT), st.phases_reached)
+        rows = mlib.evaluate_rfo_assertions([], st.params, st)
+        self.assertTrue(all(r.met for r in rows))
+        self.assertTrue(rows[2].detail["pitchProgram"])
+        self.assertEqual(80500.0, rows[2].detail["raiseCutApoapsis"])
+
+    def test_program_give_up_rows_serialize_without_nan(self):
+        st, _ = raising()
+        st, _ = mlib.rfo_decide(st, snap(available_thrust=250000.0, apoapsis=60000.0))
+        st, _ = mlib.rfo_decide(st, snap(available_thrust=0.0, apoapsis=61000.0))
+        import json
+        for row in mlib.evaluate_rfo_assertions([], st.params, st):
+            json.dumps(row.to_dict(), allow_nan=False)
+
+
+class RfoGiveUpSerializesTests(unittest.TestCase):
+    # MEASURED 2026-09-22_2319 (RF-13 reading run 1): a propellant give-up before the
+    # cut left NaN cut stamps in the orbit row, serialize_mission_result (allow_nan=False)
+    # raised, and the harness read `<no-result>` instead of the named verdict.
+    def test_flameout_rows_serialize_without_nan(self):
+        st = burning()
+        st, _ = mlib.rfo_decide(st, snap(available_thrust=250000.0))
+        st, _ = mlib.rfo_decide(st, snap(available_thrust=0.0, periapsis=61000.0))
+        rows = mlib.evaluate_rfo_assertions([], st.params, st)
+        import json
+        for row in rows:
+            json.dumps(row.to_dict(), allow_nan=False)
+        self.assertIsNone(rows[2].value)
 
 
 if __name__ == "__main__":

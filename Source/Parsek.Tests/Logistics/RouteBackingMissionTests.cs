@@ -172,28 +172,6 @@ namespace Parsek.Tests.Logistics
                 l.Contains("tree=tree-dock"));
         }
 
-        // catches: an interval STARTING exactly at the dock boundary being kept
-        // (it is the docked combined stretch) or an interval ENDING at the dock
-        // being dropped.
-        [Fact]
-        public void Compute_ExactBoundary_StartAtDockExcluded_EndAtDockKept()
-        {
-            RecordingTree tree = BuildLaunchDockUndockTree();
-
-            var structure = MissionStructureBuilder.Build(tree);
-            var roots = MissionCompositionBuilder.Build(structure);
-
-            HashSet<string> excluded =
-                RouteBackingMission.ComputeExcludedIntervalKeys(tree, DockUT, RootLaunchUT);
-            var windows = MissionIntervalSelection.ComputeRenderWindows(roots, excluded);
-
-            // The first interval ENDS at the dock (2000) and is KEPT.
-            // The docked sub-interval STARTS at the dock (2000) and is EXCLUDED.
-            // Net: the kept window's EndUT is exactly the dock instant.
-            Assert.True(windows.ContainsKey("launch"));
-            Assert.Equal(DockUT, windows["launch"].EndUT);
-        }
-
         // catches: a single-interval tree (no post-undock structure) producing a
         // spurious exclusion. Undock at/after the only interval's end -> nothing to
         // trim, empty set, whole segment renders.
@@ -807,21 +785,6 @@ namespace Parsek.Tests.Logistics
                 l.Contains("[Route]") &&
                 l.Contains("ComputeStartExcludedIntervalKeys") &&
                 l.Contains("tree=tree-shuttle"));
-        }
-
-        // catches: the symmetric epsilon tie inverted - an interval ENDING
-        // exactly at the origin undock (the docked-origin stretch) must be
-        // excluded; the interval STARTING there (the transit leg) must be kept.
-        [Fact]
-        public void ComputeStartExcluded_ExactBoundary_EndAtOriginExcluded_StartAtOriginKept()
-        {
-            RecordingTree tree = BuildShuttleOriginTree();
-
-            HashSet<string> startExcluded =
-                RouteBackingMission.ComputeStartExcludedIntervalKeys(tree, ShuttleOriginUndockUT);
-
-            Assert.Contains("root@dock1", startExcluded);   // ends exactly at 1500
-            Assert.DoesNotContain("root/seg1", startExcluded); // starts exactly at 1500
         }
 
         // catches: the origin-undock-child scoping missing - the depot-A

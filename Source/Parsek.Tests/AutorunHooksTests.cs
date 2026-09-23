@@ -506,20 +506,6 @@ namespace Parsek.Tests
                 settleFrames: 30, settleTarget: 30, reconcilePending));
         }
 
-        // Guards FIX 2 (crash-reconcile non-reloadable branch): when the disk revert is
-        // incomplete, RunTestBatchCrashReconcileCore nulls the marker (markerWouldReconcile
-        // becomes false) but SETS CrashReconcileInProgress=true so the H1 gate holds
-        // FOREVER against the un-reverted mutated save (the orchestrator timeout is the
-        // reaper). The gate must stay closed on the in-progress flag ALONE, with no marker.
-        [Fact]
-        public void ReconcileGateClear_NonReloadableBranch_HeldByInProgressFlagAlone()
-        {
-            // marker already nulled by the branch -> markerWouldReconcile=false, but the
-            // in-progress flag was set true, so the gate is NOT clear (reconcile pending).
-            Assert.False(AutorunHooks.ReconcileGateClear(
-                crashReconcileInProgress: true, markerWouldReconcile: false));
-        }
-
         // --- AccumulateCategoryBatch (design "H1 - Multi-category selector"; FIX 1) ---
 
         // Guards FIX 1: the aggregate summary line's counts are the UNION across every

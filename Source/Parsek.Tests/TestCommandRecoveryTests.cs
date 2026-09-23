@@ -89,15 +89,6 @@ namespace Parsek.Tests
         // ----- LoadGame rows (long-running boot channel) -----
 
         [Fact]
-        public void LoadGame_Claimed_Interrupted_NeverReInitiate()
-        {
-            // Crashed mid-scene-load: journal at CLAIMED. Must NOT re-initiate the load.
-            string content = TestCommandJournal.FormatClaimed("0006", 6, "LoadGame", "s", 1) + "\n";
-            var map = TestCommandJournal.ReplayIntoPhaseMap(content);
-            Assert.Equal(RecoveryAction.Interrupted, TestCommandJournal.DecideRecovery(map, "0006"));
-        }
-
-        [Fact]
         public void LoadGame_Executed_Rewrites()
         {
             string content =

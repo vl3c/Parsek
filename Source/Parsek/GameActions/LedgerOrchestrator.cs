@@ -1132,6 +1132,8 @@ namespace Parsek
         /// moment in UT == StartUT == EndUT, so science dedup compares the capture moment.
         /// This prevents double-adding KSC events that were written to the ledger in real-time
         /// via OnKscSpending but also fall within a recording's time range.
+        /// KerbalAssignment rows match on their (RecordingId, KerbalName) key alone, with
+        /// no UT window (see the comment in the loop).
         /// </summary>
         internal static List<GameAction> DeduplicateAgainstLedger(List<GameAction> candidates)
         {
@@ -1148,7 +1150,20 @@ namespace Parsek
                 {
                     var e = existing[j];
                     if (e.Type != c.Type) continue;
-                    if (System.Math.Abs(GetDedupOccurrenceUt(e) - GetDedupOccurrenceUt(c)) > 0.1)
+                    // A KerbalAssignment row's identity is (RecordingId, KerbalName) alone,
+                    // the same identity MigrateKerbalAssignments preserves ActionIds by. Its
+                    // UT is NOT part of it: RecordingTreeSplitter's step 2.9 retags a death
+                    // row to TIP with the ORIGIN's UT, so a later re-commit of TIP (every
+                    // tree commit re-commits every recording of the tree) would otherwise
+                    // file a second, fresh-id, untombstoned death row next to the retired
+                    // one (TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, the
+                    // commit-side mirror of cause (a)). The same key also drops an
+                    // in-session re-commit whose CONTENT changed (a new end state or
+                    // window for the same recording and kerbal): the stored row stays
+                    // until the next load, where MigrateKerbalAssignments repairs its
+                    // content under the same ActionId.
+                    if (c.Type != GameActionType.KerbalAssignment
+                        && System.Math.Abs(GetDedupOccurrenceUt(e) - GetDedupOccurrenceUt(c)) > 0.1)
                         continue;
 
                     // Match on the type-specific key field
@@ -1310,6 +1325,11 @@ namespace Parsek
                 // dedup is OnRecordingCommitted step 3c; MigrateKerbalAssignments compares
                 // whole per-recording row sets and never passes through here.
                 case GameActionType.KerbalAssignment:
+                    return (a.RecordingId ?? "") + "|" + (a.KerbalName ?? "");
+                // KerbalRecovered: per (owner recording, kerbal), like KerbalAssignment,
+                // so a two-crew recovery keeps both rows and the same recovery event
+                // delivered twice collapses to one.
+                case GameActionType.KerbalRecovered:
                     return (a.RecordingId ?? "") + "|" + (a.KerbalName ?? "");
                 default: return "";
             }
@@ -1936,6 +1956,57 @@ namespace Parsek
                 " currentUT=" + currentUT.ToString("R", CultureInfo.InvariantCulture) +
                 " currentUtReady=" + currentUtReady);
             RecalculateAndPatch();
+        }
+
+        /// <summary>
+        /// The pending release that last triggered <see cref="RecalculateIfKerbalReservationReleaseDue"/>,
+        /// so a walk that for any reason does not move the release cannot re-trigger it
+        /// every frame. NaN = none yet.
+        /// </summary>
+        private static double lastTriggeredReservationReleaseUT = double.NaN;
+
+        /// <summary><see cref="KerbalsModule.PostWalkCount"/> right after the recalculation
+        /// the last trigger ran.</summary>
+        private static int postWalkCountAfterReservationReleaseTrigger = -1;
+
+        /// <summary>
+        /// The cheap crossed-an-end check for time passing OUTSIDE the paths that already
+        /// recalculate (scene load, commit, rewind, flight warp exit): the KSC and
+        /// Tracking Station clocks and the crew-assignment dialog opening. Compares
+        /// <paramref name="nowUT"/> with the earliest time-based reservation release the
+        /// last walk left pending (<see cref="KerbalsModule.NextReservationReleaseUT"/>)
+        /// and, only when the clock has reached it, runs the ordinary current-timeline
+        /// recalculation once. Everything per call is two double comparisons; a full
+        /// recalculation happens once per crossed release, never per frame.
+        /// Returns true when it recalculated.
+        /// </summary>
+        internal static bool RecalculateIfKerbalReservationReleaseDue(double nowUT, string reason)
+        {
+            var kerbals = kerbalsModule;
+            if (kerbals == null) return false;
+            double next = kerbals.NextReservationReleaseUT;
+            double lastTriggered = KerbalsModule.ResolveLastTriggeredReleaseUT(
+                lastTriggeredReservationReleaseUT,
+                kerbals.PostWalkCount,
+                postWalkCountAfterReservationReleaseTrigger);
+            if (!KerbalsModule.IsReservationReleaseDue(nowUT, next, lastTriggered))
+                return false;
+            // A load or a rewind's UT adjustment in progress is not a clock to act on; the
+            // load / post-rewind recalculation that follows judges the right instant.
+            if (ParsekScenario.IsOnLoadInProgress || RecordingStore.RewindUTAdjustmentPending)
+                return false;
+
+            lastTriggeredReservationReleaseUT = next;
+            string safeReason = string.IsNullOrEmpty(reason) ? "reservation-release" : reason;
+            ParsekLog.Info(Tag,
+                "Kerbal reservation release due: nextReleaseUT="
+                + next.ToString("R", CultureInfo.InvariantCulture)
+                + " nowUT=" + nowUT.ToString("R", CultureInfo.InvariantCulture)
+                + " reason=" + safeReason + " - recalculating");
+            RecalculateAndPatchForCurrentTimelineIfFutureActions(nowUT, safeReason);
+            var after = kerbalsModule;
+            postWalkCountAfterReservationReleaseTrigger = after != null ? after.PostWalkCount : -1;
+            return true;
         }
 
         /// <summary>
@@ -2640,6 +2711,11 @@ namespace Parsek
             var actions = BuildRecalculationActions();
             LogRecalculationInputSummary(actions, utCutoff);
 
+            // A cutoff engine walk sees only the rows up to the cutoff; the kerbals module's
+            // authoritative walk is RecomputeAfterCutoffWalk below, so this one records no
+            // release / re-reserve transitions.
+            if (utCutoff.HasValue && kerbalsModule != null)
+                kerbalsModule.MarkNextWalkProvisional();
             RecalculationEngine.Recalculate(actions, utCutoff);
 
             // FacilitiesModule is dispatched after contracts/strategies, so a
@@ -3588,6 +3664,8 @@ namespace Parsek
             int repairedRecordings = 0;
             int oldRows = 0;
             int newRows = 0;
+            int inheritedRows = 0;
+            int freshIdRows = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
@@ -3600,6 +3678,17 @@ namespace Parsek
                     continue;
 
                 var repairStats = ClassifyKerbalAssignmentRepair(existing, kerbalActions);
+
+                int freshIds;
+                int inheritedIds = InheritKerbalAssignmentActionIds(
+                    existing, kerbalActions, out freshIds);
+                inheritedRows += inheritedIds;
+                freshIdRows += freshIds;
+                ParsekLog.Verbose(Tag,
+                    $"MigrateKerbalAssignments: re-derived recording '{rec.RecordingId}' " +
+                    $"rows={kerbalActions.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"inheritedActionIds={inheritedIds.ToString(CultureInfo.InvariantCulture)} " +
+                    $"freshActionIds={freshIds.ToString(CultureInfo.InvariantCulture)}");
 
                 Ledger.ReplaceActionsForRecording(
                     GameActionType.KerbalAssignment, rec.RecordingId, kerbalActions);
@@ -3631,7 +3720,88 @@ namespace Parsek
             if (repairedRecordings > 0)
                 ParsekLog.Info(Tag,
                     $"MigrateKerbalAssignments: repaired {repairedRecordings} recording(s) " +
-                    $"(oldRows={oldRows}, newRows={newRows})");
+                    $"(oldRows={oldRows}, newRows={newRows}, " +
+                    $"inheritedActionIds={inheritedRows}, freshActionIds={freshIdRows})");
+        }
+
+        /// <summary>
+        /// TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, cause (a), ruling a1
+        /// (2026-09-23): a re-derived KerbalAssignment row that replaces a stored row for
+        /// the SAME (RecordingId, KerbalName) inherits that row's
+        /// <see cref="GameAction.ActionId"/>. ActionIds are immutable and
+        /// <see cref="LedgerTombstone"/>s key on them (rewind design 5.6), so a fresh id
+        /// on re-derivation would silently un-retire a tombstoned row and leave the
+        /// tombstone orphaned. The row's CONTENT (timing, end state) still follows the
+        /// derivation; only its identity is preserved.
+        ///
+        /// <para>
+        /// Pairing is deterministic: both lists are walked in order and the k-th desired
+        /// row for a kerbal inherits the k-th stored row for that kerbal (ordinal name
+        /// match), each stored row consumed at most once, so two desired rows can never
+        /// share an id. When several unconsumed stored rows share the kerbal's name, the
+        /// first one with the SAME end state wins, else the first in order: after an
+        /// optimizer merge the target holds its own handoff row AND the absorbed
+        /// segment's death row for one kerbal, and the re-derived death must keep the
+        /// death's id (OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT review).
+        /// A stored row with no same-name partner (a remap, a removed crew
+        /// member) is dropped as before; a desired row with no partner keeps its fresh
+        /// id. Callers pass rows already grouped by one recording.
+        /// </para>
+        /// Returns the number of inherited ids; <paramref name="freshCount"/> counts the
+        /// desired rows that kept a fresh id.
+        /// </summary>
+        internal static int InheritKerbalAssignmentActionIds(
+            List<GameAction> existing, List<GameAction> desired, out int freshCount)
+        {
+            freshCount = 0;
+            if (desired == null || desired.Count == 0)
+                return 0;
+
+            int existingCount = existing != null ? existing.Count : 0;
+            var consumed = new bool[existingCount];
+            int inherited = 0;
+            for (int d = 0; d < desired.Count; d++)
+            {
+                var want = desired[d];
+                if (want == null)
+                    continue;
+
+                int match = -1;
+                int sameFateMatch = -1;
+                for (int e = 0; e < existingCount; e++)
+                {
+                    if (consumed[e])
+                        continue;
+                    var have = existing[e];
+                    if (have == null
+                        || have.Type != GameActionType.KerbalAssignment
+                        || string.IsNullOrEmpty(have.ActionId)
+                        || !string.Equals(have.RecordingId, want.RecordingId, StringComparison.Ordinal)
+                        || !string.Equals(have.KerbalName, want.KerbalName, StringComparison.Ordinal))
+                        continue;
+                    if (match < 0)
+                        match = e;
+                    if (have.KerbalEndStateField == want.KerbalEndStateField)
+                    {
+                        sameFateMatch = e;
+                        break;
+                    }
+                }
+                if (sameFateMatch >= 0)
+                    match = sameFateMatch;
+
+                if (match < 0)
+                {
+                    freshCount++;
+                    continue;
+                }
+
+                consumed[match] = true;
+                want.ActionId = existing[match].ActionId;
+                inherited++;
+            }
+
+            return inherited;
         }
 
         internal static bool IsResourceImpactingAction(GameActionType t)
@@ -4948,6 +5118,106 @@ namespace Parsek
 
             RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-kerbal-xp");
             return beforeDedup;
+        }
+
+        /// <summary>
+        /// KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: KSP recovered a real vessel
+        /// with <paramref name="liveCrewNames"/> aboard. When the vessel continues a
+        /// committed recording (<see cref="CrewRecoveryReservationClose.SelectOwnerRecordings"/>:
+        /// the same launch by POSITIVE guid match, or the vessel Parsek spawned from it),
+        /// write one <see cref="GameActionType.KerbalRecovered"/> row per recovered kerbal
+        /// whose open-ended hold from that recording's tree the recovery ends, then
+        /// recalculate so the hold becomes UT 0 -> <paramref name="ut"/> and the kerbal is
+        /// free from now on (a rewind to before <paramref name="ut"/> holds him again,
+        /// because the row is part of the committed timeline the walk re-derives from).
+        ///
+        /// <para>Why a row and not a re-stamp: the ordinary in-flight Recover with auto-merge
+        /// on commits the flight at the scene change BEFORE stock recovers the vessel, and
+        /// committed recordings are never modified by a terminal event
+        /// (<c>ParsekScenario.UpdateRecordingsForTerminalEvent</c>). The ledger stays the
+        /// single source the reservation is derived from.</para>
+        ///
+        /// <para>Deduplicated per (owner recording, kerbal) inside the 0.1 s dedup window
+        /// (<see cref="GetActionKey"/>), so the same recovery delivered twice writes once.
+        /// The caller filters Parsek's own programmatic recoveries (crew-suppressed) and
+        /// rewind strips.</para>
+        /// </summary>
+        /// <returns>Rows written (0 when nothing was open-ended or all were duplicates).</returns>
+        internal static int OnRealVesselCrewRecovered(
+            double ut,
+            uint vesselPid,
+            string launchGuid,
+            string vesselName,
+            IList<string> liveCrewNames)
+        {
+            string utText = ut.ToString("F1", CultureInfo.InvariantCulture);
+            string vesselText = vesselName ?? "(null)";
+            if (liveCrewNames == null || liveCrewNames.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Recovery crew reservation close: vessel='{vesselText}' pid={vesselPid} " +
+                    $"ut={utText} - no crew aboard, nothing to close");
+                return 0;
+            }
+
+            Initialize();
+
+            var ers = EffectiveState.ComputeERS();
+            var owners = CrewRecoveryReservationClose.SelectOwnerRecordings(
+                ers, vesselPid, launchGuid, ut);
+            if (owners.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Recovery crew reservation close: vessel='{vesselText}' pid={vesselPid} " +
+                    $"guid={launchGuid ?? "(null)"} ut={utText} - no committed recording continues " +
+                    "this vessel, nothing to close");
+                return 0;
+            }
+
+            var ownerNames = new List<string>(liveCrewNames.Count);
+            for (int i = 0; i < liveCrewNames.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(liveCrewNames[i]))
+                    ownerNames.Add(liveCrewNames[i]);
+            }
+            KerbalsModule.ReverseMapCrewNames(ownerNames, CrewReservationManager.CrewReplacements, null);
+
+            var rows = CrewRecoveryReservationClose.BuildClosureRows(
+                owners, ownerNames, EffectiveState.ComputeELS(), ers, ut);
+            if (rows.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Recovery crew reservation close: vessel='{vesselText}' ut={utText} " +
+                    $"owners={owners.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"crew='{string.Join(",", ownerNames.ToArray())}' - no open-ended hold in scope");
+                return 0;
+            }
+
+            int written = 0;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                var single = DeduplicateAgainstLedger(new List<GameAction> { row.Action });
+                if (single.Count == 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"Recovery crew reservation close: '{row.Action.KerbalName}' " +
+                        $"recordingId={row.Action.RecordingId} ut={utText} already in the ledger");
+                    continue;
+                }
+
+                row.Action.Sequence = AllocateKscSequence();
+                Ledger.AddAction(row.Action);
+                written++;
+                ParsekLog.Info(Tag,
+                    $"Crew reservation closed by recovery: '{row.Action.KerbalName}' " +
+                    $"recoveryUT={utText} recordingId={row.Action.RecordingId} " +
+                    $"vessel='{vesselText}' openHolds={row.ClosedHolds.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            if (written > 0)
+                RecalculateAndPatchForLiveTimelineEvent(ut, "recovery-crew-reservation-close");
+            return written;
         }
 
         private static string ResolveKscScienceRecordingId(
@@ -6877,6 +7147,10 @@ namespace Parsek
             OnKspLoadAfterOldSaveEventReconcileForTesting = null;
             NowUtProviderForTesting = null;
             DeferOneFrameForTesting = null;
+            KerbalsModule.LiveClockUTProviderForTesting = null;
+            KerbalsModule.LoadedSaveUTProviderForTesting = null;
+            lastTriggeredReservationReleaseUT = double.NaN;
+            postWalkCountAfterReservationReleaseTrigger = -1;
             ParsekLog.Verbose(Tag, "ResetForTesting: all state cleared");
         }
 

@@ -292,6 +292,11 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();
             AdvanceCareerLedgerForKscUT(currentUT);
+            // Time passes here (KSC warp) with no scene change: a Recovered flight's crew
+            // hold that the clock has just reached is released by one recalculation.
+            // Two double comparisons per frame; the recalculation runs once per release.
+            LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(
+                currentUT, "ksc-reservation-release");
 
             // Reconcile already-spawned ghosts against the (possibly shrunk) committed
             // list before any early-out. kscGhosts / kscOverlapGhosts are keyed by
@@ -331,10 +336,11 @@ namespace Parsek
 
                 // BUG-B: maintain the replay-scope latch every frame and decide whether
                 // this committed recording is purely historical (the player progressed
-                // past it in normal forward time and never rewound to replay it). Used
-                // only by the non-looping render/spawn branches below; looping +
-                // mission-unit replays (explicit live opt-in) run through their own
-                // branches and never consult this flag. The active re-fly session is
+                // past it in normal forward time and never rewound to replay it). Gates
+                // the non-looping render/spawn branches below and every recording's
+                // terminal SPAWN, including a looping one's first run
+                // (TryLoopFirstRunSpawnKsc); looping + mission-unit RENDERS (explicit live
+                // opt-in) run through their own branches and ignore it. The active re-fly session is
                 // exempt. Orbital recordings whose extrapolated tail extends past the
                 // live UT would otherwise draw a duplicate ghost of the player's
                 // still-live vessel at the Space Center.
@@ -401,10 +407,18 @@ namespace Parsek
                             i,
                             "playback-disabled-past-end",
                             loggedPlaybackDisabledPastEndSpawnAttempts);
-                        TrySpawnAtRecordingEnd(i, rec);
+                        // A hidden looping recording's spawn is still its first run's.
+                        TrySpawnAtRecordingEnd(i, rec, loopFirstRun: rec.LoopPlayback);
                     }
                     continue;
                 }
+
+                // === Loop first run is real (flight parity) ===
+                // Both loop branches below replay on a loop clock and never reach the
+                // timeline-complete spawn, so a looping recording's first run (its own UT
+                // window) fires its one real terminal spawn here.
+                if (currentLoopUnits.IsMember(i) || rec.LoopPlayback)
+                    TryLoopFirstRunSpawnKsc(i, rec, currentUT, historicalNeverReplayed);
 
                 // === Mission loop-unit follower interception (Phase E parity) ===
                 // HOISTED above the per-recording LoopPlayback gate (mirrors Phase D in flight):
@@ -965,8 +979,8 @@ namespace Parsek
         /// span loopUT through the normal single-ghost path (<see cref="UpdateSingleGhostKsc"/> with
         /// inRange=true) or destroys its ghost directly. Hidden members are torn down directly here
         /// rather than routed through <see cref="UpdateSingleGhostKsc"/> with inRange=false, because
-        /// that path fires the timeline-complete <c>TrySpawnAtRecordingEnd</c> - a looping Mission
-        /// spawns nothing. During the inter-cycle tail-wait (cadence greater than span) every member
+        /// that path fires the timeline-complete <c>TrySpawnAtRecordingEnd</c> - a loop cycle
+        /// spawns nothing (the first run spawns once through TryLoopFirstRunSpawnKsc). During the inter-cycle tail-wait (cadence greater than span) every member
         /// hides.
         /// </summary>
         void UpdateUnitMemberKsc(
@@ -1118,7 +1132,7 @@ namespace Parsek
         /// <summary>
         /// Destroys a unit member's primary KSC ghost (and any stale overlap ghosts) when it is the
         /// hidden / pre-activation member for the frame. Direct teardown, NOT the
-        /// <see cref="UpdateSingleGhostKsc"/> exit-range path, so the looping Mission never fires the
+        /// <see cref="UpdateSingleGhostKsc"/> exit-range path, so a loop cycle never fires the
         /// terminal-spawn (<c>TrySpawnAtRecordingEnd</c>) that path runs on timeline completion.
         /// </summary>
         void DestroyUnitMemberKscGhostIfActive(int i, Recording rec)
@@ -1892,6 +1906,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Loop first-run spawn at the Space Center (the flight engine's
+        /// <c>TryQueueLoopFirstRunSpawn</c>): when a looping recording's real playhead crosses
+        /// its own EndUT, attempt its terminal spawn once through the ordinary
+        /// <see cref="TrySpawnAtRecordingEnd"/>, which applies <c>ShouldSpawnAtKscEnd</c>
+        /// (VesselSpawned, chain rules including "chain looping", the #573 rewind block).
+        /// The cheap pre-gates here keep the one-shot <c>kscSpawnAttempted</c> latch from
+        /// being consumed early: a historical (never replayed) recording, an already
+        /// spawned one, and the frames while a rewind's UT correction is still pending
+        /// (Planetarium UT is the pre-rewind future value then) never reach it.
+        /// </summary>
+        void TryLoopFirstRunSpawnKsc(int recIdx, Recording rec, double currentUT, bool historicalNeverReplayed)
+        {
+            bool attempted = rec.RecordingId != null && kscSpawnAttempted.Contains(rec.RecordingId);
+            if (!GhostPlaybackLogic.ShouldAttemptLoopFirstRunSpawn(
+                    loopDriven: true,
+                    spawnEligible: !historicalNeverReplayed
+                        && !rec.VesselSpawned
+                        && !RecordingStore.RewindUTAdjustmentPending,
+                    currentUT: currentUT,
+                    recordingEndUT: rec.EndUT,
+                    alreadyAttempted: attempted))
+                return;
+
+            ParsekLog.Info("KSCSpawn",
+                "Loop first-run spawn: #" + recIdx.ToString(CultureInfo.InvariantCulture)
+                + " \"" + (rec.VesselName ?? "?") + "\" id=" + (rec.RecordingId ?? "(none)")
+                + " UT=" + currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " endUT=" + rec.EndUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " (the first run of a looping recording is real; later cycles stay ghost-only)");
+            TrySpawnAtRecordingEnd(recIdx, rec, loopFirstRun: true);
+        }
+
+        /// <summary>
         /// Attempt to spawn a real vessel when a recording's ghost reaches end-of-timeline
         /// at KSC. Uses the same eligibility checks as Flight scene but simplified:
         /// no active chain concept, no collision detection (vessels are unloaded at KSC),
@@ -1899,10 +1946,11 @@ namespace Parsek
         /// The spawned vessel will appear in Tracking Station and persist in the save,
         /// but won't be loaded/physical at KSC (no physics range). Bug #99.
         /// </summary>
-        void TrySpawnAtRecordingEnd(int recIdx, Recording rec)
+        void TrySpawnAtRecordingEnd(int recIdx, Recording rec, bool loopFirstRun = false)
         {
-            // Looping recordings restart — never spawn at end
-            if (rec.LoopPlayback)
+            // A loop cycle's exit never spawns; a looping recording spawns only through
+            // TryLoopFirstRunSpawnKsc, when the real playhead crosses its EndUT.
+            if (rec.LoopPlayback && !loopFirstRun)
             {
                 ParsekLog.Verbose("KSCSpawn",
                     $"Spawn skipped for #{recIdx} \"{rec.VesselName}\": looping recording");

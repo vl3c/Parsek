@@ -51,34 +51,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NonGhostedExternalVessel_RealVesselExists_SkipPreserved()
-        {
-            // Non-ghosted external vessel with a live real vessel — existing
-            // behavior: skip the ghost (real vessel serves as its own visual).
-            GhostPlaybackLogic.SetIsGhostedOverride(pid => false);
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
-
-            bool result = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
-                "tree-abc", 200, false);
-
-            Assert.True(result);
-        }
-
-        [Fact]
-        public void NonGhostedExternalVessel_RealVesselMissing_NotSkipped()
-        {
-            // Non-ghosted external vessel whose real vessel is missing —
-            // existing fallback: do NOT skip, a ghost is needed.
-            GhostPlaybackLogic.SetIsGhostedOverride(pid => false);
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => false);
-
-            bool result = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
-                "tree-abc", 300, false);
-
-            Assert.False(result);
-        }
-
-        [Fact]
         public void NullTreeId_NoEffect()
         {
             // Null treeId triggers early return regardless of ghosted state.

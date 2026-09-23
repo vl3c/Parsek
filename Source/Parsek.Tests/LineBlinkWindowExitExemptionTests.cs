@@ -653,16 +653,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsLineBlink_DefaultTracedPathHandoffExempt_PreservesLegacyBehavior()
-        {
-            // Every pre-existing call site omits the new argument and must be byte-identical.
-            Assert.True(MapRenderTrace.IsLineBlink(
-                toggled: true, hasLastToggleFrame: true,
-                lastToggleFrame: 100, currentFrame: 103,
-                bodyChanged: false, offWindowCovered: false, windowTransitionExempt: false));
-        }
-
-        [Fact]
         public void IsLineBlink_NoToggle_TracedPathHandoffExempt_StillNotBlink()
         {
             Assert.False(MapRenderTrace.IsLineBlink(

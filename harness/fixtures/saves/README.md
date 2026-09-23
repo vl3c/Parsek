@@ -511,6 +511,20 @@ stage lights the engine and both cells skip (H62's first census, 2026-09-06, rea
 (`--check`) and `harness/lib/test_coalescer_pad.py`; no `Ships/VAB` overlay because the
 lane launches nothing through kRPC. Host of `H62-coalescer-isolated`.
 
+## pad-runway-pair (GAME Mode = SANDBOX, 2 VESSELS + 1 asteroid, derived from logi-cargo-pad)
+
+`logi-cargo-pad`'s save plus a clone of `rover-route-recorded`'s `rover fuel 0` (a real
+harvested vessel, PRELAUNCH on the runway start, ~1.8 km from the pad). The clone is
+inserted at VESSEL index 0 and `activeVessel` moves 1 -> 2, so the list reads [rover,
+asteroid, Rig] and the fixture still boots focused on the `Logi Cargo Rig` on the pad.
+Index 0 matters: a save written at the Space Center carries `activeVessel = 0`, so after
+a Rewind-to-Launch strips the Rig, the SaveGame + LoadGame the EX-1 lane does lands in
+FLIGHT on the rover, inside ghost range of the pad. The clone's launch Guid, vessel
+`persistentId` and every nested `persistentId` are re-derived deterministically, and
+`lct` / `lastUT` are re-stamped to the base UT. `loadmeta` `vesselCount` is 2. Built and
+drift-gated by `harness/tools/build_pad_runway_pair.py` (`--check`) and
+`harness/lib/test_pad_runway_pair.py`. Host of `EX-1-ghost-extension-past-endut`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /
@@ -667,6 +681,45 @@ Two things a lane author must know before choosing it:
   writes the quicksave at every non-promotion recording start, so StartRecording /
   StopRecording / CommitTree mints one that `tree=latest` resolves to, which is exactly
   what H58 does and what RF-4's re-host should do rather than carrying payload.
+
+### refly-split-crewed-recorded (GAME Mode = SANDBOX)
+
+The RP-SPLIT RE-FLY HOST, landed 2026-09-23 for RF-13 (TOMBSTONED-DEATH-RESURRECTS-ON-
+RELOAD-AFTER-A-RP-SPLIT). Produced by `RF-13H-crewed-crash-refly-host` run
+`2026-09-22_2315` (PASS attempt 1) and harvested with
+`harvest_bdock_station.py --target-name refly-split-crewed-recorded --keep-parsek`;
+shape pinned in `RECORDED_FIXTURES`.
+
+GS-4's crewed Kerbal X with the probe-cored core discarded inside the atmosphere (the
+RewindPoint at UT 118.48), and the top stack left coasting in the atmosphere at the scene
+exit, so the finalizer ran it to a predicted impact. The result is ONE crewed recording
+(pod `816a8822`, Bill and Bob) from launch through the rewind point to a death, with no
+optimizer split, and Dead crew rows in the ledger. A re-fly merge of slot 0 therefore
+SPLITS that recording at the rewind point, which is the common player shape and the one
+no earlier fixture carried: `refly-autopilot-recorded` already holds a merged zero-point
+re-fly, and RF-9's flight crosses 70 km so its death sits on the optimizer's second
+segment. Never re-flown: no supersedes, no tombstones. The RewindPoint quicksave's
+`rewindSave` and `resumeRewindSave` VALUES were cleared after the harvest (keys kept),
+the corpus-wide RF-11 policy `CommittedFixtureRewindSaveTests` gates.
+
+### refly-split-crewed-merged (GAME Mode = SANDBOX)
+
+`refly-split-crewed-recorded` AFTER its RP-split re-fly merge, landed 2026-09-23 for
+RF-13R (the cold-reload half of TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT).
+Produced by `RF-13-refly-split-crew-survives-reload` run `2026-09-23_1503` on the
+post-#1770 DLL and harvested with
+`harvest_bdock_station.py --target-name refly-split-crewed-merged --keep-parsek`; shape
+pinned in `RECORDED_FIXTURES`.
+
+The merge split pod `816a8822` at the rewind point: HEAD `816a8822` (29.92..118.48, no
+terminal, crew end states moved to TIP) stays visible, TIP `2e31fb1e` (Destroyed) is
+superseded by the re-fly `rec_92498045` (Orbiting, Bill and Bob aboard), and two
+tombstones retire TIP's two Dead rows. Those rows still carry the ORIGIN's `ut` /
+`startUT` 29.92 and `endUT` 325.9, so the next COLD load's `MigrateKerbalAssignments`
+re-derives them: that re-derivation is what RF-13R reads. The harvest's situation gate
+passed on the save's active vessel, an asteroid, so it proves nothing here; the
+RewindPoint quicksave's `rewindSave` values were already clear (inherited from the
+host).
 
 ### rover-route-recorded (GAME Mode = SANDBOX, 3 real vessels + 8 asteroids)
 

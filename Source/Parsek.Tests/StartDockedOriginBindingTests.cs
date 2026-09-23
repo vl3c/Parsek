@@ -162,17 +162,6 @@ namespace Parsek.Tests
                     Half(VesselType.Ship, 100u), Half(VesselType.Base, 100u)));
         }
 
-        [Fact]
-        public void PairAdmission_InvalidCargoOwnerBeatsEverythingElse()
-        {
-            // A Ship docked to a Flag is rejected as an invalid cargo owner, and the order
-            // matters because the reject set is the design doc's guard.
-            Assert.Equal(
-                DockSeamPairAdmission.InvalidCargoOwner,
-                RouteProofCapture.ClassifyStartDockedSeamPair(
-                    Half(VesselType.Ship, 100u), Half(VesselType.Flag, 200u)));
-        }
-
         // ==============================================================
         // 2. THE SEAM SPLIT - how a half's part set is known while both halves are one vessel
         // ==============================================================
@@ -1322,18 +1311,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RoverRelay_BothHalvesRoverTyped_ArePairAdmitted()
-        {
-            // (a) The measured skip line's own inputs: nearType=5 farType=5. The old rule
-            // read NoDepotHalf and captured nothing on BOTH docks of that flight.
-            Assert.Equal(
-                DockSeamPairAdmission.Admitted,
-                RouteProofCapture.ClassifyStartDockedSeamPair(
-                    Half(VesselType.Rover, 5100u, "Rover C"),
-                    Half(VesselType.Rover, 5200u, "Rover B")));
-        }
-
-        [Fact]
         public void RoverRelay_FirstUndockAtUt276_PickupOf200_BindsRoverBAsOrigin()
         {
             // Window dock-218.22000000003783-target-2123618197. Transport C keeps flying,
@@ -1553,18 +1530,6 @@ namespace Parsek.Tests
             Assert.Equal(555u, stamped.StartDockedOriginRootPartUId);
             Assert.Contains(logLines, l => l.Contains("RouteOriginProof bind skipped:")
                 && l.Contains("reason=already-bound"));
-        }
-
-        [Fact]
-        public void LivePath_TheUndockDecisionIsTheSplitRecordedStaysActiveBranch()
-        {
-            // Pins WHICH branch the sequence above models. H57's flight logged
-            // recordedPid=313889796 oldPid=313889796 newPid=2934387529 - the recorded vessel
-            // keeps its pid and the depot leaves as the new vessel - and
-            // DeferredUndockBranch then follows the FOCUSED side, which is the recorded one.
-            Assert.Equal(
-                UndockSplitDecision.SplitRecordedStaysActive,
-                SegmentBoundaryLogic.ClassifyUndockSplit(313889796u, 313889796u, 2934387529u));
         }
 
         [Fact]

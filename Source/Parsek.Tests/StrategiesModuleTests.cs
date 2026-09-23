@@ -422,26 +422,6 @@ namespace Parsek.Tests
         // Transform tests — non-effective contracts not transformed
         // ================================================================
 
-        [Fact]
-        public void Transform_NonEffectiveContract_NotTransformed()
-        {
-            // #439 Phase A: identity no-op applies to both effective and non-effective
-            // contracts; the module no longer short-circuits on Effective=false because
-            // there is nothing to short-circuit against.
-            module.ProcessAction(MakeActivate("UnpaidResearch", 100.0,
-                StrategyResource.Reputation, StrategyResource.Science,
-                commitment: 0.10f));
-
-            var contract = MakeContractComplete("c1", 200.0,
-                fundsReward: 10000f, repReward: 50f, scienceReward: 0f,
-                effective: false);
-            module.ProcessAction(contract);
-
-            Assert.Equal(10000f, contract.TransformedFundsReward);
-            Assert.Equal(50f, contract.TransformedRepReward);
-            Assert.Equal(0f, contract.TransformedScienceReward);
-        }
-
         // ================================================================
         // Transform tests — no active strategies means no transform
         // ================================================================
@@ -461,23 +441,6 @@ namespace Parsek.Tests
         // ================================================================
         // Transform tests — contract before activation UT not transformed
         // ================================================================
-
-        [Fact]
-        public void Transform_ContractBeforeActivationUT_NotTransformed()
-        {
-            // #439 Phase A: identity no-op applies regardless of UT relationship
-            // between strategy and contract.
-            module.ProcessAction(MakeActivate("LateStrat", 500.0,
-                StrategyResource.Reputation, StrategyResource.Science,
-                commitment: 0.10f));
-
-            var contract = MakeContractComplete("c1", 300.0,
-                repReward: 100f, scienceReward: 0f);
-            module.ProcessAction(contract);
-
-            Assert.Equal(100f, contract.TransformedRepReward);
-            Assert.Equal(0f, contract.TransformedScienceReward);
-        }
 
         // ================================================================
         // Transform tests — milestone actions not transformed

@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..dd9efb03b 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -5998,6 +5998,10 @@ namespace Parsek
+                     rollback.ForcedSelfRewindDropIds.Contains(retiredId);
+                 bool wasIntentionallyDropped =
+                     wasExplicitlyDemoted || wasForcedSelfRewindDrop;
++                if (retiredRec.MergeState == MergeState.Immutable
++                    && wasForcedSelfRewindDrop && !SuppressLogging)
++                    ParsekLog.Warn("Rewind",
++                        $"Skipping retirement for Immutable canon recording rec={retiredId} (self-rewind)");
+                 if (retiredRec.MergeState == MergeState.Immutable
+                     && !wasIntentionallyDropped)
+                 {

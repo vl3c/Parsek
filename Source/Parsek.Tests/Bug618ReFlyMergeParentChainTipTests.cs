@@ -594,24 +594,6 @@ namespace Parsek.Tests
             upperTip.TrackSections.Add(Section(110.0, 125.0, SegmentEnvironment.ExoBallistic));
         }
 
-        private static void MakeActiveProbeTipMergeThenSplit(RecordingTree tree)
-        {
-            Recording activeProbe = tree.Recordings[ActiveProbe];
-            activeProbe.Points.Clear();
-            activeProbe.Points.Add(Point(100.0));
-            activeProbe.Points.Add(Point(105.0));
-            activeProbe.TrackSections.Clear();
-
-            Recording probeTip = tree.Recordings[ProbeTip];
-            probeTip.Points.Clear();
-            probeTip.Points.Add(Point(105.0));
-            probeTip.Points.Add(Point(115.0));
-            probeTip.Points.Add(Point(130.0));
-            probeTip.TrackSections.Clear();
-            probeTip.TrackSections.Add(Section(105.0, 115.0, SegmentEnvironment.Atmospheric));
-            probeTip.TrackSections.Add(Section(115.0, 130.0, SegmentEnvironment.ExoBallistic));
-        }
-
         private static TrackSection Section(double startUT, double endUT, SegmentEnvironment environment)
         {
             return new TrackSection

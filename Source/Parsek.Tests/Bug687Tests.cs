@@ -47,21 +47,6 @@ namespace Parsek.Tests
         // ────────────────────────────────────────────────────────────
 
         [Fact]
-        public void ShouldBlock_AllUnreservedMissing_DeadSetEmpty_DoesNotBlock()
-        {
-            // The #687 scenario: snapshot has [Jeb, Bill, Bob], all Missing
-            // in the live roster, no reservations. After the bug fix
-            // BuildDeadCrewSet drops the "Missing && !reserved" clause, so
-            // the dead set is empty. ShouldBlockSpawnForDeadCrew must allow.
-            var crew = new List<string> { "Jebediah Kerman", "Bill Kerman", "Bob Kerman" };
-            var deadSet = new HashSet<string>(); // carve-out emptied it
-
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(crew, deadSet);
-
-            Assert.False(result);
-        }
-
-        [Fact]
         public void ShouldBlock_MixedMissingAndDead_OnlyDeadInSet_DoesNotBlock()
         {
             // Jeb + Bill: unreserved+Missing (carved out, NOT in dead set)

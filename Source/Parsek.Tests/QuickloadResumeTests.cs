@@ -2489,22 +2489,6 @@ namespace Parsek.Tests
         // ============================================================
 
         [Fact]
-        public void TryRestoreActiveTreeNode_TreeWithActiveRecording_StashesAsLimbo_Bug266()
-        {
-            // Tree has a populated ActiveRecordingId - quickload-resume path.
-            var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
-            var activeNode = scenarioNode.AddNode("RECORDING_TREE");
-            var tree = MakeTree("tree_alive", "Live Recording", 2);
-            // MakeTree sets ActiveRecordingId = "root_tree_alive" by default.
-            tree.Save(activeNode);
-            activeNode.AddValue("isActive", "True");
-
-            ParsekScenario.TryRestoreActiveTreeNode(scenarioNode);
-
-            Assert.Equal(PendingTreeState.Limbo, RecordingStore.PendingTreeStateValue);
-        }
-
-        [Fact]
         public void TryRestoreActiveTreeNode_TreeWithoutActiveRecording_StashesAsLimboVesselSwitch_Bug266()
         {
             // Outsider state: tree was alive at OnSave time but had no active

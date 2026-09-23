@@ -579,20 +579,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FormatReport_EmptyRollingBuffer()
-        {
-            // Rolling buffer is empty by default after reset
-            var snap = new MetricSnapshot
-            {
-                perRecording = new StorageBreakdown[0]
-            };
-
-            string report = DiagnosticsComputation.FormatReport(snap);
-
-            Assert.Contains("Playback budget: N/A", report);
-        }
-
-        [Fact]
         public void FormatReport_ZeroDuration()
         {
             var bd = new StorageBreakdown

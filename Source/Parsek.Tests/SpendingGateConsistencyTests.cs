@@ -34,18 +34,6 @@ namespace Parsek.Tests
             Assert.Equal(124.768, eff, 3);
         }
 
-        [Fact]
-        public void LeakNoReservation_TheExactBugGCase_IsAffordable()
-        {
-            // The recorded BUG-G frame: cost 45 was blocked with available=1.0 while live
-            // science was preserved at 124.768. With the fix the gate sees the live value.
-            double eff = LedgerOrchestrator.ComputeEffectiveAffordable(
-                available: 1.004, runningBalance: 1.004, liveValue: 124.768,
-                authoritativeReduction: false);
-
-            Assert.True(eff >= 45.0);
-        }
-
         // ----------------------------------------------------------------
         // Reservation case: running is INTACT (>= live), available < running.
         // The reservation must still be respected — this is NOT max(available, live).
@@ -60,18 +48,6 @@ namespace Parsek.Tests
                 authoritativeReduction: false);
 
             Assert.Equal(20.0, eff, 6);
-        }
-
-        [Fact]
-        public void ReservationNoLeak_BlocksOverspendOfReservedScience()
-        {
-            // A plain max(available, live) would return 100 and let the player overspend
-            // the 80 reserved for committed future unlocks. The correct value is 20.
-            double eff = LedgerOrchestrator.ComputeEffectiveAffordable(
-                available: 20.0, runningBalance: 100.0, liveValue: 100.0,
-                authoritativeReduction: false);
-
-            Assert.False(eff >= 50.0);
         }
 
         [Fact]

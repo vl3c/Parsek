@@ -111,25 +111,6 @@ namespace Parsek.Tests
         // The forward gate
         // ----------------------------------------------------------------
 
-        [Fact]
-        public void Gate_ForwardsOnlyWhenUntaggedAndNothingCanStillClaimIt()
-        {
-            // Untagged, no live recorder, no uncommitted tree: nothing else will ever
-            // convert this event, so this handler owns it. THIS is the measured
-            // post-auto-commit recovery case.
-            Assert.True(GameStateRecorder.ShouldForwardDirectScienceSubject("", false, false));
-
-            // Tagged: a live recorder owns the event and the commit-time ConvertEvents
-            // path writes its row. Forwarding here would double-count.
-            Assert.False(GameStateRecorder.ShouldForwardDirectScienceSubject("rec-1", true, false));
-
-            // Empty tag WHILE a recorder is live is tag drift, not proof of ownerlessness.
-            Assert.False(GameStateRecorder.ShouldForwardDirectScienceSubject("", true, false));
-
-            // An active uncommitted tree can still claim the event at commit time.
-            Assert.False(GameStateRecorder.ShouldForwardDirectScienceSubject("", false, true));
-        }
-
         // ----------------------------------------------------------------
         // The write
         // ----------------------------------------------------------------

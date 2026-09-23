@@ -2000,6 +2000,11 @@ namespace Parsek
                 // to undo here. A NEW type does not inherit the exclusions above - with no
                 // case it falls through to `return true`.
                 case GameActionType.KerbalExperience:
+                // KerbalRecovered: a RECORD that stock already returned the kerbal to the
+                // roster; the walk re-derives the bounded hold from the surviving ELS on
+                // every recalc, and the merge retires the row through
+                // IsSupersedeTombstoneEligible. Nothing for a strict block to protect.
+                case GameActionType.KerbalRecovered:
                 // StrategyScienceDebit (STRATEGY-SCIENCE-CONVERSION-LEAK): the science
                 // INPUT leg of a stock currency-exchange strategy. Listed EXPLICITLY,
                 // against this method's twice-stated warning that a NEW type falls
@@ -2386,6 +2391,25 @@ namespace Parsek
                 if (a == null) continue;
                 if (!TombstoneAttributionHelper.InSupersedeScope(a, subtreeSet))
                     continue;
+                double deathFloatStep;
+                if (TombstoneAttributionHelper.IsDeathEndUTWithinFloatStepOfCutoff(
+                        a, rewindCutoffUT, out deathFloatStep))
+                {
+                    // TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS (1), accepted 2026-09-23: the float
+                    // EndUT cannot place this death on either side of the cutoff, so the
+                    // screen below may be deciding on rounding. Warn, not Info: it is a
+                    // real ambiguity in a career-state outcome, and the log validator
+                    // flags only a redundant WARN prefix, never a plain Warn.
+                    ParsekLog.Warn(LedgerSwapTag,
+                        $"PreRewindTombstoneGuard: death endUT within one float step of the cutoff " +
+                        $"action={a.ActionId ?? "<no-id>"} kerbal={a.KerbalName ?? "<none>"} " +
+                        $"rec={a.RecordingId} " +
+                        $"endUT={((double)a.EndUT).ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"floatStep={deathFloatStep.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"-> {(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT) ? "kept" : "in scope")} " +
+                        "(the screen may be deciding on float rounding)");
+                }
                 if (TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT))
                 {
                     preRewindKept++;
@@ -2645,6 +2669,7 @@ namespace Parsek
                 case GameActionType.KerbalHire:
                 case GameActionType.KerbalRescue:
                 case GameActionType.KerbalStandIn:
+                case GameActionType.KerbalRecovered:
                     kerbal++;
                     break;
                 default:

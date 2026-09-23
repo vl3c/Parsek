@@ -2878,7 +2878,8 @@ dotted production key (`Contracts.Pending`) the set is keyed by: a spec author a
 the tab. The set is INVERTED (membership means FOLDED), so the window gained an absolute
 `SetSectionFolded` behind its existing `ToggleSection` - a commanded write must not flip an
 already-correct fold. Both folds only DRAW under the divergence layout, which needs a career
-whose timeline ends later than now.
+whose timeline ends later than now. (2026-09-22: the Milestones tab gained the same split,
+so the prefix now takes a third value, `pending:milestones`.)
 
 **THE GUI-TREE DUMP CARRIES `selectedIndex`** on a `buttongrid`, an ADDITIVE key at the
 unchanged `parsek-gui-tree/1`. The value was already being recorded and mislabelled as

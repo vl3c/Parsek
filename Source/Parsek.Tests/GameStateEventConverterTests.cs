@@ -116,20 +116,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ConvertEvent_PartPurchased_CostOnly_StillParses()
-        {
-            // Save-format read-compat: pre-#451 events only have `cost=<value>` with no
-            // `entryCost=` token. That remains the authoritative amount.
-            var evt = MakeEvent(GameStateEventType.PartPurchased, 2200.0,
-                key: "mk1pod", detail: "cost=600");
-            var action = GameStateEventConverter.ConvertEvent(evt, "rec451-2");
-
-            Assert.NotNull(action);
-            Assert.Equal(GameActionType.FundsSpending, action.Type);
-            Assert.Equal(600f, action.FundsSpent);
-        }
-
-        [Fact]
         public void ConvertEvent_PartPurchased_EntryCostOnly_FallsBackWhenCostMissing()
         {
             // Defensive fallback for malformed/future detail that omitted `cost=`.

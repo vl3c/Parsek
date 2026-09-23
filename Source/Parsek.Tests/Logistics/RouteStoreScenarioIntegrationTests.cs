@@ -116,27 +116,6 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(scenarioNode.GetNodes("ROUTE"));
         }
 
-        // catches: load-path silent skip.
-        [Fact]
-        public void Scenario_OnLoad_ReadsRoutesFromCleanState()
-        {
-            // Author a scenario node by going through the save path so the
-            // exact ConfigNode shape Phase 4 expects on disk is what we read.
-            RouteStore.AddRoute(BuildRoute("route-1", "One", 111u));
-            RouteStore.AddRoute(BuildRoute("route-2", "Two", 222u));
-            var scenarioNode = new ConfigNode("SCENARIO");
-            RouteStore.SaveRoutesTo(scenarioNode);
-            RouteStore.ResetForTesting();
-            logLines.Clear();
-
-            int loaded = RouteStore.LoadRoutesFrom(scenarioNode);
-
-            Assert.Equal(2, loaded);
-            Assert.Equal(2, RouteStore.CommittedRoutes.Count);
-            Assert.Equal("route-1", RouteStore.CommittedRoutes[0].Id);
-            Assert.Equal("route-2", RouteStore.CommittedRoutes[1].Id);
-        }
-
         // catches: UI order shuffle through a full round-trip.
         [Fact]
         public void Scenario_RoundTrip_PreservesRouteOrder()

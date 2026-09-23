@@ -229,6 +229,14 @@ namespace Parsek
 
         internal static string GetCareerMainButtonLabel() => "Career";
 
+        // The live game mode for launcher gating, or CAREER when no game is loaded (the
+        // pre-change behavior: the launcher shows).
+        private static Game.Modes CurrentGameModeOrCareer()
+        {
+            Game game = HighLogic.CurrentGame;
+            return game != null ? game.Mode : Game.Modes.CAREER;
+        }
+
         // --- Frame-latched Basic / Advanced UI complexity mode (design 7.2) ---
         // Static because the setter seam is static and the setting is global; both
         // scenes construct their own ParsekUI and re-seed the latch from settings.
@@ -950,8 +958,11 @@ namespace Parsek
             // never two gaps in a row (design 7.1).
             bool showKerbalsButton =
                 UiSurfaceVisibility.IsVisible(UiSurface.MainButtonKerbals, complexity);
+            // Career is additionally hidden in Sandbox (and the mission modes): nothing
+            // career-shaped is tracked there, so every tab would be an empty sentence.
             bool showCareerButton =
-                UiSurfaceVisibility.IsVisible(UiSurface.MainButtonCareer, complexity);
+                UiSurfaceVisibility.IsVisible(UiSurface.MainButtonCareer, complexity)
+                && CareerStateWindowUI.ModeOffersLauncher(CurrentGameModeOrCareer());
 
             if (showKerbalsButton || showCareerButton)
                 GUILayout.Space(SpacingLarge);

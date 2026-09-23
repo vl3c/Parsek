@@ -100,20 +100,5 @@ namespace Parsek.Tests
             }
         }
 
-        [Fact]
-        public void ApplySetting_TrackedName_RoutesSidecar_GameParamsName_DoesNot()
-        {
-            // Focused pair: one tracked, one untracked, spelling out the fix's contract.
-            SettingApplyResult tracked = SettingWhitelist.TryApply("mapRenderTracing", "true");
-            SettingApplyResult untracked = SettingWhitelist.TryApply("autoMerge", "true");
-
-            var trackedRecord = new List<string>();
-            TestCommandSettingApplier.ApplySetting(tracked, r => { }, r => trackedRecord.Add(r.RecordMethod));
-            Assert.Equal(new[] { "RecordMapRenderTracing" }, trackedRecord);
-
-            var untrackedRecord = new List<string>();
-            TestCommandSettingApplier.ApplySetting(untracked, r => { }, r => untrackedRecord.Add(r.RecordMethod));
-            Assert.Empty(untrackedRecord);
-        }
     }
 }

@@ -235,16 +235,18 @@ The window is draggable and resizable. Fold state is transient: it survives clos
 
 ### Career State Window
 
-Click the "Career" button in the main Parsek window to open the Career State window. The window surfaces four career-scoped modules that otherwise have no UI, across four tabs:
+Click the "Career" button in the main Parsek window (Advanced mode) to open the Career State window. It shows the career state that has no stock screen of its own: what is true now, and what the recorded timeline still does to it. Every date is the compact KSP date the Kerbals and Timeline windows use (`Y1, D40, 05:17`).
 
-- **Contracts** — active contracts with accept UT and deadline, plus Mission Control slot usage (`1/2 now, 2/2 at timeline end`). When the timeline holds a committed recording that hasn't been played yet, its future `ContractAccept` actions appear under a collapsible **Pending in timeline** sub-section separate from **Active now**.
-- **Strategies** — active Administration strategies with source/target resource, commitment percentage, activation UT, and Administration slot usage. Same "current vs. at-timeline-end" split as Contracts when future activations are committed.
-- **Facilities** — level (1-3) and destroyed/repair state for all nine KSC buildings (VAB, SPH, LaunchPad, Runway, Administration, Mission Control, Tracking Station, R&D, Astronaut Complex). Upcoming level changes show as `L2 -> L3 (upcoming)`; destroyed buildings with a pending repair show `(destroyed, repair pending)`.
-- **Milestones** — full chronological list of credited milestones with UT and any funds/rep/science reward. Pending milestones (from committed-but-unplayed recordings) are interleaved and flagged.
+- **Contracts** - active contracts with their accept date and deadline, plus Mission Control slot usage (`slots 1/2 now, 2/2 at timeline end`). A deadline also says how far away it is, `(in 12d)`, or `(overdue 3d)` in amber once it has passed.
+- **Strategies** - active Administration strategies with their activation date and resource flow, plus Administration slot usage.
+- **Facilities** - the level of each of the nine KSC buildings, with `(destroyed)` while stock reports one down.
+- **Milestones** - every credited milestone with its date and reward (`Kerbin - Science`, `+ 1600 funds`).
 
-The mode banner at the top shows `Career mode - UT {liveUT}` and, when the timeline extends past the live moment, appends `(timeline ends at UT {terminalUT})` so you can see at a glance whether the career has committed-but-unplayed actions reaching into the future. The window is hidden-but-clickable in Science and Sandbox modes: Contracts and Strategies tabs show "unavailable in Science mode" / "not tracked in Sandbox mode" messages, Facilities and Milestones still render in Science.
+When the recorded timeline changes a row after the live moment, a **Timeline end** column appears and says what it does: `completes Y1, D40`, `FAILS Y1, D40` (amber: a failure costs funds and reputation), `cancelled`, `deactivates`, `upgrades to L2`, `destroyed` (a committed flight that wrecks a building). Rows the timeline adds later (a contract accepted, a strategy activated or a milestone credited in a committed recording that has not played yet) sit in a foldable **Pending in timeline** group under the rows that are true now. The mode banner reads `Career mode - <date>` and adds `(timeline ends <date>)` when the timeline reaches past the live moment.
 
-The window is draggable, resizable, and the tab bar uses the same styling as the rest of Parsek. Tab selection resets on close.
+The window only draws the tabs a game mode has. In Science mode there are no contracts, strategies or building levels (stock treats every building as fully upgraded), so the window shows Milestones, plus a Facilities tab that appears only while a building is destroyed or a committed flight will destroy one; buildings can be destroyed in Science mode unless the difficulty option Indestructible Facilities is on. Whether a building is down now is read from the game itself (re-read about once a game minute while the window is open), so a building repaired at the KSC reads intact. In Sandbox nothing career-shaped is tracked and the Career button is hidden.
+
+The window is draggable and resizable down to 520 x 320, and the tab bar uses the same styling as the rest of Parsek. It keeps its tab when you close and reopen it.
 
 ### Settings
 

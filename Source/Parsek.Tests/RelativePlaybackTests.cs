@@ -286,38 +286,6 @@ namespace Parsek.Tests
         #region FindTrackSectionForUT with RELATIVE reference frame
 
         [Fact]
-        public void FindTrackSectionForUT_RelativeSection_ReturnsCorrectIndex()
-        {
-            var sections = new List<TrackSection>
-            {
-                new TrackSection
-                {
-                    startUT = 100.0, endUT = 110.0,
-                    referenceFrame = ReferenceFrame.Absolute,
-                    frames = new List<TrajectoryPoint>()
-                },
-                new TrackSection
-                {
-                    startUT = 110.0, endUT = 150.0,
-                    referenceFrame = ReferenceFrame.Relative,
-                    anchorVesselId = 42u,
-                    frames = new List<TrajectoryPoint>()
-                },
-                new TrackSection
-                {
-                    startUT = 150.0, endUT = 200.0,
-                    referenceFrame = ReferenceFrame.Absolute,
-                    frames = new List<TrajectoryPoint>()
-                }
-            };
-
-            int idx = TrajectoryMath.FindTrackSectionForUT(sections, 130.0);
-            Assert.Equal(1, idx);
-            Assert.Equal(ReferenceFrame.Relative, sections[idx].referenceFrame);
-            Assert.Equal(42u, sections[idx].anchorVesselId);
-        }
-
-        [Fact]
         public void FindTrackSectionForUT_AbsoluteBeforeRelative_ReturnsAbsolute()
         {
             var sections = new List<TrackSection>

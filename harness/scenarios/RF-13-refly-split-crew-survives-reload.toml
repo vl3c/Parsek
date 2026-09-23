@@ -1,0 +1,172 @@
+schema = 1
+id = "RF-13-refly-split-crew-survives-reload"
+# =====================================================================================
+# THE PROOF LANE OF TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT
+# (operator rulings of 2026-09-23).
+#
+# RF-12S proved the endUT tombstone ruling on a host whose merge does NOT split the
+# origin (its closure root is a prior zero-point re-fly). The COMMON player shape does
+# split: crew boarded at launch on a recording that spans the rewind point, so the
+# merge cuts it into HEAD (pre-rewind, kept) + TIP (post-rewind, superseded) and
+# retags the death row onto TIP. On a pre-fix DLL the next load then brought the
+# retired deaths back for BOTH halves:
+#   - TIP: the retagged row keeps the ORIGIN's UT, so MigrateKerbalAssignments
+#     re-derived it with a fresh ActionId no tombstone covers;
+#   - HEAD: the split left the origin's Dead CrewEndStates on HEAD, so HEAD derived a
+#     death it never had.
+# The fix: re-derived rows inherit the replaced row's ActionId (ruling a1), and the
+# split moves the crew end states to TIP with the terminal so HEAD re-derives through
+# the chain-handoff rule as Recovered.
+#
+# THE HOST is `refly-split-crewed-recorded`, harvested from RF-13H: GS-4's crewed
+# Kerbal X with the probe-cored core discarded inside the atmosphere (the
+# RewindPoint), the top stack left coasting in the atmosphere at the scene exit, so
+# one crewed recording runs from launch through the rewind point to a predicted
+# impact (Destroyed, crew Dead) with no optimizer split.
+#
+# THE FLIGHT is RF-12S's, pointed at that host: rewind slot 0 (the crewed stack),
+# burn it to orbit with `rf12s_refly_orbit_insert` so the crew SURVIVE the re-fly,
+# merge (this merge SPLITS the origin), then SaveGame + LoadGame.
+#
+# THE RELOAD HERE IS IN-SESSION, and that bounds what this lane can claim. The seam
+# `LoadGame` of the same save keeps `initialLoadDone` true: the recordings and the
+# ledger stay in memory and `MigrateKerbalAssignments` never runs, so a pre-fix DLL
+# would pass this reload as well. This lane owns the MERGE side of the fix (the split,
+# the crew end states moved onto TIP, the endUT screen, the tombstones, permanent=0
+# after the merge and after the in-session reload); the RE-DERIVATION side, cause (a),
+# is RF-13R's, which re-reads this lane's produced save (harvested as
+# `refly-split-crewed-merged`) in a NEW process.
+#
+# HISTORY. Four reading attempts on 2026-09-22 never reached the merge: one fixed
+# pitch ran the X200-16 dry short of orbit every time (`2026-09-22_2319` + `_2322_a2`
+# pitch -5, `_2333` -10, `_2337` +5; best periapsis 61.8 km), because the host restores
+# the stack at 29 km climbing near-vertically (RF-13-HOST-CANNOT-REACH-ORBIT). The
+# missionParams below fly the mission's raise / coast / circularize pitch program
+# instead, no re-harvest. READING RUN `2026-09-23_1503` (fixed DLL, hash
+# 1fa18b029522e6d8): MISSION-OK (raise cut at ap 80.5 km, circularize from 80.3 km,
+# cut at pe >= 72 km), the merge split 816a8822 at UT 118.48 and moved 2 crew end
+# states, tombstoned 2 Kerbal rows, `permanent=0` before and after the reload; it read
+# PARSEK-FAIL(expectation) on exactly one token, the Migrate re-derivation this lane
+# can never produce, which moved to RF-13R in the same change. ARMED RE-FLIGHT
+# `2026-09-23_1528` PASS attempt 1 (same DLL), every token met, saveParse gating PASS.
+# The negative control is RF-13R's (`_1533`): this lane's own reload cannot tell a
+# pre-fix DLL apart, so a control here would prove nothing.
+# =====================================================================================
+tier = "operator"
+description = "Proof lane for TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: rewind refly-split-crewed-recorded slot 0 (crew boarded at launch, died after the rewind point), burn the restored stack to orbit so the crew survive, merge - a merge that SPLITS the origin recording at the rewind point - then save and reload. The crew must not read Dead after the reload."
+instanceProfile = "stock-minimal"
+tags = ["RF-13", "rewind", "refly", "merge", "tombstone", "crew-loss", "reload",
+        "rp-split", "autopilot", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/refly-split-crewed-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "rf12s_refly_orbit_insert"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the guard, split-move and Migrate per-recording lines are Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },   expect = "OK" },
+  # InvokeRewind REJECTs `recording-active`; RF-12S's order.
+  { cmd = "StopRecording",                                                         expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles", expect = "OK" },
+  # Slot 0: the crewed stack (RF-13H's promotion line pins slot=0).
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },       expect = "OK", budget = 300 },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 900 },
+  # Drives the scene exit, finalization (terminal Orbiting) and the merge.
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                        expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                                        expect = "OK" },
+  # THE RELOAD: persist the merged career, then load it back.
+  { cmd = "SaveGame",          args = { name = "persistent" },                     expect = "OK" },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                          expect = "OK" },
+]
+
+[driver.missionParams]
+# NOT RF-12S's single burn: the PITCH PROGRAM. The host restores the stack at 29.1 km
+# climbing almost vertically (vsurf 711 m/s, ap 60.5 km), and a periapsis can never
+# exceed the altitude reached. MEASURED on one fixed pitch, every burn ran dry below
+# 63 km with most of the energy spent on the apoapsis: pitch -5 (2026-09-22_2319 +
+# _2322_a2) pe 61.8 km on a near-escape trajectory, -10 (_2333) pe 50.8 km, +5 (_2337)
+# pe 54.2 km. The program raises the apoapsis to 80 km at 45 deg, coasts with the
+# throttle cut until the vertical speed falls to 30 m/s (near the apoapsis, above the
+# atmosphere), then circularizes on a vertical-speed pitch law. A point-mass sweep from
+# the RP state reaches this periapsis at ~79 km with 4 t or more of propellant (this
+# stack carries ~8 t). Target: 72 km, 2 km of margin over the atmosphere top; any
+# periapsis above 70 km is an orbit the finalizer stamps Orbiting, which is all the
+# lane needs (crew alive at the merge).
+headingDeg                = 90.0
+throttle                  = 1.0
+raiseApoapsisMeters       = 80000.0
+raisePitchDeg             = 45.0
+circStartVerticalSpeedMps = 30.0
+circPitchGainDegPerMps    = 0.5
+circPitchMinDeg           = -10.0
+circPitchMaxDeg           = 45.0
+coastFrames               = 600
+targetPeriapsisMeters     = 72000.0
+periapsisDebounceFrames   = 2
+minStartAltitudeMeters    = 10000.0
+minCrew                   = 1
+igniteFrames              = 20
+burnFrames                = 600
+
+[dimensionsCovered]
+# BASICS ONLY: a proof lane for one defect, not a dimension claim.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 40 }
+
+[expectations.logContracts]
+required = [
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  # THE PRECONDITION: this merge splits the origin at the rewind point.
+  "Split origin \\S+ at UT=[0-9.]+: HEAD=\\[",
+  "Split: moved [1-9] crew end state\\(s\\) from \\S+ onto the second half",
+  "PreRewindTombstoneGuard: death interval screened by endUT action=act_[0-9a-f]{32} kerbal=",
+  "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]",
+  "Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 ",
+  # THE RELOAD: a walk after the post-merge in-session LoadGame reads no permanent
+  # reservation. (No Migrate token: an in-session load never runs it; RF-13R owns it.)
+  "(?s)Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 .*exec id=[0-9]+ cmd=LoadGame start.*PostWalk summary: reservations=[0-9]+ permanent=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The pre-fix reload: a re-derived row under a fresh id orphans the merge's tombstone.
+  "Orphan tombstone=",
+  # Any permanent reservation after the post-merge reload.
+  "(?s)Recomputed after tombstones: .*exec id=[0-9]+ cmd=LoadGame start.*PostWalk summary: reservations=[0-9]+ permanent=[1-9]",
+  "(?s)Recomputed after tombstones: .*exec id=[0-9]+ cmd=LoadGame start.*endUT=INDEFINITE \\(Dead\\)",
+  "reason=sealedTipClosed",
+]
+
+[expectations.rewind]
+# ARMED 2026-09-23 off the reading run `2026-09-23_1503` (supersedeRows 1, tombstones 2:
+# the merge retires the two Dead rows TIP carries).
+gating        = true
+supersedeRows = { min = 1, max = 1 }
+tombstones    = { min = 2, max = 2 }
+
+[runtime]
+# LoadGame 660 + SetSetting x2 240 + StopRecording 120 + ListHandles 120
+#   + InvokeRewind 660 + mission 900 + AnswerMergeDialog 240 + RecordingState 120
+#   + SaveGame 120 + LoadGame 660 + FlushAndQuit 120 = 3960. 4200 clears it by 240.
+budgetSeconds = 4200
+
+[retry]
+# none while the burn is being tuned: a MISSION give-up retried is a second
+# identical flight.
+policy = "none"
+
+[expectedFail]
+bugId = ""

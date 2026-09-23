@@ -218,7 +218,28 @@ namespace Parsek
         /// family's science leg is always a debit (its output currency is funds or
         /// reputation).</para>
         /// </summary>
-        StrategyScienceCredit = 33
+        StrategyScienceCredit = 33,
+
+        /// <summary>
+        /// A kerbal came home: KSP recovered a REAL vessel that is the live continuation
+        /// of a committed recording (the same launch by positive guid match, or the vessel
+        /// Parsek spawned from it) with this kerbal aboard. Carries
+        /// <see cref="GameAction.KerbalName"/> (the reservation owner's name, reverse-mapped
+        /// from a seated stand-in) and <see cref="GameAction.RecordingId"/> (the owning
+        /// committed recording); the row's <see cref="GameAction.UT"/> is the recovery
+        /// instant.
+        ///
+        /// <para>Design 9.3: a STRANDED (Aboard) or Unknown hold stays open "until a rescue
+        /// recording closes it". This row is that closure for the case the recording itself
+        /// cannot express: with auto-merge on, an in-flight Recover commits the flight at the
+        /// scene change BEFORE stock recovers the vessel, so the committed recording ends
+        /// Landed with crew aboard, and committed recordings are never re-stamped.
+        /// <see cref="KerbalsModule"/> ends this kerbal's open-ended holds from the owner's
+        /// tree (flights ending at or before the recovery) at this UT, so the reservation
+        /// becomes UT 0 -> recovery UT and a rewind to before it holds him again. Not
+        /// resource-impacting; retired with the owner recording by a re-fly supersede.</para>
+        /// </summary>
+        KerbalRecovered = 34
     }
 
     /// <summary>
@@ -1052,6 +1073,9 @@ namespace Parsek
                 case GameActionType.KerbalExperience:
                     SerializeKerbalExperience(node);
                     break;
+                case GameActionType.KerbalRecovered:
+                    SerializeKerbalRecovered(node);
+                    break;
                 case GameActionType.FacilityUpgrade:
                     SerializeFacilityUpgrade(node);
                     break;
@@ -1208,6 +1232,9 @@ namespace Parsek
                     break;
                 case GameActionType.KerbalExperience:
                     DeserializeKerbalExperience(node, a);
+                    break;
+                case GameActionType.KerbalRecovered:
+                    DeserializeKerbalRecovered(node, a);
                     break;
                 case GameActionType.FacilityUpgrade:
                     DeserializeFacilityUpgrade(node, a);
@@ -1643,6 +1670,18 @@ namespace Parsek
             a.KerbalName = n.GetValue("kerbalName");
             a.KerbalRole = n.GetValue("kerbalRole");
             a.KerbalCareerEntries = n.GetValue("careerEntries");
+        }
+
+        private void SerializeKerbalRecovered(ConfigNode n)
+        {
+            if (KerbalName != null) n.AddValue("kerbalName", KerbalName);
+            if (KerbalRole != null) n.AddValue("kerbalRole", KerbalRole);
+        }
+
+        private static void DeserializeKerbalRecovered(ConfigNode n, GameAction a)
+        {
+            a.KerbalName = n.GetValue("kerbalName");
+            a.KerbalRole = n.GetValue("kerbalRole");
         }
 
         private void SerializeFacilityUpgrade(ConfigNode n)

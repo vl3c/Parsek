@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 38dd093ac..ac7413a88 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -339,7 +339,7 @@ namespace Parsek
+             if (p?.vessel == null)
+             {
+                 ParsekLog.VerboseRateLimited("BgRecorder", "bg-part-die-null",
+-                    "OnBackgroundPartDie: part or vessel is null");
++                    "part or vessel is null");
+                 return;
+             }
+ 

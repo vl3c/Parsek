@@ -907,6 +907,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # It is not recording state, no gate reads it, and the five zero-counts
         # asserted below all hold over it, so it is deliberately NOT stripped.
         "logi-cargo-pad": True,
+        # pad-runway-pair: logi-cargo-pad plus a clone of rover-route-recorded's
+        # `rover fuel 0` on the runway, derived by build_pad_runway_pair.py (the EX-1
+        # host). It inherits logi-cargo-pad's node verbatim, so True for the same reason.
+        "pad-runway-pair": True,
     }
 
     # RECORDED-STATE fixtures (harvest --keep-parsek): produced saves whose
@@ -3337,6 +3341,75 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "rec_c54a110cecb542e5b848e4e9d7fbd920"],
             "schemaGeneration": 4,
         },
+        # --- THE RP-SPLIT RE-FLY HOST -----------------------------------------
+        # PROVENANCE: refly-split-crewed-recorded <- RF-13H-crewed-crash-refly-host,
+        # run 2026-09-22_2315, PASS attempt 1 (deployed hash 6af1ed6e88155367),
+        # --keep-parsek via harness/tools/harvest_bdock_station.py.
+        #
+        # THE SHAPE RF-13 NEEDS and no other fixture has: ONE crewed recording
+        # (pod 816a8822, Bill + Bob, launch UT 29.92 through the RewindPoint at
+        # 118.48 to a predicted impact, explicitEndUT 325.91, 425 points) that the
+        # optimizer did NOT split (the stack never left the atmosphere), so a
+        # re-fly merge of slot 0 splits it at the rewind point. Its CrewEndStates
+        # and both ledger KerbalAssignment rows are Dead (29.92..325.91).
+        #   terminalStates Destroyed 8: the pod and the probe core (both extrapolated
+        #     to impact) and six booster-drop debris.
+        #   rewind_points 1 (slots: 0 = pod 816a8822, 1 = probe 6abe5ea7), no
+        #     supersedes and no tombstones: the fixture has never been re-flown.
+        #   32 authoritative sidecars over 8 recordings.
+        "refly-split-crewed-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 8,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 1,
+            "rewind_retirements": 0,
+            "terminalStates": {"Destroyed": 8},
+            "branchPoints": {"JointBreak": 5},
+            "minAuthoritativeSidecars": 32,
+            "recordingIds": ["276787aa79104008bc894ccf6aa893e3",
+                             "64b38ddecc1143e38ed19bff96d96317",
+                             "6abe5ea7a1f14ec5a2666bd15d3f7352",
+                             "6b56fc72d1c14ed4b41d56bc5190cf93",
+                             "7b48a2b63a1048068135dadb61d0e460",
+                             "816a8822db4648e88b0c3d5b13c7e56d",
+                             "81e40b06ca9d4331b343a6b48284902a",
+                             "de6ff31af7ad42368632789e5c9051b0"],
+            "schemaGeneration": 4,
+        },
+        # --- THE RP-SPLIT RE-FLY, MERGED -----------------------------------
+        # PROVENANCE: refly-split-crewed-merged <- RF-13-refly-split-crew-survives-
+        # reload, run 2026-09-23_1503 (deployed hash 1fa18b029522e6d8, the post-#1770
+        # DLL), --keep-parsek via harness/tools/harvest_bdock_station.py. The run
+        # merged and reloaded in-session; its one red token was the Migrate
+        # re-derivation an in-session load never runs, which RF-13R reads instead.
+        #
+        # THE SHAPE RF-13R NEEDS: refly-split-crewed-recorded after the RP-split
+        # re-fly merge. The origin pod 816a8822 is now HEAD (29.92..118.48, no
+        # terminal, crew end states cleared), TIP 2e31fb1e (118.40..139.32,
+        # Destroyed) is superseded by the re-fly rec_92498045 (Orbiting), and the
+        # ledger still carries TIP's two retagged Dead rows with the ORIGIN's
+        # ut / startUT 29.92 and endUT 325.9, the two rows the tombstones cover.
+        #   terminalStates Destroyed 8 (TIP, the probe core, six debris) +
+        #     Orbiting 1 (the re-fly); HEAD carries none.
+        #   supersedes 1, tombstones 2, rewind_points 1.
+        #   39 authoritative sidecars over 10 recordings.
+        "refly-split-crewed-merged": {
+            "trees": 1, "committedTrees": 1, "recordings": 10,
+            "supersedes": 1, "tombstones": 2, "rewind_points": 1,
+            "rewind_retirements": 0,
+            "terminalStates": {"Destroyed": 8, "Orbiting": 1},
+            "branchPoints": {"JointBreak": 5},
+            "minAuthoritativeSidecars": 39,
+            "recordingIds": ["276787aa79104008bc894ccf6aa893e3",
+                             "2e31fb1e46d34f8b92aacb9cff38507d",
+                             "64b38ddecc1143e38ed19bff96d96317",
+                             "6abe5ea7a1f14ec5a2666bd15d3f7352",
+                             "6b56fc72d1c14ed4b41d56bc5190cf93",
+                             "7b48a2b63a1048068135dadb61d0e460",
+                             "816a8822db4648e88b0c3d5b13c7e56d",
+                             "81e40b06ca9d4331b343a6b48284902a",
+                             "de6ff31af7ad42368632789e5c9051b0",
+                             "rec_92498045bde0451ebb7a7a1038a0d06c"],
+            "schemaGeneration": 4,
+        },
         "refly-a-recorded": {
             "trees": 1, "committedTrees": 1, "recordings": 10,
             "supersedes": 1, "tombstones": 0, "rewind_points": 0,
@@ -3544,7 +3617,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         self.assertEqual(
             {"trees": 0, "committedTrees": 0, "recordings": 0,
              "terminalStates": {}, "branchPoints": {},
-             "duplicateRecordingIds": [], "ghostChainNodes": 0},
+             "duplicateRecordingIds": [], "ghostChainNodes": 0,
+             # The vessel census is NOT a Parsek surface: the host save's own craft
+             # counts, and no committed recording means no spawned vessel.
+             "spawnedVessels": 0, "vesselNames": {"mk1-capsule": 1}},
             obs["recordings"]["structure"])
 
     def test_no_committed_fixture_persists_ghost_chain_state(self):
@@ -3580,6 +3656,77 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         self.assertEqual(saveparse.STATUS_FAIL, r.status)
         self.assertEqual(("recordings.structure.ghostChainNodes 3 > max 0",),
                          r.mismatches)
+
+
+class VesselCensusFacetTests(unittest.TestCase):
+    """The loop-first-run-is-real census (D18): `spawnedVessels` counts FLIGHTSTATE
+    vessels behind COMMITTED recordings' spawnedPid, `vesselNames` counts every
+    non-SpaceObject vessel by name."""
+
+    @staticmethod
+    def _save(spawned_pid, tree_marker, vessels):
+        lines = ["GAME", "{", "\tFLIGHTSTATE", "\t{"]
+        for name, vtype, pid in vessels:
+            lines += ["\t\tVESSEL", "\t\t{", "\t\t\tname = %s" % name,
+                      "\t\t\ttype = %s" % vtype, "\t\t\tpersistentId = %d" % pid,
+                      "\t\t}"]
+        lines += ["\t}", "\tSCENARIO", "\t{", "\t\tname = ParsekScenario",
+                  "\t\tRECORDING_TREE", "\t\t{", "\t\t\tid = t1"]
+        if tree_marker:
+            lines.append("\t\t\t%s = True" % tree_marker)
+        lines += ["\t\t\tRECORDING", "\t\t\t{", "\t\t\t\trecordingId = r1",
+                  "\t\t\t\tspawnedPid = %d" % spawned_pid, "\t\t\t}",
+                  "\t\t}", "\t}", "}", ""]
+        return "\n".join(lines)
+
+    def test_one_real_vessel_behind_the_spawn(self):
+        snap = saveparse.parse_parsek_scenario(self._save(
+            42, None, [("Ast. ABC-123", "SpaceObject", 7), ("Rig", "Probe", 42)]))
+        self.assertTrue(snap.parsed, snap.error)
+        obs = saveparse.observed_structure_facets(snap)["recordings"]["structure"]
+        self.assertEqual(1, obs["spawnedVessels"])
+        self.assertEqual({"Rig": 1}, obs["vesselNames"])
+
+    def test_duplicate_under_a_fresh_pid_reds_only_the_name_window(self):
+        # The second copy took a new pid: the recording points at it, the old copy
+        # is an orphan. The pid facet still reads 1; the name census reads 2.
+        snap = saveparse.parse_parsek_scenario(self._save(
+            43, None, [("Rig", "Probe", 42), ("Rig", "Probe", 43)]))
+        exp = {"recordings": {"structure": {
+            "gating": True, "spawnedVessels": 1, "vesselNames": {"Rig": 1}}}}
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            exp["recordings"]["structure"]))
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("recordings.structure.vesselNames.Rig 2 != 1",), r.mismatches)
+
+    def test_stripped_and_never_respawned_reads_zero(self):
+        snap = saveparse.parse_parsek_scenario(self._save(42, None, []))
+        obs = saveparse.observed_structure_facets(snap)["recordings"]["structure"]
+        self.assertEqual(0, obs["spawnedVessels"])
+        r = saveparse.evaluate_save_structure(
+            {"recordings": {"structure": {"gating": True, "spawnedVessels": 1,
+                                          "vesselNames": {"Rig": 1}}}}, snap)
+        self.assertEqual(("recordings.structure.spawnedVessels 0 != 1",
+                          "recordings.structure.vesselNames.Rig 0 != 1"), r.mismatches)
+
+    def test_only_committed_trees_and_nonzero_pids_count(self):
+        # An ACTIVE (in-flight) tree's recording is not a committed spawn, and a
+        # spawnedPid of 0 means "not spawned", never "the vessel with pid 0".
+        active = saveparse.parse_parsek_scenario(self._save(
+            42, "isActive", [("Rig", "Probe", 42)]))
+        self.assertEqual(0, saveparse.spawned_vessel_count(active))
+        unspawned = saveparse.parse_parsek_scenario(self._save(
+            0, None, [("Rig", "Probe", 0)]))
+        self.assertEqual(0, saveparse.spawned_vessel_count(unspawned))
+
+    def test_vessel_names_shape_is_validated(self):
+        self.assertTrue(saveparse.validate_structure_expectations(
+            {"vesselNames": 1}))
+        self.assertTrue(saveparse.validate_structure_expectations(
+            {"vesselNames": {"Rig": "one"}}))
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            {"vesselNames": {"Logi Cargo Rig": {"min": 1, "max": 1}}}))
 
 
 class SpecSurfaceValidationTests(unittest.TestCase):

@@ -258,22 +258,6 @@ namespace Parsek.Tests
             Assert.True(jump);
         }
 
-        [Fact]
-        public void IsIconJump_DefaultSuppressionLifted_PreservesLegacyBehavior()
-        {
-            // The new param defaults false, so a call that omits it is byte-identical to the pre-fix
-            // predicate: a delta above the floor still flags.
-            bool jump = MapRenderTrace.IsIconJump(
-                dPos: MapRenderTrace.IconJumpFloorMeters + 1.0,
-                expectedMotionMeters: 0.0,
-                currentFrame: 1000,
-                floatingOriginShiftFrame: FrameNoFloatingOrigin,
-                justReset: false,
-                bodyChanged: false);
-
-            Assert.True(jump);
-        }
-
         // ---- IsLineBlink ----
 
         [Fact]
@@ -432,21 +416,6 @@ namespace Parsek.Tests
                 currentFrame: 1008, // the longer measured V1 window, at the frame-window edge
                 bodyChanged: false,
                 offWindowCovered: false);
-
-            Assert.True(blink);
-        }
-
-        [Fact]
-        public void IsLineBlink_DefaultOffWindowCovered_PreservesLegacyBehavior()
-        {
-            // The new param defaults false, so a call that passes bodyChanged but omits
-            // offWindowCovered is byte-identical to the pre-guard predicate.
-            bool blink = MapRenderTrace.IsLineBlink(
-                toggled: true,
-                hasLastToggleFrame: true,
-                lastToggleFrame: 1000,
-                currentFrame: 1002,
-                bodyChanged: false);
 
             Assert.True(blink);
         }

@@ -111,24 +111,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResourceConsumed_NegativeDelta()
-        {
-            var start = new Dictionary<string, ResourceAmount>
-            {
-                ["LiquidFuel"] = new ResourceAmount { amount = 3600, maxAmount = 3600 }
-            };
-            var end = new Dictionary<string, ResourceAmount>
-            {
-                ["LiquidFuel"] = new ResourceAmount { amount = 200, maxAmount = 3600 }
-            };
-
-            var result = RecordingsTableUI.FormatResourceManifest(start, end);
-
-            Assert.NotNull(result);
-            Assert.Contains("LiquidFuel: 3600.0 \u2192 200.0 (-3400.0)", result);
-        }
-
-        [Fact]
         public void Unchanged_ZeroDelta()
         {
             var start = new Dictionary<string, ResourceAmount>

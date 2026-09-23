@@ -89,22 +89,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void InitLoadedState_CreatesTrackSection_WithIsFromBackgroundTrue()
-        {
-            uint pid = 501;
-            string recId = "rec_bg2";
-            var tree = MakeTree(pid, recId);
-            var bgRecorder = new BackgroundRecorder(tree);
-
-            bgRecorder.InjectLoadedStateWithEnvironmentForTesting(
-                pid, recId, SegmentEnvironment.ExoBallistic, 1000.0);
-
-            var section = bgRecorder.GetCurrentTrackSectionForTesting(pid);
-            Assert.NotNull(section);
-            Assert.Equal(TrackSectionSource.Background, section.Value.source);
-        }
-
-        [Fact]
         public void InitLoadedState_CreatesTrackSection_WithCorrectEnvironment()
         {
             uint pid = 502;

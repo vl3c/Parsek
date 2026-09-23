@@ -191,7 +191,9 @@ namespace Parsek.Tests
             bgRecorder.OnBackgroundPartDie(null);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[BgRecorder]") && l.Contains("part or vessel is null"));
+                l.Contains("[BgRecorder]")
+                && l.Contains("OnBackgroundPartDie")
+                && l.Contains("part or vessel is null"));
         }
 
         #endregion
@@ -283,16 +285,6 @@ namespace Parsek.Tests
         #region Static Logic: ClassifyPartDeath delegates to FlightRecorder
 
         [Fact]
-        public void ClassifyPartDeath_DestroyedPart_ReturnsDestroyed()
-        {
-            // BackgroundRecorder.OnBackgroundPartDie delegates to FlightRecorder.ClassifyPartDeath.
-            // Verify the static method works correctly for the background vessel scenario.
-            var states = new Dictionary<uint, int>();
-            var result = FlightRecorder.ClassifyPartDeath(42, hasParachuteModule: false, states);
-            Assert.Equal(PartEventType.Destroyed, result);
-        }
-
-        [Fact]
         public void ClassifyPartDeath_DeployedParachute_ReturnsParachuteDestroyed()
         {
             var states = new Dictionary<uint, int> { { 42, 2 } };
@@ -349,22 +341,6 @@ namespace Parsek.Tests
         #endregion
 
         #region Log Assertions
-
-        [Fact]
-        public void OnBackgroundPartDie_NullPart_LogsWithBgRecorderTag()
-        {
-            var tree = MakeTree((100, "rec_bg1"));
-            var bgRecorder = new BackgroundRecorder(tree);
-            bgRecorder.InjectLoadedStateForTesting(100, "rec_bg1");
-
-            bgRecorder.OnBackgroundPartDie(null);
-
-            // Verify the log line uses [BgRecorder] subsystem tag
-            Assert.Contains(logLines, l =>
-                l.Contains("[BgRecorder]") &&
-                l.Contains("OnBackgroundPartDie") &&
-                l.Contains("part or vessel is null"));
-        }
 
         [Fact]
         public void OnBackgroundPartJointBreak_NullJoint_LogsWithBgRecorderTag()

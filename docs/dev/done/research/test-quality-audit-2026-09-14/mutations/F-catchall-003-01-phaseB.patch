@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek.Tests/SyntheticRecordingTests.cs b/Source/Parsek.Tests/SyntheticRecordingTests.cs
+index 2b8c30e5c..66980d960 100644
+--- a/Source/Parsek.Tests/SyntheticRecordingTests.cs
++++ b/Source/Parsek.Tests/SyntheticRecordingTests.cs
+@@ -2090,7 +2090,7 @@ namespace Parsek.Tests
+                 BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS RV-105", "RCSBlock.v2", 47,
+                     ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, RcsShowcasePidBase, SinglePartPid,
+                     eventValue: 1.0f, moduleIndex: 0,
+-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
++                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                 BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS RV-1X", "RCSblock.01.small", 48,
+                     ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, RcsShowcasePidBase, SinglePartPid,
+                     eventValue: 1.0f, moduleIndex: 0,

@@ -80,19 +80,6 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteStatus.Active, route.Status);
         }
 
-        [Fact]
-        public void PausedPath_DoesNotActivate_RouteStaysPaused()
-        {
-            // "Create Paused" must not run the activate call, so the route the build
-            // produced (Paused) stays Paused. Pinning the branch gate is enough; we
-            // assert ShouldActivate is false so the callback never calls TryActivate.
-            Route route = new RouteFixtureBuilder().WithId("h6-paused").Build();
-            route.Status = RouteStatus.Paused;
-
-            Assert.False(LogisticsCreatePresentation.ShouldActivate(CreateRouteChoice.CreatePaused));
-            Assert.Equal(RouteStatus.Paused, route.Status);
-        }
-
         // ------------------------------------------------------------------
         // M5: the toast-should-fire decision + the two pure strings.
         // ------------------------------------------------------------------

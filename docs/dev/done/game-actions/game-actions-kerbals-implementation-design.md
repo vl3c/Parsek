@@ -169,6 +169,8 @@ internal class KerbalReservation
 - `Landed`/`Orbiting` → open-ended temporary, `reservedUntilUT = double.PositiveInfinity` (until rescue)
 - `Dead`/`MIA` → permanent, `reservedUntilUT = double.PositiveInfinity`, `IsPermanent = true`
 
+> Note (2026-09-23): the shipped code stored `reservedUntilUT` but never compared it with the clock, so a Recovered kerbal stayed reserved forever (todo KERBAL-RESERVATION-NEVER-LIFTS-WITH-TIME). Since the fix every consumer asks `KerbalsModule.IsReservedAt(name, nowUT)` (free from `reservedUntilUT` on); see the implementation note under 9.3 of `docs/parsek-game-actions-and-resources-recorder-design.md`.
+
 ### 3.3 Replacement Chain Model
 
 ```csharp

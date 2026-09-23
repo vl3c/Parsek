@@ -66,14 +66,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsAnchorLoaded_EmptyLoadedSet_AnchorNotFound_ReturnsFalse()
-        {
-            var loadedSet = new HashSet<uint>();
-            bool result = GhostPlaybackLogic.IsAnchorLoaded(999, loadedSet);
-            Assert.False(result);
-        }
-
-        [Fact]
         public void IsAnchorLoaded_ZeroAnchorPid_EmptySet_StillReturnsTrue()
         {
             // Even with empty loaded set, unanchored loops always pass

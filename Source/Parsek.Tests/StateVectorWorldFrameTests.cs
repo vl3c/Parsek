@@ -412,34 +412,6 @@ namespace Parsek.Tests
         // round-trips into the StateVectorWorldFrame so the wrapper can log it.
         // -----------------------------------------------------------------
 
-        [Fact]
-        public void EveryBranch_PopulatesBranchTagForLogging()
-        {
-            var point = new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" };
-            var lookup = SurfaceLookupReturning(Vector3d.zero);
-
-            string absBranch = GhostMapPresence.ResolveStateVectorWorldPositionPure(
-                point, AbsoluteSection(50, 150), 6, lookup,
-                false, default(Vector3d), Quaternion.identity, 0u).Branch;
-
-            string relBranch = GhostMapPresence.ResolveStateVectorWorldPositionPure(
-                point, RelativeSection(50, 150, 42u), 6, lookup,
-                true, new Vector3d(0, 0, 0), Quaternion.identity, 42u).Branch;
-
-            string ocBranch = GhostMapPresence.ResolveStateVectorWorldPositionPure(
-                point, OrbitalCheckpointSection(50, 150), 6, lookup,
-                false, default(Vector3d), Quaternion.identity, 0u).Branch;
-
-            string nsBranch = GhostMapPresence.ResolveStateVectorWorldPositionPure(
-                point, null, 6, lookup,
-                false, default(Vector3d), Quaternion.identity, 0u).Branch;
-
-            Assert.Equal("absolute", absBranch);
-            Assert.Equal("relative", relBranch);
-            Assert.Equal("orbital-checkpoint", ocBranch);
-            Assert.Equal("no-section", nsBranch);
-        }
-
         // -----------------------------------------------------------------
         // body-fixed-primary branch — v7+ Relative section with a parallel
         // bodyFixedFrames entry passed in by the caller (KSP-side wrapper

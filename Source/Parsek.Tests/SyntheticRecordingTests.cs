@@ -53,6 +53,39 @@ namespace Parsek.Tests
                 Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "..", ".."));
         }
 
+        /// <summary>
+        /// The target save an injector writes into: KSP root, then
+        /// PARSEK_INJECT_SAVE_NAME (else the injector's default), then
+        /// PARSEK_INJECT_TARGET_SAVE (else 1.sfs). The injector bodies resolve the same
+        /// three inputs.
+        /// </summary>
+        internal static string ResolveInjectTargetPath(string defaultSaveName)
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? defaultSaveName;
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            return Path.Combine(ResolveKspRoot(), "saves", saveName, targetSave);
+        }
+
+        /// <summary>
+        /// Skips an injector at discovery when its target save is absent, so a normal
+        /// suite run reports it as skipped instead of a pass that ran nothing. xUnit 2.4
+        /// has no runtime skip (a thrown SkipException reports as a failure, which is
+        /// what the KSP.log lock refusal inside the bodies does), so the check lives on
+        /// the attribute.
+        /// </summary>
+        internal sealed class InjectTargetFactAttribute : FactAttribute
+        {
+            public InjectTargetFactAttribute(string defaultSaveName)
+            {
+                string targetPath = ResolveInjectTargetPath(defaultSaveName);
+                if (!File.Exists(targetPath))
+                    Skip = "Injector target save not found: " + targetPath
+                        + " (stage it, or set KSPDIR / PARSEK_INJECT_SAVE_NAME / PARSEK_INJECT_TARGET_SAVE)";
+            }
+        }
+
         private static string ResolveKspRoot()
         {
             string envKsp = System.Environment.GetEnvironmentVariable("KSPDIR");
@@ -4141,32 +4174,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RcsShowcaseRecordings_UseVisibilityBiasedCadence()
-        {
-            var first = RcsShowcaseRecordings(baseUT: 17000)[0].Build();
-            var events = first.GetNodes("PART_EVENT");
-            Assert.Equal(8, events.Length);
-
-            double[] uts = new double[events.Length];
-            for (int i = 0; i < events.Length; i++)
-                uts[i] = double.Parse(events[i].GetValue("ut"), CultureInfo.InvariantCulture);
-
-            // Starts ON at recording start and keeps a long ON / short OFF duty cycle.
-            Assert.Equal(17030.0, uts[0], 3);
-            Assert.Equal(4.5, uts[1] - uts[0], 3);
-            Assert.Equal(1.5, uts[2] - uts[1], 3);
-            Assert.Equal(4.5, uts[3] - uts[2], 3);
-            Assert.Equal(1.5, uts[4] - uts[3], 3);
-            Assert.Equal(4.5, uts[5] - uts[4], 3);
-            Assert.Equal(1.5, uts[6] - uts[5], 3);
-            Assert.Equal(4.5, uts[7] - uts[6], 3);
-
-            Assert.Equal(((int)PartEventType.RCSActivated).ToString(), events[0].GetValue("type"));
-            Assert.Equal(((int)PartEventType.RCSActivated).ToString(), events[6].GetValue("type"));
-            Assert.Equal(((int)PartEventType.RCSStopped).ToString(), events[7].GetValue("type"));
-        }
-
-        [Fact]
         public void RcsShowcaseRecordings_AllEntriesUseAlternatingCadenceAndPidBinding()
         {
             var recordings = RcsShowcaseRecordings(baseUT: 17000);
@@ -4177,6 +4184,9 @@ namespace Parsek.Tests
                 ConfigNode built = recordings[i].Build();
                 ConfigNode[] events = built.GetNodes("PART_EVENT");
                 Assert.Equal(8, events.Length);
+                // Every entry starts ON at the recording start (baseUT + 30).
+                Assert.Equal(17030.0,
+                    double.Parse(events[0].GetValue("ut"), CultureInfo.InvariantCulture), 3);
 
                 ConfigNode ghost = built.GetNode("GHOST_VISUAL_SNAPSHOT");
                 Assert.NotNull(ghost);
@@ -6277,7 +6287,7 @@ namespace Parsek.Tests
         /// marker IS the fixture, and the S0.9 scenario for what a run of it reads.</para>
         /// </summary>
         [Trait("Category", "Manual")]
-        [Fact]
+        [InjectTargetFact("pending-limbo-tree-fixture")]
         public void InjectPendingLimboTree()
         {
             string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
@@ -6292,8 +6302,8 @@ namespace Parsek.Tests
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
-            if (!File.Exists(targetPath))
-                return;
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
 
             // Same guarded purge as InjectAllRecordings: refuse when KSP.log is
             // locked by a live session so the inject never races the game.
@@ -6380,7 +6390,7 @@ namespace Parsek.Tests
         /// _CLEAN_START).
         /// </summary>
         [Trait("Category", "Manual")]
-        [Fact]
+        [InjectTargetFact("rewind-b9-fixture")]
         public void InjectRewindB9()
         {
             // Distinct default save name (NOT "test career") so a bare `dotnet test`
@@ -6400,8 +6410,8 @@ namespace Parsek.Tests
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
-            if (!File.Exists(targetPath))
-                return;
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
 
             // Same guarded purge as InjectAllRecordings: refuse when KSP.log is
             // locked by a live session so the inject never races the game.
@@ -6478,7 +6488,7 @@ namespace Parsek.Tests
         /// </para>
         /// </summary>
         [Trait("Category", "Manual")]
-        [Fact]
+        [InjectTargetFact("rewind-crew-loss-fixture")]
         public void InjectRewindCrewLoss()
         {
             // Distinct default save name so a bare `dotnet test` full-suite run
@@ -6495,8 +6505,8 @@ namespace Parsek.Tests
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
-            if (!File.Exists(targetPath))
-                return;
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
 
             // Same guarded purge as InjectAllRecordings: refuse when KSP.log is
             // locked by a live session so the inject never races the game.
@@ -6579,7 +6589,7 @@ namespace Parsek.Tests
         /// </para>
         /// </summary>
         [Trait("Category", "Manual")]
-        [Fact]
+        [InjectTargetFact("refly-world-preservation-fixture")]
         public void InjectReFlyWorldPreservation()
         {
             // Distinct default save name so a bare `dotnet test` full-suite run
@@ -6596,8 +6606,8 @@ namespace Parsek.Tests
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
-            if (!File.Exists(targetPath))
-                return;
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
 
             // Same guarded purge as the sibling injectors: refuse when KSP.log is
             // locked by a live session so the inject never races the game.
@@ -6684,7 +6694,7 @@ namespace Parsek.Tests
         /// </para>
         /// </summary>
         [Trait("Category", "Manual")]
-        [Fact]
+        [InjectTargetFact("looped-interplanetary-fixture")]
         public void InjectLoopedInterplanetary()
         {
             string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
@@ -6699,8 +6709,8 @@ namespace Parsek.Tests
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
-            if (!File.Exists(targetPath))
-                return;
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
 
             var purgeWriter = new ScenarioWriter();
             if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
@@ -6777,7 +6787,7 @@ namespace Parsek.Tests
         /// </para>
         /// </summary>
         [Trait("Category", "Manual")]
-        [Fact]
+        [InjectTargetFact("part-showcase-fixture")]
         public void InjectPartShowcase()
         {
             string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
@@ -6792,8 +6802,8 @@ namespace Parsek.Tests
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
-            if (!File.Exists(targetPath))
-                return;
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
 
             var purgeWriter = new ScenarioWriter();
             if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
@@ -7012,7 +7022,7 @@ namespace Parsek.Tests
         }
 
         [Trait("Category", "Manual")]
-        [Fact]
+        [InjectTargetFact("test career")]
         public void InjectAllRecordings()
         {
             string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
@@ -7032,8 +7042,8 @@ namespace Parsek.Tests
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
-            if (!File.Exists(targetPath))
-                return;
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
 
             // Refuse the entire inject up front when the target KSP install
             // looks live. The purge helper probes KSP.log with an exclusive

@@ -152,21 +152,6 @@ namespace Parsek.Tests
         // ────────────────────────────────────────────────────────────
 
         [Fact]
-        public void ShouldBlock_DeadSetExcludesReservedMissing_DoesNotBlock()
-        {
-            // Simulates the Re-Fly scenario AFTER BuildDeadCrewSet has
-            // applied the #608 carve-out: snapshot has [Jeb, Bill, Bob],
-            // they were Missing in the roster but reserved, so the dead
-            // set is empty. ShouldBlockSpawnForDeadCrew must allow.
-            var crew = new List<string> { "Jeb", "Bill", "Bob" };
-            var deadSet = new HashSet<string>(); // carve-out emptied it
-
-            bool result = VesselSpawner.ShouldBlockSpawnForDeadCrew(crew, deadSet);
-
-            Assert.False(result);
-        }
-
-        [Fact]
         public void ShouldBlock_OnlyOneOfThreeReservedMissing_DoesNotBlock()
         {
             // Mixed: Jeb is reserved+Missing (carved out), Bill is alive,

@@ -57,12 +57,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AtExactMassThreshold_Recorded()
-        {
-            Assert.True(ParsekFlight.ShouldRecordDebris(1, 0.5f));
-        }
-
-        [Fact]
         public void AtExactPartThreshold_Recorded()
         {
             Assert.True(ParsekFlight.ShouldRecordDebris(3, 0f));

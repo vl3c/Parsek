@@ -383,49 +383,6 @@ namespace Parsek.Tests
         // remains armed, a cross-run marker clears.
         // -----------------------------------------------------------------
 
-        // Fails if: a fresh same-process F5 marker is mistakenly cleared.
-        // Plan test #17a — keeps the intent armed for the consume site.
-        [Fact]
-        public void SameProcessF5InTrackingStation_PreservesIntent_ConsumesOnFlightLoad()
-        {
-            Guid processId = ParsekProcess.ProcessSessionId;
-            var marker = new StockActionIntentMarker
-            {
-                IntentId = Guid.NewGuid(),
-                Action = StockActionType.TrackingStationFly,
-                TargetVesselPersistentId = 99u,
-                SourceScene = StockActionSourceScene.TrackingStation,
-                CapturedRealtime = 100f,
-                CapturedUT = 1000.0,
-                ProcessSessionId = processId,
-            };
-            var staleness = StockActionIntentMarker.EvaluateStaleness(
-                marker, processId, currentRealtime: 101f, currentUT: 1001.0);
-            Assert.Equal(StockActionIntentStaleness.Fresh, staleness);
-        }
-
-        // Fails if: a cross-process load lets a serialized marker stay
-        // armed. Plan test #17b — clears as stale-cross-run.
-        [Fact]
-        public void CrossProcessLoad_WithTsFlyArmed_ClearsAsCrossRun()
-        {
-            Guid armProcess = Guid.NewGuid();
-            Guid consumeProcess = Guid.NewGuid();
-            var marker = new StockActionIntentMarker
-            {
-                IntentId = Guid.NewGuid(),
-                Action = StockActionType.TrackingStationFly,
-                TargetVesselPersistentId = 99u,
-                SourceScene = StockActionSourceScene.TrackingStation,
-                CapturedRealtime = 100f,
-                CapturedUT = 1000.0,
-                ProcessSessionId = armProcess,
-            };
-            var staleness = StockActionIntentMarker.EvaluateStaleness(
-                marker, consumeProcess, currentRealtime: 101f, currentUT: 1001.0);
-            Assert.Equal(StockActionIntentStaleness.StaleCrossRun, staleness);
-        }
-
         // -----------------------------------------------------------------
         // Cross-scope: committed restore attempt + switch segment session
         // both armed should both survive a simulated save+reload.

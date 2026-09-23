@@ -612,6 +612,17 @@ namespace Parsek
             // before a bridge change can normalize many of them at once.
             int normalizedRecordings = 0;
             int normalizedOrdinalShifts = 0;
+            int skippedSuperseded = 0;
+
+            // A superseded recording is never split (mirror of CanAutoMerge's supersede
+            // guard). The supersede relation names it by RecordingId, so a fresh-id second
+            // half would be named by no relation and re-enter ERS: the retired flight's
+            // tail would play again, and its crew rows would be re-derived outside the
+            // tombstones on the next load. It is not played, so a split buys nothing.
+            // ReferenceEquals(null, ...) bypasses Unity's overloaded == (see CanAutoMerge).
+            var scenario = ParsekScenario.Instance;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                !object.ReferenceEquals(null, scenario) ? scenario.RecordingSupersedes : null;
 
             for (int i = 0; i < committed.Count; i++)
             {
@@ -627,6 +638,12 @@ namespace Parsek
                         normalizedOrdinalShifts++;
                 }
                 if (rec.TrackSections == null || rec.TrackSections.Count < 2) continue;
+                if (supersedes != null && supersedes.Count > 0
+                    && EffectiveState.IsSupersededByRelation(rec, supersedes))
+                {
+                    skippedSuperseded++;
+                    continue;
+                }
 
                 // Per-recording aggregate counters (CLAUDE.md "Batch counting convention" —
                 // an eccentric grazing recording can present hundreds of suppressed boundaries,
@@ -731,6 +748,13 @@ namespace Parsek
                     $"(ordinalShifts={normalizedOrdinalShifts.ToString(CultureInfo.InvariantCulture)}); " +
                     "marked dirty so RunOptimizationPass's FlushDirtyFiles persists the " +
                     "normalized sections instead of leaving memory diverged from disk");
+            }
+
+            if (skippedSuperseded > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"FindSplitCandidatesForOptimizer: skipped {skippedSuperseded.ToString(CultureInfo.InvariantCulture)} " +
+                    "superseded recording(s) (a split half would escape the supersede relation)");
             }
 
             return candidates;
@@ -1337,6 +1361,45 @@ namespace Parsek
         }
 
         /// <summary>
+        /// TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, cause (b), ruling of
+        /// 2026-09-23 (the Recovered handoff). <see cref="Recording.CrewEndStates"/> are
+        /// the crew's fate at the END of the recording, inferred against its terminal
+        /// state and end snapshot, so they move to the second half together with those.
+        /// The first half's end states and its <see cref="Recording.CrewEndStatesResolved"/>
+        /// flag are cleared, so the next population reaches the chain-handoff rule
+        /// (<see cref="KerbalsModule.ShouldUseGhostOnlyChainHandoffEndState"/>: chain
+        /// segment, no terminal vessel snapshot, no terminal) and marks the first half's
+        /// crew Recovered: a finite reservation to the cut that later segments extend.
+        /// Left in place, a Dead inferred for the whole flight made the first half derive
+        /// a death it never had (a RP split's HEAD, or an optimizer split of a recording
+        /// whose end states were already populated). A split of a recording whose end
+        /// states are not populated yet (the fresh-commit order: optimize, then derive)
+        /// moves nothing. The merge direction needs no counterpart: <c>MergeInto</c>
+        /// stamps the absorbed terminal through <see cref="Recording.StampTerminalState"/>,
+        /// whose invalidation seam re-infers the target's end states.
+        /// </summary>
+        internal static void MoveCrewEndStatesToSecondHalf(Recording original, Recording second)
+        {
+            if (original == null || second == null) return;
+            if (original.CrewEndStates == null && !original.CrewEndStatesResolved)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"Split: crew end states not populated on {original.RecordingId ?? "<no-id>"} - nothing to move");
+                return;
+            }
+
+            int moved = original.CrewEndStates != null ? original.CrewEndStates.Count : 0;
+            second.CrewEndStates = original.CrewEndStates;
+            second.CrewEndStatesResolved = original.CrewEndStatesResolved;
+            original.CrewEndStates = null;
+            original.CrewEndStatesResolved = false;
+            ParsekLog.Verbose("Optimizer",
+                $"Split: moved {moved.ToString(CultureInfo.InvariantCulture)} crew end state(s) " +
+                $"from {original.RecordingId ?? "<no-id>"} onto the second half with the terminal; " +
+                "first half cleared for the chain-handoff re-derivation");
+        }
+
+        /// <summary>
         /// SplitAtSection step 10: transfer terminal-state fields from the original
         /// (first half) to the newly-allocated second half (which represents the
         /// end-of-recording state). The first half keeps its start-state fields.
@@ -1384,6 +1447,8 @@ namespace Parsek
             original.EndCrew = null;
             // original.StartCrew unchanged (keeps the recording-start crew)
             // second.StartCrew stays null (no snapshot at environment boundary)
+
+            MoveCrewEndStatesToSecondHalf(original, second);
 
             TerminalState? carriedTerminal = original.TerminalStateValue;
             second.TerminalStateValue = original.TerminalStateValue;

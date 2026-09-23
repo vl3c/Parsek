@@ -597,12 +597,12 @@ namespace Parsek.Tests
             Assert.Empty(set.Plain);
         }
 
-        // catches: the reservation cell promising a release date. The reservation a
-        // committed flight creates does not lift when that date passes
-        // (KerbalReservationReleaseTests), so the cell names the flight, never a date,
-        // and the hover carries the release rule.
+        // catches: a FINITE (Recovered) hold not saying when it ends. The reservation
+        // lifts when game time reaches the flight's end (KerbalReservationReleaseTests),
+        // so the cell reads the release date and the hover names the flight and the
+        // release rule.
         [Fact]
-        public void Roster_AReservedOwnerNamesTheFlightThatHoldsHimAndNoDate()
+        public void Roster_ARecoveredHoldReadsItsReleaseDate()
         {
             var roster = new List<KerbalsPresentation.RosterKerbal>
                 { Kerbal("Jebediah Kerman", "Pilot") };
@@ -629,13 +629,13 @@ namespace Parsek.Tests
 
             KerbalsPresentation.RosterRow jeb = Find(set, "Jebediah Kerman");
             // His own name is not repeated ("Reserved for Jebediah Kerman" on his own row).
-            Assert.Equal("Reserved: Jumping Flea", jeb.StatusText);
-            Assert.DoesNotContain("until", jeb.StatusText);
-            Assert.DoesNotContain("D18230", jeb.StatusText);
+            Assert.Equal("Reserved until D18230", jeb.StatusText);
             Assert.Equal(
                 "Held by the committed flight Jumping Flea, which ends with this kerbal "
-                + "recovered. " + KerbalsPresentation.ReservationHoldRule,
+                + "recovered. " + KerbalsPresentation.FormatReservationReleaseRule("D18230"),
                 jeb.StatusTooltipText);
+            Assert.Equal("Free again from D18230, when that flight ends.",
+                KerbalsPresentation.FormatReservationReleaseRule("D18230"));
         }
 
         [Fact]
@@ -725,8 +725,9 @@ namespace Parsek.Tests
 
             KerbalsPresentation.RosterRow lars = Find(set, "Lars Kerman");
             Assert.Equal("Reserved for Jebediah Kerman", lars.StatusText);
+            // A finite hold: the hover says when it ends.
             Assert.Equal("Held by a committed flight flown in Jebediah Kerman's seat. "
-                         + KerbalsPresentation.ReservationHoldRule,
+                         + KerbalsPresentation.FormatReservationReleaseRule("D4200"),
                 lars.StatusTooltipText);
         }
 
@@ -1239,7 +1240,7 @@ namespace Parsek.Tests
 
             Assert.Equal(invariant, german);
             Assert.Equal("1234568", german[1]);
-            Assert.Equal("Reserved: Mun Hopper", german[2]);
+            Assert.Equal("Reserved until 1234568", german[2]);
         }
 
         // ------------------------------------------------------------------

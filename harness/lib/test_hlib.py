@@ -9674,6 +9674,25 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "lane of the endUT tombstone ruling. Flies a before-reading on a main DLL "
             "(where its discriminating tokens must red) and an after-reading plus an "
             "armed run on the fixed DLL. Owes flights, not a human call",
+        "RF-13H-crewed-crash-refly-host.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-23 as the host "
+            "producer for RF-13 (a crewed recording from launch through the rewind "
+            "point to a death, no optimizer split), harvested as "
+            "refly-split-crewed-recorded. Owes a flight, not a human call",
+        "RF-13-refly-split-crew-survives-reload.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-23 as the proof "
+            "lane of TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a re-fly "
+            "merge that SPLITS the origin, then SaveGame + LoadGame (in-session). "
+            "Reading 2026-09-23_1503 on the mission's pitch program, armed re-flight "
+            "_1528 PASS; the cold-reload half is RF-13R. Discharged: cadence "
+            "promotion is the only step left, a human call",
+        "RF-13R-split-merge-cold-reload.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-23 as the "
+            "cold-reload half of RF-13 (RF-13's own reload is in-session and never runs "
+            "MigrateKerbalAssignments): a new process loads refly-split-crewed-merged. "
+            "Reading 2026-09-23_1524, armed _1527 PASS, negative control _1533 red on "
+            "a pre-#1770 DLL. Discharged: cadence promotion is the only step left, a "
+            "human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -10604,6 +10623,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # before-reading `_1928` read tombstones 10, so the floor is the
                        # save-side gate on the endUT ruling.
                        "RF-12S-refly-saves-pre-rewind-boarded-crew.toml",
+                       # RF-13 / RF-13R: `rewind` armed 2026-09-23 off their reading runs
+                       # `2026-09-23_1503` (RF-13) and `_1524` (RF-13R), both supersedeRows 1,
+                       # tombstones 2; RF-13R is the same save a new process re-reads.
+                       "RF-13-refly-split-crew-survives-reload.toml",
+                       "RF-13R-split-merge-cold-reload.toml",
                        # RF-11: `rewind` armed 2026-09-09 through the full cycle -
                        # reading run `2026-09-09_1631`, armed re-flight `_1659` on the
                        # same three numbers, negative control `_1700` (rewindPoints
@@ -10627,6 +10651,21 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # (`2026-09-22_1951` rp2, `_1954` / `_1956` rp1) with identical
                        # facets, including the ghostChainNodes tripwire at 0.
                        "CI-3-chain-rederive-readback.toml",
+                       # EX-1: `structure` armed 2026-09-23 off its reading run
+                       # `2026-09-23_0000` (trees / committedTrees / recordings 1,
+                       # Landed 1). An expectedFail lane (subkind expectation), so a
+                       # structure red is NOT demoted: it stays PARSEK-FAIL.
+                       "EX-1-ghost-extension-past-endut.toml",
+                       # LF-1: `structure` armed 2026-09-23 off its reading run
+                       # `2026-09-22_2350` (trees / committedTrees / recordings 1,
+                       # Landed 1, and the new vessel census: spawnedVessels 1,
+                       # vesselNames {Logi Cargo Rig: 1}).
+                       "LF-1-loop-first-run-real.toml",
+                       # LF-2: `structure` armed 2026-09-23 off its reading run
+                       # `2026-09-23_1551` (trees / committedTrees / recordings 1,
+                       # Landed 1, spawnedVessels 1, vesselNames {Logi Cargo Rig: 1});
+                       # the pre-fix measurement `_1536` read spawnedVessels 0.
+                       "LF-2-loop-armed-rewind-first-run-real.toml",
                        # RF-1: `rewind` armed 2026-09-09 off TWO flights whose facets
                        # agreed across a DLL change - `2026-09-08_2146` (pre-#1658) and
                        # the merged-main confirmation - plus its own negative control

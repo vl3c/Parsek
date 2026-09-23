@@ -7903,6 +7903,60 @@ namespace Parsek
             return pastEnd || pastEffectiveEnd;
         }
 
+        /// <summary>
+        /// Loop first-run-is-real (design 2.2 principle 9, 12.7; operator ruling
+        /// 2026-09-23 on LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS): the first chronological
+        /// run of a looping recording is the real run, so when the live playhead crosses
+        /// the recording's own EndUT its terminal vessel spawns exactly as a non-looping
+        /// recording's would. A looping index (a mission loop-unit member, or a
+        /// per-recording LoopPlayback) is routed to its loop renderer ABOVE the ordinary
+        /// past-end completion in flight and at the Space Center, so this is the only
+        /// spawn seam it has, and loop cycles never reach it.
+        ///
+        /// "First" is the recording's timeline position, not a cycle count: the check
+        /// keys on the real UT against the recording's EndUT, never on a loop clock.
+        /// Every other gate is the normal one, folded into <paramref name="spawnEligible"/>
+        /// by the caller (VesselSpawned, the replay-scope history gate, the chain rules
+        /// including "chain looping", the #573 rewind block), so after the one spawn
+        /// VesselSpawned=true keeps every later cycle ghost-only, and a Rewind-to-Launch
+        /// strip (which resets VesselSpawned) re-arms exactly one spawn.
+        /// <paramref name="alreadyAttempted"/> is the caller's one-shot latch, cleared
+        /// when the playhead returns before the recording.
+        ///
+        /// Returns false for a non-looping index: the ordinary past-end completion owns it.
+        /// </summary>
+        internal static bool ShouldAttemptLoopFirstRunSpawn(
+            bool loopDriven,
+            bool spawnEligible,
+            double currentUT,
+            double recordingEndUT,
+            bool alreadyAttempted)
+        {
+            if (!loopDriven) return false;
+            if (alreadyAttempted) return false;
+            if (!spawnEligible) return false;
+            return currentUT > recordingEndUT;
+        }
+
+        /// <summary>
+        /// BUG-B replay-scope gate, split by purpose. A loop member (explicit live-replay
+        /// opt-in) RENDERS regardless of replay scope, but its terminal SPAWN is the first
+        /// run's real spawn and obeys the same scope gate as any recording
+        /// (<see cref="ShouldAttemptLoopFirstRunSpawn"/>). An active re-fly session is
+        /// exempt from both. <paramref name="scopeHistorical"/> is
+        /// <c>PlaybackScopeTracker.IsHistoricalNeverReplayed</c> for the recording.
+        /// </summary>
+        internal static bool ResolveHistoricalNeverReplayed(
+            bool loopingLike,
+            bool reFlyActive,
+            bool scopeHistorical,
+            bool forSpawn)
+        {
+            if (reFlyActive) return false;
+            if (loopingLike && !forSpawn) return false;
+            return scopeHistorical;
+        }
+
         #region Spawn-at-Recording-End Decision
 
         /// <summary>
@@ -8133,7 +8187,8 @@ namespace Parsek
             // Looping recordings: first playthrough spawns the vessel (so it exists in the world),
             // subsequent loops are visual-only. The VesselSpawned/SpawnedVesselPersistentId checks
             // above handle this — after first spawn, VesselSpawned=true prevents re-spawning.
-            // No blanket LoopPlayback suppression needed here.
+            // No blanket LoopPlayback suppression needed here. The looping render paths
+            // reach this decision through ShouldAttemptLoopFirstRunSpawn.
 
             // Suppress spawn for looping chains (ghost loops forever, never reaches a "final" state).
             // Note: fully-disabled chains used to suppress here too, but that gated career state on

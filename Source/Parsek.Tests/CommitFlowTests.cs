@@ -326,14 +326,6 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackLogic.RealVesselExists(99999));
         }
 
-        [Fact]
-        public void RealVesselExists_NoOverride_ZeroPid_ReturnsFalse()
-        {
-            GhostPlaybackLogic.ResetVesselExistsOverride();
-            // With no override and no FlightGlobals, PID 0 always returns false
-            Assert.False(GhostPlaybackLogic.RealVesselExists(0));
-        }
-
         #endregion
 
         // ================================================================

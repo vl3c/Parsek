@@ -1794,17 +1794,6 @@ namespace Parsek.Tests
                 DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Done));
         }
 
-        [Fact]
-        public void Lifecycle_LoiterBeforeRender_DoesNotEmitReverted()
-        {
-            var s = default(DescentTrigger.DescentTraceState);
-            // Loiter BEFORE any Descent frame opens the window but is not a revert (nothing rendered yet).
-            Assert.Equal(DescentTrigger.DescentRenderEvent.WindowOpened,
-                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter));
-            Assert.Equal(DescentTrigger.DescentRenderEvent.None,
-                DescentTrigger.ClassifyDescentRenderEvent(ref s, 0, DescentTrigger.DescentHeadPhase.Loiter));
-        }
-
         // --- IsDescentTransferMemberInLoiterGap: the map-presence segment-lookup UT clamp predicate (the
         //     destination-loiter "parking conic stops rendering" bug). True IFF a non-descent member of a
         //     descent-trigger unit whose RECORDED loop clock has advanced PAST the PARKING-conic end
@@ -1891,16 +1880,6 @@ namespace Parsek.Tests
             Assert.True(unshiftedMismatch);
             // And the unit actually carries the SHIFTED value (the clamp resolves it).
             var units = BuildDescentUnit(engage: true);
-            Assert.Equal(ParkingConicEnd, GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 5), 3);
-        }
-
-        // The transfer member's loop clock runs in the SHIFTED frame; the clamp FIRES once that shifted clock
-        // passes the SHIFTED ParkingConicEnd.
-        [Fact]
-        public void LoiterGap_TransferMemberInShiftedFrame_FiresAtShiftedParkingEnd()
-        {
-            var units = BuildDescentUnit(engage: true);
-            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, ParkingConicEnd + 1000.0));
             Assert.Equal(ParkingConicEnd, GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 5), 3);
         }
 

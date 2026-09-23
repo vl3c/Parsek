@@ -400,13 +400,14 @@ namespace Parsek
 
         /// <summary>
         /// Remaps every action tagged with <paramref name="oldRecordingId"/> to
-        /// <paramref name="newRecordingId"/>. Called by the recording optimizer when a
-        /// root segment is absorbed into a successor (chain coalescing) and the tree's
-        /// <see cref="RecordingTree.RootRecordingId"/> is rewritten — without this hook,
-        /// synthetic ledger actions tagged with the old root id (notably Phase A's
-        /// <c>LegacyMigration</c> <see cref="GameActionType.FundsEarning"/>/<see cref="GameActionType.ScienceEarning"/>/<see cref="GameActionType.ReputationEarning"/>/<see cref="GameActionType.ScienceSpending"/>/<see cref="GameActionType.ReputationPenalty"/>
-        /// rows) would be orphaned on the next <see cref="Reconcile"/> after the
-        /// absorbed recording is removed from the valid-recording set.
+        /// <paramref name="newRecordingId"/>. Called by the recording optimizer's merge
+        /// pass for EVERY absorbed recording (not only an absorbed tree root): the
+        /// absorbed recording leaves the committed list, so any row still tagged with its
+        /// id (a synthetic <c>LegacyMigration</c> <see cref="GameActionType.FundsEarning"/>/<see cref="GameActionType.ScienceEarning"/>/<see cref="GameActionType.ReputationEarning"/>/<see cref="GameActionType.ScienceSpending"/>/<see cref="GameActionType.ReputationPenalty"/>
+        /// row, a KerbalAssignment an optimizer split moved onto the later segment, a
+        /// science or funds row earned in that segment) would be orphaned on the next
+        /// <see cref="Reconcile"/> after the absorbed recording is removed from the
+        /// valid-recording set, and its ActionId lost.
         ///
         /// <para>Remaps every matching action regardless of type or source, not just
         /// LegacyMigration synthetics — any action tagged with the old id has, by
@@ -443,6 +444,59 @@ namespace Parsek
             }
 
             return remapped;
+        }
+
+        /// <summary>
+        /// Optimizer-split ledger retag (OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT):
+        /// moves every action tagged with <paramref name="firstRecordingId"/> whose
+        /// attribution UT is <c>&gt;= splitUT</c> onto <paramref name="secondRecordingId"/>,
+        /// keeping its <see cref="GameAction.ActionId"/>. The predicate IS
+        /// <c>RecordingTreeSplitter.ShouldRetagLedgerActionToTip</c> (the Re-Fly split's
+        /// step 2.9), so both splits attribute a row to the same side of a cut and the
+        /// tombstone guard's mirror (<c>TombstoneAttributionHelper.IsPreRewindAttributedAction</c>)
+        /// holds for either. A KerbalAssignment encoding a death is screened by its
+        /// EndUT and follows the terminal (and the crew end states
+        /// <c>RecordingOptimizer.MoveCrewEndStatesToSecondHalf</c> moves) to the second
+        /// half; a non-death row stays with its boarding UT on the first. Left in place,
+        /// the rows stayed on the first segment, where a later re-fly of the second
+        /// segment cannot reach them (outside its closure). Row CONTENT is left to the
+        /// next load's <c>MigrateKerbalAssignments</c>, which re-derives it under the same
+        /// ids. Returns the number of rows moved; <paramref name="deathIntervalsByEndUT"/>
+        /// counts the moved rows whose own UT is before the cut.
+        /// </summary>
+        internal static int RetagActionsForSplitSecondHalf(
+            string firstRecordingId, string secondRecordingId, double splitUT,
+            out int deathIntervalsByEndUT)
+        {
+            deathIntervalsByEndUT = 0;
+            if (string.IsNullOrEmpty(firstRecordingId) || string.IsNullOrEmpty(secondRecordingId))
+                return 0;
+            if (string.Equals(firstRecordingId, secondRecordingId, StringComparison.Ordinal))
+                return 0;
+            if (double.IsNaN(splitUT) || double.IsInfinity(splitUT))
+                return 0;
+
+            int retagged = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (!RecordingTreeSplitter.ShouldRetagLedgerActionToTip(action, firstRecordingId, splitUT))
+                    continue;
+                if (!(action.UT >= splitUT))
+                    deathIntervalsByEndUT++;
+                action.RecordingId = secondRecordingId;
+                retagged++;
+            }
+
+            if (retagged > 0)
+                BumpStateVersion();
+            ParsekLog.Verbose("Ledger",
+                $"RetagActionsForSplitSecondHalf: first='{firstRecordingId}' second='{secondRecordingId}' " +
+                $"splitUT={splitUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"retagged={retagged.ToString(CultureInfo.InvariantCulture)} " +
+                $"deathIntervalsByEndUT={deathIntervalsByEndUT.ToString(CultureInfo.InvariantCulture)} " +
+                $"total={actions.Count.ToString(CultureInfo.InvariantCulture)}");
+            return retagged;
         }
 
         /// <summary>

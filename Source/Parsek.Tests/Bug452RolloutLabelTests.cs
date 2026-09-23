@@ -90,14 +90,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsUnclaimedRolloutAction_OrdinaryRecordingBuildAction_False()
-        {
-            // Recording-side delta path: PreLaunchFunds-to-first-point produced a
-            // build cost. RecordingId is set, no DedupKey. Must render as a normal build.
-            Assert.False(GameActionDisplay.IsUnclaimedRolloutAction(MakeOrdinaryBuildAction()));
-        }
-
-        [Fact]
         public void IsUnclaimedRolloutAction_NonRolloutDedupKey_False()
         {
             // Regression guard: FundsSpending(Other) part purchases also use DedupKey

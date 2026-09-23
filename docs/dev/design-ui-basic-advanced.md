@@ -84,7 +84,7 @@ The launcher, opened by the stock ApplicationLauncher toolbar button (`ParsekFli
 | Supply Route candidate banner | when `RouteRunPrompt.HasPendingPrompt` | `ParsekUI.cs:248` |
 | `Logistics` | always, red tint when broken, cyan when prompt pending | `ParsekUI.cs:314` |
 | `Kerbals` | always | `ParsekUI.cs:329` |
-| `Career` | always | `ParsekUI.cs:335` |
+| `Career` | Career and Science games only (hidden in Sandbox and the mission modes, which track no career state; `CareerStateWindowUI.ModeOffersLauncher`, 2026-09-22) | `ParsekUI.cs:335` |
 | `Gloops Flight Recorder` | InFlight only | `ParsekUI.cs:346` |
 | `Settings` | always | `ParsekUI.cs:356` |
 | Version footer + `Close` | always | `ParsekUI.cs:371` |
@@ -157,7 +157,7 @@ The test applied to each surface: **can a player complete the core loop (fly -> 
 | Settings | **Keep** | Hosts the mode toggle itself. Must always be reachable. |
 | Missions tab | **Keep** | The player-facing mission abstraction: name, Watch, Delete, Archive, Log, TTL, Warp to..., Rewind / Forward. Sufficient for all routine recording management. Its manual-loop AUTHORING controls (the `Loop` toggle, the loop-period cell, the include checkboxes, and since 2026-08-20 the `Clone` button) are the one carve-out: hidden in Basic per section 4.5. |
 | Recordings tab | **Hide** | The raw per-recording table (62 buttons, 13 toggles). Almost everything a normal player needs is expressed at the Mission level; the one known exception is retroactive per-recording playback-disable, accepted as a v1 limitation in section 4.3. This is the single largest complexity reduction available. |
-| Career window | **Hide** | 2 buttons, 2 toggles, zero mutations. Reports contracts / strategies / facilities / milestones that stock screens already show, with a projected column. Pure power-user reference. |
+| Career window | **Hide** | 2 buttons, 3 toggles, zero mutations. Reports contracts / strategies / facilities / milestones that stock screens already show, with a Timeline-end column and a Pending-in-timeline group. Pure power-user reference. Independently of the mode, its launcher is hidden in Sandbox (every tab would be empty there). |
 | Kerbals window | **Keep** (was Hide; owner re-ruling 2026-09-22) | Zero mutations (every control is a fold or a Timeline cross-link). Reports roster state and per-kerbal mission outcomes. The comprehension gap that decided it: the CrewDialogFilter patch silently removes reserved kerbals from stock crew assignment, and this window is the only surface explaining why - hiding it left a Basic player with a missing kerbal and no explanation. Read-only, so showing it costs nothing a Basic player could break. Same window in both modes; no Basic-specific variant. |
 | Gloops Flight Recorder | **Hide** | Manual ghost-only recording. An explicitly opt-in power feature; the automatic recorder covers the normal path. The mode switch is refused while a Gloops recording is in progress (section 7.2), so hiding the window can never strand a running manual recording. |
 | Real Spawn Control | **Hide** | Proximity spawning of nearby recorded vessels. Advanced staging tool, already conditional (InFlight, disabled at zero candidates). Residual loss: it is also the only surface listing when a still-playing ghost becomes a real craft (`SelectiveSpawnUI.cs:35-42`); spawn-at-end itself stays automatic, so no capability is lost, only the countdown/warp convenience. |

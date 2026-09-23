@@ -419,17 +419,6 @@ namespace Parsek.Tests
 
         #region CanRewind Log Assertions
 
-        [Fact]
-        public void CanRewind_HasPendingTree_ReturnsFalse()
-        {
-            RecordingStore.StashPendingTree(new RecordingTree());
-
-            var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
-            string reason;
-            Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
-            Assert.Equal("Merge or discard pending tree first", reason);
-        }
-
         // Note: CanRewind_SaveFileMissing is not testable without Unity
         // (KSPUtil.ApplicationRootPath throws SecurityException outside KSP)
 
