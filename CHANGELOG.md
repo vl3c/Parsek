@@ -851,7 +851,8 @@ _(unreleased — entries accumulate here per commit)_
   same finite reservation any chain segment gets. The same move applies when the
   recording optimizer later splits a recording whose crew fates were already worked out.
   Committing a flight again no longer adds a second crew row for the same kerbal next to
-  a retired one. One narrower shape stays open (OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT):
+  a retired one. The fix applies to re-fly merges made with this build: a save whose merge
+  was made by an older build keeps the first half's Dead crew fates and is not repaired. One narrower shape stays open (OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT):
   an optimizer split of an already-committed flight followed by a re-fly of its later
   part with no load in between.
 

@@ -1157,7 +1157,11 @@ namespace Parsek
                     // tree commit re-commits every recording of the tree) would otherwise
                     // file a second, fresh-id, untombstoned death row next to the retired
                     // one (TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT, the
-                    // commit-side mirror of cause (a)).
+                    // commit-side mirror of cause (a)). The same key also drops an
+                    // in-session re-commit whose CONTENT changed (a new end state or
+                    // window for the same recording and kerbal): the stored row stays
+                    // until the next load, where MigrateKerbalAssignments repairs its
+                    // content under the same ActionId.
                     if (c.Type != GameActionType.KerbalAssignment
                         && System.Math.Abs(GetDedupOccurrenceUt(e) - GetDedupOccurrenceUt(c)) > 0.1)
                         continue;

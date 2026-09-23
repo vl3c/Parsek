@@ -4362,6 +4362,19 @@ both halves inside the optimizer split pass, or run the kerbal-row re-derivation
 load-time optimization pass. Either is a ledger-timing decision, so it is filed rather
 than guessed.
 
+SECOND TRIGGER (found in the #1770 review, not yet measured): the RP-split TIP itself.
+On the first reload `MigrateKerbalAssignments` re-derives TIP's Dead row under the
+tombstoned id (ruling a1), and THEN the load-time optimization pass
+(`ParsekScenario.cs` ~4425, after the ledger-load phase) can split TIP again into TIP +
+TIP2: `FindSplitCandidatesForOptimizer` has no superseded filter, and the RP cut can
+expose a boundary the whole recording did not have (a plausible one is the graze rule
+(7) boundary, whose bracketing changes when the recording is cut).
+`MoveCrewEndStatesToSecondHalf` moves the Dead to TIP2, and on the second reload TIP2
+derives a fresh untombstoned Dead row, so the death resurrects. Candidate fixes:
+re-derive or retag KerbalAssignment rows inside the optimizer split pass (closes BOTH
+triggers), or skip superseded recordings as split candidates (cheap, closes only this
+one).
+
 ## ~~TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT~~: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. RULED 2026-09-23 (a1 + the Recovered handoff). FIXED on branch `tombstone-reload`]
 
 MEASURED HEADLESSLY by `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
