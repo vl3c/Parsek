@@ -201,6 +201,11 @@ namespace Parsek
         // DestroyAllGhosts (via ParsekFlight cleanup path), so completedEventFired
         // is guaranteed to be empty when playback restarts after a rewind.
         private readonly HashSet<int> completedEventFired = new HashSet<int>();
+        // One-shot latch for the loop first-run spawn (TryQueueLoopFirstRunSpawn). Kept apart
+        // from completedEventFired because a loop member's ghost is destroyed and rebuilt every
+        // cycle, and every DestroyGhost clears completedEventFired. Cleared only when the
+        // playhead returns before the recording (a rewind), on full teardown and never per cycle.
+        private readonly HashSet<int> loopFirstRunSpawnFired = new HashSet<int>();
         // Destroyed debris can complete before EndUT when the recording captured a clear
         // destructive part event. Keep those indices suppressed until a rewind/reset so
         // they do not respawn while the original recording window is still in range.
@@ -1238,6 +1243,14 @@ namespace Parsek
                 }
 
                 double activationStartUT = ResolveGhostActivationStartUT(traj);
+
+                // === Loop first run is real ===
+                // Both loop dispatches below `continue` before the past-end completion, so a
+                // looping index would otherwise never spawn its terminal vessel. Its first run
+                // (the recording's own UT window) is the real run: queue the one spawn-only
+                // completion here (and re-arm it while the playhead is before the recording),
+                // then let the loop render as usual.
+                TryQueueLoopFirstRunSpawn(i, traj, f, ctx, activationStartUT, hasPointData);
 
                 if (ctx.currentUT < activationStartUT)
                 {
@@ -3624,6 +3637,62 @@ namespace Parsek
                 $"explosionUT={explosionUT:F2} currentUT={ctx.currentUT:F2} endUT={traj.EndUT:F2}");
             return true;
         }
+
+        /// <summary>
+        /// Loop first-run spawn: when a looping index's real playhead crosses the recording's
+        /// own end (and its chain's effective end, where the policy's spawn is gated) and the
+        /// ordinary spawn gate allows it (<c>needsSpawn</c>, which already folds VesselSpawned,
+        /// the replay-scope history gate and the chain rules), queue ONE spawn-only completion.
+        /// The event carries no ghost state (GhostWasActive=false, the hidden past-end
+        /// completion's shape) and is marked <c>LoopFirstRun</c>, so the policy spawns the
+        /// vessel and leaves the cycling loop ghost and any watch session alone. A mid-chain
+        /// segment is left to its chain tip. The one-shot latch re-arms while the playhead is
+        /// before the recording (a rewind). Runs for every index; a non-looping index returns
+        /// false and keeps the ordinary past-end completion. See
+        /// <see cref="GhostPlaybackLogic.ShouldAttemptLoopFirstRunSpawn"/>.
+        /// </summary>
+        internal bool TryQueueLoopFirstRunSpawn(int i, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags f, FrameContext ctx, double activationStartUT, bool hasPointData)
+        {
+            if (ctx.currentUT < activationStartUT)
+            {
+                loopFirstRunSpawnFired.Remove(i);
+                return false;
+            }
+
+            bool loopDriven = currentLoopUnits.IsMember(i) || ShouldLoopPlayback(traj);
+            if (!GhostPlaybackLogic.ShouldAttemptLoopFirstRunSpawn(
+                    loopDriven: loopDriven,
+                    spawnEligible: f.needsSpawn && !f.isMidChain,
+                    currentUT: ctx.currentUT,
+                    recordingEndUT: Math.Max(traj.EndUT, f.chainEndUT),
+                    alreadyAttempted: loopFirstRunSpawnFired.Contains(i)))
+                return false;
+
+            loopFirstRunSpawnFired.Add(i);
+            ParsekLog.Info("Engine",
+                "Loop first-run spawn: #" + i.ToString(CultureInfo.InvariantCulture)
+                + " \"" + (traj.VesselName ?? "?") + "\" id=" + (f.recordingId ?? "(none)")
+                + " UT=" + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " endUT=" + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture)
+                + " (the first run of a looping recording is real; later cycles stay ghost-only)");
+            deferredCompletedEvents.Add(new PlaybackCompletedEvent
+            {
+                Index = i,
+                Trajectory = traj,
+                State = null,
+                Flags = f,
+                GhostWasActive = false,
+                PastEffectiveEnd = ctx.currentUT > f.chainEndUT,
+                LastPoint = hasPointData ? traj.Points[traj.Points.Count - 1] : default,
+                CurrentUT = ctx.currentUT,
+                LoopFirstRun = true
+            });
+            return true;
+        }
+
+        /// <summary>Completion events queued this frame and not yet delivered. Tests only.</summary>
+        internal IReadOnlyList<PlaybackCompletedEvent> PendingCompletedEventsForTesting => deferredCompletedEvents;
 
         /// <summary>
         /// Handles past-end ghost: positions at final point, triggers explosion if destroyed,
@@ -9048,6 +9117,7 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedReshow.Clear();
             completedEventFired.Clear();
+            loopFirstRunSpawnFired.Clear();
             earlyDestroyedDebrisCompleted.Clear();
             seamMarkerRuntime.Reset();
             chainBridgeOpenedUT.Clear();
@@ -9104,6 +9174,7 @@ namespace Parsek
                 IndexShift.SetAfterInsert(loggedGhostEnter, pivot);
                 IndexShift.SetAfterInsert(loggedReshow, pivot);
                 IndexShift.SetAfterInsert(completedEventFired, pivot);
+                IndexShift.SetAfterInsert(loopFirstRunSpawnFired, pivot);
                 IndexShift.SetAfterInsert(earlyDestroyedDebrisCompleted, pivot);
             }
             else
@@ -9115,6 +9186,7 @@ namespace Parsek
                 IndexShift.SetAfterDelete(loggedGhostEnter, pivot);
                 IndexShift.SetAfterDelete(loggedReshow, pivot);
                 IndexShift.SetAfterDelete(completedEventFired, pivot);
+                IndexShift.SetAfterDelete(loopFirstRunSpawnFired, pivot);
                 IndexShift.SetAfterDelete(earlyDestroyedDebrisCompleted, pivot);
             }
         }
