@@ -860,8 +860,9 @@ _(unreleased — entries accumulate here per commit)_
 - **A recording's loop period unit now survives a save and reload.** The unit chosen with
   the Recordings table's unit button (sec, min, hr or auto) was never saved, so every reload
   set it back to seconds. A Gloops recording, which starts on auto, then lost its place in the
-  shared auto launch queue and looped at its stored period of 0 seconds, clamped to the
-  1-second minimum with a warning. The unit is now saved with the recording (only when it is
+  shared auto launch queue and looped on a seconds period instead: its stored 0 seconds,
+  either raised to the 5-second minimum with a warning or repaired on load to the
+  recording's own length. The unit is now saved with the recording (only when it is
   not seconds) and read back on load; an unreadable value falls back to seconds with one
   warning in the log. Existing saves load unchanged and keep seconds until the unit is set
   again.
