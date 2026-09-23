@@ -108,9 +108,12 @@ required = [
   "FacilityRepair: -[1-9][0-9.]*, facilityId=\\S*/OuterDish",
   # The two later repair-facility steps are the refusal, not a second repair.
   "kscaction refused action=repair-facility reason=facility-intact",
-  # The live building patch folds the ledger AT LIVE UT and agrees with stock (matched the
-  # one ledger building, changed nothing) once the clock is ready after a reload.
-  "PatchDestructionState: demolished=0, repaired=0, settling=0, unloaded=0, matched=1, noMatch=0, buildings=[0-9]+, ledgerBuildings=1, liveUT=[1-9]",
+  # The live building patch folds the ledger AT LIVE UT (it matched the one ledger building)
+  # and, on each reload, leaves the dish alone because stock has not loaded the save into it
+  # yet: Parsek's OnLoad recalc runs BEFORE "[ScenarioDestructibles]: Loading..." (measured
+  # 2026-09-23_2018, where the patch then demolished the not-yet-loaded dish, and
+  # 2026-09-23_2028, where this pin first read unloaded=1; no later recalc runs in this lane).
+  "PatchDestructionState: demolished=0, repaired=0, settling=0, unloaded=1, matched=1, noMatch=0, buildings=[0-9]+, ledgerBuildings=1, liveUT=[1-9][\\s\\S]*ScenarioDestructibles\\]: Loading",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
