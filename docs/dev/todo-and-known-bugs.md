@@ -17262,7 +17262,7 @@ Ground truth, DERIVED FROM SOURCE (not hand-listed): `hlib.ANOMALY_REASONS_RAISE
 | `decision-vs-truth` | yes | `MapRenderProbe.cs:689` |
 | `polyline-orbit-overlap` | yes | `MapRenderProbe.cs:709` |
 | `rigid-seam-tangent-discontinuity` | yes | `MapRender/CrossMemberSeamStitcher.cs:419` |
-| `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:158` |
+| `ledger-vs-truth` | yes | `GameActions/KspStatePatcher.cs` x6, `FacilityStatePatcher.cs:168` |
 | `icon-teleport` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1079` |
 | `icon-off-orbit` | yes (promoted 2026-08-04) | `MapRenderProbe.cs:1160` |
 | `unaccounted-drawn-recording` | **NO** (report-only instrument) | `MapRenderProbe.cs:544` |
