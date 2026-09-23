@@ -1,0 +1,58 @@
+version = 1
+MILESTONE
+{
+	id = 617ad3e0e5f64af3bca86b443a8287f2
+	startUT = 0
+	endUT = 26.519999999999524
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 26.519999999999524
+		type = 22
+		key = Valentina Kerman
+		detail = flight=0;entries=0,Recover,;trait=Pilot
+	}
+}
+MILESTONE
+{
+	id = f65f0a28a6c7479996faa231c6f09453
+	startUT = 26.519999999999524
+	endUT = 118.49999999999356
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 3
+	GAME_STATE_EVENT
+	{
+		ut = 31.299999999999422
+		type = 18
+		key = FirstLaunch
+		detail = funds=800;rep=0;sci=0
+		recordingId = 816a8822db4648e88b0c3d5b13c7e56d
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 32.799999999999528
+		type = 18
+		key = RecordsSpeed
+		detail = funds=19200;rep=2;sci=0
+		recordingId = 816a8822db4648e88b0c3d5b13c7e56d
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 39.420000000000563
+		type = 18
+		key = RecordsAltitude
+		detail = funds=19200;rep=2;sci=0
+		recordingId = 816a8822db4648e88b0c3d5b13c7e56d
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 80.180000000001186
+		type = 18
+		key = RecordsDistance
+		detail = funds=9600;rep=1;sci=0
+		recordingId = 816a8822db4648e88b0c3d5b13c7e56d
+	}
+}

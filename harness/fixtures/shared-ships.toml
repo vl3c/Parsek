@@ -52,6 +52,7 @@
 # makes. Dropping it would make a future `launch_vessel` lane over this host fail
 # on a missing file rather than on anything it was written to measure.
 "refly-autopilot-recorded" = ["GS1 Auto-Chute Booster", "Kerbal X"]
+"refly-split-crewed-recorded" = ["GS1 Auto-Chute Booster", "Kerbal X"]
 "gs2-orbital-stack" = ["GS1 Auto-Chute Booster", "Kerbal X"]
 # The FORGE-logi-pad harvest, and the row restores what the harvest dropped: the forge
 # ran over `bdock-forge-base`, whose four library craft arrive through THIS overlay

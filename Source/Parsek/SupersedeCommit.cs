@@ -2391,6 +2391,25 @@ namespace Parsek
                 if (a == null) continue;
                 if (!TombstoneAttributionHelper.InSupersedeScope(a, subtreeSet))
                     continue;
+                double deathFloatStep;
+                if (TombstoneAttributionHelper.IsDeathEndUTWithinFloatStepOfCutoff(
+                        a, rewindCutoffUT, out deathFloatStep))
+                {
+                    // TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS (1), accepted 2026-09-23: the float
+                    // EndUT cannot place this death on either side of the cutoff, so the
+                    // screen below may be deciding on rounding. Warn, not Info: it is a
+                    // real ambiguity in a career-state outcome, and the log validator
+                    // flags only a redundant WARN prefix, never a plain Warn.
+                    ParsekLog.Warn(LedgerSwapTag,
+                        $"PreRewindTombstoneGuard: death endUT within one float step of the cutoff " +
+                        $"action={a.ActionId ?? "<no-id>"} kerbal={a.KerbalName ?? "<none>"} " +
+                        $"rec={a.RecordingId} " +
+                        $"endUT={((double)a.EndUT).ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"floatStep={deathFloatStep.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"-> {(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT) ? "kept" : "in scope")} " +
+                        "(the screen may be deciding on float rounding)");
+                }
                 if (TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT))
                 {
                     preRewindKept++;

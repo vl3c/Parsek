@@ -4517,7 +4517,7 @@ writes supersede rows, tombstones, and flips MergeState). Re-arming afterwards w
 later cells a marker pointing at an already-merged provisional. The precondition guard
 subsumes the problem.
 
-## TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS: two rare shapes the endUT death screen gets wrong [NOTED 2026-09-22 in #1759 review. OPEN, low]
+## TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS: two rare shapes the endUT death screen gets wrong [NOTED 2026-09-22 in #1759 review. RULED 2026-09-23: both ACCEPTED as known limitations; (1) is now logged]
 
 Both are documented on `TombstoneAttributionHelper.ComputeAttributionUT`.
 (1) FLOAT PRECISION. `GameAction.EndUT` is a float. Late in a career (UT around 2e7 s,
@@ -4533,6 +4533,20 @@ member Dead at the recording's end, so a kerbal who actually died BEFORE the rew
 vessel that flew on past it (e.g. killed on EVA, then the vessel crashed later) carries
 the end-of-recording EndUT and is now tombstoned. Rare, and the per-kerbal death instant
 is not recorded anywhere the screen could read.
+
+OPERATOR RULING 2026-09-23. (1) ACCEPT AND LOG: no serialized-field change. When a
+death-encoding row's float `EndUT` lies within one float step of the rewind cutoff
+(`TombstoneAttributionHelper.IsDeathEndUTWithinFloatStepOfCutoff`, step from
+`FloatStepAt`: 2 s at UT 2e7, about 4e-6 s at UT 34), `SupersedeCommit.CommitTombstones`
+logs `[WARN][LedgerSwap] PreRewindTombstoneGuard: death endUT within one float step of the
+cutoff ... floatStep=... -> kept|in scope`. WARN rather than INFO because it is a real
+ambiguity in a career outcome, and it cannot red a green lane: `validate-ksp-log`'s only
+WARN rule (WRN-001, `ParsekLogContractChecker`) flags a redundant `WARNING:` prefix, never
+a plain Warn. Pinned by `KerbalAssignmentIdentityTests.CommitTombstones_DeathWithinOneFloatStepOfCutoff_LogsWarn`
+and its no-warn mirror. (2) ACCEPTED KNOWN LIMITATION, no code: a kerbal killed BEFORE the
+rewind point on a vessel that flies on past it is tombstoned by the merge and returns
+alive. The rewind design doc (docs/dev/done/parsek-rewind-separation-design.md) has no
+known-limitations section, so this entry and the helper's doc comment are the record.
 
 ## ~~KERBAL-ASSIGNMENT-DEDUP-KEY-IS-EMPTY~~: a re-fly's own crew rows are dropped as duplicates of an unrelated assignment row 0.1 s away [FOUND 2026-09-22 on RF-12S's after-reading. FIXED in the same PR (#1759)]
 
@@ -4571,7 +4585,70 @@ real commit path by
 the fixed DLL (`2026-09-22_2010`) read the provisional's `dedup=2` (was 4) and `2 reservations
 remain (permanent=0 temporary=2)` (was 0).
 
-## TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. OPEN, needs two design decisions]
+## RF-13-HOST-CANNOT-REACH-ORBIT: the RP-split re-fly lane never reaches its merge, because the host restores the crewed stack too low to burn to orbit [FOUND 2026-09-22 on RF-13's reading runs. OPEN, harness-only]
+
+`RF-13-refly-split-crew-survives-reload` is the live proof of the fix below: rewind
+`refly-split-crewed-recorded` slot 0, burn the restored crewed stack to orbit with
+`rf12s_refly_orbit_insert` so the crew SURVIVE, merge (a merge that SPLITS the origin
+at the rewind point), SaveGame + LoadGame, and assert no permanent reservation after the
+reload. The host (RF-13H, `2026-09-22_2315`) is right for the SPLIT: one crewed recording
+from launch through the RewindPoint to a death, no optimizer split. It is wrong for the
+BURN. GS-4's 60 km core gate leaves the stack at 29.1 km climbing near-vertically (vsurf
+711 m/s, ap 60.5 km), and every fixed pitch ran the X200-16 dry short of orbit:
+`2026-09-22_2319` + `_2322_a2` (pitch -5): dry at 62.7 km, pe 61.8 km, near-escape
+apoapsis; `_2333` (-10): pe 50.8 km; `_2337` (+5): pe 54.2 km. None reached
+`AnswerMergeDialog`, so the lane's tokens are unflown. Stopped at the flight cap (5 of ~8).
+
+The two constraints pull apart: the host's top stack must stay INSIDE the atmosphere
+after the discard (else the optimizer splits the pod at 70 km and the death lands on the
+second segment, which the rewind split never touches - RF-9's shape), and the re-fly
+needs enough energy at the rewind point to make orbit. Options, cheapest first:
+(1) re-harvest with the core gate just under the atmosphere (e.g. 68-69 km apoapsis) and
+re-read the burn, i.e. more energy at the RP for the same single-environment shape
+(a point-mass sweep calibrated on the four burns says marginal); (2) give
+`rf12s_refly_orbit_insert` a pitch program (steep, then flat) instead of one fixed pitch;
+(3) have the re-fly survive WITHOUT an orbit, which needs a craft with a parachute on the
+upper stack and a scene-exit merge that stamps Landed / Splashed. Cost after the
+re-harvest: a reading run, an armed run and a main-DLL negative control.
+
+ALSO FOUND AND FIXED on these runs: `mlib.evaluate_rfo_assertions` put NaN cut stamps
+into the orbit row whenever the burn gave up before the cut, `serialize_mission_result`
+(allow_nan=False) raised, and the harness read `<no-result>` / INVALID(driver stage)
+instead of the named MISSION-ASSERT-FAIL. Non-finite values are now written as null
+(`RfoGiveUpSerializesTests`); `_2333` and `_2337` report the named verdict.
+
+## OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT: a re-fly of the later part of an already-committed flight the optimizer split cannot retire its deaths until a load has re-derived the rows [FOUND 2026-09-23 by ruling (3)'s test. OPEN, needs a design decision]
+
+MEASURED HEADLESSLY by the skipped
+`TombstoneReloadMigrationTests.OptimizerSplitOfPopulatedRecording_ReFlyBeforeAnyReload_CrewNotDead`.
+The shape: a committed crewed flight whose crew rows were already derived (Dead for the
+whole flight) is split later by `RecordingStore.RunOptimizationSplitPass` - e.g. a re-fly
+provisional whose split was deferred at its own merge, or a load-time split. The split
+retags NO ledger rows, so the whole-flight Dead row stays tagged to the FIRST segment; the
+load runs `MigrateKerbalAssignments` (ledger-load phase) BEFORE the optimization pass, so
+the rows are not re-derived until the NEXT load. A re-fly of the SECOND segment in that
+window finds no row on it to retag or tombstone, the first segment's row (outside the
+closure) stays live, and the kerbal stays Dead; after the next load the TIP derives a
+fresh untombstoned Dead as well. With one load in between the shape is fixed by the
+Recovered-handoff move (entry below). Options: retag or re-derive KerbalAssignment rows for
+both halves inside the optimizer split pass, or run the kerbal-row re-derivation after the
+load-time optimization pass. Either is a ledger-timing decision, so it is filed rather
+than guessed.
+
+SECOND TRIGGER (found in the #1770 review, not yet measured): the RP-split TIP itself.
+On the first reload `MigrateKerbalAssignments` re-derives TIP's Dead row under the
+tombstoned id (ruling a1), and THEN the load-time optimization pass
+(`ParsekScenario.cs` ~4425, after the ledger-load phase) can split TIP again into TIP +
+TIP2: `FindSplitCandidatesForOptimizer` has no superseded filter, and the RP cut can
+expose a boundary the whole recording did not have (a plausible one is the graze rule
+(7) boundary, whose bracketing changes when the recording is cut).
+`MoveCrewEndStatesToSecondHalf` moves the Dead to TIP2, and on the second reload TIP2
+derives a fresh untombstoned Dead row, so the death resurrects. Candidate fixes:
+re-derive or retag KerbalAssignment rows inside the optimizer split pass (closes BOTH
+triggers), or skip superseded recordings as split candidates (cheap, closes only this
+one).
+
+## ~~TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT~~: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. RULED 2026-09-23 (a1 + the Recovered handoff). FIXED on branch `tombstone-reload`]
 
 MEASURED HEADLESSLY by `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
 (skipped, naming this entry). The shape: crew board at launch on a recording that spans
@@ -4610,6 +4687,61 @@ TWO INDEPENDENT CAUSES, each with its own decision:
     generation but needs a reservation rule and UI wording.
 Whatever is chosen must keep the guard/splitter mirror bit-identical (the retag key is
 `TombstoneAttributionHelper.ComputeAttributionUT`) and un-skip the test above.
+
+OPERATOR RULINGS 2026-09-23. (a) option a1: a row Migrate re-derives for the same
+(RecordingId, KerbalName) it replaces INHERITS the replaced row's ActionId (ActionIds are
+immutable and tombstones key on them, rewind design 5.6; the ledger is append-only). (b)
+the Recovered handoff: after the split, HEAD's CrewEndStates move to TIP and HEAD's end
+states and resolved flag are cleared, so the existing chain-handoff rule marks HEAD's crew
+Recovered (a finite reservation later segments extend). (3) first: test the analyst's lead
+that the optimizer's ordinary environment split leaves the same copied Dead on its first
+segment.
+
+FIXED (branch `tombstone-reload`):
+- (a) `LedgerOrchestrator.InheritKerbalAssignmentActionIds`, called by
+  `MigrateKerbalAssignments` before `ReplaceActionsForRecording`. Deterministic pairing: the
+  k-th desired row for a kerbal inherits the k-th stored row for that kerbal, each stored
+  row consumed once, so no two rows share an id; a desired row with no same-name partner
+  keeps a fresh id. ActionId CONSUMERS RE-DERIVED (every `ActionId` read in
+  `Source/Parsek`): tombstones and the ELS filter (the point of the change), `Inv8Ledger`
+  and `LoadTimeSweep`'s orphan-tombstone warn (a fresh id used to ORPHAN the tombstone:
+  both now stay clean), `TreeDiscardPurge`'s ActionId -> RecordingId index (the inherited
+  row keeps its recording), `ResurrectionRetirementEligibility` / `RewindInvoker` (collect
+  ids of rows present at invoke time; unaffected), the Funds / Reputation / Milestones
+  per-id log rate-limit keys and `LedgerRolloutAdoption` (other action types only),
+  `PostWalkActionReconciler` (log labels). Nothing depends on a fresh id at re-derivation.
+- COMMIT-SIDE MIRROR, found by the re-commit mirror test: every tree commit re-commits
+  every recording of the tree (`NotifyLedgerTreeCommitted`), and the retagged TIP row still
+  carries the origin's UT, so `DeduplicateAgainstLedger`'s 0.1 s window let a re-commit of
+  TIP file a second, fresh-id, untombstoned Dead row. KerbalAssignment dedup now matches on
+  its (RecordingId, KerbalName) key alone, the same identity a1 uses; every other type
+  keeps the UT window. Only one producer of KerbalAssignment exists
+  (`CreateKerbalAssignmentActions`).
+- (b) `RecordingOptimizer.MoveCrewEndStatesToSecondHalf`, called from
+  `TransferTerminalFieldsToSecondHalf`, i.e. for BOTH `SplitAtSection` callers (the RP
+  split via `SplitAtUT` and the optimizer split pass): (3) showed the optimizer path has
+  the same leftover, and end states are end-of-recording state that travels with the
+  terminal exactly like `MergeState` and `VesselSnapshot`. HEAD qualifies for the handoff
+  after the split: `ChainId` set (step 2.5 / `CopySplitIdentityFields`), `VesselSnapshot`
+  moved, terminal null. The fresh-commit order (optimize, then derive) moves nothing, so
+  the common path is unchanged. The merge direction needs no counterpart (`MergeInto`
+  stamps through `StampTerminalState`, whose invalidation seam re-infers). The split's
+  rollback restores both fields from the pre-split deep clone.
+- (3) MEASURED headlessly: an optimizer split of a recording whose end states were ALREADY
+  populated left the whole flight's Dead on the first segment, and a later re-fly of the
+  second segment could not retire it (outside the closure, endUT before the rewind), so
+  the kerbal stayed Dead BEFORE any reload. With the move, the shape where a load
+  separates the optimizer split from the re-fly is fixed
+  (`OptimizerSplitOfPopulatedRecording_ReloadThenReFlyOfSecondSegment_CrewNotDead`). The
+  shape with NO load in between is NOT, for a different reason (ledger rows, not end
+  states), filed above as OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT.
+- `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
+  is un-skipped and green, with mirror cells for two reloads, a re-commit of TIP, a merge
+  that does not split, a mid-split rollback and a crewless recording; mutation-checked
+  (removing the inheritance, the dedup identity or the move reds 8 / 2 / 6 cells).
+- LIVE PROOF: the host was harvested (`refly-split-crewed-recorded` from RF-13H
+  `2026-09-22_2315`), but RF-13's re-fly burn never reached the merge; see
+  RF-13-HOST-CANNOT-REACH-ORBIT. The fix is proven headlessly only.
 
 ## ~~TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START~~: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09. RULED 2026-09-22: screen death intervals by `endUT`. FIXED on branch `tombstone-endut` and LIVE-PROVEN by RF-12S; two follow-ups filed above]
 

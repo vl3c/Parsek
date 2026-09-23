@@ -34,6 +34,15 @@ _(unreleased — entries accumulate here per commit)_
   `chain-terminated-destruction-recovery`. Proven by an armed re-flight and a negative control. The recovery half, and a seam verb pair to
   spawn and recover a ghost vessel for the rest of D18, are filed as follow-ons.
   Harness-only; no game code changed.
+- **Automated testing: a re-fly host whose merge splits the original recording, and the
+  lane that will fly it.** `RF-13H-crewed-crash-refly-host` flies a crewed Kerbal X whose
+  core comes off inside the atmosphere and whose upper stack is left to crash, so one
+  crewed recording runs from launch through the rewind point to a death with no optimizer
+  split. Its save is committed as the fixture `refly-split-crewed-recorded`. The proof lane
+  `RF-13-refly-split-crew-survives-reload` re-flies that crew to orbit, merges, saves and
+  reloads. It is not green yet: from that host the upper stack cannot reach orbit
+  (tracked as RF-13-HOST-CANNOT-REACH-ORBIT). The orbit-insert mission now reports a
+  burn that runs dry by name instead of failing to write its result.
 - **Automated testing: RF-12S proves the re-fly crew-recovery fix end to end.** The lane
   rewinds a recorded crewed flight to the moment after launch where its upper stack
   separated. It flies the restored stack to orbit with a new small mission, so the crew
@@ -878,12 +887,28 @@ _(unreleased — entries accumulate here per commit)_
   Every other ledger row keeps its old placement. A re-fly that kills the crew again
   records its own death under the re-fly's recording, which the merge never touches;
   with the dedup fix below that now also holds when the same slot is re-flown more than
-  once. The fix holds in-session, and
-  after a reload on saves where the merge did not split the original recording at the
-  rewind point. It does not yet survive a reload in the common case: the first re-fly of
-  a crewed slot whose recording started at launch splits that recording, and the next
-  load restores the Dead rows. That is no worse than before this fix; it is tracked as
-  TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT.
+  once. The fix holds in-session and, with the entry below, after a reload. Two rare
+  shapes are accepted limits (TOMBSTONE-ENDUT-SCREEN-LOW-LIMITS): late in a career a
+  death within about one float step of the rewind point may land on the wrong side (now
+  logged as a warning), and a kerbal killed before the rewind point on a vessel that
+  flew on past it returns alive.
+
+- **The crew a re-fly saved no longer die again on the next load.** The common re-fly
+  shape (crew boarded at launch, the rewind point later in the same flight) splits the
+  original recording in two at the rewind point, and loading the save then brought the
+  retired deaths back, for both halves. Two causes, both fixed. The load-time rebuild of
+  crew rows gave each rebuilt row a new identity, so the merge's retirement, which is
+  keyed on that identity, no longer covered it; a rebuilt row now keeps the identity of
+  the row it replaces for the same flight and kerbal. And the split left the whole
+  flight's crew fates (Dead) on the first half; they now move to the second half with the
+  flight's ending, and the first half's crew read as handed on to the next segment, the
+  same finite reservation any chain segment gets. The same move applies when the
+  recording optimizer later splits a recording whose crew fates were already worked out.
+  Committing a flight again no longer adds a second crew row for the same kerbal next to
+  a retired one. The fix applies to re-fly merges made with this build: a save whose merge
+  was made by an older build keeps the first half's Dead crew fates and is not repaired. One narrower shape stays open (OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT):
+  an optimizer split of an already-committed flight followed by a re-fly of its later
+  part with no load in between.
 
 - **A re-fly's crew assignments are no longer dropped as duplicates of another flight's.**
   The ledger's duplicate check treated any two crew-assignment rows less than 0.1 s apart
