@@ -144,9 +144,16 @@ kind = "seam"
 # live). The AnswerMergeDialog merge tail is S4.1's proven conclusion verbatim: it
 # leaves the run in SPACECENTER with the fork merged, so the following
 # RecordingState (AnyScene) confirms the merged tree.
+# THE CLOCK MUST REACH THE RP FIRST (operator ruling 2026-09-23). The injector places
+# the tree at the host save's UT with the split 60 s later, so after LoadGame the RP
+# lies in the player's future and CanInvoke refuses it (`refly-gate This separation is
+# in your future ...`). The TimeJump of 61 s puts the clock 1 s past the RP and still
+# ahead of every leaf's EndUT (the upper stage ends 40 s and the booster 55 s after the
+# split), so nothing materializes before the re-fly. S4.1 flies the refusal itself.
 steps = [
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                    expect = "OK", budget = 120 },
   { cmd = "InvokeRewind",      args = { rp = "rp_wp_root", slot = "1" },            expect = "OK", budget = 300 },
   { cmd = "RunTests",          args = { category = "ReFlyWorldPreservation" },      expect = "OK", budget = 300 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                         expect = "OK", budget = 120 },
@@ -438,7 +445,8 @@ forbidden = [
 # a six-cell batch); the ceiling only governs the unattended defer path. A KILLED
 # run prints NO tally at all, which is why the headroom is worth its zero cost on a
 # healthy run.
-budgetSeconds = 2400
+# +660 on 2026-09-23 for the TimeJump that brings the clock to the RP (a deferred verb).
+budgetSeconds = 3060
 
 [retry]
 policy = "once"

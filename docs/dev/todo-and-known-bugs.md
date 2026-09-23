@@ -15,6 +15,96 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`]
+
+**Ruling.** A rewind point ALWAYS survives a Rewind-to-Launch. Its slots stay in Unfinished
+Flights, but the Re-Fly (invoke) is enabled only once the current UT has passed the RP's UT
+again: an RP in the player's future cannot be invoked. (Roadmap Tier B item 6.)
+
+**The defect, pinned from the logs plus a decompile.** GS-4 (`2026-09-11_0102`) read
+`RewindPoints loaded: 0` after the rewind; GS-7 (`2026-09-08_2054`) read 1. Neither rewind
+save (`parsek_rw_*`) carries a REWIND_POINTS node, and no OnSave ran between the rewind's
+LoadGame and the OnLoad in either run. The OnLoad node is not the rewind save at all:
+`RecordingStore.ExecuteRewindSaveLoad` swaps in the rewind game and loads SPACECENTER, and
+`SpaceCenterMain.Start` (KSP 1.12.5, decompiled) calls `GamePersistence.LoadGame("persistent")`
+and loads THAT game (the second `[SceneLoadSpeedBoost] Save loaded from disk` line in both
+logs). So the RP list came from persistent.sfs as last written. GS-7 flew to the Space Center
+and back after the RP (`Game State Saved as persistent` at flight ready, 20:47:55), GS-4 wrote
+no persistent after its RP. Survival was scene-history carry-over; the earlier reading
+("the crash promoted the slots to CommittedProvisional") was wrong, GS-4's slots were
+promoted too (`reason=stableLeafUnconcluded`). RF-4 measured the other face: its seal reaped
+the RP (quicksave deleted), then the rewind read it back from an older persistent.sfs.
+
+**Fix.** `ExecuteRewindSaveLoad` (both plain-rewind entry points) captures the in-memory RP
+list before the load (`RecordingStore.CaptureRewindPointsForRewind`), and
+`ParsekScenario.OnLoad` reinstalls it right after `LoadRewindStagingState`
+(`ReinstallRewindCarriedRewindPointsAfterLoad`, gated on `RewindContext.IsRewinding`; logs
+`RewindPoints carried across rewind: installed= loadedFromSave= restored= staleDropped=`).
+Memory wins wholesale, like the recordings; `ResetRewindFlags` drops a capture no load will
+consume. Quicksave files needed nothing: the reaper and the sweeps only walk the list, and
+the list now keeps them referenced. The reaper rule is unchanged (an RP still reaps when every
+slot is closed). The gate is one more `RewindInvoker.CanInvoke` precondition
+(`IsRewindPointInFuture`, 1 ms save round-trip slack, exactly-at allowed, an unknown clock
+leaves it open), so the Recordings table, the Timeline, StartInvoke's confirm-time re-check,
+the Retry handler and the `InvokeRewind` seam verb all see it. SCOPE: the gate is the ruling's
+general form - ANY RP later than the clock, not only one a Rewind-to-Launch moved into the
+future. A Re-Fly that takes the clock back past another mission's split disables that split's
+Fly until the clock reaches it again (it was enabled before). The Retry handler checks the
+gate BEFORE it clears the session (`RewindInvoker.IsRewindPointInFutureNow`, Warn
+`RetryHandler: rp=... is in the future ... session sess=... kept`), since a refusal inside
+StartInvoke would come after the marker is gone; production cannot reach it (an RP quicksave
+is written after the RP stamps its UT), injected fixtures can. The reason
+(`FutureRewindPointReason`) reaches the player only as the disabled Fly button's existing
+tooltip, budgeted by `TooltipEchoBudgetTests`. MergeState is untouched by the rewind, so a
+slot stays CommittedProvisional with its RP present (before the fix GS-4 left open
+CommittedProvisional slots with no RP). `Inv9RewindPoint` reads the `parsek_rw_*` launch
+saves, not RPs, and is unaffected.
+
+**Specs.** GS-4 pins `rewindPoints = {1,1}` and gates the block (ARMED_ALLOWLIST), plus the
+required `RewindPoints carried across rewind: installed=1 ` token. S4.1-S4.4 injected their RP
+60 s after the host save's clock, which the gate now refuses: each gets a `TimeJump 61 s`
+first, and S4.1 flies the refusal itself (`InvokeRewind` REJECTED `refly-gate This separation
+is in your future ...`, jump, `InvokeRewind` OK). RF-4's report-only window goes back to its
+derived `max = 0`. GS-7's comment and the roadmap item are corrected.
+
+**Live proof** (stock-minimal; fix DLL sha256 c603a16e, pre-fix DLL from origin/main
+`6a17f1717` sha256 c956179b):
+- GS-4 ARMED `2026-09-23_2012`: PASS attempt 1, saveParse `rewindPoints=1` (armed block
+  green), log `RewindPoints loaded: 0` then `RewindPoints carried across rewind: installed=1
+  loadedFromSave=0 restored=1 staleDropped=0`, the next load `RewindPoints loaded: 1`.
+- GS-4 NEGATIVE CONTROL `2026-09-23_2021`, same spec on the pre-fix DLL: PARSEK-FAIL on
+  exactly `rewind.rewindPoints 0 < min 1` and the missing carry-over token.
+- S4.1 `2026-09-23_2038`: PASS attempt 1; the first `InvokeRewind` REJECTED
+  (`CanInvoke: disabled rp=rp_b9_root ... rpUT=81.16 nowUT=21.68`), the TimeJump, then
+  the original invoke and merge as before. The gate is thus live-proven both ways.
+- NOT flown: S4.2-S4.4 (the same TimeJump S4.1 proves) and RF-4 (report-only window).
+- GS-7 re-read: see the defect paragraph; its comment is corrected.
+
+**Residue.** See RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT below for the other staged
+lists this fix does not carry. The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
+host save's UT, which is 60 s BEFORE the RP UT, so a fixture re-fly runs with the clock before
+its own RP. Nothing on the committed lanes calls CanInvoke inside a fixture session, but a
+Retry from Rewind Point there would read the gate; production RP quicksaves are written after
+the RP stamps its UT and never have this shape.
+
+## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. OPEN]
+
+`LoadRewindStagingState` rebuilds RECORDING_SUPERSEDES, RECORDING_REWIND_RETIREMENTS,
+LEDGER_TOMBSTONES and the merge journal from the same OnLoad node, and on a plain rewind that
+node is persistent.sfs as last written (`SpaceCenterMain.Start` reloads it), not the in-memory
+state the rewind otherwise keeps. RP-SURVIVES-REWIND-TO-LAUNCH carries only the RP list. A
+Re-Fly merge in ANOTHER tree after the last persistent write would lose its supersede rows and
+tombstones on the next Rewind-to-Launch, while its RP now survives from memory. Not measured
+live; derived from the mechanism. Fix direction: carry every staged list the same way (the
+supersede re-apply `ReapplyRewindSupersedeDropAfterLoad` would then run on the carried list).
+
+Related open question (UNVERIFIED): `DropSupersedesRewoundOutOfExistence` drops the owner
+tree's non-canon supersede rows whose forks start after the rewind UT. An RP that survives
+because one sibling is still open could then list the un-superseded origin of an already
+re-flown slot again, next to the fork's ghost. Needs a trace of slot-open resolution after the
+drop, or a lane (re-fly one slot without sealing, rewind to launch, read the slots).
+
+
 ## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. OPEN for blocker 2 only]
 
 **STATUS 2026-09-23 (read this first; the original filing follows).**

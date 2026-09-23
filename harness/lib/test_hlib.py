@@ -10626,6 +10626,13 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # `tombstones` re-pinned 1 -> 2 on 2026-09-10 off `2026-09-09_2158_CL-4-refly-crew-standin`
                        # (the KerbalDeath reputation penalty row is tombstoned with the death).
                        "CL-4-refly-crew-standin.toml",
+                       # GS-4: `rewind` armed 2026-09-23 with rewindPoints {1,1} on the
+                       # operator ruling that a rewind point always survives a
+                       # Rewind-to-Launch (todo RP-SURVIVES-REWIND-TO-LAUNCH). Armed flight
+                       # `2026-09-23_2012` PASS (rewindPoints 1); negative control
+                       # `2026-09-23_2021` on the pre-fix DLL red on exactly
+                       # `rewind.rewindPoints 0 < min 1` plus the carry-over token.
+                       "GS-4-kerbalx-rewind-watch.toml",
                        # RF-12S: `rewind` armed 2026-09-22 off its after-reading
                        # `2026-09-22_1931` (supersedeRows 5, tombstones 12); the main-DLL
                        # before-reading `_1928` read tombstones 10, so the floor is the

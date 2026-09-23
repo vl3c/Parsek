@@ -130,7 +130,8 @@ id = "RF-4-rewind-to-launch-after-merge"
 # `resolvedBy=AutoSingle` is the bare auto-select branch no committed lane had ever
 # exercised. TWO SPEC-SIDE CORRECTIONS came out of it, both recorded where they apply: the
 # `unbound-refly-provisional` forbid (measured non-forbiddable by any seam lane) and the
-# `rewindPoints` window (the rewind-to-launch reinstates the point the seal reaped).
+# `rewindPoints` window (the rewind-to-launch reinstated the point the seal reaped - a
+# defect since fixed, see the window's comment below).
 # The 125 `NullReferenceException`s the unityExceptions row reports are ALL stock
 # `SpaceCenterCamera2.UpdateTransformOverview`, with no Parsek frame in any stack; the row
 # is report-only and they are the KSC camera, not this change.
@@ -300,15 +301,17 @@ forbidden = [
 ]
 
 # REPORT-ONLY. DERIVED, and every window says from what:
-#   rewindPoints  RE-PINNED FROM READING RUN 2 TO `{1,1}`, and the correction is a
-#                 READING rather than a mistake being papered over. The derivation said 0:
-#                 RF-1 leaves exactly 1 point, act 3's seal closes its last open slot and
-#                 the reaper runs inside that same call - and the log confirms exactly
-#                 that, `Reaped rp=rp_<runId>... slots=2` then `ReapOrphanedRPs: reaped=1
-#                 remaining=0`. The produced save nevertheless carries ONE, because act 4
-#                 runs AFTER the seal: the rewind-to-LAUNCH's go-back reconcile REINSTATES
-#                 the point the seal had reaped. Nothing else in the suite has measured
-#                 that, and it is the second unpinned reading this lane bought.
+#   rewindPoints  BACK TO THE DERIVED 0 (2026-09-23). The derivation said 0: RF-1 leaves
+#                 exactly 1 point, act 3's seal closes its last open slot and the reaper
+#                 runs inside that same call - `Reaped rp=rp_<runId>... slots=2` then
+#                 `ReapOrphanedRPs: reaped=1 remaining=0`. Reading run 2 nevertheless read
+#                 ONE and the window was re-pinned `{1,1}` off it. That reading was a
+#                 DEFECT, not a design: the rewind-to-launch's OnLoad rebuilt the list from
+#                 persistent.sfs as last written (KSP's SpaceCenterMain.Start reloads it),
+#                 which predated the reap, so the reaped point came back with its quicksave
+#                 file already deleted. The rewind now carries the in-memory list across
+#                 (todo RP-SURVIVES-REWIND-TO-LAUNCH), so a reaped point stays reaped.
+#                 Not re-flown on the fix; the block stays report-only.
 #   supersedeRows the merge appends at least one row for the superseded subtree, and the
 #                 rollback then PRESERVES the sealed fork's rather than dropping it - so a
 #                 floor of 1 after the rewind is the save-side form of `Preserved canon
@@ -316,7 +319,7 @@ forbidden = [
 #   tombstones    nobody dies on this profile: the pod lands intact, the booster is still
 #                 flying, and the re-flown booster is unmanned.
 [expectations.rewind]
-rewindPoints  = { min = 1, max = 1 }
+rewindPoints  = { max = 0 }
 supersedeRows = { min = 1 }
 tombstones    = { max = 0 }
 
