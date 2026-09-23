@@ -18,8 +18,9 @@ id = "EX-1-ghost-extension-past-endut"
 # UNTIL 2026-09-23 this lane was the D18 `ghost-extension-past-endut` claim, riding the
 # 5 s bounded hold the KSC exclusion zone used to cause (#170 refused the spawn, the
 # policy held the ghost, retried every 1 s and timed out). The ruling removed that hold,
-# so the claim moved off: `[dimensionsCovered] D18` is gone and the cell waits for a
-# single-point-recording host (todo D18-GHOST-EXTENSION-SINGLE-POINT-HOST). The id stays.
+# so the claim moved off: `[dimensionsCovered] D18` is gone, and since 2026-09-24 the cell
+# rides `EX-2-single-point-held-ghost` (the single-point collision hold; todo
+# D18-GHOST-EXTENSION-SINGLE-POINT-HOST, closed). The id stays.
 # The D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME regression this lane
 # pinned (fixed 2026-09-23, reading `2026-09-23_1510`) keeps its unit cells; this road no
 # longer reaches a held ghost.
@@ -53,7 +54,7 @@ id = "EX-1-ghost-extension-past-endut"
 # XPASS, then un-quarantined; retirement rewrite 2026-09-23 (reading `_1810`).
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "KSC end-of-flight retirement witness (operator ruling 2026-09-23): record the pad probe of pad-runway-pair in-run, Rewind-to-Launch it, reload into FLIGHT on the runway rover, and let 1x time carry the replayed ghost through EndUT. The flight ended parked in the pad circle of the KSC exclusion zone, so the spawn call retires the recording (Spawn RETIRED ... (pad) - no vessel): no hold, no retry, no vessel, the ghost torn down with the ordinary completion. Formerly the D18 ghost-extension-past-endut claim on the pad hold the ruling removed; the claim moved off (todo D18-GHOST-EXTENSION-SINGLE-POINT-HOST). LIVE-PROVEN 2026-09-23: reading 2026-09-23_1810, armed _1820, negative control _1822."
+description = "KSC end-of-flight retirement witness (operator ruling 2026-09-23): record the pad probe of pad-runway-pair in-run, Rewind-to-Launch it, reload into FLIGHT on the runway rover, and let 1x time carry the replayed ghost through EndUT. The flight ended parked in the pad circle of the KSC exclusion zone, so the spawn call retires the recording (Spawn RETIRED ... (pad) - no vessel): no hold, no retry, no vessel, the ghost torn down with the ordinary completion. Formerly the D18 ghost-extension-past-endut claim on the pad hold the ruling removed; the claim moved off and rides EX-2-single-point-held-ghost since 2026-09-24. LIVE-PROVEN 2026-09-23: reading 2026-09-23_1810, armed _1820, negative control _1822."
 instanceProfile = "stock-minimal"
 tags = ["EX-1", "ksc-retirement", "ksc-exclusion-zone", "no-held-ghost",
         "rewind-to-launch", "R10", "runtime-handles"]

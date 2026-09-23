@@ -137,6 +137,8 @@ RP_SIDECAR_BY_PRESET = {
     "pending-limbo-tree": None,
     # RL-1's live-PID loop-anchor recording: a committed tree only, no RP.
     "relative-loop": None,
+    # EX-2's single-point hold: one committed one-point recording, no RP.
+    "single-point-hold": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

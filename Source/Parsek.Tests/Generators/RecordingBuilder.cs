@@ -45,6 +45,7 @@ namespace Parsek.Tests.Generators
         private int? terminalState;
         private MergeState? mergeState;
         private double terrainHeightAtEnd = double.NaN;
+        private OrbitSegment? terminalOrbit;
         private Dictionary<string, ResourceAmount> startResources;
         private Dictionary<string, ResourceAmount> endResources;
         private RouteRunCargoManifest routeRunManifest;
@@ -424,6 +425,30 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithTerrainHeightAtEnd(double height)
         {
             terrainHeightAtEnd = height;
+            return this;
+        }
+
+        /// <summary>
+        /// Stamps the recorded terminal orbit (<c>Recording.TerminalOrbit*</c>), which an
+        /// Orbiting-terminal spawn propagates to the current UT instead of spawning at the
+        /// last trajectory point (<c>VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState</c>).
+        /// Carried by the tree path only (<c>ScenarioWriter.BuildRecording</c>); angles are
+        /// KSP-native degrees, <paramref name="mna"/> radians, like an <c>ORBIT</c> node.
+        /// </summary>
+        public RecordingBuilder WithTerminalOrbit(string body, double sma, double ecc,
+            double inc, double lan, double argPe, double mna, double epoch)
+        {
+            terminalOrbit = new OrbitSegment
+            {
+                bodyName = body,
+                semiMajorAxis = sma,
+                eccentricity = ecc,
+                inclination = inc,
+                longitudeOfAscendingNode = lan,
+                argumentOfPeriapsis = argPe,
+                meanAnomalyAtEpoch = mna,
+                epoch = epoch,
+            };
             return this;
         }
 
@@ -1176,6 +1201,9 @@ namespace Parsek.Tests.Generators
 
         /// <summary>Returns the terrain height at end.</summary>
         public double GetTerrainHeightAtEnd() => terrainHeightAtEnd;
+
+        /// <summary>Returns the recorded terminal orbit (null if not set).</summary>
+        public OrbitSegment? GetTerminalOrbit() => terminalOrbit;
 
         /// <summary>Returns the recording groups list.</summary>
         public List<string> GetRecordingGroups() => recordingGroups;
