@@ -516,7 +516,9 @@ namespace Parsek.Tests
             {
                 "kind", "count", "truncated", "evaluated", "digest",
                 "chain0pid", "chain0links", "chain0tip", "chain0spawnUT", "chain0terminated",
+                "chain0trees", "chain0treeIds",
                 "chain1pid", "chain1links", "chain1tip", "chain1spawnUT", "chain1terminated",
+                "chain1trees", "chain1treeIds",
             }, Keys(payload));
             Dictionary<string, string> m = Map(payload);
             Assert.Equal("chains", m["kind"]);
@@ -532,6 +534,77 @@ namespace Parsek.Tests
             Assert.Equal("3620499050", m["chain1pid"]);
             Assert.Equal("8951.5", m["chain1spawnUT"]);
             Assert.Equal("false", m["chain1terminated"]);
+        }
+
+        [Fact]
+        public void Chains_payload_reports_a_pid_pooled_chain_as_two_distinct_trees()
+        {
+            ChainRow pooled = Chain(3620499050u, 3, "30b49a24", 11794.7);
+            pooled.LinkTreeIds = new List<string> { "ac9641d6", "8c677bba", "ac9641d6" };
+            ChainRow single = Chain(7u, 1, "tipB", 100.25);
+            single.LinkTreeIds = new List<string> { "8c677bba" };
+            ChainRow unknown = Chain(9u, 1, "tipC", 200.0);
+            List<KeyValuePair<string, string>> payload = TestCommandListHandles.BuildChainsPayload(
+                new List<ChainRow> { pooled, single, unknown }, evaluated: true, expectedDigest: null);
+
+            Dictionary<string, string> m = Map(payload);
+            Assert.Equal("1", m["chain0trees"]);
+            Assert.Equal("8c677bba", m["chain0treeIds"]);
+            Assert.Equal("0", m["chain1trees"]);
+            Assert.Equal(string.Empty, m["chain1treeIds"]);
+            // Distinct, ordinal-sorted, whatever order the links were kept in.
+            Assert.Equal("2", m["chain2trees"]);
+            Assert.Equal("8c677bba,ac9641d6", m["chain2treeIds"]);
+        }
+
+        [Fact]
+        public void Chains_tree_keys_do_not_move_the_digest()
+        {
+            ChainRow bare = Chain(10u, 2, "tip", 50.0);
+            ChainRow withTrees = Chain(10u, 2, "tip", 50.0);
+            withTrees.LinkTreeIds = new List<string> { "a", "b" };
+            Assert.Equal(
+                TestCommandListHandles.ChainsDigest(new List<ChainRow> { bare }),
+                TestCommandListHandles.ChainsDigest(new List<ChainRow> { withTrees }));
+        }
+
+        [Fact]
+        public void DistinctTreeIds_drops_null_empty_and_duplicates_and_sorts_ordinal()
+        {
+            Assert.Empty(TestCommandListHandles.DistinctTreeIds(null));
+            Assert.Equal(new[] { "B", "a" }, TestCommandListHandles.DistinctTreeIds(
+                new List<string> { "a", null, "", "B", "a" }).ToArray());
+        }
+
+        [Fact]
+        public void Chain_log_lines_mirror_the_payload_one_line_per_enumerated_chain()
+        {
+            ChainRow pooled = Chain(3620499050u, 2, "30b49a24", 11794.7);
+            pooled.LinkTreeIds = new List<string> { "8c677bba", "ac9641d6" };
+            List<KeyValuePair<string, string>> payload = TestCommandListHandles.BuildChainsPayload(
+                new List<ChainRow> { pooled }, evaluated: true, expectedDigest: null);
+
+            List<string> lines = TestCommandListHandles.ChainLogLines(payload, ListHandlesKind.Chains);
+            Assert.Equal(new[]
+            {
+                "listhandles chain index=0 pid=3620499050 links=2 trees=2 treeIds=8c677bba,ac9641d6 tip=30b49a24",
+            }, lines.ToArray());
+            Assert.Empty(TestCommandListHandles.ChainLogLines(payload, ListHandlesKind.Committed));
+            Assert.Empty(TestCommandListHandles.ChainLogLines(
+                TestCommandListHandles.BuildChainsPayload(new List<ChainRow>(), true, null),
+                ListHandlesKind.Chains));
+        }
+
+        [Fact]
+        public void Chain_log_lines_are_capped_at_the_enumerated_chains()
+        {
+            var rows = new List<ChainRow>();
+            for (uint pid = 1; pid <= TestCommandListHandles.MaxChains + 3; pid++)
+                rows.Add(Chain(pid, 1, "t", 1.0));
+            List<KeyValuePair<string, string>> payload =
+                TestCommandListHandles.BuildChainsPayload(rows, true, null);
+            Assert.Equal(TestCommandListHandles.MaxChains,
+                TestCommandListHandles.ChainLogLines(payload, ListHandlesKind.Chains).Count);
         }
 
         [Fact]
@@ -606,7 +679,7 @@ namespace Parsek.Tests
             Dictionary<string, string> m = Map(payload);
             Assert.Equal((TestCommandListHandles.MaxChains + 2).ToString(CultureInfo.InvariantCulture), m["count"]);
             Assert.Equal("true", m["truncated"]);
-            Assert.Equal(TestCommandListHandles.MaxChains * 5 + 5, payload.Count);
+            Assert.Equal(TestCommandListHandles.MaxChains * 7 + 5, payload.Count);
             // A difference in a chain the listing cut must still move the digest.
             var changed = new List<ChainRow>(rows);
             changed[changed.Count - 1] = Chain(changed[changed.Count - 1].Pid, 9, "x", 1);
@@ -638,6 +711,7 @@ namespace Parsek.Tests
             {
                 "kind", "count", "truncated", "evaluated", "digest", "expected", "match",
                 "chain0pid", "chain0links", "chain0tip", "chain0spawnUT", "chain0terminated",
+                "chain0trees", "chain0treeIds",
             }, Keys(same));
             Assert.Equal("true", Map(same)["match"]);
             Assert.Equal("bbd83d3b", Map(same)["expected"]);

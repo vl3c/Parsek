@@ -39,7 +39,9 @@ _(unreleased — entries accumulate here per commit)_
   same lane ended with no vessel at all.
 - **Automated testing: the command seam can read back the flight scene's ghost chains.**
   `ListHandles kind=chains` lists each derived chain (claimed vessel pid, link count, tip
-  recording, spawn UT, terminated flag) in pid order, plus `evaluated=` (whether this
+  recording, spawn UT, terminated flag, and how many distinct committed trees its links
+  come from with their ids, also written as one log line per chain) in pid order, plus
+  `evaluated=` (whether this
   flight scene derived its chains at all) and a stable `digest=` over the whole set. An
   optional `expectDigest=` compares the set against an earlier capture and answers
   `match=`, so a lane can prove the chains a new scene derives after a save and reload

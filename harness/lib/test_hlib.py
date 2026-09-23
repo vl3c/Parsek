@@ -22817,6 +22817,25 @@ class ListHandlesSourceSyncTests(unittest.TestCase):
         self.assertEqual(hlib.LISTHANDLES_EXPECT_DIGEST_INVALID_REASON,
                          self.consts["ExpectDigestInvalidReason"])
 
+    def test_the_chain_log_line_prefix_and_tree_keys_are_byte_equal(self):
+        self.assertEqual(hlib.LISTHANDLES_CHAIN_LOG_PREFIX,
+                         self.consts["ChainLogLinePrefix"])
+        self.assertEqual(hlib.LISTHANDLES_CHAIN_TREES_KEY,
+                         self.consts["ChainTreesKeySuffix"])
+        self.assertEqual(hlib.LISTHANDLES_CHAIN_TREE_IDS_KEY,
+                         self.consts["ChainTreeIdsKeySuffix"])
+
+    def test_the_chain_log_line_writes_the_tree_keys_after_links(self):
+        """The field order a spec regex pins (`links=.. trees=.. treeIds=..`) is the
+        order the C# concatenates them in `ChainLogLines`' own body."""
+        head = re.search(r"\bstatic\s+List<string>\s+ChainLogLines\s*\(", self.code)
+        self.assertIsNotNone(head, "ChainLogLines declaration not found")
+        body = self.code[head.end():head.end() + 2000]
+        positions = [body.find(n) for n in ('" links="', "ChainTreesKeySuffix",
+                                            "ChainTreeIdsKeySuffix", '" tip="')]
+        self.assertTrue(all(p >= 0 for p in positions), positions)
+        self.assertEqual(sorted(positions), positions)
+
     def test_the_comment_strip_is_not_decorative(self):
         """Anti-vacuity: a synthetic source whose COMMENT names a fifth family and a
         commented-out case must parse to the real labels only."""

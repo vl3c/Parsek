@@ -2125,6 +2125,17 @@ LISTHANDLES_EXPECT_DIGEST_RE = re.compile(r"^[0-9a-f]{8}$")
 LISTHANDLES_EXPECT_DIGEST_KIND_MISMATCH_REASON = "expect-digest-kind-mismatch"
 LISTHANDLES_EXPECT_DIGEST_INVALID_REASON = "expect-digest-invalid"
 
+# `ListHandles kind=chains` writes, besides its summary line, one Info line per
+# ENUMERATED chain: `listhandles chain index=<i> pid=.. links=.. trees=.. treeIds=..
+# tip=..`, where `trees` is the number of DISTINCT tree ids among the chain's links
+# and `treeIds` those ids ordinal-sorted and comma-joined. A spec pins a pid-pooled
+# cross-tree chain off that line (CI-4). Byte-equal to
+# `TestCommandListHandles.ChainLogLinePrefix` / `ChainTreesKeySuffix` /
+# `ChainTreeIdsKeySuffix` (pinned by ListHandlesSourceSyncTests).
+LISTHANDLES_CHAIN_LOG_PREFIX = "listhandles chain"
+LISTHANDLES_CHAIN_TREES_KEY = "trees"
+LISTHANDLES_CHAIN_TREE_IDS_KEY = "treeIds"
+
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
 # validate_spec, so a fifth such arg is one row rather than a fifth copied block.
 # GUI census: the UiAction vocabularies, mirrored from the C# pure half
