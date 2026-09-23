@@ -116,7 +116,7 @@ igniteFrames              = 20
 burnFrames                = 600
 
 [dimensionsCovered]
-# BASICS ONLY until a reading run.
+# BASICS ONLY: a proof lane for one defect, not a dimension claim.
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations]

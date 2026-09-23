@@ -42,6 +42,8 @@ id = "RF-13R-split-merge-cold-reload"
 # and an offline replay of this contract over that run's KSP.log reds 4 of 5 required
 # tokens and hits 3 forbidden ones (`Orphan tombstone=` x2, ELS `skippedTombstoned=0`,
 # `PostWalk ... permanent=2`).
+# POST-#1775 RE-FLIGHT `2026-09-23_1612` (branch DLL with #1775 merged, hash
+# 4b8f75c34c6198e3), count pinned at 11 plus the two split tokens: PASS attempt 1.
 # =====================================================================================
 tier = "operator"
 description = "Cold-reload proof for TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT: a NEW process loads refly-split-crewed-merged (RF-13's merged career after an RP-split re-fly), so MigrateKerbalAssignments re-derives TIP's retagged death rows. The re-derived rows must inherit the tombstoned ActionIds and the crew must not read Dead."
@@ -75,9 +77,10 @@ allowedAnomalies = []
 [expectations.recordings]
 # MEASURED 11 on the reading run `2026-09-23_1524` against the host's 10: the load-time
 # optimization pass (after Migrate) splits the re-fly rec_92498045 at its atmosphere
-# exit, UT 186.12 (`Split candidate (PersistedPhaseChange)`), which the merge had
-# deferred. Both counts are legitimate, so the window takes both.
-count = { min = 10, max = 11 }
+# exit, UT 186.12, which the merge had deferred. Pinned exactly, and the 11th is PROVEN
+# to be that split by the two required split tokens below (a duplicate recording would
+# read 11 without them).
+count = { min = 11, max = 11 }
 
 [expectations.logContracts]
 required = [
@@ -88,6 +91,11 @@ required = [
   # The tombstones still cover the re-derived rows.
   "\\[ELS\\] Rebuilt: [0-9]+ entries from [0-9]+ actions \\(skippedTombstoned=2 tombstonesTotal=2\\)",
   "PostWalk summary: reservations=[0-9]+ permanent=0 ",
+  # THE 11TH RECORDING: the load-time split of the re-fly, and only that one.
+  # Producers: RecordingOptimizer.FindSplitCandidatesForOptimizer (Verbose) and
+  # RecordingStore.RunOptimizationSplitPass (Info).
+  "\\[Optimizer\\] Split candidate \\(PersistedPhaseChange\\): rec=rec_92498045bde0451ebb7a7a1038a0d06c sec=1 splitUT=186\\.12 prev=Atmospheric next=ExoBallistic",
+  "\\[RecordingStore\\] Optimization pass: split 1 recording\\(s\\)",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
@@ -96,6 +104,7 @@ forbidden = [
   "\\[ELS\\] Rebuilt: [0-9]+ entries from [0-9]+ actions \\(skippedTombstoned=[01] tombstonesTotal=2\\)",
   "PostWalk summary: reservations=[0-9]+ permanent=[1-9]",
   "endUT=INDEFINITE \\(Dead\\)",
+  "Optimization pass: split ([02-9]|[1-9][0-9]+) recording\\(s\\)",
 ]
 
 [expectations.rewind]
