@@ -871,6 +871,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A launch started from flight in the first second or two of a flight scene no longer joins
+  the tree of the vessel that scene opened on.** KSP reports the scene's opening camera focus
+  as a vessel switch, and Parsek counted it as one for the next 60 frames. A launch made from
+  flight inside that window (by a mod such as kRPC; stock KSP always launches through the
+  editor or the Space Center, which commits the tree) was then handled as a tracking-station
+  switch: the tree of the vessel the scene opened on, often a committed tree Parsek had just
+  resumed, was put back in place, the new craft recorded inside it as a second root, and a
+  later dock with that vessel became a merge inside the same tree that rewrote its committed
+  recordings. The opening focus no longer counts as a switch, and a switch restore now refuses
+  a freshly launched craft outright, so the launch always starts its own tree. The same fix
+  stops an F9 pressed right after a scene loads from being taken for a switch.
 - **A looping recording's first run is real again: its vessel comes back after a rewind even
   while the loop is on.** A looped mission (or a recording with its own loop toggle) replays
   on its loop clock, and that path never reached the spawn at the end of the recording. So a

@@ -506,6 +506,18 @@ namespace Parsek
         private static bool vesselSwitchPending;
         private static int vesselSwitchPendingFrame = -1;
 
+        // FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE: KSP fires onVesselSwitching for the
+        // scene's INITIAL focus while a flight scene is still starting up (after OnLoad,
+        // before onFlightReady; from=null on a cold boot, from=the previous scene's
+        // vessel after a FLIGHT->FLIGHT reload). That event is not a player switch, but
+        // it used to arm vesselSwitchPending, so any FLIGHT->FLIGHT scene change within
+        // VesselSwitchPendingMaxAgeFrames of scene entry (a mod-driven launch from
+        // FLIGHT, an F9 spam) read as a tracking-station switch. The flag now arms only
+        // once the current flight scene has reached onFlightReady. Cleared at every
+        // OnLoad (which runs before the new scene's initial focus); set by
+        // ParsekFlight.OnFlightReady.
+        private static bool flightSceneReadyForVesselSwitchFlag;
+
         /// <summary>
         /// Maximum age (in frames) for <see cref="vesselSwitchPending"/> to be
         /// considered "fresh" in OnLoad. Tracking-station vessel switches
@@ -584,6 +596,41 @@ namespace Parsek
         /// to decide between the legacy Limbo stash and the bug #266 pre-transition
         /// path.
         /// </summary>
+        /// <summary>
+        /// Pure decision: does an <c>onVesselSwitching</c> event arm the
+        /// FLIGHT-to-FLIGHT vessel-switch flag? Only a switch fired after the current
+        /// flight scene reached <c>onFlightReady</c> can be a player switch that leads
+        /// to a scene reload; the scene-entry initial focus fires before it.
+        /// </summary>
+        internal static bool ShouldArmVesselSwitchFlag(bool flightSceneReady)
+        {
+            return flightSceneReady;
+        }
+
+        /// <summary>
+        /// Called from <c>ParsekFlight.OnFlightReady</c>: from here on an
+        /// <c>onVesselSwitching</c> event in this scene is a real focus change.
+        /// </summary>
+        internal static void NoteFlightSceneReadyForVesselSwitchFlag()
+        {
+            if (flightSceneReadyForVesselSwitchFlag)
+                return;
+            flightSceneReadyForVesselSwitchFlag = true;
+            ParsekLog.Verbose("Scenario",
+                "Vessel-switch flag armed for this flight scene (onFlightReady observed)");
+        }
+
+        private static void ClearFlightSceneReadyForVesselSwitchFlag()
+        {
+            flightSceneReadyForVesselSwitchFlag = false;
+        }
+
+        internal static bool FlightSceneReadyForVesselSwitchFlagForTesting
+        {
+            get => flightSceneReadyForVesselSwitchFlag;
+            set => flightSceneReadyForVesselSwitchFlag = value;
+        }
+
         internal static bool IsVesselSwitchPendingFresh()
         {
             return IsVesselSwitchFlagFresh(
@@ -3368,6 +3415,9 @@ namespace Parsek
             // a mis-placed row). Cleared in finally so an OnLoad exception
             // never leaves the guard stuck.
             onLoadInProgress = true;
+            // A new game state is loading: the scene-entry initial focus that follows
+            // must not arm the vessel-switch flag (FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE).
+            ClearFlightSceneReadyForVesselSwitchFlag();
             try
             {
                 // Reset deferred dialog flag and clear input lock (dialog may have been
@@ -8125,6 +8175,14 @@ namespace Parsek
 
         private void OnVesselSwitching(Vessel from, Vessel to)
         {
+            if (!ShouldArmVesselSwitchFlag(flightSceneReadyForVesselSwitchFlag))
+            {
+                ParsekLog.Info("Scenario",
+                    $"Vessel switch ignored: '{from?.vesselName}' -> '{to?.vesselName}' fired " +
+                    "before onFlightReady (scene-entry initial focus, not a player switch) - " +
+                    $"vessel-switch flag not armed (frame={UnityEngine.Time.frameCount})");
+                return;
+            }
             vesselSwitchPending = true;
             // Time.frameCount is monotonic across scene loads within a single
             // KSP session (Unity only resets it on application restart, not on

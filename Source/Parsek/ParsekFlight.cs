@@ -12098,6 +12098,9 @@ namespace Parsek
         void OnFlightReady()
         {
             FlightReadyObserved = true;
+            // From here on an onVesselSwitching in this scene is a real focus change;
+            // the scene-entry initial focus fired before this point and was ignored.
+            ParsekScenario.NoteFlightSceneReadyForVesselSwitchFlag();
             Log("Flight ready. Checking for pending recordings...");
             RecorderStateLog.RecState("OnFlightReady", CaptureRecorderState());
 
@@ -14665,6 +14668,18 @@ namespace Parsek
         ///   alone still does not start recording.</item>
         /// </list>
         /// </summary>
+        /// <summary>
+        /// Pure guard for <see cref="RestoreActiveTreeFromPendingForVesselSwitch"/>: true
+        /// when the new scene's active vessel is the scene-entry fresh rollout, which a
+        /// vessel-switch reload can never produce.
+        /// </summary>
+        internal static bool ShouldRefuseVesselSwitchRestoreForFreshRollout(
+            uint activeVesselPid, uint sceneEntryFreshRolloutPid)
+        {
+            return QuickloadResumeMatchGuard.IsFreshRolloutCandidate(
+                activeVesselPid, sceneEntryFreshRolloutPid);
+        }
+
         IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()
         {
             // #267: reentrancy guard — same pattern as RestoreActiveTreeFromPending
@@ -14692,6 +14707,29 @@ namespace Parsek
             while (UnityEngine.Time.time < deadline && FlightGlobals.ActiveVessel == null)
                 yield return null;
             bool waitTimedOut = FlightGlobals.ActiveVessel == null;
+
+            // FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE: a vessel-switch reload never
+            // lands on a NEW_FROM_FILE / NEW_FROM_CRAFT_NODE rollout, so an active
+            // vessel that IS the scene-entry fresh rollout means this FLIGHT->FLIGHT
+            // reload was a new launch misread as a switch. Installing the stashed tree
+            // here would record the launch as a parentless root inside that tree (a
+            // committed tree's clone, when the stash came from a committed-tree
+            // restore) and author its later dock as a same-tree merge. Refuse, exactly
+            // as the quickload restore refuses a fresh rollout: the tree stays pending
+            // and the launch gets its own tree on its first auto-record.
+            var candidate = FlightGlobals.ActiveVessel;
+            if (candidate != null
+                && ShouldRefuseVesselSwitchRestoreForFreshRollout(
+                    candidate.persistentId, RecordingStore.SceneEntryFreshRolloutVesselPid))
+            {
+                ParsekLog.Info("Flight",
+                    $"RestoreActiveTreeFromPendingForVesselSwitch: refusing to reinstall tree " +
+                    $"'{RecordingStore.PendingTree?.TreeName}' " +
+                    $"(id={RecordingStore.PendingTree?.Id ?? "<none>"}) for fresh-rollout vessel " +
+                    $"'{candidate.vesselName}' pid={candidate.persistentId} - a new launch is not a " +
+                    "vessel switch; leaving tree pending, the launch starts its own tree");
+                yield break;
+            }
 
             // Pop the tree (non-destructive — preserves sidecar files) and install
             // as the live active tree.
