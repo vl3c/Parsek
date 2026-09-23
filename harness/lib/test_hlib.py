@@ -10649,18 +10649,20 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "CI-3-chain-rederive-readback.toml",
                        # EX-1: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-23_0000` (trees / committedTrees / recordings 1,
-                       # Landed 1). An expectedFail lane (subkind expectation), so a
-                       # structure red is NOT demoted: it stays PARSEK-FAIL.
+                       # Landed 1). The KSC retirement rewrite (2026-09-23, never
+                       # flown) keeps the same one-recording Landed tree.
                        "EX-1-ghost-extension-past-endut.toml",
                        # LF-1: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-22_2350` (trees / committedTrees / recordings 1,
                        # Landed 1, and the new vessel census: spawnedVessels 1,
-                       # vesselNames {Logi Cargo Rig: 1}).
+                       # vesselNames {Logi Cargo Rig: 1}); the subject moved to the
+                       # runway rover 2026-09-23 (census rover 1 + pad Rig 1, unflown).
                        "LF-1-loop-first-run-real.toml",
                        # LF-2: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-23_1551` (trees / committedTrees / recordings 1,
                        # Landed 1, spawnedVessels 1, vesselNames {Logi Cargo Rig: 1});
-                       # the pre-fix measurement `_1536` read spawnedVessels 0.
+                       # the pre-fix measurement `_1536` read spawnedVessels 0. Subject
+                       # moved to the runway rover 2026-09-23, like LF-1 (unflown).
                        "LF-2-loop-armed-rewind-first-run-real.toml",
                        # RF-1: `rewind` armed 2026-09-09 off TWO flights whose facets
                        # agreed across a DLL change - `2026-09-08_2146` (pre-#1658) and

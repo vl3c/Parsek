@@ -224,7 +224,7 @@ namespace Parsek
         // vessel with the recording's pid exists AND is the same launch (its Vessel.id matches the
         // recording's RecordedVesselGuid, or either guid is unknown -> pid-only fallback). A relaunch
         // of the same craft reuses the baked pid but carries a different launch guid, so it is rejected.
-        internal static bool MaterializedSourceVesselExists(Recording rec)
+        internal static bool MaterializedSourceVesselExists(Recording rec, bool logAdoptionRejection = true)
         {
             if (rec == null)
                 return false;
@@ -252,7 +252,7 @@ namespace Parsek
                 return false;
 
             bool sameLaunch = VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, sourcePid, liveGuid);
-            if (!sameLaunch)
+            if (!sameLaunch && logAdoptionRejection)
                 ParsekLog.Info("Spawner",
                     $"Adoption rejected: live vessel pid={sourcePid} is a different launch than recording " +
                     $"'{rec.RecordingId ?? rec.VesselName ?? "(unknown)"}' (recorded guid={rec.RecordedVesselGuid ?? "(none)"}, " +
@@ -1353,6 +1353,12 @@ namespace Parsek
                 return;
             }
 
+            // Operator ruling 2026-09-23: a flight that ended parked in the KSC exclusion
+            // zone is retired, never spawned. Checked after adoption (a real counterpart
+            // that still exists is adopted instead) and before every spawn route.
+            if (TryRetireEndedFlightAtKsc(rec, index))
+                return;
+
             if (rec.SpawnAttempts >= maxSpawnAttempts)
             {
                 ParsekLog.Verbose("Spawner",
@@ -1788,7 +1794,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks KSC exclusion zone and bounding box overlap collisions. On bounding-box
+        /// Checks bounding box overlap collisions (the KSC exclusion zone is a retirement,
+        /// settled before this runs by TryRetireEndedFlightAtKsc). On bounding-box
         /// overlap, runs the duplicate-blocker recovery path (#112) first; if that doesn't
         /// clear the overlap, runs the subdivided trajectory walkback (#264) to find an
         /// earlier collision-free sub-step. The walkback is now applied to EVA kerbals too
@@ -1806,33 +1813,13 @@ namespace Parsek
             double spawnLat, double spawnLon, double spawnAlt, Vector3d spawnPos,
             uint exemptVesselPid = 0)
         {
-            // KSC exclusion zone — block spawn near the launch pad to prevent collisions
-            // with KSC infrastructure that isn't in FlightGlobals.Vessels. (#170)
-            if (!isEva && body.isHomeWorld &&
-                SpawnCollisionDetector.IsWithinKscExclusionZone(
-                    spawnLat, spawnLon, body.Radius,
-                    SpawnCollisionDetector.DefaultKscExclusionRadiusMeters))
-            {
-                rec.CollisionBlockCount++;
-                if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
-                {
-                    rec.VesselSpawned = true;
-                    rec.SpawnAbandoned = true;
-                    ParsekLog.Warn("Spawner",
-                        $"Spawn ABANDONED for #{index} ({rec.VesselName}): within KSC exclusion zone " +
-                        $"(lat={spawnLat:F4}, lon={spawnLon:F4}) for {rec.CollisionBlockCount} consecutive frames — " +
-                        $"giving up (max={MaxCollisionBlocks})");
-                }
-                else
-                {
-                    ParsekLog.VerboseRateLimited("Spawner",
-                        "ksc-exclusion-" + index,
-                        $"Spawn blocked for #{index} ({rec.VesselName}): within KSC exclusion zone " +
-                        $"(lat={spawnLat:F4}, lon={spawnLon:F4}) — will retry next frame " +
-                        $"(block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
-                }
-                return (true, spawnLat, spawnLon, spawnAlt, spawnPos);
-            }
+            // The KSC exclusion zone (#170) is no longer a block here: a flight that ends
+            // parked in it is retired before any spawn route runs (TryRetireEndedFlightAtKsc,
+            // operator ruling 2026-09-23), at the same resolved position. The only spawns
+            // that could still land in the zone are non-parked terminals (an orbit whose
+            // propagated sub-point crosses the pad; the old lat/lon-only check blocked it
+            // at any altitude) and un-finalized recordings with no situation evidence,
+            // neither of which is a vessel parked on KSC infrastructure.
 
             // Bounding box overlap check — block spawn if overlapping a loaded vessel.
             // Applies to EVA kerbals too (#264) — the previous skip was based on the
@@ -2051,7 +2038,7 @@ namespace Parsek
             }
 
             // Exhausted — mark the recording so the UI/diagnostics can distinguish this
-            // from the KSC-exclusion / MaxCollisionBlocks abandon paths.
+            // from the MaxCollisionBlocks abandon path and a KSC retirement.
             rec.SpawnAbandoned = true;
             rec.WalkbackExhausted = true;
             rec.VesselSpawned = true; // prevent vessel-gone check from resetting VesselSpawned
@@ -2071,51 +2058,22 @@ namespace Parsek
         internal static void ResolveSpawnPosition(Recording rec, int index,
             TrajectoryPoint lastPt, out double lat, out double lon, out double alt)
         {
-            lat = 0; lon = 0; alt = 0;
-            string endpointBodyName = lastPt.bodyName;
-            double endpointLat = lastPt.latitude;
-            double endpointLon = lastPt.longitude;
-            double endpointAlt = lastPt.altitude;
-            if (RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
-                rec, out string resolvedBodyName, out double resolvedLat, out double resolvedLon, out double resolvedAlt))
-            {
-                endpointBodyName = resolvedBodyName;
-                endpointLat = resolvedLat;
-                endpointLon = resolvedLon;
-                endpointAlt = resolvedAlt;
-            }
+            SpawnCoordinateSource source = SelectSpawnCoordinates(
+                rec, lastPt, out string endpointBodyName, out lat, out lon, out alt);
 
-            // EVA (#175): snapshot position is from EVA start (kerbal on the pod's ladder).
-            // Breakup-continuous (#224): snapshot position is from breakup time (mid-air).
-            // Both use trajectory endpoint instead. No early return — falls through to clamping.
-            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
-            bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
-            bool useTrajectoryEndpoint = isEva || isBreakupContinuous;
-
-            if (useTrajectoryEndpoint)
+            if (source == SpawnCoordinateSource.EvaEndpoint
+                || source == SpawnCoordinateSource.BreakupEndpoint)
             {
-                lat = endpointLat;
-                lon = endpointLon;
-                alt = endpointAlt;
-                string reason = isEva
+                string reason = source == SpawnCoordinateSource.EvaEndpoint
                     ? "EVA endpoint (snapshot is from EVA start)"
                     : "breakup-continuous endpoint (snapshot is from breakup time)";
                 ParsekLog.Verbose("Spawner",
                     $"Spawn #{index} ({rec.VesselName}): using trajectory endpoint — {reason}");
             }
-            else
+            else if (source == SpawnCoordinateSource.EndpointNoSnapshotPosition)
             {
-                bool hasSnapshotPos = TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out lat)
-                                   && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out lon)
-                                   && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out alt);
-                if (!hasSnapshotPos)
-                {
-                    lat = endpointLat;
-                    lon = endpointLon;
-                    alt = endpointAlt;
-                    ParsekLog.Verbose("Spawner",
-                        $"No snapshot lat/lon/alt for #{index} ({rec.VesselName}) — using trajectory endpoint for collision check");
-                }
+                ParsekLog.Verbose("Spawner",
+                    $"No snapshot lat/lon/alt for #{index} ({rec.VesselName}) — using trajectory endpoint for collision check");
             }
 
             // Safety net: clamp altitude for surface terminal states.
@@ -2148,6 +2106,346 @@ namespace Parsek
                     alt = ClampAltitudeForLanded(alt, pqsTerrain, index, rec.VesselName);
                 }
             }
+        }
+
+        /// <summary>Which source <see cref="SelectSpawnCoordinates"/> took the spawn position from.</summary>
+        internal enum SpawnCoordinateSource
+        {
+            None = 0,
+            EvaEndpoint = 1,
+            BreakupEndpoint = 2,
+            Snapshot = 3,
+            EndpointNoSnapshotPosition = 4,
+        }
+
+        /// <summary>
+        /// The pre-clamp spawn coordinates every end-of-recording spawn path places a
+        /// vessel at (the selection half of <see cref="ResolveSpawnPosition"/>, shared so
+        /// the KSC retirement decision reads the SAME position the spawn would use). EVA
+        /// (#175) and breakup-continuous (#224) recordings use the trajectory endpoint;
+        /// everything else uses the snapshot lat/lon/alt, falling back to the endpoint
+        /// when the snapshot lacks it (#127). The endpoint is the resolved recording
+        /// endpoint, else <paramref name="lastPt"/>. <paramref name="endpointBodyName"/>
+        /// is the endpoint's body whichever source won. Silent; returns
+        /// <see cref="SpawnCoordinateSource.None"/> when no source is available.
+        /// </summary>
+        internal static SpawnCoordinateSource SelectSpawnCoordinates(
+            Recording rec,
+            TrajectoryPoint? lastPt,
+            out string endpointBodyName,
+            out double lat,
+            out double lon,
+            out double alt)
+        {
+            return SelectSpawnCoordinates(
+                rec, lastPt, out endpointBodyName, out lat, out lon, out alt,
+                out _, out _, out _);
+        }
+
+        /// <summary>
+        /// <see cref="SelectSpawnCoordinates(Recording, TrajectoryPoint?, out string, out double, out double, out double)"/>
+        /// that also returns the resolved trajectory endpoint (the recording endpoint,
+        /// else <paramref name="lastPt"/>) whichever source won, so a caller can check the
+        /// snapshot position against where the trajectory actually ended.
+        /// </summary>
+        internal static SpawnCoordinateSource SelectSpawnCoordinates(
+            Recording rec,
+            TrajectoryPoint? lastPt,
+            out string endpointBodyName,
+            out double lat,
+            out double lon,
+            out double alt,
+            out bool haveEndpoint,
+            out double endpointLat,
+            out double endpointLon)
+        {
+            lat = 0; lon = 0; alt = 0;
+            endpointBodyName = null;
+            haveEndpoint = false;
+            endpointLat = 0;
+            endpointLon = 0;
+            if (rec == null)
+                return SpawnCoordinateSource.None;
+
+            double endpointAlt = 0;
+            if (lastPt.HasValue)
+            {
+                endpointBodyName = lastPt.Value.bodyName;
+                endpointLat = lastPt.Value.latitude;
+                endpointLon = lastPt.Value.longitude;
+                endpointAlt = lastPt.Value.altitude;
+                haveEndpoint = true;
+            }
+            if (RecordingEndpointResolver.TryGetRecordingEndpointCoordinates(
+                rec, out string resolvedBodyName, out double resolvedLat, out double resolvedLon, out double resolvedAlt))
+            {
+                endpointBodyName = resolvedBodyName;
+                endpointLat = resolvedLat;
+                endpointLon = resolvedLon;
+                endpointAlt = resolvedAlt;
+                haveEndpoint = true;
+            }
+
+            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            bool isBreakupContinuous = rec.ChildBranchPointId != null && rec.TerminalStateValue.HasValue;
+            if (isEva || isBreakupContinuous)
+            {
+                if (!haveEndpoint)
+                    return SpawnCoordinateSource.None;
+                lat = endpointLat;
+                lon = endpointLon;
+                alt = endpointAlt;
+                return isEva
+                    ? SpawnCoordinateSource.EvaEndpoint
+                    : SpawnCoordinateSource.BreakupEndpoint;
+            }
+
+            if (TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out double snapLat)
+                && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out double snapLon)
+                && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out double snapAlt))
+            {
+                lat = snapLat;
+                lon = snapLon;
+                alt = snapAlt;
+                return SpawnCoordinateSource.Snapshot;
+            }
+
+            if (!haveEndpoint)
+                return SpawnCoordinateSource.None;
+            lat = endpointLat;
+            lon = endpointLon;
+            alt = endpointAlt;
+            return SpawnCoordinateSource.EndpointNoSnapshotPosition;
+        }
+
+        /// <summary>Outcome of <see cref="EvaluateKscEndOfFlightRetirement"/>.</summary>
+        internal struct KscRetirementDecision
+        {
+            public KscExclusionZone Zone;
+            public double Latitude;
+            public double Longitude;
+            public string BodyName;
+            public TerminalState? EffectiveTerminal;
+            public bool Retire => Zone != KscExclusionZone.None;
+        }
+
+        /// <summary>
+        /// The terminal state a spawn would honour: the stamped
+        /// <see cref="Recording.TerminalStateValue"/>, or for an un-finalized recording
+        /// the snapshot situation mapped the way the finalize path would have stamped it
+        /// (<see cref="GhostPlaybackLogic.TryMapSituationNameToTerminalState"/>; PRELAUNCH
+        /// maps to Landed). Null when neither is available.
+        /// </summary>
+        internal static TerminalState? ResolveEffectiveTerminalForRetirement(Recording rec)
+        {
+            if (rec == null)
+                return null;
+            if (rec.TerminalStateValue.HasValue)
+                return rec.TerminalStateValue.Value;
+            TerminalState mapped;
+            if (rec.VesselSnapshot != null
+                && GhostPlaybackLogic.TryMapSituationNameToTerminalState(
+                    rec.VesselSnapshot.GetValue("sit"), out mapped))
+                return mapped;
+            return null;
+        }
+
+        /// <summary>
+        /// Recording-level form of <see cref="SpawnCollisionDetector.DecideKscEndOfFlightRetirement"/>:
+        /// resolves the effective terminal, the EVA flag, the spawn position
+        /// (<see cref="SelectSpawnCoordinates(Recording, TrajectoryPoint?, out string, out double, out double, out double, out bool, out double, out double)"/>,
+        /// i.e. where the vessel would be placed), the resolved trajectory endpoint, and the
+        /// endpoint body (<see cref="RecordingEndpointResolver.TryGetPreferredEndpointBodyName"/>,
+        /// the body the flight spawn uses, else the endpoint's own body) and asks the
+        /// predicate. The spawn side and the crew side (<see cref="IsKscRetiredFinalFlight"/>)
+        /// both call this, so they read the same position: when the trajectory endpoint lies
+        /// in a KSC circle and the in-memory vessel snapshot was dropped, the snapshot is
+        /// re-hydrated from its sidecar exactly as the spawn gate does (non-debris surface
+        /// terminals only), because a snapshot-sourced position must agree with the endpoint
+        /// before the flight retires (a stale snapshot on the pad of a flight that ended
+        /// elsewhere is not retired). An endpoint outside both circles answers "not retired"
+        /// without touching the disk. The body registry is read through
+        /// <see cref="TryResolveBodyByName"/> (test seam <see cref="BodyResolverForTesting"/>);
+        /// when the registry or a KSP-only resolver is unavailable the answer is "not
+        /// retired", which keeps today's behaviour (spawn, crew stays reserved). Silent.
+        /// </summary>
+        internal static KscRetirementDecision EvaluateKscEndOfFlightRetirement(Recording rec)
+        {
+            var decision = new KscRetirementDecision { Zone = KscExclusionZone.None };
+            if (rec == null)
+                return decision;
+
+            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            TerminalState? terminal = ResolveEffectiveTerminalForRetirement(rec);
+            decision.EffectiveTerminal = terminal;
+            // Cheap gates first: the predicate would say no anyway, and skipping them keeps
+            // the body lookup and endpoint resolution off every non-parked recording.
+            if (isEva || !IsSurfaceTerminal(terminal))
+                return decision;
+
+            try
+            {
+                TrajectoryPoint? lastPt = rec.Points != null && rec.Points.Count > 0
+                    ? (TrajectoryPoint?)rec.Points[rec.Points.Count - 1]
+                    : null;
+                SpawnCoordinateSource source = SelectSpawnCoordinates(
+                    rec, lastPt, out string endpointBodyName,
+                    out double lat, out double lon, out _,
+                    out bool haveEndpoint, out double endpointLat, out double endpointLon);
+                if (source == SpawnCoordinateSource.None && !haveEndpoint)
+                    return decision;
+
+                string bodyName;
+                if (!RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out bodyName)
+                    || string.IsNullOrEmpty(bodyName))
+                    bodyName = endpointBodyName;
+                if (string.IsNullOrEmpty(bodyName)
+                    || !TryResolveBodyByName(bodyName, out CelestialBody body)
+                    || object.ReferenceEquals(body, null))
+                    return decision;
+                if (!body.isHomeWorld)
+                    return decision;
+
+                // A known endpoint outside both circles settles it: whatever the snapshot
+                // says, the flight did not END on KSC infrastructure.
+                if (haveEndpoint
+                    && SpawnCollisionDetector.ClassifyKscExclusionZone(
+                        endpointLat, endpointLon, body.Radius,
+                        SpawnCollisionDetector.DefaultKscExclusionRadiusMeters) == KscExclusionZone.None)
+                    return decision;
+
+                // The spawn gate re-hydrates a dropped snapshot before it spawns; do the same
+                // here so the crew side reads the snapshot position the spawn will use.
+                if (rec.VesselSnapshot == null && !rec.IsDebris
+                    && RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec))
+                {
+                    source = SelectSpawnCoordinates(
+                        rec, lastPt, out endpointBodyName,
+                        out lat, out lon, out _,
+                        out haveEndpoint, out endpointLat, out endpointLon);
+                }
+                if (source == SpawnCoordinateSource.None)
+                    return decision;
+
+                decision.Latitude = lat;
+                decision.Longitude = lon;
+                decision.BodyName = bodyName;
+                decision.Zone = SpawnCollisionDetector.DecideKscEndOfFlightRetirement(
+                    terminal, isEva, body.isHomeWorld, lat, lon, body.Radius,
+                    positionIsSnapshot: source == SpawnCoordinateSource.Snapshot,
+                    endpointLatitude: haveEndpoint ? endpointLat : double.NaN,
+                    endpointLongitude: haveEndpoint ? endpointLon : double.NaN);
+                return decision;
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessKspAccessFailure(ex) && !IsHeadlessBodyRegistryFailure(ex))
+                    throw;
+                return new KscRetirementDecision
+                {
+                    Zone = KscExclusionZone.None,
+                    EffectiveTerminal = terminal,
+                };
+            }
+        }
+
+        /// <summary>
+        /// Spawn entry-point gate for the KSC end-of-flight retirement (operator ruling
+        /// 2026-09-23). Every end-of-recording real-spawn entry point calls this right
+        /// where the spawn would be attempted (after the source-vessel adoption check, so
+        /// a real counterpart that still exists is adopted, never retired). When the
+        /// recording's flight ended parked in a KSC exclusion zone it is settled as
+        /// "spawned, no vessel" (<c>VesselSpawned = true</c> + <c>SpawnAbandoned = true</c>,
+        /// <c>SpawnedVesselPersistentId</c> stays 0: the same transient settled state an
+        /// abandoned spawn uses, which map presence, the vessel-gone check and every scene
+        /// spawn predicate already honour, and which a rewind / revert resets), one Info
+        /// line is logged, and true is returned so the caller neither spawns nor holds
+        /// the ghost. No-op (false) for a recording that is already settled.
+        /// <paramref name="requireNoMaterializedSource"/> is for callers that run BEFORE
+        /// the adoption check (the warp-deferred completion): they retire only when no
+        /// real counterpart exists, and otherwise leave the recording to the normal path.
+        /// </summary>
+        internal static bool TryRetireEndedFlightAtKsc(
+            Recording rec,
+            int index,
+            bool requireNoMaterializedSource = false)
+        {
+            if (rec == null || rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0)
+                return false;
+
+            KscRetirementDecision decision = EvaluateKscEndOfFlightRetirement(rec);
+            if (!decision.Retire)
+                return false;
+
+            if (requireNoMaterializedSource && MaterializedSourceVesselExists(rec))
+                return false;
+
+            rec.VesselSpawned = true;
+            rec.SpawnAbandoned = true;
+            rec.CollisionBlockCount = 0;
+            ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                "Spawn RETIRED for #{0} ({1}): flight ended within KSC exclusion zone ({2}) - no vessel " +
+                "lat={3:F4} lon={4:F4} body={5} terminal={6} rec={7}",
+                index,
+                rec.VesselName,
+                SpawnCollisionDetector.DescribeKscExclusionZone(decision.Zone),
+                decision.Latitude,
+                decision.Longitude,
+                decision.BodyName ?? "(null)",
+                decision.EffectiveTerminal.HasValue
+                    ? decision.EffectiveTerminal.Value.ToString()
+                    : "(none)",
+                rec.RecordingId ?? "(null)"));
+            return true;
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> is settled as a KSC retirement: settled with no
+        /// vessel (<c>VesselSpawned</c>, <c>SpawnAbandoned</c>, pid 0) AND its flight ended
+        /// in a KSC exclusion zone. Lets callers word a retirement as Info rather than
+        /// the Warn of an abandoned spawn. Silent.
+        /// </summary>
+        internal static bool IsSettledAsKscRetirement(Recording rec)
+        {
+            return rec != null
+                && rec.VesselSpawned
+                && rec.SpawnAbandoned
+                && rec.SpawnedVesselPersistentId == 0
+                && EvaluateKscEndOfFlightRetirement(rec).Retire;
+        }
+
+        /// <summary>
+        /// The crew side of the KSC retirement ruling: true when the kerbals aboard
+        /// <paramref name="rec"/> at its end are freed at its EndUT, as if recovered.
+        /// Uses the SAME final-segment notion as the spawn side
+        /// (<see cref="GhostPlaybackLogic.IsFinalSpawnSegment"/>: only where the vessel
+        /// ends its WHOLE flight counts) and the same position predicate. Two mirror
+        /// guards keep a kerbal who is aboard a REAL vessel reserved: a recording already
+        /// materialized as a real vessel (spawned or adopted, pid != 0) is not retired,
+        /// and neither is one whose recorded launch still exists in the save (the real
+        /// counterpart still sits on the pad; the spawn path would adopt it rather than
+        /// retire it). When the spawn side has already settled the recording as a KSC
+        /// retirement (<see cref="IsSettledAsKscRetirement"/>) that answer is taken as is.
+        /// Both sides evaluate the position through <see cref="EvaluateKscEndOfFlightRetirement"/>,
+        /// which re-hydrates a dropped snapshot the same way the spawn gate does. Silent:
+        /// the live-counterpart probe does not log a relaunch rejection (this runs on every
+        /// ledger recalculation).
+        /// </summary>
+        internal static bool IsKscRetiredFinalFlight(Recording rec)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+            if (rec.SpawnedVesselPersistentId != 0)
+                return false;
+            if (IsSettledAsKscRetirement(rec))
+                return true;
+            if (!EvaluateKscEndOfFlightRetirement(rec).Retire)
+                return false;
+            if (!GhostPlaybackLogic.IsFinalSpawnSegment(rec))
+                return false;
+            if (MaterializedSourceVesselExists(rec, logAdoptionRejection: false))
+                return false;
+            return true;
         }
 
         /// <summary>

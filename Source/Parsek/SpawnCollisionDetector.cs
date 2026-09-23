@@ -5,6 +5,14 @@ using UnityEngine;
 
 namespace Parsek
 {
+    /// <summary>Which KSC exclusion circle a position falls in.</summary>
+    internal enum KscExclusionZone
+    {
+        None = 0,
+        Pad = 1,
+        Runway = 2,
+    }
+
     /// <summary>
     /// Pure static methods for computing vessel bounding boxes and detecting
     /// spawn-time overlap with loaded vessels. Used by the chain-tip spawn path
@@ -217,6 +225,94 @@ namespace Parsek
                     withinZone));
 
             return withinZone;
+        }
+
+        /// <summary>
+        /// Pure, silent classification of a lat/lon against the two KSC exclusion
+        /// circles (same geometry as <see cref="IsWithinKscExclusionZone"/>). The pad
+        /// wins if both circles contain the point (they are kilometres apart, so that
+        /// cannot happen at the default radius).
+        /// </summary>
+        internal static KscExclusionZone ClassifyKscExclusionZone(
+            double latitude, double longitude, double bodyRadius, double exclusionRadiusMeters)
+        {
+            if (double.IsNaN(latitude) || double.IsNaN(longitude)
+                || double.IsNaN(bodyRadius) || bodyRadius <= 0.0)
+                return KscExclusionZone.None;
+
+            double padDist = SurfaceDistance(latitude, longitude, KscPadLatitude, KscPadLongitude, bodyRadius);
+            if (padDist < exclusionRadiusMeters)
+                return KscExclusionZone.Pad;
+            double runwayDist = SurfaceDistance(latitude, longitude, KscRunwayLatitude, KscRunwayLongitude, bodyRadius);
+            if (runwayDist < exclusionRadiusMeters)
+                return KscExclusionZone.Runway;
+            return KscExclusionZone.None;
+        }
+
+        /// <summary>Log / reason token for a zone: "pad", "runway" or "none".</summary>
+        internal static string DescribeKscExclusionZone(KscExclusionZone zone)
+        {
+            switch (zone)
+            {
+                case KscExclusionZone.Pad: return "pad";
+                case KscExclusionZone.Runway: return "runway";
+                default: return "none";
+            }
+        }
+
+        /// <summary>
+        /// THE KSC end-of-flight retirement predicate (operator ruling 2026-09-23). A
+        /// vessel that ENDS its flight parked in a KSC exclusion zone has ended its flight
+        /// and is retired: it never becomes a real vessel in any scene. Returns the zone
+        /// the flight ended in, or <see cref="KscExclusionZone.None"/> when it is not
+        /// retired.
+        ///
+        /// <para>Rules: a non-EVA vessel (an EVA kerbal has no vessel to park and its pad
+        /// spawn was never blocked) whose effective terminal state is Landed or Splashed
+        /// (<see cref="VesselSpawner.IsSurfaceTerminal"/>, "at rest on the surface"; a
+        /// Splashed end inside a 50 m circle on the pad or the runway threshold is not
+        /// physically reachable and is accepted only so there is one surface-terminal
+        /// definition), on the home world, whose end position lies inside the pad or
+        /// runway-threshold circle of <see cref="DefaultKscExclusionRadiusMeters"/>. Any
+        /// other terminal (Orbiting, SubOrbital, Destroyed, Recovered, Docked, Boarded, or
+        /// no evidence) is not a parked vessel and is never retired. Whether the recording
+        /// is the FINAL segment of its flight is the caller's gate: the spawn entry points
+        /// reach this only for a spawn-eligible final segment, and the crew rule applies
+        /// <see cref="GhostPlaybackLogic.IsFinalSpawnSegment"/> first.</para>
+        ///
+        /// <para>Parked for a while, then moved (operator edge-case ruling 2026-09-23): when
+        /// the position is the vessel snapshot's (<paramref name="positionIsSnapshot"/>) and
+        /// the recording's resolved trajectory endpoint is known, the endpoint must ALSO lie
+        /// in a circle. A stale start-of-flight snapshot on the pad of a flight whose
+        /// trajectory ended elsewhere is not retired. A NaN endpoint means none is known,
+        /// and the snapshot position decides alone.</para>
+        /// </summary>
+        internal static KscExclusionZone DecideKscEndOfFlightRetirement(
+            TerminalState? effectiveTerminal,
+            bool isEva,
+            bool bodyIsHomeWorld,
+            double latitude,
+            double longitude,
+            double bodyRadius,
+            bool positionIsSnapshot = false,
+            double endpointLatitude = double.NaN,
+            double endpointLongitude = double.NaN)
+        {
+            if (isEva || !bodyIsHomeWorld)
+                return KscExclusionZone.None;
+            if (!VesselSpawner.IsSurfaceTerminal(effectiveTerminal))
+                return KscExclusionZone.None;
+            KscExclusionZone zone = ClassifyKscExclusionZone(
+                latitude, longitude, bodyRadius, DefaultKscExclusionRadiusMeters);
+            if (zone == KscExclusionZone.None)
+                return zone;
+            if (positionIsSnapshot
+                && !double.IsNaN(endpointLatitude) && !double.IsNaN(endpointLongitude)
+                && ClassifyKscExclusionZone(
+                    endpointLatitude, endpointLongitude, bodyRadius,
+                    DefaultKscExclusionRadiusMeters) == KscExclusionZone.None)
+                return KscExclusionZone.None;
+            return zone;
         }
 
         /// <summary>

@@ -1,61 +1,61 @@
 schema = 1
 id = "EX-1-ghost-extension-past-endut"
 # -------------------------------------------------------------------------------------
-# D18 `ghost-extension-past-endut` (catalog section 2: "ghost extension past EndUT while
-# blocked"; design `docs/parsek-flight-recorder-design.md` 13.5), ON THE NON-CHAIN
-# HELD-GHOST PATH, SCOPED TO THE KSC EXCLUSION-ZONE HOLD (the only non-chain blocker that
-# holds a ghost; see below). CLAIMS the cell since the 2026-09-23 fix of
-# D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME (branch `held-ghost-fix`):
-# the lane was an expectedFail witness until that fix read XPASS (`2026-09-23_1510`).
-# The claim is the 5 s bounded hold the code implements, which the operator ruled to BE
-# the design on 2026-09-23 (#1774, design 13.5; todo D18-GHOST-EXTENSION-DESIGN-VS-CODE).
+# KSC END-OF-FLIGHT RETIREMENT WITNESS (operator ruling 2026-09-23; design
+# `docs/parsek-flight-recorder-design.md` 13.1 / 13.5). LIVE-PROVEN 2026-09-23: reading `2026-09-23_1810`, armed `_1820`,
+# negative control `_1822`.
 #
-# WHAT HOLDS A GHOST PAST EndUT ON THE NON-CHAIN PATH (source, 2026-09-23):
-# `ParsekPlaybackPolicy.HandlePlaybackCompleted` writes "Ghost held pending spawn retry:"
-# only when `SpawnVesselOrChainTip` returns with `VesselSpawned` still false AND the ghost
-# was live at completion. `RetryHeldGhostSpawns` retries every 1 s and gives up at 5 s
-# ("Held ghost timed out: ... destroying ghost without spawn"), whose release destroys the
-# ghost with reason `held-spawn-timeout`. A loaded blocker vessel on the endpoint never
-# gets there (#112 recovers a same-name blocker, #264 walkback relocates, exhaustion
-# abandons with VesselSpawned = true; the active vessel is never a blocker). The KSC
-# EXCLUSION ZONE (#170, a landed home-world spawn within 50 m of the pad or runway) does,
-# so that is this lane's blocker. See D18-GHOST-EXTENSION-DESIGN-VS-CODE (ruled: keep the
-# code) and D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP (the chain half, open).
+# A recording whose vessel ENDS its flight parked in the KSC exclusion zone (the 50 m
+# pad-centre and runway-threshold circles, home world, non-EVA) has ended its flight: it
+# is RETIRED, never spawned, in every scene, and its ghost is not held for spawn retries.
+# The spawn call settles it at once (`VesselSpawned = true`, `SpawnAbandoned = true`,
+# spawned pid 0) and logs one Info line:
+#   `[Spawner] Spawn RETIRED for #N (Name): flight ended within KSC exclusion zone (pad)
+#    - no vessel lat=... lon=... body=Kerbin terminal=Landed rec=...`
+# so `ParsekPlaybackPolicy.HandlePlaybackCompleted` reads the spawn as settled and tears
+# the ghost down with the ordinary completion instead of registering a hold.
 #
-# THE DEFECT THIS LANE PINNED (reading run `2026-09-23_0000`, one frame): the engine logged
-# `Ghost #0 "Logi Cargo Rig" destroyed (stale past-end ghost (no longer held))` and only
-# THEN delivered `PlaybackCompleted ... ghostWasActive=True`, after which the policy wrote
-# "Ghost held pending spawn retry ... ghost stays visible" for a ghost already gone.
-# `HandlePastEndGhost` defers the completed event, and the stale past-end cleanup in the
-# same loop iteration saw `completedEventFired && !IsGhostHeld(i)`. The fix postpones that
-# cleanup until the completion has reached the policy (same frame), which logs
-# `Stale past-end cleanup after completion delivery: ... kept (held by the policy)`. The
-# REGRESSION assertions below are the forbidden stale-destroy-before-timeout form, the
-# required `destroyed (held-spawn-timeout)` release, the required post-delivery keep line,
-# and the forbidden "no ghost to keep visible" wording of the policy's hold line.
+# UNTIL 2026-09-23 this lane was the D18 `ghost-extension-past-endut` claim, riding the
+# 5 s bounded hold the KSC exclusion zone used to cause (#170 refused the spawn, the
+# policy held the ghost, retried every 1 s and timed out). The ruling removed that hold,
+# so the claim moved off: `[dimensionsCovered] D18` is gone and the cell waits for a
+# single-point-recording host (todo D18-GHOST-EXTENSION-SINGLE-POINT-HOST). The id stays.
+# The D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME regression this lane
+# pinned (fixed 2026-09-23, reading `2026-09-23_1510`) keeps its unit cells; this road no
+# longer reaches a held ghost.
 #
-# THE ROAD. `pad-runway-pair` (built offline by harness/tools/build_pad_runway_pair.py):
-# a clone of rover-route-recorded's `rover fuel 0` on the runway at VESSEL index 0, the
-# host asteroid at 1, logi-cargo-pad's `Logi Cargo Rig` on the pad at 2, focused.
+# THE ROAD (unchanged). `pad-runway-pair` (built offline by
+# harness/tools/build_pad_runway_pair.py): a clone of rover-route-recorded's `rover fuel 0`
+# on the runway at VESSEL index 0, the host asteroid at 1, logi-cargo-pad's `Logi Cargo
+# Rig` on the pad at 2, focused.
 #   1. Record the Rig on the pad in-run (StartRecording, StopRecording, CommitTree): a
-#      single-recording NON-CHAIN tree, Landed terminal, endpoint inside the pad zone.
+#      single-recording NON-CHAIN tree, Landed terminal, endpoint inside the pad circle
+#      (1.8 m from its centre).
 #   2. Rewind-to-Launch it (the Rig is stripped), then SaveGame + LoadGame at once,
-#      BEFORE 1x Space Center time reaches EndUT (the KSC-scene spawn has no exclusion
-#      check and would place the Rig on the pad). A Space Center save carries
-#      `activeVessel = 0` (measured), so the load lands in FLIGHT on the runway rover
-#      about 12 s before StartUT. (The first reading had the asteroid at index 0, focused
-#      it, and the pad ghost sat in the Beyond zone, never live.)
+#      BEFORE 1x Space Center time reaches EndUT, so the end is crossed in FLIGHT (the
+#      Space Center would retire it too, now; the flight scene is the one whose ghost used
+#      to be held). A Space Center save carries `activeVessel = 0` (measured), so the load
+#      lands in FLIGHT on the runway rover about 12 s before StartUT.
 #   3. Inert steps let 1x time run: the Rig's ghost goes live on the pad ~1.8 km away,
-#      EndUT passes, the pad exclusion zone refuses the spawn, the policy holds, retries
-#      and times out.
-# HISTORY: expectedFail from PR #1772 until the fix; its CONTROL `2026-09-23_0012` (defect
-# assertions removed) read XPASS, proving the defect was the only red. Post-fix: reading
-# `2026-09-23_1510` XPASS (spec unchanged), then un-quarantined; see autotest-status.md.
+#      EndUT passes, the spawn call RETIRES the recording, no hold, no vessel.
+#
+# MEASURED: reading `2026-09-23_1810` PASS attempt 1 (DLL sha256 `3970c939...`, commit
+# `0fea2d1df`) logged exactly one `Spawn RETIRED for #0 (Logi Cargo Rig): flight ended
+# within KSC exclusion zone (pad) - no vessel lat=-0.0972 lon=-74.5577 body=Kerbin
+# terminal=Landed`, no hold, no #170 block line, no spawn; the teardown and the after-end
+# mark (`spawned-true` with pid 0, the settled-without-vessel state ListHandles reports)
+# read as pinned. Armed `2026-09-23_1820` PASS attempt 1 on the fix-up DLL (sha256
+# `756a9ce6...`, commit `746e6c48e`); negative control `_1822` PARSEK-FAIL on exactly its
+# one seeded forbidden token (the RETIRED line), reverted. The commit / rewind / reload
+# marks and the `PlaybackCompleted ... needsSpawn=True` line date from `2026-09-23_0000` /
+# `_1510`: the flag pass still asks for the spawn, the retirement happens inside the call.
+# HISTORY: expectedFail from PR #1772 until the held-ghost fix; reading `2026-09-23_1510`
+# XPASS, then un-quarantined; retirement rewrite 2026-09-23 (reading `_1810`).
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "D18 ghost-extension-past-endut on the non-chain held-ghost path, SCOPED TO THE KSC EXCLUSION-ZONE HOLD (a vessel blocker never holds on the non-chain path; ruled 2026-09-23 (#1774): the bounded hold IS the design, design 13.5). Record the pad probe of pad-runway-pair in-run, Rewind-to-Launch it, reload into FLIGHT on the runway rover, and let 1x time carry the replayed ghost through EndUT, where the KSC exclusion zone refuses the spawn and ParsekPlaybackPolicy holds the ghost for the 5 s retry window. Asserts the ghost survives the hold (the engine keeps it after the completion reaches the policy, no stale past-end destroy before the timeout, then a held-spawn-timeout release) and the vessel never spawns. Regression lane for D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME (fixed 2026-09-23)."
+description = "KSC end-of-flight retirement witness (operator ruling 2026-09-23): record the pad probe of pad-runway-pair in-run, Rewind-to-Launch it, reload into FLIGHT on the runway rover, and let 1x time carry the replayed ghost through EndUT. The flight ended parked in the pad circle of the KSC exclusion zone, so the spawn call retires the recording (Spawn RETIRED ... (pad) - no vessel): no hold, no retry, no vessel, the ghost torn down with the ordinary completion. Formerly the D18 ghost-extension-past-endut claim on the pad hold the ruling removed; the claim moved off (todo D18-GHOST-EXTENSION-SINGLE-POINT-HOST). LIVE-PROVEN 2026-09-23: reading 2026-09-23_1810, armed _1820, negative control _1822."
 instanceProfile = "stock-minimal"
-tags = ["EX-1", "D18", "held-ghost", "spawn-blocked", "ksc-exclusion-zone",
+tags = ["EX-1", "ksc-retirement", "ksc-exclusion-zone", "no-held-ghost",
         "rewind-to-launch", "R10", "runtime-handles"]
 
 [fixture]
@@ -105,7 +105,7 @@ steps = [
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
   { cmd = "MissionMark", args = { label = "ex1-commit-count-${c0.count}-pid-${c0.rec0spawnedPid}-spawned-${c0.rec0spawned}" }, expect = "OK" },
   # --- ACT 2: rewind to launch (the Rig is stripped) and leave the Space Center at once,
-  # before 1x KSC time reaches EndUT (the KSC scene spawns with no exclusion check).
+  # before 1x KSC time reaches EndUT, so the end is crossed in FLIGHT.
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" }, expect = "OK", budget = 300 },
   { cmd = "SaveGame", args = { name = "ex1-rewound" }, expect = "OK", budget = 120 },
   { cmd = "LoadGame", args = { save = "${runSave}", name = "ex1-rewound" }, expect = "OK", budget = 300 },
@@ -116,8 +116,8 @@ steps = [
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
   { cmd = "MissionMark", args = { label = "ex1-reloaded-count-${c1.count}-pid-${c1.rec0spawnedPid}-spawned-${c1.rec0spawned}" }, expect = "OK" },
   # --- ACT 3: 1x flight time carries UT through StartUT (ghost goes live on the pad,
-  # ~1.8 km from the focused runway rover), EndUT (spawn blocked by the pad exclusion
-  # zone, ghost HELD) and the 5 s hold timeout. ~0.25 s per inert step.
+  # ~1.8 km from the focused runway rover) and EndUT (the spawn call retires the
+  # recording; no hold). ~0.25 s per inert step.
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
@@ -259,13 +259,12 @@ steps = [
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
-  { cmd = "MissionMark", args = { label = "ex1-after-hold-count-${c2.count}-pid-${c2.rec0spawnedPid}-spawned-${c2.rec0spawned}" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "ex1-after-end-count-${c2.count}-pid-${c2.rec0spawnedPid}-spawned-${c2.rec0spawned}" }, expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
 [dimensionsCovered]
 D14 = ["kerbin", "sandbox", "scene-flight"]
-D18 = ["ghost-extension-past-endut"]
 
 [expectations]
 allowedAnomalies = []
@@ -282,8 +281,9 @@ committedTrees = { min = 1, max = 1 }
 recordings     = { min = 1, max = 1 }
 terminalStates = { Landed = { min = 1, max = 1 } }
 
-# Every token below was read off `2026-09-23_0000` (pre-fix) except the two former DEFECT
-# assertions and the two fix-signature tokens, which were read off `2026-09-23_1510`.
+# Carried over from `2026-09-23_0000` / `_1510`: the commit, rewind and reload marks and
+# the PlaybackCompleted line. The RETIRED line, the teardown reason and the after-end mark
+# (settled with no vessel: spawned-true, pid 0) were read off `2026-09-23_1810`.
 [expectations.logContracts]
 required  = [
   "Recording started",
@@ -291,28 +291,28 @@ required  = [
   "invokerewindtolaunch complete rec=",
   "MISSIONMARK label=ex1-reloaded-count-1-pid-0-spawned-false ",
   "PlaybackCompleted index=[0-9]+ vessel=Logi Cargo Rig ghostWasActive=True pastEffectiveEnd=True needsSpawn=True",
-  "Spawn blocked for #[0-9]+ \\(Logi Cargo Rig\\): within KSC exclusion zone",
-  "Ghost held pending spawn retry: #[0-9]+ \"Logi Cargo Rig\" id=",
-  # FIX SIGNATURE: the engine's stale cleanup ran after the completion reached the policy
-  # and kept the held ghost.
-  "Stale past-end cleanup after completion delivery: ghost #[0-9]+ \"Logi Cargo Rig\" kept \\(held by the policy\\)",
-  "Held ghost timed out: #[0-9]+ \"Logi Cargo Rig\" id=\\S+ held=5\\.[0-9]s",
-  # The vessel never spawned in the session: the exclusion zone refused every retry.
-  "MISSIONMARK label=ex1-after-hold-count-1-pid-0-spawned-false ",
-  # REGRESSION ASSERTION 1: the held ghost is released by the timeout, i.e. it was alive
-  # through the hold. Absent before the fix (the ghost was already gone).
-  "Ghost #[0-9]+ \"Logi Cargo Rig\" destroyed \\(held-spawn-timeout\\)",
+  # The retirement, one Info line, pad circle (`_1810`).
+  "\\[Spawner\\] Spawn RETIRED for #[0-9]+ \\(Logi Cargo Rig\\): flight ended within KSC exclusion zone \\(pad\\) - no vessel lat=-0\\.097[0-9] lon=-74\\.557[0-9] body=Kerbin terminal=Landed rec=",
+  # The ghost is torn down by the completion itself, not held (`_1810`).
+  "Ghost #[0-9]+ \"Logi Cargo Rig\" destroyed \\(playback completed\\)",
+  # Settled with no vessel in the session, the retirement's state (`_1810`).
+  "MISSIONMARK label=ex1-after-end-count-1-pid-0-spawned-true ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
+  # No hold, no retry, no timeout: the ruling removed the pad hold.
+  "Ghost held pending spawn retry",
+  "Ghost held during warp-deferred spawn",
+  "Held ghost timed out",
   "Held ghost spawn succeeded on retry",
+  # The removed #170 block must not come back.
+  "Spawn blocked for #[0-9]+ \\(Logi Cargo Rig\\): within KSC exclusion zone",
+  # No vessel, by any spawn path.
   "Vessel spawned for #[0-9]+ \"Logi Cargo Rig\"",
   "Vessel respawned",
-  # The policy's hold line claims a visible ghost only when the engine still has it.
-  "Ghost held pending spawn retry: #[0-9]+ \"Logi Cargo Rig\" [^\\r\\n]*no ghost to keep visible",
-  # REGRESSION ASSERTION 2: the engine's stale past-end cleanup destroys the ghost before
-  # the hold times out. Matched before the fix.
-  "Ghost #[0-9]+ \"Logi Cargo Rig\" destroyed \\(stale past-end ghost \\(no longer held\\)\\)[\\s\\S]*?Held ghost timed out: #[0-9]+ \"Logi Cargo Rig\"",
+  "SpawnAtPosition: vessel spawned",
+  # Exactly one retirement: a settled recording is never re-retired in the session.
+  "Spawn RETIRED for #[0-9]+ \\(Logi Cargo Rig\\)[\\s\\S]*Spawn RETIRED for #[0-9]+ \\(Logi Cargo Rig\\)",
 ]
 
 [runtime]

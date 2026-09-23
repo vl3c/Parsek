@@ -1,4 +1,4 @@
-"""Fixture gates for `pad-runway-pair` (the EX-1 host).
+"""Fixture gates for `pad-runway-pair` (the EX-1 host; LF-1 / LF-2 record its runway rover).
 
 The fixture is DERIVED by `harness/tools/build_pad_runway_pair.py` from two committed
 fixtures (`logi-cargo-pad` as the base, `rover-route-recorded`'s `rover fuel 0` as the
