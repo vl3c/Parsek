@@ -317,7 +317,7 @@ The 14 distinct IMGUI windows, in the main window's own button order - the order
 |---|---|---|---|---|---|
 | 1 | `Parsek` (main) | `ParsekUI.cs:743`; hosts `ParsekFlight.cs:2118`, `ParsekKSC.cs:245` | FLIGHT, SPACECENTER | `main` | `ksc-main-basic/advanced`, `flight-main-basic/advanced` |
 | 2 | `Parsek - Missions` | `UI/RecordingsTableUI.cs:651` | FLIGHT, SPACECENTER | `missions` (tabs `missions`, `recordings`) | 4 labels (3.2) |
-| 3 | `Parsek - Timeline` | `UI/TimelineWindowUI.cs:281` | FLIGHT, SPACECENTER | `timeline` (tabs `overview`, `details`, `rewindff`, `refly`) | 5 labels (3.3) |
+| 3 | `Parsek - Timeline` | `UI/TimelineWindowUI.cs:281` | FLIGHT, SPACECENTER | `timeline` (tabs `overview`, `details`, `rewindff`, `refly`, `contracts`, `strategies`, `facilities`, `milestones`, `tech`) | 5 labels (3.3) |
 | 4 | `Parsek - Kerbals` | `UI/KerbalsWindowUI.cs:205` | FLIGHT, SPACECENTER | `kerbals` (tabs `roster`, `outcomes`) | 2 labels |
 | 5 | `Parsek - Career State` | `UI/CareerStateWindowUI.cs:1211` | FLIGHT, SPACECENTER | `career` (4 tabs) | 4 labels |
 | 6 | `Parsek - Logistics` | `UI/LogisticsWindowUI.cs:444` | FLIGHT, SPACECENTER | `logistics` | `ksc-logistics-advanced/basic` |
@@ -525,9 +525,26 @@ fast-forward and warp-to-time - which is why its launcher is deliberately kept i
 Hosts: `ParsekFlight.cs:2133` and `ParsekKSC.cs:255`; not the Tracking Station. Input lock
 `Parsek_TimelineWindow` (`:297-308`).
 
-Structure (`:426-517`): a two-row filter bar, a time-range preset row with optional custom
-sliders, the entry scroll view with a "now" divider, a warp row, the single-line echo strip,
-`Close`, resize handle, drag.
+Structure: a two-row filter area (below), an optional Time fold (the five time-range
+presets plus the From / To sliders), the entry scroll view with a "now" divider, a warp row,
+the single-line echo strip, `Close`, resize handle, drag. Minimum size 720x150
+(`MinWindowWidth`): both filter rows are six-cell grids on `GetResponsiveButtonWidth`, and
+the widest cell label, `Time: This Year`, needs about 110 px.
+
+Filter area (2026-09-24, `DrawFilterBar`). Row 1 is the one-at-a-time view group
+`Overview` / `Details` / `Rewind/FF` / `Re-Fly` / `Career` plus a `Time: <range>` button in
+column 6. Row 2 is the selected view's context row, always drawn and always one button tall
+so the list never moves (`ResolveContextRow`): the source toggles `Recordings` / `Actions` /
+`Events` plus `Archived` under Overview and Details; `Archived` alone under Rewind/FF and
+Re-Fly (the sources are forced or inert there, so they are hidden rather than greyed); the
+category buttons `Contracts` / `Strategies` / `Facilities` / `Milestones` / `Tech` under
+Career (single-select; `Career` reopens the last one used). The Career cell and the category
+set read the GAME mode, never the UI complexity mode: Career mode draws all five, Science
+draws Facilities / Milestones / Tech, Sandbox draws no Career cell (a grid-filler label keeps
+Time in column 6), and a category view the loaded mode does not show falls back to one it
+does. The `Time` button's label names the active range (`Time: All`, `Time: Last 7d`,
+`Time: Custom`, `FormatTimeButtonLabel`); it draws lit while its fold is open or a range is
+active, and clicking it opens and closes the fold. There is no separate `Custom` button.
 
 Row model: one row per `TimelineEntry` surviving `IsEntryVisible` (`:1162`); the list is built
 by `TimelineBuilder.Build` from `EffectiveState.ComputeERS()` + `ComputeELS()` +
@@ -557,16 +574,30 @@ else Events (milestones, contract completions and failures, earnings, recoveries
 destructions). The toggle tooltips are consts pinned to that routing by
 `TimelineCareerNamesTests`.
 
-Four mutually exclusive tier views (`TimelineTierFilterMode`, `:33-39`, default `Overview`):
+Nine mutually exclusive views (`TimelineTierFilterMode`, default `Overview`; the five
+category members are appended after `ReFly` so the index stays 1:1 with the seam's tab
+tokens). The row predicate is the pure `IsEntryVisibleInView`, and the time range applies in
+every view:
 
 | mode | row predicate | effect on the three source toggles |
 |---|---|---|
-| Overview | drops every `SignificanceTier.T2` row (`:1189`) | live |
+| Overview | drops every `SignificanceTier.T2` row | live |
 | Details | no tier drop | live |
-| Rewind/FF | keeps only rows where `HasActionableRewindOrFastForwardButton` (`:1576`) | forces Recordings on and DISABLES all three (`:803`) |
-| Re-Fly | keeps only rows where `HasActionableFlyOrSealButton` (`:1587`) | same |
+| Rewind/FF | keeps only rows where `HasActionableRewindOrFastForwardButton` | forces Recordings on; all three HIDDEN |
+| Re-Fly | keeps only rows where `HasActionableFlyOrSealButton` | same |
+| Contracts ... Tech | keeps only rows whose `TimelineEntry.CareerCategory` is that category, both tiers | ignored (hidden, values kept) |
 
-Both action tiers hide rows whose button would be GREYED, not merely absent.
+Both action tiers hide rows whose button would be GREYED, not merely absent. The category
+and the row's subject id (`CareerSubjectId`: contract, strategy, facility, milestone or tech
+node id) are stamped by `TimelineBuilder` from the LEDGER ACTION TYPE through
+`TimelineCareerCategories.Classify`, never from the display type: Contracts = accept /
+complete / fail / cancel, Strategies = activate / deactivate, Facilities = upgrade /
+destruction / repair, Milestones = milestone credits, Tech = a `ScienceSpending` that names a
+node. The strategy currency-exchange science legs share the `ScienceSpending` display bucket
+and are in no category. Recording, legacy and other ledger rows (earnings, hires, builds,
+recoveries, seeds) are in none either. `ScrollToCareerSubject(category, subjectId)` opens the
+window on the category's view and scrolls to the subject's first visible row (for a contract,
+its accept row), the career twin of `ScrollToRecording`; nothing calls it yet.
 
 Row actions: `W` / `W*` 40 px (flight only, `:1314`), `FF` 40 (future rows, `:1364`), `R` 40
 (past rows, `:1381`), `Fly` + `Seal` 40 on `UnfinishedFlightSeparation` rows (`:1478-1519`;
@@ -591,6 +622,12 @@ dialog handles the live recording first.
 The `Archived` toggle (`:876`) writes the INVERSE of `GroupHierarchyStore.HideActive`, the same
 single flag the Recordings tab's Archive header checkbox writes - and because that tab is
 Basic-hidden, this toggle is **the only archive control a Basic player can reach** (`:870-874`).
+
+Career-view pictures (GUI-24 `2026-09-23_2134`): `ksc-timeline-contracts-advanced`,
+`ksc-timeline-milestones-advanced`, `ksc-timeline-tech-advanced` and
+`ksc-timeline-milestones-thisyear-advanced` (fold closed, `Time: This Year` lit). The Contracts
+view is also the first picture of the grey `!IsEffective` row: the host's duplicate contract
+completions (the `ContractsModule` already-resolved arm) draw grey between the effective ones.
 
 Pictures: `ksc-timeline-overview-advanced` (338 nodes, 22 `R` + 22 `GoTo`),
 `ksc-timeline-details-advanced` (1154, 22 `R` + 34 `GoTo`), `ksc-timeline-rewindff-advanced`
@@ -1525,7 +1562,7 @@ wave-6 lane plan, the grammar and refusals in
 | --- | --- | --- |
 | `op=state key=srcRecordings\|srcActions\|srcEvents` | the three source-OFF row-population branches, all reading `true` in every existing dump | Timeline |
 | `op=state key=archived` | the Archived toggle ON plus the `[archived]` row marker (zero hits program-wide today); the same flag from the Recordings tab's Archive checkbox | Timeline + Missions |
-| `op=state key=customRange` + `key=preset` | the Custom reveal, the window's only two sliders, the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout | Timeline |
+| `op=state key=customRange` + `key=preset` | the Time fold (formerly the Custom reveal: the preset row plus the window's only two sliders), the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout | Timeline |
 | `op=state key=scrollY` | the window's first scrolled PNG. Note the dump already carried below-fold content with full rects, so this buys the PICTURE, not the data | Timeline |
 | `op=state key=expandedStats` | the Info toggle's six extra columns (`MaxAlt` / `MaxSpd` / `Dist` / `Pts` / `Start` / `End`, in zero dumps) at +458 px - the largest single layout change in the window | Missions (Recordings tab) |
 | `op=state key=archivedMissions` | whole missions dropping out; the only way to exercise `DisplayBlockRendersAnything` and the corner-connector precedence table | Missions (Missions tab) |
@@ -1684,7 +1721,7 @@ These need only a different `saveTemplate` and the existing `open` / `rect` / `t
 | Basic-mode Timeline ROWS | the existing GUI-1 host | insert `op=tab window=timeline tab=overview` before the Basic capture; today the Basic label inherits the Advanced pass's Re-Fly filter | GUI-4 `bd-timeline-overview-basic` and GUI-5 `cek-timeline-overview-basic`, both with the explicit `op=tab` this row asks for |
 | Timeline in FLIGHT (any view) | the existing GUI-2 host | `op=open window=timeline` + `op=rect` + `op=tab tab=overview` + capture | GUI-6 `play-timeline-overview-flight-advanced`; GUI-7 `b1-timeline-overview-live-advanced` adds the same view over a tree the run itself recorded |
 | Kerbals and Career in FLIGHT (all six tabs) | the existing GUI-2 host | both windows are already in the window table with driveable tabs | GUI-6 `play-kerbals-roster-flight-advanced` / `play-kerbals-outcomes-flight-advanced` / `play-career-contracts-sandbox-flight-advanced` (3 of the 6; the three remaining Career tabs in flight are unclaimed - they are the same classes GUI-5 shoots at KSC) |
-| Timeline minimum-size rendering | the existing GUI-1 host | a second `op=rect` at 520x150 plus one capture | GUI-4 `bd-timeline-refly-minsize-advanced`, at the 520x150 floor |
+| Timeline minimum-size rendering | the existing GUI-1 host | a second `op=rect` at 520x150 plus one capture | GUI-4 `bd-timeline-refly-minsize-advanced`, at the 520x150 floor (historical: the floor is 720 since the 2026-09-24 filter redesign; not re-flown) |
 | Logistics populated: Active, Paused, `New (not yet run)`, the Send-Once-armed row | `interbody-route-recorded` (Active + Paused, `completedCycles = 0`) or `depot-route-recorded` (Active, `pauseAfterCurrentCycle = True`) | `op=rect` to at least 1410x500 FIRST, or the Name column collapses as it did in the shipped capture | GUI-3 `ib-logistics-collapsed-advanced` (both rows) and `ib-logistics-expanded-advanced` |
 | Logistics `Dismissed (N)` header | `interbody-route-recorded` (carries `DISMISSED_ROUTE_CANDIDATES` with two ids) | none | GUI-3 `ib-logistics-collapsed-advanced` / `ib-logistics-expanded-advanced` |
 | Logistics Candidates populated + run-cost suffix | `rover-route-recorded`, or `rover-route-career` for the Career + KSC cost | none | UNCLAIMED. `interbody-route-recorded` carries a DISMISSED list rather than live candidates, so GUI-3's expanded capture shows the candidate SECTION and not a populated one. Wants a `rover-route-recorded` lane of its own |

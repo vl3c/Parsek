@@ -26,7 +26,7 @@ session, and the merge concluded it with no zombie discarded anywhere. Reading
 `2026-09-23_2147` (one timing token: the F5 came before the re-fly recorder binds at
 OnFlightReady, so the lane now idles ~3 s first), armed `2026-09-23_2200` PASS with the
 `rewind` block armed, negative control offline over `_2200`. D9 `load-time-sweep`
-claimed (coverage 200 of 250, D9 18 of 18). No product defect.
+claimed (coverage 201 of 250 after merging main, D9 18 of 18). No product defect.
 
 Scope, so the claim is not overread: the cell is claimed on the sweep's marker-validation
 and spare-set half. The zombie discard, the invalid-marker clear and the session-scoped RP
@@ -303,7 +303,25 @@ and route it through the body-fixed surface (or `TryResolveRelativeWorldPosition
 test can build a parent-anchored debris recording with Relative sections, promote it, and
 assert the distance.
 
-## D18-GHOST-EXTENSION-SINGLE-POINT-HOST: `ghost-extension-past-endut` has no host lane since the pad hold became a retirement [FILED 2026-09-23 with KSC-PAD-END-OF-FLIGHT-RETIREMENT. OPEN]
+## ~~D18-GHOST-EXTENSION-SINGLE-POINT-HOST: `ghost-extension-past-endut` has no host lane since the pad hold became a retirement~~ [FILED 2026-09-23 with KSC-PAD-END-OF-FLIGHT-RETIREMENT. CLOSED 2026-09-24 by `EX-2-single-point-held-ghost`]
+
+**CLOSED 2026-09-24.** `EX-2-single-point-held-ghost` claims the cell, SCOPED TO THE SINGLE-POINT
+COLLISION HOLD. LIVE-PROVEN: armed `2026-09-23_2110` PASS attempt 1 (blocked by `Kerbal X Probe`
+at 70 m on the single-point branch, `Ghost held pending spawn retry ... ghost stays visible`, the
+post-delivery `kept (held by the policy)`, `Held ghost timed out ... held=5.0s`,
+`destroyed (held-spawn-timeout)`, no vessel), negative control `2026-09-23_2113` red on exactly its one
+seeded forbidden token, reverted; automation DLL sha256 `bbfc81c5...` (origin/main build, no C#
+change). Two findings changed the shape the filing asked for, both re-derived from source:
+a point-ONLY one-point recording is never live (ghost activation starts at its only point, which
+is also EndUT, and the policy holds only a ghost live at completion), and a non-EVA spawn skips
+the ACTIVE vessel in the overlap check, so "parked on the focused vessel" never blocks. The host
+is therefore one flat point PLUS a 20 s orbit tail with an Orbiting terminal (the injected
+`single-point-hold` preset on `eva2-lko-crewed`), led 70 m ahead of the save's non-focused
+`Kerbal X Probe`, with a spawn collision footprint widened to cover the probe. Readings
+`2026-09-23_2054` / `_2103` PARSEK-FAILed on that geometry (the one-part box cleared on the 1 s
+retry; the second found GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE below).
+
+**Original filing.**
 
 The only non-chain paths that still hold a ghost past EndUT are a SINGLE-POINT recording whose
 endpoint overlaps a loaded vessel (no walkback is possible, so `CheckSpawnCollisions` reports
@@ -315,6 +333,29 @@ the focused vessel is the cheapest shape), asserting `Ghost held pending spawn r
 held-ghost keep line of the stale-cleanup fix, `Held ghost timed out ... held=5.[0-9]s` and
 `destroyed (held-spawn-timeout)`. That lane would also be the live witness of
 D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME again.
+
+## GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE: a ghost's map-presence ProtoVessel, placed inside a loaded real vessel, collides with it when they unpack [FILED 2026-09-24 off EX-2's reading runs. OPEN]
+
+**Observed.** EX-2's first two readings parked a committed ghost's orbit exactly on the
+non-focused `Kerbal X Probe` of `eva2-lko-crewed`, about 16 m from the focused ship. In FLIGHT
+`GhostMapPresence` created `Ghost: Single Point Holder` (ghostPid 3236074800, a `sensorBarometer`
+placeholder part, source `visible-segment`) at the ghost's position; when the scene's vessels
+unpacked about 1 s later, `Blocked GoOffRails for ghost vessel` logged for it, and then:
+- `2026-09-23_2054`: `sensorBarometer (Ghost: Single Point Holder) Exploded!! - blast awesomeness: 0.5`
+  37 ms after `Unpacking Kerbal X Probe`.
+- `2026-09-23_2103`: `Part sensorBarometer (Ghost: Single Point Holder) exited collision with
+  collider, but it wasn't in collision count list!`, and the REAL probe broke into seven
+  `Kerbal X Probe Debris` vessels (produced save: `lct = 422.23`, the probe's unpack UT). No
+  other lane flying this fixture leaves probe debris (EVA-2 `2026-09-10_1720` / `_2122` /
+  `2026-09-11_0133`, CI-1 `2026-09-15_1529` / `_1532`: 0 each).
+
+So the map ProtoVessel carries live colliders inside physics range, and a real vessel that shares
+its position is damaged. Stock-play reach (not measured): a ghost replaying an approach to a
+station the player is parked at puts its map ProtoVessel on or next to the station's parts. The
+fix direction (collider-free placeholder, or keep the ProtoVessel unloaded inside physics range)
+belongs to `docs/dev/design-map-ts-render-architecture.md`, Appendix A. EX-2 now leads the probe
+by 70 m, so it no longer exercises this; a witness lane would park the ghost on the vessel again
+and gate `Probe Debris` absent in the produced-save vessel census.
 
 ## ~~FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE: a launch made from FLIGHT inside the first 60 frames of a flight scene recorded INTO the tree of the vessel the scene opened on (a committed tree's restore clone), and the commit rewrote that committed tree~~ [FILED 2026-09-23 off the D18 PR-D harvest (#1768, runs `2026-09-22_2157` / `_2239`). FIXED 2026-09-23. Harness-reachable only; not reachable in stock play]
 
