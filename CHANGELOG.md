@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane re-flies a stage after a Rewind-to-Launch and quickloads in
+  the middle of it.** `RF-14-rtl-refly-load-sweep` flies the staged Kerbal X, rewinds the
+  whole flight to launch, waits on the pad until the clock passes the stage separation
+  again, re-flies the dropped core from the kept rewind point, then quicksaves and
+  quickloads mid-re-fly and merges. It checks that the load keeps the re-fly session alive
+  (the rewind point it names is the one the rewind kept, and the in-progress re-fly is not
+  thrown away) and that nothing is left behind after the merge. No problems found.
 - **Automated testing: a lane replays a loop anchored to a live vessel.**
   `RL-1-relative-loop-live-anchor` injects one looped recording that plays relative to the
   rover on the runway of the `pad-runway-pair` save (the new `relative-loop` injection

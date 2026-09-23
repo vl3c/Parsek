@@ -61,6 +61,28 @@ id = "RF-14-rtl-refly-load-sweep"
 # driver now idles about three seconds of 1x time first (twelve inert RecordingState
 # steps, EX-1's idiom, ~0.25 s each) and keeps the recorderLive=true pin. CI-3's F9 came
 # ~1.1 s after its marker write and read true.
+#
+# LIVE-PROVEN 2026-09-24. ARMED RE-FLIGHT `2026-09-23_2200` (same DLL, spec at 80dccb2f5):
+# PASS attempt 1, wall 357 s, MISSION-OK, expectations mismatches 0 (every token below,
+# `recorderLive=true` included), saveParse rewind PASS gating (rewindPoints 1,
+# supersedeRows 1, tombstones 0), 9 recordings, analyzer red 0, unityExceptions total 0.
+# NEGATIVE CONTROL DISCHARGED OFFLINE (the GS-9 / BDOCK-1 precedent), over that run's own
+# bytes through the real evaluators, with no flight:
+#   scratchpad `rf14_offline_negctl.py` (sha256 33953b74...) loads this spec through
+#   run.load_all_specs and calls hlib.evaluate_expectations over the collected KSP.log
+#   (sha256 e32c1b87...):
+#     INTACT                                        PASS, 0 mismatches
+#     log edited to the zombie world (the F9 sweep reads `valid=False; spare=0
+#       discarded=1`)                              FAIL, exactly 2: the spare token and
+#                                                   the discarded=[1-9] forbid
+#     marker rp= edited to a different point       FAIL, exactly 1: the carried-point
+#                                                   backreference
+#     the `Marker valid sess=` line deleted        FAIL, exactly 2: both backreferences
+#   and `rf14_rewind_negctl.py` over the produced save through
+#   saveparse.evaluate_save_structure: supersedeRows {0,0} FAIL `rewind.supersedeRows 1 >
+#   max 0`, rewindPoints {0,0} FAIL `rewind.rewindPoints 1 > max 0`, intact PASS.
+# WHAT THE OFFLINE CONTROL DOES NOT PROVE: it exercises the evaluator against real
+# bytes, not a second product, so it cannot witness a product change between runs.
 # =====================================================================================
 tier = "operator"
 description = "Ghost-replay Tier B item 7, Rewind-to-Launch x Re-Fly: fly GS-4's staged Kerbal X so the core split authors a two-slot RewindPoint, commit, Rewind-to-Launch (the point survives, PR #1788), let the watcher's replay carry the clock past the split, Re-Fly the core's slot off the carried point, then quicksave and quickload in the middle of that re-fly and pin that LoadTimeSweep validated the live marker against the carried point and spared the session's provisional, before the merge concludes it with no zombie left."

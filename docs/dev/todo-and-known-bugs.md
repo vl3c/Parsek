@@ -15,6 +15,28 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TIERB-7-RTL-X-REFLY-LOAD-SWEEP: ghost-replay Tier B item 7, the lane for D9 `load-time-sweep`~~ [DONE 2026-09-24 on branch `tierb-rtl-refly`]
+
+`RF-14-rtl-refly-load-sweep` flies GS-4's Kerbal X, Rewind-to-Launches it, re-flies the
+core's slot off the RewindPoint the rewind carried (PR #1788), then quicksaves and
+quickloads in the middle of that re-fly. The quickload's `LoadTimeSweep` validated the
+live marker against the carried point and spared the session's provisional
+(`[LoadSweep] Marker valid=True; spare=1 discarded=0`), the recorder resumed on that
+session, and the merge concluded it with no zombie discarded anywhere. Reading
+`2026-09-23_2147` (one timing token: the F5 came before the re-fly recorder binds at
+OnFlightReady, so the lane now idles ~3 s first), armed `2026-09-23_2200` PASS with the
+`rewind` block armed, negative control offline over `_2200`. D9 `load-time-sweep`
+claimed (coverage 200 of 250, D9 18 of 18). No product defect.
+
+Scope, so the claim is not overread: the cell is claimed on the sweep's marker-validation
+and spare-set half. The zombie discard, the invalid-marker clear and the session-scoped RP
+discard stay unit-level, and none is owed a lane: a Rewind-to-Launch cannot interrupt a
+live Re-Fly (the re-fly recorder is live for the whole session, `CanRewind` refuses "Stop
+recording before rewinding", and no player control stops a recorder), the rewind's own
+OnLoad returns before the sweep runs, and flight-authored staging RPs carry no
+CreatingSessionId. Also noted: CI-3 already produced the same two sweep lines on its
+F5/F9, unclaimed.
+
 ## RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`]
 
 **Ruling.** A rewind point ALWAYS survives a Rewind-to-Launch. Its slots stay in Unfinished
