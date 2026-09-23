@@ -24517,14 +24517,34 @@ def _kxrw_rewind_cycles_row(params: KxrwParams, state,
 # propellant left at pitch -10, 0.92 t at -5, 0.40 t at 0, and ran DRY short of it at
 # +20. -10 is the default; it is a spec knob, never a golden trajectory.
 #
+# THE PITCH PROGRAM (opt-in, raiseApoapsisMeters > 0; RF-13). A host that restores the
+# stack LOW and near-vertical (RF-13's: 29 km, ap 60.5 km) cannot make orbit on one
+# fixed pitch: a periapsis never exceeds the altitude reached, and every fixed pitch
+# ran the tank dry below 63 km with most of the energy spent on the apoapsis. The
+# program flies the textbook two-burn shape instead:
+#
+#     IGNITE -> RAISE  (hold raisePitchDeg until apoapsis >= raiseApoapsisMeters)
+#            -> COAST  (throttle 0 until vertical_speed <= circStartVerticalSpeedMps,
+#                       i.e. near the apoapsis; bounded by coastFrames)
+#            -> BURN   (circularize: pitch = clamp(-circPitchGainDegPerMps * vs,
+#                       circPitchMinDeg, circPitchMaxDeg), re-commanded when it moves
+#                       by a whole degree; the same periapsis cut and give-ups)
+#            -> ORBIT
+#
+# A 2-D point-mass sweep (no drag, 250 kN, Isp 350) from 29 km at 650-700 m/s vertical
+# reaches a 70.5 km periapsis at ~79 km with 4 t or more of propellant at every raise
+# pitch in 30..60 deg; with 8 t it keeps ~3 t spare.
+#
 # FRAME-BOUNDED, like every post-rewind phase in this file: the machine starts after a
 # rewind, so a game-time budget would read a clock the rewind just moved.
 # ---------------------------------------------------------------------------
 
 RFO_IGNITE = "IGNITE"
+RFO_RAISE = "RAISE"
+RFO_COAST = "COAST"
 RFO_BURN = "BURN"
 RFO_ORBIT = "ORBIT"
-RFO_PHASES: Tuple[str, ...] = (RFO_IGNITE, RFO_BURN, RFO_ORBIT)
+RFO_PHASES: Tuple[str, ...] = (RFO_IGNITE, RFO_RAISE, RFO_COAST, RFO_BURN, RFO_ORBIT)
 RFO_AIRBORNE_SITUATIONS: Tuple[str, ...] = ("FLYING", "SUB_ORBITAL")
 
 
@@ -24544,8 +24564,20 @@ class RfoParams:
     # Frames after the stage command within which available_thrust must read > 0.
     ignite_frames: int = 20
     # Whole-burn bound (the sweep's burn is ~90-110 s of game time; the runner polls
-    # at ~0.5 s).
+    # at ~0.5 s). The program's RAISE phase is bounded by the same value.
     burn_frames: int = 600
+    # The pitch program; 0 keeps the single fixed-pitch burn.
+    raise_apoapsis: float = 0.0
+    raise_pitch_deg: float = 45.0
+    circ_start_vertical_speed: float = 30.0
+    circ_pitch_gain: float = 0.5
+    circ_pitch_min: float = -10.0
+    circ_pitch_max: float = 45.0
+    coast_frames: int = 600
+
+    @property
+    def program(self) -> bool:
+        return self.raise_apoapsis > 0.0
 
 
 def rfo_params_from_dict(params: Dict) -> RfoParams:
@@ -24562,6 +24594,13 @@ def rfo_params_from_dict(params: Dict) -> RfoParams:
         min_crew=int(params.get("minCrew", 1)),
         ignite_frames=int(params.get("igniteFrames", 20)),
         burn_frames=int(params.get("burnFrames", 600)),
+        raise_apoapsis=float(params.get("raiseApoapsisMeters", 0.0)),
+        raise_pitch_deg=float(params.get("raisePitchDeg", 45.0)),
+        circ_start_vertical_speed=float(params.get("circStartVerticalSpeedMps", 30.0)),
+        circ_pitch_gain=float(params.get("circPitchGainDegPerMps", 0.5)),
+        circ_pitch_min=float(params.get("circPitchMinDeg", -10.0)),
+        circ_pitch_max=float(params.get("circPitchMaxDeg", 45.0)),
+        coast_frames=int(params.get("coastFrames", 600)),
     )
 
 
@@ -24591,6 +24630,10 @@ class RfoState:
     cut_apoapsis: float = float("nan")
     cut_ut: float = float("nan")
     cut_liquid_fuel: float = float("nan")
+    # Pitch-program evidence (NaN when the program is off or the phase never ran).
+    raise_cut_apoapsis: float = float("nan")
+    circ_start_altitude: float = float("nan")
+    last_pitch_cmd: float = float("nan")
 
 
 def rfo_initial_state(params: RfoParams) -> RfoState:
@@ -24626,6 +24669,31 @@ def rfo_handoff_refusal(params: RfoParams, snapshot: TelemetrySnapshot) -> str:
     return ""
 
 
+def rfo_circ_pitch(params: RfoParams, vertical_speed: float) -> float:
+    """The circularization pitch law: pitch up in proportion to a fall, down (to the
+    floor) while still climbing, rounded to whole degrees. Pure."""
+    vs = vertical_speed if _is_finite(vertical_speed) else 0.0
+    pitch = -params.circ_pitch_gain * vs
+    pitch = max(params.circ_pitch_min, min(params.circ_pitch_max, pitch))
+    return float(round(pitch))
+
+
+def _rfo_steer(st: RfoState, pitch: float) -> Tuple[RfoState, List[Action]]:
+    """Re-command the AP only when the pitch moved by a whole degree."""
+    if _is_finite(st.last_pitch_cmd) and abs(pitch - st.last_pitch_cmd) < 1.0:
+        return st, []
+    return (replace(st, last_pitch_cmd=pitch),
+            [Action(ACTION_AP_SET_PITCH_HEADING,
+                    pitch_heading=(float(pitch), float(st.params.heading_deg)))])
+
+
+def _rfo_track_thrust(st: RfoState, snapshot: TelemetrySnapshot) -> Tuple[RfoState, bool]:
+    thrust = snapshot.available_thrust
+    if _is_finite(thrust) and (not _is_finite(st.peak_thrust) or thrust > st.peak_thrust):
+        st = replace(st, peak_thrust=thrust)
+    return st, bool(_is_finite(st.peak_thrust) and st.peak_thrust > 0.0)
+
+
 def rfo_decide(state: RfoState,
                snapshot: TelemetrySnapshot) -> Tuple[RfoState, List[Action]]:
     """Advance the RF-12S burn one frame; return (new_state, actions)."""
@@ -24645,20 +24713,68 @@ def rfo_decide(state: RfoState,
                           start_periapsis=snapshot.periapsis)
         if refusal:
             return _rfo_fail(stamped, refusal), []
+        pitch = float(p.raise_pitch_deg if p.program else p.pitch_deg)
         actions = [
             Action(ACTION_ACTIVATE_STAGE),
             Action(ACTION_SET_THROTTLE, p.throttle),
             Action(ACTION_AP_SET_PITCH_HEADING,
-                   pitch_heading=(float(p.pitch_deg), float(p.heading_deg))),
+                   pitch_heading=(pitch, float(p.heading_deg))),
         ]
-        return _rfo_enter(stamped, RFO_BURN, snapshot.ut), actions
+        stamped = replace(stamped, last_pitch_cmd=pitch)
+        return (_rfo_enter(stamped, RFO_RAISE if p.program else RFO_BURN, snapshot.ut),
+                actions)
+
+    if state.phase == RFO_RAISE:
+        st = replace(state, phase_frames=state.phase_frames + 1)
+        st, lit = _rfo_track_thrust(st, snapshot)
+        thrust = snapshot.available_thrust
+        if lit and _is_finite(snapshot.apoapsis) and snapshot.apoapsis >= p.raise_apoapsis:
+            st = replace(st, raise_cut_apoapsis=snapshot.apoapsis)
+            st, steer = _rfo_steer(st, rfo_circ_pitch(p, snapshot.vertical_speed))
+            return (_rfo_enter(st, RFO_COAST, snapshot.ut),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)] + steer)
+        if not lit and st.phase_frames >= p.ignite_frames:
+            return (_rfo_fail(st, "engine never lit: available_thrust stayed 0 for %d "
+                                  "frames after the stage command" % p.ignite_frames),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        if lit and _is_finite(thrust) and thrust <= 0.0:
+            return (_rfo_fail(st, "propellant exhausted raising the apoapsis: "
+                                  "apoapsis=%s target=%.0f"
+                                  % (snapshot.apoapsis, p.raise_apoapsis)),
+                    [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)])
+        if st.phase_frames >= p.burn_frames:
+            return (replace(st, done=True, verdict=MISSION_FLAKE, flake_phase=RFO_RAISE,
+                            flake_reason=("raise exceeded %d frames without apoapsis >= "
+                                          "%.0f (apoapsis=%s)"
+                                          % (p.burn_frames, p.raise_apoapsis,
+                                             snapshot.apoapsis))),
+                    [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)])
+        return st, []
+
+    if state.phase == RFO_COAST:
+        st = replace(state, phase_frames=state.phase_frames + 1)
+        st, steer = _rfo_steer(st, rfo_circ_pitch(p, snapshot.vertical_speed))
+        if (_is_finite(snapshot.vertical_speed)
+                and snapshot.vertical_speed <= p.circ_start_vertical_speed):
+            st = replace(st, circ_start_altitude=snapshot.altitude)
+            return (_rfo_enter(st, RFO_BURN, snapshot.ut),
+                    steer + [Action(ACTION_SET_THROTTLE, p.throttle)])
+        if st.phase_frames >= p.coast_frames:
+            return (replace(st, done=True, verdict=MISSION_FLAKE, flake_phase=RFO_COAST,
+                            flake_reason=("coast exceeded %d frames without vertical "
+                                          "speed <= %.0f (vs=%s)"
+                                          % (p.coast_frames, p.circ_start_vertical_speed,
+                                             snapshot.vertical_speed))),
+                    [Action(ACTION_AP_DISENGAGE)])
+        return st, steer
 
     if state.phase == RFO_BURN:
         st = replace(state, phase_frames=state.phase_frames + 1)
         thrust = snapshot.available_thrust
-        if _is_finite(thrust) and (not _is_finite(st.peak_thrust) or thrust > st.peak_thrust):
-            st = replace(st, peak_thrust=thrust)
-        lit = _is_finite(st.peak_thrust) and st.peak_thrust > 0.0
+        st, lit = _rfo_track_thrust(st, snapshot)
+        steer: List[Action] = []
+        if p.program:
+            st, steer = _rfo_steer(st, rfo_circ_pitch(p, snapshot.vertical_speed))
 
         if _is_finite(snapshot.periapsis) and snapshot.periapsis >= p.target_periapsis:
             st = replace(st, pe_streak=st.pe_streak + 1)
@@ -24687,7 +24803,7 @@ def rfo_decide(state: RfoState,
                                           % (p.burn_frames, p.target_periapsis,
                                              snapshot.periapsis))),
                     [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)])
-        return st, []
+        return st, steer
 
     return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
                    flake_reason="unknown phase %s" % state.phase, done=True), []
@@ -24729,5 +24845,9 @@ def evaluate_rfo_assertions(frames, params: RfoParams, state) -> List[AssertionO
             {"targetPeriapsis": params.target_periapsis,
              "apoapsis": num(st.cut_apoapsis) if st is not None else None,
              "cutUT": num(st.cut_ut) if st is not None else None,
-             "liquidFuelAtCut": num(st.cut_liquid_fuel) if st is not None else None}),
+             "liquidFuelAtCut": num(st.cut_liquid_fuel) if st is not None else None,
+             "pitchProgram": bool(params.program),
+             "raiseCutApoapsis": num(st.raise_cut_apoapsis) if st is not None else None,
+             "circStartAltitude": num(st.circ_start_altitude) if st is not None else None,
+             "phasesReached": list(st.phases_reached) if st is not None else []}),
     ]

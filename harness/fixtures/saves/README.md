@@ -702,6 +702,25 @@ segment. Never re-flown: no supersedes, no tombstones. The RewindPoint quicksave
 `rewindSave` and `resumeRewindSave` VALUES were cleared after the harvest (keys kept),
 the corpus-wide RF-11 policy `CommittedFixtureRewindSaveTests` gates.
 
+### refly-split-crewed-merged (GAME Mode = SANDBOX)
+
+`refly-split-crewed-recorded` AFTER its RP-split re-fly merge, landed 2026-09-23 for
+RF-13R (the cold-reload half of TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT).
+Produced by `RF-13-refly-split-crew-survives-reload` run `2026-09-23_1503` on the
+post-#1770 DLL and harvested with
+`harvest_bdock_station.py --target-name refly-split-crewed-merged --keep-parsek`; shape
+pinned in `RECORDED_FIXTURES`.
+
+The merge split pod `816a8822` at the rewind point: HEAD `816a8822` (29.92..118.48, no
+terminal, crew end states moved to TIP) stays visible, TIP `2e31fb1e` (Destroyed) is
+superseded by the re-fly `rec_92498045` (Orbiting, Bill and Bob aboard), and two
+tombstones retire TIP's two Dead rows. Those rows still carry the ORIGIN's `ut` /
+`startUT` 29.92 and `endUT` 325.9, so the next COLD load's `MigrateKerbalAssignments`
+re-derives them: that re-derivation is what RF-13R reads. The harvest's situation gate
+passed on the save's active vessel, an asteroid, so it proves nothing here; the
+RewindPoint quicksave's `rewindSave` values were already clear (inherited from the
+host).
+
 ### rover-route-recorded (GAME Mode = SANDBOX, 3 real vessels + 8 asteroids)
 
 The supply-route lane host (RVR-1 / RVR-2 / RVR-3), landed 2026-08-30. Harvested from a

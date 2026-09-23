@@ -4795,7 +4795,7 @@ real commit path by
 the fixed DLL (`2026-09-22_2010`) read the provisional's `dedup=2` (was 4) and `2 reservations
 remain (permanent=0 temporary=2)` (was 0).
 
-## RF-13-HOST-CANNOT-REACH-ORBIT: the RP-split re-fly lane never reaches its merge, because the host restores the crewed stack too low to burn to orbit [FOUND 2026-09-22 on RF-13's reading runs. OPEN, harness-only]
+## ~~RF-13-HOST-CANNOT-REACH-ORBIT~~: the RP-split re-fly lane never reaches its merge, because the host restores the crewed stack too low to burn to orbit [FOUND 2026-09-22 on RF-13's reading runs. FIXED 2026-09-23 on branch `rf13-proof` with option (2), harness-only]
 
 `RF-13-refly-split-crew-survives-reload` is the live proof of the fix below: rewind
 `refly-split-crewed-recorded` slot 0, burn the restored crewed stack to orbit with
@@ -4820,6 +4820,16 @@ re-read the burn, i.e. more energy at the RP for the same single-environment sha
 (3) have the re-fly survive WITHOUT an orbit, which needs a craft with a parachute on the
 upper stack and a scene-exit merge that stamps Landed / Splashed. Cost after the
 re-harvest: a reading run, an armed run and a main-DLL negative control.
+
+FIXED with option (2), no re-harvest: `rfo_decide` gains an opt-in pitch program
+(`raiseApoapsisMeters` > 0): RAISE (hold `raisePitchDeg` until the apoapsis clears the
+target) -> COAST (throttle cut until vertical speed <= `circStartVerticalSpeedMps`) ->
+BURN (circularize on pitch = clamp(-gain * vs)), unit-covered in
+`RfoPitchProgramTests`; RF-12S's single burn is unchanged (the program is off by default).
+RF-13 flies 80 km / 45 deg / 30 m/s / 0.5 deg per m/s / target pe 72 km: reading
+`2026-09-23_1503` MISSION-OK (raise cut at ap 80.5 km, circularize from 80.3 km at UT
+236, orbit at UT 313 with pe >= 72 km), armed re-flight `_1528` PASS. See the entry below
+for what the reading measured about the reload.
 
 ALSO FOUND AND FIXED on these runs: `mlib.evaluate_rfo_assertions` put NaN cut stamps
 into the orbit row whenever the burn gave up before the cut, `serialize_mission_result`
@@ -4911,6 +4921,15 @@ derives a fresh untombstoned Dead row, so the death resurrects. Candidate fixes:
 re-derive or retag KerbalAssignment rows inside the optimizer split pass (closes BOTH
 triggers), or skip superseded recordings as split candidates (cheap, closes only this
 one).
+
+MEASURED LIVE 2026-09-23 on the pre-#1775 DLL (RF-13R `2026-09-23_1524` / `_1527`, the cold load of
+`refly-split-crewed-merged`): the load-time optimization pass, which runs after
+`MigrateKerbalAssignments`, split the RE-FLY `rec_92498045` (Orbiting, crew Aboard) at
+its atmosphere exit, UT 186.12 - the split its merge had deferred - and moved its crew end
+states onto the second half while its Aboard rows stayed on the first. The FIRST
+trigger's shape, on a re-fly whose crew are alive, so no death is involved and the walk
+read `permanent=0`; TIP itself was not split on that load. #1775's split retag is what
+now moves those rows with the end states.
 
 ## DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT: a split cut just before a crash can put the death on one segment and its reputation penalty on the other [FOUND 2026-09-23 by the PR #1775 review. OPEN, analysis only, needs a ruling]
 
@@ -5036,9 +5055,20 @@ FIXED (branch `tombstone-reload`):
   is un-skipped and green, with mirror cells for two reloads, a re-commit of TIP, a merge
   that does not split, a mid-split rollback and a crewless recording; mutation-checked
   (removing the inheritance, the dedup identity or the move reds 8 / 2 / 6 cells).
-- LIVE PROOF: the host was harvested (`refly-split-crewed-recorded` from RF-13H
-  `2026-09-22_2315`), but RF-13's re-fly burn never reached the merge; see
-  RF-13-HOST-CANNOT-REACH-ORBIT. The fix is proven headlessly only.
+- LIVE PROOF (2026-09-23, branch `rf13-proof`, post-#1770 DLL `1fa18b029522e6d8`), in
+  two lanes because RF-13's own post-merge reload is IN-SESSION: `initialLoadDone` stays
+  true, the ledger stays in memory and `MigrateKerbalAssignments` never runs, so that
+  reload cannot tell a pre-fix DLL apart. RF-13 (merge side): reading `2026-09-23_1503`
+  split `816a8822` at UT 118.48, moved 2 crew end states onto TIP, tombstoned 2 Kerbal
+  rows, `permanent=0` after the merge and after the in-session reload; armed `_1528` PASS.
+  RF-13R (cold side): a NEW process loads RF-13's produced save, harvested as
+  `refly-split-crewed-merged`; Migrate re-derives TIP with `inheritedActionIds=2
+  freshActionIds=0` and HEAD through the Recovered handoff, ELS still skips both
+  tombstoned rows, `permanent=0`: reading `_1524`, armed `_1527` PASS. NEGATIVE CONTROL
+  `_1533` on a DLL built from `3b7f40903` (the parent of #1770's merge): fresh ids, ELS
+  `skippedTombstoned=0`, `Orphan tombstone=` x2, `PostWalk ... permanent=2`,
+  PARSEK-FAIL(analyzer) INV8 dangling-tombstone. The reload assertion holds on the fixed
+  DLL and fails on the pre-fix one.
 
 ## ~~TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START~~: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09. RULED 2026-09-22: screen death intervals by `endUT`. FIXED on branch `tombstone-endut` and LIVE-PROVEN by RF-12S; two follow-ups filed above]
 
