@@ -871,6 +871,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A launch Parsek refuses to attach to a resumed committed tree no longer leaves that tree's
+  resumed copy parked behind it.** When a craft is launched from flight (by a mod such as kRPC;
+  stock KSP always launches through the editor or the Space Center) and Parsek declines to
+  record it into the tree of the vessel the scene opened on, that tree was left waiting as an
+  unfinished stash: the already-committed history plus the few seconds Parsek had resumed
+  recording after the load. It could then surface as a merge dialog offering to re-commit
+  recordings that were already committed, a later stash replaced it with only a log warning,
+  and one shape of it could be put back on the launched craft after a quicksave and quickload.
+  Now, when the parked tree is a resumed copy of a committed tree, it is discarded on the spot,
+  exactly as the merge dialog's Discard would: the committed mission and its files are kept
+  as they were, only the resumed seconds go. A tree that was never committed is kept, as
+  before.
 - **A launch started from flight in the first second or two of a flight scene no longer joins
   the tree of the vessel that scene opened on.** KSP reports the scene's opening camera focus
   as a vessel switch, and Parsek counted it as one for the next 60 frames. A launch made from

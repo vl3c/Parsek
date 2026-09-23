@@ -110,28 +110,87 @@ Option if #266's "keep the mission across a far switch" behavior is wanted: subs
 the new readiness gate. That revives a path that has effectively never run in play, so it
 needs its own design pass and a flight, not a one-line subscribe.
 
-## FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME: a tree refused for a fresh rollout stays in the pending slot for the rest of the flight [FILED 2026-09-23 from the #1780 review. OPEN; residue, not reachable after the arm gate]
+## ~~FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME: a tree refused for a fresh rollout stays in the pending slot for the rest of the flight~~ [FILED 2026-09-23 from the #1780 review. FIXED 2026-09-23 by operator ruling (discard); the genuinely-new-tree residue is FRESH-LAUNCH-REFUSED-NEW-TREE-PENDING]
 
-Two gaps remain after #1780 made the vessel-switch refusal durable:
+**The gaps** after #1780: (1) an outsider-chain vessel-switch stash (no active recording)
+has no revertible pre-transition, so the refused tree stayed `LimboVesselSwitch` and an F5
+then F9 would reinstall it on the launched craft; (2) any refused tree, from this path and
+from the quickload restore's fresh-rollout refusal that BDOCK-1 exercises, lingered as the
+pending tree until a later `StashPendingTree` overwrote it with only a Warn.
 
-1. **Outsider-chain stash.** When the stashed tree had no active recording (the previous
-   scene was already in outsider state), there is nothing to revert, so the refused tree
-   stays `LimboVesselSwitch` (logged `refused tree has no revertible pre-transition`). It
-   is protected in the refusing scene only; after F5 then F9 its isActive node reloads as
-   `LimboVesselSwitch` and the vessel-switch restore would reinstall it on the launched
-   craft. Reaching it needs an outsider-state tree plus a fresh rollout plus an armed
-   switch flag inside 60 frames, which the arm gate leaves with no known trigger.
-2. **Later stash overwrite.** Any refused tree (this path, and the quickload restore's
-   existing fresh-rollout refusal that BDOCK-1 exercises) lingers as the pending tree. A
-   later `StashPendingTree` overwrites the slot with only a Warn
-   (`overwriting existing pending tree`). The committed original survives in the
-   committed store (the restore is copy-on-write, `ArmCommittedTreeRestoreAttempt`), so
-   what an overwrite drops is the resumed seconds, but this was not traced end to end.
+**Ruling (operator, 2026-09-23): discard the parked tree's resumed seconds.** Committed
+history stays exactly as committed and nothing is re-committed.
 
-The clean resolution is a product choice between re-committing the refused tree at the
-refusal (a flight-scene commit of a pending tree, with ledger and spawn effects) and
-discarding the resumed delta back to the committed original. Neither is settled by the
-design docs, so it is filed rather than guessed.
+**What was traced.** The refused tree is the copy-on-write clone
+`TryTakeCommittedTreeForSpawnedVesselRestore` made of a committed tree (same tree id, same
+recording ids, restore attempt armed), plus whatever the resumed recorder wrote after the
+load. The committed original stays in `committedTrees` because the clone's dirty
+committed-overlap recordings are never serialized (`SavePendingTreeNode` /
+`PlanActiveTreeSidecarSaves` skip them), so no isActive node detaches it on reload. The one
+exception is a clean (non-dirty) clone written as an isActive node and reloaded:
+`TryRestoreActiveTreeNode` then calls `RemoveCommittedTreeById`, and the pending tree is the
+ONLY holder of that history. BDOCK-1's refused tree is the same shape: after its mid-mission
+`CommitTree` the Update-loop committed-tree restore re-adopts the station as a clone of the
+just-committed tree, which is what its fallback merge dialog offered over committed-overlap
+recordings (BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG).
+
+**Fix.** Both refusal sites (`RestoreActiveTreeFromPending`'s fresh-rollout branch and
+`RestoreActiveTreeFromPendingForVesselSwitch`'s) now call
+`ParsekFlight.DisposeFreshRolloutRefusedPendingTree`. Its pure core
+`ClassifyFreshRolloutRefusedTree` discards only when a committed tree with the pending
+tree's id is still in the committed store (`RecordingStore.HasCommittedTreeWithId`; tree ids
+are fresh Guids, so only a clone collides) and no Re-Fly session or invocation owns the
+pending slot (`IsReFlySessionActiveForQuickloadDiscard`, checked first). The discard is the
+merge dialog's own Discard primitive, `ParsekScenario.DiscardPendingTreeAndRecalculate` ->
+`RecordingStore.DiscardPendingTree`: committed-overlap recordings keep their sidecars and
+events, pending-only recordings' files and events are deleted, same-id event tails past the
+committed cutoffs are purged, and the committed-tree restore attempt is cleared. Every
+discard logs `Fresh-rollout refusal (<site>): discarding resumed copy of committed tree`
+with the tree id, state, recording / committed-overlap / pending-only counts, whether the
+restore attempt was armed and the refused pid. A tree with no committed twin (genuinely
+new, or the detached-committed-copy case above) logs `keeping pending tree ... not a
+discardable resumed copy; kept` and keeps today's behaviour (Limbo give-up, or the vessel-switch revert + convert). So
+gap 1 is closed for resumed copies (discarded with or without a revertible pre-transition)
+and gap 2 cannot lose a resumed copy (nothing is left to overwrite); a genuinely new
+refused tree can still be overwritten, filed as FRESH-LAUNCH-REFUSED-NEW-TREE-PENDING.
+
+**Mirror direction.** A legitimate vessel-switch restore and a quickload restore never reach
+the dispose call (it sits inside the fresh-rollout branch only). A quickload restore of a
+genuinely new tree is unchanged (no committed twin). Re-Fly adoption is unchanged (Re-Fly
+ownership keeps the tree, and a Re-Fly load is not a fresh rollout anyway). The merge
+dialog's Discard is the primitive reused here and is not modified.
+
+**Tests.** `FreshRolloutRefusedTreeDiscardTests` (real committed store, staged sidecars and
+events, the real discard): resumed copy discarded with the committed tree, recordings,
+points, sidecars and pre-cutoff event untouched and the resumed-only recording's files and
+the resumed events gone; outsider-chain `LimboVesselSwitch` copy discarded; genuinely new
+tree kept with its files; same-id tree whose committed copy was detached kept; Re-Fly-owned
+copy kept; save after the discard writes only the committed node and a reload leaves no
+pending tree (control: without the discard the copy is written isActive); a later stash no
+longer warns (control: over a kept new tree it still does); source gates that both
+coroutines dispose before the pop and the vessel-switch revert runs only when not discarded.
+Mutation check: dropping the discard call reds 4 cells, forcing the guard true reds 2,
+removing either coroutine wiring reds its source gate. Unit-proven only (no flight): the
+next BDOCK-1 flight should log the discard instead of `showing tree merge dialog (fallback)`.
+
+## FRESH-LAUNCH-REFUSED-NEW-TREE-PENDING: a genuinely new (never committed) tree refused for a fresh rollout still lingers in the pending slot [FILED 2026-09-23 from the FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME fix. OPEN; mod-driven launches from FLIGHT only]
+
+The discard ruling covers resumed committed copies only. If the refused pending tree was
+never committed (for example a player recording launch A, then a kRPC `launch_vessel` of B
+from FLIGHT: A stashes Limbo and the quickload restore refuses B's fresh rollout), A keeps
+today's behaviour: it stays pending (`keeping pending tree ... not a discardable resumed copy;
+kept`), and a
+later `StashPendingTree` overwrites it with only the `overwriting existing pending tree`
+Warn, orphaning its sidecars. An outsider-chain `LimboVesselSwitch` stash of such a tree
+still stays `LimboVesselSwitch` for the scene only (`refused tree has no revertible
+pre-transition`). The same keep applies to a resumed copy whose committed original was
+detached on load (a CLEAN clone, no resumed points yet, written as an isActive node and
+reloaded through `TryRestoreActiveTreeNode` -> `RemoveCommittedTreeById`): there the pending
+tree is the only holder of committed history, so an overwrite would drop committed
+recordings, not just resumed seconds. Not seen in any log (every observed refused copy was
+dirty, and dirty committed-overlap trees are never serialized). Stock play cannot reach either (a stock launch leaves FLIGHT, which commits
+the tree first). The resolution is a product choice (commit A at the refusal, keep it
+through the next stash, or surface it for merge), not settled by the design docs.
 
 ## ~~D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME: the non-chain "held" ghost is destroyed by the engine's stale past-end cleanup in the very frame the policy holds it, so no ghost is ever visible past EndUT~~ [FILED 2026-09-23 from EX-1's reading run `2026-09-23_0000`. FIXED 2026-09-23 on branch `held-ghost-fix`; EX-1 is its live witness]
 
@@ -3248,6 +3307,13 @@ answers the dialog, so neither path is measured.
 **Harness-side mitigation to evaluate, not taken here.** A `StopRecording` between the
 commit and INT-LAUNCH, the same answer the operator traps give for `InvokeRewindToLaunch`
 after a commit. Not done in this wave because it changes the lane's subject.
+
+**Update 2026-09-23 (FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME ruling).** The re-adopted
+station continuation is a copy-on-write clone of the just-committed tree, so the open question
+is answered by the discard ruling: the quickload restore's fresh-rollout refusal now discards
+it (committed recordings and sidecars untouched) and no fallback merge dialog should appear.
+Unit-proven only; the next BDOCK-1 flight is the live check, and it should land the no-dialog
+shape the spec header says it has never measured (no gating token depends on either shape).
 
 **How the wave handled it.** BDOCK-1's count min was raised to 19 (attributed per
 type, every member produced before or apart from the stash) and the max kept at 20. The

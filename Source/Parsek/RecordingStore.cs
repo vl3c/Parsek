@@ -5600,6 +5600,24 @@ namespace Parsek
             return TryFindCommittedRecordingById(recordingId) != null;
         }
 
+        /// <summary>
+        /// True when the in-memory committed store holds a tree with this id. A pending
+        /// tree that shares a committed tree's id is a copy-on-write restore copy of it
+        /// (tree ids are fresh Guids, so only a clone can collide), and the committed
+        /// original is still the durable holder of its history.
+        /// </summary>
+        internal static bool HasCommittedTreeWithId(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return false;
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                if (string.Equals(committedTrees[i]?.Id, treeId, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
         // ==================================================================
         // Durable committed-recording-id hint (committed-overlap discard guard)
         // ==================================================================

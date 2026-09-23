@@ -14411,6 +14411,7 @@ namespace Parsek
             Vessel matched = null;
             bool loggedGuidReject = false;
             var loggedParentGuidRejects = new HashSet<string>();
+            uint refusedFreshRolloutPid = 0;
             while (UnityEngine.Time.time < deadline)
             {
                 var v = FlightGlobals.ActiveVessel;
@@ -14426,7 +14427,8 @@ namespace Parsek
                             $"'{v.vesselName}' pid={v.persistentId} liveGuid={liveGuid ?? "<none>"} " +
                             $"for recording '{activeRecId}' (recordedPid={targetPid}, " +
                             $"recordedGuid={activeRec.RecordedVesselGuid ?? "<none>"}) — a fresh " +
-                            "launch is a different physical launch; leaving tree in Limbo");
+                            "launch is a different physical launch; not adopting");
+                        refusedFreshRolloutPid = v.persistentId;
                         break;
                     }
 
@@ -14505,6 +14507,21 @@ namespace Parsek
                     if (matched != null) break;
                 }
                 yield return null;
+            }
+
+            // FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME: a
+            // tree refused for the fresh rollout that is a resumed copy of a committed tree
+            // (BDOCK-1's re-adopted station after its mid-mission commit) is discarded, so
+            // no parked copy lingers for a later stash to overwrite or a merge dialog to
+            // offer over committed recordings. A genuinely new or Re-Fly-owned tree falls
+            // through to the Limbo give-up below, unchanged.
+            if (matched == null
+                && refusedFreshRolloutPid != 0
+                && DisposeFreshRolloutRefusedPendingTree(
+                        "quickload-restore", refusedFreshRolloutPid)
+                    == FreshRolloutRefusedTreeDisposition.DiscardResumedCommittedCopy)
+            {
+                yield break;
             }
 
             if (matched == null)
@@ -14669,6 +14686,109 @@ namespace Parsek
         }
 
         /// <summary>
+        /// What happens to the pending tree after a restore coroutine refused to put it
+        /// on the scene-entry fresh rollout (todo FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME).
+        /// </summary>
+        internal enum FreshRolloutRefusedTreeDisposition
+        {
+            /// <summary>No pending tree; nothing to do.</summary>
+            NoPendingTree = 0,
+            /// <summary>The pending tree is a resumed copy of a committed tree: discard it.</summary>
+            DiscardResumedCommittedCopy = 1,
+            /// <summary>No committed tree shares its id: a genuinely new tree, keep it pending.</summary>
+            KeepNotACommittedCopy = 2,
+            /// <summary>A Re-Fly session or invocation owns the pending tree: keep it.</summary>
+            KeepReFlyOwned = 3,
+        }
+
+        /// <summary>
+        /// Pure decision for a pending tree refused for a fresh rollout: a refused
+        /// tree that is a RESUMED copy of a committed tree (the
+        /// copy-on-write clone a committed-tree restore made, identified by its id still
+        /// being in the committed store) is discarded, so committed history stays exactly
+        /// as committed and the resumed seconds after the load are dropped. A tree whose
+        /// id is not committed is genuinely new and keeps today's behaviour, as does any
+        /// tree a Re-Fly session owns (checked first).
+        /// </summary>
+        internal static FreshRolloutRefusedTreeDisposition ClassifyFreshRolloutRefusedTree(
+            RecordingTree pendingTree, bool committedTreeWithSameIdPresent, bool reFlyOwnsPendingTree)
+        {
+            if (pendingTree == null)
+                return FreshRolloutRefusedTreeDisposition.NoPendingTree;
+            if (reFlyOwnsPendingTree)
+                return FreshRolloutRefusedTreeDisposition.KeepReFlyOwned;
+            if (string.IsNullOrEmpty(pendingTree.Id) || !committedTreeWithSameIdPresent)
+                return FreshRolloutRefusedTreeDisposition.KeepNotACommittedCopy;
+            return FreshRolloutRefusedTreeDisposition.DiscardResumedCommittedCopy;
+        }
+
+        /// <summary>
+        /// Shared tail of both fresh-rollout refusals (<see cref="RestoreActiveTreeFromPending"/>
+        /// and <see cref="RestoreActiveTreeFromPendingForVesselSwitch"/>): classifies the
+        /// pending tree and, for a resumed committed copy, discards it through the merge
+        /// dialog's own Discard primitive (<see cref="ParsekScenario.DiscardPendingTreeAndRecalculate"/>).
+        /// That primitive keeps every committed-overlap recording's sidecars and events,
+        /// deletes only pending-only recordings' files, purges same-id event tails past the
+        /// committed cutoffs and clears the committed-tree restore attempt. The committed
+        /// original in <see cref="RecordingStore.CommittedTrees"/> is never touched. Returns
+        /// the disposition; the caller keeps its existing behaviour for every Keep outcome.
+        /// </summary>
+        internal static FreshRolloutRefusedTreeDisposition DisposeFreshRolloutRefusedPendingTree(
+            string refusalSite, uint refusedVesselPid)
+        {
+            RecordingTree pending = RecordingStore.PendingTree;
+            bool committedCopy = RecordingStore.HasCommittedTreeWithId(pending?.Id);
+            bool reFlyOwns = ParsekScenario.IsReFlySessionActiveForQuickloadDiscard();
+            var disposition = ClassifyFreshRolloutRefusedTree(pending, committedCopy, reFlyOwns);
+            string site = refusalSite ?? "<unknown>";
+
+            switch (disposition)
+            {
+                case FreshRolloutRefusedTreeDisposition.DiscardResumedCommittedCopy:
+                {
+                    int total = pending.Recordings?.Count ?? 0;
+                    int overlap = 0;
+                    if (pending.Recordings != null)
+                    {
+                        foreach (Recording rec in pending.Recordings.Values)
+                        {
+                            if (rec != null && RecordingStore.IsCommittedRecordingId(rec.RecordingId))
+                                overlap++;
+                        }
+                    }
+                    ParsekLog.Info("Flight",
+                        $"Fresh-rollout refusal ({site}): discarding resumed copy of committed tree " +
+                        $"'{pending.TreeName}' (id={pending.Id}, state={RecordingStore.PendingTreeStateValue}, " +
+                        $"recordings={total}, committedOverlap={overlap}, pendingOnly={total - overlap}, " +
+                        $"restoreAttemptArmed={RecordingStore.IsCommittedTreeRestoreAttemptTree(pending.Id)}, " +
+                        $"refusedPid={refusedVesselPid}) - committed history stays as committed, " +
+                        "the resumed seconds after the load are dropped");
+                    ParsekScenario.DiscardPendingTreeAndRecalculate(
+                        "fresh-rollout refusal discarded resumed committed copy tree=" + pending.Id +
+                        " site=" + site);
+                    break;
+                }
+                case FreshRolloutRefusedTreeDisposition.KeepNotACommittedCopy:
+                    ParsekLog.Info("Flight",
+                        $"Fresh-rollout refusal ({site}): keeping pending tree '{pending.TreeName}' " +
+                        $"(id={pending.Id ?? "<none>"}, state={RecordingStore.PendingTreeStateValue}) - " +
+                        "no committed tree shares its id (a genuinely new tree, or one whose committed " +
+                        "copy a save-loaded active node detached) - not a discardable resumed copy; kept");
+                    break;
+                case FreshRolloutRefusedTreeDisposition.KeepReFlyOwned:
+                    ParsekLog.Info("Flight",
+                        $"Fresh-rollout refusal ({site}): keeping pending tree '{pending.TreeName}' " +
+                        $"(id={pending.Id ?? "<none>"}) - a Re-Fly session owns it; not discarded");
+                    break;
+                default:
+                    ParsekLog.Verbose("Flight",
+                        $"Fresh-rollout refusal ({site}): no pending tree to dispose");
+                    break;
+            }
+            return disposition;
+        }
+
+        /// <summary>
         /// Undo <see cref="ApplyPreTransitionForVesselSwitch"/> on a stashed tree: put the
         /// recording the stash moved into <c>BackgroundMap</c> back as
         /// <c>ActiveRecordingId</c>, which leaves the tree in exactly the shape the plain
@@ -14763,25 +14883,33 @@ namespace Parsek
                     $"'{RecordingStore.PendingTree?.TreeName}' " +
                     $"(id={RecordingStore.PendingTree?.Id ?? "<none>"}) for fresh-rollout vessel " +
                     $"'{candidate.vesselName}' pid={candidate.persistentId} - a new launch is not a " +
-                    "vessel switch; leaving tree pending, the launch starts its own tree");
-                // Make the refusal durable: a LimboVesselSwitch tree is written as an
-                // isActive node and a later load would route it back here, where the
-                // fresh-rollout pid is no longer captured, and reinstall it on the
-                // launched craft. Undo the stash's pre-transition so the tree is a plain
-                // Limbo stash that the guid-gated quickload restore owns.
-                if (TryRevertPreTransitionForVesselSwitch(
-                        RecordingStore.PendingTree, out string restoredRecId))
+                    "vessel switch; the launch starts its own tree");
+                // A resumed copy of a committed tree is discarded here, with or without a revertible pre-transition, so nothing is
+                // left pending for a later load or stash to reinstall or overwrite.
+                if (DisposeFreshRolloutRefusedPendingTree(
+                        "vessel-switch-restore", candidate.persistentId)
+                    != FreshRolloutRefusedTreeDisposition.DiscardResumedCommittedCopy)
                 {
-                    RecordingStore.ConvertPendingVesselSwitchStashToLimbo(
-                        "fresh-rollout refusal restored activeRecId=" + restoredRecId);
-                }
-                else
-                {
-                    ParsekLog.Warn("Flight",
-                        "RestoreActiveTreeFromPendingForVesselSwitch: refused tree has no " +
-                        "revertible pre-transition (outsider-chain stash or reloaded tree) - it " +
-                        "stays LimboVesselSwitch and is protected for this scene only " +
-                        "(todo FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME)");
+                    // A genuinely new tree stays pending. Make the refusal durable: a
+                    // LimboVesselSwitch tree is written as an isActive node and a later load
+                    // would route it back here, where the fresh-rollout pid is no longer
+                    // captured, and reinstall it on the launched craft. Undo the stash's
+                    // pre-transition so the tree is a plain Limbo stash that the guid-gated
+                    // quickload restore owns.
+                    if (TryRevertPreTransitionForVesselSwitch(
+                            RecordingStore.PendingTree, out string restoredRecId))
+                    {
+                        RecordingStore.ConvertPendingVesselSwitchStashToLimbo(
+                            "fresh-rollout refusal restored activeRecId=" + restoredRecId);
+                    }
+                    else
+                    {
+                        ParsekLog.Warn("Flight",
+                            "RestoreActiveTreeFromPendingForVesselSwitch: refused tree has no " +
+                            "revertible pre-transition (outsider-chain stash or reloaded tree) - it " +
+                            "stays LimboVesselSwitch and is protected for this scene only " +
+                            "(todo FRESH-LAUNCH-REFUSED-NEW-TREE-PENDING)");
+                    }
                 }
                 yield break;
             }
