@@ -871,6 +871,27 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **The Timeline names the contract on every contract row, and the facility on every
+  facility row.** A contract's completion, failure or cancellation used to read
+  `Complete: unknown +4375 funds`, because only the accept action stored the contract's
+  title. These rows now take the name from the same contract's accept in the ledger, so
+  existing saves are fixed without any conversion: `Complete: Test LV-T45 "Swivel" Liquid
+  Fuel Engine at the Launch Site. +4375 funds`. New completions, failures and cancellations
+  also store the title themselves (an optional `contractTitle` value on the ledger row;
+  older rows without it still resolve through the accept). A contract whose accept is not in
+  the ledger (accepted before Parsek was installed, or its accept retired by a Re-Fly) reads
+  `Contract 7a726c83`, the first block of its id, never `unknown`. Facility rows used the raw
+  stock key (`Upgrade SpaceCenter/LaunchPad`, or a single building's id such as
+  `SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank destroyed`); they now use
+  the name the Career window shows (`Upgrade Launchpad`, `Launchpad destroyed`), from one
+  shared helper.
+- **The Timeline's Actions and Events tooltips describe the rows they actually toggle.** The
+  Events tooltip promised crew deaths, but those rows come from recorded flights and follow
+  the Recordings toggle; the Actions tooltip said contracts, but contract completions and
+  failures are Events. Each tooltip now lists what its toggle governs: Recordings (launches,
+  separations, spawns, crew deaths), Actions (builds, hires, tech, upgrades, repairs,
+  strategies, contract accepts and cancels), Events (milestones, completed or failed
+  contracts, earnings, recoveries, destroyed buildings).
 - **A looping recording's first run is real again: its vessel comes back after a rewind even
   while the loop is on.** A looped mission (or a recording with its own loop toggle) replays
   on its loop clock, and that path never reached the spawn at the end of the recording. So a
