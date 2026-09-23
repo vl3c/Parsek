@@ -28,7 +28,7 @@ id = "KB-1-ksc-building-repair-ledger"
 #      repairs exactly one building) with no duplicate row; a second save + cold reload
 #      after the repair keeps it intact; the live building patch touches it neither time.
 #      The patch reads the ledger AT LIVE UT (FacilityStatePatcher.PatchLiveDestructionState)
-#      and skips a building stock has not loaded yet (pinned: matched=1, unloaded=1 on reload).
+#      and never acts inside OnLoad (pinned: the reload logs the "scene load in progress" skip).
 #
 # THE STEP SHAPE. demolish-building / repair-facility both DEFER `structures-settling`
 # while any KSC building is between states (Demolish() clears `intact` at once; the
@@ -113,12 +113,13 @@ required = [
   "FacilityRepair: -[1-9][0-9.]*, facilityId=\\S*/OuterDish",
   # The two later repair-facility steps are the refusal, not a second repair.
   "kscaction refused action=repair-facility reason=facility-intact",
-  # The live building patch folds the ledger AT LIVE UT (it matched the one ledger building)
-  # and, on each reload, leaves the dish alone because stock has not loaded the save into it
-  # yet: Parsek's OnLoad recalc runs BEFORE "[ScenarioDestructibles]: Loading..." (measured
-  # 2026-09-23_2018, where the patch then demolished the not-yet-loaded dish, and
-  # 2026-09-23_2028, where this pin first read unloaded=1; no later recalc runs in this lane).
-  "PatchDestructionState: demolished=0, repaired=0, settling=0, unloaded=1, matched=1, noMatch=0, buildings=[0-9]+, ledgerBuildings=1, liveUT=[1-9][\\s\\S]*ScenarioDestructibles\\]: Loading",
+  # The live building patch folds the ledger AT LIVE UT: it matched the one ledger building
+  # while the dish was collapsing after the demolish (and left it to stock's animation).
+  "PatchDestructionState: demolished=0, repaired=0, settling=1, unloaded=0, matched=1, noMatch=0, buildings=[0-9]+, ledgerBuildings=1, liveUT=[1-9]",
+  # On the reload while the dish is down, the patch does not act inside Parsek's OnLoad,
+  # which runs BEFORE "[ScenarioDestructibles]: Loading..." with the pre-load clock
+  # (2026-09-23_2018: an OnLoad patch demolished the not-yet-loaded dish).
+  "kscaction action=demolish-building[\\s\\S]*PatchDestructionState: skipped \\(scene load in progress\\)[\\s\\S]*ScenarioDestructibles\\]: Loading",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

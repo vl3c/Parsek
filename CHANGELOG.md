@@ -936,7 +936,8 @@ _(unreleased — entries accumulate here per commit)_
   something the building contradicts: a collapse or repair dated later in the timeline (after
   a revert or a rewind) is not applied early, a building the history says nothing about is
   never touched, a building that is still collapsing or being repaired is left alone, and
-  nothing is changed while a flight is being recorded or waiting to be merged.
+  nothing is changed while a flight is being recorded or waiting to be merged, or while a
+  save is still loading.
 - **The Timeline names the contract on every contract row, and the facility on every
   facility row.** A contract's completion, failure or cancellation used to read
   `Complete: unknown +4375 funds`, because only the accept action stored the contract's

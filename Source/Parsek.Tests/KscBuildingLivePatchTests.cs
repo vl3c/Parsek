@@ -82,12 +82,26 @@ namespace Parsek.Tests
                 Decide(ledger, 1200.0, X, isIntact: false, isDestroyed: true));
 
             Assert.Equal("live recorder active",
-                FacilityStatePatcher.ResolveDestructionPatchSkipReason(true, true, false, 1200.0));
+                FacilityStatePatcher.ResolveDestructionPatchSkipReason(true, true, false, false, 1200.0));
             Assert.Equal("active uncommitted flight tree",
-                FacilityStatePatcher.ResolveDestructionPatchSkipReason(false, true, false, 1200.0));
+                FacilityStatePatcher.ResolveDestructionPatchSkipReason(false, true, false, false, 1200.0));
             Assert.Equal("pending tree",
-                FacilityStatePatcher.ResolveDestructionPatchSkipReason(false, false, true, 1200.0));
-            Assert.Null(FacilityStatePatcher.ResolveDestructionPatchSkipReason(false, false, false, 1200.0));
+                FacilityStatePatcher.ResolveDestructionPatchSkipReason(false, false, true, false, 1200.0));
+            Assert.Null(FacilityStatePatcher.ResolveDestructionPatchSkipReason(false, false, false, false, 1200.0));
+        }
+
+        // Inside ParsekScenario.OnLoad the buildings still hold their pre-load state and
+        // Planetarium reports the pre-load clock: nothing is patched, whatever the clock says.
+        [Fact]
+        public void SceneLoad_InProgress_SkipsTheBuildingPatch_EvenWithAReadyClock()
+        {
+            Assert.Equal("scene load in progress",
+                FacilityStatePatcher.ResolveDestructionPatchSkipReason(false, false, false, true, 410.7));
+            Assert.Equal("scene load in progress",
+                FacilityStatePatcher.ResolveDestructionPatchSkipReason(false, false, false, true, 0.0));
+            // A flight that owns collapses still names itself first.
+            Assert.Equal("live recorder active",
+                FacilityStatePatcher.ResolveDestructionPatchSkipReason(true, false, false, true, 410.7));
         }
 
         // (c) After a rewind to between the destruction and the KSC repair, the repair is a
@@ -111,7 +125,7 @@ namespace Parsek.Tests
         public void ColdLoad_ClockNotReady_SkipsTheBuildingPatch(double ut)
         {
             Assert.Equal("universe clock not ready",
-                FacilityStatePatcher.ResolveDestructionPatchSkipReason(false, false, false, ut));
+                FacilityStatePatcher.ResolveDestructionPatchSkipReason(false, false, false, false, ut));
         }
 
         // Never restore from the absence of a row: a building the ledger knows nothing about
@@ -145,7 +159,7 @@ namespace Parsek.Tests
             var ledger = new List<GameAction>
             {
                 Repair(X, 100.0, seq: 5),
-                Destroy(X, 100.0, seq: 2),                  // same UT, earlier sequence: repair wins
+                Destroy(X, 100.0, seq: 2),                  // same UT; the repair (seq 5) is later, so it wins
                 Destroy(Y, 50.0),
                 Repair(Y, 150.0),                           // future at UT 120
                 new GameAction { Type = GameActionType.FacilityUpgrade, FacilityId = X, UT = 110.0, ToLevel = 2 },
@@ -158,13 +172,33 @@ namespace Parsek.Tests
             Assert.Empty(FacilityStatePatcher.ComputeBuildingDestroyedAtUt(null, 120.0));
         }
 
-        // A scene load's recalc runs before ScenarioDestructibles has loaded the save into
-        // the buildings (KB-1 2026-09-23_2018): an unregistered building is not read.
+        // A scene load's recalc ran before ScenarioDestructibles had loaded the save into the
+        // buildings (KB-1 2026-09-23_2018): a building is read only once the CURRENT scenario
+        // holds a proto for its id whose instance list contains this very building.
+        private sealed class FakeProto { public List<object> Refs = new List<object>(); }
+
         [Fact]
-        public void UnregisteredBuilding_StateIsNotRead()
+        public void IsInstanceRegistered_OnlyThisInstanceUnderTheCurrentScenario()
         {
-            Assert.False(FacilityStatePatcher.IsBuildingStateLoaded(false));
-            Assert.True(FacilityStatePatcher.IsBuildingStateLoaded(true));
+            var building = new object();
+            var otherInstance = new object();
+            var loaded = new FakeProto();
+            loaded.Refs.Add(building);
+            var stale = new FakeProto();
+            stale.Refs.Add(otherInstance);
+            var protos = new Dictionary<string, FakeProto> { { X, loaded }, { Y, stale }, { "nullProto", null } };
+
+            Assert.True(FacilityStatePatcher.IsInstanceRegistered(true, protos, X, building, p => p.Refs));
+            // No scenario instance yet (OnLoad before ScenarioDestructibles woke).
+            Assert.False(FacilityStatePatcher.IsInstanceRegistered(false, protos, X, building, p => p.Refs));
+            // A proto for the id that holds a different (previous scene's) instance.
+            Assert.False(FacilityStatePatcher.IsInstanceRegistered(true, protos, Y, building, p => p.Refs));
+            // No proto for the id, a null proto, a null refs list, null inputs.
+            Assert.False(FacilityStatePatcher.IsInstanceRegistered(true, protos, "unknown", building, p => p.Refs));
+            Assert.False(FacilityStatePatcher.IsInstanceRegistered(true, protos, "nullProto", building, p => p.Refs));
+            Assert.False(FacilityStatePatcher.IsInstanceRegistered(true, protos, X, building, p => (List<object>)null));
+            Assert.False(FacilityStatePatcher.IsInstanceRegistered<FakeProto, object>(true, null, X, building, p => p.Refs));
+            Assert.False(FacilityStatePatcher.IsInstanceRegistered<FakeProto, object>(true, protos, X, null, p => p.Refs));
         }
 
         // M1: one intact test for seed, poll and events; a building mid-animation has none.

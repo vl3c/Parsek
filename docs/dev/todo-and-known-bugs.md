@@ -865,8 +865,14 @@ row contradicts the live building (`ResolveLiveDestructionPatch`: no row means n
 so nothing is "restored" from absence - stock state travels with every save, rewind and
 revert; a building mid-collapse / mid-repair is left alone). It does not act while a flight
 is recording, its tree is uncommitted or a tree is pending, or before the clock is ready
-(`ResolveDestructionPatchSkipReason`); that gate also covers the warp-start patch. It also
-skips a building not yet registered with the current `ScenarioDestructibles`: KB-1's
+(`ResolveDestructionPatchSkipReason`); that gate also covers the warp-start patch. It does not
+act inside `ParsekScenario.OnLoad` either (skip reason `scene load in progress`): OnLoad runs
+before stock loads the save into the buildings and Planetarium still reports the PRE-load
+clock there. Consequence, accepted: after a scene-change load (which has no deferred seed
+recalc), a row that contradicts a live building waits for the next recalc - a KSC spend, a
+commit, a warp exit. It also skips a building not yet registered with the current
+`ScenarioDestructibles` (`FacilityStatePatcher.IsInstanceRegistered`), belt and braces for any
+recalc that lands between a scene load and stock's registration: KB-1's
 `2026-09-23_2018` flight (PARSEK-FAIL on the no-patcher-demolish pin) showed a scene load's
 Parsek `OnLoad` recalc running BEFORE stock loads the save into the buildings (the patch
 line, then `[ScenarioDestructibles]: Loading... 0 objects registered`), so the dish still

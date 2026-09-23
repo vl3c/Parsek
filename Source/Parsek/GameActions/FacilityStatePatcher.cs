@@ -246,7 +246,11 @@ namespace Parsek
         /// <para>It does not act at all while a flight is recording or its tree is pending
         /// (<see cref="ResolveDestructionPatchSkipReason"/>): that flight's collapses are
         /// tagged and not in the ledger yet, so the ledger's last row can be stale in either
-        /// direction. Nor before the universe clock is ready (UT &lt;= 0 on a cold load).</para>
+        /// direction. Nor while <c>ParsekScenario.OnLoad</c> is on the stack: OnLoad runs
+        /// before stock's <c>ScenarioDestructibles</c> loads the save into the buildings, and
+        /// Planetarium still reports the PRE-load clock there. Nor before the universe clock
+        /// is ready (UT &lt;= 0 on a cold load). A row that contradicts a building after a
+        /// scene-change load therefore waits for the next recalc (a spend, a commit, warp).</para>
         /// </summary>
         internal static void PatchLiveDestructionState()
         {
@@ -262,6 +266,7 @@ namespace Parsek
                 GameStateRecorder.HasLiveRecorder(),
                 GameStateRecorder.HasActiveUncommittedTree(),
                 RecordingStore.HasPendingTree,
+                ParsekScenario.IsOnLoadInProgress,
                 liveUt);
             if (skipReason != null)
             {
@@ -269,6 +274,10 @@ namespace Parsek
                     $"PatchDestructionState: skipped ({skipReason})");
                 return;
             }
+            // Logged on the transition only, so the next skip (e.g. the next scene load)
+            // prints its reason again.
+            VerboseStablePatchState("patch-skip|destruction|gate", "open",
+                "PatchDestructionState: gate open");
 
             PatchDestructionState(ComputeBuildingDestroyedAtUt(EffectiveState.ComputeELS(), liveUt), liveUt);
         }
@@ -283,15 +292,18 @@ namespace Parsek
         /// <summary>
         /// Pure: why the live building patch must not act now, or null when it may. A flight
         /// that is recording, or whose tree is still uncommitted / pending, owns collapses the
-        /// ledger has not received; a clock at or below zero is a cold load that has not
-        /// read the save's UT yet.
+        /// ledger has not received; inside <c>ParsekScenario.OnLoad</c> the buildings still
+        /// hold their pre-load state and the clock is the pre-load clock; a clock at or below
+        /// zero is a cold load that has not read the save's UT yet.
         /// </summary>
         internal static string ResolveDestructionPatchSkipReason(
-            bool hasLiveRecorder, bool hasActiveUncommittedTree, bool hasPendingTree, double liveUt)
+            bool hasLiveRecorder, bool hasActiveUncommittedTree, bool hasPendingTree,
+            bool onLoadInProgress, double liveUt)
         {
             if (hasLiveRecorder) return "live recorder active";
             if (hasActiveUncommittedTree) return "active uncommitted flight tree";
             if (hasPendingTree) return "pending tree";
+            if (onLoadInProgress) return "scene load in progress";
             if (!(liveUt > 0.0)) return "universe clock not ready";
             return null;
         }
@@ -480,7 +492,7 @@ namespace Parsek
                     // patch ran, then "[ScenarioDestructibles]: Loading... 0 objects
                     // registered"), so a building not yet registered with the current
                     // scenario still shows its default intact state, not the save's.
-                    if (!IsBuildingStateLoaded(IsRegisteredWithScenario(db)))
+                    if (!IsRegisteredWithScenario(db))
                     {
                         unloadedCount++;
                         continue;
@@ -537,27 +549,42 @@ namespace Parsek
         internal enum DestructionPatchAction { None, Demolish, Repair, Settling }
 
         /// <summary>
-        /// Pure: a live building's intact / destroyed flags are the save's only once it is
-        /// registered with the current <c>ScenarioDestructibles</c> (its
-        /// <c>ProtoDestructible</c> holds this instance): registration is where stock loads
-        /// the persisted <c>intact</c> value into the building. Before that the flags are the
-        /// prefab default (intact) and must not be read as the building's state.
+        /// Pure decision behind <see cref="IsRegisteredWithScenario"/>: a live building's
+        /// intact / destroyed flags are the save's only once it is registered with the
+        /// CURRENT <c>ScenarioDestructibles</c> - the scenario instance exists, a proto is
+        /// keyed by the building's id, and that proto's instance list holds THIS building
+        /// (registration is where stock loads the persisted <c>intact</c> value into it).
+        /// Before that the flags are the prefab default (intact) and must not be read.
         /// </summary>
-        internal static bool IsBuildingStateLoaded(bool registeredWithScenario)
+        internal static bool IsInstanceRegistered<TProto, TInstance>(
+            bool scenarioPresent,
+            IDictionary<string, TProto> protosById,
+            string id,
+            TInstance instance,
+            System.Func<TProto, ICollection<TInstance>> instancesOf)
+            where TProto : class
+            where TInstance : class
         {
-            return registeredWithScenario;
+            if (!scenarioPresent || protosById == null || instance == null
+                || string.IsNullOrEmpty(id) || instancesOf == null)
+                return false;
+            TProto proto;
+            if (!protosById.TryGetValue(id, out proto) || proto == null)
+                return false;
+            ICollection<TInstance> instances = instancesOf(proto);
+            return instances != null && instances.Contains(instance);
         }
 
         private static bool IsRegisteredWithScenario(DestructibleBuilding db)
         {
             try
             {
-                if (ScenarioDestructibles.Instance == null || ScenarioDestructibles.protoDestructibles == null)
-                    return false;
-                ScenarioDestructibles.ProtoDestructible proto;
-                return ScenarioDestructibles.protoDestructibles.TryGetValue(db.id, out proto)
-                    && proto != null && proto.dBuildingRefs != null
-                    && proto.dBuildingRefs.Contains(db);
+                return IsInstanceRegistered(
+                    ScenarioDestructibles.Instance != null,
+                    ScenarioDestructibles.protoDestructibles,
+                    db != null ? db.id : null,
+                    db,
+                    p => p.dBuildingRefs);
             }
             catch (System.Exception)
             {
