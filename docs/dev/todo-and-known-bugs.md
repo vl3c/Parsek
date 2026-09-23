@@ -15,6 +15,88 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. OPEN for blocker 2 only]
+
+**STATUS 2026-09-23 (read this first; the original filing follows).**
+
+- ~~Blocker 1, no second tree~~: FIXED by #1780 (FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE,
+  closed there). `BDOCK-2-second-dock-harvest` flight 4, run `2026-09-23_1704` (PASS attempt 1),
+  recorded the third Kerbal X in its own tree `ac9641d6` with a single-parent dock onto the
+  Station (`parents=[8267c27c]`, target pid 3620499050). Harvested as the committed fixture
+  `bdock-second-dock-recorded` (3 trees, 30 recordings, 4 RPs, Dock 2).
+- ~~Blocker 3, `cross-tree-chain-linking`~~: RULED by the operator (2026-09-23): the pid-pooled
+  shape claims the cell. CLAIMED on `CI-4-cross-tree-chain-pooled` off the new per-chain tree
+  keys of `ListHandles kind=chains`: one chain, `pid=3620499050 links=2 trees=2
+  treeIds=8c677bba...,ac9641d6...` (reading `_1830`, armed `_1834`, negative control `_1836`).
+- **Blocker 2, `background-event-claims`: STILL OPEN.** The operator's three witnesses (a
+  fixture-literal pid and tree of a genuinely background-recorded vessel, not a split product; its
+  `Chain built:` line; a downstream effect) are absent from `_1704`. Its BG-SWITCH
+  `SimulateStockSwitchClick` on the Interceptor half (pid 1223410921) was refused
+  `gate=RefusedDialogPending reason=dialog-pending`: the boot's `Tree merge dialog: tree='Kerbal X',
+  recordings=12` (the restored docking tree) was shown at load and never answered, so no switch
+  and no background tail happened. Every `via BACKGROUND_EVENT` claim the walker logs on this
+  fixture (6 in tree 788554a9, 7 in 8c677bba, plus the new tree's debris) is a split product. NEXT:
+  answer the boot merge dialog (or discard) before the mission phase, then re-fly the harvest; the
+  Case C / lineage analysis in item 2 below still decides whether the click can produce a
+  genuinely background-recorded, non-lineage vessel at all.
+
+The original filing:
+
+PR-D was to harvest a save in which a THIRD Kerbal X docks to `bdock-recorded`'s Station in
+a NEW tree, and a genuinely background-recorded vessel carries a ghosting-trigger event,
+then author CI-4 on it for `cross-tree-chain-linking` and `background-event-claims`. The
+mission (`bdock_second_dock`, a wrapper over B-DOCK's own machine) flies: run
+`2026-09-22_2157` launched, rendezvoused and HARD-DOCKED to the Station (MISSION-OK, wall
+1,476 s). Three things stand between that and a fixture:
+
+1. **No second tree.** The launch records into the committed docking tree
+   (FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE, 2 of 2 flights). A SPACECENTER boot
+   would avoid the restore, but run `2026-09-22_2235` measured that an autopilot lane
+   cannot start there: `MISSION-CONNECT-TIMEOUT` (the kRPC server never answered at the
+   Space Center within the 30 s connect budget). NEXT: fix the product path, or harvest
+   from a derived source whose active vessel is not a committed tip (for example one of
+   the landed never-recorded `Kerbal X Debris` vessels) with the station captured by
+   orbit SMA (Station 709,675.644 m vs the Interceptor half 709,680.883 m, constant on
+   rails) - a fourth flight and a derived fixture, outside PR-D's budget.
+2. **`background-event-claims` has no honest producer here.** `GhostChainWalker.
+   ScanBackgroundEventClaims` claims a recording whose pid is outside the tree's root
+   lineage, and `BackgroundRecorder` records only `BackgroundMap` members. A vessel enters
+   that map through a split (a split product), a dock merge (lineage), a post-switch
+   start (a Launch branch point from `activeTree.ActiveRecordingId` captured at the
+   switch, so lineage - UNLESS the tree had no active recording at that moment, when
+   the recording is parentless), or a stock Switch-To STANDALONE segment
+   (`StartStandaloneContinuationSegment`: no parent, no branch point). But a stock click on a
+   vessel that a DIFFERENT committed tree matches, with a live recording, is pre-switch
+   Case C (`MapFocusObjectOnSelectPatch`, `C-loaded-separate-committed`: commit or
+   discard first), and an out-of-bubble one is Case B. Every vessel in Kerbin orbit in
+   `bdock-recorded` is a committed tip, so the stock-click route needs a vessel NO
+   committed tree matches, in the bubble at the dock. None exists in orbit. Run `_2157`
+   measured the click refused `dialog-required case=B-unloaded` (the FLIGHT boot unpacked
+   the Station and the undocked Interceptor half 5 m apart, the half took a 121 m SMA
+   bump and was 3.1 km away at the dock). Run `_2239` found the half loaded and the click
+   went through - but only because the active tree was itself the clone of the half's
+   committed tree (item 1), so there was no Case C: `route=committed-spawned-clone`, a
+   `VesselSwitchContinuation` segment under the half's own tip `4af6cfd7` (lineage, not
+   standalone). NEXT, two candidates: a never-recorded vessel
+   near the dock site (a launch made with auto-record off, or a pre-Parsek vessel), which
+   is a new fixture; or the non-stock switch path a player reaches with the `[` / `]`
+   keys (kRPC `active_vessel`, which arms no intent and so no Case C): switch away to a
+   vessel that never triggers, so the tree has no active recording, then to the loaded
+   committed subject and fire an engine, which starts a PARENTLESS post-switch recording
+   of it in the active tree. That second path needs the subject in the bubble at the
+   dock, which a FLIGHT boot of this fixture does not give (item 1's bump).
+3. **`cross-tree-chain-linking`'s witnesses cannot fire on a same-pid second dock.** The
+   two literals (`Cross-tree link: vessel=`, `MergeCrossTreeLinks: absorbed`) print only
+   in `MergeCrossTreeLinks`, which runs when a chain's TIP recording carries a pid OTHER
+   than the chain's origin and another chain claims that pid. A second dock onto the same
+   Station keeps pid 3620499050 (both KSP docks here kept the Station's pid and launch
+   guid `97813bb6...`), so its claim POOLS into the existing chain by pid in
+   `ComputeAllGhostChains` step 4 and the merge pass never runs. That pooled two-link
+   chain is what the unit test `CrossTree_TwoLinks_ChainsExtend` calls "PID-based
+   cross-tree linking" - so whether the pooled shape (with each link from a different
+   tree) may claim the cell is an OPERATOR RULING, not something a flight can settle.
+   The merge-pass shape needs the docked vessel to keep the ARRIVING craft's pid and that
+   pid to be claimed by another tree.
 ## ~~KSC-PAD-END-OF-FLIGHT-RETIREMENT: a flight that ends parked in the KSC exclusion zone is over and never becomes a real vessel~~ [RULED 2026-09-23 (operator). DONE 2026-09-23 on branch `ksc-pad-retire`]
 
 **Ruling.** A recording whose vessel ENDS its flight parked in the KSC exclusion zone (the
@@ -618,6 +700,10 @@ blind to a link-level change. And the family reads `ParsekFlight.ActiveGhostChai
 and which are not terminated: a terminated or past-spawn chain is outside both captures, so
 the readback says nothing about how those are re-derived (on bdock-recorded at rp1, 12 of
 the 13 evaluated chains are outside it).
+
+2026-09-23 (PR-D): each chain now also reports its links' distinct tree ids (`chain<i>trees` /
+`chain<i>treeIds` and a per-chain log line), deliberately OUTSIDE the digest so CI-3's pin holds;
+the digest's link-level blindness is unchanged.
 
 Fix direction: add each link's `recordingId` (and branch point id) to the canonical line,
 and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or a

@@ -10,6 +10,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a second-dock mission for the ghost-chain harvest.** The new autopilot
+  mission `bdock_second_dock` launches a third Kerbal X from the recorded docking save,
+  flies the existing station-interceptor rendezvous and docking, and then tries a stock
+  Switch-To click on a nearby vessel. Its first flights found that a launch made while a
+  committed recording is being resumed was recorded into that committed flight (fixed
+  since); on the fix, `BDOCK-2-second-dock-harvest` docked from a flight of its own and its
+  save became the new test save `bdock-second-dock-recorded`.
+- **Automated testing: a lane proves one ghost chain can join two separate flights.**
+  `CI-4-cross-tree-chain-pooled` rewinds the second-dock save to before the second docking
+  and reads the ghost chains back: the station is claimed by one chain whose two links come
+  from the two flights that docked to it, and the station turns into a ghost as expected.
 - **Automated testing: a lane watches a flight that ends on the launch pad retire.**
   `EX-1-ghost-extension-past-endut` records a pad probe, rewinds it to launch and replays it
   from a rover on the runway. Since the pad retirement rule (see Changed below) the lane
@@ -35,7 +46,9 @@ _(unreleased — entries accumulate here per commit)_
   runway rover rather than a vessel on the pad.
 - **Automated testing: the command seam can read back the flight scene's ghost chains.**
   `ListHandles kind=chains` lists each derived chain (claimed vessel pid, link count, tip
-  recording, spawn UT, terminated flag) in pid order, plus `evaluated=` (whether this
+  recording, spawn UT, terminated flag, and how many distinct committed trees its links
+  come from with their ids, also written as one log line per chain) in pid order, plus
+  `evaluated=` (whether this
   flight scene derived its chains at all) and a stable `digest=` over the whole set. An
   optional `expectDigest=` compares the set against an earlier capture and answers
   `match=`, so a lane can prove the chains a new scene derives after a save and reload

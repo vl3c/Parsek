@@ -577,6 +577,9 @@ class KrpcMissionControl(MissionControl):
         self._station_port = None            # its top docking port
         self._station_tanks: Dict[str, object] = {}   # resource -> station-side tank part
         self._active_transfer = None         # the in-flight ResourceTransfer handle
+        # --- B-DOCK-2 handles (bdock_second_dock's background tail).
+        self._home_vessel = None             # the docked combination
+        self._bg_subject = None              # the stock-clicked background subject
         # --- Mid-mission command-seam bridge (route 1, section 3.2). Set via
         # configure_seam(); the reserved command-id + the channel file paths the
         # ACTION_PARSEK_COMMIT_TREE case writes/polls. None = no seam configured
@@ -2034,6 +2037,57 @@ class KrpcMissionControl(MissionControl):
                 "Info", "Capture",
                 "captured station handle port=%s tanks=%s"
                 % (self._station_port is not None, sorted(self._station_tanks.keys()))))
+        # --- B-DOCK-2 vessel handles (mlib ACTION_CAPTURE_HOME_VESSEL et al.). A
+        # VESSEL handle survives an in-bubble switch (kRPC keys it by vessel id);
+        # every call is best-effort and logged, so a dead handle degrades the
+        # background half instead of raising out of perform().
+        elif kind == mlib.ACTION_CAPTURE_HOME_VESSEL:
+            self._home_vessel = v
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Capture", "captured home vessel name=%r"
+                % (self._safe_vessel_name(v),)))
+        elif kind == mlib.ACTION_CAPTURE_BG_SUBJECT:
+            self._bg_subject = v
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Capture", "captured background subject name=%r"
+                % (self._safe_vessel_name(v),)))
+        elif kind == mlib.ACTION_SWITCH_TO_HOME_VESSEL:
+            if self._home_vessel is None:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Switch", "switch_to_home_vessel: no captured home handle"))
+            else:
+                try:
+                    sc.active_vessel = self._home_vessel
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Info", "Switch", "switched active vessel to home name=%r"
+                        % (self._safe_vessel_name(self._home_vessel),)))
+                except Exception as exc:  # noqa: BLE001
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Switch", "switch_to_home_vessel failed: %s: %s"
+                        % (type(exc).__name__, str(exc)[:160])))
+        elif kind == mlib.ACTION_BG_SUBJECT_SET_ENGINES_ACTIVE:
+            want = bool(action.value)
+            set_count = 0
+            if self._bg_subject is None:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "BgSubject", "bg_subject_set_engines_active: no captured subject"))
+            else:
+                try:
+                    engines = list(self._bg_subject.parts.engines)
+                except Exception as exc:  # noqa: BLE001
+                    engines = []
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "BgSubject", "engine list read failed: %s: %s"
+                        % (type(exc).__name__, str(exc)[:160])))
+                for p in engines:
+                    try:
+                        p.active = want
+                        set_count += 1
+                    except Exception:
+                        continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "BgSubject", "set active=%s on %d background-subject engine(s)"
+                % (want, set_count)))
         # The five mlib.VESSEL_FREE_ACTION_KINDS never reach this chain: they are
         # dispatched at the TOP of perform(), above the active-vessel resolve.
         elif kind == mlib.ACTION_SET_TARGET_VESSEL:
@@ -2620,6 +2674,15 @@ class KrpcMissionControl(MissionControl):
         it read before."""
         fields = self._read_seam_response_fields(commit_id)
         return None if fields is None else fields.get("verdict")
+
+    @staticmethod
+    def _safe_vessel_name(vessel) -> str:
+        """The vessel's name for a log line, or "?" when the read raises (a
+        dead handle must never turn a diagnostic into a MISSION-ERROR)."""
+        try:
+            return str(vessel.name)
+        except Exception:  # noqa: BLE001
+            return "?"
 
     def _find_tank_with_resource(self, vessel, resource: str):
         """A part on ``vessel`` carrying > 0 of ``resource`` (best-effort; the

@@ -1,0 +1,122 @@
+# CI-4: the pid-pooled cross-tree ghost chain (D18 `cross-tree-chain-linking`).
+#
+# HOST: `bdock-second-dock-recorded` (harvested from BDOCK-2 run 2026-09-23_1704).
+# It is bdock-recorded plus a THIRD Kerbal X flown in its OWN tree `ac9641d6...`,
+# which hard-docked to the orbiting Station (pid 3620499050) at UT 11794.7. So two
+# committed trees each carry a Dock branch point targeting pid 3620499050:
+#   8c677bba... (mission A, the Interceptor dock, UT 8949.3)
+#   ac9641d6... (mission B, the second dock,     UT 11794.7)
+# The walker pools claims by pid (GhostChainWalker step 4) when the launch guids do
+# not conclusively differ, and every recording carrying that pid in all three trees
+# stamps the same guid (97813bb6...), so the two claims form ONE chain with links
+# from two distinct trees. Operator ruling 2026-09-23: that pooled shape claims the
+# cell; the `Cross-tree link:` / `MergeCrossTreeLinks:` lines are NOT the witness
+# (they print only when a chain's tip pid differs from its origin).
+#
+# THE WITNESS: `ListHandles kind=chains`, whose per-chain log line reports the
+# distinct tree ids among a chain's links (`trees=` / `treeIds=`).
+#
+# WHY THE REWIND: the chains family reads `ActiveGhostChains`, which keeps only
+# chains whose spawn UT is still in the future. At the fixture's own UT every chain
+# is past. Rewinding to mission B's promoted RP `rp_91b25a0c...` (the probe
+# separation, UT 9257.8) puts the clock between the two docks, and re-flying slot 1
+# (the Kerbal X Probe) session-suppresses only the probe's subtree, so mission B's
+# dock claim (claimed by 8267c27c, slot 0's recording) stays in the pool. The flight
+# scene then ghosts the real Station (pid 3620499050, spawned by mission A's tip at
+# UT 8951.5 and present in the RP quicksave): the chain's downstream effect.
+#
+# `background-event-claims` is NOT claimed here: the harvest run's BG-SWITCH click
+# was refused `dialog-pending` (the boot's tree merge dialog was still standing), so
+# no background tail was recorded, and every `via BACKGROUND_EVENT` claim in the
+# fixture is a split product (todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED).
+#
+# LIVE-PROVEN 2026-09-23 on automation DLL sha256 e1f5d5ee... (this branch): reading
+# `2026-09-23_1830` PASS attempt 1; armed `_1834` PASS attempt 1; negative control
+# `_1836` (seeds: the chain line at `trees=1`, `Vessel ghosted: pid=3620499051`,
+# reverted) PARSEK-FAIL(expectation) on exactly those two tokens, every other row green.
+# Post-merge re-flight `_1850` (main with #1781 / #1783, sha256 d2aa3d67...) PASS attempt 1.
+
+schema = 1
+id = "CI-4-cross-tree-chain-pooled"
+tier = "operator"
+description = "D18 `cross-tree-chain-linking` (LIVE-PROVEN 2026-09-23: reading `_1830`, armed `_1834` PASS, negative control `_1836` red on exactly its two seeds): bdock-second-dock-recorded rewound to mission B's promoted RP rp_91b25a0c (probe separation, UT 9257.8, slot 1), so the Station pid 3620499050 is claimed by Dock branch points in TWO committed trees (8c677bba at UT 8949.3, ac9641d6 at UT 11794.7) and the walker pools both into one chain; ListHandles kind=chains reports that chain with links=2 trees=2 and both tree ids, and the flight scene ghosts the real Station."
+instanceProfile = "stock-minimal"
+tags = ["CI-4", "chain-interaction", "ghost-chain", "cross-tree", "pooled-chain",
+        "readback", "rewind", "refly", "R10", "runtime-handles", "kerbin",
+        "sandbox"]
+
+[fixture]
+saveTemplate = "fixtures/saves/bdock-second-dock-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },     expect = "OK" },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  { cmd = "InvokeRewind", args = { rp = "rp_91b25a0c8e904a02a9d40deeb07e1a53", slot = "1" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains",         expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                    expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+D18 = ["cross-tree-chain-linking"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 32, max = 32 }
+
+# Armed 2026-09-23 off reading run `2026-09-23_1830` (PASS attempt 1): 30 fixture
+# recordings plus the re-fly's provisional and the recording the merge keeps.
+[expectations.recordings.structure]
+gating          = true
+trees           = { min = 3, max = 3 }
+committedTrees  = { min = 3, max = 3 }
+recordings      = { min = 32, max = 32 }
+branchPoints    = { Dock = { min = 2, max = 2 }, Undock = { min = 1, max = 1 }, JointBreak = { min = 15, max = 15 } }
+terminalStates  = { Docked = { min = 2, max = 2 }, Orbiting = { min = 8, max = 8 }, Destroyed = { min = 18, max = 18 }, SubOrbital = { min = 1, max = 1 } }
+ghostChainNodes = { max = 0 }
+
+[expectations.logContracts]
+# Every value below was READ off `2026-09-23_1830`. The chain line is the claim: one
+# chain, pid 3620499050, two links from two distinct committed trees.
+required  = [
+  "listhandles kind=rewindpoints count=4 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_91b25a0c8e904a02a9d40deeb07e1a53 slot=1",
+  "Invocation complete: sess=\\S+ rp=rp_91b25a0c8e904a02a9d40deeb07e1a53 slot=1 activePid=3798298741",
+  "\\[ChainWalker\\] Skipped 1 claim\\(s\\) from session-suppressed recording\\(s\\)",
+  "\\[ChainWalker\\] Chain built: vessel=3620499050 links=2 tip=30b49a24c3214903aa9e1f61a1f3b258 spawnUT=11806\\.7 terminated=False",
+  "\\[Ghoster\\] Ghosting vessel: pid=3620499050 name=Kerbal X ",
+  "\\[Ghoster\\] Vessel ghosted: pid=3620499050 name=Kerbal X",
+  "\\[Ghoster\\] Ghost chains evaluated: 20 chain\\(s\\), 1 vessel\\(s\\) ghosted",
+  "(?m)listhandles kind=chains count=1 truncated=false evaluated=true digest=1610c96e$",
+  "(?m)listhandles chain index=0 pid=3620499050 links=2 trees=2 treeIds=8c677bba0ec04e558c6ebec4ad8c3c9f,ac9641d6642c4853aaed10f8054995a5 tip=30b49a24c3214903aa9e1f61a1f3b258$",
+  "answermergedialog choice=merge result=committed",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "listhandles rejected",
+  "listhandles kind=chains .* evaluated=false",
+  "listhandles chain index=[0-9]+ pid=3620499050 links=[0-9]+ trees=1 ",
+  "Failed to ghost vessel pid=",
+  "Ghosting vessel: pid=2307686926 ",
+  "End reason=treeDiscarded",
+]
+
+[runtime]
+budgetSeconds = 3700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
