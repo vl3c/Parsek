@@ -7228,14 +7228,22 @@ namespace Parsek.Tests
             Assert.Equal(SinglePointHoldSaveUT, activationUT);
             Assert.True(GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(
                 rec, SinglePointHoldSaveUT + SinglePointHoldWindowSeconds, out _, out _));
+            // The terminal orbit and state must survive the production tree-record codec,
+            // which is what the injected save carries.
+            var recNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(recNode, rec);
+            var reloaded = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(recNode, reloaded);
+            Assert.Equal(TerminalState.Orbiting, reloaded.TerminalStateValue);
+            Assert.Equal("Kerbin", reloaded.TerminalOrbitBody);
+            Assert.Equal(SinglePointHoldProbeSma, reloaded.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(SinglePointHoldSaveUT, reloaded.TerminalOrbitEpoch);
             Assert.Equal(TerminalState.Orbiting, rec.TerminalStateValue);
             Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
-            Assert.Equal(SinglePointHoldProbeSma, rec.TerminalOrbitSemiMajorAxis);
-            Assert.Equal(SinglePointHoldSaveUT, rec.TerminalOrbitEpoch);
             Assert.NotNull(rec.VesselSnapshot);
             Assert.True(SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot).extents.x >= 150f);
             Assert.Equal(SinglePointHoldProbeMna + SinglePointHoldMnaLead,
-                rec.TerminalOrbitMeanAnomalyAtEpoch);
+                reloaded.TerminalOrbitMeanAnomalyAtEpoch);
         }
 
         [Fact]

@@ -308,6 +308,9 @@ largest = { min = 1, max = 1 }
 required  = [
   "MISSIONMARK label=ex2-loaded-count-1-pid-0-spawned-false ",
   "PlaybackCompleted index=[0-9]+ vessel=Single Point Holder ghostWasActive=True pastEffectiveEnd=True needsSpawn=True",
+  # The spawn takes the terminal-orbit route, not the last point (read off `2026-09-23_2110`
+  # and `_2113`).
+  "Spawn #[0-9]+ \\(Single Point Holder\\): using recorded terminal orbit propagated to current UT",
   # The single-point branch of CheckSpawnCollisions, blocked by the probe.
   "Spawn blocked for #[0-9]+ \\(Single Point Holder\\): overlaps 'Kerbal X Probe' at [0-9]+m \\(single-point trajectory\\)",
   "Ghost held pending spawn retry: #[0-9]+ \"Single Point Holder\" id=single-point-hold-rec - spawn blocked, ghost stays visible",
@@ -323,7 +326,6 @@ required  = [
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "Held ghost spawn succeeded on retry",
-  "Vessel spawned for #[0-9]+ \"Single Point Holder\"",
   # The orbital spawn route's own lines (both read off `2026-09-23_2054`, where the
   # 1 s retry spawned the vessel).
   "Spawning vessel: \"Single Point Holder\"",
