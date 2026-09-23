@@ -15,6 +15,107 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME: the non-chain "held" ghost is destroyed by the engine's stale past-end cleanup in the very frame the policy holds it, so no ghost is ever visible past EndUT [FILED 2026-09-23 from EX-1's reading run `2026-09-23_0000`. OPEN; product defect, to be fixed in its OWN PR (engine lifecycle code, needs its own review); EX-1 is its expectedFail witness]
+
+**Observed** (`EX-1-ghost-extension-past-endut`, reading `2026-09-23_0000`, KSP.log, one
+frame, 03:02:05.928-.937):
+
+    Ghost #0 "Logi Cargo Rig" destroyed (stale past-end ghost (no longer held))
+    PlaybackCompleted index=0 vessel=Logi Cargo Rig ghostWasActive=True pastEffectiveEnd=True needsSpawn=True ...
+    Spawn blocked for #0 (Logi Cargo Rig): within KSC exclusion zone ... (block=1/150)
+    Ghost held pending spawn retry: #0 "Logi Cargo Rig" id=... - spawn blocked, ghost stays visible
+    PlaybackCompleted index=0 vessel=Logi Cargo Rig ghostWasActive=False ...
+    (5.0 s later) Held ghost timed out: #0 ... held=5.0s - destroying ghost without spawn
+
+**Cause.** In `GhostPlaybackEngine`'s per-recording loop, `HandlePastEndGhost` adds the
+slot to `completedEventFired` and only DEFERS the `PlaybackCompletedEvent` (fired at the
+Phase-C tail). The "Stale past-end ghost cleanup" block directly below it, in the SAME
+iteration, destroys any ghost whose slot is in `completedEventFired` and for which
+`IsGhostHeld(i)` is false. The policy has not received the deferred event yet, so nothing
+has been held, and the ghost is destroyed. The deferred event then reaches
+`ParsekPlaybackPolicy.HandlePlaybackCompleted` with the `GhostWasActive = true` captured
+before the destroy, and the policy registers a hold on a ghost that no longer exists. The
+destroy also clears the dedup, so a second completion fires with `ghostWasActive=False`.
+The 5 s hold still drives `RetryHeldGhostSpawns`' spawn retries, but its
+"ghost stays visible" is false, and so is the warp-deferred hold (#96), which goes through
+the same event.
+
+**Against the design.** `docs/parsek-flight-recorder-design.md` section 13.5 ("Ghost
+Extension"): "When spawn is blocked, the ghost continues past the recording's end time."
+The policy's own line agrees ("spawn blocked, ghost stays visible") while the engine has
+already removed the ghost, so the code disagrees with the design and with itself.
+
+**Fix direction.** The stale cleanup must not destroy a slot whose completion event is
+still pending in `deferredCompletedEvents` this frame (or the policy's hold decision has to
+be made before the cleanup runs). A unit cell can drive the engine loop with a fake policy
+that holds on completion and assert the ghost survives the frame. EX-1 is the live witness.
+
+**Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions.
+
+## EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an expectedFail key matches on the PARSEK-FAIL subkind only, so a quarantine for one log-contract defect absorbs any other log-contract red [FILED 2026-09-23 from the #1772 review. OPEN; harness, small]
+
+`hlib.expected_fail_signature_matched` demotes a PARSEK-FAIL to EXPECTED-FAIL when its
+subkind equals `[expectedFail] subkind` (or on any subkind when none is named). For
+`subkind = "expectation"` that means every unrelated required-token miss or forbid hit in
+the same spec is also green. Fix direction: an optional `[expectedFail] mismatches = [...]`
+list of the exact mismatch strings (or token regexes) the bug produces; a run demotes only
+when its mismatch set equals that list, and anything extra stays PARSEK-FAIL. First consumer:
+`EX-1-ghost-extension-past-endut` (its two defect assertions).
+
+## D18-GHOST-EXTENSION-DESIGN-VS-CODE: a vessel blocking a spawn never extends the ghost past EndUT on the non-chain path, so `ghost-extension-past-endut` exists only for the KSC exclusion zone and a failed spawn [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). OPEN; OPERATOR DESIGN QUESTION, not a defect]
+
+**What the design promises.** `docs/parsek-flight-recorder-design.md` section 13.2 routes
+a blocked spawn to "block spawn, start ghost extension"; section 13.5 ("Ghost Extension")
+says "the ghost continues past the recording's end time", rechecks overlap every physics
+frame, spawns when the player moves away, and "If the player never moves, the ghost
+persists indefinitely"; section 13.7 starts trajectory walkback only "After a timeout (5
+seconds of persistent overlap ...)", with a manual-placement UI as the fallback when the
+whole trajectory overlaps.
+
+**What the code does (2026-09-23).**
+- Non-chain spawns go through `VesselSpawner.SpawnOrRecoverIfTooClose` ->
+  `CheckSpawnCollisions`. On an overlap by a loaded, non-active vessel, a same-name
+  blocker is RECOVERED first (#112). Walkback (#264) then runs AT ONCE (no 5 s wait) and
+  relocates the spawn to a clear earlier point, so the spawn succeeds and nothing is held.
+- Walkback exhaustion sets `SpawnAbandoned` and `VesselSpawned = true`, with no placement
+  UI. `ParsekPlaybackPolicy.HandlePlaybackCompleted` then reads `spawned = true` and never
+  holds the ghost.
+- The active vessel is never a blocker for a non-EVA spawn (`skipActive`).
+- The held-ghost path (`Ghost held pending spawn retry:`) is reached only when
+  `VesselSpawned` stays false: the KSC exclusion zone (#170, a landed home-world spawn
+  within 50 m of the pad or runway), an overlap on a SINGLE-POINT recording (no walkback
+  possible; the always-tree commit keeps such a recording, see the registry's
+  `sub-2-point-drop` note), or a spawn that fails outright.
+- Even then the hold is bounded: `HeldGhostRetryIntervalSeconds = 1`,
+  `HeldGhostTimeoutSeconds = 5`, then `Held ghost timed out ... destroying ghost without
+  spawn`. After that the recording stays unspawned for the rest of the scene
+  (`completedEventFired`) and is not "persisting indefinitely".
+- The chain path's visual extension is the 6b-4 no-op (next entry).
+
+**So code and design disagree** on three points: indefinite extension (the code gives 5 s),
+walkback timing (the code walks back immediately rather than after 5 s of overlap), and the
+exhaustion fallback (the code abandons rather than offering placement). On the one
+reachable subject, the pad exclusion zone, even the 5 s hold shows no ghost
+(D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME above), so
+`EX-1-ghost-extension-past-endut` is an expectedFail lane and does NOT claim the cell.
+
+**Question for the operator.** Is the design text the intent, or is the code's behaviour (an
+immediate relocation, else abandon) the accepted replacement? If the code is the intent,
+sections 13.5 and 13.7 should be rewritten to match it and the catalog's D18 wording
+narrowed. If the design is the intent, the non-chain blocked spawn needs a real
+extension state.
+
+## D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP: a spawn-blocked chain tip keeps no visible ghost past its tip UT [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). OPEN]
+
+`ParsekFlight.PositionChainGhosts`'s doc says it: "For spawn-blocked chains, the ghost
+continues at its propagated position (ghost GO creation deferred to 6b-4 - currently a
+no-op for visual positioning, but the blocked chain retry logic runs in
+SpawnVesselOrChainTip)". So when `VesselGhoster.SpawnAtChainTip` refuses the spawn
+(`Chain tip spawn blocked by collision: ... chain stays active`), the retry
+(`TrySpawnBlockedChain`) runs, but no ghost is drawn at the propagated position meanwhile.
+This is the chain half of design section 13.5 and of the catalog's
+`ghost-extension-past-endut` cell. EX-1 does not claim it and no lane can until 6b-4 lands.
+
 ## LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS: a Rewind-to-Launch while the mission loop is armed would strip the real vessel and nothing re-spawns it [FILED 2026-09-23 from the #1771 review. OPEN; OPERATOR QUESTION, not yet driven]
 
 The catalog's D18 `loop-first-run-is-real` cell (`automated-testing-scenario-catalog.md`,

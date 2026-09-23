@@ -10635,6 +10635,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # (`2026-09-22_1951` rp2, `_1954` / `_1956` rp1) with identical
                        # facets, including the ghostChainNodes tripwire at 0.
                        "CI-3-chain-rederive-readback.toml",
+                       # EX-1: `structure` armed 2026-09-23 off its reading run
+                       # `2026-09-23_0000` (trees / committedTrees / recordings 1,
+                       # Landed 1). An expectedFail lane (subkind expectation), so a
+                       # structure red is NOT demoted: it stays PARSEK-FAIL.
+                       "EX-1-ghost-extension-past-endut.toml",
                        # LF-1: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-22_2350` (trees / committedTrees / recordings 1,
                        # Landed 1, and the new vessel census: spawnedVessels 1,

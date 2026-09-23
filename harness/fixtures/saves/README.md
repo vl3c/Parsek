@@ -511,6 +511,20 @@ stage lights the engine and both cells skip (H62's first census, 2026-09-06, rea
 (`--check`) and `harness/lib/test_coalescer_pad.py`; no `Ships/VAB` overlay because the
 lane launches nothing through kRPC. Host of `H62-coalescer-isolated`.
 
+## pad-runway-pair (GAME Mode = SANDBOX, 2 VESSELS + 1 asteroid, derived from logi-cargo-pad)
+
+`logi-cargo-pad`'s save plus a clone of `rover-route-recorded`'s `rover fuel 0` (a real
+harvested vessel, PRELAUNCH on the runway start, ~1.8 km from the pad). The clone is
+inserted at VESSEL index 0 and `activeVessel` moves 1 -> 2, so the list reads [rover,
+asteroid, Rig] and the fixture still boots focused on the `Logi Cargo Rig` on the pad.
+Index 0 matters: a save written at the Space Center carries `activeVessel = 0`, so after
+a Rewind-to-Launch strips the Rig, the SaveGame + LoadGame the EX-1 lane does lands in
+FLIGHT on the rover, inside ghost range of the pad. The clone's launch Guid, vessel
+`persistentId` and every nested `persistentId` are re-derived deterministically, and
+`lct` / `lastUT` are re-stamped to the base UT. `loadmeta` `vesselCount` is 2. Built and
+drift-gated by `harness/tools/build_pad_runway_pair.py` (`--check`) and
+`harness/lib/test_pad_runway_pair.py`. Host of `EX-1-ghost-extension-past-endut`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /
