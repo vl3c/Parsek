@@ -10,13 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
-- **Automated testing: a lane watches a spawn blocked at the launch pad, and found that the
-  waiting ghost disappears at once.** `EX-1-ghost-extension-past-endut` records a pad probe,
-  rewinds it to launch and replays it from a rover on the runway. The pad refuses the
-  vessel's spawn and Parsek says it will keep the ghost visible while it retries, but the
-  ghost is removed in the same frame. The lane checks for the ghost to stay and is marked as
-  an expected failure until that is fixed. Its host save, `pad-runway-pair`, is built by a
-  script from two existing test saves.
+- **Automated testing: a lane watches a spawn blocked at the launch pad.**
+  `EX-1-ghost-extension-past-endut` records a pad probe, rewinds it to launch and replays it
+  from a rover on the runway. The pad refuses the vessel's spawn, and the lane checks that
+  the ghost stays for the 5 second retry window and is removed only when the hold times out.
+  It found that the ghost used to disappear at once (fixed, see Fixed below), was marked as an
+  expected failure until then, and now counts toward the ghost-extension coverage cell for
+  the pad exclusion-zone hold. Its host save, `pad-runway-pair`, is built by a script from two
+  existing test saves.
 - **Automated testing: a lane proves a looped recording leaves exactly one real vessel.**
   `LF-1-loop-first-run-real` records a pad probe in the run, rewinds it to launch (which removes
   the vessel), lets the Space Center clock pass the recording's end so the vessel comes back

@@ -436,6 +436,16 @@
         "2026-07-27T15:30:20Z": 409.0
       }
     },
+    "EX-1-ghost-extension-past-endut": {
+      "last": 102.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 102.0,
+      "p95": 102.0,
+      "samples": {
+        "2026-09-23T15:16:11Z": 102.0
+      }
+    },
     "FORGE-b17-duna-pad": {
       "last": 52.0,
       "lastVsP50": 1.0,

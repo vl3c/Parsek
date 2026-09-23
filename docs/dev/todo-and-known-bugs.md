@@ -72,7 +72,15 @@ lanes that mention the old reason do so in comments only. The policy's two hold 
 holds / leaves / destroys; the mirror direction of an already-delivered stale ghost; the real
 policy's 5 s timeout destroying a held ghost). Mutation: forcing
 `completionPendingDelivery: false` in the loop step reds the hold cell and both post-pass
-cells.
+cells. LIVE-PROVEN on EX-1: XPASS reading `2026-09-23_1510` (spec unchanged, still expectedFail), armed `2026-09-23_1514` PASS attempt 1, negative control `2026-09-23_1516` PARSEK-FAIL on exactly its one seeded forbidden token; automation DLL sha256 `85f91632...` (branch `held-ghost-fix`), IL of `ApplyStalePastEndCleanupStep` / `RunStalePastEndCleanupsAfterCompletionDelivery` read with ilspycmd. The collected log reads, in one frame,
+`PlaybackCompleted ... ghostWasActive=True`, `Spawn blocked ... KSC exclusion zone`,
+`Ghost held pending spawn retry ... ghost stays visible`, `Stale past-end cleanup after
+completion delivery: ghost #0 "Logi Cargo Rig" kept (held by the policy)`, then 5.0 s later
+`Held ghost timed out ... held=5.0s` and `destroyed (held-spawn-timeout)`, with no hide or
+destroy of the ghost in between. EX-1 is un-quarantined and claims D18
+`ghost-extension-past-endut`, scoped to the KSC exclusion-zone hold. Replayed offline, the
+pre-fix armed log `2026-09-23_0010` misses the two new required tokens and hits the
+forbidden stale-destroy form.
 
 **Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions.
 
@@ -119,9 +127,10 @@ whole trajectory overlaps.
 **So code and design disagree** on three points: indefinite extension (the code gives 5 s),
 walkback timing (the code walks back immediately rather than after 5 s of overlap), and the
 exhaustion fallback (the code abandons rather than offering placement). On the one
-reachable subject, the pad exclusion zone, even the 5 s hold shows no ghost
-(D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME above), so
-`EX-1-ghost-extension-past-endut` is an expectedFail lane and does NOT claim the cell.
+reachable subject, the pad exclusion zone, the 5 s hold showed no ghost until
+D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME (above) was fixed on
+2026-09-23; `EX-1-ghost-extension-past-endut` now claims the cell SCOPED TO that bounded
+exclusion-zone hold, and this question stays open.
 
 **Question for the operator.** Is the design text the intent, or is the code's behaviour (an
 immediate relocation, else abandon) the accepted replacement? If the code is the intent,
