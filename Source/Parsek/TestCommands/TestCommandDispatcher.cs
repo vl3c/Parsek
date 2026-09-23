@@ -112,6 +112,12 @@ namespace Parsek.TestCommands
         /// <c>SpaceCenterBuilding</c> instances exist. Gates <c>upgrade-facility</c> only.</summary>
         public bool AtSpaceCenter;
 
+        /// <summary>A live KSC building is mid-collapse or mid-repair (not intact and not
+        /// destroyed; <c>TestCommandKscAction.AnyStructureSettling</c>). The demolish-building
+        /// and repair-facility sub-actions defer <c>structures-settling</c> on it, so a repair
+        /// never runs before the collapse it repairs has landed.</summary>
+        public bool KscStructuresSettling;
+
         // ----- M-C2 EVA seam-verb bits (design-autotest-eva-missions.md, Data Model) -----
 
         /// <summary><c>FlightGlobals.ActiveVessel?.isEVA == true</c>. The readiness bit for
@@ -572,8 +578,15 @@ namespace Parsek.TestCommands
                         : state.CareerPresent;
                     if (!ready)
                         return DispatchResult.Defer("career-not-ready");
-                    if (action == "upgrade-facility" && !state.AtSpaceCenter)
+                    bool needsSpaceCenter = action == "upgrade-facility"
+                        || action == "demolish-building" || action == "repair-facility";
+                    if (needsSpaceCenter && !state.AtSpaceCenter)
                         return DispatchResult.Defer("not-at-space-center");
+                    // The building sub-actions act on DestructibleBuilding instances, whose
+                    // collapse / repair completes on an animation after the stock call.
+                    if ((action == "demolish-building" || action == "repair-facility")
+                        && state.KscStructuresSettling)
+                        return DispatchResult.Defer("structures-settling");
                     break;
                 }
 

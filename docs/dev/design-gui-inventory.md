@@ -544,7 +544,13 @@ contract - its own `ContractTitle`, else the title of the same contract's accept
 `Contract <first id block>` (an accept outside the ledger: pre-Parsek or tombstoned). A
 facility row names the facility through `FacilityDisplayNames.ResolveBuildingDisplayName`,
 the Career window's resolver, so a building-level destructible id reads as its facility
-(`Launchpad destroyed`). The three source toggles route rows by
+(`Launchpad destroyed`). The ledger keys a destruction or repair by ONE building, so one
+facility event is several rows (a Runway repair is up to ten, one per destroyed building, at
+one UT); `TimelineBuilder.CompactFacilityBuildingActions` folds rows of the same type,
+facility, owner and effectiveness within 1 s into one, summing the repair cost. Destruction
+and repair rows come from the moment stock fires `OnKSCStructureCollapsing` /
+`OnKSCStructureRepairing` (a flight-tagged collapse at its commit, a KSC repair at once), so
+a repair made at the Space Center is on the Timeline. The three source toggles route rows by
 `TimelineWindowUI.ResolveSourceToggle`: every recording-sourced row (crew deaths included) is
 Recordings; a ledger or legacy row is Actions when `TimelineEntryDisplay.IsPlayerAction`,
 else Events (milestones, contract completions and failures, earnings, recoveries,
@@ -731,10 +737,13 @@ facilities use stock's localized name (`ScenarioUpgradeableFacilities.GetFacilit
 humanized id. Whether a building is destroyed NOW comes from stock, not the ledger:
 `ScenarioDestructibles.protoDestructibles` (a live building's `IsIntact`, else the persisted
 `intact` value; filled in every scene the scenario runs in), read once per view-model
-rebuild. The ledger never learns of a KSC repair (and of no destruction without a
-committing recording), so a past `FacilityDestruction` would read as destroyed forever. The
-ledger supplies only what the recorded future does after live UT: a destruction in a
-committed flight reads `destroyed <date>`, dated when the facility as a whole goes down. Both
+rebuild. Stock's state is kept for NOW because it travels with every save, rewind and revert
+and is what the player sees; the ledger holds destructions and KSC repairs too, but a
+destruction whose flight was reverted and discarded leaves no row. The ledger supplies what
+the recorded future does after live UT: a destruction in a committed flight reads
+`destroyed <date>`, dated when the facility as a whole goes down, and a KSC repair after the
+point a rewind returned to reads `repaired <date>` (gallery state
+`career.facilities.repaired-in-timeline`). Both
 sources key a building by its DestructibleBuilding id (`SpaceCenter/LaunchPad/Facility/...`),
 mapped to its facility row by `FacilityDisplayNames.FacilityIdForBuilding` (`UI/FacilityDisplayNames.cs`, shared with
 the Timeline's facility rows). Every cell's text (dates, rewards,
@@ -747,8 +756,9 @@ Pictures before round 3: `ksc-career-contracts-advanced` (17 nodes, zero rows),
 nine rows at L1 with an empty Status column), `ksc-career-milestones-advanced` (143, 25
 credited rows). Round-3 re-flights: see the todo entry
 `CAREER-WINDOW-ROUND3-2026-09-22`. Still no census picture: the split layout with real
-pending rows, a recorded failure, populated strategies, a destroyed facility, the divergence
-suffix, and Science mode with a destroyed building (the gallery catalogue in
+pending rows, a recorded failure, populated strategies, a destroyed facility, a repair in the
+recorded future, the divergence suffix, and Science mode with a destroyed building (the
+gallery catalogue in
 `UI/Gallery/GuiMockCareerStates.cs` covers each of these as a synthetic state).
 
 ### 3.6 Parsek - Logistics

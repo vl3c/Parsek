@@ -829,16 +829,13 @@ namespace Parsek.Tests
         public void PatchDestructionState_HeadlessUnityFindObjectsUnavailable_SkipsWithoutThrow()
         {
             KspStatePatcher.SuppressUnityCallsForTesting = false;
-            var facilities = new Dictionary<string, FacilitiesModule.FacilityState>
+            var facilities = new Dictionary<string, bool>
             {
-                {
-                    "SpaceCenter/LaunchPad",
-                    new FacilitiesModule.FacilityState { Level = 1, Destroyed = true }
-                }
+                { "SpaceCenter/LaunchPad/Facility/mainBuilding", true }
             };
 
             var ex = Record.Exception(() =>
-                FacilityStatePatcher.PatchDestructionState(facilities));
+                FacilityStatePatcher.PatchDestructionState(facilities, 100.0));
 
             Assert.Null(ex);
             Assert.Contains(logLines, l =>

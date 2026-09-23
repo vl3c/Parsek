@@ -19,6 +19,15 @@ _(unreleased — entries accumulate here per commit)_
   background recording into the active one. The second lane found two small problems, noted
   for later: the switched-to booster still reports its timer running out, and its recorded
   distance from the launch site is far too large.
+- **Automated testing: a lane collapses and repairs a Space Center building.**
+  `KB-1-ksc-building-repair-ledger` knocks down the Tracking Station dish, saves and reloads
+  while it is down, repairs it through the same call the Space Center menu makes, saves and
+  reloads again, and checks the log and the
+  saved ledger: one destruction and one repair, the repair costing exactly what stock took
+  from funds (4000), no reconciliation warning, and no repair or collapse driven by a
+  recalculation afterwards. The test command channel gains two Space Center actions for it,
+  `demolish-building` and `repair-facility`, which wait while a building is still collapsing
+  or being repaired.
 - **Automated testing: a second-dock mission for the ghost-chain harvest.** The new autopilot
   mission `bdock_second_dock` launches a third Kerbal X from the recorded docking save,
   flies the existing station-interceptor rendezvous and docking, and then tries a stock
@@ -922,6 +931,27 @@ _(unreleased — entries accumulate here per commit)_
   discarded on the spot, as the merge dialog's Discard would do. The committed mission and its
   files are kept as they were, and only those idle seconds go. A copy that did record
   something meaningful, and a tree that was never committed, are kept as before.
+- **KSC building destructions and repairs are now part of the career history.** A building
+  repaired at the Space Center never became a ledger action: Parsek recorded it only at the
+  next scene change, with no cost and no owner, so nothing kept it. A building knocked down
+  while no recording was running was lost the same way. Both are now recorded the moment stock
+  fires them (`OnKSCStructureCollapsing` / `OnKSCStructureRepairing`), at that moment's UT. A
+  repair made at the Space Center is written straight to the ledger with what it cost - each
+  building's share of the one funds debit stock takes for the whole facility - so the funds
+  walk no longer misses that spend. A collapse during a recorded flight still belongs to that
+  flight and becomes a ledger action when the flight is committed; if the flight is discarded
+  without a reload, the collapse is kept, because stock keeps the building down. Upgrading a
+  destroyed facility, which stock repairs for free as part of the upgrade, now also records the
+  repair. After a rewind, a repair made later in the timeline shows in the Career window's
+  Facilities tab as `repaired <date>` and does not count as done before its date. The
+  Timeline shows one row per facility event, not one per building (a Runway repair touches up to
+  ten), with the repair's total cost. The Career and Timeline rows are not doubled by the older event list either.
+  Parsek changes a building only when the career history, up to the current moment, says
+  something the building contradicts: a collapse or repair dated later in the timeline (after
+  a revert or a rewind) is not applied early, a building the history says nothing about is
+  never touched, a building that is still collapsing or being repaired is left alone, and
+  nothing is changed while a flight is being recorded or waiting to be merged, or while a
+  save is still loading.
 - **The Timeline names the contract on every contract row, and the facility on every
   facility row.** A contract's completion, failure or cancellation used to read
   `Complete: unknown +4375 funds`, because only the accept action stored the contract's

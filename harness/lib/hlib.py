@@ -8694,6 +8694,14 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "kerbal-parsek-managed": "driver-career",
     "kerbal-not-dismissable": "driver-career",
     "blocked-committed": "driver-career",
+    # KscAction demolish-building / repair-facility (KSC-building ledger lane).
+    "unknown-building": "driver-arg",
+    "building-already-down": "driver-career",
+    "facility-intact": "driver-career",
+    # Stock's own call left no effect (Demolish() kept the building intact / RepairFacility
+    # repaired nothing, e.g. its CanAfford gate declined).
+    "demolish-not-applied": "driver-gate",
+    "repair-not-applied": "driver-gate",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these

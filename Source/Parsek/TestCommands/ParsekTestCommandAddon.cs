@@ -1272,6 +1272,9 @@ namespace Parsek.TestCommands
                 CareerPresent = IsCareerReady(head),
                 RnDPresent = IsResearchReady(),
                 AtSpaceCenter = HighLogic.LoadedScene == GameScenes.SPACECENTER,
+                KscStructuresSettling = head.Verb == "KscAction"
+                    && HighLogic.LoadedScene == GameScenes.SPACECENTER
+                    && TestCommandKscAction.LiveStructuresSettling(),
                 // M-C2 EVA seam-verb bits.
                 ActiveVesselIsEva = FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA,
                 StructuralSplitPending = flight != null && flight.StructuralSplitPending,
@@ -2889,7 +2892,10 @@ namespace Parsek.TestCommands
                 case "dismiss-kerbal":
                     return game.CrewRoster != null;
                 case "upgrade-facility":
+                case "repair-facility":
                     return Funding.Instance != null;
+                case "demolish-building":
+                    return true;
                 default:
                     return ResearchAndDevelopment.Instance != null && Funding.Instance != null;
             }

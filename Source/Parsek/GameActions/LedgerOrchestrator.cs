@@ -4144,12 +4144,116 @@ namespace Parsek
         {
             Initialize();
 
-            var action = GameStateEventConverter.ConvertEvent(evt, null);
+            GameAction action;
+            if (!TryAddKscSpendingAction(evt, out action))
+                return;
+
+            // Phase B (plan: fix-ledger-lump-sum-reconciliation.md): KSC-side ledger writes
+            // were bypassing the commit-time reconciliation hook used by recording commits.
+            // Key-match this action against the nearest FundsChanged/ScienceChanged/
+            // ReputationChanged event in GameStateStore (paired by KSP TransactionReasons,
+            // scoped to untransformed action types only) and log WARN on missing event or
+            // delta mismatch. Surfaces missing earning channels (strategy, world first, etc.)
+            // as they happen without triggering false positives on curve-/strategy-
+            // transformed rewards.
+            ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, evt.ut);
+
+            // THE MILESTONE ROW'S RECALC IS DEFERRED ONE FRAME. Everything else on this
+            // door recalculates inline, exactly as before.
+            //
+            // Decompiled ordering: ProgressNode.Complete() raises OnProgressComplete
+            // BEFORE every subclass calls AwardProgressStandard (CelestialBodyOrbit,
+            // CelestialBodyReturn, CelestialBodyLanding), so this whole handler runs while
+            // the reward is still unapplied. GameStateRecorder.OnProgressComplete
+            // therefore emits the event with BuildMilestoneDetail(0, 0, 0) and the
+            // AwardProgressPatch postfix fills the real amounts in place afterwards
+            // (EnrichPendingMilestoneRewards). An INLINE recalc here runs inside that
+            // window: the seed's own ensure would read Reputation.Instance BEFORE the
+            // award landed, take the live-pool branch on the PRE-award figure, and the
+            // enriched row - stamped inside that figure - would be zeroed by the walk for
+            // good. Deferring one frame puts the read after both the award and the
+            // enrichment.
+            //
+            // Same host and same fallback as the strategy door: if no frame host exists
+            // the recalc runs inline rather than being lost, and if the defer never fires
+            // (scene exit) the row still stands in the ledger and the next natural recalc
+            // picks it up. The seed simply stays uncaptured until then, which is the safe
+            // direction - an uncaptured seed patches nothing.
+            ScheduleKscSpendingRecalc(action.Type, evt.ut, "ksc-spending");
+        }
+
+        /// <summary>
+        /// The batch form of <see cref="OnKscSpending"/>, for several KSC rows that one stock
+        /// call produced at the same moment (the per-building FacilityRepair rows of one
+        /// <c>SpaceCenterBuilding.RepairFacility</c>, see <see cref="FacilityRepairCapture"/>).
+        /// Every row reaches the ledger BEFORE any is reconciled, so each row's
+        /// <see cref="ReconcileKscAction"/> sums all of them against stock's single paired
+        /// resource event (one FundsChanged(StructureRepair) debit for the whole facility)
+        /// instead of warning on every partial sum; then one recalc runs.
+        /// </summary>
+        internal static void OnKscSpendingBatch(IReadOnlyList<GameStateEvent> events, string reason)
+        {
+            if (events == null || events.Count == 0)
+                return;
+            if (events.Count == 1)
+            {
+                OnKscSpending(events[0]);
+                return;
+            }
+
+            Initialize();
+
+            var added = new List<GameAction>(events.Count);
+            var addedUts = new List<double>(events.Count);
+            double maxUt = double.MinValue;
+            for (int i = 0; i < events.Count; i++)
+            {
+                GameAction action;
+                if (!TryAddKscSpendingAction(events[i], out action))
+                    continue;
+                added.Add(action);
+                addedUts.Add(events[i].ut);
+                if (events[i].ut > maxUt)
+                    maxUt = events[i].ut;
+            }
+
+            if (added.Count == 0)
+                return;
+
+            for (int i = 0; i < added.Count; i++)
+                ReconcileKscAction(GameStateStore.Events, Ledger.Actions, added[i], addedUts[i]);
+
+            ParsekLog.Info(Tag,
+                $"KSC spending batch recorded: reason={reason ?? "(none)"} " +
+                $"rows={added.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"events={events.Count.ToString(CultureInfo.InvariantCulture)}");
+
+            // One recalc for the batch. A row type that needs the one-frame defer (see
+            // ShouldDeferKscRecalcOneFrame) defers the batch's recalc too.
+            GameActionType deferKey = added[0].Type;
+            for (int i = 0; i < added.Count; i++)
+            {
+                if (added[i].Type == GameActionType.MilestoneAchievement)
+                {
+                    deferKey = added[i].Type;
+                    break;
+                }
+            }
+            ScheduleKscSpendingRecalc(deferKey, maxUt, "ksc-spending");
+        }
+
+        /// <summary>
+        /// Converts one KSC event, sequences and stamps it, and appends it to the ledger.
+        /// False (nothing added) when the event type produces no action.
+        /// </summary>
+        private static bool TryAddKscSpendingAction(GameStateEvent evt, out GameAction action)
+        {
+            action = GameStateEventConverter.ConvertEvent(evt, null);
             if (action == null)
             {
                 ParsekLog.Verbose(Tag,
                     $"OnKscSpending: event type {evt.eventType} produced no action, skipping");
-                return;
+                return false;
             }
 
             // Assign a sequence number so multiple KSC events at the same UT have
@@ -4186,52 +4290,31 @@ namespace Parsek
                 $"KSC spending recorded: type={action.Type}, UT={evt.ut:F1}, " +
                 $"key={evt.key ?? "(none)"}");
 
-            // Phase B (plan: fix-ledger-lump-sum-reconciliation.md): KSC-side ledger writes
-            // were bypassing the commit-time reconciliation hook used by recording commits.
-            // Key-match this action against the nearest FundsChanged/ScienceChanged/
-            // ReputationChanged event in GameStateStore (paired by KSP TransactionReasons,
-            // scoped to untransformed action types only) and log WARN on missing event or
-            // delta mismatch. Surfaces missing earning channels (strategy, world first, etc.)
-            // as they happen without triggering false positives on curve-/strategy-
-            // transformed rewards.
-            ReconcileKscAction(GameStateStore.Events, Ledger.Actions, action, evt.ut);
+            return true;
+        }
 
-            // THE MILESTONE ROW'S RECALC IS DEFERRED ONE FRAME. Everything else on this
-            // door recalculates inline, exactly as before.
-            //
-            // Decompiled ordering: ProgressNode.Complete() raises OnProgressComplete
-            // BEFORE every subclass calls AwardProgressStandard (CelestialBodyOrbit,
-            // CelestialBodyReturn, CelestialBodyLanding), so this whole handler runs while
-            // the reward is still unapplied. GameStateRecorder.OnProgressComplete
-            // therefore emits the event with BuildMilestoneDetail(0, 0, 0) and the
-            // AwardProgressPatch postfix fills the real amounts in place afterwards
-            // (EnrichPendingMilestoneRewards). An INLINE recalc here runs inside that
-            // window: the seed's own ensure would read Reputation.Instance BEFORE the
-            // award landed, take the live-pool branch on the PRE-award figure, and the
-            // enriched row - stamped inside that figure - would be zeroed by the walk for
-            // good. Deferring one frame puts the read after both the award and the
-            // enrichment.
-            //
-            // Same host and same fallback as the strategy door: if no frame host exists
-            // the recalc runs inline rather than being lost, and if the defer never fires
-            // (scene exit) the row still stands in the ledger and the next natural recalc
-            // picks it up. The seed simply stays uncaptured until then, which is the safe
-            // direction - an uncaptured seed patches nothing.
+        /// <summary>
+        /// The recalc tail of the KSC door: inline, or deferred one frame for a row type
+        /// <see cref="ShouldDeferKscRecalcOneFrame"/> names (see the comment in
+        /// <see cref="OnKscSpending"/>).
+        /// </summary>
+        private static void ScheduleKscSpendingRecalc(GameActionType type, double eventUt, string reason)
+        {
             var deferHost = DeferOneFrameForTesting
                 ?? (WarpToTimeConsumer.Instance != null
                     ? (Action<Action>)WarpToTimeConsumer.RunNextFrame
                     : null);
-            if (ShouldDeferKscRecalcOneFrame(action.Type, deferHost != null))
+            if (ShouldDeferKscRecalcOneFrame(type, deferHost != null))
             {
-                double deferredUt = evt.ut;
+                double deferredUt = eventUt;
                 ParsekLog.Verbose(Tag,
-                    $"OnKscSpending: deferring the recalc one frame for {action.Type} - " +
+                    $"OnKscSpending: deferring the recalc one frame for {type} - " +
                     "the reward is applied after this handler returns");
-                deferHost(() => RecalculateAndPatchForLiveTimelineEvent(deferredUt, "ksc-spending"));
+                deferHost(() => RecalculateAndPatchForLiveTimelineEvent(deferredUt, reason));
             }
             else
             {
-                RecalculateAndPatchForLiveTimelineEvent(evt.ut, "ksc-spending");
+                RecalculateAndPatchForLiveTimelineEvent(eventUt, reason);
             }
         }
 
@@ -4620,9 +4703,11 @@ namespace Parsek
         /// <summary>
         /// True for the irreversible live-gameplay terminal events that KSP applies the
         /// moment they happen and cannot be cleanly undone without a quicksave reload:
-        /// contract terminal outcomes and world-record / progress milestone achievements.
-        /// These must survive a recording discard (see
-        /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>).
+        /// contract terminal outcomes, world-record / progress milestone achievements, and
+        /// a KSC building collapse (stock <c>DestructibleBuilding.AddDamage</c> saves the
+        /// persistent game right after <c>Demolish()</c>, so a discard that reloads no
+        /// quicksave leaves the building destroyed). These must survive a recording discard
+        /// (see <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>).
         ///
         /// <para>Science EARNINGS are handled separately (they ride
         /// <c>PendingScienceSubjects</c>, not a GameStateEvent) - see step 2 of
@@ -4638,7 +4723,8 @@ namespace Parsek
             return type == GameStateEventType.ContractCompleted
                 || type == GameStateEventType.ContractFailed
                 || type == GameStateEventType.ContractCancelled
-                || type == GameStateEventType.MilestoneAchieved;
+                || type == GameStateEventType.MilestoneAchieved
+                || type == GameStateEventType.BuildingDestroyed;
         }
 
         /// <summary>
@@ -4727,7 +4813,7 @@ namespace Parsek
             // 1. Tagged irreversible terminal events from the discarded recordings ->
             //    direct ledger actions (ConvertEvent with recordingId=null clears the tag).
             var rehomed = new List<GameAction>();
-            int contractEvents = 0, milestoneEvents = 0, strategyExchangeEvents = 0;
+            int contractEvents = 0, milestoneEvents = 0, strategyExchangeEvents = 0, buildingEvents = 0;
             var storeEvents = GameStateStore.Events;
             for (int i = 0; i < storeEvents.Count; i++)
             {
@@ -4750,6 +4836,7 @@ namespace Parsek
                 rehomed.Add(action);
                 if (e.eventType == GameStateEventType.MilestoneAchieved) milestoneEvents++;
                 else if (e.eventType == GameStateEventType.ScienceChanged) strategyExchangeEvents++;
+                else if (e.eventType == GameStateEventType.BuildingDestroyed) buildingEvents++;
                 else contractEvents++;
             }
 
@@ -4826,6 +4913,7 @@ namespace Parsek
                 $"(contract={contractEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"milestone={milestoneEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"strategyExchange={strategyExchangeEvents.ToString(CultureInfo.InvariantCulture)}, " +
+                $"building={buildingEvents.ToString(CultureInfo.InvariantCulture)}, " +
                 $"science={scienceSubjectCount.ToString(CultureInfo.InvariantCulture)}, " +
                 $"deduped={deduped.ToString(CultureInfo.InvariantCulture)}, " +
                 $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}) " +

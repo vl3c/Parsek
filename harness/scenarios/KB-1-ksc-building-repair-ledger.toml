@@ -1,0 +1,148 @@
+schema = 1
+id = "KB-1-ksc-building-repair-ledger"
+# =====================================================================================
+# KSC BUILDING COLLAPSE + REPAIR REACH THE LEDGER (todo KSC-BUILDING-DESTROY-REPAIR-
+# NEVER-REACH-LEDGER, PR #1784).
+#
+# WHAT IT PROVES, each pinned below:
+#   1. Both new Harmony patches reached their stock targets in this session
+#      (ParsekHarmony logs one line per applied patch class).
+# THE TARGET. The fixture's facilities are all at level 0, where the Launchpad's only
+# live DestructibleBuilding is its flag (the LaunchPadMedium tanks are level-1 meshes, not
+# in the scene - the first flight, 2026-09-23_1922, refused `unknown-building` for
+# ksp_pad_waterTower). The Tracking Station has two live buildings at level 0,
+# `building` and `OuterDish`; collapsing the dish alone also proves the repair charges
+# only the destroyed building's share.
+#
+#   2. A collapse at the KSC (no recording live) is recorded AT ITS OWN MOMENT from
+#      stock's OnKSCStructureCollapsing and written straight to the ledger as ONE
+#      FacilityDestruction row.
+#   3. A repair through SpaceCenterBuilding.RepairFacility(true) - the KSC context
+#      menu's own call - opens the repair scope, records ONE FacilityRepair row whose
+#      cost equals the building's share, and that cost equals the funds stock deducted
+#      (FundsChanged(StructureRepair)); the ledger's funds walk charges the same amount.
+#   4. No KSC-reconciliation warning (the batch sums the rows against the one debit).
+#   5. No flicker: after the repair no recalc demolishes or repairs the building, and
+#      the patcher leaves the mid-collapse / mid-repair building alone.
+#   6. A save + cold reload WHILE the building is down keeps it down (the repair after it
+#      repairs exactly one building) with no duplicate row; a second save + cold reload
+#      after the repair keeps it intact; the live building patch touches it neither time.
+#      The patch reads the ledger AT LIVE UT (FacilityStatePatcher.PatchLiveDestructionState)
+#      and never acts inside OnLoad (pinned: the reload logs the "scene load in progress" skip).
+#
+# THE STEP SHAPE. demolish-building / repair-facility both DEFER `structures-settling`
+# while any KSC building is between states (Demolish() clears `intact` at once; the
+# building reads destroyed only when the collapse animation lands, and stock repairs only
+# a destroyed building). So the repair step waits for the collapse by itself, and the
+# SECOND repair-facility step waits for the repair animation and then refuses
+# `facility-intact` - which is also the "exactly one repair" probe. The last
+# repair-facility step, after the reload, refuses `facility-intact` again: the building
+# came back intact from the save.
+#
+# READINGS. 2026-09-23_1928 PASS (first shape, no reload while down). After the PR #1784
+# review moved the live building patch to the ledger's state at live UT and added the
+# reload-while-down steps: 2026-09-23_2018 PARSEK-FAIL - the patch ran in Parsek's OnLoad
+# before stock loaded the save into the buildings and demolished the not-yet-loaded dish
+# (a real defect, fixed: unregistered buildings are skipped); 2026-09-23_2028 PARSEK-FAIL
+# on this spec's own pin (it expected a post-load recalc the lane never runs; re-pinned to
+# the reload-time skip); 2026-09-23_2030 PASS attempt 1. The re-pinned contract, replayed
+# against the 2018 log, reds on both the skip pin and the no-patcher-demolish pin, and
+# against 2028 is clean. Re-review follow-up (no live patch inside OnLoad at all, skip
+# reason "scene load in progress"; this pin re-derived for it): 2026-09-23_2047 PASS
+# attempt 1, every reload logging the skip before "[ScenarioDestructibles]: Loading".
+# Still a reading run: an armed re-flight and a negative control
+# are owed before any block here is armed.
+tier = "daily"
+description = "Career at the KSC: collapse one Tracking Station building through the seam, repair the facility through the menu's own RepairFacility call, save and cold-reload; the ledger holds exactly one FacilityDestruction and one FacilityRepair whose cost equals the StructureRepair funds debit, with no reconciliation warning and no patcher flicker."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "facilities", "KB-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-earned-ksc"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "KscAction",  args = { action = "demolish-building", building = "OuterDish" }, expect = "OK", budget = 60 },
+  # Save + cold reload WHILE the dish is down: it must come back destroyed (the repair
+  # below then repairs exactly one building) with no second destruction row, and the live
+  # building patch must not touch it.
+  { cmd = "SaveGame",   args = { name = "persistent" }, expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "KscAction",  args = { action = "repair-facility", facility = "SpaceCenter/TrackingStation" }, expect = "OK", budget = 60 },
+  # Waits out the repair animation, then refuses: nothing left to repair.
+  { cmd = "KscAction",  args = { action = "repair-facility", facility = "SpaceCenter/TrackingStation" }, expect = "REJECTED", budget = 60 },
+  { cmd = "SaveGame",   args = { name = "persistent" }, expect = "OK", budget = 120 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  # After the cold reload the building is still intact.
+  { cmd = "KscAction",  args = { action = "repair-facility", facility = "SpaceCenter/TrackingStation" }, expect = "REJECTED", budget = 60 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit",   expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["facilities", "funds", "orchestrator", "ksp-state-patcher"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's own two committed recordings; this lane records nothing. (The second
+# flight, 2026-09-23_1925, read PARSEK-FAIL on `recordings.count 2 > max 0`: a spec
+# authoring error copied from the empty-save L1 lanes, not a Parsek defect.)
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  # 1. Both patches applied.
+  "Harmony patch applied: FacilityRepairScopePatch targets=1",
+  "Harmony patch applied: FacilityResetStructuresPatch targets=1",
+  # 2. The collapse, recorded from the stock event and written as a direct KSC row.
+  "Game state: BuildingDestroyed '\\S*/OuterDish' cost=0 tag='' source=event-collapsing",
+  "KSC spending recorded: type=FacilityDestruction, UT=[0-9.]+, key=\\S*/OuterDish",
+  "kscaction action=demolish-building target=\\S*/OuterDish applied=true manifestKind=facility-destruction",
+  # 3. The repair: scope opened by the patch, the row's cost, the funds debit and the
+  #    seam's own before/after read all agree, and the ledger's funds walk charges it.
+  "FacilityRepair scope open: facility='\\S*TrackingStation' destroyedBuildings=1 ",
+  "Game state: FundsChanged -[0-9]+ \\(StructureRepair\\)",
+  "Game state: BuildingRepaired '\\S*/OuterDish' cost=([0-9.]+) tag='' source=event-repairing[\\s\\S]*kscaction action=repair-facility target=SpaceCenter/TrackingStation applied=true manifestKind=facility-repair observedAfter=repaired=1 cost=\\1 fundsDelta=-\\1 ",
+  "KSC spending recorded: type=FacilityRepair, UT=[0-9.]+, key=\\S*/OuterDish",
+  "FacilityRepair: -[1-9][0-9.]*, facilityId=\\S*/OuterDish",
+  # The two later repair-facility steps are the refusal, not a second repair.
+  "kscaction refused action=repair-facility reason=facility-intact",
+  # The live building patch folds the ledger AT LIVE UT: it matched the one ledger building
+  # while the dish was collapsing after the demolish (and left it to stock's animation).
+  "PatchDestructionState: demolished=0, repaired=0, settling=1, unloaded=0, matched=1, noMatch=0, buildings=[0-9]+, ledgerBuildings=1, liveUT=[1-9]",
+  # On the reload while the dish is down, the patch does not act inside Parsek's OnLoad,
+  # which runs BEFORE "[ScenarioDestructibles]: Loading..." with the pre-load clock
+  # (2026-09-23_2018: an OnLoad patch demolished the not-yet-loaded dish).
+  "kscaction action=demolish-building[\\s\\S]*PatchDestructionState: skipped \\(scene load in progress\\)[\\s\\S]*ScenarioDestructibles\\]: Loading",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # 4. The batch reconciles against the single StructureRepair debit.
+  "KSC reconciliation \\(funds\\)",
+  # 5 + 6. No flicker, no duplicate rows, no patcher repair after the reload.
+  "PatchDestructionState: (demolished|repaired) '\\S*/OuterDish'",
+  "KSC spending recorded: type=FacilityRepair[^\\n]*[\\s\\S]*KSC spending recorded: type=FacilityRepair",
+  "KSC spending recorded: type=FacilityDestruction[^\\n]*[\\s\\S]*KSC spending recorded: type=FacilityDestruction",
+  "Game state: BuildingRepaired[^\\n]*source=poll",
+  "Game state: BuildingDestroyed[^\\n]*source=poll",
+  "kscaction refused action=(demolish-building|repair-facility) reason=(unknown-|blocked-committed|insufficient-funds|building-already-down|demolish-not-applied|repair-not-applied)",
+]
+
+[runtime]
+# LoadGame ~300 twice + three 60 s KscAction budgets + SaveGame, under 900.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
