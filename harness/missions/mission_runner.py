@@ -2065,6 +2065,8 @@ class KrpcMissionControl(MissionControl):
                     _stdout_sink(mlib.format_mission_log_line(
                         "Warn", "Switch", "switch_to_home_vessel failed: %s: %s"
                         % (type(exc).__name__, str(exc)[:160])))
+        elif kind == mlib.ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL:
+            self._switch_to_nearest_named_vessel(sc, v, str(action.text or ""))
         elif kind == mlib.ACTION_BG_SUBJECT_SET_ENGINES_ACTIVE:
             want = bool(action.value)
             set_count = 0
@@ -2683,6 +2685,53 @@ class KrpcMissionControl(MissionControl):
             return str(vessel.name)
         except Exception:  # noqa: BLE001
             return "?"
+
+    def _switch_to_nearest_named_vessel(self, sc, active, name: str) -> None:
+        """kx debris-promotion switch: `sc.active_vessel = ` the nearest loaded
+        vessel named ``name`` other than ``active``. Best-effort and logged: a
+        failed switch leaves the active vessel unchanged, which the machine's own
+        name read-back gate then names. The pick is `mlib.pick_nearest_named`."""
+        candidates = []
+        handles = []
+        try:
+            vessels = list(sc.vessels)
+        except Exception as exc:  # noqa: BLE001
+            vessels = []
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Switch", "vessel list read failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+        try:
+            frame = active.reference_frame
+        except Exception:  # noqa: BLE001
+            frame = None
+        for other in vessels:
+            try:
+                is_active = other == active
+                other_name = str(other.name)
+                dist = float("nan")
+                if frame is not None and other_name == name and not is_active:
+                    x, y, z = other.position(frame)
+                    dist = (x * x + y * y + z * z) ** 0.5
+            except Exception:  # noqa: BLE001
+                continue
+            candidates.append((other_name, dist, is_active))
+            handles.append(other)
+        idx = mlib.pick_nearest_named(candidates, name)
+        if idx is None:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Switch", "switch_to_nearest_named_vessel: no loaded vessel "
+                "named %r beside the active one (%d vessel(s) scanned)"
+                % (name, len(candidates))))
+            return
+        try:
+            sc.active_vessel = handles[idx]
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Switch", "switched active vessel to nearest %r at %.1f m"
+                % (name, candidates[idx][1])))
+        except Exception as exc:  # noqa: BLE001
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Switch", "switch_to_nearest_named_vessel failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
 
     def _find_tank_with_resource(self, vessel, resource: str):
         """A part on ``vessel`` carrying > 0 of ``resource`` (best-effort; the

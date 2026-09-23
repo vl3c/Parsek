@@ -899,7 +899,7 @@ They cannot. Immutable seals the slot. The player-facing consequence matches §7
 - **Ghost playback engine.** Reads ERS via walker; SessionSuppressedSubtree is upstream.
 - **Active-vessel ghost suppression.** Natural ERS filter.
 - **Ledger recalculation engine.** Reads ELS; no engine change.
-- **Rewind-to-launch.** Unchanged path.
+- **Rewind-to-launch.** Rewind points survive it (operator ruling 2026-09-23). The plain rewind keeps the in-memory recordings, and it now keeps the in-memory RP list the same way: `RecordingStore.ExecuteRewindSaveLoad` captures it before the load and `ParsekScenario.OnLoad` reinstalls it after `LoadRewindStagingState` (the rewind's scene load goes to the Space Center, whose `SpaceCenterMain.Start` reloads persistent.sfs, so the loaded list is of unknown age). The reaper is unchanged: an RP still reaps only when every slot is closed. An RP that the rewind put in the player's future stays in Unfinished Flights, but `RewindInvoker.CanInvoke` refuses it until the clock reaches `RewindPoint.UT` again; the refusal reads as the disabled Fly button's existing tooltip.
 - **Loop / overlap / chain.** Read ERS.
 - **Recording sidecar format.** No changes (SplitTimeSnapshot dropped).
 - **Reservation manager internals.** Re-derivation from ERS is existing; the carve-out in §3.3.1 is a single-method filter.

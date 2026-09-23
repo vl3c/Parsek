@@ -152,6 +152,18 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # S0.9-automerge-pending-limbo-cold-load,
                                         # S0.10-automerge-limbo-warm-exit.
                                         "pending-limbo-tree",
+                                        # relative-loop: ONE looped recording whose
+                                        # RELATIVE sections are anchored to a LIVE
+                                        # vessel through LoopAnchorVesselId (the
+                                        # live-PID loop contract; production only
+                                        # sets it at load, from `loopAnchorPid`).
+                                        # The anchor pid is baked in: pad-runway-
+                                        # pair's non-active runway rover, and the
+                                        # injector refuses any other host.
+                                        # `--filter InjectRelativeLoopAnchor`. No
+                                        # RewindPoint. Consumer:
+                                        # RL-1-relative-loop-live-anchor.
+                                        "relative-loop",
                                         # single-point-hold: ONE committed
                                         # one-point recording (plus an orbit
                                         # tail) whose Orbiting end sits on
@@ -8707,6 +8719,14 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "kerbal-parsek-managed": "driver-career",
     "kerbal-not-dismissable": "driver-career",
     "blocked-committed": "driver-career",
+    # KscAction demolish-building / repair-facility (KSC-building ledger lane).
+    "unknown-building": "driver-arg",
+    "building-already-down": "driver-career",
+    "facility-intact": "driver-career",
+    # Stock's own call left no effect (Demolish() kept the building intact / RepairFacility
+    # repaired nothing, e.g. its CanAfford gate declined).
+    "demolish-not-applied": "driver-gate",
+    "repair-not-applied": "driver-gate",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these

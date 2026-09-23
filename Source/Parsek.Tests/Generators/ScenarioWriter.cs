@@ -1107,6 +1107,8 @@ namespace Parsek.Tests.Generators
                 LaunchSiteName = builder.GetLaunchSiteName(),
                 StartSituation = builder.GetStartSituation(),
                 LoopIntervalSeconds = builder.GetLoopIntervalSeconds(),
+                LoopAnchorVesselId = builder.GetLoopAnchorVesselId(),
+                LoopAnchorBodyName = builder.GetLoopAnchorBodyName(),
                 PlaybackEnabled = builder.GetPlaybackEnabled(),
                 VesselSnapshot = builder.GetVesselSnapshot()?.CreateCopy(),
                 GhostVisualSnapshot = builder.GetGhostVisualSnapshot()?.CreateCopy(),

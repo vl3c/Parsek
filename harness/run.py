@@ -135,6 +135,8 @@ RP_SIDECAR_BY_PRESET = {
     # S0.9's AUTOMERGE-ON-BY-DEFAULT fixture: one tree under the `isActive` marker
     # (a NON-Finalized pending tree on disk), no RP.
     "pending-limbo-tree": None,
+    # RL-1's live-PID loop-anchor recording: a committed tree only, no RP.
+    "relative-loop": None,
     # EX-2's single-point hold: one committed one-point recording, no RP.
     "single-point-hold": None,
 }

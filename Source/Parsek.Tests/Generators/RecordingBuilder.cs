@@ -30,6 +30,8 @@ namespace Parsek.Tests.Generators
         private bool loopPlayback;
         private double loopIntervalSeconds = 0.0;
         private LoopTimeUnit loopTimeUnit = LoopTimeUnit.Sec;
+        private uint loopAnchorVesselId;
+        private string loopAnchorBodyName;
         private string segmentPhase;
         private string launchSiteName;
         private string startSituation;
@@ -334,6 +336,20 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithLoopTimeUnit(LoopTimeUnit unit)
         {
             loopTimeUnit = unit;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the live-PID loop anchor (<see cref="Recording.LoopAnchorVesselId"/>, written as
+        /// <c>loopAnchorPid</c>) and optionally the anchor's body
+        /// (<see cref="Recording.LoopAnchorBodyName"/>, <c>loopAnchorBodyName</c>). Production
+        /// sets both only at load, from those two keys, so a fixture is the only way to author
+        /// a loop-anchored recording. Pass 0 to clear.
+        /// </summary>
+        public RecordingBuilder WithLoopAnchorVesselId(uint anchorPid, string anchorBodyName = null)
+        {
+            loopAnchorVesselId = anchorPid;
+            loopAnchorBodyName = anchorBodyName;
             return this;
         }
 
@@ -840,6 +856,10 @@ namespace Parsek.Tests.Generators
             node.AddValue("loopIntervalSeconds", GetLoopIntervalSeconds().ToString("R", CultureInfo.InvariantCulture));
             if (loopTimeUnit != LoopTimeUnit.Sec)
                 node.AddValue("loopTimeUnit", loopTimeUnit.ToString());
+            if (loopAnchorVesselId != 0)
+                node.AddValue("loopAnchorPid", loopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
+            if (!string.IsNullOrEmpty(loopAnchorBodyName))
+                node.AddValue("loopAnchorBodyName", loopAnchorBodyName);
 
             if (!string.IsNullOrEmpty(parentRecordingId))
                 node.AddValue("parentRecordingId", parentRecordingId);
@@ -1023,6 +1043,10 @@ namespace Parsek.Tests.Generators
             node.AddValue("loopIntervalSeconds", GetLoopIntervalSeconds().ToString("R", CultureInfo.InvariantCulture));
             if (loopTimeUnit != LoopTimeUnit.Sec)
                 node.AddValue("loopTimeUnit", loopTimeUnit.ToString());
+            if (loopAnchorVesselId != 0)
+                node.AddValue("loopAnchorPid", loopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
+            if (!string.IsNullOrEmpty(loopAnchorBodyName))
+                node.AddValue("loopAnchorBodyName", loopAnchorBodyName);
 
             if (vesselSnapshot != null)
                 node.AddNode("VESSEL_SNAPSHOT", vesselSnapshot);
@@ -1131,6 +1155,8 @@ namespace Parsek.Tests.Generators
 
         /// <summary>Returns whether loop playback is enabled.</summary>
         public bool GetLoopPlayback() => loopPlayback;
+        public uint GetLoopAnchorVesselId() => loopAnchorVesselId;
+        public string GetLoopAnchorBodyName() => loopAnchorBodyName;
         public string GetLaunchSiteName() => launchSiteName;
         public string GetStartSituation() => startSituation;
 

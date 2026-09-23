@@ -16,6 +16,9 @@ namespace Parsek
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         private const float MilestoneCompactionEpsilon = 0.0001f;
         private const double MilestoneCompactionUtToleranceSeconds = 0.1;
+        // One stock collapse or repair of a facility touches each of its buildings; the
+        // repair rows share one UT, a crash's collapses land a few frames apart.
+        private const double FacilityBuildingCompactionUtToleranceSeconds = 1.0;
 
         /// <summary>
         /// Constructs the full timeline entry list from committed recordings,
@@ -660,6 +663,28 @@ namespace Parsek
                         action.UT,
                         action.ContractId);
 
+                // A facility upgrade and a KSC building's collapse / repair are captured as a
+                // FacilityUpgraded / BuildingDestroyed / BuildingRepaired event at the same UT
+                // and key as their ledger row, and the event is swept into a committed
+                // milestone like any other; the ledger row is the one the Timeline shows.
+                case GameActionType.FacilityUpgrade:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.FacilityUpgraded,
+                        action.UT,
+                        action.FacilityId);
+
+                case GameActionType.FacilityDestruction:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.BuildingDestroyed,
+                        action.UT,
+                        action.FacilityId);
+
+                case GameActionType.FacilityRepair:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.BuildingRepaired,
+                        action.UT,
+                        action.FacilityId);
+
                 default:
                     return null;
             }
@@ -698,9 +723,12 @@ namespace Parsek
             // title was never recorded) resolve it by contract id against the same
             // effective ledger's accept.
             var contractAcceptIndex = GameActionDisplay.BuildContractAcceptIndex(ledgerActions);
-            for (int i = 0; i < ledgerActions.Count; i++)
+            int facilityBuildingRowsCompacted;
+            List<GameAction> compactedActions =
+                CompactFacilityBuildingActions(ledgerActions, out facilityBuildingRowsCompacted);
+            for (int i = 0; i < compactedActions.Count; i++)
             {
-                var action = ledgerActions[i];
+                var action = compactedActions[i];
 
                 if (!IsInitialResourceSeedVisibleInMode(action.Type, currentMode))
                 {
@@ -807,6 +835,11 @@ namespace Parsek
                 ParsekLog.Verbose("Timeline",
                     $"Filtered {noopSpendSkipped} no-op (zero-funds) spending action(s)");
 
+            if (facilityBuildingRowsCompacted > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Compacted {facilityBuildingRowsCompacted} per-building facility destruction / repair " +
+                    "row(s) into their facility's row");
+
             if (contractRows > 0)
                 ParsekLog.Verbose("Timeline",
                     $"Contract row names: rows={contractRows} fromAccept={contractNamedFromAccept} " +
@@ -814,6 +847,67 @@ namespace Parsek
                     $"acceptIndex={contractAcceptIndex.Count}");
 
             return count;
+        }
+
+        /// <summary>
+        /// Pure: folds the per-building FacilityDestruction / FacilityRepair rows of one
+        /// facility event into one row. The ledger keys these by DestructibleBuilding id, so
+        /// one stock repair of the Runway is up to ten rows at one UT, and one crash through
+        /// the Launchpad several collapses a few frames apart - one event to the player. Rows
+        /// fold when they share type, facility (<see cref="FacilityDisplayNames.FacilityIdForBuilding"/>),
+        /// recording owner and effectiveness, within
+        /// <see cref="FacilityBuildingCompactionUtToleranceSeconds"/> of the first; the kept
+        /// row carries the summed repair cost. Other rows pass through untouched and in order.
+        /// </summary>
+        internal static List<GameAction> CompactFacilityBuildingActions(
+            IReadOnlyList<GameAction> actions, out int compactedRows)
+        {
+            compactedRows = 0;
+            var result = new List<GameAction>(actions != null ? actions.Count : 0);
+            if (actions == null)
+                return result;
+
+            var anchors = new Dictionary<string, GameAction>(StringComparer.Ordinal);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                GameAction a = actions[i];
+                if (a == null
+                    || (a.Type != GameActionType.FacilityDestruction
+                        && a.Type != GameActionType.FacilityRepair))
+                {
+                    result.Add(a);
+                    continue;
+                }
+
+                string key = ((int)a.Type).ToString(IC) + "|"
+                    + FacilityDisplayNames.FacilityIdForBuilding(a.FacilityId) + "|"
+                    + (a.RecordingId ?? "") + "|" + (a.Effective ? "1" : "0");
+                GameAction anchor;
+                if (anchors.TryGetValue(key, out anchor)
+                    && Math.Abs(a.UT - anchor.UT) <= FacilityBuildingCompactionUtToleranceSeconds)
+                {
+                    anchor.FacilityCost += a.FacilityCost;
+                    compactedRows++;
+                    continue;
+                }
+
+                // A copy, so the summed cost never leaks into the ledger's own row.
+                anchor = new GameAction
+                {
+                    ActionId = a.ActionId,
+                    Type = a.Type,
+                    UT = a.UT,
+                    Sequence = a.Sequence,
+                    RecordingId = a.RecordingId,
+                    FacilityId = a.FacilityId,
+                    FacilityCost = a.FacilityCost,
+                    Effective = a.Effective,
+                };
+                anchors[key] = anchor;
+                result.Add(anchor);
+            }
+
+            return result;
         }
 
         private static string FormatModeForLog(Game.Modes? currentMode)

@@ -1,0 +1,188 @@
+schema = 1
+id = "GS-10-kerbalx-debris-ttl"
+# =====================================================================================
+# THE DEBRIS TTL, CLOSED ON A FLIGHT: GS-7's crash lane with its ROUND 1 CUT - the
+# throttle held at zero from the LAST booster drop and never raised - so the unpowered
+# Kerbal X stack falls back near the pad and its three dropped booster pairs stay inside
+# the physics bubble. The last pair outlives its 60 s debris TTL and the background
+# recorder ends those recordings by the timer rather than by a destruction or a
+# bubble exit. That is D5 `staging-debris-ttl`, and this lane gates it off the
+# producer's own lines.
+#
+# Roadmap: "Priority register (2026-09-11)" item C4 (ghost-replay Tier A item 5a);
+# todo "Autotest coverage: build-order TODOs from the basics roadmap", R1's D5 block.
+#
+# =====================================================================================
+# 1. THE CODE FACTS - read, not assumed.
+# -------------------------------------------------------------------------------------
+# (1) THE TIMER. `BackgroundRecorder.DebrisTTLSeconds = 60.0`. A staging split's debris
+#     child gets `SetDebrisExpiry(pid, branchUT + 60)` from `ParsekFlight` (Info:
+#     `Debris expiry set: pid=<p>, expiryUT=<F1>`). `BackgroundRecorder.CheckDebrisTTL`
+#     runs every frame and ends a tracked debris recording by the FIRST of: vessel gone
+#     (`Debris TTL: vessel destroyed/despawned`), `currentUT >= expiry` (`Debris TTL
+#     expired, ending recording: vesselPid=<p> expiry=<F1> currentUT=<F1>`), vessel not
+#     loaded (`Debris TTL: vessel left physics bubble`), or a parent-anchor end. The
+#     expiry line is the ONLY one that means the timer closed the recording.
+# (2) THE CLOSE. Every branch lands in `EndDebrisRecording`, which applies the
+#     finalization cache (a falling booster's cache predicts its impact) and writes
+#     `Debris recording ended: vesselPid=<p> recId=<r> terminal=<t>`.
+# (3) WHY THIS PROFILE AND NOT GS-7's. On GS-7's far profile the powered ascent leaves
+#     the boosters behind and every one of them closes by `left physics bubble` (0
+#     expiries on the six far-profile archives). On the round 1 close crash the stack
+#     falls back beside them: `Debris TTL expired` printed on 4 of 4 archived close-crash
+#     flights (`2026-09-08_1457` x2, `_1525` x4, `_1631` x4, `_1700` x2 collect folders
+#     = runs `_1130` / `_1157_a2` / `_1302` / `_1331_a2`), always the last pair
+#     (expiry ~125.5, dropped at ~65.6) and sometimes the middle pair (expiry ~121.2),
+#     2-3 s before the parent's own impact at ~128.
+#     FLAKE WATCH POINT: that 2-3 s margin is the whole lane. The last pair drops at
+#     ~65 s, so its timer fires at ~125 s, and the parent's crash at ~128 s finalizes
+#     the tree. A profile change that brings the impact 3 s earlier (a heavier craft, a
+#     steeper fall, a later cut) lets the finalize close the boosters first, and both
+#     TTL tokens red. Read such a red as a moved margin first: compare the impact UT
+#     with the `expiryUT` values in `Debris expiry set`.
+# (4) WHY THE WATCH HALF IS KEPT. The kx machine's impact branch commits through a
+#     Space Center hop and flies GS-7's probe-cored throwaway + watcher block to the end;
+#     the close cut only moves where the branch diverges. That block is proven on GS-7,
+#     and dropping it would be a second, unflown opt-in for no claim.
+#
+# =====================================================================================
+# 2. STATUS. The C4 discipline: a 2-flight stability reading first, the gate only on 2
+#    of 2 expiries.
+#   STABILITY READING, 2 of 2: `2026-09-23_1941` (PASS attempt 1, 342 s) and `_1947`
+#   (PASS attempt 1, 351 s), both MISSION-OK on every row, recordings 8, ghost census
+#   7/7/7 unbalanced 0. THREE timer closes on EACH: the last pair together (expiry
+#   125.2 / 125.6, the two lines adjacent) and one middle-pair booster (123.0 / 123.4),
+#   each 2-3 s before the parent's own `type=Breakup, cause=CRASH` impact at ~128; the
+#   other three boosters closed `vessel destroyed/despawned`. MEASURED VARIANCE the
+#   first-cut token did not allow: the middle-pair booster of `_1941` had already
+#   LANDED when its timer fired and closed `terminal=Landed`, so the terminal is a
+#   word class and the token now pins that the TTL-closed terminal SURVIVES into
+#   `FinalizeTreeRecordings` for the same recording id instead of a literal. Both logs
+#   match every final token (re-evaluated offline over the collected KSP.log; the
+#   evaluator is a pure function of the log). NATURAL NEGATIVE CONTROL: the six GS-7
+#   far-profile logs under `../logs` (collected `2026-09-08_1803` .. `_2054`) - the same
+#   machine with the cut at the core discard - miss both TTL tokens, and the four
+#   close-crash archives match them.
+#   Saved structure (report-only): one committed tree, 8 recordings, terminals
+#   Destroyed 6-7 / Landed 0-1 / SubOrbital 1 (the pruned-stub `Kerbal X Probe Debris`).
+#   ARMED RE-FLIGHT `2026-09-23_1959` on the final tokens and claims: PASS attempt 1,
+#   326 s, every token; three timer closes again (the last pair at 125.4, adjacent, and
+#   a middle-pair booster at 121.1), all Destroyed. NEGATIVE CONTROL, OFFLINE over that
+#   run's collected KSP.log with the committed spec loaded through tomllib and the live
+#   `hlib.evaluate_expectations`: intact PASS; the TTL chain token with its expiry
+#   backreference mutated (`expiry=\2` -> `expiry=9\2`) FAIL on exactly that one
+#   mismatch; the pair token mutated the same way FAIL on exactly that one (re-run after
+#   the pair token gained its different-pid lookahead: intact PASS on all three flights'
+#   logs, `expiry=\2` -> `expiry=9\2` FAIL on exactly that token). The claim is
+#   three flights of three (1941 / 1947 / 1959), each with three timer closes.
+# =====================================================================================
+tier = "operator"
+description = "Debris TTL on a flight: GS-7's Kerbal X crash lane with round 1's close cut (throttle held at zero from the last booster drop), so the dropped boosters outlive their 60 s debris TTL beside the falling stack and the background recorder ends them by the timer; committed through the Space Center hop, Rewound-to-Launch and watched from the probe-cored GS1 Auto-Chute Booster."
+instanceProfile = "stock-minimal"
+tags = ["GS10", "rewind-to-launch", "watch-mode", "ghost-render", "debris-ttl"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+# GS-7's prelude verbatim (autoMerge=true is load-bearing for the Space Center commit;
+# verboseLogging for the `[Flight]` finalize line; ghostRenderTracing for MeshSpawned).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 2000 },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+# Probe-cored, for GS-7's reason: the crash leaves an all-Missing roster.
+watcherCraftName = "GS1 Auto-Chute Booster"
+impactProfile    = true
+# THE LANE: diverge at the last booster drop (see header fact 3).
+impactCutAtLastBoosterDrop = true
+flightMaxSeconds  = 600.0
+impactCoastFrames = 900
+impactSettleFrames = 16
+scExitFrames = 240
+scCommittedFrames = 40
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: every value is backed by a REQUIRED token below.
+# `auto-record-launch` <- "Auto-record started (...".
+D1 = ["auto-record-launch"]
+# `staging-debris-ttl` <- THE CELL: the pid chain `Debris expiry set` -> `Debris TTL
+#   expired` (same pid, same expiry) -> `Debris recording ended` -> the same recording
+#   finalized in the committed tree with the same terminal, plus the adjacent pair.
+D5 = ["staging-debris-ttl"]
+# `rewind-to-launch` <- the product line and the seam terminal, as GS-7.
+D9 = ["rewind-to-launch"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# MEASURED 8 on both stability flights (parent + six boosters + the crash's one pruned
+# stub, whose sidecars stay on disk until the next cold load - GS-7's count note). A
+# floor, for GS-7's reason: the crash's stub count is its part count.
+count = { min = 7 }
+
+[expectations.logContracts]
+# Every literal below was checked against its C# producer and against the four
+# close-crash archives named in the header.
+#   "Debris expiry set: pid=<p>, expiryUT=<F1>"              ParsekFlight.cs -> BackgroundRecorder.SetDebrisExpiry (Info)
+#   "Debris TTL expired, ending recording: vesselPid=<p> expiry=<F1> currentUT=<F1>"  BackgroundRecorder.CheckDebrisTTL (Info)
+#   "Debris recording ended: vesselPid=<p> recId=<r> terminal=<t>"  BackgroundRecorder.EndDebrisRecording (Info)
+#   "FinalizeTreeRecordings: rec='<r>' vessel='<n>' points=<k> orbitSegs=<k> terminal=<t> ..."  ParsekFlight.cs (Verbose)
+# THE TTL TOKEN is ONE chain over the SAME pid and the SAME expiry: set, expired by the
+# timer, ended, and that same recording id finalized in the committed tree with the
+# SAME terminal - so no other close reason and no other vessel can satisfy it, and the
+# timer's terminal is proven to reach the tree. The terminal itself is a word class
+# (Destroyed for a booster still falling, Landed for one already down; both measured).
+# The PAIR token: both boosters of one drop share a branch UT, so their expiry lines
+# print on one frame, adjacent; the lookahead `(?!\1 )` requires the second line to
+# name a DIFFERENT pid, so one booster printed twice cannot satisfy it.
+required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
+             "Recording started",
+             "Debris expiry set: pid=([0-9]+), expiryUT=([0-9]+\\.[0-9])[\\s\\S]*?Debris TTL expired, ending recording: vesselPid=\\1 expiry=\\2 currentUT=[0-9]+\\.[0-9][\\s\\S]*?Debris recording ended: vesselPid=\\1 recId=([0-9a-f]+) terminal=([A-Za-z]+)[\\s\\S]*?FinalizeTreeRecordings: rec='\\3' vessel='Kerbal X Debris' points=[1-9][0-9]* orbitSegs=[0-9]+ terminal=\\4 ",
+             "Debris TTL expired, ending recording: vesselPid=([0-9]+) expiry=([0-9]+\\.[0-9]) currentUT=[0-9]+\\.[0-9]\\r?\\n[^\\r\\n]*Debris TTL expired, ending recording: vesselPid=(?!\\1 )[0-9]+ expiry=\\2 currentUT=",
+             "FinalizeTreeRecordings: rec='[0-9a-f]+' vessel='Kerbal X' points=[1-9][0-9]* orbitSegs=[0-9]+ terminal=Destroyed",
+             "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=(?:false hasPendingTree=true|true hasPendingTree=false)",
+             "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+             "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]* spawnable=[0-9]+",
+             "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
+             "listhandles kind=committed count=[1-9][0-9]* truncated=false",
+             "Rewind-to-Launch initiated to UT",
+             "invokerewindtolaunch complete rec=",
+             "entermapview ok mapOpen=true",
+             "exitmapview ok mapOpen=false",
+             "enterwatchmode complete: index=",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+budgetSeconds = 2800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

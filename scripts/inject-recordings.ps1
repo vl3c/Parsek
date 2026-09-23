@@ -21,6 +21,7 @@ $injectFilterByPreset = @{
     "looped-interplanetary" = "InjectLoopedInterplanetary"
     "part-showcase"         = "InjectPartShowcase"
     "pending-limbo-tree"    = "InjectPendingLimboTree"
+    "relative-loop"         = "InjectRelativeLoopAnchor"
     "single-point-hold"     = "InjectSinglePointHold"
 }
 
@@ -35,6 +36,7 @@ $defaultSaveByPreset = @{
     "looped-interplanetary" = "looped-interplanetary-fixture"
     "part-showcase"         = "part-showcase-fixture"
     "pending-limbo-tree"    = "pending-limbo-tree-fixture"
+    "relative-loop"         = "relative-loop-fixture"
     "single-point-hold"     = "single-point-hold-fixture"
 }
 

@@ -1503,16 +1503,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Wrapper preserved for existing KspStatePatcher callers.
-        /// Destruction patch behavior lives in <see cref="FacilityStatePatcher.PatchDestructionState"/>.
-        /// </summary>
-        internal static void PatchDestructionState(
-            System.Collections.Generic.IReadOnlyDictionary<string, FacilitiesModule.FacilityState> allFacilities)
-        {
-            FacilityStatePatcher.PatchDestructionState(allFacilities);
-        }
-
-        /// <summary>
         /// Pure decision core for one subject inside <see cref="PatchPerSubjectScience"/>
         /// (apply-boundary test seam, audit gap 1 / rec #5). Takes the live subject science +
         /// scienceCap as PARAMETERS instead of reading the live <c>ScienceSubject</c>. This is

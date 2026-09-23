@@ -128,9 +128,10 @@ namespace Parsek.TestCommands
             string node = ArgOrNull(cmd, "node");
             string facility = ArgOrNull(cmd, "facility");
             string kerbal = ArgOrNull(cmd, "kerbal");
+            string building = ArgOrNull(cmd, "building");
 
             TestCommandKscAction.KscActionExecOutcome outcome =
-                TestCommandKscAction.Execute(action, node, facility, kerbal);
+                TestCommandKscAction.Execute(action, node, facility, kerbal, building);
             SetExecResult(outcome.Verdict, outcome.Payload, outcome.Msg);
         }
 
