@@ -32,6 +32,13 @@ _(unreleased — entries accumulate here per commit)_
   `REJECTED tab-hidden-in-game-mode` naming the mode, and `key=customRange` now opens the
   Time fold. `GUI-24-census-timeline-filters` photographs the Contracts, Milestones and
   Tech views on its host and Milestones under a This Year range.
+- **Automated testing: a lane watches a ghost wait past its end for a blocked spawn.**
+  `EX-2-single-point-held-ghost` injects a one-point recording that ends in orbit on top of
+  another loaded vessel. At the recording's end the spawn is blocked and, with only one
+  point, cannot step back to a clear spot, so the ghost stays visible for the 5 second retry
+  window and is then removed without a vessel. The lane takes over the ghost-extension
+  coverage cell from EX-1. Its first runs also found that a ghost's map-view placeholder can
+  collide with a real vessel it sits on (filed, not fixed here).
 - **Automated testing: a lane replays a loop anchored to a live vessel.**
   `RL-1-relative-loop-live-anchor` injects one looped recording that plays relative to the
   rover on the runway of the `pad-runway-pair` save (the new `relative-loop` injection

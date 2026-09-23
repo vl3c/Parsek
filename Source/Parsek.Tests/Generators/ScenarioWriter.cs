@@ -1134,6 +1134,20 @@ namespace Parsek.Tests.Generators
             if (!double.IsNaN(terrainH))
                 rec.TerrainHeightAtEnd = terrainH;
 
+            OrbitSegment? terminalOrbit = builder.GetTerminalOrbit();
+            if (terminalOrbit.HasValue)
+            {
+                OrbitSegment o = terminalOrbit.Value;
+                rec.TerminalOrbitBody = o.bodyName;
+                rec.TerminalOrbitSemiMajorAxis = o.semiMajorAxis;
+                rec.TerminalOrbitEccentricity = o.eccentricity;
+                rec.TerminalOrbitInclination = o.inclination;
+                rec.TerminalOrbitLAN = o.longitudeOfAscendingNode;
+                rec.TerminalOrbitArgumentOfPeriapsis = o.argumentOfPeriapsis;
+                rec.TerminalOrbitMeanAnomalyAtEpoch = o.meanAnomalyAtEpoch;
+                rec.TerminalOrbitEpoch = o.epoch;
+            }
+
             var groups = builder.GetRecordingGroups();
             if (groups != null && groups.Count > 0)
                 rec.RecordingGroups = new List<string>(groups);
