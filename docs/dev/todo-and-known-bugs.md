@@ -4764,8 +4764,9 @@ deaths came back on TIP2 (`Dead 20..53`). Three changes, each mutation-checked:
   the end states `MoveCrewEndStatesToSecondHalf` moves; a non-death crew row stays with its
   boarding UT. Every recording-scoped type moves, not only crew rows: tombstoning covers
   them all (`TombstoneEligibility.IsSupersedeTombstoneEligible`), so the death's paired
-  KerbalDeath reputation penalty, stamped at the recording's end, travels with the death
-  and a re-fly of the second segment retires both. Row content is left to the next load's
+  KerbalDeath reputation penalty, stamped at the vessel-loss event (normally the
+  recording's end), travels with the death and a re-fly of the second segment retires
+  both (one edge filed below as DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT). Row content is left to the next load's
   `MigrateKerbalAssignments`, which re-derives it under the same ids (ruling a1), exactly
   as it does after a Re-Fly split. Why retag and not re-derive at the split: a1 pairs by
   (recording, kerbal), so re-deriving would leave the death's ActionId on the first half's
@@ -4788,14 +4789,19 @@ deaths came back on TIP2 (`Dead 20..53`). Three changes, each mutation-checked:
   orphaned and the next load's `Ledger.Reconcile` pruned them, ActionId and all (measured
   on main: a split, a load and a merge back left both crew rows on a deleted id). With the
   split now moving rows onto later segments this matters more; every absorbed recording's
-  rows now move to the target (`RetagLedgerActionsAfterOptimizationMerge`).
+  rows now move to the target (`RetagLedgerActionsAfterOptimizationMerge`). After a merge
+  that lasts, the target holds its own Recovered handoff row AND the absorbed Dead row for
+  one kerbal; `InheritKerbalAssignmentActionIds` now prefers the stored row with the SAME
+  end state (else the first in order, as before), so the re-derived death keeps the
+  death's id (review finding).
 
 Tests (`TombstoneReloadMigrationTests`): the formerly skipped cell, un-skipped, plus two
 reloads; a retag-by-attribution-UT cell (death rows, before / at / after the cut); the
 paired rep penalty; alive crew (row stays, ids stable over two reloads); crewless; a split,
-merge back and re-split through the real pass; superseded vs non-superseded candidates;
-trigger 2 end to end over two reloads. Reverting the split retag reds 5 cells, the merge
-retag 1, the superseded skip 2. The committed-list index contract is untouched: the
+merge back and re-split through the real pass; a lasting merge; the same-fate id
+preference; superseded vs non-superseded candidates; trigger 2 end to end over two
+reloads. Reverting the split retag reds 5 cells, the merge retag 1, the superseded skip 2,
+the same-fate preference 1. The committed-list index contract is untouched: the
 retags change ledger tags only, and the skip removes candidates.
 
 MEASURED HEADLESSLY (history) by the then-skipped
@@ -4826,6 +4832,39 @@ derives a fresh untombstoned Dead row, so the death resurrects. Candidate fixes:
 re-derive or retag KerbalAssignment rows inside the optimizer split pass (closes BOTH
 triggers), or skip superseded recordings as split candidates (cheap, closes only this
 one).
+
+## DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT: a split cut just before a crash can put the death on one segment and its reputation penalty on the other [FOUND 2026-09-23 by the PR #1775 review. OPEN, analysis only, needs a ruling]
+
+Both splits (the Re-Fly split's step 2.9 and the optimizer split pass) place a row by
+`TombstoneAttributionHelper.ComputeAttributionUT`: a KerbalAssignment death by its float
+`EndUT`, every other row by its `UT`. The paired KerbalDeath `ReputationPenalty` is stamped
+at the VesselLoss event nearest the recording's end (`LedgerOrchestrator`,
+`decision.UT = winner.ut`), not at `EndUT`. If a cut falls between the two (a last section
+that starts within the destruction frame, e.g. an Atmospheric -> Surface boundary at
+impact, or a rewind point in that window), the death moves to the second segment and the
+penalty stays on the first. `TombstoneEligibility.TryPairBundledRepPenalty` pairs on the
+same `RecordingId`, so a re-fly of the second segment retires the death and leaves the
+penalty applied. Not measured on a flight; rare (sub-frame window). Options: move a
+KerbalDeath-source penalty together with its death in both splits, or screen such a
+penalty by the recording's end. Either changes the split / tombstone-guard seam
+convention (the guard must stay bit-identical to the retag), so it is filed rather than
+guessed.
+
+## CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED [FOUND 2026-09-23 while fixing OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT and by its review. OPEN, analysis only, not measured]
+
+`ChainSegmentManager.CommitSegmentCore` commits a segment, runs
+`RecordingStore.RunOptimizationPass()`, and only THEN files the segment's ledger rows via
+`LedgerOrchestrator.OnRecordingCommitted(recId, ...)` against the pre-pass `recId`. Two
+shapes follow. (1) If the pass MERGES the fresh segment into its predecessor, `recId` no
+longer names a committed recording, so the rows are filed under a deleted id: skipped
+in-session by `KerbalsModule`'s orphaned-action check and pruned by the next load's
+`Ledger.Reconcile`. (2) If the pass SPLITS the fresh segment, the rows go to the first
+half only; the next load's `MigrateKerbalAssignments` re-derives crew rows per half but
+never files a KerbalDeath reputation penalty, so the second half (which owns the crash)
+has none. `MergeDialog`'s tree commit avoids both by committing the ledger per tree AFTER
+the pass. Fix direction: resolve the surviving ids after the pass (as the tree commit
+does) before filing. Check first whether the standalone chain path is still reachable in
+always-tree mode.
 
 ## ~~TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT~~: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. RULED 2026-09-23 (a1 + the Recovered handoff). FIXED on branch `tombstone-reload`]
 

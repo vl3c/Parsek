@@ -932,8 +932,9 @@ _(unreleased — entries accumulate here per commit)_
   covered by the replacement, so the replaced flight's tail played again as a ghost and,
   after a second load, its crew died again. And when the optimizer joins two segments
   back into one, the later segment's booked entries now move to the joined flight;
-  before, unless the later segment was the first flight of its mission, they were
-  dropped on the next load.
+  before, they were dropped on the next load (only the mission's very first recording
+  was handled), and after such a join a crew death now keeps its identity across the
+  next load.
 
 - **A re-fly's crew assignments are no longer dropped as duplicates of another flight's.**
   The ledger's duplicate check treated any two crew-assignment rows less than 0.1 s apart

@@ -790,6 +790,81 @@ namespace Parsek.Tests
                 dead.Select(a => a.ActionId).OrderBy(x => x, StringComparer.Ordinal));
         }
 
+        // Mirror, a merge that LASTS (no re-split): the target then holds its own
+        // Recovered handoff row and the absorbed Dead row for each kerbal. The next
+        // load re-derives one Dead row, which must inherit the DEATH's id. The ledger
+        // order here happens to put the death first, so the order-independent witness
+        // of the same-fate preference is the pure cell below.
+        [Fact]
+        public void OptimizerSplit_ThenLastingMerge_ReloadKeepsTheDeathId()
+        {
+            var rec = BuildTwoEnvironmentCrewedRecording("rec_lm", "tree_lm", endStatesPopulated: true);
+            InstallInTree(rec, "tree_lm");
+            Migrate();
+            var deathIds = Ledger.Actions.Where(a => a.Type == GameActionType.KerbalAssignment)
+                .Select(a => a.ActionId).OrderBy(x => x, StringComparer.Ordinal).ToList();
+            RecordingStore.RunOptimizationPass();
+            Migrate();
+            var list = RecordingStore.CommittedRecordings;
+            Assert.Equal(2, list.Count);
+
+            // Same phase, body and environment: the merge sticks, nothing re-splits.
+            list[1].SegmentPhase = list[0].SegmentPhase;
+            list[1].SegmentBodyName = list[0].SegmentBodyName;
+            for (int i = 0; i < list[1].TrackSections.Count; i++)
+            {
+                var sec = list[1].TrackSections[i];
+                sec.environment = SegmentEnvironment.Atmospheric;
+                list[1].TrackSections[i] = sec;
+            }
+            RecordingStore.RunOptimizationPass();
+            Assert.Single(RecordingStore.CommittedRecordings);
+            Assert.Equal(4, Ledger.Actions.Count(a => a.Type == GameActionType.KerbalAssignment
+                && a.RecordingId == "rec_lm"));
+
+            Migrate();
+            AssertNoOrphanRows();
+            var dead = AllEffectiveDeathRows();
+            Assert.Equal(deathIds, dead.Select(a => a.ActionId).OrderBy(x => x, StringComparer.Ordinal).ToList());
+            Assert.Equal(2, Ledger.Actions.Count(a => a.Type == GameActionType.KerbalAssignment));
+        }
+
+        [Fact]
+        public void InheritKerbalAssignmentActionIds_PrefersTheSameFate_OverLedgerOrder()
+        {
+            var handoff = new GameAction
+            {
+                Type = GameActionType.KerbalAssignment, RecordingId = "r", KerbalName = "Bill Kerman",
+                KerbalEndStateField = KerbalEndState.Recovered, ActionId = "act_handoff",
+            };
+            var death = new GameAction
+            {
+                Type = GameActionType.KerbalAssignment, RecordingId = "r", KerbalName = "Bill Kerman",
+                KerbalEndStateField = KerbalEndState.Dead, ActionId = "act_death",
+            };
+            var want = new GameAction
+            {
+                Type = GameActionType.KerbalAssignment, RecordingId = "r", KerbalName = "Bill Kerman",
+                KerbalEndStateField = KerbalEndState.Dead,
+            };
+            int fresh;
+            int inherited = LedgerOrchestrator.InheritKerbalAssignmentActionIds(
+                new List<GameAction> { handoff, death }, new List<GameAction> { want }, out fresh);
+            Assert.Equal(1, inherited);
+            Assert.Equal(0, fresh);
+            Assert.Equal("act_death", want.ActionId);
+
+            // No same-fate partner: the first same-name row in order, as before.
+            var wantAboard = new GameAction
+            {
+                Type = GameActionType.KerbalAssignment, RecordingId = "r", KerbalName = "Bill Kerman",
+                KerbalEndStateField = KerbalEndState.Aboard,
+            };
+            LedgerOrchestrator.InheritKerbalAssignmentActionIds(
+                new List<GameAction> { handoff, death }, new List<GameAction> { wantAboard }, out fresh);
+            Assert.Equal("act_handoff", wantAboard.ActionId);
+        }
+
         private static ParsekScenario InstallSupersedeScenario(string oldId, string newId)
         {
             var scenario = new ParsekScenario
