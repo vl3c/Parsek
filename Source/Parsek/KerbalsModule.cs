@@ -95,6 +95,16 @@ namespace Parsek
         private readonly Dictionary<string, List<RecoveryClosure>> recoveryClosures
             = new Dictionary<string, List<RecoveryClosure>>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Recording ids whose flight ended parked in the KSC exclusion zone and so retires
+        /// (operator ruling 2026-09-23; <see cref="VesselSpawner.IsKscRetiredFinalFlight"/>).
+        /// Their aboard crew are freed at the recording's EndUT through a synthetic
+        /// in-memory closure in <see cref="recoveryClosures"/>, as if recovered, without a
+        /// ledger row. Built in <see cref="PrePass"/>, cleared in <see cref="Reset"/>.
+        /// </summary>
+        private readonly HashSet<string> kscRetiredRecordingIds =
+            new HashSet<string>(StringComparer.Ordinal);
+
         internal struct RecoveryClosure
         {
             public string OwnerRecordingId;
@@ -620,6 +630,7 @@ namespace Parsek
             loopingChainIds.Clear();
             careerEntriesByKerbal.Clear();
             recoveryClosures.Clear();
+            kscRetiredRecordingIds.Clear();
         }
 
         /// <summary>
@@ -643,6 +654,7 @@ namespace Parsek
             int missingRecordingIds = 0;
             int rawCrewRecordings = 0;
             int rawCrewMembers = 0;
+            var kscRetiredEndUTs = new Dictionary<string, double>(StringComparer.Ordinal);
             for (int i = 0; i < recordings.Count; i++)
             {
                 examined++;
@@ -682,6 +694,16 @@ namespace Parsek
                 // Identify chains that contain a looping segment
                 if (isLoop && isChain && !string.IsNullOrEmpty(chainId))
                     loopingChainIds.Add(chainId);
+
+                // KSC retirement (operator ruling 2026-09-23): a final segment whose flight
+                // ended parked in the KSC exclusion zone never becomes a real vessel, so its
+                // aboard crew are freed at its EndUT as if recovered. A loop recording holds
+                // no reservation, and a crewless one has nobody to free.
+                if (!isLoop && rawCrew.Count > 0 && VesselSpawner.IsKscRetiredFinalFlight(rec))
+                {
+                    kscRetiredEndUTs[rec.RecordingId] = rec.EndUT;
+                    kscRetiredRecordingIds.Add(rec.RecordingId);
+                }
             }
 
             ParsekLog.Verbose(Tag,
@@ -701,6 +723,16 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"PrePass: {closureRows.ToString(CultureInfo.InvariantCulture)} KerbalRecovered " +
                     $"row(s) for {recoveryClosures.Count.ToString(CultureInfo.InvariantCulture)} kerbal(s)");
+            }
+
+            if (kscRetiredEndUTs.Count > 0)
+            {
+                int retiredClosures = CollectKscRetirementClosures(
+                    actions, kscRetiredEndUTs, recoveryClosures);
+                ParsekLog.Verbose(Tag,
+                    $"PrePass: {kscRetiredEndUTs.Count.ToString(CultureInfo.InvariantCulture)} KSC-retired " +
+                    $"recording(s) free {retiredClosures.ToString(CultureInfo.InvariantCulture)} aboard crew " +
+                    "hold(s) at their EndUT (no ledger row)");
             }
 
             // The kerbals module never mutates the action list, so no re-sort is needed.
@@ -792,8 +824,10 @@ namespace Parsek
                 if (!double.IsPositiveInfinity(closedAtUT))
                 {
                     endUT = closedAtUT;
+                    string closedBy = closingOwner != null && kscRetiredRecordingIds.Contains(closingOwner)
+                        ? "KSC retirement" : "recovery";
                     ParsekLog.Verbose(Tag,
-                        $"Reservation bounded by recovery: '{name}' recording '{recordingId}' " +
+                        $"Reservation bounded by {closedBy}: '{name}' recording '{recordingId}' " +
                         $"({endState}) endUT={closedAtUT.ToString("F1", CultureInfo.InvariantCulture)} " +
                         $"owner='{closingOwner}'");
                 }
@@ -852,6 +886,58 @@ namespace Parsek
                 collected++;
             }
             return collected;
+        }
+
+        /// <summary>
+        /// Crew side of the KSC retirement ruling (operator, 2026-09-23): for every
+        /// <see cref="GameActionType.KerbalAssignment"/> row of a retired recording
+        /// (<paramref name="retiredEndUTByRecordingId"/>: recording id -> its EndUT) whose
+        /// kerbal is still aboard at the end (Aboard, or Unknown), adds an in-memory closure
+        /// owned by that recording at its EndUT. <see cref="RecoveryClosesHold"/> then ends
+        /// the kerbal's open-ended hold from the retired recording itself and from the
+        /// earlier segments of the same flight (same tree, ended by then) at EndUT, exactly
+        /// as a <see cref="GameActionType.KerbalRecovered"/> row would, while a later flight
+        /// keeps its own hold. Dead / Recovered rows and tourists are untouched, no ledger
+        /// row is written, and one closure is added per (kerbal, recording). Returns the
+        /// closures added. Pure.
+        /// </summary>
+        internal static int CollectKscRetirementClosures(
+            IReadOnlyList<GameAction> actions,
+            IReadOnlyDictionary<string, double> retiredEndUTByRecordingId,
+            Dictionary<string, List<RecoveryClosure>> into)
+        {
+            if (actions == null || retiredEndUTByRecordingId == null || into == null)
+                return 0;
+            if (retiredEndUTByRecordingId.Count == 0)
+                return 0;
+
+            int added = 0;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || a.Type != GameActionType.KerbalAssignment) continue;
+                if (string.IsNullOrEmpty(a.KerbalName) || string.IsNullOrEmpty(a.RecordingId)) continue;
+                if (string.Equals(a.KerbalRole, "Tourist", StringComparison.OrdinalIgnoreCase)) continue;
+                if (a.KerbalEndStateField != KerbalEndState.Aboard
+                    && a.KerbalEndStateField != KerbalEndState.Unknown)
+                    continue;
+
+                double endUT;
+                if (!retiredEndUTByRecordingId.TryGetValue(a.RecordingId, out endUT)) continue;
+                if (double.IsNaN(endUT) || double.IsInfinity(endUT)) continue;
+                if (!seen.Add(a.KerbalName + "|" + a.RecordingId)) continue;
+
+                List<RecoveryClosure> list;
+                if (!into.TryGetValue(a.KerbalName, out list))
+                {
+                    list = new List<RecoveryClosure>();
+                    into[a.KerbalName] = list;
+                }
+                list.Add(new RecoveryClosure { OwnerRecordingId = a.RecordingId, RecoveryUT = endUT });
+                added++;
+            }
+            return added;
         }
 
         /// <summary>

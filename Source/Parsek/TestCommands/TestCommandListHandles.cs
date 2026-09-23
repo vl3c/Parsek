@@ -96,6 +96,10 @@ namespace Parsek.TestCommands
         internal string TipRecordingId;
         internal double SpawnUt;
         internal bool Terminated;
+
+        /// <summary>Each link's tree id, one entry per link in the chain's own link
+        /// order. Null is read as empty. Only the DISTINCT set reaches the wire.</summary>
+        internal List<string> LinkTreeIds;
     }
 
     /// <summary>
@@ -156,6 +160,20 @@ namespace Parsek.TestCommands
         /// (the digest's own wire shape). Covers an UNSUBSTITUTED <c>${...}</c> literal,
         /// which is what a handle that failed to resolve would put on the wire.</summary>
         internal const string ExpectDigestInvalidReason = "expect-digest-invalid";
+
+        /// <summary>Per-chain key suffix for the number of DISTINCT tree ids among the
+        /// chain's links (<c>chain&lt;i&gt;trees</c>). Two or more is a chain pooled by pid
+        /// from links in different committed trees.</summary>
+        internal const string ChainTreesKeySuffix = "trees";
+
+        /// <summary>Per-chain key suffix for those distinct tree ids, ordinal-sorted and
+        /// comma-joined (<c>chain&lt;i&gt;treeIds</c>).</summary>
+        internal const string ChainTreeIdsKeySuffix = "treeIds";
+
+        /// <summary>Prefix of the one Info line the applier writes per ENUMERATED chain,
+        /// so a spec can pin a chain's tree set from the log (the wire alone is not in
+        /// KSP.log). Separate from the summary line, whose pinned shape does not move.</summary>
+        internal const string ChainLogLinePrefix = "listhandles chain";
 
         /// <summary>The FNV-1a 32-bit offset basis: the digest of the empty chain set.</summary>
         internal const uint DigestOffsetBasis = 2166136261u;
@@ -483,7 +501,9 @@ namespace Parsek.TestCommands
         /// digest=&lt;hex8&gt;</c>, then <c>expected=&lt;hex8&gt; match=&lt;b&gt;</c> when an
         /// <paramref name="expectedDigest"/> was supplied, then, per enumerated chain in
         /// pid order, <c>chain&lt;i&gt;pid chain&lt;i&gt;links chain&lt;i&gt;tip
-        /// chain&lt;i&gt;spawnUT chain&lt;i&gt;terminated</c>.
+        /// chain&lt;i&gt;spawnUT chain&lt;i&gt;terminated chain&lt;i&gt;trees
+        /// chain&lt;i&gt;treeIds</c>. The two tree keys are NOT part of the digest, so a
+        /// digest pinned before they existed still holds.
         ///
         /// <para><paramref name="evaluated"/> says whether the flight scene has run its
         /// ghost-chain evaluation at all since it was created. It is what separates "this
@@ -524,8 +544,61 @@ namespace Parsek.TestCommands
                 payload.Add(Kv(prefix + "tip", row.TipRecordingId ?? string.Empty));
                 payload.Add(Kv(prefix + "spawnUT", row.SpawnUt.ToString("R", ic)));
                 payload.Add(Kv(prefix + "terminated", Bool(row.Terminated)));
+                List<string> treeIds = DistinctTreeIds(row.LinkTreeIds);
+                payload.Add(Kv(prefix + ChainTreesKeySuffix, treeIds.Count.ToString(ic)));
+                payload.Add(Kv(prefix + ChainTreeIdsKeySuffix, string.Join(",", treeIds.ToArray())));
             }
             return payload;
+        }
+
+        /// <summary>
+        /// The distinct, non-empty tree ids of a chain's links, ordinal-sorted so the
+        /// joined value is the same on every run whatever order the walker kept.
+        /// </summary>
+        internal static List<string> DistinctTreeIds(IReadOnlyList<string> linkTreeIds)
+        {
+            var distinct = new List<string>();
+            if (linkTreeIds == null)
+                return distinct;
+            for (int i = 0; i < linkTreeIds.Count; i++)
+            {
+                string id = linkTreeIds[i];
+                if (string.IsNullOrEmpty(id) || distinct.Contains(id))
+                    continue;
+                distinct.Add(id);
+            }
+            distinct.Sort(StringComparer.Ordinal);
+            return distinct;
+        }
+
+        /// <summary>
+        /// One log line per enumerated chain, read out of the built payload (so the log
+        /// cannot disagree with the wire): <c>listhandles chain index=&lt;i&gt; pid=..
+        /// links=.. trees=.. treeIds=.. tip=..</c>. Empty for every other family. Bounded
+        /// by <see cref="MaxChains"/>.
+        /// </summary>
+        internal static List<string> ChainLogLines(
+            IReadOnlyList<KeyValuePair<string, string>> payload, ListHandlesKind kind)
+        {
+            var lines = new List<string>();
+            if (kind != ListHandlesKind.Chains || payload == null)
+                return lines;
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            for (int i = 0; i < MaxChains; i++)
+            {
+                string prefix = "chain" + i.ToString(ic);
+                string pid = ValueOrEmpty(payload, prefix + "pid");
+                if (pid.Length == 0)
+                    break;
+                lines.Add(ChainLogLinePrefix
+                    + " index=" + i.ToString(ic)
+                    + " pid=" + pid
+                    + " links=" + ValueOrEmpty(payload, prefix + "links")
+                    + " " + ChainTreesKeySuffix + "=" + ValueOrEmpty(payload, prefix + ChainTreesKeySuffix)
+                    + " " + ChainTreeIdsKeySuffix + "=" + ValueOrEmpty(payload, prefix + ChainTreeIdsKeySuffix)
+                    + " tip=" + ValueOrEmpty(payload, prefix + "tip"));
+            }
+            return lines;
         }
 
         /// <summary>

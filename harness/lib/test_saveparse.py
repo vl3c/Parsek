@@ -1847,6 +1847,58 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "fd29c89536564f31bccec5c8e3f0fbc9"],
             "schemaGeneration": 4,
         },
+        # --- THE SECOND-DOCK HARVEST (D18 PR-D) ---------------------------
+        # PROVENANCE: `BDOCK-2-second-dock-harvest` run `2026-09-23_1704` (PASS
+        # attempt 1) on a DLL built from #1768 + #1780, harvested from the run's
+        # own snapshot with --keep-parsek --expect-situation ORBITING. It is
+        # bdock-recorded plus a THIRD Kerbal X in its OWN tree `ac9641d6`, which
+        # hard-docked to the orbiting Station (pid 3620499050) at UT 11794.7: two
+        # Dock branch points now target that pid from two committed trees, the
+        # pooled cross-tree chain CI-4 reads back. 30 recordings, not 19 + 9: the
+        # boot's optimizer split two bdock-recorded recordings (d6d80225,
+        # fb415430), exactly as it does on every bdock-recorded boot. The new
+        # tree's staging RP `rp_91b25a0c...` was promoted, so 4 RPs; its
+        # quicksave's two rewind-save VALUES were cleared by hand (keys kept),
+        # per CommittedFixtureRewindSaveTests.
+        "bdock-second-dock-recorded": {
+            "trees": 3, "committedTrees": 3, "recordings": 30,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 4,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 7, "Destroyed": 18, "Docked": 2},
+            "branchPoints": {"JointBreak": 15, "Dock": 2, "Undock": 1},
+            "minAuthoritativeSidecars": 119,
+            "recordingIds": ["0821dac8ecae4eac8522d7e88cd76705",
+                             "08d3217670d341de8c94cc0d9defea69",
+                             "095357fdc5904709b607277cdec25e50",
+                             "138f33c0b77946358f89c3968adcafe3",
+                             "1cfb0ec7f90e4bdda580b348f142232c",
+                             "30b49a24c3214903aa9e1f61a1f3b258",
+                             "30e3d912eb3b406ab5f745b267634064",
+                             "37d0dc074351408ba0374230793abb1c",
+                             "4af6cfd725d646ccbac9ef2f7749667e",
+                             "4f7042d450ca44e9936a355864dee3d6",
+                             "500c0ba9c18b4e2f96d64dd4d3b40b63",
+                             "5157d6555bd3499592c46d8508dbedf4",
+                             "6f5e7046bfa248389fe88c9a6fdd729a",
+                             "8267c27c348c49e5963636aac8e293c8",
+                             "868592d3e46e4c0f91160e3c52f82989",
+                             "8bec4c80a8854508b2f1a406a4ab4669",
+                             "9bd1a291bdd64ecab0c207190c8b0a27",
+                             "a32f62f52dc84d6a94daf93460ec6548",
+                             "ab5fbd335b22413c8b792a3cd394904d",
+                             "ae60f691c24a49658391c95d7d46ce9a",
+                             "b07cfd6cc27d47e7a6fb497d9836e665",
+                             "b8819073c1a242f78a9fe6f0a6d6194c",
+                             "d6d80225cf4745839cc0f602bd7a49b6",
+                             "e48bd55861804c55aa2748d931a43d78",
+                             "ecbe844d0c6e4f508833b44ecb415e22",
+                             "ef8c7da4cba8402cadb9d9d503d6fbc9",
+                             "f049901e1f4641ffae490b2f52b1d55e",
+                             "f17e1186e9ed449b93650eb5f011a932",
+                             "fb41543026df4847919032b71f35591a",
+                             "fd29c89536564f31bccec5c8e3f0fbc9"],
+            "schemaGeneration": 4,
+        },
         # --- THE CAREER-LEDGER STRICT SUBJECT ----------------------------
         # PROVENANCE, and it is a two-step one rather than a harvest: harness run
         # `2026-08-19_2130_L3-career-science-recover` (PASS attempt 1, MISSION-OK

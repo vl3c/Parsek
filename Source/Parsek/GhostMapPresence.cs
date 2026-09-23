@@ -7567,9 +7567,10 @@ namespace Parsek
             {
                 ParsekLog.Info(Tag,
                     string.Format(ic,
-                        "Tracking-station handoff resolved #{0} \"{1}\" without spawning a vessel (abandoned)",
+                        "Tracking-station handoff resolved #{0} \"{1}\" without spawning a vessel ({2})",
                         index,
-                        rec.VesselName ?? "(null)"));
+                        rec.VesselName ?? "(null)",
+                        VesselSpawner.IsSettledAsKscRetirement(rec) ? "retired at KSC" : "abandoned"));
             }
         }
 

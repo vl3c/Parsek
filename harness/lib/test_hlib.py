@@ -9577,10 +9577,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "2026-09-08 (reading _1100, armed _1105 PASS, negative control _1106); "
             "stays operator because it rewinds and jumps a harvested docking fixture, "
             "the discipline's own reason, not a tag",
+        "BDOCK-2-second-dock-harvest.toml":
+            "operator because it is a FIXTURE PRODUCER (the bdock-second-dock-recorded "
+            "harvest), flown once on request and harvested; it claims no cell and owes "
+            "no human call, so it is not a tag",
         "CI-3-chain-rederive-readback.toml":
             "operator by the reading-run discipline (CI-2's host and reason): the D18 "
             "ghost-conversion-quicksave and chain-state-rederived cells, a rewind plus a "
             "mid-re-fly SaveGame/LoadGame round trip over a harvested docking fixture",
+        "CI-4-cross-tree-chain-pooled.toml":
+            "operator by the reading-run discipline (CI-3's host family and reason): the "
+            "D18 cross-tree-chain-linking cell, a rewind into the second-dock harvest "
+            "and a chains readback; no human call owed",
         # THE RE-FLY CONTINUATION PROGRAM (RF-1..RF-10, authored 2026-09-08 and 2026-09-09).
         # All eleven
         # are `operator` by the READING-RUN discipline and none owes a human call.
@@ -10647,20 +10655,26 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # (`2026-09-22_1951` rp2, `_1954` / `_1956` rp1) with identical
                        # facets, including the ghostChainNodes tripwire at 0.
                        "CI-3-chain-rederive-readback.toml",
+                       # CI-4: `structure` armed 2026-09-23 off its reading run
+                       # `2026-09-23_1830` (trees / committed 3, recordings 32, Dock 2 /
+                       # Undock 1 / JointBreak 15, terminals as measured, ghostChainNodes 0).
+                       "CI-4-cross-tree-chain-pooled.toml",
                        # EX-1: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-23_0000` (trees / committedTrees / recordings 1,
-                       # Landed 1). An expectedFail lane (subkind expectation), so a
-                       # structure red is NOT demoted: it stays PARSEK-FAIL.
+                       # Landed 1). The KSC retirement rewrite (2026-09-23, never
+                       # flown) keeps the same one-recording Landed tree.
                        "EX-1-ghost-extension-past-endut.toml",
                        # LF-1: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-22_2350` (trees / committedTrees / recordings 1,
                        # Landed 1, and the new vessel census: spawnedVessels 1,
-                       # vesselNames {Logi Cargo Rig: 1}).
+                       # vesselNames {Logi Cargo Rig: 1}); the subject moved to the
+                       # runway rover 2026-09-23 (census rover 1 + pad Rig 1, unflown).
                        "LF-1-loop-first-run-real.toml",
                        # LF-2: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-23_1551` (trees / committedTrees / recordings 1,
                        # Landed 1, spawnedVessels 1, vesselNames {Logi Cargo Rig: 1});
-                       # the pre-fix measurement `_1536` read spawnedVessels 0.
+                       # the pre-fix measurement `_1536` read spawnedVessels 0. Subject
+                       # moved to the runway rover 2026-09-23, like LF-1 (unflown).
                        "LF-2-loop-armed-rewind-first-run-real.toml",
                        # RF-1: `rewind` armed 2026-09-09 off TWO flights whose facets
                        # agreed across a DLL change - `2026-09-08_2146` (pre-#1658) and
@@ -22814,6 +22828,25 @@ class ListHandlesSourceSyncTests(unittest.TestCase):
                          self.consts["ExpectDigestKindMismatchReason"])
         self.assertEqual(hlib.LISTHANDLES_EXPECT_DIGEST_INVALID_REASON,
                          self.consts["ExpectDigestInvalidReason"])
+
+    def test_the_chain_log_line_prefix_and_tree_keys_are_byte_equal(self):
+        self.assertEqual(hlib.LISTHANDLES_CHAIN_LOG_PREFIX,
+                         self.consts["ChainLogLinePrefix"])
+        self.assertEqual(hlib.LISTHANDLES_CHAIN_TREES_KEY,
+                         self.consts["ChainTreesKeySuffix"])
+        self.assertEqual(hlib.LISTHANDLES_CHAIN_TREE_IDS_KEY,
+                         self.consts["ChainTreeIdsKeySuffix"])
+
+    def test_the_chain_log_line_writes_the_tree_keys_after_links(self):
+        """The field order a spec regex pins (`links=.. trees=.. treeIds=..`) is the
+        order the C# concatenates them in `ChainLogLines`' own body."""
+        head = re.search(r"\bstatic\s+List<string>\s+ChainLogLines\s*\(", self.code)
+        self.assertIsNotNone(head, "ChainLogLines declaration not found")
+        body = self.code[head.end():head.end() + 2000]
+        positions = [body.find(n) for n in ('" links="', "ChainTreesKeySuffix",
+                                            "ChainTreeIdsKeySuffix", '" tip="')]
+        self.assertTrue(all(p >= 0 for p in positions), positions)
+        self.assertEqual(sorted(positions), positions)
 
     def test_the_comment_strip_is_not_decorative(self):
         """Anti-vacuity: a synthetic source whose COMMENT names a fifth family and a

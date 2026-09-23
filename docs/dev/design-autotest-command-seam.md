@@ -1394,7 +1394,8 @@ signal that `count` exceeds what was enumerated - never a silent cut.
   (`activeTree.BackgroundMap.ContainsKey(newPid)`, ParsekFlight `TryConsumeStockActionIntent`).
 - `kind=chains count=<n> truncated=<b> evaluated=<b> digest=<hex8> [expected=<hex8>
   match=<b>] chain<i>pid=<claimed vessel pid> chain<i>links=<n> chain<i>tip=<TipRecordingId>
-  chain<i>spawnUT=<UT, "R"> chain<i>terminated=<b>` from `ParsekFlight.ActiveGhostChains`
+  chain<i>spawnUT=<UT, "R"> chain<i>terminated=<b> chain<i>trees=<n>
+  chain<i>treeIds=<id,id,...>` from `ParsekFlight.ActiveGhostChains`
   (the chains the flight scene KEEPS after `FilterAndGhostChains`: future spawn UT, not
   terminated - so `terminated` reads false on every member today and is carried for the
   day that filter changes), sorted by pid ascending, capped at 16. `evaluated` is
@@ -1403,7 +1404,12 @@ signal that `count` exceeds what was enumerated - never a silent cut.
   empty set" from "never derived one"; outside FLIGHT the answer is the empty,
   unevaluated one. `digest` is FNV-1a 32 over `pid|links|tip|spawnUT(R)|terminated;` per
   chain in pid order, covering EVERY chain (not only the enumerated ones); the empty set
-  is `811c9dc5`. It exists so the D18 `chain-state-rederived` readback can be compared
+  is `811c9dc5`; `trees` / `treeIds` (the DISTINCT tree ids among the chain's links,
+ordinal-sorted, comma-joined) are outside the digest, so a digest pinned before they existed
+still holds, and each enumerated chain also writes one Info line `listhandles chain index=<i>
+pid=.. links=.. trees=.. treeIds=.. tip=..` read out of the built payload, which is what the D18
+`cross-tree-chain-linking` lane (CI-4) pins: one chain pooled by pid from two committed trees.
+The digest exists so the D18 `chain-state-rederived` readback can be compared
   BY THE SEAM: a capture before `SaveGame` + `LoadGame` is labelled, and the capture
   after passes `expectDigest=${<label>.digest}`, so the answer's `match=` is the
   comparison and the Info line carries it into KSP.log. This family carries ONE

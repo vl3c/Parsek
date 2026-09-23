@@ -1135,6 +1135,23 @@ ACTION_CUT_CHUTES = "cut_chutes"                           # value = None
 # on the kRPC 0.5.4 Engine class (verified in the installed client source); the
 # module ACTIVATING is what the recorder reads, so no propellant need flow.
 ACTION_SET_ENGINES_ACTIVE = "set_engines_active"            # value = 1.0 on / 0.0 off
+# B-DOCK-2 (mission bdock_second_dock) vessel-handle actions. The runner keeps two
+# extra kRPC vessel handles beside the captured station:
+#   CAPTURE_HOME_VESSEL  stores the CURRENT active vessel as "home" (the docked
+#       combination, captured on the poll the dock completes).
+#   SWITCH_TO_HOME_VESSEL  `sc.active_vessel = home` - a plain kRPC switch, which
+#       bypasses the patched stock handler on purpose: no StockActionIntentMarker is
+#       armed, so no switch segment starts for home and no pre-switch dialog can
+#       spawn (a SECOND stock click with a segment session armed is Case A).
+#   CAPTURE_BG_SUBJECT  stores the CURRENT active vessel as the background subject
+#       (emitted while the stock-clicked subject is focused).
+#   BG_SUBJECT_SET_ENGINES_ACTIVE  every Engine on the captured subject ->
+#       `.active = (value != 0)`, performed while the subject is NOT the active
+#       vessel, so any event it produces is the background recorder's.
+ACTION_CAPTURE_HOME_VESSEL = "capture_home_vessel"            # value = None
+ACTION_SWITCH_TO_HOME_VESSEL = "switch_to_home_vessel"        # value = None
+ACTION_CAPTURE_BG_SUBJECT = "capture_bg_subject"              # value = None
+ACTION_BG_SUBJECT_SET_ENGINES_ACTIVE = "bg_subject_set_engines_active"  # value = 1.0 / 0.0
 
 # THE ACTIONS THAT NEED NO ACTIVE VESSEL, and the SINGLE authority on which those
 # are. `KrpcMissionControl.perform` resolves `sc.active_vessel` for the whole
@@ -16090,6 +16107,261 @@ def evaluate_bdock_assertions(frames, params: BDockParams,
                                 {"required": BDOCK_TERMINAL})
     return [station, station_sep, interceptor, interceptor_sep, docked,
             transfer, undocked]
+
+
+# ---------------------------------------------------------------------------
+# B-DOCK-2 phase state machine (mission bdock_second_dock: the D18 second-dock
+# harvest). Pure. A WRAPPER over bdock_decide, not a fork of it: the whole
+# Interceptor half (launch .. rendezvous .. match .. dock) is B-DOCK's own,
+# live-proven machine, delegated to frame by frame. Only two seams move:
+#
+#   START  The Station is not flown: it is the ACTIVE vessel of the recorded
+#          fixture the lane boots (bdock-recorded, the Station Kerbal X in orbit).
+#          PRELAUNCH captures it as the station handle and launches the third
+#          Kerbal X straight into B-DOCK's INT-LAUNCH, skipping every STATION-*
+#          phase and the mid-mission commit.
+#   END    B-DOCK's DOCK completion enters TRANSFER; the wrapper intercepts that
+#          frame (dropping the transfer action) and runs its own tail instead:
+#
+#   DOCK-SETTLE    disable the docking AP, capture the docked combination as
+#                  "home", dwell so Parsek's dock-merge handler has run.
+#   BG-SWITCH      a STOCK map "Switch To" click (seam SimulateStockSwitchClick)
+#                  on the background subject, a pre-existing vessel in the bubble.
+#                  For a vessel no committed tree matches, Parsek's consume site
+#                  starts a STANDALONE switch segment inside the active tree (no
+#                  parent, no branch point); a committed vessel of ANOTHER tree is
+#                  pre-switch Case C and the click is refused (todo
+#                  D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED).
+#   BG-EVENT       while the subject is focused: capture it, cut throttle, and
+#                  activate its engines (EngineIgnited, a ghosting trigger).
+#   BG-RETURN      a plain kRPC switch back to home, so the subject's recording
+#                  continues as a BACKGROUND recording of the tree.
+#   BG-BACKGROUND  deactivate the (now background) subject's engines through its
+#                  captured handle: EngineShutdown, recorded by the background
+#                  recorder when the subject is unpacked.
+#   SDOCK-TERMINAL done; the scenario's post-mission CommitTree commits the tree.
+#
+# THE BACKGROUND HALF DEGRADES, IT NEVER FAILS THE MISSION. A refused switch click
+# (subject unloaded, a dialog would spawn) or a missing subject skips straight to
+# SDOCK-TERMINAL with the refusal in the phase log, so the dock - the fixture's
+# primary payload - still commits. Whether the background claim landed is judged
+# from the produced save and KSP.log by the harvest spec, never by this machine.
+# ---------------------------------------------------------------------------
+
+SDOCK_DOCK_SETTLE = "DOCK-SETTLE"
+SDOCK_BG_SWITCH = "BG-SWITCH"
+SDOCK_BG_EVENT = "BG-EVENT"
+SDOCK_BG_RETURN = "BG-RETURN"
+SDOCK_BG_BACKGROUND = "BG-BACKGROUND"
+SDOCK_TERMINAL = "SDOCK-TERMINAL"
+SDOCK_TAIL_PHASES: Tuple[str, ...] = (
+    SDOCK_DOCK_SETTLE, SDOCK_BG_SWITCH, SDOCK_BG_EVENT, SDOCK_BG_RETURN,
+    SDOCK_BG_BACKGROUND, SDOCK_TERMINAL)
+# The seam tag of the switch click (folded into the wire command-id).
+SDOCK_SWITCH_TAG = "bgswitch"
+
+
+@dataclass(frozen=True)
+class SDockParams:
+    """B-DOCK-2 tuning: the wrapped B-DOCK params plus the tail's dwell windows
+    (GAME seconds at 1x; the tail never warps) and the background subject."""
+    bdock: BDockParams = field(default_factory=BDockParams)
+    # persistentId of the pre-existing vessel the tail stock-clicks. 0 disables
+    # the background half (DOCK-SETTLE goes straight to SDOCK-TERMINAL).
+    bg_subject_pid: int = 0
+    dock_settle_seconds: float = 10.0
+    bg_settle_seconds: float = 5.0
+    bg_event_hold_seconds: float = 5.0
+    bg_return_settle_seconds: float = 10.0
+    bg_background_hold_seconds: float = 10.0
+    # Per-tail-phase give-up (GAME s). A tail phase over it DEGRADES to
+    # SDOCK-TERMINAL (never a flake: the dock already happened).
+    bg_phase_timeout: float = 120.0
+
+
+def sdock_params_from_dict(params: Dict) -> SDockParams:
+    params = params or {}
+    return SDockParams(
+        bdock=bdock_params_from_dict(params),
+        bg_subject_pid=int(params.get("bgSubjectPid", 0)),
+        dock_settle_seconds=float(params.get("dockSettleSeconds", 10)),
+        bg_settle_seconds=float(params.get("bgSettleSeconds", 5)),
+        bg_event_hold_seconds=float(params.get("bgEventHoldSeconds", 5)),
+        bg_return_settle_seconds=float(params.get("bgReturnSettleSeconds", 10)),
+        bg_background_hold_seconds=float(params.get("bgBackgroundHoldSeconds", 10)),
+        bg_phase_timeout=float(params.get("bgPhaseTimeoutSeconds", 120)),
+    )
+
+
+@dataclass(frozen=True)
+class SDockState:
+    """B-DOCK-2 machine state. ``inner`` is the delegated B-DOCK state; the
+    top-level ``phase`` / ``verdict`` / ``done`` / ... mirror it while delegating
+    and are the wrapper's own in the tail (the fly loop reads and ``replace``s
+    these fields directly, so they must be real dataclass fields)."""
+    params: SDockParams
+    inner: BDockState
+    phase: str = BDOCK_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    phases_reached: Tuple[str, ...] = (BDOCK_PRELAUNCH,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+    # Tail evidence (read by the assertions and the phase log, never gating).
+    bg_switch_result: str = ""        # "" / "OK" / "ERROR" / "TIMEOUT" / "WRONG-VESSEL" / "BUDGET"
+    bg_event_emitted: bool = False
+    bg_background_emitted: bool = False
+
+
+def sdock_initial_state(params: SDockParams) -> SDockState:
+    return SDockState(params=params, inner=bdock_initial_state(params.bdock))
+
+
+def _sdock_mirror(state: SDockState, inner: BDockState) -> SDockState:
+    return replace(state, inner=inner, phase=inner.phase,
+                   phase_entry_ut=inner.phase_entry_ut,
+                   phases_reached=inner.phases_reached,
+                   verdict=inner.verdict, flake_phase=inner.flake_phase,
+                   flake_reason=inner.flake_reason,
+                   loss_reason=inner.loss_reason, done=inner.done)
+
+
+def _sdock_enter(state: SDockState, new_phase: str, ut: float,
+                 **fields) -> SDockState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(state, phase=new_phase, phase_entry_ut=entry,
+                   phases_reached=state.phases_reached + (new_phase,),
+                   done=(new_phase == SDOCK_TERMINAL), **fields)
+
+
+def _sdock_elapsed(state: SDockState, snapshot: TelemetrySnapshot) -> float:
+    if not _is_finite(snapshot.ut):
+        return 0.0
+    return snapshot.ut - state.phase_entry_ut
+
+
+def sdock_decide(state: SDockState,
+                 snapshot: TelemetrySnapshot) -> Tuple[SDockState, List[Action]]:
+    """Advance the B-DOCK-2 machine one frame; return (new_state, actions)."""
+    if state.done:
+        return state, []
+    p = state.params
+
+    # ---- START seam: the Station is the booted fixture's active vessel. ----
+    if state.phase == BDOCK_PRELAUNCH:
+        inner = _bdock_enter(state.inner, BDOCK_INT_LAUNCH, snapshot.ut)
+        return (_sdock_mirror(state, inner),
+                [Action(ACTION_CAPTURE_STATION),
+                 Action(ACTION_LAUNCH_VESSEL, text=p.bdock.craft_name)])
+
+    # ---- Delegated B-DOCK half. ----
+    if state.phase not in SDOCK_TAIL_PHASES:
+        inner, actions = bdock_decide(state.inner, snapshot)
+        if inner.phase == BDOCK_TRANSFER and not inner.done:
+            # END seam: B-DOCK entered TRANSFER on a corroborated dock. Keep its
+            # evidence (docked_confirmed), drop the transfer action, run the tail.
+            st = _sdock_mirror(state, inner)
+            st = _sdock_enter(st, SDOCK_DOCK_SETTLE, snapshot.ut)
+            return st, [Action(ACTION_MJ_DISABLE_DOCKING),
+                        Action(ACTION_CAPTURE_HOME_VESSEL)]
+        return _sdock_mirror(state, inner), actions
+
+    # ---- Tail. ----
+    over = _sdock_elapsed(state, snapshot) > p.bg_phase_timeout
+
+    if state.phase == SDOCK_DOCK_SETTLE:
+        if _sdock_elapsed(state, snapshot) < p.dock_settle_seconds:
+            return state, []
+        if p.bg_subject_pid <= 0:
+            return _sdock_enter(state, SDOCK_TERMINAL, snapshot.ut), []
+        return (_sdock_enter(state, SDOCK_BG_SWITCH, snapshot.ut),
+                [Action(ACTION_PARSEK_SEAM_COMMAND,
+                        seam_verb="SimulateStockSwitchClick",
+                        seam_args=(("site", "map"),
+                                   ("pid", str(int(p.bg_subject_pid)))),
+                        seam_tag=SDOCK_SWITCH_TAG)])
+
+    if state.phase == SDOCK_BG_SWITCH:
+        result = _seam_result(snapshot, SDOCK_SWITCH_TAG)
+        if result == "OK":
+            switched = _seam_payload(snapshot, SDOCK_SWITCH_TAG, "switched")
+            active = _seam_payload(snapshot, SDOCK_SWITCH_TAG, "activeVesselPid")
+            if switched == "true" and active == str(int(p.bg_subject_pid)):
+                return (_sdock_enter(state, SDOCK_BG_EVENT, snapshot.ut,
+                                     bg_switch_result="OK"), [])
+            return (_sdock_enter(state, SDOCK_TERMINAL, snapshot.ut,
+                                 bg_switch_result="WRONG-VESSEL"), [])
+        if result in ("ERROR", "TIMEOUT"):
+            return (_sdock_enter(state, SDOCK_TERMINAL, snapshot.ut,
+                                 bg_switch_result=result), [])
+        if over:
+            return (_sdock_enter(state, SDOCK_TERMINAL, snapshot.ut,
+                                 bg_switch_result="BUDGET"), [])
+        return state, []
+
+    if state.phase == SDOCK_BG_EVENT:
+        if not state.bg_event_emitted:
+            if _sdock_elapsed(state, snapshot) < p.bg_settle_seconds:
+                return state, []
+            # Capture FIRST, while the subject is certainly the active vessel.
+            return (replace(state, bg_event_emitted=True,
+                            phase_entry_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                            else state.phase_entry_ut)),
+                    [Action(ACTION_CAPTURE_BG_SUBJECT),
+                     Action(ACTION_CUT_THROTTLE, value=0.0),
+                     Action(ACTION_SET_ENGINES_ACTIVE, value=1.0)])
+        if _sdock_elapsed(state, snapshot) < p.bg_event_hold_seconds and not over:
+            return state, []
+        return (_sdock_enter(state, SDOCK_BG_RETURN, snapshot.ut),
+                [Action(ACTION_SWITCH_TO_HOME_VESSEL)])
+
+    if state.phase == SDOCK_BG_RETURN:
+        if _sdock_elapsed(state, snapshot) < p.bg_return_settle_seconds and not over:
+            return state, []
+        return (_sdock_enter(state, SDOCK_BG_BACKGROUND, snapshot.ut,
+                             bg_background_emitted=True),
+                [Action(ACTION_BG_SUBJECT_SET_ENGINES_ACTIVE, value=0.0)])
+
+    if state.phase == SDOCK_BG_BACKGROUND:
+        if _sdock_elapsed(state, snapshot) < p.bg_background_hold_seconds and not over:
+            return state, []
+        return _sdock_enter(state, SDOCK_TERMINAL, snapshot.ut), []
+
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   done=True), []
+
+
+def evaluate_sdock_assertions(frames, params: SDockParams, phases_reached=(),
+                              state=None) -> List[AssertionOutcome]:
+    """Three B-DOCK-2 driver-validity assertions, all about the DOCK (the
+    background half degrades by design and is judged off the produced save):
+
+    - ``reachedInterceptorOrbit``  INT-PHASING-ORBIT reached.
+    - ``interceptorSeparated``     INT-SEPARATE entered AND advanced past.
+    - ``docked``                   DOCK reached AND the inner docked_confirmed.
+    """
+    del frames, params
+    phases = tuple(phases_reached or ())
+    inner = getattr(state, "inner", None)
+    docked_ev = bool(getattr(inner, "docked_confirmed", False))
+
+    def _last():
+        return phases[-1] if phases else None
+
+    return [
+        AssertionOutcome("reachedInterceptorOrbit", BDOCK_INT_PHASING_ORBIT in phases,
+                         BDOCK_INT_PHASING_ORBIT if BDOCK_INT_PHASING_ORBIT in phases
+                         else _last(), {"required": BDOCK_INT_PHASING_ORBIT}),
+        AssertionOutcome("interceptorSeparated",
+                         (BDOCK_INT_SEPARATE in phases)
+                         and (BDOCK_INT_PHASING_ORBIT in phases),
+                         BDOCK_INT_SEPARATE if BDOCK_INT_SEPARATE in phases
+                         else _last(), {"required": BDOCK_INT_SEPARATE}),
+        AssertionOutcome("docked", (BDOCK_DOCK in phases) and docked_ev, docked_ev,
+                         {"required": BDOCK_DOCK}),
+    ]
 
 
 # ---------------------------------------------------------------------------

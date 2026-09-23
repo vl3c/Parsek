@@ -1982,6 +1982,15 @@ namespace Parsek
                     $"Spawn not needed for #{recIdx} \"{rec.VesselName}\""))
                     return;
 
+                // Operator ruling 2026-09-23: a flight that ended parked in the KSC
+                // exclusion zone is retired, never spawned (the Space Center used to spawn
+                // it with no exclusion check at all). After adoption, before any spawn
+                // route; the snapshot is re-hydrated first so the decision reads the same
+                // position the spawn would use (no-op when already loaded).
+                RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+                if (VesselSpawner.TryRetireEndedFlightAtKsc(rec, recIdx))
+                    return;
+
                 // At KSC, FlightGlobals.Vessels may be empty/null but
                 // HighLogic.CurrentGame.flightState.protoVessels is always available.
                 // RespawnVessel uses protoVessels directly - works in any scene.

@@ -33,6 +33,7 @@
 "b18-dres-pad" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X"]
 "bdock-forge-base" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X", "Logi Cargo Rig"]
 "bdock-recorded" = ["Kerbal X"]
+"bdock-second-dock-recorded" = ["Kerbal X"]
 "bdock-station-craft" = ["Kerbal X"]
 "bdock-station-pad" = ["Kerbal X"]
 "dres-orbit-recorded" = ["DD1 Duna Direct Probe", "Duna Rocket", "GS1 Auto-Chute Booster", "Kerbal X"]

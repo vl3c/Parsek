@@ -15,6 +15,159 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. OPEN for blocker 2 only]
+
+**STATUS 2026-09-23 (read this first; the original filing follows).**
+
+- ~~Blocker 1, no second tree~~: FIXED by #1780 (FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE,
+  closed there). `BDOCK-2-second-dock-harvest` flight 4, run `2026-09-23_1704` (PASS attempt 1),
+  recorded the third Kerbal X in its own tree `ac9641d6` with a single-parent dock onto the
+  Station (`parents=[8267c27c]`, target pid 3620499050). Harvested as the committed fixture
+  `bdock-second-dock-recorded` (3 trees, 30 recordings, 4 RPs, Dock 2).
+- ~~Blocker 3, `cross-tree-chain-linking`~~: RULED by the operator (2026-09-23): the pid-pooled
+  shape claims the cell. CLAIMED on `CI-4-cross-tree-chain-pooled` off the new per-chain tree
+  keys of `ListHandles kind=chains`: one chain, `pid=3620499050 links=2 trees=2
+  treeIds=8c677bba...,ac9641d6...` (reading `_1830`, armed `_1834`, negative control `_1836`).
+- **Blocker 2, `background-event-claims`: STILL OPEN.** The operator's three witnesses (a
+  fixture-literal pid and tree of a genuinely background-recorded vessel, not a split product; its
+  `Chain built:` line; a downstream effect) are absent from `_1704`. Its BG-SWITCH
+  `SimulateStockSwitchClick` on the Interceptor half (pid 1223410921) was refused
+  `gate=RefusedDialogPending reason=dialog-pending`: the boot's `Tree merge dialog: tree='Kerbal X',
+  recordings=12` (the restored docking tree) was shown at load and never answered, so no switch
+  and no background tail happened. Every `via BACKGROUND_EVENT` claim the walker logs on this
+  fixture (6 in tree 788554a9, 7 in 8c677bba, plus the new tree's debris) is a split product. NEXT:
+  answer the boot merge dialog (or discard) before the mission phase, then re-fly the harvest; the
+  Case C / lineage analysis in item 2 below still decides whether the click can produce a
+  genuinely background-recorded, non-lineage vessel at all.
+
+The original filing:
+
+PR-D was to harvest a save in which a THIRD Kerbal X docks to `bdock-recorded`'s Station in
+a NEW tree, and a genuinely background-recorded vessel carries a ghosting-trigger event,
+then author CI-4 on it for `cross-tree-chain-linking` and `background-event-claims`. The
+mission (`bdock_second_dock`, a wrapper over B-DOCK's own machine) flies: run
+`2026-09-22_2157` launched, rendezvoused and HARD-DOCKED to the Station (MISSION-OK, wall
+1,476 s). Three things stand between that and a fixture:
+
+1. **No second tree.** The launch records into the committed docking tree
+   (FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE, 2 of 2 flights). A SPACECENTER boot
+   would avoid the restore, but run `2026-09-22_2235` measured that an autopilot lane
+   cannot start there: `MISSION-CONNECT-TIMEOUT` (the kRPC server never answered at the
+   Space Center within the 30 s connect budget). NEXT: fix the product path, or harvest
+   from a derived source whose active vessel is not a committed tip (for example one of
+   the landed never-recorded `Kerbal X Debris` vessels) with the station captured by
+   orbit SMA (Station 709,675.644 m vs the Interceptor half 709,680.883 m, constant on
+   rails) - a fourth flight and a derived fixture, outside PR-D's budget.
+2. **`background-event-claims` has no honest producer here.** `GhostChainWalker.
+   ScanBackgroundEventClaims` claims a recording whose pid is outside the tree's root
+   lineage, and `BackgroundRecorder` records only `BackgroundMap` members. A vessel enters
+   that map through a split (a split product), a dock merge (lineage), a post-switch
+   start (a Launch branch point from `activeTree.ActiveRecordingId` captured at the
+   switch, so lineage - UNLESS the tree had no active recording at that moment, when
+   the recording is parentless), or a stock Switch-To STANDALONE segment
+   (`StartStandaloneContinuationSegment`: no parent, no branch point). But a stock click on a
+   vessel that a DIFFERENT committed tree matches, with a live recording, is pre-switch
+   Case C (`MapFocusObjectOnSelectPatch`, `C-loaded-separate-committed`: commit or
+   discard first), and an out-of-bubble one is Case B. Every vessel in Kerbin orbit in
+   `bdock-recorded` is a committed tip, so the stock-click route needs a vessel NO
+   committed tree matches, in the bubble at the dock. None exists in orbit. Run `_2157`
+   measured the click refused `dialog-required case=B-unloaded` (the FLIGHT boot unpacked
+   the Station and the undocked Interceptor half 5 m apart, the half took a 121 m SMA
+   bump and was 3.1 km away at the dock). Run `_2239` found the half loaded and the click
+   went through - but only because the active tree was itself the clone of the half's
+   committed tree (item 1), so there was no Case C: `route=committed-spawned-clone`, a
+   `VesselSwitchContinuation` segment under the half's own tip `4af6cfd7` (lineage, not
+   standalone). NEXT, two candidates: a never-recorded vessel
+   near the dock site (a launch made with auto-record off, or a pre-Parsek vessel), which
+   is a new fixture; or the non-stock switch path a player reaches with the `[` / `]`
+   keys (kRPC `active_vessel`, which arms no intent and so no Case C): switch away to a
+   vessel that never triggers, so the tree has no active recording, then to the loaded
+   committed subject and fire an engine, which starts a PARENTLESS post-switch recording
+   of it in the active tree. That second path needs the subject in the bubble at the
+   dock, which a FLIGHT boot of this fixture does not give (item 1's bump).
+3. **`cross-tree-chain-linking`'s witnesses cannot fire on a same-pid second dock.** The
+   two literals (`Cross-tree link: vessel=`, `MergeCrossTreeLinks: absorbed`) print only
+   in `MergeCrossTreeLinks`, which runs when a chain's TIP recording carries a pid OTHER
+   than the chain's origin and another chain claims that pid. A second dock onto the same
+   Station keeps pid 3620499050 (both KSP docks here kept the Station's pid and launch
+   guid `97813bb6...`), so its claim POOLS into the existing chain by pid in
+   `ComputeAllGhostChains` step 4 and the merge pass never runs. That pooled two-link
+   chain is what the unit test `CrossTree_TwoLinks_ChainsExtend` calls "PID-based
+   cross-tree linking" - so whether the pooled shape (with each link from a different
+   tree) may claim the cell is an OPERATOR RULING, not something a flight can settle.
+   The merge-pass shape needs the docked vessel to keep the ARRIVING craft's pid and that
+   pid to be claimed by another tree.
+## ~~KSC-PAD-END-OF-FLIGHT-RETIREMENT: a flight that ends parked in the KSC exclusion zone is over and never becomes a real vessel~~ [RULED 2026-09-23 (operator). DONE 2026-09-23 on branch `ksc-pad-retire`]
+
+**Ruling.** A recording whose vessel ENDS its flight parked in the KSC exclusion zone (the
+existing 50 m circles around the launch pad centre and the runway's west threshold, home
+world, non-EVA) has ended its flight and is RETIRED: it never turns into a real vessel in
+any scene (flight, Space Center, Tracking Station), and the ghost is not held for spawn
+retries. (1) Crew aboard are freed at the recording's EndUT as if recovered, with no
+recovery funds and no new ledger action. (2) The zone stays the two 50 m spots; a plane
+stopped mid-runway spawns normally. (3) Only the FINAL stop of the whole flight counts.
+
+**Before.** Only the flight path checked the zone: `VesselSpawner.CheckSpawnCollisions`
+blocked the spawn every frame (abandoning after 150), so the policy held the ghost for the
+5 s retry window, timed out and made one last refused attempt. The Space Center spawned the
+same vessel ON the pad with no check at all (LF-1 / LF-2 relied on it).
+
+**Fix.** One predicate, `SpawnCollisionDetector.DecideKscEndOfFlightRetirement` (non-EVA,
+effective terminal Landed / Splashed, home world, end position in a circle), a
+recording-level `VesselSpawner.EvaluateKscEndOfFlightRetirement` that reads the position the
+spawn would use, and `VesselSpawner.TryRetireEndedFlightAtKsc`, called by every end-of-recording
+spawn entry point after its adoption check: `SpawnOrRecoverIfTooClose` (flight standalone,
+Tracking Station hand-off, warp flush, held retry), `ParsekFlight.SpawnTreeLeaves`,
+`ParsekKSC.TrySpawnAtRecordingEnd`, `VesselGhoster.SpawnAtChainTip` / `TrySpawnBlockedChain`
+(the flight then closes the chain), and `ParsekPlaybackPolicy.HandlePlaybackCompleted`'s warp
+branch (no deferral, no warp hold). It settles the recording with `VesselSpawned` +
+`SpawnAbandoned` (pid 0; no new field) and logs `[Spawner] Spawn RETIRED for #N (Name): flight
+ended within KSC exclusion zone (pad|runway) - no vessel ...` once. The #170 block in
+`CheckSpawnCollisions` is removed (what could still reach it inside the zone is an orbit's
+sub-point, which the altitude-blind check wrongly blocked, and an un-finalized recording with
+no situation evidence). Crew: `KerbalsModule.PrePass` adds an in-memory closure at EndUT for
+the Aboard / Unknown rows of each `VesselSpawner.IsKscRetiredFinalFlight` recording (same
+final-segment notion, `GhostPlaybackLogic.IsFinalSpawnSegment`; a materialized or still-existing
+real counterpart is excluded). Tests: `KscPadRetirementTests`. Design: flight-recorder 13.1 /
+13.5, game-actions 9.3.
+
+**Review fix-ups (same branch).** (a) The time-jump chain-tip spawn
+(`TimeJumpManager.SpawnCrossedChainTips`) now treats a retired tip as settled: its key is
+returned for removal and `VesselGhoster.ReleaseChainRetiredAtKsc` removes the chain's map
+ghost (shared with the flight path); before, the retired chain stayed in the active set with
+its map / Tracking Station ghost. (b) The crew side reads the spawn side's position: a settled
+retirement is taken as is, and `EvaluateKscEndOfFlightRetirement` re-hydrates a dropped
+snapshot like the spawn gate (only when the endpoint is in a circle). (c) The crew side's
+live-counterpart probe is silent (`MaterializedSourceVesselExists(rec, logAdoptionRejection:
+false)`), so a relaunched craft no longer logs an adoption rejection per ledger walk.
+(d) Operator edge-case ruling "parked for a while, then moved: no conflict": a
+snapshot-sourced position must agree with the resolved trajectory endpoint (both in a circle)
+before the flight retires. (e) Not changed: the merge dialog (`MergeDialog.CanPersistVessel`)
+still counts a pad-ending leaf as spawnable, so it does not pre-announce the retirement; the
+recording is settled at EndUT.
+
+**Lanes (live-proven 2026-09-23).** EX-1 is now the retirement witness and no longer
+claims D18 `ghost-extension-past-endut` (so the stale-cleanup fix below keeps its unit cells
+but loses its live witness); LF-1 and LF-2 move their subject to `pad-runway-pair`'s runway
+rover (59.7 m from the runway threshold) through a spec-only focus road. Readings on DLL
+sha256 `3970c939...` (`0fea2d1df`): EX-1 `2026-09-23_1810`, LF-1 `_1812`, LF-2 `_1814`, each
+PASS attempt 1 with every token as written; EX-1 armed `_1820` PASS on the fix-up DLL sha256
+`756a9ce6...` (`746e6c48e`), negative control `_1822` red on exactly its one seed. LF-1 / LF-2
+were not re-flown on the fix-up DLL (the fix-ups do not touch a subject outside the zone).
+
+## D18-GHOST-EXTENSION-SINGLE-POINT-HOST: `ghost-extension-past-endut` has no host lane since the pad hold became a retirement [FILED 2026-09-23 with KSC-PAD-END-OF-FLIGHT-RETIREMENT. OPEN]
+
+The only non-chain paths that still hold a ghost past EndUT are a SINGLE-POINT recording whose
+endpoint overlaps a loaded vessel (no walkback is possible, so `CheckSpawnCollisions` reports
+blocked until `MaxCollisionBlocks`) and a spawn that fails outright (design 13.5). EX-1 rode
+the KSC exclusion-zone hold, which the ruling above removed, so the D18 cell is uncovered
+again (coverage 196 -> 195 of 250, D18 10 -> 9 of 12). Needed: a host where a one-point
+recording ends on top of a loaded vessel (an injected synthetic one-point recording parked on
+the focused vessel is the cheapest shape), asserting `Ghost held pending spawn retry`, the
+held-ghost keep line of the stale-cleanup fix, `Held ghost timed out ... held=5.[0-9]s` and
+`destroyed (held-spawn-timeout)`. That lane would also be the live witness of
+D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME again.
+
 ## ~~FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE: a launch made from FLIGHT inside the first 60 frames of a flight scene recorded INTO the tree of the vessel the scene opened on (a committed tree's restore clone), and the commit rewrote that committed tree~~ [FILED 2026-09-23 off the D18 PR-D harvest (#1768, runs `2026-09-22_2157` / `_2239`). FIXED 2026-09-23. Harness-reachable only; not reachable in stock play]
 
 **Root cause.** Not the committed-tree restore and not `DecideOnVesselSwitch` (in-scene
@@ -110,28 +263,128 @@ Option if #266's "keep the mission across a far switch" behavior is wanted: subs
 the new readiness gate. That revives a path that has effectively never run in play, so it
 needs its own design pass and a flight, not a one-line subscribe.
 
-## FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME: a tree refused for a fresh rollout stays in the pending slot for the rest of the flight [FILED 2026-09-23 from the #1780 review. OPEN; residue, not reachable after the arm gate]
+## ~~FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME: a tree refused for a fresh rollout stays in the pending slot for the rest of the flight~~ [FILED 2026-09-23 from the #1780 review. FIXED 2026-09-23 by operator ruling (discard the idle resumed seconds); every kept case is FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING]
 
-Two gaps remain after #1780 made the vessel-switch refusal durable:
+**The gaps** after #1780: (1) an outsider-chain vessel-switch stash (no active recording)
+has no revertible pre-transition, so the refused tree stayed `LimboVesselSwitch` and an F5
+then F9 would reinstall it on the launched craft; (2) any refused tree, from this path and
+from the quickload restore's fresh-rollout refusal that BDOCK-1 exercises, lingered as the
+pending tree until a later `StashPendingTree` overwrote it with only a Warn.
 
-1. **Outsider-chain stash.** When the stashed tree had no active recording (the previous
-   scene was already in outsider state), there is nothing to revert, so the refused tree
-   stays `LimboVesselSwitch` (logged `refused tree has no revertible pre-transition`). It
-   is protected in the refusing scene only; after F5 then F9 its isActive node reloads as
-   `LimboVesselSwitch` and the vessel-switch restore would reinstall it on the launched
-   craft. Reaching it needs an outsider-state tree plus a fresh rollout plus an armed
-   switch flag inside 60 frames, which the arm gate leaves with no known trigger.
-2. **Later stash overwrite.** Any refused tree (this path, and the quickload restore's
-   existing fresh-rollout refusal that BDOCK-1 exercises) lingers as the pending tree. A
-   later `StashPendingTree` overwrites the slot with only a Warn
-   (`overwriting existing pending tree`). The committed original survives in the
-   committed store (the restore is copy-on-write, `ArmCommittedTreeRestoreAttempt`), so
-   what an overwrite drops is the resumed seconds, but this was not traced end to end.
+**Ruling (operator, 2026-09-23): discard the parked tree's idle resumed seconds.**
+Committed history stays exactly as committed and nothing is re-committed. The ruling covers
+a few idle seconds, not everything the copy may hold: the #1782 review showed the copy can
+carry a flown switch segment or a long re-adopted continuation, so the discard is limited to
+copies whose post-load content is meaningless.
 
-The clean resolution is a product choice between re-committing the refused tree at the
-refusal (a flight-scene commit of a pending tree, with ledger and spawn effects) and
-discarding the resumed delta back to the committed original. Neither is settled by the
-design docs, so it is filed rather than guessed.
+**What was traced.** The refused tree is the copy-on-write clone
+`TryTakeCommittedTreeForSpawnedVesselRestore` made of a committed tree (same tree id, same
+recording ids, restore attempt armed), plus whatever was recorded after the load. The
+committed original stays in `committedTrees` because the clone's dirty committed-overlap
+recordings are never serialized (`SavePendingTreeNode` / `PlanActiveTreeSidecarSaves` skip
+them), so no isActive node detaches it on reload. The one exception is a clean (non-dirty)
+clone written as an isActive node and reloaded: `TryRestoreActiveTreeNode` then calls
+`RemoveCommittedTreeById`, and the pending tree is the ONLY holder of that history.
+BDOCK-1's refused tree is the same shape: after its mid-mission `CommitTree` the Update-loop
+committed-tree restore re-adopts the station as a clone of the just-committed tree, which is
+what its fallback merge dialog offered over committed-overlap recordings
+(BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG).
+
+**Fix.** Both refusal sites (`RestoreActiveTreeFromPending`'s fresh-rollout branch and
+`RestoreActiveTreeFromPendingForVesselSwitch`'s) call
+`ParsekFlight.DisposeFreshRolloutRefusedPendingTree` with the tree the coroutine captured.
+Its pure core `ClassifyFreshRolloutRefusedTree` discards only when all of these hold, checked
+in this order: the pending slot still holds exactly that tree (`ReferenceEquals`); no Re-Fly
+session or invocation owns it (`IsReFlySessionActiveForQuickloadDiscard`); no merge journal
+is active (as `MergeDiscard` refuses); a committed tree with its id is still in the
+committed store (`RecordingStore.FindCommittedTreeById`; tree ids are fresh Guids, so only a
+clone collides); and its post-load content is meaningless. That last test is the pure
+`RefusedResumedCopyTail.Evaluate(copy, committedOriginal)`: no branch point the committed
+tree lacks, no recording the committed tree lacks (a switch segment or any recording born
+after the load keeps the tree), and for every shared recording a tail past the committed
+recording's EndUT that `SwitchSegmentNoOpClassifier.IsNoOpResumeTail` calls a no-op (no
+meaningful part event, segment event, flag, in-window destruction, non-boring section or
+orbit change) with sampled points spanning at most 60 s. Recordings with nothing past the
+committed end are skipped, so debris destroyed in the original flight does not block it.
+
+The discard runs `MergeDiscard`'s whole-tree steps: `ParsekScenario.DiscardPendingTreeAndRecalculate`
+-> `RecordingStore.DiscardPendingTree` (committed-overlap sidecars and events kept, same-id
+event tails past the committed cutoffs purged, restore attempt cleared; its `TreeDiscardPurge`
+also runs `ClearJournalIfScopedToTree`). It then clears a `SwitchSegmentSession` whose
+`TreeId` is the discarded tree. Without that, `FindSegmentTreeForSession` would resolve the
+committed tree and a deferred merge dialog would come back on the next load. When the copy
+was already serialized it refreshes `persistent.sfs` only (the new
+`RecordingStore.RefreshPersistentSaveAfterDiscard`). `quicksave.sfs` is deliberately not
+refreshed, unlike `MergeDiscard`: this discard is automatic, and overwriting the player's
+quicksave with no player action would destroy their F5 point.
+
+The discard logs `Fresh-rollout refusal (<site>): discarding resumed copy of committed tree`
+with the tree id, state, `droppedSpan=<from>..<to> (<s>)`, `droppedPoints=<n>`, whether the
+restore attempt was armed, `serialized=` and the refused pid. A kept meaningful copy logs
+`keeping resumed copy of committed tree ... (reason=<gate>); not discarded, left pending`
+with its post-load span and points. The other keeps log their reason as well. So gap 1 is
+closed for idle resumed copies (discarded with or without a revertible pre-transition), and
+gap 2 cannot lose an idle resumed copy. Every kept tree still lingers, filed as
+FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING.
+
+**Mirror direction.** A legitimate vessel-switch restore and a quickload restore never reach
+the dispose call (it sits inside the fresh-rollout branch only). A quickload restore of a
+genuinely new tree is unchanged (no committed twin). Re-Fly adoption is unchanged (Re-Fly
+ownership keeps the tree, and a Re-Fly load is not a fresh rollout anyway). The merge
+dialog's Discard supplies the primitive reused here and is not modified.
+
+**Tests.** `FreshRolloutRefusedTreeDiscardTests` (27 cells: real committed store, staged
+sidecars and events, the real discard):
+- The predicate: idle seconds is a no-op with span and points. An unchanged clone with
+  destroyed committed debris is a no-op. A meaningful part event, a non-boring section, a
+  long idle continuation, a flown switch-segment recording and a new branch point each keep.
+- Discard side: an idle copy is discarded with the committed tree, recordings, points,
+  sidecars and pre-cutoff event untouched, the resumed event gone, and the span/points in
+  the log. An idle outsider-chain `LimboVesselSwitch` copy is discarded.
+- Keep side: a meaningful copy is kept pending with its files and the reason logged.
+- Session: a session bound to the tree is cleared, a session for another tree is left alone.
+- Serialized copy: persistent refreshed, quicksave not.
+- Other keeps: an active merge journal, a replaced slot, a genuinely new tree, a detached
+  committed copy and a Re-Fly-owned copy are each kept.
+- Save/load and stash: saving after the discard writes only the committed node and a reload
+  leaves no pending tree (control: without the discard the copy is written isActive). A
+  later stash no longer warns (control: over a kept tree it still does).
+- Source gates on both coroutines.
+
+Mutation check, each reds its cell:
+- Dropping the discard call.
+- Forcing the guard true, or forcing the no-op test true.
+- Removing the session clear, the slot guard, the journal guard or the persistent refresh.
+- Removing either coroutine's wiring.
+
+Unit-proven only (no flight). BDOCK-1's copy should classify idle, since its launch came
+0.8 s after the re-adoption, so the next BDOCK-1 flight should log the discard instead of
+`showing tree merge dialog (fallback)`.
+
+## FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING: a tree the fresh-rollout refusal keeps still lingers in the pending slot [FILED 2026-09-23 from the FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME fix. OPEN; mod-driven launches from FLIGHT only]
+
+The discard covers idle resumed committed copies only. Every other refused tree keeps
+today's behaviour: it stays pending as Limbo, a later `StashPendingTree` overwrites it with
+only the `overwriting existing pending tree` Warn (orphaning its sidecars), and an
+outsider-chain `LimboVesselSwitch` stash stays `LimboVesselSwitch` for the scene only
+(`refused tree has no revertible pre-transition`). The kept cases are:
+
+- **A genuinely new tree** (never committed). For example: a player recording launch A, then
+  a kRPC `launch_vessel` of B from FLIGHT. A stashes Limbo and the quickload restore refuses
+  B's fresh rollout. Logged `keeping pending tree ... not a discardable resumed copy; kept`.
+- **A resumed copy that recorded meaningful content after the load**: a flown switch
+  segment, a new branch, a burn, or more than 60 s of samples. Logged `keeping resumed copy
+  of committed tree ... left pending`. An overwrite drops that post-load content. The
+  committed original survives.
+- **A resumed copy whose committed original was detached on load**: a CLEAN clone, written as
+  an isActive node and reloaded through `TryRestoreActiveTreeNode` -> `RemoveCommittedTreeById`.
+  The pending tree is then the only holder of committed history, so an overwrite would drop
+  committed recordings. Not seen in any log: every observed refused copy was dirty, and
+  dirty committed-overlap trees are never serialized.
+
+Stock play cannot reach any of them (a stock launch leaves FLIGHT, which commits the tree
+first). The resolution is a product choice (commit at the refusal, keep through the next
+stash, or surface it for merge), not settled by the design docs.
 
 ## ~~D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME: the non-chain "held" ghost is destroyed by the engine's stale past-end cleanup in the very frame the policy holds it, so no ghost is ever visible past EndUT~~ [FILED 2026-09-23 from EX-1's reading run `2026-09-23_0000`. FIXED 2026-09-23 on branch `held-ghost-fix`; EX-1 is its live witness]
 
@@ -447,6 +700,10 @@ blind to a link-level change. And the family reads `ParsekFlight.ActiveGhostChai
 and which are not terminated: a terminated or past-spawn chain is outside both captures, so
 the readback says nothing about how those are re-derived (on bdock-recorded at rp1, 12 of
 the 13 evaluated chains are outside it).
+
+2026-09-23 (PR-D): each chain now also reports its links' distinct tree ids (`chain<i>trees` /
+`chain<i>treeIds` and a per-chain log line), deliberately OUTSIDE the digest so CI-3's pin holds;
+the digest's link-level blindness is unchanged.
 
 Fix direction: add each link's `recordingId` (and branch point id) to the canonical line,
 and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or a
@@ -3335,6 +3592,16 @@ answers the dialog, so neither path is measured.
 **Harness-side mitigation to evaluate, not taken here.** A `StopRecording` between the
 commit and INT-LAUNCH, the same answer the operator traps give for `InvokeRewindToLaunch`
 after a commit. Not done in this wave because it changes the lane's subject.
+
+**Update 2026-09-23 (FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME ruling).** The re-adopted
+station continuation is a copy-on-write clone of the just-committed tree, so the open question
+is answered by the discard ruling: the quickload restore's fresh-rollout refusal now discards
+such a copy when its post-load content is idle, and this one is re-adopted about 0.8 s before
+the launch, so it is expected to classify idle and be discarded (committed recordings and
+sidecars untouched) with no fallback merge dialog. Unit-proven only; the next BDOCK-1 flight
+is the live check, and it should land the no-dialog shape the spec header says it has never
+measured (no gating token depends on either shape). If it logs `keeping resumed copy of
+committed tree` instead, the dialog shape stays and the logged reason says why.
 
 **How the wave handled it.** BDOCK-1's count min was raised to 19 (attributed per
 type, every member produced before or apart from the stash) and the max kept at 20. The

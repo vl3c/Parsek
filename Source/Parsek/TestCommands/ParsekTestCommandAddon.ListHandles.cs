@@ -87,6 +87,9 @@ namespace Parsek.TestCommands
                 TestCommandListHandles.CountFromPayload(payload, kind),
                 TestCommandListHandles.TruncatedFromPayload(payload),
                 TestCommandListHandles.ChainsLogTail(payload, kind)));
+            List<string> chainLines = TestCommandListHandles.ChainLogLines(payload, kind);
+            for (int i = 0; i < chainLines.Count; i++)
+                ParsekLog.Info(Tag, chainLines[i]);
             SetExecResult("OK", payload, null);
         }
 
@@ -214,9 +217,20 @@ namespace Parsek.TestCommands
                     TipRecordingId = chain.TipRecordingId,
                     SpawnUt = chain.SpawnUT,
                     Terminated = chain.IsTerminated,
+                    LinkTreeIds = LinkTreeIds(chain),
                 });
             }
             return rows;
+        }
+
+        private static List<string> LinkTreeIds(GhostChain chain)
+        {
+            var ids = new List<string>();
+            if (chain.Links == null)
+                return ids;
+            for (int i = 0; i < chain.Links.Count; i++)
+                ids.Add(chain.Links[i].treeId);
+            return ids;
         }
 
         /// <summary>

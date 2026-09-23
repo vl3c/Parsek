@@ -10,30 +10,45 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
-- **Automated testing: a lane watches a spawn blocked at the launch pad.**
+- **Automated testing: a second-dock mission for the ghost-chain harvest.** The new autopilot
+  mission `bdock_second_dock` launches a third Kerbal X from the recorded docking save,
+  flies the existing station-interceptor rendezvous and docking, and then tries a stock
+  Switch-To click on a nearby vessel. Its first flights found that a launch made while a
+  committed recording is being resumed was recorded into that committed flight (fixed
+  since); on the fix, `BDOCK-2-second-dock-harvest` docked from a flight of its own and its
+  save became the new test save `bdock-second-dock-recorded`.
+- **Automated testing: a lane proves one ghost chain can join two separate flights.**
+  `CI-4-cross-tree-chain-pooled` rewinds the second-dock save to before the second docking
+  and reads the ghost chains back: the station is claimed by one chain whose two links come
+  from the two flights that docked to it, and the station turns into a ghost as expected.
+- **Automated testing: a lane watches a flight that ends on the launch pad retire.**
   `EX-1-ghost-extension-past-endut` records a pad probe, rewinds it to launch and replays it
-  from a rover on the runway. The pad refuses the vessel's spawn, and the lane checks that
-  the ghost stays for the 5 second retry window and is removed only when the hold times out.
-  It found that the ghost used to disappear at once (fixed, see Fixed below), was marked as an
-  expected failure until then, and now counts toward the ghost-extension coverage cell for
-  the pad exclusion-zone hold. Its host save, `pad-runway-pair`, is built by a script from two
-  existing test saves.
+  from a rover on the runway. Since the pad retirement rule (see Changed below) the lane
+  checks that the recording is retired at its end: no vessel, no ghost hold, no retries.
+  Before that rule it watched the 5 second hold the pad used to cause, and found that the
+  ghost used to disappear at once (fixed, see Fixed below). It no longer counts toward the
+  ghost-extension coverage cell. Its host save, `pad-runway-pair`, is built by a script from
+  two existing test saves.
 - **Automated testing: a lane proves a looped recording leaves exactly one real vessel.**
-  `LF-1-loop-first-run-real` records a pad probe in the run, rewinds it to launch (which removes
+  `LF-1-loop-first-run-real` records a vessel in the run, rewinds it to launch (which removes
   the vessel), lets the Space Center clock pass the recording's end so the vessel comes back
   exactly once, then loops the mission three times. The recording keeps the same spawned vessel
   id at every stage, and the produced save holds one vessel of that name. The save-parse verifier
-  gains a vessel census for this (`spawnedVessels`, `vesselNames`).
+  gains a vessel census for this (`spawnedVessels`, `vesselNames`). Its subject is now the
+  rover parked beside the runway in `pad-runway-pair`, because a flight that ends on the pad
+  itself is retired.
 - **Automated testing: a lane rewinds a mission while its loop is on.**
   `LF-2-loop-armed-rewind-first-run-real` turns the mission loop on first, runs three loops,
-  then rewinds to launch twice. The first rewind is reloaded into flight, where the spawn is
-  asked for and (as for any vessel on the launch pad in flight) held back by the pad's safety
-  zone; the second lets the Space Center clock pass the recording's end, and the vessel comes
-  back exactly once and keeps its id through a reload and two more loops. Before the fix the
-  same lane ended with no vessel at all.
+  then rewinds to launch twice. The first rewind is reloaded into flight, where the first run's
+  vessel comes back in flight; the second lets the Space Center clock pass the recording's end,
+  and the vessel comes back exactly once and keeps its id through a reload and two more loops.
+  Before the fix the same lane ended with no vessel at all. Like LF-1, it now records the
+  runway rover rather than a vessel on the pad.
 - **Automated testing: the command seam can read back the flight scene's ghost chains.**
   `ListHandles kind=chains` lists each derived chain (claimed vessel pid, link count, tip
-  recording, spawn UT, terminated flag) in pid order, plus `evaluated=` (whether this
+  recording, spawn UT, terminated flag, and how many distinct committed trees its links
+  come from with their ids, also written as one log line per chain) in pid order, plus
+  `evaluated=` (whether this
   flight scene derived its chains at all) and a stable `digest=` over the whole set. An
   optional `expectDigest=` compares the set against an earlier capture and answers
   `match=`, so a lane can prove the chains a new scene derives after a save and reload
@@ -871,6 +886,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A launch Parsek refuses to attach to a resumed committed tree no longer leaves an idle
+  copy of that tree parked behind it.** When a craft is launched from flight (by a mod such as
+  kRPC; stock KSP always launches through the editor or the Space Center) and Parsek declines
+  to record it into the tree of the vessel the scene opened on, that tree was left waiting as
+  an unfinished stash: the already-committed history plus whatever Parsek had recorded since
+  resuming it after the load. It could then surface as a merge dialog offering to re-commit
+  recordings that were already committed, a later stash replaced it with only a log warning,
+  and one shape of it could be put back on the launched craft after a quicksave and quickload.
+  Now, when that copy recorded nothing meaningful after the load (the vessel just sat or
+  coasted for up to a minute: no staging, docking, burn, new branch or new recording), it is
+  discarded on the spot, as the merge dialog's Discard would do. The committed mission and its
+  files are kept as they were, and only those idle seconds go. A copy that did record
+  something meaningful, and a tree that was never committed, are kept as before.
 - **KSC building destructions and repairs are now part of the career history.** A building
   repaired at the Space Center never became a ledger action: Parsek recorded it only at the
   next scene change, with no cost and no owner, so nothing kept it. A building knocked down
@@ -932,8 +960,8 @@ _(unreleased — entries accumulate here per commit)_
   any other recording. A chain with one looped phase still never spawns its final vessel
   (an open question, not changed here).
 - **A ghost whose vessel cannot spawn yet now stays visible while Parsek retries.** When a
-  recording ended inside the launch pad or runway exclusion zone, or its spawn failed,
-  Parsek logged that it would keep the ghost at its final position for the 5 second retry
+  recording's spawn could not settle at once (a one-point recording on an occupied spot, or
+  a spawn that failed), Parsek logged that it would keep the ghost at its final position for the 5 second retry
   window, but the playback engine had already removed the ghost in the same frame: its
   past-end cleanup ran before the spawn policy had heard that the recording finished, so it
   saw a ghost nobody was holding. The cleanup for a slot that has just finished now waits
@@ -1058,6 +1086,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **A flight that ends parked on the launch pad or the runway start is over: it never
+  becomes a real vessel.** If the last stop of a recorded flight is inside the 50 m safety
+  circle around the launch pad or the runway's west end on Kerbin, Parsek now treats the
+  flight as finished there. No vessel appears for it at the end of its recording, in flight,
+  at the Space Center or in the Tracking Station, and in flight the ghost simply ends instead
+  of lingering for 5 seconds while Parsek retried a spawn the pad always refused. (The Space
+  Center used to place such a vessel on the pad anyway.) The kerbals aboard are free again
+  from the moment the recording ends, as if the vessel had been recovered, with no recovery
+  funds and nothing new added to the career record. Only the final stop counts: a vessel that
+  sat on the pad and then drove or flew somewhere else, in the same recording or a later
+  segment, is unaffected (even if its saved vessel state still shows it on the pad), and so is
+  a plane that stops halfway down the runway. This also applies when a time jump carries the
+  clock past the end of such a flight. A vessel that
+  still physically exists in your save (for example because you never left it) is kept as it
+  is. Rewinding to before the end brings the rule back into play the next time the clock
+  passes it.
 - **The Career window shows dates, says what the recorded timeline does to each row, and
   only draws the tabs a game mode has.** Every Universal Time cell (banner, Accepted,
   Deadline, Activated, Credited) is now the compact KSP date the Kerbals and Timeline windows
