@@ -180,8 +180,21 @@ namespace Parsek
         private readonly List<GhostLifecycleEvent> deferredSpawnPendingEvents = new List<GhostLifecycleEvent>();
         // Stale past-end cleanups postponed until the slot's completion event has reached the
         // policy (run in the same frame, right after FireDeferredFrameEvents). Reused per frame.
-        private readonly List<PlaybackCompletedEvent> staleCleanupsAwaitingCompletionDelivery =
-            new List<PlaybackCompletedEvent>();
+        private readonly List<DeferredStaleCleanup> staleCleanupsAwaitingCompletionDelivery =
+            new List<DeferredStaleCleanup>();
+
+        /// <summary>
+        /// One postponed stale cleanup. The chain inputs are the ones the loop computed for the
+        /// slot, so the chain bridge-hold decision sees the same continuation state it would
+        /// have seen in the loop (a continuation spawned later in the same loop pass must not
+        /// release the head a frame early).
+        /// </summary>
+        private struct DeferredStaleCleanup
+        {
+            public PlaybackCompletedEvent Completion;
+            public int ChainNextIndex;
+            public bool ContinuationHasActiveGhost;
+        }
 
         // Dedup: prevent completed events from firing every frame for past-end recordings.
         // Rewind safety: DestroyAllGhosts() clears this set, and rewind always calls
@@ -1473,7 +1486,9 @@ namespace Parsek
             FireDeferredFrameEvents(out int createdEventsFired, out int completedEventsFired);
 
             // The policy has now seen this frame's completions (and held, destroyed or left
-            // each ghost), so the stale cleanups the loop postponed can be decided.
+            // each ghost), so the stale cleanups the loop postponed can be decided. Like the
+            // policy's own destroys during delivery, these land after the frame summary and
+            // the iteration trace above, so those report the ghost alive this frame.
             RunStalePastEndCleanupsAfterCompletionDelivery(ctx.currentUT);
 
             // Observability capture is measured as a phase and is now inside the updateStopwatch
@@ -3757,7 +3772,12 @@ namespace Parsek
                 completionPendingDelivery: pendingCompletion != null);
             if (staleDecision == StalePastEndCleanupDecision.DeferUntilCompletionDelivered)
             {
-                staleCleanupsAwaitingCompletionDelivery.Add(pendingCompletion);
+                staleCleanupsAwaitingCompletionDelivery.Add(new DeferredStaleCleanup
+                {
+                    Completion = pendingCompletion,
+                    ChainNextIndex = chainNextIndex,
+                    ContinuationHasActiveGhost = continuationHasActiveGhost,
+                });
             }
             else if (staleDecision == StalePastEndCleanupDecision.Destroy)
             {
@@ -3797,7 +3817,8 @@ namespace Parsek
             int kept = 0, destroyed = 0, gone = 0;
             for (int k = 0; k < count; k++)
             {
-                PlaybackCompletedEvent evt = staleCleanupsAwaitingCompletionDelivery[k];
+                DeferredStaleCleanup deferred = staleCleanupsAwaitingCompletionDelivery[k];
+                PlaybackCompletedEvent evt = deferred.Completion;
                 int index = evt.Index;
                 GhostPlaybackState current;
                 bool sameState = ghostStates.TryGetValue(index, out current)
@@ -3816,13 +3837,8 @@ namespace Parsek
                         "Stale past-end cleanup after completion delivery: ghost #"
                         + index.ToString(CultureInfo.InvariantCulture)
                         + " \"" + name + "\" not held by the policy, cleaning up");
-                    int chainNextIndex = ResolveChainNextIndex != null
-                        ? ResolveChainNextIndex(index)
-                        : -1;
-                    bool continuationHasActiveGhost = chainNextIndex >= 0
-                        && HasActiveGhost(chainNextIndex);
                     RunStalePastEndCleanup(index, evt.Trajectory, evt.Flags, currentUT,
-                        chainNextIndex, continuationHasActiveGhost);
+                        deferred.ChainNextIndex, deferred.ContinuationHasActiveGhost);
                 }
                 else if (decision == StalePastEndCleanupDecision.KeepHeld)
                 {
@@ -7492,7 +7508,8 @@ namespace Parsek
         /// without the Unity-bound positioning around it.
         /// </summary>
         internal void RunPastEndFrameTailForTesting(int index, IPlaybackTrajectory traj,
-            TrajectoryPlaybackFlags flags, double currentUT, bool queueCompletion)
+            TrajectoryPlaybackFlags flags, double currentUT, bool queueCompletion,
+            GhostPlaybackState staleLoopStateOverride = null)
         {
             deferredCompletedEvents.Clear();
             deferredCreatedEvents.Clear();
@@ -7501,6 +7518,8 @@ namespace Parsek
 
             GhostPlaybackState state;
             ghostStates.TryGetValue(index, out state);
+            if (staleLoopStateOverride != null)
+                state = staleLoopStateOverride;
             if (queueCompletion)
                 QueuePastEndCompletedEvent(index, traj, flags, currentUT, state,
                     ghostActive: state != null, hasPointData: false);

@@ -59,8 +59,10 @@ behaves as before; a non-held slot whose completion is still queued
 destroyed or replaced its ghost (state reference check, which also covers an index shift
 during delivery), keeps it when the policy now holds it, and otherwise runs the unchanged
 stale cleanup (chain bridge-hold, else `stale past-end ghost (no longer held)`), so a ghost
-nobody holds is still cleaned up in the frame it completes and the chain-head timing is
-unchanged. The pure rule is `DecideStalePastEndCleanup` (held -> keep, pending -> defer, else
+nobody holds is still cleaned up in the frame it completes. Each deferred entry carries the
+chain inputs the LOOP computed for the slot (`ChainNextIndex`, `ContinuationHasActiveGhost`),
+so the bridge-hold decision sees what it saw before the fix and a continuation that gets its
+ghost later in the same pass cannot release the head a frame early (review finding on #1776). The pure rule is `DecideStalePastEndCleanup` (held -> keep, pending -> defer, else
 destroy). An unwatched completion the policy does not hold now ends
 `destroyed (playback completed)` (the policy's own destroy) instead of
 `stale past-end ghost (no longer held)`; S1.9 already accepts both reasons, and the other
@@ -69,10 +71,17 @@ lanes that mention the old reason do so in comments only. The policy's two hold 
 "ghost stays visible" only when the engine still has the ghost
 (`ParsekPlaybackPolicy.DescribeHeldGhostVisibility`). Unit cells:
 `StalePastEndCleanupDeferralTests` (pure decision; engine frame tail with a fake policy that
-holds / leaves / destroys; the mirror direction of an already-delivered stale ghost; the real
-policy's 5 s timeout destroying a held ghost). Mutation: forcing
-`completionPendingDelivery: false` in the loop step reds the hold cell and both post-pass
-cells. LIVE-PROVEN on EX-1: XPASS reading `2026-09-23_1510` (spec unchanged, still expectedFail), armed `2026-09-23_1514` PASS attempt 1, negative control `2026-09-23_1516` PARSEK-FAIL on exactly its one seeded forbidden token; automation DLL sha256 `85f91632...` (branch `held-ghost-fix`), IL of `ApplyStalePastEndCleanupStep` / `RunStalePastEndCleanupsAfterCompletionDelivery` read with ilspycmd. The collected log reads, in one frame,
+holds / leaves / destroys; the REAL `HandlePlaybackCompleted` holding a live ghost on a
+refused spawn; the parent-anchored shape where the ghost is gone before its completion is
+queued; the chain-head bridge decision using loop-time inputs; the mirror direction of an
+already-delivered stale ghost; the real policy's 5 s timeout destroying a held ghost). To run
+the real policy headless, `HandlePlaybackCompleted` reads Unity time and warp only through
+NoInlining cores (`CurrentHoldRealTime`, `CurrentWarpRate`, `IsAnyWarpActiveFromGlobalsCore`)
+and honours the existing `IsWarpActiveOverrideForTesting` / `SpawnVesselOrChainTipOverrideForTesting`
+seams; production reads the same clock and warp as before. Mutations: forcing
+`completionPendingDelivery: false` in the loop step reds the fake-policy hold cell, the
+real-policy cell and the three post-pass cells; recomputing the chain inputs after delivery
+reds the chain-head cell. LIVE-PROVEN on EX-1: XPASS reading `2026-09-23_1510` (spec unchanged, still expectedFail), armed `2026-09-23_1514` PASS attempt 1, negative control `2026-09-23_1516` PARSEK-FAIL on exactly its one seeded forbidden token; automation DLL sha256 `85f91632...` (branch `held-ghost-fix`), IL of `ApplyStalePastEndCleanupStep` / `RunStalePastEndCleanupsAfterCompletionDelivery` read with ilspycmd. The collected log reads, in one frame,
 `PlaybackCompleted ... ghostWasActive=True`, `Spawn blocked ... KSC exclusion zone`,
 `Ghost held pending spawn retry ... ghost stays visible`, `Stale past-end cleanup after
 completion delivery: ghost #0 "Logi Cargo Rig" kept (held by the policy)`, then 5.0 s later
@@ -83,6 +92,20 @@ pre-fix armed log `2026-09-23_0010` misses the two new required tokens and hits 
 forbidden stale-destroy form.
 
 **Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions.
+
+## HELD-GHOST-SECOND-COMPLETION-AFTER-RELEASE: a past-end slot re-fires its completion (and one more spawn attempt) the frame after any destroy [FILED 2026-09-23 from the #1776 review. OPEN; pre-existing behaviour, low priority]
+
+`GhostPlaybackEngine.DestroyGhost` removes the slot from `completedEventFired`, so once a
+past-end ghost is destroyed (the policy's `playback completed`, or `held-spawn-timeout` after
+a hold) the next frame's past-end check fires `PlaybackCompleted` again with
+`ghostWasActive=False`, and the policy makes one more spawn attempt (EX-1's log shows it
+right after the timeout: `PlaybackCompleted ... ghostWasActive=False` then `Spawn blocked
+... (block=7/150)`). This predates the held-ghost fix; what the fix changed is WHEN it
+happens after a hold (after the 5 s timeout instead of the frame after completion). So a
+blocker that clears inside the hold window is now spawned by the retry, and one that clears
+just after the timeout gets that one late attempt. Question: should `DestroyGhost` keep the
+completion mark for a slot that is still past end (the dedup the comment on
+`completedEventFired` describes), or is the extra attempt wanted? Not driven by a lane.
 
 ## EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an expectedFail key matches on the PARSEK-FAIL subkind only, so a quarantine for one log-contract defect absorbs any other log-contract red [FILED 2026-09-23 from the #1772 review. OPEN; harness, small]
 

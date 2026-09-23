@@ -247,6 +247,88 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("destroyed (held-spawn-timeout)"));
         }
 
+        [Fact]
+        public void RealPolicy_BlockedSpawnOnDelivery_HoldsTheLiveGhost()
+        {
+            // The regression itself, end to end headless: the completion reaches the REAL
+            // HandlePlaybackCompleted, the spawn is refused, the policy holds, and the ghost
+            // is still there (and the hold line says so).
+            var rec = MakeRecording("rec-held-delivery");
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            int index = -1;
+            for (int k = 0; k < RecordingStore.CommittedRecordings.Count; k++)
+                if (ReferenceEquals(RecordingStore.CommittedRecordings[k], rec)) index = k;
+            Assert.True(index >= 0);
+
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            typeof(ParsekFlight).GetField("watchMode",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(host, new WatchModeController(host));
+            var engine = MakeEngine();
+            int spawnAttempts = 0;
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                IsWarpActiveOverrideForTesting = () => false,
+                CurrentRealTimeOverrideForTesting = () => 30f,
+                SpawnVesselOrChainTipOverrideForTesting = (recording, i) => spawnAttempts++, // refused
+            };
+            engine.ghostStates[index] = new GhostPlaybackState { vesselName = rec.VesselName };
+
+            engine.RunPastEndFrameTailForTesting(index, rec, MakeFlags(rec), 101.0, queueCompletion: true);
+
+            Assert.Equal(1, spawnAttempts);
+            Assert.True(policy.heldGhosts.ContainsKey(index));
+            Assert.Equal(30f, policy.heldGhosts[index].holdStartTime);
+            Assert.True(engine.HasGhost(index));
+            Assert.Contains(logLines, l => l.Contains("[Policy]")
+                && l.Contains("Ghost held pending spawn retry")
+                && l.Contains("ghost stays visible"));
+            Assert.DoesNotContain(logLines, l => l.Contains("no ghost to keep visible"));
+            Assert.DoesNotContain(logLines, l => l.Contains("stale past-end ghost (no longer held)"));
+        }
+
+        [Fact]
+        public void FrameTail_GhostDestroyedBeforeCompletionQueued_PostPassLeavesTheSlotAlone()
+        {
+            // Parent-anchored debris shape: the ghost is destroyed before its completion is
+            // queued, so the loop's state is stale. The post-pass must count it gone and
+            // must not open a chain bridge or destroy anything.
+            var rec = MakeRecording();
+            var engine = MakeEngine();
+            engine.IsGhostHeld = idx => false;
+            engine.ResolveChainNextIndex = idx => 1; // a continuation exists, not active
+            var staleState = new GhostPlaybackState { vesselName = rec.VesselName };
+
+            engine.RunPastEndFrameTailForTesting(0, rec, MakeFlags(rec), 101.0,
+                queueCompletion: true, staleLoopStateOverride: staleState);
+
+            Assert.False(engine.HasGhost(0));
+            Assert.Contains(logLines, l => l.Contains("alreadyGone=1") && l.Contains("destroyed=0"));
+            Assert.DoesNotContain(logLines, l => l.Contains("chain-bridge-hold"));
+            Assert.DoesNotContain(logLines, l => l.Contains(" destroyed ("));
+        }
+
+        [Fact]
+        public void FrameTail_ChainHead_BridgeDecisionUsesTheLoopTimeContinuationState()
+        {
+            // A mid-chain head the policy leaves alive: the bridge-hold decision must use the
+            // continuation state the LOOP saw (so the head keeps the same-frame timing it had
+            // before the fix), not a post-loop recomputation. The resolver answers differently
+            // after delivery; only the loop-time answer (continuation #1, inactive) bridge-holds.
+            var rec = MakeRecording();
+            var engine = MakeEngine();
+            engine.ghostStates[0] = new GhostPlaybackState { vesselName = rec.VesselName };
+            engine.IsGhostHeld = idx => false;
+            bool delivered = false;
+            engine.ResolveChainNextIndex = idx => (idx == 0 && !delivered) ? 1 : -1;
+            engine.OnPlaybackCompleted += evt => delivered = true;
+
+            engine.RunPastEndFrameTailForTesting(0, rec, MakeFlags(rec), 101.0, queueCompletion: true);
+
+            Assert.True(engine.HasGhost(0));
+            Assert.Contains(logLines, l => l.Contains("chain-bridge-hold: waiting for continuation slot #1"));
+        }
+
         // ---- policy log honesty ----
 
         [Fact]

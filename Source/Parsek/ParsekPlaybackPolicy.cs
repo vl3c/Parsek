@@ -603,7 +603,7 @@ namespace Parsek
                             else
                             {
                                 float deferredHoldSeconds = DeferredWatchTransferHoldSeconds;
-                                host.StartWatchHoldFromPolicy(Time.time + deferredHoldSeconds);
+                                host.StartWatchHoldFromPolicy(CurrentHoldRealTime() + deferredHoldSeconds);
                                 ParsekLog.Info("Policy",
                                     $"Mid-chain watch transfer deferred: #{evt.Index} → #{nextTarget} " +
                                     $"target ghost not active yet, retrying for {deferredHoldSeconds:F0}s");
@@ -616,7 +616,7 @@ namespace Parsek
                             // Without this, the camera stays stuck on the stale ghost position
                             // indefinitely (no retry mechanism, no hold timer).
                             float holdSeconds = DeferredWatchTransferHoldSeconds;
-                            host.StartWatchHoldFromPolicy(Time.time + holdSeconds);
+                            host.StartWatchHoldFromPolicy(CurrentHoldRealTime() + holdSeconds);
                             ParsekLog.Info("Policy",
                                 $"Mid-chain watch hold started for #{evt.Index}: " +
                                 $"next chain ghost not spawned yet, retrying for {holdSeconds:F0}s");
@@ -630,7 +630,9 @@ namespace Parsek
             bool spawned = false;
             if (evt.Flags.needsSpawn && evt.PastEffectiveEnd)
             {
-                bool isWarp = GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
+                bool isWarp = IsWarpActiveOverrideForTesting != null
+                    ? IsWarpActiveOverrideForTesting()
+                    : IsAnyWarpActiveFromGlobalsCore();
                 if (isWarp)
                 {
                     pendingSpawnRecordingIds.Add(evt.Flags.recordingId);
@@ -645,7 +647,7 @@ namespace Parsek
                     {
                         heldGhosts[evt.Index] = new HeldGhostInfo
                         {
-                            holdStartTime = Time.time,
+                            holdStartTime = CurrentHoldRealTime(),
                             recordingId = evt.Flags.recordingId,
                             vesselName = evt.Trajectory?.VesselName,
                         };
@@ -667,7 +669,10 @@ namespace Parsek
                         if (isWatched)
                             host.ExitWatchModeFromPolicy();
 
-                        host.SpawnVesselOrChainTipFromPolicy(committed[evt.Index], evt.Index);
+                        if (SpawnVesselOrChainTipOverrideForTesting != null)
+                            SpawnVesselOrChainTipOverrideForTesting(committed[evt.Index], evt.Index);
+                        else
+                            host.SpawnVesselOrChainTipFromPolicy(committed[evt.Index], evt.Index);
 
                         // Check if spawn actually succeeded
                         spawned = committed[evt.Index].VesselSpawned;
@@ -686,7 +691,7 @@ namespace Parsek
                             DiagnosticsState.health.spawnFailures++;
                             heldGhosts[evt.Index] = new HeldGhostInfo
                             {
-                                holdStartTime = Time.time,
+                                holdStartTime = CurrentHoldRealTime(),
                                 recordingId = evt.Flags.recordingId,
                                 vesselName = evt.Trajectory?.VesselName,
                                 };
@@ -724,7 +729,7 @@ namespace Parsek
                             else
                             {
                                 float deferredHoldSeconds = DeferredWatchTransferHoldSeconds;
-                                host.StartWatchHoldFromPolicy(Time.time + deferredHoldSeconds);
+                                host.StartWatchHoldFromPolicy(CurrentHoldRealTime() + deferredHoldSeconds);
                                 ParsekLog.Info("Policy",
                                     $"Auto-follow on completion deferred: #{evt.Index} → #{nextTarget} " +
                                     $"target ghost not active yet, retrying for {deferredHoldSeconds:F0}s");
@@ -738,7 +743,7 @@ namespace Parsek
                     // so warp-rate changes do not expire the hold before the continuation can spawn.
                     float holdSeconds = evt.Trajectory?.TerminalStateValue == TerminalState.Destroyed
                         ? 5f : 3f;
-                    float holdStartedRealTime = Time.time;
+                    float holdStartedRealTime = CurrentHoldRealTime();
                     float holdUntilRealTime = holdStartedRealTime + holdSeconds;
                     float holdMaxRealTime = holdUntilRealTime;
                     string holdDetail = null;
@@ -760,7 +765,7 @@ namespace Parsek
                             holdStartedRealTime,
                             evt.CurrentUT,
                             pendingContinuationUT,
-                            TimeWarp.CurrentRate,
+                            CurrentWarpRate(),
                             out holdUntilRealTime,
                             out holdMaxRealTime);
                         float extendedHold = holdUntilRealTime - holdStartedRealTime;
@@ -778,7 +783,7 @@ namespace Parsek
 
                     // Trigger explosion if terminal was Destroyed
                     engine.TriggerExplosionIfDestroyed(evt.State, evt.Trajectory, evt.Index,
-                        TimeWarp.CurrentRate);
+                        CurrentWarpRate());
 
                     ParsekLog.Info("Policy",
                         $"Watch hold started for #{evt.Index}: {holdSeconds:F0}s " +
@@ -937,6 +942,29 @@ namespace Parsek
                     heldGhosts.Remove(index);
                 }
             }
+        }
+
+        // HandlePlaybackCompleted reads Unity time and warp only through these NoInlining
+        // cores, so the method itself JITs headless (a direct Unity ECall reference fails the
+        // whole method's JIT outside KSP) and its hold decision is unit-testable.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static float CurrentWarpRate()
+        {
+            return TimeWarp.CurrentRate;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool IsAnyWarpActiveFromGlobalsCore()
+        {
+            return GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
+        }
+
+        /// <summary>Real time stamped on a new hold; the same clock RetryHeldGhostSpawns reads.</summary>
+        private float CurrentHoldRealTime()
+        {
+            return CurrentRealTimeOverrideForTesting != null
+                ? CurrentRealTimeOverrideForTesting()
+                : CurrentUnityRealTime();
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
