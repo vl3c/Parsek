@@ -4,9 +4,10 @@ The fixture is DERIVED by `harness/tools/build_pad_runway_pair.py` from two comm
 fixtures (`logi-cargo-pad` as the base, `rover-route-recorded`'s `rover fuel 0` as the
 cloned second vessel), so a re-forge of either donor must re-run the builder. These
 cells turn that "must" into a red, and pin the three properties the EX-1 lane depends
-on: the subject sits at VESSEL index 1 with `activeVessel = 1` and the second vessel
-directly after it (so a Rewind-to-Launch strip of the subject leaves index 1 naming
-the second vessel), and the clone shares no identity with its donor.
+on: the runway rover sits at VESSEL index 0 (a save written at the Space Center carries
+`activeVessel = 0`, so the post-rewind reload focuses it), the subject at index 2 with
+`activeVessel = 2` (the fixture boots on the Rig), and the clone shares no identity
+with its donor.
 
 Stdlib only; ASCII only; no em dashes.
 """

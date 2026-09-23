@@ -50,6 +50,18 @@ still pending in `deferredCompletedEvents` this frame (or the policy's hold deci
 be made before the cleanup runs). A unit cell can drive the engine loop with a fake policy
 that holds on completion and assert the ghost survives the frame. EX-1 is the live witness.
 
+**Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions.
+
+## EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an expectedFail key matches on the PARSEK-FAIL subkind only, so a quarantine for one log-contract defect absorbs any other log-contract red [FILED 2026-09-23 from the #1772 review. OPEN; harness, small]
+
+`hlib.expected_fail_signature_matched` demotes a PARSEK-FAIL to EXPECTED-FAIL when its
+subkind equals `[expectedFail] subkind` (or on any subkind when none is named). For
+`subkind = "expectation"` that means every unrelated required-token miss or forbid hit in
+the same spec is also green. Fix direction: an optional `[expectedFail] mismatches = [...]`
+list of the exact mismatch strings (or token regexes) the bug produces; a run demotes only
+when its mismatch set equals that list, and anything extra stays PARSEK-FAIL. First consumer:
+`EX-1-ghost-extension-past-endut` (its two defect assertions).
+
 ## D18-GHOST-EXTENSION-DESIGN-VS-CODE: a vessel blocking a spawn never extends the ghost past EndUT on the non-chain path, so `ghost-extension-past-endut` exists only for the KSC exclusion zone and a failed spawn [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). OPEN; OPERATOR DESIGN QUESTION, not a defect]
 
 **What the design promises.** `docs/parsek-flight-recorder-design.md` section 13.2 routes
