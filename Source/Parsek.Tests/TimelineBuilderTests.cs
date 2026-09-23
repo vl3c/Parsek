@@ -679,6 +679,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void FacilityBuildingRows_TheirLegacyEventTwinsAreNotShownTwice()
+        {
+            const string building = "SpaceCenter/TrackingStation/Facility/OuterDish";
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 410.2, Type = GameActionType.FacilityDestruction,
+                    FacilityId = building, Effective = true },
+                new GameAction { UT = 422.2, Type = GameActionType.FacilityRepair,
+                    FacilityId = building, FacilityCost = 4000f, Effective = true },
+            };
+            var milestone = new Milestone
+            {
+                Committed = true,
+                Epoch = 0,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent { ut = 410.2, eventType = GameStateEventType.BuildingDestroyed, key = building },
+                    new GameStateEvent { ut = 422.2, eventType = GameStateEventType.BuildingRepaired, key = building, detail = "cost=4000" },
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(), actions, new List<Milestone> { milestone }, _ => true, Game.Modes.CAREER);
+
+            Assert.Equal(2, result.Count);
+            Assert.DoesNotContain(result, e => e.Source == TimelineSource.Legacy);
+        }
+
+        [Fact]
         public void FacilityBuildingRows_SeparateEvents_StaySeparate()
         {
             var actions = new List<GameAction>

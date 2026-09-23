@@ -663,6 +663,22 @@ namespace Parsek
                         action.UT,
                         action.ContractId);
 
+                // A KSC building's collapse / repair is captured as a BuildingDestroyed /
+                // BuildingRepaired event at the same UT and key as its ledger row, and the
+                // event is swept into a committed milestone like any other; the ledger row
+                // is the one the Timeline shows.
+                case GameActionType.FacilityDestruction:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.BuildingDestroyed,
+                        action.UT,
+                        action.FacilityId);
+
+                case GameActionType.FacilityRepair:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.BuildingRepaired,
+                        action.UT,
+                        action.FacilityId);
+
                 default:
                     return null;
             }
