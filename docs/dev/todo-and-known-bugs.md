@@ -67,7 +67,18 @@ first, and S4.1 flies the refusal itself (`InvokeRewind` REJECTED `refly-gate Th
 is in your future ...`, jump, `InvokeRewind` OK). RF-4's report-only window goes back to its
 derived `max = 0`. GS-7's comment and the roadmap item are corrected.
 
-**Live proof.** PENDING at the time of writing; recorded below when flown.
+**Live proof** (stock-minimal; fix DLL sha256 c603a16e, pre-fix DLL from origin/main
+`6a17f1717` sha256 c956179b):
+- GS-4 ARMED `2026-09-23_2012`: PASS attempt 1, saveParse `rewindPoints=1` (armed block
+  green), log `RewindPoints loaded: 0` then `RewindPoints carried across rewind: installed=1
+  loadedFromSave=0 restored=1 staleDropped=0`, the next load `RewindPoints loaded: 1`.
+- GS-4 NEGATIVE CONTROL `2026-09-23_2021`, same spec on the pre-fix DLL: PARSEK-FAIL on
+  exactly `rewind.rewindPoints 0 < min 1` and the missing carry-over token.
+- S4.1 `2026-09-23_2038`: PASS attempt 1; the first `InvokeRewind` REJECTED
+  (`CanInvoke: disabled rp=rp_b9_root ... rpUT=81.16 nowUT=21.68`), the TimeJump, then
+  the original invoke and merge as before. The gate is thus live-proven both ways.
+- NOT flown: S4.2-S4.4 (the same TimeJump S4.1 proves) and RF-4 (report-only window).
+- GS-7 re-read: see the defect paragraph; its comment is corrected.
 
 **Residue.** See RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT below for the other staged
 lists this fix does not carry. The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the

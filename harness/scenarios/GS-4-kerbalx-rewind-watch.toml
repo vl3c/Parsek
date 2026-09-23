@@ -406,8 +406,12 @@ requireBalanced = true
 # line says so: "this is NOT a Re-Fly"). rewindPoints {1,1}: the one RP, carried
 # across the rewind reload from memory (`RewindPoints carried across rewind:
 # installed=1`, required above). Before the fix every GS-4 reading read 0 here
-# (`_2204`, `2026-09-11_0102`); the arming flights are recorded in the todo entry
-# RP-SURVIVES-REWIND-TO-LAUNCH and in ARMED_ALLOWLIST.
+# (`_2204`, `2026-09-11_0102`). ARMED FLIGHT `2026-09-23_2012` on the fix DLL
+# (sha256 c603a16e): PASS attempt 1, saveParse rewindPoints=1, log `RewindPoints loaded: 0`
+# then `RewindPoints carried across rewind: installed=1 loadedFromSave=0 restored=1`.
+# NEGATIVE CONTROL `2026-09-23_2021`, same spec on the pre-fix DLL (origin/main
+# 6a17f1717, sha256 c956179b): PARSEK-FAIL on exactly `rewind.rewindPoints 0 < min 1`
+# and the missing carry-over token, nothing else.
 [expectations.rewind]
 gating        = true
 rewindPoints  = { min = 1, max = 1 }

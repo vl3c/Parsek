@@ -102,6 +102,10 @@ kind = "seam"
 # future ...`, required below). TimeJump 61 s puts the clock 1 s past the RP and still
 # ahead of both leaves' EndUTs (upper stage split+40 s, booster split+55 s), so nothing
 # materializes; the second InvokeRewind is the original step and must pass the gate.
+# FLOWN 2026-09-23 `2026-09-23_2038` (sha256 c603a16e): PASS attempt 1, the refusal logged
+# `CanInvoke: disabled rp=rp_b9_root ... rpUT=81.16 nowUT=21.68`, every milestone after it
+# as before. (`_2018` / `_2032` were pre-boot INVALID stage-inject-noop: a foreign
+# `tail -F` held the automation KSP.log, which the injector's lock probe refuses.)
 steps = [
   { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -241,6 +245,10 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # merge REAPS rp_b9_root, which was a genuine open question this run answered - but it
 # is NOT pinned here: one observation is not a window, and a reap count is exactly the
 # kind of reading that wants a second scenario (CL-2 stage B) before it gates.
+# RE-READ 2026-09-23 (`2026-09-23_2038`): rewindPoints 1, NOT reaped. The fixture's
+# booster slot has been CommittedProvisional since the collapse-seal change, and this
+# unflown re-fly writes no supersede row (`refused-unflown-provisional`), so slot 1's
+# effective tip stays open and the reaper keeps the RP by its rule. Still unpinned.
 [expectations.rewind]
 gating        = true
 supersedeRows = { max = 0 }
