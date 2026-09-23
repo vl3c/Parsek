@@ -10,6 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: two lanes cover what happens to dropped boosters.**
+  `GS-10-kerbalx-debris-ttl` flies the Kerbal X crash lane with the throttle held off from the
+  last booster drop, so the stack falls back beside its boosters and Parsek stops recording
+  them when their 60 second debris timer runs out; the lane checks that those recordings end
+  by the timer and keep their ending in the saved flight. `GS-11-kerbalx-debris-promotion`
+  switches to a just-dropped booster while its timer runs and checks that Parsek turns its
+  background recording into the active one. The second lane found two small problems, noted
+  for later: the switched-to booster still reports its timer running out, and its recorded
+  distance from the launch site is far too large.
 - **Automated testing: a lane collapses and repairs a Space Center building.**
   `KB-1-ksc-building-repair-ledger` knocks down the Tracking Station dish, saves and reloads
   while it is down, repairs it through the same call the Space Center menu makes, saves and
@@ -3740,6 +3749,18 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **Dev tooling: the fixture harvest clears rewind-save names inside rewind-point
+  quicksaves too.** `harness/tools/harvest_bdock_station.py` drops the saves that
+  Rewind-to-Launch uses (`Parsek/Saves/parsek_rw_*.sfs`) but cleared the names pointing at
+  them only in `persistent.sfs`, and only the `rewindSave` key. A rewind-point quicksave
+  embeds its own copy of Parsek's save data, so `bdock-second-dock-recorded` needed a hand
+  edit to clear `resumeRewindSave` and `rewindSave` in one of its quicksaves. The harvest
+  now clears every `<key> = parsek_rw_<id>` value in `persistent.sfs` and in every
+  file under `Parsek/RewindPoints`, keeping the keys and every other byte of those files. It
+  refuses before writing when a `parsek_rw_` name appears in any other form. A
+  re-harvest of that fixture's source save differs from the committed files only in the
+  line endings of the one quicksave that was edited by hand.
 
 - **Research: a structural study of `GhostMapPresence`.**
   `docs/dev/research/ghostmappresence-extraction-research-2026-09-22.md` inventories the

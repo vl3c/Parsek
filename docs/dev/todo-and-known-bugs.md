@@ -155,6 +155,42 @@ PASS attempt 1 with every token as written; EX-1 armed `_1820` PASS on the fix-u
 `756a9ce6...` (`746e6c48e`), negative control `_1822` red on exactly its one seed. LF-1 / LF-2
 were not re-flown on the fix-up DLL (the fix-ups do not touch a subject outside the zone).
 
+## D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: a promoted staging booster still has its debris TTL armed [FILED 2026-09-23 off GS-11. OPEN, low]
+
+Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the booster pid 2353949206
+was promoted to the FOREGROUND recorder at UT ~71.5 (`Promoted recording 'baa46b97...' from
+background`), and at UT 125.4 `BackgroundRecorder.CheckDebrisTTL` still printed `Debris TTL
+expired, ending recording: vesselPid=2353949206 expiry=125.4` for it. Cause:
+`ParsekFlight.PromoteRecordingFromBackground` calls
+`BackgroundRecorder.OnVesselRemovedFromBackground`, which drops the loaded / on-rails /
+finalization-cache state but NOT the `debrisTTLExpiry` entry; `EndDebrisRecording` then
+removes the entry and returns early because the pid is no longer in the BackgroundMap.
+Reproduced on the armed re-flight `_2004` (pid 4213212079, expiry 125.6). No data
+harm was measured (the promoted recording finalized with 271 points, `terminal=Destroyed`), but
+the log claims a TTL close that did not happen, a `Debris TTL expired` grep over-counts, and a
+promoted booster that is switched AWAY from again after expiry would never get a TTL.
+Fix: remove the pid from `debrisTTLExpiry` in `OnVesselRemovedFromBackground` (or on the
+promotion path only), and log it. GS-11's header names the line as expected; flip that note
+when fixed.
+
+## D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance [FILED 2026-09-23 off GS-11. OPEN]
+
+Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the promoted booster fell
+about 5 km from the pad, yet its death snapshot reads `Vessel was destroyed during recording.
+Distance from launch: 888198m, Max distance: 1205340m` and its finalize line
+`FinalizeTreeRecordings: rec='baa46b97...' vessel='Kerbal X Debris' ... maxDist=1205340m`
+(reproduced on `_2004`: `Max distance: 1206162m`).
+Its five unpromoted siblings read 4-5 km, through `BackfillMaxDistanceFromBodyFixedSurfaces`
+(`reference=relative-body-fixed-frames`). The shape is the CLAUDE.md RELATIVE-frame trap: the
+recording carries parent-anchored Relative sections whose `latitude/longitude/altitude` are
+anchor-local metres, and the foreground recorder's live distance bookkeeping appears to read
+them as body-fixed coordinates once the recording is promoted. Consumers of the distance
+(pad-failure / idle-on-pad classification, the recordings table) would see a wrong value. Not
+gated by GS-11 (report-only). Fix: find the promoted recorder's MaxDistanceFromLaunch source
+and route it through the body-fixed surface (or `TryResolveRelativeWorldPosition`); a headless
+test can build a parent-anchored debris recording with Relative sections, promote it, and
+assert the distance.
+
 ## D18-GHOST-EXTENSION-SINGLE-POINT-HOST: `ghost-extension-past-endut` has no host lane since the pad hold became a retirement [FILED 2026-09-23 with KSC-PAD-END-OF-FLIGHT-RETIREMENT. OPEN]
 
 The only non-chain paths that still hold a ghost past EndUT are a SINGLE-POINT recording whose
@@ -5091,6 +5127,17 @@ quicksaves KEEP theirs, deliberately: their bytes are the more load-bearing of t
 seven lanes now re-fly that fixture green, which is the evidence that the residual does not
 reach a FAIL there. The class docstring's old "tolerated residual" note is corrected rather
 than deleted - it said "a spec that adds one must re-check this", and this is that re-check.
+
+HARVEST SIDE CLOSED 2026-09-23. The fix above cleaned committed fixtures by hand, and the
+harvester still cleared only `rewindSave` in `persistent.sfs`, so the next harvest that
+produced a RewindPoint reproduced the gap: `bdock-second-dock-recorded` (PR #1768) needed
+the same hand edit to `rp_91b25a0c...sfs`. `harvest_bdock_station.py` now clears every
+`<key> = parsek_rw_<id>` value in `persistent.sfs` AND in every file under `Parsek/RewindPoints`
+(value-only, every other byte kept), and refuses before writing on a `parsek_rw_` name in any
+other shape. The product-side claim above re-checked on that run: its produced-save snapshot
+(`2026-09-23_1704_BDOCK-2-second-dock-harvest_save`) carries `Parsek/Saves/parsek_rw_456043.sfs`,
+the file that quicksave's two keys and `persistent.sfs` name, so the reference dangled only
+after the harvest pruned it.
 
 ## ~~RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT~~: the WARP half is CLOSED by the `WarpToUT` seam verb; what remains is a STRUCTURAL fact about `Landed`, not a missing instrument [FILED 2026-09-09 by RF-12's reading run 1; the warp half CLOSED 2026-09-09 by re-fly phase 4 and PROVEN by RF-12W's reading run 2. The residue is RE-SCOPED below and stays OPEN as a DECISION, not as work]
 
@@ -17225,7 +17272,21 @@ read before authoring.
 The token is now at `BackgroundRecorder.cs:1432` (cited as `:1307` above). Roadmap "Priority
 register (2026-09-11)" item C4; no decision needed.
 
-**Fix (D5, revised 2026-09-11).** The stability pair first; author GS-10 only on 2 of 2.
+~~**Fix (D5, revised 2026-09-11).** The stability pair first; author GS-10 only on 2 of 2.~~
+
+**DONE 2026-09-23 (priority register C4, branch `d5-debris`): both D5 cells CLAIMED.**
+- `staging-debris-ttl`: the kx machine gained the opt-in `impactCutAtLastBoosterDrop` (round 1's
+  cut as an explicit second key on `impactProfile`). Stability reading 2 of 2 on the uncommitted
+  variant: `2026-09-23_1941` and `_1947`, three `Debris TTL expired` closes each. GS-10 authored
+  and armed (`_1959` PASS, three closes again), negative control offline over `_1959`. The claim
+  token is one pid chain from `Debris expiry set` to the same recording finalized with the same
+  terminal; the terminal is a word class (`_1941` measured a booster already `Landed` at expiry).
+- `staging-debris-promotion`: the opt-in `promoteDebrisVesselName` switches kRPC's active vessel
+  to the nearest dropped booster and observes the recorder live again. GS-11's first flight
+  `_1953` produced `decision=PromoteTrackedRecording` and `Promoted recording` 54 s inside the
+  TTL; armed re-flight `_2004` PASS; negative control offline over both logs. It also produced two report-only
+  findings: D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED and D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME.
+- D5 is 11 of 12 (`dock-merge-same-tree` left); coverage 198 of 250.
 
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone
 claims against them.**

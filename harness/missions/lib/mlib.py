@@ -1152,6 +1152,13 @@ ACTION_CAPTURE_HOME_VESSEL = "capture_home_vessel"            # value = None
 ACTION_SWITCH_TO_HOME_VESSEL = "switch_to_home_vessel"        # value = None
 ACTION_CAPTURE_BG_SUBJECT = "capture_bg_subject"              # value = None
 ACTION_BG_SUBJECT_SET_ENGINES_ACTIVE = "bg_subject_set_engines_active"  # value = 1.0 / 0.0
+# kx_rewind_watch's debris-promotion opt-in (D5 `staging-debris-promotion`):
+# `sc.active_vessel = <nearest loaded vessel named `text`, other than the active
+# one>`. A plain kRPC switch - the same `FlightGlobals` switch the stock `[` / `]`
+# keys make - so Parsek sees an ordinary vessel switch to a background-recorded
+# member. NEAREST because every staging drop of a craft carries the same name and
+# the pair dropped on the previous frames is the one beside the active vessel.
+ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL = "switch_to_nearest_named_vessel"  # text = vessel name
 
 # THE ACTIONS THAT NEED NO ACTIVE VESSEL, and the SINGLE authority on which those
 # are. `KrpcMissionControl.perform` resolves `sc.active_vessel` for the whole
@@ -21540,6 +21547,14 @@ KXRW_RECORDER_IDLE = "RECORDER-IDLE"
 # module
 # still passes `PreFlightTests.NoControlSources`. See the header.
 KXRW_IMPACT_AUTORECORD_OFF = "IMPACT-AUTORECORD-OFF"
+# The debris-promotion opt-in (`promoteDebrisVesselName`, D5
+# `staging-debris-promotion`): switch to a just-dropped booster, OBSERVE the
+# recorder live again on it, then disarm the post-switch trigger so the crash's
+# own active-vessel hand-off promotes nothing else. See the section below the
+# impact-profile header.
+KXRW_PROMOTE_SWITCH = "PROMOTE-SWITCH"
+KXRW_PROMOTE_WAIT = "PROMOTE-WAIT"
+KXRW_PROMOTE_DISARM = "PROMOTE-DISARM"
 KXRW_IMPACT_COAST = "IMPACT-COAST"
 KXRW_IMPACT_SETTLE = "IMPACT-SETTLE"
 KXRW_SC_EXIT = "SC-EXIT"
@@ -21563,7 +21578,9 @@ KXRW_PHASES: Tuple[str, ...] = (
     KXRW_PART_SWEEP,
     KXRW_TREE_STATE, KXRW_COMMIT,
     KXRW_STOP, KXRW_RECORDER_IDLE,
-    KXRW_IMPACT_AUTORECORD_OFF, KXRW_IMPACT_COAST, KXRW_IMPACT_SETTLE,
+    KXRW_IMPACT_AUTORECORD_OFF,
+    KXRW_PROMOTE_SWITCH, KXRW_PROMOTE_WAIT, KXRW_PROMOTE_DISARM,
+    KXRW_IMPACT_COAST, KXRW_IMPACT_SETTLE,
     KXRW_SC_EXIT, KXRW_SC_COMMITTED,
     KXRW_TEMP_LAUNCH, KXRW_TEMP_READY,
     KXRW_REWIND, KXRW_SPACECENTER,
@@ -21584,7 +21601,9 @@ KXRW_PHASES: Tuple[str, ...] = (
 KXRW_FLIGHT_PHASES: Tuple[str, ...] = (
     KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE, KXRW_CORE_CUT,
     KXRW_CORE_DISCARD, KXRW_COAST, KXRW_COAST_EXIT, KXRW_PART_SWEEP,
-    KXRW_IMPACT_AUTORECORD_OFF, KXRW_IMPACT_COAST)
+    KXRW_IMPACT_AUTORECORD_OFF,
+    KXRW_PROMOTE_SWITCH, KXRW_PROMOTE_WAIT, KXRW_PROMOTE_DISARM,
+    KXRW_IMPACT_COAST)
 
 # The phases in which a `vessel_lost` snapshot is the EXPECTED reading rather
 # than a loss. From the frame InvokeRewindToLaunch is commanded (the scene tears
@@ -21654,6 +21673,18 @@ KXRW_TAG_SC_EXIT = "scexit"
 # silent no-op whose poll then expires as a TIMEOUT that reads like a wedged addon
 # - on the one step that stops the WATCHER launch authoring a second recording.
 KXRW_TAG_IMPACT_AUTORECORD = "impautorec"
+# The debris-promotion opt-in's post-promotion disarm (its own wire id, for the
+# duplicate-id reason above) and its RecordingState probe FAMILY prefix.
+KXRW_TAG_PROMOTE_DISARM = "promdisarm"
+KXRW_TAG_PROMOTE_PROBE = "promote"
+# The setting PROMOTE-DISARM turns off once the booster's recording is OBSERVED
+# live: `ParsekFlight.OnVesselSwitchComplete` arms the post-switch watcher off it,
+# and the crash that follows hands active-vessel to whatever survives - the
+# parent, a tracked background member the same watcher would promote next.
+KXRW_POST_SWITCH_SETTING = "autoRecordOnFirstModificationAfterSwitch"
+# Consecutive frames the active vessel must read the booster's name before the
+# switch counts as landed (the other launch gates' debounce).
+KXRW_PROMOTE_SWITCH_DEBOUNCE = 2
 # A tag FAMILY prefix, not a single tag: the WATCH phase can issue several
 # EnterWatchMode attempts (see below), and each needs its own wire id.
 KXRW_TAG_WATCH = "watch"
@@ -21687,6 +21718,29 @@ def kxrw_tree_probe_tag(probe: int) -> str:
     """Tag for TREE-STATE probe ``probe`` (``tree0``, ``tree1``, ...). Each probe
     issues the SAME verb, so each needs its OWN wire id."""
     return "tree%d" % int(probe)
+
+
+def kxrw_promote_probe_tag(probe: int) -> str:
+    """Tag for PROMOTE-WAIT probe ``probe`` (``promote0``, ...), one wire id per
+    probe for the same reason as ``kxrw_tree_probe_tag``."""
+    return "%s%d" % (KXRW_TAG_PROMOTE_PROBE, int(probe))
+
+
+def pick_nearest_named(candidates: Sequence[Tuple[str, float, bool]],
+                       name: str) -> Optional[int]:
+    """Index of the candidate ``(vessel_name, distance_m, is_active)`` that
+    ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL switches to: named exactly ``name``,
+    not the active vessel, with the smallest FINITE distance. None when there is
+    none. An unreadable (NaN) distance is never nearest - a vessel whose position
+    could not be read is not known to be beside the stack."""
+    best = None
+    best_d = float("inf")
+    for i, (n, d, is_active) in enumerate(candidates or ()):
+        if is_active or str(n) != str(name) or not _is_finite(d):
+            continue
+        if float(d) < best_d:
+            best, best_d = i, float(d)
+    return best
 
 
 def kxrw_watch_probe_tag(probe: int) -> str:
@@ -22147,6 +22201,40 @@ def kxrw_rewind_cycles_conflict(params: "KxrwParams") -> str:
     return ""
 
 
+def kxrw_close_cut_conflict(params: "KxrwParams") -> str:
+    """The reason ``impactCutAtLastBoosterDrop`` / ``promoteDebrisVesselName``
+    cannot be flown with the rest of this params set, or "" when they can.
+    Evaluated on the first decision frame beside the other opt-in predicates.
+
+    THE CLOSE CUT (D5 `staging-debris-ttl`) is a variant OF the impact profile:
+    it moves the profile's divergence from the core discard back to the LAST
+    booster drop (cut there, never throttle up), which is GS-7 round 1's shape -
+    the slow near-vertical fall that keeps the dropped boosters inside the physics
+    bubble past their 60 s debris TTL (`2026-09-08_1130` / `_1157_a2` / `_1302` /
+    `_1331_a2`, 4 of 4 archives printed `Debris TTL expired`). So it needs the
+    profile on, and a booster drop to cut at.
+
+    THE PROMOTION SWITCH needs the close cut: after the switch every kRPC control
+    command lands on the BOOSTER, so the parent must already be an unpowered stack
+    that needs no further command, which is exactly what the close cut leaves."""
+    close = bool(getattr(params, "impact_cut_at_last_booster_drop", False))
+    promote = str(getattr(params, "promote_debris_vessel_name", "") or "").strip()
+    if close and not getattr(params, "impact_profile", False):
+        return ("impactCutAtLastBoosterDrop requires impactProfile = true: it only "
+                "moves WHERE that profile stops powering the stack, and without the "
+                "profile's IMPACT phases nothing would commit the tree")
+    if close and int(params.booster_stage_count) < 1:
+        return ("impactCutAtLastBoosterDrop requires boosterStageCount >= 1 "
+                "(declared %d): with no booster drop there is nothing to cut at, "
+                "and ASCENT would fall through to the ordinary core gate"
+                % int(params.booster_stage_count))
+    if promote and not close:
+        return ("promoteDebrisVesselName requires impactCutAtLastBoosterDrop = true: "
+                "after the switch every control command lands on the booster, so "
+                "the parent must already be an unpowered falling stack")
+    return ""
+
+
 def kxrw_coast_exit_gate_met(altitude: float, situation: str,
                              min_altitude: float,
                              accepted: Tuple[str, ...]) -> bool:
@@ -22329,6 +22417,23 @@ class KxrwParams:
     # `autoRecordOffFrames` below. The two phases send the identical one-frame
     # SetSetting verb, so a second knob would be two names for one number and the
     # one that drifts is the one nobody re-pins.
+    # THE CLOSE CUT (D5 `staging-debris-ttl`; see `kxrw_close_cut_conflict`).
+    # FALSE keeps the flown far-crash profile byte-identical.
+    impact_cut_at_last_booster_drop: bool = False
+    # THE DEBRIS-PROMOTION SWITCH (D5 `staging-debris-promotion`). "" = off. The
+    # VESSEL name the dropped boosters read (`Kerbal X Debris` on the committed
+    # craft, measured on every GS-7 close-crash archive).
+    promote_debris_vessel_name: str = ""
+    # Frames PROMOTE-SWITCH holds before the switch goes out: the staging split's
+    # debris children must be created and in the tree's BackgroundMap first, or the
+    # switch lands on an untracked outsider and Parsek starts a FRESH recording
+    # instead of promoting (`EvaluatePostSwitchAutoRecordStartDecision`).
+    promote_switch_delay_frames: int = 6
+    # The bound on each of the two readings (the switch landing, the recorder
+    # reading live again). 60 frames = 30 s, half the 60 s debris TTL: a promotion
+    # that has not happened by then is racing the TTL that removes the booster
+    # from the BackgroundMap.
+    promote_frames: int = 60
 
     # --- FRAME budgets (see the header: a game-time budget cannot bound a phase
     # whose clock has been rewound) ------------------------------------------
@@ -22474,6 +22579,12 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
         impact_settle_frames=int(params.get("impactSettleFrames", 16)),
         sc_exit_frames=int(params.get("scExitFrames", 240)),
         sc_committed_frames=int(params.get("scCommittedFrames", 40)),
+        impact_cut_at_last_booster_drop=bool(
+            params.get("impactCutAtLastBoosterDrop", False)),
+        promote_debris_vessel_name=str(
+            params.get("promoteDebrisVesselName", "") or ""),
+        promote_switch_delay_frames=int(params.get("promoteSwitchDelayFrames", 6)),
+        promote_frames=int(params.get("promoteFrames", 60)),
         stage_cut_frames=int(params.get("stageCutFrames", 40)),
         tree_frames=int(params.get("treeStateFrames", 40)),
         commit_frames=int(params.get("commitFrames", 40)),
@@ -22668,6 +22779,22 @@ class KxrwState:
     # launch's own scene load), carried for the record rather than for a gate -
     # the post-rewind counter's shape exactly.
     post_impact_vessel_lost_frames: int = 0
+    # THE CLOSE CUT: the last booster drop was clicked with the throttle held at
+    # zero and never raised. `impact_cut_throttle_observed` is BOOSTER-CUT's own
+    # zero reading for that drop, copied before BOOSTER-STAGE resets it.
+    impact_cut_commanded: bool = False
+    impact_cut_throttle_observed: bool = False
+    impact_cut_ut: float = float("nan")
+    # THE PROMOTION SWITCH.
+    promote_switch_commanded: bool = False
+    promote_switch_observed: bool = False
+    promote_switch_streak: int = 0
+    promote_switch_ut: float = float("nan")
+    promote_vessel_name_read: str = ""
+    promote_probe: int = 0
+    promote_observed: bool = False
+    promote_ut: float = float("nan")
+    promote_disarm_result: str = ""
 
     # --- the OBSERVED rewind ------------------------------------------------
     pre_rewind_ut: float = float("nan")
@@ -23157,7 +23284,8 @@ def kxrw_decide(state: KxrwState,
     if state.phase == KXRW_ROLLOUT and not state.rollout_launch_commanded:
         conflict = (kxrw_impact_profile_conflict(p)
                     or kxrw_coast_exit_profile_conflict(p)
-                    or kxrw_rewind_cycles_conflict(p))
+                    or kxrw_rewind_cycles_conflict(p)
+                    or kxrw_close_cut_conflict(p))
         if conflict:
             return _kxrw_flake(state, "phase %s: %s" % (KXRW_ROLLOUT, conflict)), []
 
@@ -23373,6 +23501,24 @@ def kxrw_decide(state: KxrwState,
         # the stash path), which is NOT the crash shape GS-7's tokens are cut to.
         # The launch hangs those runs met were the empty post-crash roster, not the
         # pad (the section header has the refutation).
+        if p.impact_profile and p.impact_cut_at_last_booster_drop:
+            # THE CLOSE CUT (D5 `staging-debris-ttl`), GS-7 round 1's shape and an
+            # explicit second opt-in: the throttle stays at the zero BOOSTER-CUT
+            # read, the AP lets go, and the unpowered stack falls back near the pad
+            # with the dropped boosters still inside the physics bubble past their
+            # 60 s TTL. No core discard and no COAST: the tree id is read NOW,
+            # while the recorder is certainly live, and the impact branch runs
+            # from TREE-STATE exactly as it does on the far profile.
+            st = replace(st, impact_cut_commanded=True,
+                         impact_cut_throttle_observed=(
+                             state.booster_cut_throttle_observed),
+                         impact_cut_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                        else float("nan")),
+                         tree_probe=0)
+            actions.append(Action(ACTION_AP_DISENGAGE))
+            actions.append(_kxrw_seam_action("RecordingState",
+                                             kxrw_tree_probe_tag(0)))
+            return _kxrw_enter(st, KXRW_TREE_STATE, snapshot.ut), actions
         actions.append(Action(ACTION_SET_THROTTLE, p.launch_throttle))
         return _kxrw_enter(st, KXRW_ASCENT, snapshot.ut), actions
 
@@ -23760,6 +23906,10 @@ def kxrw_decide(state: KxrwState,
     if state.phase == KXRW_IMPACT_AUTORECORD_OFF:
         result = _seam_result(snapshot, KXRW_TAG_IMPACT_AUTORECORD)
         if result == "OK":
+            if str(p.promote_debris_vessel_name or "").strip():
+                return (_kxrw_enter(replace(state, impact_autorecord_off_result="OK",
+                                            promote_switch_streak=0),
+                                    KXRW_PROMOTE_SWITCH, snapshot.ut), [])
             return (_kxrw_enter(replace(state, impact_autorecord_off_result="OK"),
                                 KXRW_IMPACT_COAST, snapshot.ut), [])
         if result in ("ERROR", "TIMEOUT"):
@@ -23784,6 +23934,123 @@ def kxrw_decide(state: KxrwState,
                 "phase %s: the SetSetting seam command never answered within %d "
                 "frames" % (KXRW_IMPACT_AUTORECORD_OFF,
                             p.auto_record_off_frames)), []
+        return state, []
+
+    # ---- PROMOTE-SWITCH / PROMOTE-WAIT / PROMOTE-DISARM (opt-in) -----------
+    #
+    # D5 `staging-debris-promotion`: the player switches to a dropped booster while
+    # its 60 s debris TTL is still running. Parsek's own path from there is
+    # `OnVesselSwitchComplete` (old recorder to background, post-switch watcher
+    # armed on a TRACKED background member) -> the first meaningful change (a
+    # tumbling booster's attitude) -> `PromoteTrackedRecording` ->
+    # `PromoteRecordingFromBackground`. The machine COMMANDS only the switch; the
+    # promotion is OBSERVED (RecordingState reads `recording=true` again on the
+    # captured tree), and which decision produced it is the SPEC's question - its
+    # tokens pin `decision=PromoteTrackedRecording` and `Promoted recording`,
+    # because a TTL that expired first would reach the same `recording=true`
+    # through a FRESH post-switch recording instead.
+    if state.phase == KXRW_PROMOTE_SWITCH:
+        name = str(p.promote_debris_vessel_name or "").strip()
+        if not state.promote_switch_commanded:
+            if state.phase_frames >= max(1, p.promote_switch_delay_frames):
+                return (replace(state, promote_switch_commanded=True),
+                        [Action(ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL, text=name)])
+            return state, []
+        on_it = live and str(snapshot.vessel_name or "") == name
+        streak = state.promote_switch_streak + 1 if on_it else 0
+        st = replace(state, promote_switch_streak=streak,
+                     promote_vessel_name_read=((snapshot.vessel_name
+                                                or state.promote_vessel_name_read)
+                                               if live
+                                               else state.promote_vessel_name_read))
+        if streak >= KXRW_PROMOTE_SWITCH_DEBOUNCE:
+            st = replace(st, promote_switch_observed=True,
+                         promote_switch_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                            else st.last_finite_ut),
+                         promote_probe=0)
+            return (_kxrw_enter(st, KXRW_PROMOTE_WAIT, snapshot.ut),
+                    [_kxrw_seam_action("RecordingState",
+                                       kxrw_promote_probe_tag(0))])
+        if st.phase_frames > p.promote_switch_delay_frames + p.promote_frames:
+            return _kxrw_flake(
+                st,
+                "phase %s: the active vessel never read %r on %d consecutive frames "
+                "within %d frames of the switch (last name read %r). The switch is a "
+                "driver act; with no loaded vessel of that name beside the stack "
+                "there is no dropped booster to promote"
+                % (KXRW_PROMOTE_SWITCH, name, KXRW_PROMOTE_SWITCH_DEBOUNCE,
+                   p.promote_frames, st.promote_vessel_name_read or "")), []
+        return st, []
+
+    if state.phase == KXRW_PROMOTE_WAIT:
+        tag = kxrw_promote_probe_tag(state.promote_probe)
+        result = _seam_result(snapshot, tag)
+        if result == "OK":
+            reading = _seam_payload(snapshot, tag, "recording")
+            tree = _seam_payload(snapshot, tag, "tree")
+            if reading == "true":
+                if tree and state.tree_id and tree != state.tree_id:
+                    return _kxrw_flake(
+                        state,
+                        "phase %s: the recorder read live again but on tree %r, not "
+                        "the captured %r - a NEW tree, which is not a promotion of "
+                        "the booster's background recording"
+                        % (KXRW_PROMOTE_WAIT, tree, state.tree_id)), []
+                st = replace(state, promote_observed=True,
+                             promote_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                         else state.last_finite_ut))
+                return (_kxrw_enter(st, KXRW_PROMOTE_DISARM, snapshot.ut),
+                        [_kxrw_seam_action(
+                            "SetSetting", KXRW_TAG_PROMOTE_DISARM,
+                            (("name", KXRW_POST_SWITCH_SETTING),
+                             ("value", KXRW_AUTORECORD_OFF_VALUE)))])
+            st = replace(state, promote_probe=state.promote_probe + 1)
+            if st.phase_frames > p.promote_frames:
+                return _kxrw_flake(
+                    st,
+                    "phase %s: the switched-to booster's recording never read live "
+                    "within %d frames (%d probe(s), last recording=%r). Parsek "
+                    "promotes on the first meaningful change after the switch; a "
+                    "booster that never changed attitude or state inside its 60 s "
+                    "TTL gives it nothing to promote on"
+                    % (KXRW_PROMOTE_WAIT, p.promote_frames, st.promote_probe,
+                       reading)), []
+            return st, [_kxrw_seam_action("RecordingState",
+                                          kxrw_promote_probe_tag(st.promote_probe))]
+        if result in ("ERROR", "TIMEOUT"):
+            return _kxrw_flake(
+                state,
+                "phase %s: the RecordingState seam command returned %s (%s)"
+                % (KXRW_PROMOTE_WAIT, result,
+                   _seam_because(_seam_reject_reason(snapshot, tag)))), []
+        if state.phase_frames > p.promote_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the RecordingState seam command never answered within %d "
+                "frames" % (KXRW_PROMOTE_WAIT, p.promote_frames)), []
+        return state, []
+
+    if state.phase == KXRW_PROMOTE_DISARM:
+        result = _seam_result(snapshot, KXRW_TAG_PROMOTE_DISARM)
+        if result == "OK":
+            return (_kxrw_enter(replace(state, promote_disarm_result="OK"),
+                                KXRW_IMPACT_COAST, snapshot.ut), [])
+        if result in ("ERROR", "TIMEOUT"):
+            # FATAL for IMPACT-AUTORECORD-OFF's reason: the crash hands
+            # active-vessel to a survivor, and with the post-switch trigger armed
+            # Parsek would promote THAT too, polluting the save the spec reads.
+            return _kxrw_flake(
+                replace(state, promote_disarm_result=result),
+                "phase %s: SetSetting %s=%s returned %s (%s)"
+                % (KXRW_PROMOTE_DISARM, KXRW_POST_SWITCH_SETTING,
+                   KXRW_AUTORECORD_OFF_VALUE, result,
+                   _seam_because(_seam_reject_reason(
+                       snapshot, KXRW_TAG_PROMOTE_DISARM)))), []
+        if state.phase_frames > p.auto_record_off_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the SetSetting seam command never answered within %d "
+                "frames" % (KXRW_PROMOTE_DISARM, p.auto_record_off_frames)), []
         return state, []
 
     # ---- IMPACT-COAST: fall, and WAIT to be told the stack hit --------------
@@ -24488,6 +24755,23 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
              getattr(state, "core_cut_throttle_observed", False)),
          "discardUT": getattr(state, "core_discard_ut", None),
          "discardAltitude": getattr(state, "core_discard_altitude", None)})
+    if bool(getattr(params, "impact_cut_at_last_booster_drop", False)):
+        # THE CLOSE CUT substitutes this row in place: there is no core discard on
+        # that profile, and what makes the stack fall is the last drop's zero
+        # throttle never being raised. Met on BOOSTER-CUT's own OBSERVED zero for
+        # that drop, not on the cut having been emitted.
+        cut_ut = getattr(state, "impact_cut_ut", float("nan"))
+        core = AssertionOutcome(
+            "stackCutAtLastBoosterDrop",
+            bool(getattr(state, "impact_cut_commanded", False)
+                 and getattr(state, "impact_cut_throttle_observed", False)),
+            cut_ut if _is_finite(cut_ut) else None,
+            {"throttleZeroEpsilon": params.throttle_zero_epsilon,
+             "cutCommanded": bool(getattr(state, "impact_cut_commanded", False)),
+             "throttleObservedZero": bool(
+                 getattr(state, "impact_cut_throttle_observed", False)),
+             "coreDiscardCommanded": bool(
+                 getattr(state, "core_discard_commanded", False))})
 
     drops = int(getattr(state, "booster_drops_done", 0))
     boosters = AssertionOutcome(
@@ -24727,6 +25011,38 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
     required_cycles = int(getattr(params, "rewind_cycles", 1))
     if required_cycles > 1:
         rows.append(_kxrw_rewind_cycles_row(params, state, required_cycles))
+    promote_name = str(getattr(params, "promote_debris_vessel_name", "") or "")
+    if promote_name.strip():
+        # THE PROMOTION SWITCH ADDS ONE ROW (never substitutes): the switch landed
+        # on the named booster AND the recorder read live again on the captured
+        # tree, then the post-switch trigger was disarmed. The value is seconds
+        # from the last drop to the observed promotion - under the 60 s debris TTL
+        # on any honest run, but the row does not gate that: WHICH decision
+        # produced the live recorder is the spec's `PromoteTrackedRecording` token.
+        cut_ut = getattr(state, "impact_cut_ut", float("nan"))
+        prom_ut = getattr(state, "promote_ut", float("nan"))
+        lag = (prom_ut - cut_ut) if (_is_finite(prom_ut) and _is_finite(cut_ut)) \
+            else float("nan")
+        rows.append(AssertionOutcome(
+            "debrisSwitchPromoted",
+            bool(getattr(state, "promote_switch_observed", False)
+                 and getattr(state, "promote_observed", False)
+                 and getattr(state, "promote_disarm_result", "") == "OK"),
+            lag,
+            {"vesselName": promote_name,
+             "switchCommanded": bool(
+                 getattr(state, "promote_switch_commanded", False)),
+             "switchObserved": bool(
+                 getattr(state, "promote_switch_observed", False)),
+             "observedName": (getattr(state, "promote_vessel_name_read", "")
+                              or "UNREAD"),
+             "switchUT": (getattr(state, "promote_switch_ut", None)
+                          if _is_finite(getattr(state, "promote_switch_ut",
+                                                float("nan"))) else None),
+             "promotedUT": prom_ut if _is_finite(prom_ut) else None,
+             "probes": int(getattr(state, "promote_probe", 0)) + 1,
+             "postSwitchDisarm": (getattr(state, "promote_disarm_result", "")
+                                  or "NONE")}))
     return rows
 
 

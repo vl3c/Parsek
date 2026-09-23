@@ -9814,6 +9814,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # bytes, the armed re-flight and the negative control. Promotion past
         # operator is the cadence call that follows, not outstanding human work.
         "GS-7-kerbalx-crash-watch-hold.toml": "calibration-discipline - AUTHORED 2026-09-08 (the watched explosion hold over a deliberate crash profile, the kx machine's impactProfile branch); operator tier is the never-flown calibration hold, discharged by the reading run + re-pin + armed re-flight + negative control, not a debt",
+        # Priority register C4 (2026-09-23, `d5-debris`): the two D5 debris lanes on
+        # the kx machine's close-cut opt-in.
+        "GS-10-kerbalx-debris-ttl.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-ttl: GS-7's crash lane with round 1's close cut, the kx machine's impactCutAtLastBoosterDrop opt-in); operator tier is GS-7's cadence (a 12-minute crash + rewind + watch flight), and the discipline is recorded in its status row, not a debt",
+        "GS-11-kerbalx-debris-promotion.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-promotion: GS-10's close cut plus the promoteDebrisVesselName switch to a just-dropped booster inside its TTL); operator tier is GS-7's cadence; its status row records what has flown, not a debt",
         # Ghost-replay Tier B item 8 (2026-09-10, `ghost-replay-tier-b`): GS-4's
         # subject rewound TWICE off one committed tree through the kx machine's new
         # `rewindCycles` opt-in. Same calibration discipline as GS-7 / GS-8: read
