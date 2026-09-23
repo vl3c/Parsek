@@ -11,8 +11,9 @@ _(unreleased — entries accumulate here per commit)_
 ### Added
 
 - **Automated testing: a lane collapses and repairs a Space Center building.**
-  `KB-1-ksc-building-repair-ledger` knocks down the Tracking Station dish, repairs it through
-  the same call the Space Center menu makes, saves and reloads, and checks the log and the
+  `KB-1-ksc-building-repair-ledger` knocks down the Tracking Station dish, saves and reloads
+  while it is down, repairs it through the same call the Space Center menu makes, saves and
+  reloads again, and checks the log and the
   saved ledger: one destruction and one repair, the repair costing exactly what stock took
   from funds (4000), no reconciliation warning, and no repair or collapse driven by a
   recalculation afterwards. The test command channel gains two Space Center actions for it,

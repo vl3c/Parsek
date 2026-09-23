@@ -28,7 +28,7 @@ id = "KB-1-ksc-building-repair-ledger"
 #      repairs exactly one building) with no duplicate row; a second save + cold reload
 #      after the repair keeps it intact; the live building patch touches it neither time.
 #      The patch reads the ledger AT LIVE UT (FacilityStatePatcher.PatchLiveDestructionState)
-#      and is pinned agreeing with stock (matched=1, no demolish / repair).
+#      and skips a building stock has not loaded yet (pinned: matched=1, unloaded=1 on reload).
 #
 # THE STEP SHAPE. demolish-building / repair-facility both DEFER `structures-settling`
 # while any KSC building is between states (Demolish() clears `intact` at once; the
@@ -39,11 +39,16 @@ id = "KB-1-ksc-building-repair-ledger"
 # repair-facility step, after the reload, refuses `facility-intact` again: the building
 # came back intact from the save.
 #
-# FIRST PASS 2026-09-23_1928 (reading run, attempt 1): every pin below matched the
-# collected KSP.log (repair cost 4000 = the StructureRepair debit = the funds-walk row;
-# PatchDestructionState read settling=1 while the dish animated, demolished=0 repaired=0
-# throughout). Still a reading run: an armed re-flight and a negative control are owed
-# before any block here is armed.
+# READINGS. 2026-09-23_1928 PASS (first shape, no reload while down). After the PR #1784
+# review moved the live building patch to the ledger's state at live UT and added the
+# reload-while-down steps: 2026-09-23_2018 PARSEK-FAIL - the patch ran in Parsek's OnLoad
+# before stock loaded the save into the buildings and demolished the not-yet-loaded dish
+# (a real defect, fixed: unregistered buildings are skipped); 2026-09-23_2028 PARSEK-FAIL
+# on this spec's own pin (it expected a post-load recalc the lane never runs; re-pinned to
+# the reload-time skip); 2026-09-23_2030 PASS attempt 1. The re-pinned contract, replayed
+# against the 2018 log, reds on both the skip pin and the no-patcher-demolish pin, and
+# against 2028 is clean. Still a reading run: an armed re-flight and a negative control
+# are owed before any block here is armed.
 tier = "daily"
 description = "Career at the KSC: collapse one Tracking Station building through the seam, repair the facility through the menu's own RepairFacility call, save and cold-reload; the ledger holds exactly one FacilityDestruction and one FacilityRepair whose cost equals the StructureRepair funds debit, with no reconciliation warning and no patcher flicker."
 instanceProfile = "stock-minimal"
