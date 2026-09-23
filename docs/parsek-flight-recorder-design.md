@@ -1169,7 +1169,7 @@ The ghost is held past the recording's end time only when the spawn stays unsett
 - **Single-point recording:** an overlap on a recording with one trajectory point, where no walkback is possible.
 - **Failed spawn:** the spawn itself fails outright.
 
-The hold is bounded. The ghost stays visible for up to 5 seconds while Parsek retries the spawn every 1 second (`HeldGhostRetryIntervalSeconds = 1`, `HeldGhostTimeoutSeconds = 5`). A retry that succeeds spawns the vessel and releases the ghost. On timeout the ghost is destroyed without a spawn, and the recording stays unspawned for the rest of the scene.
+The hold is bounded. The ghost stays visible for up to 5 seconds while Parsek retries the spawn every 1 second (`HeldGhostRetryIntervalSeconds = 1`, `HeldGhostTimeoutSeconds = 5`). A retry that succeeds spawns the vessel and releases the ghost. On timeout the ghost is destroyed without a spawn. Destroying a past-end ghost clears its completion mark, so on the next frame the recording completes once more and Parsek makes one last spawn attempt with no ghost to hold (operator ruling 2026-09-23: kept as a last retry, so a blocker that clears just after the window still gets its vessel). If that attempt is refused too, the recording stays unspawned for the rest of the scene.
 
 **Time warp:** a completion during warp defers the spawn (Section 13.8) through the same hold.
 

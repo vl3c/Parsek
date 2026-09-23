@@ -7,8 +7,8 @@ id = "EX-1-ghost-extension-past-endut"
 # holds a ghost; see below). CLAIMS the cell since the 2026-09-23 fix of
 # D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME (branch `held-ghost-fix`):
 # the lane was an expectedFail witness until that fix read XPASS (`2026-09-23_1510`).
-# The claim is the 5 s bounded hold the code implements; whether the design's indefinite
-# extension is the intent is operator question D18-GHOST-EXTENSION-DESIGN-VS-CODE.
+# The claim is the 5 s bounded hold the code implements, which the operator ruled to BE
+# the design on 2026-09-23 (#1774, design 13.5; todo D18-GHOST-EXTENSION-DESIGN-VS-CODE).
 #
 # WHAT HOLDS A GHOST PAST EndUT ON THE NON-CHAIN PATH (source, 2026-09-23):
 # `ParsekPlaybackPolicy.HandlePlaybackCompleted` writes "Ghost held pending spawn retry:"
@@ -19,8 +19,8 @@ id = "EX-1-ghost-extension-past-endut"
 # gets there (#112 recovers a same-name blocker, #264 walkback relocates, exhaustion
 # abandons with VesselSpawned = true; the active vessel is never a blocker). The KSC
 # EXCLUSION ZONE (#170, a landed home-world spawn within 50 m of the pad or runway) does,
-# so that is this lane's blocker. Filed: D18-GHOST-EXTENSION-DESIGN-VS-CODE (operator
-# design question) and D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP (the chain half).
+# so that is this lane's blocker. See D18-GHOST-EXTENSION-DESIGN-VS-CODE (ruled: keep the
+# code) and D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP (the chain half, open).
 #
 # THE DEFECT THIS LANE PINNED (reading run `2026-09-23_0000`, one frame): the engine logged
 # `Ghost #0 "Logi Cargo Rig" destroyed (stale past-end ghost (no longer held))` and only
@@ -53,7 +53,7 @@ id = "EX-1-ghost-extension-past-endut"
 # `2026-09-23_1510` XPASS (spec unchanged), then un-quarantined; see autotest-status.md.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "D18 ghost-extension-past-endut on the non-chain held-ghost path, SCOPED TO THE KSC EXCLUSION-ZONE HOLD (a vessel blocker never holds on the non-chain path; operator question D18-GHOST-EXTENSION-DESIGN-VS-CODE). Record the pad probe of pad-runway-pair in-run, Rewind-to-Launch it, reload into FLIGHT on the runway rover, and let 1x time carry the replayed ghost through EndUT, where the KSC exclusion zone refuses the spawn and ParsekPlaybackPolicy holds the ghost for the 5 s retry window. Asserts the ghost survives the hold (the engine keeps it after the completion reaches the policy, no stale past-end destroy before the timeout, then a held-spawn-timeout release) and the vessel never spawns. Regression lane for D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME (fixed 2026-09-23)."
+description = "D18 ghost-extension-past-endut on the non-chain held-ghost path, SCOPED TO THE KSC EXCLUSION-ZONE HOLD (a vessel blocker never holds on the non-chain path; ruled 2026-09-23 (#1774): the bounded hold IS the design, design 13.5). Record the pad probe of pad-runway-pair in-run, Rewind-to-Launch it, reload into FLIGHT on the runway rover, and let 1x time carry the replayed ghost through EndUT, where the KSC exclusion zone refuses the spawn and ParsekPlaybackPolicy holds the ghost for the 5 s retry window. Asserts the ghost survives the hold (the engine keeps it after the completion reaches the policy, no stale past-end destroy before the timeout, then a held-spawn-timeout release) and the vessel never spawns. Regression lane for D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME (fixed 2026-09-23)."
 instanceProfile = "stock-minimal"
 tags = ["EX-1", "D18", "held-ghost", "spawn-blocked", "ksc-exclusion-zone",
         "rewind-to-launch", "R10", "runtime-handles"]

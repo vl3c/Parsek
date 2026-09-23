@@ -8879,6 +8879,9 @@ namespace Parsek
 
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
+            // Clearing the completion mark makes a slot that is still past end complete once
+            // more on the next frame, so the policy makes one last spawn attempt after a held
+            // ghost times out. That retry is intended (design 13.5, operator ruling 2026-09-23).
             completedEventFired.Remove(index);
             // Chain-bridge bookkeeping is tied to the slot's ghost-state
             // lifetime; once the ghost is destroyed (for any reason — bridge

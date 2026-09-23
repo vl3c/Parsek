@@ -93,7 +93,14 @@ forbidden stale-destroy form.
 
 **Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions.
 
-## HELD-GHOST-SECOND-COMPLETION-AFTER-RELEASE: a past-end slot re-fires its completion (and one more spawn attempt) the frame after any destroy [FILED 2026-09-23 from the #1776 review. OPEN; pre-existing behaviour, low priority]
+## ~~HELD-GHOST-SECOND-COMPLETION-AFTER-RELEASE: a past-end slot re-fires its completion (and one more spawn attempt) the frame after any destroy~~ [FILED 2026-09-23 from the #1776 review. RULED 2026-09-23: keep it as a last retry]
+
+**RULED 2026-09-23: keep it as a last retry.** The operator kept the behaviour: after a
+held ghost times out, the one extra spawn attempt on the next frame stays, so a blocker that
+clears just after the 5 s window still gets its vessel. It has no visible effect when the
+spawn already succeeded (the attempt finds `VesselSpawned` set) or when the block persists
+(the pad exclusion zone refuses it again, log only). Design 13.5 now describes it, and a
+comment at `DestroyGhost`'s completion-mark removal says the re-fire is relied on.
 
 `GhostPlaybackEngine.DestroyGhost` removes the slot from `completedEventFired`, so once a
 past-end ghost is destroyed (the policy's `playback completed`, or `held-spawn-timeout` after
@@ -124,8 +131,10 @@ code's behaviour (recover a same-name blocker, else walk back at once, else aban
 ghost only for the KSC exclusion zone, a single-point recording or a failed spawn, retrying
 every 1 s for up to 5 s). `docs/parsek-flight-recorder-design.md` sections 13.2, 13.5 and
 13.7 now describe that, and the catalog's D18 `ghost-extension-past-endut` wording is
-narrowed to the bounded hold. The same-frame destroy of the held ghost stays open as
-D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME.
+narrowed to the bounded hold. The same-frame destroy of the held ghost was
+D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME, fixed in #1776, after which
+`EX-1-ghost-extension-past-endut` claims the cell scoped to the exclusion-zone hold. The
+section below is the record of the question as filed.
 
 **What the design promises.** `docs/parsek-flight-recorder-design.md` section 13.2 routes
 a blocked spawn to "block spawn, start ghost extension"; section 13.5 ("Ghost Extension")
@@ -161,7 +170,7 @@ exhaustion fallback (the code abandons rather than offering placement). On the o
 reachable subject, the pad exclusion zone, the 5 s hold showed no ghost until
 D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME (above) was fixed on
 2026-09-23; `EX-1-ghost-extension-past-endut` now claims the cell SCOPED TO that bounded
-exclusion-zone hold, and this question stays open.
+exclusion-zone hold.
 
 **Question for the operator.** Is the design text the intent, or is the code's behaviour (an
 immediate relocation, else abandon) the accepted replacement? If the code is the intent,
