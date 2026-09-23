@@ -77,6 +77,7 @@ namespace Parsek
                 string absorbedId = RecordingOptimizer.MergeInto(target, absorbed);
                 target.FilesDirty = true;
                 string chainId = target.ChainId;
+                RetagLedgerActionsAfterOptimizationMerge(target, absorbed);
                 UpdateTreeStateAfterOptimizationMerge(target, absorbed);
 
                 // Remove absorbed recording from committed list
@@ -154,6 +155,8 @@ namespace Parsek
                 var second = RecordingOptimizer.SplitAtSection(original, secIdx);
 
                 CopySplitIdentityFields(original, second);
+
+                RetagLedgerActionsAfterOptimizationSplit(original, second);
 
                 // Derive SegmentBodyName from trajectory points
                 if (original.Points != null && original.Points.Count > 0)
@@ -483,6 +486,49 @@ namespace Parsek
                     $"FlushDirtyFiles: saved {saved}, failed {failed}");
         }
 
+        /// <summary>
+        /// Optimizer merge: every ledger row tagged with the absorbed recording moves to
+        /// the target, which now covers the absorbed time range. The absorbed recording
+        /// leaves the committed list, so a row left on its id is orphaned and the next
+        /// load's <see cref="Ledger.Reconcile"/> prunes it, ActionId and all. This used
+        /// to run only for an absorbed tree ROOT; any later segment can carry rows too
+        /// (its own earnings, or the rows <see cref="RetagLedgerActionsAfterOptimizationSplit"/>
+        /// moved onto it), which is the mirror of the split retag.
+        /// </summary>
+        private static void RetagLedgerActionsAfterOptimizationMerge(Recording target, Recording absorbed)
+        {
+            if (target == null || absorbed == null) return;
+            int remapped = Ledger.RetagActionsForRecordingRewrite(
+                absorbed.RecordingId, target.RecordingId);
+            if (remapped > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization merge: retagged {remapped} ledger action(s) from " +
+                    $"absorbed '{absorbed.RecordingId}' to target '{target.RecordingId}'" +
+                    (!string.IsNullOrEmpty(target.TreeId) ? $" (tree id='{target.TreeId}')" : ""));
+        }
+
+        /// <summary>
+        /// Optimizer split: moves the ledger rows attributed to the second half onto it
+        /// (<see cref="Ledger.RetagActionsForSplitSecondHalf"/>, the same predicate as the
+        /// Re-Fly split's step 2.9). The cut is the second half's first section start,
+        /// which <see cref="RecordingOptimizer.SplitAtSection"/> sets to its split UT.
+        /// </summary>
+        private static void RetagLedgerActionsAfterOptimizationSplit(Recording original, Recording second)
+        {
+            if (original == null || second == null) return;
+            double splitUT = second.TrackSections != null && second.TrackSections.Count > 0
+                ? second.TrackSections[0].startUT
+                : second.StartUT;
+            int deathIntervalsByEndUT;
+            int retagged = Ledger.RetagActionsForSplitSecondHalf(
+                original.RecordingId, second.RecordingId, splitUT, out deathIntervalsByEndUT);
+            if (retagged > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"Optimization split: retagged {retagged} ledger action(s) from " +
+                    $"'{original.RecordingId}' to second half '{second.RecordingId}' " +
+                    $"(deathIntervalsByEndUT={deathIntervalsByEndUT})");
+        }
+
         private static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)
         {
             string treeId = target != null && !string.IsNullOrEmpty(target.TreeId)
@@ -501,23 +547,10 @@ namespace Parsek
                 if (target != null)
                     tree.AddOrReplaceRecording(target);
 
+                // Ledger rows tagged with the absorbed id were already retagged by
+                // RetagLedgerActionsAfterOptimizationMerge, root or not.
                 if (tree.RootRecordingId == absorbed.RecordingId && target != null)
-                {
-                    // Remap ledger actions tagged with the absorbed root id — otherwise
-                    // Phase A LegacyMigration synthetics (and any other actions still
-                    // tagged with the absorbed recording id) are orphaned on the next
-                    // Ledger.Reconcile because the absorbed recording is about to be
-                    // removed from the committed-recordings set. Handles round-2 P2
-                    // from PR #347 external review.
-                    int remapped = Ledger.RetagActionsForRecordingRewrite(
-                        absorbed.RecordingId, target.RecordingId);
-                    if (remapped > 0)
-                        ParsekLog.Info("RecordingStore",
-                            $"Optimization merge: retagged {remapped} ledger action(s) from " +
-                            $"absorbed root '{absorbed.RecordingId}' to new root '{target.RecordingId}' " +
-                            $"(tree id='{tree.Id}')");
                     tree.RootRecordingId = target.RecordingId;
-                }
                 if (tree.ActiveRecordingId == absorbed.RecordingId && target != null)
                     tree.ActiveRecordingId = target.RecordingId;
 

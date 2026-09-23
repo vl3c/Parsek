@@ -3738,7 +3738,12 @@ namespace Parsek
         /// Pairing is deterministic: both lists are walked in order and the k-th desired
         /// row for a kerbal inherits the k-th stored row for that kerbal (ordinal name
         /// match), each stored row consumed at most once, so two desired rows can never
-        /// share an id. A stored row with no same-name partner (a remap, a removed crew
+        /// share an id. When several unconsumed stored rows share the kerbal's name, the
+        /// first one with the SAME end state wins, else the first in order: after an
+        /// optimizer merge the target holds its own handoff row AND the absorbed
+        /// segment's death row for one kerbal, and the re-derived death must keep the
+        /// death's id (OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT review).
+        /// A stored row with no same-name partner (a remap, a removed crew
         /// member) is dropped as before; a desired row with no partner keeps its fresh
         /// id. Callers pass rows already grouped by one recording.
         /// </para>
@@ -3762,6 +3767,7 @@ namespace Parsek
                     continue;
 
                 int match = -1;
+                int sameFateMatch = -1;
                 for (int e = 0; e < existingCount; e++)
                 {
                     if (consumed[e])
@@ -3773,9 +3779,16 @@ namespace Parsek
                         || !string.Equals(have.RecordingId, want.RecordingId, StringComparison.Ordinal)
                         || !string.Equals(have.KerbalName, want.KerbalName, StringComparison.Ordinal))
                         continue;
-                    match = e;
-                    break;
+                    if (match < 0)
+                        match = e;
+                    if (have.KerbalEndStateField == want.KerbalEndStateField)
+                    {
+                        sameFateMatch = e;
+                        break;
+                    }
                 }
+                if (sameFateMatch >= 0)
+                    match = sameFateMatch;
 
                 if (match < 0)
                 {

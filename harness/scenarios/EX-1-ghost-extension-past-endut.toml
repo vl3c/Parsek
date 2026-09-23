@@ -3,10 +3,12 @@ id = "EX-1-ghost-extension-past-endut"
 # -------------------------------------------------------------------------------------
 # D18 `ghost-extension-past-endut` (catalog section 2: "ghost extension past EndUT while
 # blocked"; design `docs/parsek-flight-recorder-design.md` 13.5), ON THE NON-CHAIN
-# HELD-GHOST PATH. AN EXPECTED-FAIL LANE: it asserts the CORRECT behaviour and reads
-# EXPECTED-FAIL until D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME is fixed.
-# IT DOES NOT CLAIM THE CELL (no D18 value below) until that fix lands and this lane
-# reads green; then the bugId goes, the value is added, and the XPASS is the signal.
+# HELD-GHOST PATH, SCOPED TO THE KSC EXCLUSION-ZONE HOLD (the only non-chain blocker that
+# holds a ghost; see below). CLAIMS the cell since the 2026-09-23 fix of
+# D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME (branch `held-ghost-fix`):
+# the lane was an expectedFail witness until that fix read XPASS (`2026-09-23_1510`).
+# The claim is the 5 s bounded hold the code implements; whether the design's indefinite
+# extension is the intent is operator question D18-GHOST-EXTENSION-DESIGN-VS-CODE.
 #
 # WHAT HOLDS A GHOST PAST EndUT ON THE NON-CHAIN PATH (source, 2026-09-23):
 # `ParsekPlaybackPolicy.HandlePlaybackCompleted` writes "Ghost held pending spawn retry:"
@@ -20,14 +22,17 @@ id = "EX-1-ghost-extension-past-endut"
 # so that is this lane's blocker. Filed: D18-GHOST-EXTENSION-DESIGN-VS-CODE (operator
 # design question) and D18-CHAIN-SPAWN-BLOCKED-GHOST-6B4-NOOP (the chain half).
 #
-# THE DEFECT THIS LANE PINS (reading run `2026-09-23_0000`, one frame): the engine logged
+# THE DEFECT THIS LANE PINNED (reading run `2026-09-23_0000`, one frame): the engine logged
 # `Ghost #0 "Logi Cargo Rig" destroyed (stale past-end ghost (no longer held))` and only
 # THEN delivered `PlaybackCompleted ... ghostWasActive=True`, after which the policy wrote
 # "Ghost held pending spawn retry ... ghost stays visible" for a ghost already gone.
 # `HandlePastEndGhost` defers the completed event, and the stale past-end cleanup in the
-# same loop iteration sees `completedEventFired && !IsGhostHeld(i)`. The two assertions
-# below that read the defect are the forbidden stale-destroy-before-timeout form and the
-# required `destroyed (held-spawn-timeout)` release; everything else is green today.
+# same loop iteration saw `completedEventFired && !IsGhostHeld(i)`. The fix postpones that
+# cleanup until the completion has reached the policy (same frame), which logs
+# `Stale past-end cleanup after completion delivery: ... kept (held by the policy)`. The
+# REGRESSION assertions below are the forbidden stale-destroy-before-timeout form, the
+# required `destroyed (held-spawn-timeout)` release, the required post-delivery keep line,
+# and the forbidden "no ghost to keep visible" wording of the policy's hold line.
 #
 # THE ROAD. `pad-runway-pair` (built offline by harness/tools/build_pad_runway_pair.py):
 # a clone of rover-route-recorded's `rover fuel 0` on the runway at VESSEL index 0, the
@@ -43,15 +48,15 @@ id = "EX-1-ghost-extension-past-endut"
 #   3. Inert steps let 1x time run: the Rig's ghost goes live on the pad ~1.8 km away,
 #      EndUT passes, the pad exclusion zone refuses the spawn, the policy holds, retries
 #      and times out.
-# CONTROL CONVENTION FOR AN EXPECTED-FAIL LANE: the control flies this spec with only the
-# two defect assertions removed and must read XPASS - proof that the defect is the ONLY
-# thing red here, so the lane goes green (XPASS, then un-quarantined) when it is fixed.
+# HISTORY: expectedFail from PR #1772 until the fix; its CONTROL `2026-09-23_0012` (defect
+# assertions removed) read XPASS, proving the defect was the only red. Post-fix: reading
+# `2026-09-23_1510` XPASS (spec unchanged), then un-quarantined; see autotest-status.md.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "EXPECTED-FAIL (bugId D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME): D18 ghost-extension-past-endut on the non-chain held-ghost path, NOT CLAIMED until the fix lands. Record the pad probe of pad-runway-pair in-run, Rewind-to-Launch it, reload into FLIGHT on the runway rover, and let 1x time carry the replayed ghost through EndUT, where the KSC exclusion zone refuses the spawn and ParsekPlaybackPolicy holds the ghost for the 5 s retry window. Asserts the ghost survives the hold (no stale past-end destroy before the timeout, then a held-spawn-timeout release); today the engine destroys it in the frame the hold starts."
+description = "D18 ghost-extension-past-endut on the non-chain held-ghost path, SCOPED TO THE KSC EXCLUSION-ZONE HOLD (a vessel blocker never holds on the non-chain path; operator question D18-GHOST-EXTENSION-DESIGN-VS-CODE). Record the pad probe of pad-runway-pair in-run, Rewind-to-Launch it, reload into FLIGHT on the runway rover, and let 1x time carry the replayed ghost through EndUT, where the KSC exclusion zone refuses the spawn and ParsekPlaybackPolicy holds the ghost for the 5 s retry window. Asserts the ghost survives the hold (the engine keeps it after the completion reaches the policy, no stale past-end destroy before the timeout, then a held-spawn-timeout release) and the vessel never spawns. Regression lane for D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME (fixed 2026-09-23)."
 instanceProfile = "stock-minimal"
 tags = ["EX-1", "D18", "held-ghost", "spawn-blocked", "ksc-exclusion-zone",
-        "rewind-to-launch", "R10", "runtime-handles", "expected-fail"]
+        "rewind-to-launch", "R10", "runtime-handles"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/pad-runway-pair"
@@ -260,6 +265,7 @@ steps = [
 
 [dimensionsCovered]
 D14 = ["kerbin", "sandbox", "scene-flight"]
+D18 = ["ghost-extension-past-endut"]
 
 [expectations]
 allowedAnomalies = []
@@ -276,7 +282,8 @@ committedTrees = { min = 1, max = 1 }
 recordings     = { min = 1, max = 1 }
 terminalStates = { Landed = { min = 1, max = 1 } }
 
-# Every token below except the two DEFECT assertions was read off `2026-09-23_0000`.
+# Every token below was read off `2026-09-23_0000` (pre-fix) except the two former DEFECT
+# assertions and the two fix-signature tokens, which were read off `2026-09-23_1510`.
 [expectations.logContracts]
 required  = [
   "Recording started",
@@ -286,11 +293,14 @@ required  = [
   "PlaybackCompleted index=[0-9]+ vessel=Logi Cargo Rig ghostWasActive=True pastEffectiveEnd=True needsSpawn=True",
   "Spawn blocked for #[0-9]+ \\(Logi Cargo Rig\\): within KSC exclusion zone",
   "Ghost held pending spawn retry: #[0-9]+ \"Logi Cargo Rig\" id=",
+  # FIX SIGNATURE: the engine's stale cleanup ran after the completion reached the policy
+  # and kept the held ghost.
+  "Stale past-end cleanup after completion delivery: ghost #[0-9]+ \"Logi Cargo Rig\" kept \\(held by the policy\\)",
   "Held ghost timed out: #[0-9]+ \"Logi Cargo Rig\" id=\\S+ held=5\\.[0-9]s",
   # The vessel never spawned in the session: the exclusion zone refused every retry.
   "MISSIONMARK label=ex1-after-hold-count-1-pid-0-spawned-false ",
-  # DEFECT ASSERTION 1: the held ghost is released by the timeout, i.e. it was alive
-  # through the hold. Absent today (the ghost was already gone).
+  # REGRESSION ASSERTION 1: the held ghost is released by the timeout, i.e. it was alive
+  # through the hold. Absent before the fix (the ghost was already gone).
   "Ghost #[0-9]+ \"Logi Cargo Rig\" destroyed \\(held-spawn-timeout\\)",
 ]
 forbidden = [
@@ -298,8 +308,10 @@ forbidden = [
   "Held ghost spawn succeeded on retry",
   "Vessel spawned for #[0-9]+ \"Logi Cargo Rig\"",
   "Vessel respawned",
-  # DEFECT ASSERTION 2: the engine's stale past-end cleanup destroys the ghost before the
-  # hold times out. Matches today.
+  # The policy's hold line claims a visible ghost only when the engine still has it.
+  "Ghost held pending spawn retry: #[0-9]+ \"Logi Cargo Rig\" [^\\r\\n]*no ghost to keep visible",
+  # REGRESSION ASSERTION 2: the engine's stale past-end cleanup destroys the ghost before
+  # the hold times out. Matched before the fix.
   "Ghost #[0-9]+ \"Logi Cargo Rig\" destroyed \\(stale past-end ghost \\(no longer held\\)\\)[\\s\\S]*?Held ghost timed out: #[0-9]+ \"Logi Cargo Rig\"",
 ]
 
@@ -308,7 +320,3 @@ budgetSeconds = 1800
 
 [retry]
 policy = "once"
-
-[expectedFail]
-bugId   = "D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME"
-subkind = "expectation"

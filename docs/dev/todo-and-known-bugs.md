@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME: the non-chain "held" ghost is destroyed by the engine's stale past-end cleanup in the very frame the policy holds it, so no ghost is ever visible past EndUT [FILED 2026-09-23 from EX-1's reading run `2026-09-23_0000`. OPEN; product defect, to be fixed in its OWN PR (engine lifecycle code, needs its own review); EX-1 is its expectedFail witness]
+## ~~D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME: the non-chain "held" ghost is destroyed by the engine's stale past-end cleanup in the very frame the policy holds it, so no ghost is ever visible past EndUT~~ [FILED 2026-09-23 from EX-1's reading run `2026-09-23_0000`. FIXED 2026-09-23 on branch `held-ghost-fix`; EX-1 is its live witness]
 
 **Observed** (`EX-1-ghost-extension-past-endut`, reading `2026-09-23_0000`, KSP.log, one
 frame, 03:02:05.928-.937):
@@ -50,7 +50,62 @@ still pending in `deferredCompletedEvents` this frame (or the policy's hold deci
 be made before the cleanup runs). A unit cell can drive the engine loop with a fake policy
 that holds on completion and assert the ghost survives the frame. EX-1 is the live witness.
 
+**Fix (2026-09-23).** `GhostPlaybackEngine.ApplyStalePastEndCleanupStep` (the loop's stale
+step) keeps its held check first, so a slot the policy already holds (pending spawn, watched)
+behaves as before; a non-held slot whose completion is still queued
+(`FindPendingCompletedEvent`) is no longer destroyed there but recorded and re-decided by
+`RunStalePastEndCleanupsAfterCompletionDelivery`, which runs right after
+`FireDeferredFrameEvents` in the same frame. That pass leaves a slot alone when the policy
+destroyed or replaced its ghost (state reference check, which also covers an index shift
+during delivery), keeps it when the policy now holds it, and otherwise runs the unchanged
+stale cleanup (chain bridge-hold, else `stale past-end ghost (no longer held)`), so a ghost
+nobody holds is still cleaned up in the frame it completes. Each deferred entry carries the
+chain inputs the LOOP computed for the slot (`ChainNextIndex`, `ContinuationHasActiveGhost`),
+so the bridge-hold decision sees what it saw before the fix and a continuation that gets its
+ghost later in the same pass cannot release the head a frame early (review finding on #1776). The pure rule is `DecideStalePastEndCleanup` (held -> keep, pending -> defer, else
+destroy). An unwatched completion the policy does not hold now ends
+`destroyed (playback completed)` (the policy's own destroy) instead of
+`stale past-end ghost (no longer held)`; S1.9 already accepts both reasons, and the other
+lanes that mention the old reason do so in comments only. The policy's two hold lines
+(`Ghost held pending spawn retry` / `Ghost held during warp-deferred spawn`) now say
+"ghost stays visible" only when the engine still has the ghost
+(`ParsekPlaybackPolicy.DescribeHeldGhostVisibility`). Unit cells:
+`StalePastEndCleanupDeferralTests` (pure decision; engine frame tail with a fake policy that
+holds / leaves / destroys; the REAL `HandlePlaybackCompleted` holding a live ghost on a
+refused spawn; the parent-anchored shape where the ghost is gone before its completion is
+queued; the chain-head bridge decision using loop-time inputs; the mirror direction of an
+already-delivered stale ghost; the real policy's 5 s timeout destroying a held ghost). To run
+the real policy headless, `HandlePlaybackCompleted` reads Unity time and warp only through
+NoInlining cores (`CurrentHoldRealTime`, `CurrentWarpRate`, `IsAnyWarpActiveFromGlobalsCore`)
+and honours the existing `IsWarpActiveOverrideForTesting` / `SpawnVesselOrChainTipOverrideForTesting`
+seams; production reads the same clock and warp as before. Mutations: forcing
+`completionPendingDelivery: false` in the loop step reds the fake-policy hold cell, the
+real-policy cell and the three post-pass cells; recomputing the chain inputs after delivery
+reds the chain-head cell. LIVE-PROVEN on EX-1: XPASS reading `2026-09-23_1510` (spec unchanged, still expectedFail), armed `2026-09-23_1514` PASS attempt 1, negative control `2026-09-23_1516` PARSEK-FAIL on exactly its one seeded forbidden token; automation DLL sha256 `85f91632...` (branch `held-ghost-fix`), IL of `ApplyStalePastEndCleanupStep` / `RunStalePastEndCleanupsAfterCompletionDelivery` read with ilspycmd. Post-review re-flight `2026-09-23_1540` PASS attempt 1 on the final fix-up DLL (deployed sha256 `318d5fb4...`, IL re-read). The collected log reads, in one frame,
+`PlaybackCompleted ... ghostWasActive=True`, `Spawn blocked ... KSC exclusion zone`,
+`Ghost held pending spawn retry ... ghost stays visible`, `Stale past-end cleanup after
+completion delivery: ghost #0 "Logi Cargo Rig" kept (held by the policy)`, then 5.0 s later
+`Held ghost timed out ... held=5.0s` and `destroyed (held-spawn-timeout)`, with no hide or
+destroy of the ghost in between. EX-1 is un-quarantined and claims D18
+`ghost-extension-past-endut`, scoped to the KSC exclusion-zone hold. Replayed offline, the
+pre-fix armed log `2026-09-23_0010` misses the two new required tokens and hits the
+forbidden stale-destroy form.
+
 **Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions.
+
+## HELD-GHOST-SECOND-COMPLETION-AFTER-RELEASE: a past-end slot re-fires its completion (and one more spawn attempt) the frame after any destroy [FILED 2026-09-23 from the #1776 review. OPEN; pre-existing behaviour, low priority]
+
+`GhostPlaybackEngine.DestroyGhost` removes the slot from `completedEventFired`, so once a
+past-end ghost is destroyed (the policy's `playback completed`, or `held-spawn-timeout` after
+a hold) the next frame's past-end check fires `PlaybackCompleted` again with
+`ghostWasActive=False`, and the policy makes one more spawn attempt (EX-1's log shows it
+right after the timeout: `PlaybackCompleted ... ghostWasActive=False` then `Spawn blocked
+... (block=7/150)`). This predates the held-ghost fix; what the fix changed is WHEN it
+happens after a hold (after the 5 s timeout instead of the frame after completion). So a
+blocker that clears inside the hold window is now spawned by the retry, and one that clears
+just after the timeout gets that one late attempt. Question: should `DestroyGhost` keep the
+completion mark for a slot that is still past end (the dedup the comment on
+`completedEventFired` describes), or is the extra attempt wanted? Not driven by a lane.
 
 ## EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an expectedFail key matches on the PARSEK-FAIL subkind only, so a quarantine for one log-contract defect absorbs any other log-contract red [FILED 2026-09-23 from the #1772 review. OPEN; harness, small]
 
@@ -103,9 +158,10 @@ whole trajectory overlaps.
 **So code and design disagree** on three points: indefinite extension (the code gives 5 s),
 walkback timing (the code walks back immediately rather than after 5 s of overlap), and the
 exhaustion fallback (the code abandons rather than offering placement). On the one
-reachable subject, the pad exclusion zone, even the 5 s hold shows no ghost
-(D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME above), so
-`EX-1-ghost-extension-past-endut` is an expectedFail lane and does NOT claim the cell.
+reachable subject, the pad exclusion zone, the 5 s hold showed no ghost until
+D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME (above) was fixed on
+2026-09-23; `EX-1-ghost-extension-past-endut` now claims the cell SCOPED TO that bounded
+exclusion-zone hold, and this question stays open.
 
 **Question for the operator.** Is the design text the intent, or is the code's behaviour (an
 immediate relocation, else abandon) the accepted replacement? If the code is the intent,
@@ -4816,9 +4872,63 @@ into the orbit row whenever the burn gave up before the cut, `serialize_mission_
 instead of the named MISSION-ASSERT-FAIL. Non-finite values are now written as null
 (`RfoGiveUpSerializesTests`); `_2333` and `_2337` report the named verdict.
 
-## OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT: a re-fly of the later part of an already-committed flight the optimizer split cannot retire its deaths until a load has re-derived the rows [FOUND 2026-09-23 by ruling (3)'s test. OPEN, needs a design decision]
+## ~~OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT~~: a re-fly of the later part of an already-committed flight the optimizer split cannot retire its deaths until a load has re-derived the rows [FOUND 2026-09-23 by ruling (3)'s test. FIXED 2026-09-23 on branch `optimizer-split-crew`]
 
-MEASURED HEADLESSLY by the skipped
+FIXED (branch `optimizer-split-crew`). Both triggers measured headlessly first, on main:
+trigger 1 left `Dead 8..53` live on the first segment after the re-fly of the second;
+trigger 2 split the superseded TIP (3 recordings instead of 2), the fresh-id half TIP2 was
+IN ERS (the retired flight's tail would play again), and after the second reload both
+deaths came back on TIP2 (`Dead 20..53`). Three changes, each mutation-checked:
+
+- RETAG IN THE SPLIT PASS (closes trigger 1, and trigger 2's death on its own).
+  `RunOptimizationSplitPass` calls `Ledger.RetagActionsForSplitSecondHalf`, whose predicate
+  IS `RecordingTreeSplitter.ShouldRetagLedgerActionToTip` (the Re-Fly split's step 2.9): a
+  row tagged to the first half whose attribution UT is `>= splitUT` moves to the second,
+  keeping its ActionId. A death row is screened by its EndUT, so it follows the terminal and
+  the end states `MoveCrewEndStatesToSecondHalf` moves; a non-death crew row stays with its
+  boarding UT. Every recording-scoped type moves, not only crew rows: tombstoning covers
+  them all (`TombstoneEligibility.IsSupersedeTombstoneEligible`), so the death's paired
+  KerbalDeath reputation penalty, stamped at the vessel-loss event (normally the
+  recording's end), travels with the death and a re-fly of the second segment retires
+  both (one edge filed below as DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT). Row content is left to the next load's
+  `MigrateKerbalAssignments`, which re-derives it under the same ids (ruling a1), exactly
+  as it does after a Re-Fly split. Why retag and not re-derive at the split: a1 pairs by
+  (recording, kerbal), so re-deriving would leave the death's ActionId on the first half's
+  Recovered row and give the second half's Dead a fresh id; the retag keeps the id with the
+  fate, the same identity the Re-Fly split keeps. Why not
+  "re-derive after the load-time pass": the in-session splits (every tree / chain commit
+  runs the pass over the WHOLE committed list) would stay open.
+- NEVER SPLIT A SUPERSEDED RECORDING (closes trigger 2 at its root).
+  `FindSplitCandidatesForOptimizer` skips any recording `EffectiveState.IsSupersededByRelation`
+  names. Answer to the design question: a superseded recording should never be
+  optimizer-split. The supersede relation names it by RecordingId (rewind design 3.5
+  invariants 2-3, and `fix-supersede-identity-scope.md`'s premise that every reader keys on
+  ids), so a fresh-id half is named by no relation and re-enters ERS; the recording is not
+  played, so a split buys nothing; and it is the mirror of `CanAutoMerge`'s supersede
+  guard, which already refuses to merge one. Rewind-RETIRED recordings need no such skip:
+  retirement cascades to higher-index chain members sharing `ChainId` +
+  `ProvisionalForRpId`, both of which the split copies.
+- THE MERGE DIRECTION. The optimizer merge pass retagged the absorbed recording's rows only
+  when the absorbed recording was the tree ROOT, so any other absorbed segment's rows were
+  orphaned and the next load's `Ledger.Reconcile` pruned them, ActionId and all (measured
+  on main: a split, a load and a merge back left both crew rows on a deleted id). With the
+  split now moving rows onto later segments this matters more; every absorbed recording's
+  rows now move to the target (`RetagLedgerActionsAfterOptimizationMerge`). After a merge
+  that lasts, the target holds its own Recovered handoff row AND the absorbed Dead row for
+  one kerbal; `InheritKerbalAssignmentActionIds` now prefers the stored row with the SAME
+  end state (else the first in order, as before), so the re-derived death keeps the
+  death's id (review finding).
+
+Tests (`TombstoneReloadMigrationTests`): the formerly skipped cell, un-skipped, plus two
+reloads; a retag-by-attribution-UT cell (death rows, before / at / after the cut); the
+paired rep penalty; alive crew (row stays, ids stable over two reloads); crewless; a split,
+merge back and re-split through the real pass; a lasting merge; the same-fate id
+preference; superseded vs non-superseded candidates; trigger 2 end to end over two
+reloads. Reverting the split retag reds 5 cells, the merge retag 1, the superseded skip 2,
+the same-fate preference 1. The committed-list index contract is untouched: the
+retags change ledger tags only, and the skip removes candidates.
+
+MEASURED HEADLESSLY (history) by the then-skipped
 `TombstoneReloadMigrationTests.OptimizerSplitOfPopulatedRecording_ReFlyBeforeAnyReload_CrewNotDead`.
 The shape: a committed crewed flight whose crew rows were already derived (Dead for the
 whole flight) is split later by `RecordingStore.RunOptimizationSplitPass` - e.g. a re-fly
@@ -4846,6 +4956,39 @@ derives a fresh untombstoned Dead row, so the death resurrects. Candidate fixes:
 re-derive or retag KerbalAssignment rows inside the optimizer split pass (closes BOTH
 triggers), or skip superseded recordings as split candidates (cheap, closes only this
 one).
+
+## DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT: a split cut just before a crash can put the death on one segment and its reputation penalty on the other [FOUND 2026-09-23 by the PR #1775 review. OPEN, analysis only, needs a ruling]
+
+Both splits (the Re-Fly split's step 2.9 and the optimizer split pass) place a row by
+`TombstoneAttributionHelper.ComputeAttributionUT`: a KerbalAssignment death by its float
+`EndUT`, every other row by its `UT`. The paired KerbalDeath `ReputationPenalty` is stamped
+at the VesselLoss event nearest the recording's end (`LedgerOrchestrator`,
+`decision.UT = winner.ut`), not at `EndUT`. If a cut falls between the two (a last section
+that starts within the destruction frame, e.g. an Atmospheric -> Surface boundary at
+impact, or a rewind point in that window), the death moves to the second segment and the
+penalty stays on the first. `TombstoneEligibility.TryPairBundledRepPenalty` pairs on the
+same `RecordingId`, so a re-fly of the second segment retires the death and leaves the
+penalty applied. Not measured on a flight; rare (sub-frame window). Options: move a
+KerbalDeath-source penalty together with its death in both splits, or screen such a
+penalty by the recording's end. Either changes the split / tombstone-guard seam
+convention (the guard must stay bit-identical to the retag), so it is filed rather than
+guessed.
+
+## CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED [FOUND 2026-09-23 while fixing OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT and by its review. OPEN, analysis only, not measured]
+
+`ChainSegmentManager.CommitSegmentCore` commits a segment, runs
+`RecordingStore.RunOptimizationPass()`, and only THEN files the segment's ledger rows via
+`LedgerOrchestrator.OnRecordingCommitted(recId, ...)` against the pre-pass `recId`. Two
+shapes follow. (1) If the pass MERGES the fresh segment into its predecessor, `recId` no
+longer names a committed recording, so the rows are filed under a deleted id: skipped
+in-session by `KerbalsModule`'s orphaned-action check and pruned by the next load's
+`Ledger.Reconcile`. (2) If the pass SPLITS the fresh segment, the rows go to the first
+half only; the next load's `MigrateKerbalAssignments` re-derives crew rows per half but
+never files a KerbalDeath reputation penalty, so the second half (which owns the crash)
+has none. `MergeDialog`'s tree commit avoids both by committing the ledger per tree AFTER
+the pass. Fix direction: resolve the surviving ids after the pass (as the tree commit
+does) before filing. Check first whether the standalone chain path is still reachable in
+always-tree mode.
 
 ## ~~TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT~~: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. RULED 2026-09-23 (a1 + the Recovered handoff). FIXED on branch `tombstone-reload`]
 
@@ -4933,7 +5076,7 @@ FIXED (branch `tombstone-reload`):
   separates the optimizer split from the re-fly is fixed
   (`OptimizerSplitOfPopulatedRecording_ReloadThenReFlyOfSecondSegment_CrewNotDead`). The
   shape with NO load in between is NOT, for a different reason (ledger rows, not end
-  states), filed above as OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT.
+  states), filed above as OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT (since fixed).
 - `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
   is un-skipped and green, with mirror cells for two reloads, a re-commit of TIP, a merge
   that does not split, a mid-split rollback and a crewless recording; mutation-checked

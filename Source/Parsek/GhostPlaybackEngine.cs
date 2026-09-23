@@ -178,6 +178,23 @@ namespace Parsek
         private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
         private readonly List<GhostLifecycleEvent> deferredCreatedEvents = new List<GhostLifecycleEvent>();
         private readonly List<GhostLifecycleEvent> deferredSpawnPendingEvents = new List<GhostLifecycleEvent>();
+        // Stale past-end cleanups postponed until the slot's completion event has reached the
+        // policy (run in the same frame, right after FireDeferredFrameEvents). Reused per frame.
+        private readonly List<DeferredStaleCleanup> staleCleanupsAwaitingCompletionDelivery =
+            new List<DeferredStaleCleanup>();
+
+        /// <summary>
+        /// One postponed stale cleanup. The chain inputs are the ones the loop computed for the
+        /// slot, so the chain bridge-hold decision sees the same continuation state it would
+        /// have seen in the loop (a continuation spawned later in the same loop pass must not
+        /// release the head a frame early).
+        /// </summary>
+        private struct DeferredStaleCleanup
+        {
+            public PlaybackCompletedEvent Completion;
+            public int ChainNextIndex;
+            public bool ContinuationHasActiveGhost;
+        }
 
         // Dedup: prevent completed events from firing every frame for past-end recordings.
         // Rewind safety: DestroyAllGhosts() clears this set, and rewind always calls
@@ -1442,76 +1459,14 @@ namespace Parsek
 
                 // === Stale past-end ghost cleanup ===
                 // Ghost survived past-end (e.g. watch hold), completed event already fired,
-                // and not being held by the policy — destroy it. Prevents debris ghosts
-                // from freezing at their last trajectory point indefinitely.
-                if (state != null && completedEventFired.Contains(i)
-                    && (IsGhostHeld == null || !IsGhostHeld(i)))
-                {
-                    // === Chain-seam handoff: bridge-hold the head when its
-                    // chain continuation has not yet activated. Collapses the
-                    // section-gap case onto a single visible ghost by keeping
-                    // the head alive briefly while the continuation spawns.
-                    // Bounded by ChainHandoffLogic.DefaultBridgeMaxSeconds so
-                    // a continuation that genuinely never activates still
-                    // tears down. ===
-                    double bridgeOpenedUT;
-                    if (!chainBridgeOpenedUT.TryGetValue(i, out bridgeOpenedUT))
-                        bridgeOpenedUT = double.NaN;
-                    ChainBridgeAction bridge = ChainHandoffLogic.DecideBridgeHold(
-                        chainNextIndex,
-                        continuationHasActiveGhost,
-                        ctx.currentUT,
-                        bridgeOpenedUT,
-                        ChainHandoffLogic.DefaultBridgeMaxSeconds);
-                    if (bridge == ChainBridgeAction.Hold)
-                    {
-                        if (double.IsNaN(bridgeOpenedUT))
-                            chainBridgeOpenedUT[i] = ctx.currentUT;
-                        CountFrameSkip(GhostPlaybackSkipReason.ChainBridgeHeld);
-                        double openedUTForLog = double.IsNaN(bridgeOpenedUT)
-                            ? ctx.currentUT : bridgeOpenedUT;
-                        ParsekLog.VerboseRateLimited(
-                            "Engine",
-                            "chain-bridge-hold-" + i.ToString(CultureInfo.InvariantCulture),
-                            "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
-                                + " \"" + (traj.VesselName ?? "?")
-                                + "\" chain-bridge-hold: waiting for continuation slot #"
-                                + chainNextIndex.ToString(CultureInfo.InvariantCulture)
-                                + " at UT="
-                                + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
-                                + " openedUT="
-                                + openedUTForLog.ToString("F2", CultureInfo.InvariantCulture)
-                                + " maxSeconds="
-                                + ChainHandoffLogic.DefaultBridgeMaxSeconds.ToString(
-                                    "F1", CultureInfo.InvariantCulture),
-                            5.0);
-                        // Mirror the shadow path's trace emit so a "why
-                        // wasn't this ghost destroyed at past-end?"
-                        // investigation can correlate against the same
-                        // anomaly-window stream the rest of the engine
-                        // writes into.
-                        GhostRenderTrace.EmitGuardSkip(
-                            traj, i, ctx.currentUT, "chain-bridge-held");
-                    }
-                    else
-                    {
-                        if (bridge == ChainBridgeAction.Expired)
-                        {
-                            ParsekLog.Verbose("Engine",
-                                "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
-                                + " \"" + (traj.VesselName ?? "?")
-                                + "\" chain-bridge-expired: continuation slot #"
-                                + chainNextIndex.ToString(CultureInfo.InvariantCulture)
-                                + " did not activate within "
-                                + ChainHandoffLogic.DefaultBridgeMaxSeconds.ToString(
-                                    "F1", CultureInfo.InvariantCulture)
-                                + "s; destroying head at UT="
-                                + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture));
-                        }
-                        chainBridgeOpenedUT.Remove(i);
-                        DestroyGhost(i, traj, f, reason: "stale past-end ghost (no longer held)");
-                    }
-                }
+                // and not being held by the policy - destroy it. Prevents debris ghosts
+                // from freezing at their last trajectory point indefinitely. A slot whose
+                // completion event is still queued in deferredCompletedEvents has not been
+                // seen by the policy yet, so "not held" is not a decision the policy made:
+                // postpone its cleanup to RunStalePastEndCleanupsAfterCompletionDelivery,
+                // which re-evaluates it after FireDeferredFrameEvents in this same frame.
+                ApplyStalePastEndCleanupStep(i, traj, f, ctx.currentUT, state,
+                    chainNextIndex, continuationHasActiveGhost);
             }
 
             // Engine-iteration trace emit: one log line listing every iterated
@@ -1542,6 +1497,12 @@ namespace Parsek
 
             // Fire deferred events AFTER loop completes
             FireDeferredFrameEvents(out int createdEventsFired, out int completedEventsFired);
+
+            // The policy has now seen this frame's completions (and held, destroyed or left
+            // each ghost), so the stale cleanups the loop postponed can be decided. Like the
+            // policy's own destroys during delivery, these land after the frame summary and
+            // the iteration trace above, so those report the ghost alive this frame.
+            RunStalePastEndCleanupsAfterCompletionDelivery(ctx.currentUT);
 
             // Observability capture is measured as a phase and is now inside the updateStopwatch
             // window — totalMicroseconds includes it, so the #414 breakdown's phase sum matches
@@ -1732,6 +1693,7 @@ namespace Parsek
             deferredCompletedEvents.Clear();
             deferredCreatedEvents.Clear();
             deferredSpawnPendingEvents.Clear();
+            staleCleanupsAwaitingCompletionDelivery.Clear();
             frameSpawnCount = 0;
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
@@ -3799,11 +3761,19 @@ namespace Parsek
                 TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
             }
 
-            completedEventFired.Add(i);
+            QueuePastEndCompletedEvent(i, traj, f, ctx.currentUT, state, ghostActive, hasPointData);
+        }
 
-            // Fire completed event (policy handles spawn/resources/camera).
-            // Ghost stays alive — policy decides when to destroy
-            // (may hold for watch-mode camera, or destroy immediately).
+        /// <summary>
+        /// Marks the slot completed and queues its completed event (policy handles
+        /// spawn/resources/camera). The ghost stays alive; the policy decides when to destroy
+        /// it (may hold for a blocked spawn or the watch camera, or destroy immediately).
+        /// </summary>
+        private void QueuePastEndCompletedEvent(int i, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags f, double currentUT, GhostPlaybackState state,
+            bool ghostActive, bool hasPointData)
+        {
+            completedEventFired.Add(i);
             deferredCompletedEvents.Add(new PlaybackCompletedEvent
             {
                 Index = i,
@@ -3811,10 +3781,229 @@ namespace Parsek
                 State = state,
                 Flags = f,
                 GhostWasActive = ghostActive,
-                PastEffectiveEnd = ctx.currentUT > f.chainEndUT,
+                PastEffectiveEnd = currentUT > f.chainEndUT,
                 LastPoint = hasPointData ? traj.Points[traj.Points.Count - 1] : default,
-                CurrentUT = ctx.currentUT
+                CurrentUT = currentUT
             });
+        }
+
+        /// <summary>
+        /// Outcome of the per-slot stale past-end cleanup check. See
+        /// <see cref="DecideStalePastEndCleanup"/>.
+        /// </summary>
+        internal enum StalePastEndCleanupDecision
+        {
+            /// <summary>No ghost state, or the slot has not completed: nothing to clean.</summary>
+            NotApplicable,
+            /// <summary>The policy is holding the ghost (pending spawn, watched): keep it.</summary>
+            KeepHeld,
+            /// <summary>The completion event has not reached the policy yet: decide after delivery.</summary>
+            DeferUntilCompletionDelivered,
+            /// <summary>Completion delivered and the policy chose not to hold: clean up.</summary>
+            Destroy,
+        }
+
+        /// <summary>
+        /// Pure stale past-end cleanup decision. The held check comes first so a slot the
+        /// policy already holds keeps its existing behaviour; a non-held slot whose completion
+        /// event is still queued is deferred, because the policy (which may hold the ghost for a
+        /// blocked spawn, design 13.5) has not received that event yet.
+        /// </summary>
+        internal static StalePastEndCleanupDecision DecideStalePastEndCleanup(
+            bool hasState, bool completionFired, bool ghostHeld, bool completionPendingDelivery)
+        {
+            if (!hasState || !completionFired)
+                return StalePastEndCleanupDecision.NotApplicable;
+            if (ghostHeld)
+                return StalePastEndCleanupDecision.KeepHeld;
+            if (completionPendingDelivery)
+                return StalePastEndCleanupDecision.DeferUntilCompletionDelivered;
+            return StalePastEndCleanupDecision.Destroy;
+        }
+
+        /// <summary>
+        /// The per-trajectory loop's stale past-end cleanup step for one slot: keep a held
+        /// ghost, postpone a slot whose completion is still queued (see
+        /// <see cref="RunStalePastEndCleanupsAfterCompletionDelivery"/>), otherwise clean up.
+        /// </summary>
+        private void ApplyStalePastEndCleanupStep(int i, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags f, double currentUT, GhostPlaybackState state,
+            int chainNextIndex, bool continuationHasActiveGhost)
+        {
+            if (state == null || !completedEventFired.Contains(i))
+                return;
+
+            PlaybackCompletedEvent pendingCompletion = FindPendingCompletedEvent(i);
+            StalePastEndCleanupDecision staleDecision = DecideStalePastEndCleanup(
+                hasState: true,
+                completionFired: true,
+                ghostHeld: IsGhostHeld != null && IsGhostHeld(i),
+                completionPendingDelivery: pendingCompletion != null);
+            if (staleDecision == StalePastEndCleanupDecision.DeferUntilCompletionDelivered)
+            {
+                staleCleanupsAwaitingCompletionDelivery.Add(new DeferredStaleCleanup
+                {
+                    Completion = pendingCompletion,
+                    ChainNextIndex = chainNextIndex,
+                    ContinuationHasActiveGhost = continuationHasActiveGhost,
+                });
+            }
+            else if (staleDecision == StalePastEndCleanupDecision.Destroy)
+            {
+                RunStalePastEndCleanup(i, traj, f, currentUT,
+                    chainNextIndex, continuationHasActiveGhost);
+            }
+        }
+
+        /// <summary>
+        /// Returns the completion event queued for <paramref name="index"/> this frame, or null.
+        /// The list holds at most a few entries per frame, so a linear scan is cheaper than a
+        /// parallel set that would also need index shifting.
+        /// </summary>
+        private PlaybackCompletedEvent FindPendingCompletedEvent(int index)
+        {
+            for (int k = deferredCompletedEvents.Count - 1; k >= 0; k--)
+            {
+                if (deferredCompletedEvents[k].Index == index)
+                    return deferredCompletedEvents[k];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Runs the stale past-end cleanups the per-trajectory loop postponed because the
+        /// slot's completion event had not been delivered yet. Called right after
+        /// FireDeferredFrameEvents, so the policy has already held, destroyed or left each
+        /// ghost. A slot whose ghost state is gone or was replaced (the policy destroyed it, or
+        /// a committed-list shift moved the index during delivery) is left alone.
+        /// </summary>
+        internal void RunStalePastEndCleanupsAfterCompletionDelivery(double currentUT)
+        {
+            int count = staleCleanupsAwaitingCompletionDelivery.Count;
+            if (count == 0)
+                return;
+
+            int kept = 0, destroyed = 0, gone = 0;
+            for (int k = 0; k < count; k++)
+            {
+                DeferredStaleCleanup deferred = staleCleanupsAwaitingCompletionDelivery[k];
+                PlaybackCompletedEvent evt = deferred.Completion;
+                int index = evt.Index;
+                GhostPlaybackState current;
+                bool sameState = ghostStates.TryGetValue(index, out current)
+                    && current != null
+                    && object.ReferenceEquals(current, evt.State);
+                StalePastEndCleanupDecision decision = DecideStalePastEndCleanup(
+                    hasState: sameState,
+                    completionFired: completedEventFired.Contains(index),
+                    ghostHeld: IsGhostHeld != null && IsGhostHeld(index),
+                    completionPendingDelivery: false);
+                string name = evt.Trajectory?.VesselName ?? "?";
+                if (decision == StalePastEndCleanupDecision.Destroy)
+                {
+                    destroyed++;
+                    ParsekLog.Verbose("Engine",
+                        "Stale past-end cleanup after completion delivery: ghost #"
+                        + index.ToString(CultureInfo.InvariantCulture)
+                        + " \"" + name + "\" not held by the policy, cleaning up");
+                    RunStalePastEndCleanup(index, evt.Trajectory, evt.Flags, currentUT,
+                        deferred.ChainNextIndex, deferred.ContinuationHasActiveGhost);
+                }
+                else if (decision == StalePastEndCleanupDecision.KeepHeld)
+                {
+                    kept++;
+                    ParsekLog.Verbose("Engine",
+                        "Stale past-end cleanup after completion delivery: ghost #"
+                        + index.ToString(CultureInfo.InvariantCulture)
+                        + " \"" + name + "\" kept (held by the policy)");
+                }
+                else
+                {
+                    gone++;
+                }
+            }
+            staleCleanupsAwaitingCompletionDelivery.Clear();
+
+            ParsekLog.Verbose("Engine",
+                "Stale past-end cleanups after completion delivery: deferred="
+                + count.ToString(CultureInfo.InvariantCulture)
+                + " keptHeld=" + kept.ToString(CultureInfo.InvariantCulture)
+                + " destroyed=" + destroyed.ToString(CultureInfo.InvariantCulture)
+                + " alreadyGone=" + gone.ToString(CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>
+        /// Stale past-end cleanup for one slot the policy is not holding: bridge-hold a chain
+        /// head whose continuation has not activated yet, otherwise destroy the ghost.
+        /// </summary>
+        private void RunStalePastEndCleanup(int i, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags f, double currentUT,
+            int chainNextIndex, bool continuationHasActiveGhost)
+        {
+            // === Chain-seam handoff: bridge-hold the head when its
+            // chain continuation has not yet activated. Collapses the
+            // section-gap case onto a single visible ghost by keeping
+            // the head alive briefly while the continuation spawns.
+            // Bounded by ChainHandoffLogic.DefaultBridgeMaxSeconds so
+            // a continuation that genuinely never activates still
+            // tears down. ===
+            double bridgeOpenedUT;
+            if (!chainBridgeOpenedUT.TryGetValue(i, out bridgeOpenedUT))
+                bridgeOpenedUT = double.NaN;
+            ChainBridgeAction bridge = ChainHandoffLogic.DecideBridgeHold(
+                chainNextIndex,
+                continuationHasActiveGhost,
+                currentUT,
+                bridgeOpenedUT,
+                ChainHandoffLogic.DefaultBridgeMaxSeconds);
+            if (bridge == ChainBridgeAction.Hold)
+            {
+                if (double.IsNaN(bridgeOpenedUT))
+                    chainBridgeOpenedUT[i] = currentUT;
+                CountFrameSkip(GhostPlaybackSkipReason.ChainBridgeHeld);
+                double openedUTForLog = double.IsNaN(bridgeOpenedUT)
+                    ? currentUT : bridgeOpenedUT;
+                ParsekLog.VerboseRateLimited(
+                    "Engine",
+                    "chain-bridge-hold-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " \"" + (traj.VesselName ?? "?")
+                        + "\" chain-bridge-hold: waiting for continuation slot #"
+                        + chainNextIndex.ToString(CultureInfo.InvariantCulture)
+                        + " at UT="
+                        + currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " openedUT="
+                        + openedUTForLog.ToString("F2", CultureInfo.InvariantCulture)
+                        + " maxSeconds="
+                        + ChainHandoffLogic.DefaultBridgeMaxSeconds.ToString(
+                            "F1", CultureInfo.InvariantCulture),
+                    5.0);
+                // Mirror the shadow path's trace emit so a "why
+                // wasn't this ghost destroyed at past-end?"
+                // investigation can correlate against the same
+                // anomaly-window stream the rest of the engine
+                // writes into.
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, i, currentUT, "chain-bridge-held");
+            }
+            else
+            {
+                if (bridge == ChainBridgeAction.Expired)
+                {
+                    ParsekLog.Verbose("Engine",
+                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " \"" + (traj.VesselName ?? "?")
+                        + "\" chain-bridge-expired: continuation slot #"
+                        + chainNextIndex.ToString(CultureInfo.InvariantCulture)
+                        + " did not activate within "
+                        + ChainHandoffLogic.DefaultBridgeMaxSeconds.ToString(
+                            "F1", CultureInfo.InvariantCulture)
+                        + "s; destroying head at UT="
+                        + currentUT.ToString("F2", CultureInfo.InvariantCulture));
+                }
+                chainBridgeOpenedUT.Remove(i);
+                DestroyGhost(i, traj, f, reason: "stale past-end ghost (no longer held)");
+            }
         }
 
         /// <summary>
@@ -7380,6 +7569,39 @@ namespace Parsek
         // gymnastics to peek at internal state.
         internal int Bug613TestEarlyDestroyedCount => earlyDestroyedDebrisCompleted.Count;
         internal int Bug613TestDeferredCompletedCount => deferredCompletedEvents.Count;
+
+        /// <summary>
+        /// Test seam: drives one slot through the same past-end frame-tail sequence
+        /// UpdatePlayback runs (queue the completion when <paramref name="queueCompletion"/>,
+        /// the loop's stale-cleanup step, event delivery, the post-delivery cleanup pass),
+        /// without the Unity-bound positioning around it.
+        /// </summary>
+        internal void RunPastEndFrameTailForTesting(int index, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags, double currentUT, bool queueCompletion,
+            GhostPlaybackState staleLoopStateOverride = null)
+        {
+            deferredCompletedEvents.Clear();
+            deferredCreatedEvents.Clear();
+            deferredSpawnPendingEvents.Clear();
+            staleCleanupsAwaitingCompletionDelivery.Clear();
+
+            GhostPlaybackState state;
+            ghostStates.TryGetValue(index, out state);
+            if (staleLoopStateOverride != null)
+                state = staleLoopStateOverride;
+            if (queueCompletion)
+                QueuePastEndCompletedEvent(index, traj, flags, currentUT, state,
+                    ghostActive: state != null, hasPointData: false);
+
+            int chainNextIndex = ResolveChainNextIndex != null ? ResolveChainNextIndex(index) : -1;
+            bool continuationHasActiveGhost = chainNextIndex >= 0 && HasActiveGhost(chainNextIndex);
+            ApplyStalePastEndCleanupStep(index, traj, flags, currentUT, state,
+                chainNextIndex, continuationHasActiveGhost);
+            FireDeferredFrameEvents(out _, out _);
+            RunStalePastEndCleanupsAfterCompletionDelivery(currentUT);
+        }
+
+        internal bool IsCompletionFiredForTesting(int index) => completedEventFired.Contains(index);
         internal bool TryHandleParentAnchoredDebrisCoverageRetiredForTesting(
             int index, IPlaybackTrajectory traj, GhostPlaybackState state,
             double playbackUT, double currentUT, float warpRate,
@@ -8566,10 +8788,19 @@ namespace Parsek
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
         }
 
+        /// <summary>Test seam: replaces the Unity-bound resource teardown in DestroyGhost so
+        /// headless tests can drive the slot bookkeeping (ghostStates, completion dedup).</summary>
+        internal Action<GhostPlaybackState> DestroyGhostResourcesOverrideForTesting;
+
         private void DestroyGhostResourcesWithMetrics(GhostPlaybackState state, bool lingerParticleSystems = true)
         {
             if (state == null)
                 return;
+            if (DestroyGhostResourcesOverrideForTesting != null)
+            {
+                DestroyGhostResourcesOverrideForTesting(state);
+                return;
+            }
 
             if (!updateStopwatch.IsRunning)
             {
