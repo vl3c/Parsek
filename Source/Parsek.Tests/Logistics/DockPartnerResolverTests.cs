@@ -172,68 +172,85 @@ namespace Parsek.Tests.Logistics
         // --- ResolveTargetSideAbsorbedPid (D5 same-tree re-dock, SD-1) ---
 
         // catches: a TARGET-side dock with a same-tree background partner recording ONE
-        // parent. onPartCouple fires pre-couple, so the post-couple shape heuristic answers
-        // 0 while the couple event names the partner, a BackgroundMap member.
+        // parent. onPartCouple fires pre-couple, so the partner is intact; the couple event
+        // names it, and it is a BackgroundMap member.
         [Fact]
-        public void TargetAbsorbed_PartnerInBackgroundMap_WinsOverZeroHeuristic()
+        public void TargetAbsorbed_PartnerInBackgroundMap_IsTheAbsorbedSide()
         {
             uint absorbed = ParsekFlight.ResolveTargetSideAbsorbedPid(
-                heuristicAbsorbedPid: 0u, partnerPidFromEvent: 2009145679u,
-                mergedPid: 3620499050u, backgroundMapPids: new HashSet<uint> { 2009145679u });
+                partnerPidFromEvent: 2009145679u, mergedPid: 3620499050u,
+                backgroundMapPids: new HashSet<uint> { 2009145679u });
             Assert.Equal(2009145679u, absorbed);
         }
 
-        // catches: the heuristic's guess (any map member whose Vessel is gone) overriding
-        // the vessel the couple event actually names.
-        [Fact]
-        public void TargetAbsorbed_PartnerInBackgroundMap_WinsOverDifferentHeuristic()
-        {
-            uint absorbed = ParsekFlight.ResolveTargetSideAbsorbedPid(
-                heuristicAbsorbedPid: 444u, partnerPidFromEvent: 555u,
-                mergedPid: 1u, backgroundMapPids: new HashSet<uint> { 444u, 555u });
-            Assert.Equal(555u, absorbed);
-        }
-
         // catches: a foreign or cross-tree partner (not in this tree's map) becoming a
-        // merge parent. Those docks stay single-parent: the heuristic answer is kept.
+        // merge parent. Those docks stay single-parent.
         [Fact]
-        public void TargetAbsorbed_PartnerOutsideBackgroundMap_KeepsHeuristic()
+        public void TargetAbsorbed_PartnerOutsideBackgroundMap_IsZero()
         {
             Assert.Equal(0u, ParsekFlight.ResolveTargetSideAbsorbedPid(
-                0u, 555u, 1u, new HashSet<uint> { 777u }));
-            Assert.Equal(777u, ParsekFlight.ResolveTargetSideAbsorbedPid(
-                777u, 555u, 1u, new HashSet<uint> { 777u }));
+                555u, 1u, new HashSet<uint> { 777u }));
+        }
+
+        // catches: the old "vessel gone or partless" scan coming back. An UNLOADED on-rails
+        // background stage reads zero parts, so while the active ship docks a foreign
+        // partner that stage must NOT be taken as the second parent (it would be stamped
+        // Docked and truncated). With the partner in the map beside it, the partner wins.
+        [Fact]
+        public void TargetAbsorbed_UnloadedBackgroundStage_IsNeverTheAbsorbedSide()
+        {
+            const uint unloadedStagePid = 4242u;
+            Assert.Equal(0u, ParsekFlight.ResolveTargetSideAbsorbedPid(
+                partnerPidFromEvent: 555u, mergedPid: 1u,
+                backgroundMapPids: new HashSet<uint> { unloadedStagePid }));
+            Assert.Equal(555u, ParsekFlight.ResolveTargetSideAbsorbedPid(
+                partnerPidFromEvent: 555u, mergedPid: 1u,
+                backgroundMapPids: new HashSet<uint> { unloadedStagePid, 555u }));
         }
 
         // catches: the merged vessel itself (or an unresolved event partner) being taken as
         // the absorbed side, and a null map crashing mid-teardown.
         [Fact]
-        public void TargetAbsorbed_DegenerateInputs_KeepHeuristic()
+        public void TargetAbsorbed_DegenerateInputs_AreZero()
         {
             Assert.Equal(0u, ParsekFlight.ResolveTargetSideAbsorbedPid(
-                0u, 1u, 1u, new HashSet<uint> { 1u }));
+                1u, 1u, new HashSet<uint> { 1u }));
             Assert.Equal(0u, ParsekFlight.ResolveTargetSideAbsorbedPid(
-                0u, 0u, 1u, new HashSet<uint> { 0u }));
-            Assert.Equal(9u, ParsekFlight.ResolveTargetSideAbsorbedPid(9u, 555u, 1u, null));
+                0u, 1u, new HashSet<uint> { 0u }));
+            Assert.Equal(0u, ParsekFlight.ResolveTargetSideAbsorbedPid(555u, 1u, null));
         }
 
-        // catches: the live OnPartCouple TARGET branch reverting to the heuristic alone
-        // (the helper above would still pass while the call site ignores it).
+        // catches: the live OnPartCouple TARGET branch no longer routing through the
+        // resolver with the active tree's map, or a map-shape heuristic returning. Line
+        // comments are stripped first so a commented-out call cannot satisfy the gate.
         [Fact]
         public void TargetAbsorbed_OnPartCoupleTargetBranch_RoutesThroughResolver()
         {
-            string src = File.ReadAllText(FindParsekFlightSource()).Replace("\r\n", "\n");
-            int branch = src.IndexOf(
-                "uint heuristicAbsorbedPid =\n                            FindAbsorbedDockPartnerPid(mergedPid, data.to.vessel);",
-                StringComparison.Ordinal);
-            Assert.True(branch >= 0, "TARGET branch no longer computes heuristicAbsorbedPid");
-            int resolve = src.IndexOf("absorbedPid = ResolveTargetSideAbsorbedPid(", branch,
-                StringComparison.Ordinal);
+            string src = StripLineComments(
+                File.ReadAllText(FindParsekFlightSource()).Replace("\r\n", "\n"));
+            int branch = src.IndexOf("if (isTarget)", StringComparison.Ordinal);
+            Assert.True(branch >= 0, "OnPartCouple no longer branches on isTarget");
+            int resolve = src.IndexOf(
+                "absorbedPid = ResolveTargetSideAbsorbedPid(\n                            "
+                + "partnerPidFromEvent, mergedPid, activeTree.BackgroundMap.Keys);",
+                branch, StringComparison.Ordinal);
             int initiator = src.IndexOf("absorbedPid = recorder.RecordingVesselId;", branch,
                 StringComparison.Ordinal);
             Assert.True(resolve > branch && initiator > resolve,
-                "the TARGET branch must assign absorbedPid through ResolveTargetSideAbsorbedPid");
-            Assert.Equal(1, CountOccurrences(src, "FindAbsorbedDockPartnerPid(mergedPid,"));
+                "the TARGET branch must assign absorbedPid through ResolveTargetSideAbsorbedPid "
+                + "over activeTree.BackgroundMap.Keys");
+            Assert.Equal(0, CountOccurrences(src, "FindAbsorbedDockPartnerPid"));
+        }
+
+        private static string StripLineComments(string src)
+        {
+            var sb = new System.Text.StringBuilder(src.Length);
+            foreach (string line in src.Split('\n'))
+            {
+                int c = line.IndexOf("//", StringComparison.Ordinal);
+                sb.Append(c >= 0 ? line.Substring(0, c) : line).Append('\n');
+            }
+            return sb.ToString();
         }
 
         private static int CountOccurrences(string text, string needle)

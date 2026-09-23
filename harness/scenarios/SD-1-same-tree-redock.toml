@@ -106,9 +106,11 @@ required = [
   "(?s)Tree branch created: type=Undock, bp=[0-9a-f]+, activeChild=[0-9a-f]+ \\(pid=[0-9]+\\), bgChild=([0-9a-f]+) \\(pid=[0-9]+\\).*?Tree merge created: type=Dock, bp=[0-9a-f]+, parents=\\[[0-9a-f]+,\\1\\], child=[0-9a-f]+ \\(pid=[0-9]+\\)",
   "Tree dock merge completed",
   # The fix's witness (TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT): the active pair half
-  # survives as the merged vessel, the post-couple heuristic answers 0, and the couple
-  # event's partner - a BackgroundMap member - becomes the absorbed side.
-  "OnPartCouple target-side absorbed partner: absorbedPid=([0-9]+) heuristicPid=0 partnerPidFromEvent=\\1 partnerInBackgroundMap=True",
+  # survives as the merged vessel and the couple event's partner - a BackgroundMap
+  # member - becomes the absorbed side. Re-shaped 2026-09-24 by the #1794 review, which
+  # dropped the post-couple heuristic and its `heuristicPid=` field from the line; the
+  # flown runs `_2210` / `_2213` printed `heuristicPid=0` between these two fields.
+  "OnPartCouple target-side absorbed partner: absorbedPid=([0-9]+) partnerPidFromEvent=\\1 partnerInBackgroundMap=True",
   "onPartCouple \\(tree\\): dock merge pending \\(merged=3620499050, absorbed=[1-9][0-9]*, isTarget=True\\)",
 ]
 forbidden = [

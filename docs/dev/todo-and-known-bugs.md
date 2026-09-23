@@ -37,16 +37,27 @@ INITIATOR branch (the recorder's vessel is absorbed) was unaffected: its partner
 survivor, which the merged-pid lookup finds. That is also why the pre-#1780 BDOCK-2 accident
 produced a two-parent dock: the fresh launch was the initiator.
 
-**Fix.** The new pure `ParsekFlight.ResolveTargetSideAbsorbedPid` prefers the couple event's
-partner when it is a member of the active tree's `BackgroundMap`, and falls back to the old
-heuristic otherwise; the TARGET branch logs `OnPartCouple target-side absorbed partner: ...`.
-Mirror walk: the initiator branch, the retroactive branch (initiator-only), a cross-tree partner
-and a vessel that is not in the tree (partner outside the map, heuristic kept), and the undock
-path are unchanged. Guarded by `DockPartnerResolverTests.TargetAbsorbed_*` (the precedence cells
-red with the fix reverted; a source gate pins the call site). Live proof: SD-1's pre-fix reading
-run reds on exactly the two-parent token and the single-parent forbid; the first flight on the fix
+**Fix.** The new pure `ParsekFlight.ResolveTargetSideAbsorbedPid` takes the couple event's
+partner as the absorbed side when it is a member of the active tree's `BackgroundMap`, and answers
+0 otherwise (a foreign or cross-tree partner: single-parent merge, as before). The TARGET branch
+logs `OnPartCouple target-side absorbed partner: ...`. The old post-couple heuristic
+(`FindAbsorbedDockPartnerPid`, "first map member whose vessel is gone or partless") is DELETED
+(#1794 review): pre-couple the real partner is intact, so that scan could only ever match a
+DIFFERENT member - an unloaded on-rails background stage reads zero parts - and dock it by mistake,
+stamping it Docked and truncating its recording. Nothing depended on it: across every archived
+harness KSP.log (97 tree dock merges) it never returned a non-zero pid; the 39 pre-fix target-side
+docks (H56, H57 and its controls, SD-1's reading, rover-c) all read `absorbed=0`, which is exactly
+what the fix answers for their foreign partners, and the other 56 were initiator-side. Mirror walk:
+the initiator branch, the retroactive branch (initiator-only), a cross-tree partner, a vessel that
+is not in the tree, and the undock path are unchanged. Guarded by
+`DockPartnerResolverTests.TargetAbsorbed_*` (including the unloaded-stage case; the precedence and
+zero-fallback cells red under mutation, and a comment-stripped source gate pins the call site and
+its `activeTree.BackgroundMap.Keys` argument). Live proof: SD-1's pre-fix reading run reds on
+exactly the two-parent token and the single-parent forbid; the first flight on the fix
 (`2026-09-23_2210`) and the armed re-flight (`2026-09-23_2213`) are green, the latter with the
-save's terminal split (Docked 4 / Orbiting 8, pre-fix 3 / 9) gating.
+save's terminal split (Docked 4 / Orbiting 8, pre-fix 3 / 9) gating. Both flew the first cut of
+the fix (heuristic kept as a fallback, which answered 0 there); the review's heuristic removal
+changes no outcome on that path and was not re-flown.
 
 ## RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`]
 

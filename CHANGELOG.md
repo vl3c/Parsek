@@ -926,7 +926,9 @@ _(unreleased — entries accumulate here per commit)_
   part. The other half's recording kept running as if it were still in orbit, showed up as
   an unfinished flight to re-fly, and the commit tried to spawn a vessel that no longer
   existed. Parsek now takes the docking partner straight from the dock event, so both halves
-  end as docked and the docked vessel's recording starts from both.
+  end as docked and the docked vessel's recording starts from both. The old guess that
+  replaced it could also have picked an unrelated stage of the same flight that was out of
+  loading range and marked it as docked; that can no longer happen.
 - **A Rewind to Launch no longer loses (or brings back) the re-fly points of the flight.**
   A split that leaves an unfinished sibling keeps a rewind point, shown as the Fly button in
   Unfinished Flights. Whether it survived a Rewind to Launch used to depend on which scenes
