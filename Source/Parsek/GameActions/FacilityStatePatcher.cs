@@ -462,6 +462,7 @@ namespace Parsek
             int demolishedCount = 0;
             int repairedCount = 0;
             int settlingCount = 0;
+            int unloadedCount = 0;
             int matchedCount = 0;
             int noMatchCount = 0;
 
@@ -473,6 +474,17 @@ namespace Parsek
                 if (buildingById.TryGetValue(facilityId, out db))
                 {
                     matchedCount++;
+
+                    // A scene load runs Parsek's OnLoad recalc BEFORE ScenarioDestructibles has
+                    // loaded the save into the buildings (measured, KB-1 2026-09-23_2018: the
+                    // patch ran, then "[ScenarioDestructibles]: Loading... 0 objects
+                    // registered"), so a building not yet registered with the current
+                    // scenario still shows its default intact state, not the save's.
+                    if (!IsBuildingStateLoaded(IsRegisteredWithScenario(db)))
+                    {
+                        unloadedCount++;
+                        continue;
+                    }
 
                     DestructionPatchAction patchAction =
                         ResolveLiveDestructionPatch(kvp.Value, db.IsIntact, db.IsDestroyed);
@@ -510,6 +522,7 @@ namespace Parsek
                 $"PatchDestructionState: demolished={demolishedCount.ToString(IC)}, " +
                 $"repaired={repairedCount.ToString(IC)}, " +
                 $"settling={settlingCount.ToString(IC)}, " +
+                $"unloaded={unloadedCount.ToString(IC)}, " +
                 $"matched={matchedCount.ToString(IC)}, " +
                 $"noMatch={noMatchCount.ToString(IC)}, " +
                 $"buildings={buildingById.Count}, " +
@@ -522,6 +535,35 @@ namespace Parsek
         }
 
         internal enum DestructionPatchAction { None, Demolish, Repair, Settling }
+
+        /// <summary>
+        /// Pure: a live building's intact / destroyed flags are the save's only once it is
+        /// registered with the current <c>ScenarioDestructibles</c> (its
+        /// <c>ProtoDestructible</c> holds this instance): registration is where stock loads
+        /// the persisted <c>intact</c> value into the building. Before that the flags are the
+        /// prefab default (intact) and must not be read as the building's state.
+        /// </summary>
+        internal static bool IsBuildingStateLoaded(bool registeredWithScenario)
+        {
+            return registeredWithScenario;
+        }
+
+        private static bool IsRegisteredWithScenario(DestructibleBuilding db)
+        {
+            try
+            {
+                if (ScenarioDestructibles.Instance == null || ScenarioDestructibles.protoDestructibles == null)
+                    return false;
+                ScenarioDestructibles.ProtoDestructible proto;
+                return ScenarioDestructibles.protoDestructibles.TryGetValue(db.id, out proto)
+                    && proto != null && proto.dBuildingRefs != null
+                    && proto.dBuildingRefs.Contains(db);
+            }
+            catch (System.Exception)
+            {
+                return false;
+            }
+        }
 
         /// <summary>
         /// Pure decision for one building given a KNOWN target state (see

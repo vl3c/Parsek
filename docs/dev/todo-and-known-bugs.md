@@ -829,7 +829,13 @@ row contradicts the live building (`ResolveLiveDestructionPatch`: no row means n
 so nothing is "restored" from absence - stock state travels with every save, rewind and
 revert; a building mid-collapse / mid-repair is left alone). It does not act while a flight
 is recording, its tree is uncommitted or a tree is pending, or before the clock is ready
-(`ResolveDestructionPatchSkipReason`); that gate also covers the warp-start patch. A
+(`ResolveDestructionPatchSkipReason`); that gate also covers the warp-start patch. It also
+skips a building not yet registered with the current `ScenarioDestructibles`: KB-1's
+`2026-09-23_2018` flight (PARSEK-FAIL on the no-patcher-demolish pin) showed a scene load's
+Parsek `OnLoad` recalc running BEFORE stock loads the save into the buildings (the patch
+line, then `[ScenarioDestructibles]: Loading... 0 objects registered`), so the dish still
+read its default intact state and was demolished; the building really was down in the save,
+so the outcome matched, but a patch must never read a building stock has not loaded. A
 tombstoned destruction therefore schedules no intact default for its building. The cache
 seed, the poll and the event handlers share one intact test (`TryReadSettledIntact`: a
 building between states has no value and is neither seeded nor compared). Career window: its live "now" read is unchanged; its

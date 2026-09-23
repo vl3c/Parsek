@@ -110,7 +110,7 @@ required = [
   "kscaction refused action=repair-facility reason=facility-intact",
   # The live building patch folds the ledger AT LIVE UT and agrees with stock (matched the
   # one ledger building, changed nothing) once the clock is ready after a reload.
-  "PatchDestructionState: demolished=0, repaired=0, settling=0, matched=1, noMatch=0, buildings=[0-9]+, ledgerBuildings=1, liveUT=[1-9]",
+  "PatchDestructionState: demolished=0, repaired=0, settling=0, unloaded=0, matched=1, noMatch=0, buildings=[0-9]+, ledgerBuildings=1, liveUT=[1-9]",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

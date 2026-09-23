@@ -158,6 +158,15 @@ namespace Parsek.Tests
             Assert.Empty(FacilityStatePatcher.ComputeBuildingDestroyedAtUt(null, 120.0));
         }
 
+        // A scene load's recalc runs before ScenarioDestructibles has loaded the save into
+        // the buildings (KB-1 2026-09-23_2018): an unregistered building is not read.
+        [Fact]
+        public void UnregisteredBuilding_StateIsNotRead()
+        {
+            Assert.False(FacilityStatePatcher.IsBuildingStateLoaded(false));
+            Assert.True(FacilityStatePatcher.IsBuildingStateLoaded(true));
+        }
+
         // M1: one intact test for seed, poll and events; a building mid-animation has none.
         [Theory]
         [InlineData(true, false, true, true)]
