@@ -3518,6 +3518,14 @@ namespace Parsek
                 loadPhase = "refly-state-load";
                 LoadRewindStagingState(node);
 
+                // A rewind point always survives a plain rewind (operator ruling
+                // 2026-09-23). The node above is persistent.sfs as last written, not the
+                // rewind save (SpaceCenterMain.Start reloads persistent), so its RP list is
+                // of unknown age: put back the in-memory list captured when the rewind
+                // started. No-op on every load that is not a rewind.
+                loadPhase = "rewind-point-carry-over";
+                RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(this);
+
                 // PR #774 cross-LoadScene fix: re-apply the rewind-time supersede drop
                 // performed in RecordingStore.InitiateRewind. The in-memory mutation
                 // there is reverted by KSP's scenario-state restoration across the

@@ -869,8 +869,9 @@ remains is, in order:
    SIZED, not flown (two different lanes, see the item); the reentry-FX replay half
    (item 3) and the GS-6 residues (`chute-two-phase` / `chute-cut`, `bays`) stay
    filed where they are - none is a one-flight derivative of the GS-4 template.
-4. **Ghost-replay Tier B item 6, the vanished-RewindPoint design call**: costs
-   nothing and the roadmap says to take it early; then items 7-9 (rewind-to-launch
+4. **Ghost-replay Tier B item 6, the vanished-RewindPoint design call**: RULED and
+   FIXED 2026-09-23 (an RP always survives a Rewind-to-Launch, gated on the clock
+   reaching its UT; see the item); then items 7-9 (rewind-to-launch
    x Re-Fly, repeat-rewind idempotence, arming `unityExceptions` on GS-4 / W1 -
    the latter is also the first real move on known-gate 11, raw Unity exceptions
    unjudged). Items 8 and 9 LANDED 2026-09-10/11 (`ghost-replay-tier-b`): GS-9 is
@@ -4267,19 +4268,22 @@ first spawn frame (hold-then-retry, never a single eager ask).
 
 ### Tier B - the rewind system's own open questions
 
-6. **The vanished RewindPoint.** GS-4 OBSERVED (not gated) the core-discard
-   RP authored live (`slots=2 focusSlot=0`) and GONE after the rewind
-   (`ReapOrphanedRPs: remaining=0`, saveParse rewindPoints=0) - the rewind
-   lands before its branch point. DESIGN CALL FIRST: is a re-fly affordance
-   the player still deserves once the replay passes the branch point again,
-   or is rewound-out-of-existence the contract? Then a lane pins whichever
-   answer, the GS-1/GS-2 both-branches pattern.
-   DATA POINT 2026-09-08 (GS-7 `2026-09-08_1711`, report-only saveParse): on the
-   CRASH profile the same core-discard RP SURVIVES the rewind (rewindPoints=1)
-   because the crash promoted the tree's slots to CommittedProvisional
-   (`CommitTree promoted rec=... reason=crashed to CommittedProvisional`), so the
-   answer already differs by terminal kind; the design call has two measured
-   shapes to rule on, not one.
+6. ~~**The vanished RewindPoint.**~~ RULED + FIXED 2026-09-23 (todo
+   RP-SURVIVES-REWIND-TO-LAUNCH). GS-4 read the core-discard RP authored live
+   (`slots=2 focusSlot=0`) and GONE after the rewind (saveParse rewindPoints=0);
+   GS-7 read it SURVIVING (rewindPoints=1). The earlier reading of that split -
+   "the crash promoted the slots to CommittedProvisional" - was WRONG: GS-4's
+   slots were promoted too (`reason=stableLeafUnconcluded`). The real mechanism:
+   the rewind's scene load goes to the Space Center, whose
+   `SpaceCenterMain.Start` (decompiled) reloads persistent.sfs, so the OnLoad RP
+   list was whatever the last persistent write held - GS-7 wrote one at a flight
+   re-entry after the RP, GS-4 wrote none. Survival depended on scene history,
+   and RF-4 measured the other face (a reaped RP resurrected). OPERATOR RULING:
+   an RP ALWAYS survives a Rewind-to-Launch; its slots stay in Unfinished
+   Flights, and the Re-Fly is enabled only once the clock reaches the RP's UT
+   again. The rewind now carries the in-memory RP list across the reload, and
+   `RewindInvoker.CanInvoke` refuses an RP in the player's future. GS-4 pins
+   rewindPoints {1,1}, ARMED; S4.1 flies the gate (refused, jump, allowed).
 7. **Rewind-to-launch x Re-Fly interplay.** Rewind-to-launch on a tree
    carrying supersede rows exercises `DropSupersedesRewoundOutOfExistence`
    and D9 `load-time-sweep` (the dimension's one UNCOVERED cell) live -

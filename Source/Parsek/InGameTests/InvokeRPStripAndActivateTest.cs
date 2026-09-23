@@ -72,6 +72,10 @@ namespace Parsek.InGameTests
                 if (string.IsNullOrEmpty(abs) || !File.Exists(abs)) continue;
                 int slotIdx = ResolveSlotIndex(candidate, rec);
                 if (slotIdx < 0) continue;
+                // An RP that survived a Rewind-to-Launch into its past is not invokable
+                // until the clock reaches it again; pick one that is.
+                if (RewindInvoker.IsRewindPointInFuture(candidate.UT, Planetarium.GetUniversalTime()))
+                    continue;
                 target = rec;
                 rp = candidate;
                 slot = candidate.ChildSlots[slotIdx];
@@ -80,7 +84,7 @@ namespace Parsek.InGameTests
 
             if (target == null || rp == null || slot == null)
             {
-                InGameAssert.Skip("No Unfinished Flight has an on-disk quicksave + resolvable slot " +
+                InGameAssert.Skip("No Unfinished Flight has an on-disk quicksave + resolvable slot + an RP the clock has reached " +
                     "in the current save; cannot exercise Phase 6.");
                 return;
             }

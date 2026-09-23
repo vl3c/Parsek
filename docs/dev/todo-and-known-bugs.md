@@ -15,6 +15,60 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`]
+
+**Ruling.** A rewind point ALWAYS survives a Rewind-to-Launch. Its slots stay in Unfinished
+Flights, but the Re-Fly (invoke) is enabled only once the current UT has passed the RP's UT
+again: an RP in the player's future cannot be invoked. (Roadmap Tier B item 6.)
+
+**The defect, pinned from the logs plus a decompile.** GS-4 (`2026-09-11_0102`) read
+`RewindPoints loaded: 0` after the rewind; GS-7 (`2026-09-08_2054`) read 1. Neither rewind
+save (`parsek_rw_*`) carries a REWIND_POINTS node, and no OnSave ran between the rewind's
+LoadGame and the OnLoad in either run. The OnLoad node is not the rewind save at all:
+`RecordingStore.ExecuteRewindSaveLoad` swaps in the rewind game and loads SPACECENTER, and
+`SpaceCenterMain.Start` (KSP 1.12.5, decompiled) calls `GamePersistence.LoadGame("persistent")`
+and loads THAT game (the second `[SceneLoadSpeedBoost] Save loaded from disk` line in both
+logs). So the RP list came from persistent.sfs as last written. GS-7 flew to the Space Center
+and back after the RP (`Game State Saved as persistent` at flight ready, 20:47:55), GS-4 wrote
+no persistent after its RP. Survival was scene-history carry-over; the earlier reading
+("the crash promoted the slots to CommittedProvisional") was wrong, GS-4's slots were
+promoted too (`reason=stableLeafUnconcluded`). RF-4 measured the other face: its seal reaped
+the RP (quicksave deleted), then the rewind read it back from an older persistent.sfs.
+
+**Fix.** `ExecuteRewindSaveLoad` (both plain-rewind entry points) captures the in-memory RP
+list before the load (`RecordingStore.CaptureRewindPointsForRewind`), and
+`ParsekScenario.OnLoad` reinstalls it right after `LoadRewindStagingState`
+(`ReinstallRewindCarriedRewindPointsAfterLoad`, gated on `RewindContext.IsRewinding`; logs
+`RewindPoints carried across rewind: installed= loadedFromSave= restored= staleDropped=`).
+Memory wins wholesale, like the recordings; `ResetRewindFlags` drops a capture no load will
+consume. Quicksave files needed nothing: the reaper and the sweeps only walk the list, and
+the list now keeps them referenced. The reaper rule is unchanged (an RP still reaps when every
+slot is closed). The gate is one more `RewindInvoker.CanInvoke` precondition
+(`IsRewindPointInFuture`, 1 ms save round-trip slack, exactly-at allowed, an unknown clock
+leaves it open), so the Recordings table, the Timeline, StartInvoke's confirm-time re-check,
+the Retry handler and the `InvokeRewind` seam verb all see it. The reason
+(`FutureRewindPointReason`) reaches the player only as the disabled Fly button's existing
+tooltip, budgeted by `TooltipEchoBudgetTests`. MergeState is untouched by the rewind, so a
+slot stays CommittedProvisional with its RP present (before the fix GS-4 left open
+CommittedProvisional slots with no RP). `Inv9RewindPoint` reads the `parsek_rw_*` launch
+saves, not RPs, and is unaffected.
+
+**Specs.** GS-4 pins `rewindPoints = {1,1}` and gates the block (ARMED_ALLOWLIST), plus the
+required `RewindPoints carried across rewind: installed=1 ` token. S4.1-S4.4 injected their RP
+60 s after the host save's clock, which the gate now refuses: each gets a `TimeJump 61 s`
+first, and S4.1 flies the refusal itself (`InvokeRewind` REJECTED `refly-gate This separation
+is in your future ...`, jump, `InvokeRewind` OK). RF-4's report-only window goes back to its
+derived `max = 0`. GS-7's comment and the roadmap item are corrected.
+
+**Live proof.** PENDING at the time of writing; recorded below when flown.
+
+**Residue.** The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
+host save's UT, which is 60 s BEFORE the RP UT, so a fixture re-fly runs with the clock before
+its own RP. Nothing on the committed lanes calls CanInvoke inside a fixture session, but a
+Retry from Rewind Point there would read the gate; production RP quicksaves are written after
+the RP stamps its UT and never have this shape.
+
+
 ## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. OPEN for blocker 2 only]
 
 **STATUS 2026-09-23 (read this first; the original filing follows).**

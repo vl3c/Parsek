@@ -94,9 +94,19 @@ kind = "seam"
 # SPACECENTER with the fork merged + committed, so the following RecordingState
 # (AnyScene) confirms the merged tree - a CommitTree here would ERROR no-active-tree
 # because the merge already committed the fork.
+#
+# THE FUTURE-RP GATE (operator ruling 2026-09-23): a rewind point is not invokable
+# until the clock reaches its UT. RewindB9Fixture places the tree at the host save's UT
+# with the split 60 s later, so right after LoadGame rp_b9_root lies in the future: the
+# first InvokeRewind is REJECTED by CanInvoke (`refly-gate This separation is in your
+# future ...`, required below). TimeJump 61 s puts the clock 1 s past the RP and still
+# ahead of both leaves' EndUTs (upper stage split+40 s, booster split+55 s), so nothing
+# materializes; the second InvokeRewind is the original step and must pass the gate.
 steps = [
   { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "InvokeRewind",     args = { rp = "rp_b9_root", slot = "1" },             expect = "REJECTED", budget = 300 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "61.0" },                     expect = "OK", budget = 120 },
   { cmd = "InvokeRewind",     args = { rp = "rp_b9_root", slot = "1" },             expect = "OK", budget = 300 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                         expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                         expect = "OK" },
@@ -190,7 +200,8 @@ count = { min = 1 }
 # - `answermergedialog choice=merge result=committed` is the SYNCHRONOUS answer line
 #   (the deferred post-transition path logs `deferred-dialog answered` instead), so a
 #   silent fallback to the deferred route cannot pass.
-required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+required  = ["invokerewind refused: refly-gate This separation is in your future",
+             "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
              "Restored: recs=.* pendingScience=",
              "AppendRelations outcome=refused-unflown-provisional",
@@ -249,14 +260,16 @@ maxTotal = 3
 # max(step_budget, 600) + 60 per DEFERRED verb (LoadGame/InvokeRewind) and step_budget
 # for the rest, and the run-budget ceiling must exceed the SUM so no step-wait is capped:
 #   LoadGame        max(240,600)+60 = 660
-#   SetSetting      (default)       =  60
+#   SetSetting      max(60,60+60)   = 120
+#   InvokeRewind    max(300,600)+60 = 660   (the gate refusal: priced on the verb name)
+#   TimeJump        max(120,600)+60 = 660
 #   InvokeRewind    max(300,600)+60 = 660
-#   AnswerMergeDialog (budget)      = 120
-#   RecordingState  (default)       =  60
-#   FlushAndQuit    (default)       =  60   -> sum 1620; +60 margin = 1680.
+#   AnswerMergeDialog max(120,120)+60 = 180
+#   RecordingState  (default)       = 120
+#   FlushAndQuit    (default)       = 120   -> sum 3180; +120 margin = 3300.
 # On the happy path (verbs execute in FLIGHT) the real wall-clock is ~700s,
 # far under this ceiling; the ceiling only governs the unattended defer path.
-budgetSeconds = 1680
+budgetSeconds = 3300
 
 [retry]
 policy = "once"

@@ -886,6 +886,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A Rewind to Launch no longer loses (or brings back) the re-fly points of the flight.**
+  A split that leaves an unfinished sibling keeps a rewind point, shown as the Fly button in
+  Unfinished Flights. Whether it survived a Rewind to Launch used to depend on which scenes
+  you had passed through since the split: the rewind reloads the game at the Space Center,
+  and the list of rewind points came back from the last full save KSP had written, which
+  could predate the split (the point vanished, its quicksave file left behind on disk) or
+  predate a later cleanup (a point already removed came back with no quicksave). Rewind
+  points now survive a Rewind to Launch (and Warp to game start) exactly as they were, the
+  same way the recordings do. A rewind point the rewind has put in your future stays in
+  Unfinished Flights, but its Fly button is disabled until the game clock reaches the moment
+  of the split again; its tooltip says so. Re-fly checks this on every route, including the
+  confirmation and the Retry from Rewind Point option.
+
 - **A launch Parsek refuses to attach to a resumed committed tree no longer leaves an idle
   copy of that tree parked behind it.** When a craft is launched from flight (by a mod such as
   kRPC; stock KSP always launches through the editor or the Space Center) and Parsek declines

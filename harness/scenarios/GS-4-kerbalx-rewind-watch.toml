@@ -117,12 +117,16 @@ id = "GS-4-kerbalx-rewind-watch"
 #     destroyLines=8, unbalanced=0 (reasons: parent-anchored debris outside
 #     relative coverage x4, playback completed x2, stale past-end x1 - the
 #     UNWATCHED probe child - watch hold expired x1 - the watched parent).
-#   - OBSERVED, not gated: the core-discard RewindPoint IS authored live
-#     (`RewindPoint begin: rp=... slots=2 controllablePids=2 focusSlot=0`) and
-#     is GONE after the rewind (`ReapOrphanedRPs: reaped=0 remaining=0`,
-#     saveParse rewindPoints=0) - the rewind lands before its branch point.
-#     Recorded here so the [expectations.rewind] block's silence on
-#     rewindPoints stays a decision, not an oversight.
+#   - OBSERVED, then a DEFECT (todo RP-SURVIVES-REWIND-TO-LAUNCH): the
+#     core-discard RewindPoint IS authored live (`RewindPoint begin: rp=...
+#     slots=2 controllablePids=2 focusSlot=0`) and was GONE after the rewind
+#     (`RewindPoints loaded: 0`, saveParse rewindPoints=0 on `_2204` and
+#     `2026-09-11_0102`). Not the rewind landing before the branch point: the
+#     rewind's OnLoad reads persistent.sfs as last written (KSP's
+#     SpaceCenterMain.Start reloads it), and this profile writes none between
+#     the RP and the rewind. Operator ruling 2026-09-23: an RP ALWAYS survives a
+#     Rewind-to-Launch; its Re-Fly stays disabled until the clock reaches the RP
+#     UT again. The [expectations.rewind] block below now pins and gates it.
 #   - unityExceptions: 4 NREs on the reading run, 1 on the green run
 #     (report-only then; ARMED 2026-09-10, see the block). CORRECTED
 #     2026-09-10 from the census rather than the scene-change / teardown
@@ -355,6 +359,7 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
              "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
              "Rewind-to-Launch initiated to UT",
+             "RewindPoints carried across rewind: installed=1 ",
              "invokerewindtolaunch complete rec=",
              "entermapview ok mapOpen=true",
              "exitmapview ok mapOpen=false",
@@ -394,12 +399,18 @@ gating = true
 spawned = { min = 8 }
 requireBalanced = true
 
-# REPORT-ONLY: no Re-Fly machinery may have run. The core-discard RP is authored
-# and promoted at commit (GS-2's population) but nothing here invokes it, and
-# Rewind-to-Launch builds neither supersede rows nor tombstones (the product line
-# says so: "this is NOT a Re-Fly"). rewindPoints deliberately UNDECLARED: whether
-# the RP survives the rewind reload is itself unmeasured until the reading run.
+# ARMED 2026-09-23 (operator ruling: a rewind point always survives a
+# Rewind-to-Launch). No Re-Fly machinery may have run: the core-discard RP is
+# authored and promoted at commit (GS-2's population) but nothing here invokes it,
+# and Rewind-to-Launch builds neither supersede rows nor tombstones (the product
+# line says so: "this is NOT a Re-Fly"). rewindPoints {1,1}: the one RP, carried
+# across the rewind reload from memory (`RewindPoints carried across rewind:
+# installed=1`, required above). Before the fix every GS-4 reading read 0 here
+# (`_2204`, `2026-09-11_0102`); the arming flights are recorded in the todo entry
+# RP-SURVIVES-REWIND-TO-LAUNCH and in ARMED_ALLOWLIST.
 [expectations.rewind]
+gating        = true
+rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
