@@ -1,0 +1,164 @@
+schema = 1
+id = "GS-11-kerbalx-debris-promotion"
+# =====================================================================================
+# A DROPPED BOOSTER PROMOTED TO THE FOREGROUND RECORDER, INSIDE ITS TTL: GS-10's close
+# cut (throttle held at zero from the last booster drop), then the kx machine's
+# `promoteDebrisVesselName` opt-in switches kRPC's active vessel to the booster pair
+# just dropped - the same `FlightGlobals` switch the stock `[` / `]` keys make - while
+# its 60 s debris TTL is still running. That is D5 `staging-debris-promotion`.
+#
+# Roadmap: "Priority register (2026-09-11)" item C4 (ghost-replay Tier A item 5b);
+# todo "Autotest coverage: build-order TODOs from the basics roadmap", R1's D5 block.
+#
+# =====================================================================================
+# 1. THE CODE FACTS - read, not assumed.
+# -------------------------------------------------------------------------------------
+# (1) THE REGISTRY CELL HAD NO PRODUCT DEFINITION; the recorder's only promotion is
+#     `VesselSwitchDecision.PromoteFromBackground`. For a switch to a tracked
+#     background member while recording, `FlightRecorder.DecideOnVesselSwitch` returns
+#     it and backgrounds the current recorder; `ParsekFlight.OnVesselSwitchComplete`
+#     flushes it and arms the post-switch watcher (`Post-switch auto-record armed:
+#     vessel='<n>' pid=<p> tracked=True reason=vessel switch to tracked background
+#     member while idle`). The first meaningful change (a tumbling booster's attitude
+#     is the expected one) is accepted as `Post-switch trigger accepted: vessel='<n>'
+#     pid=<p> trigger=<T> decision=PromoteTrackedRecording`, and
+#     `PromoteRecordingFromBackground` starts the FOREGROUND recorder on the booster
+#     (`Recording started: vessel="<n>", parts=<k>, points=0, promotion, treeRec=...`)
+#     and logs `Promoted recording '<r>' from background (pid=<p>)`.
+# (2) INSIDE THE TTL IS STRUCTURAL, not timed: `PromoteTrackedRecording` requires the
+#     booster in the tree's BackgroundMap, and `BackgroundRecorder.EndDebrisRecording`
+#     removes it on TTL expiry - a switch that lost the race reaches
+#     `decision=StartFreshRecording` instead. The token below pins the pid chain from
+#     the staging split's `Debris expiry set` through that decision to the promotion.
+# (3) OBSERVATION the lane is expected to print, not gated: promotion does NOT clear
+#     the booster's `debrisTTLExpiry` entry (`OnVesselRemovedFromBackground` leaves it),
+#     so `CheckDebrisTTL` still prints `Debris TTL expired` for the now-FOREGROUND
+#     vessel at branchUT + 60 and `EndDebrisRecording` returns early (not in the
+#     BackgroundMap). Filed in the todo.
+#
+# =====================================================================================
+# 2. STATUS.
+#   READING RUN `2026-09-23_1953` (PASS attempt 1, 329 s, MISSION-OK rows 9/9, every
+#   token as authored before the flight). MEASURED: last drop at UT 65.38, the switch
+#   landed on the nearest `Kerbal X Debris` at UT ~71.1 (`Debris expiry set:
+#   pid=2353949206, expiryUT=125.4`), `Post-switch auto-record armed ... tracked=True`,
+#   the baseline, `Post-switch attitude trigger accepted: ... angle=9.65`, `Post-switch
+#   trigger accepted: ... trigger=AttitudeChange decision=PromoteTrackedRecording`,
+#   `Recording started: vessel="Kerbal X Debris", parts=7, points=0, promotion`,
+#   `Promoted recording 'baa46b97...' from background (pid=2353949206)` - 54 s inside
+#   the TTL; the row `debrisSwitchPromoted` read 8.3 s from the drop to the OBSERVED
+#   live recorder. The booster then flew as the active recording until it hit the
+#   ground (`Active vessel destroyed in tree mode`, `all leaves terminal`), finalized
+#   `points=271 terminal=Destroyed` in the committed 7-recording tree.
+#   TWO OBSERVATIONS, neither gated (both filed in the todo):
+#   - fact (3) confirmed: `Debris TTL expired, ending recording: vesselPid=2353949206
+#     expiry=125.4` printed for the vessel that was by then the ACTIVE recording.
+#   - the promoted recording's distance metadata is wrong: `Vessel was destroyed during
+#     recording. Distance from launch: 888198m, Max distance: 1205340m` and
+#     `FinalizeTreeRecordings ... maxDist=1205340m` for a booster that fell 5 km from
+#     the pad (its unpromoted siblings read 4-5 km through
+#     `BackfillMaxDistanceFromBodyFixedSurfaces`) - the signature of RELATIVE-frame
+#     anchor offsets read as body-fixed lat/lon/alt.
+#   ARMED RE-FLIGHT `2026-09-23_2004` on the claims: PASS attempt 1, 331 s, rows 9/9,
+#   every token; pid 4213212079 promoted on `trigger=AttitudeChange` 8.2 s after the
+#   drop; BOTH observations reproduced (`Debris TTL expired ... vesselPid=4213212079
+#   expiry=125.6` for the promoted vessel, `Max distance: 1206162m`). NEGATIVE CONTROL,
+#   OFFLINE over each of `_1953` and `_2004` with the committed spec and the live
+#   `hlib.evaluate_expectations`: intact PASS; the claim token with
+#   `decision=PromoteTrackedRecording` mutated to `decision=StartFreshRecording` (the
+#   decision a switch that lost the TTL race reaches) FAIL on exactly that one token.
+#   SECOND-SUBJECT CONTROL, OFFLINE: this spec's expectations over GS-10's three logs
+#   (`_1941` / `_1947` / `_1959` - the same close cut, no switch) FAIL on each with
+#   exactly ONE mismatch, the promotion chain token; every other token matches, so the
+#   gate is the promotion and nothing else in the flight.
+# =====================================================================================
+tier = "operator"
+description = "Debris promotion: GS-10's close-cut Kerbal X flight, then kRPC switches the active vessel to the booster pair just dropped while its 60 s debris TTL runs, so Parsek promotes the booster's background recording to the foreground recorder; committed through the Space Center hop, Rewound-to-Launch and watched from the probe-cored GS1 Auto-Chute Booster."
+instanceProfile = "stock-minimal"
+tags = ["GS11", "rewind-to-launch", "watch-mode", "ghost-render", "debris-promotion"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnFirstModificationAfterSwitch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 2000 },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+watcherCraftName = "GS1 Auto-Chute Booster"
+impactProfile    = true
+impactCutAtLastBoosterDrop = true
+# THE LANE: the dropped boosters' vessel name (measured on every close-crash archive).
+promoteDebrisVesselName = "Kerbal X Debris"
+flightMaxSeconds  = 600.0
+impactCoastFrames = 900
+impactSettleFrames = 16
+scExitFrames = 240
+scCommittedFrames = 40
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: every value is backed by a REQUIRED token below.
+D1 = ["auto-record-launch"]
+# `staging-debris-promotion` <- THE CELL: the one-pid chain from the staging split's
+#   `Debris expiry set` through the tracked-member arm and
+#   `decision=PromoteTrackedRecording` to the foreground `Recording started ...
+#   promotion` and `Promoted recording ... (pid=<same>)` (header facts 1-2).
+D5 = ["staging-debris-promotion"]
+D9 = ["rewind-to-launch"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 7 }
+
+[expectations.logContracts]
+# THE PROMOTION TOKEN is one chain over ONE pid: the staging split set its TTL, the
+# switch armed the watcher on it as a TRACKED member, the trigger chose
+# PromoteTrackedRecording, the foreground recorder started on it as a promotion, and
+# the promotion line names it. Literals: ParsekFlight.cs (`Debris expiry set` via
+# BackgroundRecorder.SetDebrisExpiry, `Post-switch auto-record armed`, `Post-switch
+# trigger accepted`, `Promoted recording`), FlightRecorder.StartRecording
+# (`Recording started: ... promotion`).
+required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
+             "Debris expiry set: pid=([0-9]+), expiryUT=[0-9]+\\.[0-9][\\s\\S]*?Post-switch auto-record armed: vessel='Kerbal X Debris' pid=\\1 tracked=True reason=vessel switch to tracked background member while idle[\\s\\S]*?Post-switch trigger accepted: vessel='Kerbal X Debris' pid=\\1 trigger=[A-Za-z]+ decision=PromoteTrackedRecording[\\s\\S]*?Recording started: vessel=\"Kerbal X Debris\", parts=[0-9]+, points=0, promotion, treeRec=[\\s\\S]*?Promoted recording '[0-9a-f]+' from background \\(pid=\\1\\)",
+             "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+             "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
+             "listhandles kind=committed count=[1-9][0-9]* truncated=false",
+             "Rewind-to-Launch initiated to UT",
+             "invokerewindtolaunch complete rec=",
+             "enterwatchmode complete: index=",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+budgetSeconds = 2800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

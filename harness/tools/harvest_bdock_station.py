@@ -144,37 +144,86 @@ def resolve_save_dir(args) -> str:
     raise SystemExit("harvest: pass --save-dir <path> OR --instance <dir> [--run-save NAME]")
 
 
+# A `<key> = parsek_rw_<id>` line: any key, judged by the VALUE shape. The product
+# writes two such keys - `rewindSave` on a RECORDING node
+# (`RecordingTreeRecordCodec`) and `resumeRewindSave` on the PARSEK_ACTIVE_TREE
+# resume node (`ParsekScenario`) - and a re-fly restores the second one, so a rule
+# keyed on one spelling misses the reference that actually bites. Matching the
+# value is the rule `CommittedFixtureRewindSaveTests` applies to the corpus.
+_REWIND_SAVE_VALUE_RE = re.compile(r"^(\s*)(\w+)\s*=\s*parsek_rw_\w+\s*$")
+_REWIND_SAVE_TOKEN = "parsek_rw_"
+
+
 def strip_rewind_save_hints(text: str):
-    """Clear `rewindSave = parsek_rw_*` pointers, returning (text, cleared).
+    """Clear every `<key> = parsek_rw_*` value; returns (text, cleared, leftovers).
 
     WHY THIS EXISTS. `_PRUNE_PARSEK_SUBDIRS` drops `Parsek/Saves` wholesale, so
-    the Rewind-to-LAUNCH quicksaves never reach a fixture -- but the RECORDING
-    nodes that referenced them kept pointing at the pruned files. That is a
-    DANGLING REFERENCE, and the committed contract forbids both halves of it:
-    `CommittedFixtureRewindSaveTests.test_no_fixture_commits_a_rewind_to_launch_quicksave`
-    forbids the payload and `..._no_fixture_persistent_save_carries_a_dangling_rewind_hint`
-    forbids the pointer, so a fixture must carry NEITHER.
+    the Rewind-to-LAUNCH quicksaves never reach a fixture -- but anything that
+    named one kept pointing at the pruned file. That is a DANGLING REFERENCE, and
+    the committed contract forbids both halves of it:
+    `CommittedFixtureRewindSaveTests` forbids the payload, the pointer in
+    persistent.sfs, and ANY `parsek_rw_*` reference inside a
+    `Parsek/RewindPoints/*.sfs` quicksave, so a fixture must carry NEITHER.
 
-    Found by `moho-orbit-recorded` (B20, 2026-08-12), the first harvested
-    fixture whose flight actually produced a rewind point --
-    `rewindSave = parsek_rw_1ee581` survived the prune and red the gate.
-    dres-orbit-recorded never hit it because its flight produced none, so the
-    tool has been shipping this hole unexercised. Fixed HERE rather than by
-    hand-editing the fixture, so the committed bytes stay tool-produced and
-    every future harvest is clean.
+    The RewindPoint quicksaves are in scope because each embeds its own copy of
+    the ParsekScenario: a re-fly restores `resumeRewindSave` out of it, copies it
+    onto the tree root, and Inv9RewindPoint reports the dangling name
+    (`missing-rewind-save-provisional` on a CommittedProvisional recording). The
+    product never leaves that state - its own save still HAS the payload - it is
+    the prune that makes the name dangle, so the prune clears it.
 
-    Only the VALUE is cleared, not the key: the line is part of the recording's
-    serialized shape, and Parsek reads an empty value as "no rewind save".
-    """
-    out, cleared = [], 0
-    for line in text.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("rewindSave = parsek_rw_"):
-            out.append(line[:line.index("rewindSave")] + "rewindSave = ")
+    Only the VALUE is cleared, not the key: the line is part of the serialized
+    shape (RewindPoint quicksaves are deep-parsed payload with pinned line
+    counts), and Parsek reads an empty value exactly like an absent one - it
+    writes neither key when the value is empty.
+
+    `leftovers` lists every line that still names `parsek_rw_` after the clear
+    (a reference in some other shape); the caller refuses to commit those rather
+    than guess at an edit. Line endings are preserved: a CR before the LF stays."""
+    out, cleared, leftovers = [], 0, []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        body, cr = (line[:-1], "\r") if line.endswith("\r") else (line, "")
+        m = _REWIND_SAVE_VALUE_RE.match(body)
+        if m:
+            out.append(m.group(1) + m.group(2) + " = " + cr)
             cleared += 1
-        else:
-            out.append(line)
-    return "\n".join(out), cleared
+            continue
+        if _REWIND_SAVE_TOKEN in body:
+            leftovers.append("%d: %s" % (lineno, body.strip()))
+        out.append(line)
+    return "\n".join(out), cleared, leftovers
+
+
+def rewind_point_quicksaves(save_dir: str):
+    """Every file directly under `<save_dir>/Parsek/RewindPoints`, sorted; []
+    when absent. Every file, not just `*.sfs`: the corpus cell scans the whole
+    directory, so a stray file the harvest skipped would red it after commit."""
+    rp_dir = os.path.join(save_dir, "Parsek", "RewindPoints")
+    if not os.path.isdir(rp_dir):
+        return []
+    return sorted(os.path.join(rp_dir, n) for n in os.listdir(rp_dir)
+                  if os.path.isfile(os.path.join(rp_dir, n)))
+
+
+def strip_rewind_point_hints(save_dir: str, write: bool):
+    """Apply `strip_rewind_save_hints` to every RewindPoint quicksave under
+    `save_dir`. Returns (cleared, leftovers) summed over the files, each leftover
+    prefixed with its file name. `write=False` is the dry run the pre-write
+    refusal gate uses; `write=True` rewrites only the files that changed.
+
+    The bytes go through latin-1, which round-trips every byte, so a rewritten
+    quicksave is byte-identical to its source everywhere but the cleared values."""
+    total, leftovers = 0, []
+    for path in rewind_point_quicksaves(save_dir):
+        with open(path, "rb") as fh:
+            text = fh.read().decode("latin-1")
+        new_text, cleared, left = strip_rewind_save_hints(text)
+        total += cleared
+        leftovers.extend("%s:%s" % (os.path.basename(path), l) for l in left)
+        if write and cleared:
+            with open(path, "wb") as fh:
+                fh.write(new_text.encode("latin-1"))
+    return total, leftovers
 
 
 def read_game_mode(sfs_text: str) -> str:
@@ -396,6 +445,21 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
                 raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
             log("warning: " + msg + " (writing anyway, --force)")
 
+    # Sanity 4 (all modes), BEFORE the destructive write: every `parsek_rw_*`
+    # reference the fixture would carry must be one `strip_rewind_save_hints`
+    # can clear. One in any other shape would commit a dangling pointer that
+    # `CommittedFixtureRewindSaveTests` reds on.
+    leftovers = ["persistent.sfs:%s" % l
+                 for l in strip_rewind_save_hints(sfs_text)[2]]
+    if keep_parsek:
+        leftovers.extend(strip_rewind_point_hints(save_dir, write=False)[1])
+    if leftovers:
+        msg = ("a parsek_rw_* reference the harvest cannot clear (not a "
+               "`<key> = parsek_rw_<id>` line): %s" % "; ".join(leftovers))
+        if not force:
+            raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
+        log("warning: " + msg + " (writing anyway, --force)")
+
     target = os.path.join(_FIXTURES_SAVES, target_name)
     if os.path.isdir(target):
         # The refusal belongs AT the destructive site: a default-mode
@@ -420,10 +484,10 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
     #    pointer cleared (its payload is pruned with Parsek/Saves, so leaving
     #    the pointer would commit a dangling reference).
     normalized = normalize_title(sfs_text, title)
-    normalized, cleared_hints = strip_rewind_save_hints(normalized)
+    normalized, cleared_hints, _ = strip_rewind_save_hints(normalized)
     if cleared_hints:
-        log("cleared %d dangling rewindSave hint(s) (payload lives in the "
-            "pruned Parsek/Saves)" % cleared_hints)
+        log("cleared %d dangling rewind-save reference(s) in persistent.sfs "
+            "(payload lives in the pruned Parsek/Saves)" % cleared_hints)
     with open(os.path.join(target, "persistent.sfs"), "w", encoding="utf-8",
               newline="\n") as fh:
         fh.write(normalized)
@@ -468,6 +532,12 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
             os.remove(os.path.join(recordings, name))
             log("pruned orphan sidecar %s (id named nowhere in persistent.sfs)" % name)
             sidecars.remove(name)
+        # The RewindPoint quicksaves embed their own ParsekScenario copy, so
+        # they carry the same pointers into the pruned Parsek/Saves.
+        rp_cleared, _ = strip_rewind_point_hints(target, write=True)
+        if rp_cleared:
+            log("cleared %d dangling rewind-save reference(s) inside "
+                "Parsek/RewindPoints quicksaves" % rp_cleared)
         # The refusal gate ran BEFORE the write (Sanity 3); this is the tally.
         log("fixture Parsek/Recordings: %d file(s)" % len(sidecars))
 
