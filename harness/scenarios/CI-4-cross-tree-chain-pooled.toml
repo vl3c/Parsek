@@ -34,6 +34,7 @@
 # `2026-09-23_1830` PASS attempt 1; armed `_1834` PASS attempt 1; negative control
 # `_1836` (seeds: the chain line at `trees=1`, `Vessel ghosted: pid=3620499051`,
 # reverted) PARSEK-FAIL(expectation) on exactly those two tokens, every other row green.
+# Post-merge re-flight `_1850` (main with #1781 / #1783, sha256 d2aa3d67...) PASS attempt 1.
 
 schema = 1
 id = "CI-4-cross-tree-chain-pooled"
