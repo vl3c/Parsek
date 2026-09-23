@@ -16826,6 +16826,16 @@ namespace Parsek
                     continue;
                 }
 
+                // Operator ruling 2026-09-23: a leaf whose flight ended parked in the KSC
+                // exclusion zone is retired (settled, no vessel). Checked before the
+                // same-name recovery below so a retirement never recovers anything.
+                if (VesselSpawner.TryRetireEndedFlightAtKsc(leaf, -1))
+                {
+                    ParsekLog.Info("Flight",
+                        $"SpawnTreeLeaves: retired leaf '{leaf.VesselName}' (flight ended in the KSC exclusion zone)");
+                    continue;
+                }
+
                 // Before spawning, recover any timeline-spawned vessel with the same name
                 // to prevent overlap collisions (e.g. an older committed recording already
                 // spawned the same vessel on the pad).
@@ -18196,6 +18206,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when <paramref name="rec"/> is the tip of an active ghost chain in this scene, so
+        /// its end-of-recording spawn goes through the chain path (VesselGhoster), which owns the
+        /// chain cleanup. The policy's warp-time KSC retirement shortcut skips such a tip.
+        /// </summary>
+        internal bool IsActiveGhostChainTipFromPolicy(Recording rec)
+        {
+            return rec != null && FindChainTipForRecording(activeGhostChains, rec) != null;
+        }
+
+        /// <summary>
         /// Remove the ghost map vessel for a chain on spawn and transfer nav target
         /// to the newly spawned real vessel if the ghost was the current target.
         /// </summary>
@@ -18209,6 +18229,20 @@ namespace Parsek
                 if (spawned != null)
                     FlightGlobals.fetch?.SetVesselTarget(spawned);
             }
+        }
+
+        /// <summary>
+        /// A chain whose tip flight ended parked in the KSC exclusion zone (operator
+        /// ruling 2026-09-23): the tip is settled with no vessel, so the chain is done.
+        /// Drop it from the active set and remove its ghost map vessel, the same cleanup a
+        /// tip spawn does minus the target transfer (there is no vessel to target).
+        /// </summary>
+        private void RetireChainAtKsc(GhostChain chain, Recording rec, int index)
+        {
+            activeGhostChains.Remove(chain.OriginalVesselPid);
+            GhostMapPresence.RemoveGhostVessel(chain.OriginalVesselPid, "chain-tip-ksc-retired");
+            ParsekLog.Info("Flight",
+                $"Chain tip retired at KSC: #{index} \"{rec.VesselName}\" originalPid={chain.OriginalVesselPid} - chain closed without a vessel");
         }
 
         /// <summary>Called by policy when a mid-chain segment ends while watched.</summary>
@@ -18294,6 +18328,10 @@ namespace Parsek
                         ParsekLog.Info("Flight",
                             $"Blocked chain tip spawn resolved: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
+                    else if (VesselSpawner.IsSettledAsKscRetirement(rec))
+                    {
+                        RetireChainAtKsc(chain, rec, index);
+                    }
                     // If still blocked: chain stays in activeGhostChains, no spawn
                 }
                 else
@@ -18310,6 +18348,10 @@ namespace Parsek
 
                         ParsekLog.Info("Flight",
                             $"Chain tip spawn complete: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
+                    }
+                    else if (VesselSpawner.IsSettledAsKscRetirement(rec))
+                    {
+                        RetireChainAtKsc(chain, rec, index);
                     }
                     else if (chain.SpawnBlocked)
                     {

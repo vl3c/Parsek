@@ -8318,6 +8318,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Structural "this recording is where its vessel ends its WHOLE flight" test: the
+        /// segment-shape gates of <see cref="ShouldSpawnAtRecordingEnd"/> without its
+        /// spawn-STATE gates (already spawned, destroyed, snapshot presence, rewind
+        /// suppression, PID dedup), so the answer is stable before, during and after the
+        /// end-of-recording spawn is settled. False for a recording whose terminal spawn a
+        /// later continuation owns, a ghost-only / debris / branch &gt; 0 recording, an
+        /// intermediate chain segment, a segment of a looping chain, and a non-leaf tree
+        /// recording (it branched into a same-vessel continuation: a later chain or
+        /// switch-continuation segment carries the flight on). A breakup-continuous
+        /// recording that is the effective leaf for its vessel counts as final. Used by the
+        /// crew side of the KSC retirement ruling so it and the spawn side agree on which
+        /// stop is the final one.
+        /// </summary>
+        internal static bool IsFinalSpawnSegment(Recording rec, RecordingTree treeContext = null)
+        {
+            if (rec == null)
+                return false;
+            if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
+                return false;
+            if (rec.IsGhostOnly || rec.IsDebris || rec.ChainBranch > 0)
+                return false;
+            if (!string.IsNullOrEmpty(rec.ChainId)
+                && (RecordingStore.IsChainMidSegment(rec) || RecordingStore.IsChainLooping(rec.ChainId)))
+                return false;
+
+            bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue
+                && IsSpawnableTerminal(rec.TerminalStateValue.Value);
+            bool effectiveLeaf = rec.ChildBranchPointId != null
+                && hasSpawnableTerminal
+                && IsEffectiveLeafForVessel(rec, treeContext);
+            if (rec.ChildBranchPointId != null && !effectiveLeaf)
+                return false;
+            if (!effectiveLeaf && IsNonLeafInTree(rec, treeContext))
+                return false;
+            return true;
+        }
+
+        /// <summary>
         /// Pure predicate: returns true when a recording must NOT spawn at its
         /// terminal end because plain Rewind-to-Launch scoped a #573 active/source
         /// suppression marker onto it. The only marker reason produced today is

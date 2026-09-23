@@ -17,43 +17,55 @@ id = "LF-2-loop-armed-rewind-first-run-real"
 # `GhostPlaybackEngine` Phase D2 + the per-recording loop gate, KSC Phase E parity)
 # `continue` above the past-end completion, so nothing spawned the first run.
 #
-# THE SUBJECT is LF-1's (H58's road): StartRecording on the pad probe of
-# `logi-cargo-pad`, StopRecording, CommitTree - a single-recording NON-CHAIN tree with a
-# Landed terminal, committed with its own pid adopted (spawned=true). Non-chain matters:
-# the #573 rewind lift is standalone-only and the "chain looping" rule is unchanged.
+# THE SUBJECT is LF-1's (H58's road): StartRecording, StopRecording, CommitTree - a
+# single-recording NON-CHAIN tree with a Landed terminal, committed with its own pid
+# adopted (spawned=true). Non-chain matters: the #573 rewind lift is standalone-only and
+# the "chain looping" rule is unchanged.
+#
+# SUBJECT MOVED OFF THE PAD 2026-09-23 (KSC end-of-flight retirement ruling), exactly as
+# LF-1: the pad probe of `logi-cargo-pad` ends its flight inside the KSC exclusion zone and
+# is now RETIRED, never spawned. The subject is `pad-runway-pair`'s `rover fuel 0`
+# (VESSEL index 0, crewless Probe, PRELAUNCH 59.7 m from the runway threshold, outside
+# the 50 m circle), focused by ACT 0: the boot focuses the pad Rig, ExitToSpaceCenter, and
+# a Space Center SaveGame + LoadGame lands in FLIGHT on index 0 (`activeVessel = 0`,
+# measured on this fixture by EX-1). NEVER FLOWN ON THIS SUBJECT: every token naming
+# `rover fuel 0`, the ACT 0 road, the flight-seam SPAWN below and the two-vessel census are
+# unverified until the reading run.
 #
 # TWO REWINDS, ONE PER SCENE SEAM. The fix adds the first-run spawn to BOTH loop
 # dispatchers, and each rewind drives one of them:
 #   rewind #1 is saved at the Space Center at once (UT is still ~15 s before launch) and
 #     reloaded into FLIGHT, where a TimeJump carries UT past EndUT: the flight engine's
 #     `TryQueueLoopFirstRunSpawn` fires ([Engine] `Loop first-run spawn:`) and the policy
-#     takes it with `needsSpawn=True`. A PAD terminal cannot materialize in flight: the
-#     KSC exclusion zone (#170) blocks every spawn within 50 m of the pad, loop or not
-#     (a non-looping pad recording gets the same block), so this leg witnesses that the
-#     flight seam reaches the ordinary spawn gate, and the pid stays 0. Measured on the
-#     first reading (`2026-09-23_1545`, with the legs in the other order).
+#     takes it with `needsSpawn=True`. On the pad subject the KSC exclusion zone refused
+#     that spawn (measured `2026-09-23_1545` / `_1551`); the runway rover parks outside it,
+#     so this leg now MATERIALIZES the first run in flight (`Vessel respawned`, the pid
+#     folded into the flight-seam mark) - a stronger witness than the refused spawn, and
+#     UNVERIFIED until the reading run.
 #   rewind #2 lands at the Space Center and 1x time re-crosses EndUT there, so
 #     `ParsekKSC.TryLoopFirstRunSpawnKsc` spawns the vessel ([KSCSpawn]
 #     `Loop first-run spawn:` then `Vessel respawned`), exactly once.
 # Each rewind strips the vessel (`pid-0 spawned-false`) and re-arms exactly one attempt;
-# the rewind save predates the spawn, so the census reads exactly ONE vessel at the end.
+# rewind #2's save predates both spawns, so the census reads exactly ONE rover at the end
+# (plus the untouched pad Rig of the fixture). The single-spawn guard is per leg: none
+# before rewind #1, at most one between the rewinds, at most one after rewind #2.
 # Five loop cycles in all: three before rewind #1 and two after the KSC re-spawn, where
 # the pid is pinned unchanged.
 #
-# SCOPE STATED. A Space Center save carries `activeVessel = 0`, so every reload focuses
-# the host asteroid at index 0 and the loop ghost sits in the `Beyond` zone: the claim
-# needs the spawn decision, not a drawn ghost. The Missions window is opened before
+# SCOPE STATED. A Space Center save carries `activeVessel = 0`, so every reload after a
+# strip focuses whatever sits at index 0 (the host asteroid on the pad subject; not
+# measured on this fixture): the claim needs the spawn decision, not a drawn ghost. The Missions window is opened before
 # MissionConfig because its draw seeds the default mission of a tree committed
 # mid-session (MISSIONCONFIG-UNKNOWN-TREE-AFTER-MID-SESSION-COMMIT; GUI-17's sequence).
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "D18 loop-first-run-is-real, full scope: the mission loop armed BEFORE the rewind. In-run pad subject on logi-cargo-pad (StartRecording, StopRecording, CommitTree), arm the loop through the Missions window, three StartLoopPlayback cycles, loop-armed Rewind-to-Launch #1 reloaded into FLIGHT before EndUT (the flight engine seam fires and reaches the spawn gate, which the KSC pad exclusion zone blocks as for any pad terminal), loop-armed Rewind-to-Launch #2 re-spawns the vessel once at the Space Center (the KSC seam), then a reload and two more cycles; the produced save must hold exactly one real vessel behind the spawn."
+description = "D18 loop-first-run-is-real, full scope: the mission loop armed BEFORE the rewind. In-run subject on pad-runway-pair's runway rover (rover fuel 0, 59.7 m from the runway threshold, outside the KSC exclusion zone that now retires a flight ending there), focused through a Space Center save + reload (StartRecording, StopRecording, CommitTree), arm the loop through the Missions window, three StartLoopPlayback cycles, loop-armed Rewind-to-Launch #1 reloaded into FLIGHT before EndUT (the flight engine seam fires and materializes the first run in flight), loop-armed Rewind-to-Launch #2 re-spawns the vessel once at the Space Center (the KSC seam), then a reload and two more cycles; the produced save must hold exactly one real rover behind the spawn. MOVED off the logi-cargo-pad pad probe 2026-09-23 by the KSC retirement ruling; NEVER FLOWN on the rover."
 instanceProfile = "stock-minimal"
 tags = ["LF-2", "D18", "loop-playback", "rewind-to-launch", "spawn", "first-run-is-real",
         "R10", "runtime-handles"]
 
 [fixture]
-saveTemplate       = "fixtures/saves/logi-cargo-pad"
+saveTemplate       = "fixtures/saves/pad-runway-pair"
 injectedRecordings = "none"
 craft              = []
 
@@ -62,6 +74,15 @@ kind = "seam"
 steps = [
   # --- ACT 1: produce the subject in-run (H58's road) and commit it ---------------
   { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # ACT 0 (2026-09-23, UNVERIFIED): focus the runway rover. The boot focuses the pad Rig
+  # (activeVessel = 2); a Space Center save carries activeVessel = 0 = `rover fuel 0`.
+  { cmd = "ExitToSpaceCenter", expect = "OK", budget = 120 },
+  { cmd = "SaveGame", args = { name = "lf2-rover-focus" }, expect = "OK", budget = 120 },
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "lf2-rover-focus" }, expect = "OK", budget = 300 },
   { cmd = "StopRecording", expect = "OK" },
   { cmd = "DiscardTree", expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -90,7 +111,7 @@ steps = [
   { cmd = "StopRecording", expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
   { cmd = "MissionMark", args = { label = "lf2-commit-count-${c0.count}-pid-${c0.rec0spawnedPid}-spawned-${c0.rec0spawned}" }, expect = "OK" },
-  # --- ACT 2: arm the mission loop in FLIGHT, three cycles over the adopted Rig -----
+  # --- ACT 2: arm the mission loop in FLIGHT, three cycles over the adopted rover ---
   { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
@@ -248,7 +269,7 @@ steps = [
   { cmd = "MissionMark", args = { label = "lf2-kscwait" }, expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c4", expect = "OK" },
   { cmd = "MissionMark", args = { label = "lf2-kscspawn-count-${c4.count}-pid-${c4.rec0spawnedPid}-spawned-${c4.rec0spawned}" }, expect = "OK" },
-  # --- ACT 5: reload into FLIGHT, two more cycles over the re-spawned Rig -----------
+  # --- ACT 5: reload into FLIGHT, two more cycles over the re-spawned rover ---------
   { cmd = "SaveGame", args = { name = "lf2-respawned" }, expect = "OK", budget = 120 },
   { cmd = "LoadGame", args = { save = "${runSave}", name = "lf2-respawned" }, expect = "OK", budget = 300 },
   { cmd = "StopRecording", expect = "OK" },
@@ -281,7 +302,8 @@ count = { min = 1, max = 1 }
 # ARMED 2026-09-23 off reading run `2026-09-23_1551` (PASS attempt 1, every facet below
 # measured exactly): trees 1, committedTrees 1, recordings 1, Landed 1, spawnedVessels 1,
 # vesselNames {Logi Cargo Rig: 1}. The pre-fix measurement `2026-09-23_1536` read
-# spawnedVessels 0 and vesselNames {} on the same subject.
+# spawnedVessels 0 and vesselNames {} on the same subject. SUBJECT MOVED 2026-09-23: the
+# census now expects the re-spawned rover plus the untouched pad Rig - UNVERIFIED.
 [expectations.recordings.structure]
 gating         = true
 trees          = { min = 1, max = 1 }
@@ -289,38 +311,46 @@ committedTrees = { min = 1, max = 1 }
 recordings     = { min = 1, max = 1 }
 terminalStates = { Landed = { min = 1, max = 1 } }
 spawnedVessels = 1
-vesselNames    = { "Logi Cargo Rig" = 1 }
+vesselNames    = { "rover fuel 0" = 1, "Logi Cargo Rig" = 1 }
 
-# Every token below was read off the reading run's KSP.log.
+# Read off `2026-09-23_1551` on the pad subject; the vessel name, the flight-seam spawn,
+# the respawn situation (regexed) and the per-leg spawn guards are UNVERIFIED on the
+# rover until the reading run.
 [expectations.logContracts]
 required  = [
   "Recording started",
-  "missionconfig applied: mission='Logi Cargo Rig' tree=\\S+ loop=True .*unitBuilt=True",
-  # The commit adopts the live Rig, and three cycles run over it with the pid unchanged.
+  "missionconfig applied: mission='rover fuel 0' tree=\\S+ loop=True .*unitBuilt=True",
+  # The commit adopts the live rover, and three cycles run over it with the pid unchanged.
   "MISSIONMARK label=lf2-commit-count-1-pid-([1-9][0-9]*)-spawned-true [\\s\\S]*MISSIONMARK label=lf2-loop1-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf2-loop2-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf2-loop3-count-1-pid-\\1-spawned-true ",
   # Rewind #1 with the loop armed strips the vessel.
   "MISSIONMARK label=lf2-rewound-count-1-pid-0-spawned-false ",
-  "same-recording spawn suppression lifted for standalone rewind target rec=\\S+ vessel=\"Logi Cargo Rig\"",
-  # THE FLIGHT SEAM: the loop member's first run reaches the ordinary spawn gate, which the
-  # KSC pad exclusion zone blocks (as for any pad terminal in flight).
-  "\\[Engine\\] Loop first-run spawn: #0 \"Logi Cargo Rig\" id=\\S+ UT=[0-9.]+ endUT=[0-9.]+ \\(the first run of a looping recording is real[\\s\\S]*PlaybackCompleted index=0 vessel=Logi Cargo Rig ghostWasActive=False pastEffectiveEnd=True needsSpawn=True[\\s\\S]*Spawn blocked for #0 \\(Logi Cargo Rig\\): within KSC exclusion zone[\\s\\S]*MISSIONMARK label=lf2-flightseam-count-1-pid-0-spawned-false ",
+  "same-recording spawn suppression lifted for standalone rewind target rec=\\S+ vessel=\"rover fuel 0\"",
+  # THE FLIGHT SEAM: the loop member's first run reaches the ordinary spawn gate and, the
+  # rover parking outside the KSC exclusion zone, materializes in flight (UNVERIFIED).
+  "\\[Engine\\] Loop first-run spawn: #0 \"rover fuel 0\" id=\\S+ UT=[0-9.]+ endUT=[0-9.]+ \\(the first run of a looping recording is real[\\s\\S]*PlaybackCompleted index=0 vessel=rover fuel 0 ghostWasActive=False pastEffectiveEnd=True needsSpawn=True[\\s\\S]*Vessel respawned \\(sit=[A-Z]+, pid=([0-9]+)\\)[\\s\\S]*MISSIONMARK label=lf2-flightseam-count-1-pid-\\1-spawned-true ",
   # Rewind #2 with the loop armed strips it again.
   "MISSIONMARK label=lf2-rewound2-count-1-pid-0-spawned-false ",
   # THE CLAIM: the KSC seam re-spawns the first run exactly once, and the recording keeps
   # that vessel's pid through the reload and two more cycles.
-  "\\[KSCSpawn\\] Loop first-run spawn: #0 \"Logi Cargo Rig\"[\\s\\S]*Vessel respawned \\(sit=PRELAUNCH, pid=([0-9]+)\\)[\\s\\S]*MISSIONMARK label=lf2-kscspawn-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf2-reload-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf2-loop4-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf2-loop5-count-1-pid-\\1-spawned-true ",
-  "Vessel spawned for #[0-9]+ \"Logi Cargo Rig\" pid=",
+  "\\[KSCSpawn\\] Loop first-run spawn: #0 \"rover fuel 0\"[\\s\\S]*Vessel respawned \\(sit=[A-Z]+, pid=([0-9]+)\\)[\\s\\S]*MISSIONMARK label=lf2-kscspawn-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf2-reload-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf2-loop4-count-1-pid-\\1-spawned-true [\\s\\S]*MISSIONMARK label=lf2-loop5-count-1-pid-\\1-spawned-true ",
+  "Vessel spawned for #[0-9]+ \"rover fuel 0\" pid=",
   "startloopplayback complete:[\\s\\S]*startloopplayback complete:[\\s\\S]*startloopplayback complete:[\\s\\S]*startloopplayback complete:[\\s\\S]*startloopplayback complete:",
   # After the re-spawn a cycle frame meets the already-spawned guard (rate-limited summary).
   "MISSIONMARK label=lf2-kscspawn-count[\\s\\S]*Spawn suppressed: 1 recording\\(s\\) \\| already spawned \\(VesselSpawned=true\\)=1",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # A SECOND real spawn anywhere in the run, by either spawn path.
-  "(?:Vessel respawned|SpawnAtPosition: vessel spawned)[\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned)",
+  # One real spawn per leg at most, by either spawn path: none before rewind #1 (the
+  # commit adopts), at most one between the rewinds (the flight seam), at most one after
+  # rewind #2 (the KSC seam). A per-cycle spawn would add a second inside a leg.
+  "(?:Vessel respawned|SpawnAtPosition: vessel spawned)[\\s\\S]*MISSIONMARK label=lf2-rewound-count",
+  "MISSIONMARK label=lf2-rewound-count[\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned)[\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned)[\\s\\S]*MISSIONMARK label=lf2-rewound2-count",
+  "MISSIONMARK label=lf2-rewound2-count[\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned)[\\s\\S]*(?:Vessel respawned|SpawnAtPosition: vessel spawned)",
   # The first-run seam fires once per rewind: a third firing is a per-cycle spawn.
   "Loop first-run spawn[\\s\\S]*Loop first-run spawn[\\s\\S]*Loop first-run spawn",
   "Spawn ABANDONED",
+  # The subject parks outside the KSC exclusion zone, so it must never be retired.
+  "Spawn RETIRED",
   "missionconfig error",
   "startloopplayback rejected",
 ]

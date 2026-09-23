@@ -190,6 +190,9 @@ namespace Parsek
             if (adoptedPid != 0)
                 return adoptedPid;
 
+            if (RetireChainTipAtKscIfEnded(chain, tipRecording))
+                return 0;
+
             if (vesselSnapshot == null)
             {
                 ParsekLog.Error(Tag,
@@ -349,6 +352,9 @@ namespace Parsek
                 allowExistingSourceDuplicate);
             if (adoptedPid != 0)
                 return adoptedPid;
+
+            if (RetireChainTipAtKscIfEnded(chain, tipRecording))
+                return 0;
 
             ConfigNode vesselSnapshot = tipRecording.VesselSnapshot;
             if (vesselSnapshot == null)
@@ -544,6 +550,26 @@ namespace Parsek
         }
 
         // --- Private helpers ---
+
+        /// <summary>
+        /// KSC end-of-flight retirement for a chain tip (operator ruling 2026-09-23):
+        /// when the tip's flight ended parked in the KSC exclusion zone the tip is settled
+        /// with no vessel (<see cref="VesselSpawner.TryRetireEndedFlightAtKsc"/>) and the
+        /// chain's ghosted original is released, exactly as a spawn would release it. The
+        /// caller returns pid 0; <c>ParsekFlight.SpawnVesselOrChainTip</c> reads the settled
+        /// state and retires the chain instead of keeping it active.
+        /// </summary>
+        private bool RetireChainTipAtKscIfEnded(GhostChain chain, Recording tipRecording)
+        {
+            if (!VesselSpawner.TryRetireEndedFlightAtKsc(tipRecording, -1))
+                return false;
+            if (chain != null)
+            {
+                chain.SpawnBlocked = false;
+                CleanupGhostedVessel(chain.OriginalVesselPid);
+            }
+            return true;
+        }
 
         internal static bool MarkChainTipRecordingSpawned(
             Recording tipRecording,
