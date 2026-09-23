@@ -29,11 +29,16 @@
 # was refused `dialog-pending` (the boot's tree merge dialog was still standing), so
 # no background tail was recorded, and every `via BACKGROUND_EVENT` claim in the
 # fixture is a split product (todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED).
+#
+# LIVE-PROVEN 2026-09-23 on automation DLL sha256 e1f5d5ee... (this branch): reading
+# `2026-09-23_1830` PASS attempt 1; armed `_1834` PASS attempt 1; negative control
+# `_1836` (seeds: the chain line at `trees=1`, `Vessel ghosted: pid=3620499051`,
+# reverted) PARSEK-FAIL(expectation) on exactly those two tokens, every other row green.
 
 schema = 1
 id = "CI-4-cross-tree-chain-pooled"
 tier = "operator"
-description = "D18 `cross-tree-chain-linking` (LIVE-PROVEN 2026-09-23: reading `_1830`, then armed and negative-control runs): bdock-second-dock-recorded rewound to mission B's promoted RP rp_91b25a0c (probe separation, UT 9257.8, slot 1), so the Station pid 3620499050 is claimed by Dock branch points in TWO committed trees (8c677bba at UT 8949.3, ac9641d6 at UT 11794.7) and the walker pools both into one chain; ListHandles kind=chains reports that chain with links=2 trees=2 and both tree ids, and the flight scene ghosts the real Station."
+description = "D18 `cross-tree-chain-linking` (LIVE-PROVEN 2026-09-23: reading `_1830`, armed `_1834` PASS, negative control `_1836` red on exactly its two seeds): bdock-second-dock-recorded rewound to mission B's promoted RP rp_91b25a0c (probe separation, UT 9257.8, slot 1), so the Station pid 3620499050 is claimed by Dock branch points in TWO committed trees (8c677bba at UT 8949.3, ac9641d6 at UT 11794.7) and the walker pools both into one chain; ListHandles kind=chains reports that chain with links=2 trees=2 and both tree ids, and the flight scene ghosts the real Station."
 instanceProfile = "stock-minimal"
 tags = ["CI-4", "chain-interaction", "ghost-chain", "cross-tree", "pooled-chain",
         "readback", "rewind", "refly", "R10", "runtime-handles", "kerbin",

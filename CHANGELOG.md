@@ -12,10 +12,15 @@ _(unreleased — entries accumulate here per commit)_
 
 - **Automated testing: a second-dock mission for the ghost-chain harvest.** The new autopilot
   mission `bdock_second_dock` launches a third Kerbal X from the recorded docking save,
-  flies the existing station-interceptor rendezvous and docking, and then drives a stock
+  flies the existing station-interceptor rendezvous and docking, and then tries a stock
   Switch-To click on a nearby vessel. Its first flights found that a launch made while a
-  committed recording is being resumed is recorded into that committed flight instead of a
-  new one, so the lane `BDOCK-2-second-dock-harvest` stays blocked on that finding.
+  committed recording is being resumed was recorded into that committed flight (fixed
+  since); on the fix, `BDOCK-2-second-dock-harvest` docked from a flight of its own and its
+  save became the new test save `bdock-second-dock-recorded`.
+- **Automated testing: a lane proves one ghost chain can join two separate flights.**
+  `CI-4-cross-tree-chain-pooled` rewinds the second-dock save to before the second docking
+  and reads the ghost chains back: the station is claimed by one chain whose two links come
+  from the two flights that docked to it, and the station turns into a ghost as expected.
 - **Automated testing: a lane watches a spawn blocked at the launch pad.**
   `EX-1-ghost-extension-past-endut` records a pad probe, rewinds it to launch and replays it
   from a rover on the runway. The pad refuses the vessel's spawn, and the lane checks that

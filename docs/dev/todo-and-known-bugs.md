@@ -15,7 +15,32 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: the `bdock-second-dock-recorded` harvest could not produce an honest fixture, and neither target cell has a producer on this path [FILED 2026-09-23 off the D18 PR-D build. OPEN; three separate blockers, each with a named next step]
+## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. OPEN for blocker 2 only]
+
+**STATUS 2026-09-23 (read this first; the original filing follows).**
+
+- ~~Blocker 1, no second tree~~: FIXED by #1780 (FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE,
+  closed there). `BDOCK-2-second-dock-harvest` flight 4, run `2026-09-23_1704` (PASS attempt 1),
+  recorded the third Kerbal X in its own tree `ac9641d6` with a single-parent dock onto the
+  Station (`parents=[8267c27c]`, target pid 3620499050). Harvested as the committed fixture
+  `bdock-second-dock-recorded` (3 trees, 30 recordings, 4 RPs, Dock 2).
+- ~~Blocker 3, `cross-tree-chain-linking`~~: RULED by the operator (2026-09-23): the pid-pooled
+  shape claims the cell. CLAIMED on `CI-4-cross-tree-chain-pooled` off the new per-chain tree
+  keys of `ListHandles kind=chains`: one chain, `pid=3620499050 links=2 trees=2
+  treeIds=8c677bba...,ac9641d6...` (reading `_1830`, armed `_1834`, negative control `_1836`).
+- **Blocker 2, `background-event-claims`: STILL OPEN.** The operator's three witnesses (a
+  fixture-literal pid and tree of a genuinely background-recorded vessel, not a split product; its
+  `Chain built:` line; a downstream effect) are absent from `_1704`. Its BG-SWITCH
+  `SimulateStockSwitchClick` on the Interceptor half (pid 1223410921) was refused
+  `gate=RefusedDialogPending reason=dialog-pending`: the boot's `Tree merge dialog: tree='Kerbal X',
+  recordings=12` (the restored docking tree) was shown at load and never answered, so no switch
+  and no background tail happened. Every `via BACKGROUND_EVENT` claim the walker logs on this
+  fixture (6 in tree 788554a9, 7 in 8c677bba, plus the new tree's debris) is a split product. NEXT:
+  answer the boot merge dialog (or discard) before the mission phase, then re-fly the harvest; the
+  Case C / lineage analysis in item 2 below still decides whether the click can produce a
+  genuinely background-recorded, non-lineage vessel at all.
+
+The original filing:
 
 PR-D was to harvest a save in which a THIRD Kerbal X docks to `bdock-recorded`'s Station in
 a NEW tree, and a genuinely background-recorded vessel carries a ghosting-trigger event,
@@ -504,6 +529,10 @@ blind to a link-level change. And the family reads `ParsekFlight.ActiveGhostChai
 and which are not terminated: a terminated or past-spawn chain is outside both captures, so
 the readback says nothing about how those are re-derived (on bdock-recorded at rp1, 12 of
 the 13 evaluated chains are outside it).
+
+2026-09-23 (PR-D): each chain now also reports its links' distinct tree ids (`chain<i>trees` /
+`chain<i>treeIds` and a per-chain log line), deliberately OUTSIDE the digest so CI-3's pin holds;
+the digest's link-level blindness is unchanged.
 
 Fix direction: add each link's `recordingId` (and branch point id) to the canonical line,
 and consider a second, pre-filter view (`ComputeAllGhostChains`' full output, or a

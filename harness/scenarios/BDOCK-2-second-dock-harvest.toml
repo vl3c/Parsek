@@ -1,8 +1,10 @@
 # =============================================================================
 # BDOCK-2: THE D18 SECOND-DOCK HARVEST (PR-D of the D18 spawn-in-run wave).
 #
-# INTENDED to produce the `bdock-second-dock-recorded` fixture for a CI-4 lane; BLOCKED
-# (see STATUS above the steps). It boots `bdock-recorded` (BDOCK-1's produced save: the
+# PRODUCED the `bdock-second-dock-recorded` fixture (CI-4's host) on run
+# `2026-09-23_1704` (PASS attempt 1, DLL #1768 + #1780) once #1780 fixed the fresh
+# launch joining the restored committed tree; the three earlier flights are the
+# STATUS block above the steps. It boots `bdock-recorded` (BDOCK-1's produced save: the
 # Station Kerbal X, pid 3620499050, in a ~110 km orbit and the ACTIVE vessel; the
 # undocked Interceptor half, pid 1223410921, a few metres away; both docking trees
 # committed), then:
@@ -29,7 +31,7 @@
 schema = 1
 id = "BDOCK-2-second-dock-harvest"
 tier = "operator"
-description = "D18 PR-D harvest driver, BLOCKED: bdock-recorded booted, a THIRD Kerbal X flies B-DOCK's Interceptor half and hard-docks to the orbiting Station, then a stock Switch-To click on the undocked Interceptor half measures the background tail. Three flights (2026-09-22 _2157 / _2235 / _2239) found the launch records INTO the committed docking tree (todo FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE), so no second tree and no fixture yet; the single-parent Dock token is the defect's witness."
+description = "D18 PR-D harvest driver: bdock-recorded booted, a THIRD Kerbal X flies B-DOCK's Interceptor half and hard-docks to the orbiting Station, then a stock Switch-To click on the undocked Interceptor half is attempted for a background tail. Three flights (2026-09-22 _2157 / _2235 / _2239) found the launch recorded INTO the committed docking tree (todo FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE, fixed by #1780); flight 4 (2026-09-23_1704) PASSED on the fix with its own tree and a single-parent dock and produced the bdock-second-dock-recorded fixture. The single-parent Dock token is the defect's witness."
 instanceProfile = "stock-minimal"
 tags = ["BDOCK-2", "bdock", "mechjeb", "dock", "rendezvous", "harvest", "fixture-producer",
         "ghost-chain", "D18", "switch-segment"]
@@ -62,6 +64,13 @@ mission = "bdock_second_dock"
 # D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED (why neither D18 target cell has a producer here).
 # The spec stays committed as the harvest's driver and the defect's reproduction: the
 # single-parent Dock token is the witness that reds while the join persists.
+# FLIGHT 4 (`2026-09-23_1704`, on #1780's fix) PASS attempt 1: the launch got its OWN
+# tree `ac9641d6`, the dock had a single parent (`parents=[8267c27c]`, target pid
+# 3620499050), and the save was harvested as `bdock-second-dock-recorded`. The
+# background tail did NOT run: the BG-SWITCH click was refused `dialog-pending`, because
+# the boot's tree merge dialog (the restored docking tree) was never answered, so the
+# fixture carries no background-recorded vessel (todo
+# D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED).
 steps = [
   { cmd = "LoadGame",      args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",    args = { name = "verboseLogging", value = "true" },     expect = "OK" },
