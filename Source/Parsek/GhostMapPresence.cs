@@ -7390,8 +7390,10 @@ namespace Parsek
                 // auto-spawn a NEW duplicate vessel for a purely-historical recording (the
                 // player progressed past it in normal forward time and never rewound to
                 // replay it). The adoption path (the recorded vessel already exists live)
-                // is harmless and still runs; looping / mission-unit members (explicit live
-                // opt-in) and the active re-fly session are exempt. Explicit "Warp to Spawn"
+                // is harmless and still runs; the active re-fly session is exempt. A looping
+                // / mission-unit member is NOT exempt here: this is its first-run terminal
+                // spawn, a real spawn gated like any recording's (only its render ignores
+                // the scope gate). Explicit "Warp to Spawn"
                 // (TryRunTrackingStationSpawnHandoffForIndex / ForRecordingId) does not route
                 // through here, so a user-initiated spawn is never gated. Mirrors the flight
                 // and Space Center spawn gates.
@@ -7400,14 +7402,17 @@ namespace Parsek
                 bool wouldAdoptExistingVessel =
                     ShouldSkipTrackingStationDuplicateSpawn(rec, realVesselExists);
                 if (!wouldAdoptExistingVessel
-                    && SessionSuppressionState.ActiveMarker == null
-                    && !rec.LoopPlayback
-                    && !loopUnits.IsMember(i))
+                    && SessionSuppressionState.ActiveMarker == null)
                 {
                     double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
                     PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, activationStartUT);
-                    if (PlaybackScopeTracker.IsHistoricalNeverReplayed(
-                            rec.RecordingId, currentUT, activationStartUT))
+                    bool loopingLike = rec.LoopPlayback || loopUnits.IsMember(i);
+                    if (GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
+                            loopingLike,
+                            reFlyActive: false,
+                            scopeHistorical: PlaybackScopeTracker.IsHistoricalNeverReplayed(
+                                rec.RecordingId, currentUT, activationStartUT),
+                            forSpawn: true))
                     {
                         ParsekLog.VerboseRateLimited(Tag,
                             "ts-spawn-historical-" + i.ToString(ic),

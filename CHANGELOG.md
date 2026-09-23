@@ -23,6 +23,13 @@ _(unreleased — entries accumulate here per commit)_
   exactly once, then loops the mission three times. The recording keeps the same spawned vessel
   id at every stage, and the produced save holds one vessel of that name. The save-parse verifier
   gains a vessel census for this (`spawnedVessels`, `vesselNames`).
+- **Automated testing: a lane rewinds a mission while its loop is on.**
+  `LF-2-loop-armed-rewind-first-run-real` turns the mission loop on first, runs three loops,
+  then rewinds to launch twice. The first rewind is reloaded into flight, where the spawn is
+  asked for and (as for any vessel on the launch pad in flight) held back by the pad's safety
+  zone; the second lets the Space Center clock pass the recording's end, and the vessel comes
+  back exactly once and keeps its id through a reload and two more loops. Before the fix the
+  same lane ended with no vessel at all.
 - **Automated testing: the command seam can read back the flight scene's ghost chains.**
   `ListHandles kind=chains` lists each derived chain (claimed vessel pid, link count, tip
   recording, spawn UT, terminated flag) in pid order, plus `evaluated=` (whether this
@@ -857,6 +864,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A looping recording's first run is real again: its vessel comes back after a rewind even
+  while the loop is on.** A looped mission (or a recording with its own loop toggle) replays
+  on its loop clock, and that path never reached the spawn at the end of the recording. So a
+  Rewind-to-Launch with the loop on removed the vessel and nothing brought it back, leaving no
+  real vessel at all. Now the first time the clock passes the recording's end, its vessel
+  spawns once, exactly as a non-looping recording's would (same checks: not already spawned,
+  not a purely historical recording, the rewind and chain rules). Every later loop is still
+  ghost-only. This applies in flight and at the Space Center. The Tracking Station already
+  spawned looping recordings; it now applies the same "never replayed" check to them as to
+  any other recording. A chain with one looped phase still never spawns its final vessel
+  (an open question, not changed here).
 - **A recording's loop period unit now survives a save and reload.** The unit chosen with
   the Recordings table's unit button (sec, min, hr or auto) was never saved, so every reload
   set it back to seconds. A Gloops recording, which starts on auto, then lost its place in the

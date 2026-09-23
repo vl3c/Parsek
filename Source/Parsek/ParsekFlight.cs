@@ -18878,15 +18878,18 @@ namespace Parsek
                 // terminal vessel) when the player rewound so its window lies ahead of
                 // the live playhead; PlaybackScopeTracker latches that per recording.
                 // Looping / chain-loop / mission-unit members (explicit live-replay
-                // opt-in) and the active re-fly session are exempt — they are driven by
-                // their own engine paths and must keep rendering. Every committed
+                // opt-in) keep RENDERING regardless, but their first-run terminal spawn
+                // is a real spawn and takes the same gate (spawnHistoricalNeverReplayed).
+                // The active re-fly session is exempt from both. Every committed
                 // recording is noted each frame so a later rewind re-arms its scope.
                 double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
                 PlaybackScopeTracker.NotePlayhead(rec.RecordingId, currentUT, activationStartUT);
-                bool historicalNeverReplayed = !loopingLike
-                    && activeReFlyMarker == null
-                    && PlaybackScopeTracker.IsHistoricalNeverReplayed(
-                        rec.RecordingId, currentUT, activationStartUT);
+                bool scopeHistorical = PlaybackScopeTracker.IsHistoricalNeverReplayed(
+                    rec.RecordingId, currentUT, activationStartUT);
+                bool historicalNeverReplayed = GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
+                    loopingLike, activeReFlyMarker != null, scopeHistorical, forSpawn: false);
+                bool spawnHistoricalNeverReplayed = GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
+                    loopingLike, activeReFlyMarker != null, scopeHistorical, forSpawn: true);
 
                 GhostPlaybackSkipReason skipReason = ResolveGhostPlaybackSkipReason(
                     hasData,
@@ -18918,7 +18921,7 @@ namespace Parsek
                     && !chainSuppressed.suppressed
                     && !supersededByRelation
                     && !rewindRetired
-                    && !historicalNeverReplayed;
+                    && !spawnHistoricalNeverReplayed;
                 string anchorReFlyUnstableAnchorId;
                 string anchorReFlyUnstableReason;
                 bool anchorReFlyUnstable = ResolveReFlySettleStability(
@@ -18931,9 +18934,15 @@ namespace Parsek
                 // the per-reason histogram; the batched summary is emitted after the loop.
                 if (!finalNeedsSpawn && !rec.IsDebris)
                 {
+                    // A loop member keeps its spawn-gate reason first (its render is not
+                    // history-gated); the history gate names itself only when it is the
+                    // gate that actually held a loop member's first-run spawn.
                     string reason = historicalNeverReplayed
                         ? "historical-never-replayed"
-                        : (!spawnResult.needsSpawn ? spawnResult.reason : chainSuppressed.reason);
+                        : !spawnResult.needsSpawn ? spawnResult.reason
+                        : chainSuppressed.suppressed ? chainSuppressed.reason
+                        : spawnHistoricalNeverReplayed ? "historical-never-replayed"
+                        : chainSuppressed.reason;
                     string reasonKey = string.IsNullOrEmpty(reason) ? "(none)" : reason;
                     spawnSuppressedByReason.TryGetValue(reasonKey, out int reasonCount);
                     spawnSuppressedByReason[reasonKey] = reasonCount + 1;

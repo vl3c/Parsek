@@ -124,22 +124,70 @@ SpawnVesselOrChainTip)". So when `VesselGhoster.SpawnAtChainTip` refuses the spa
 This is the chain half of design section 13.5 and of the catalog's
 `ghost-extension-past-endut` cell. EX-1 does not claim it and no lane can until 6b-4 lands.
 
-## LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS: a Rewind-to-Launch while the mission loop is armed would strip the real vessel and nothing re-spawns it [FILED 2026-09-23 from the #1771 review. OPEN; OPERATOR QUESTION, not yet driven]
+## ~~LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS: a Rewind-to-Launch while the mission loop is armed would strip the real vessel and nothing re-spawns it~~ [FILED 2026-09-23 from the #1771 review. RULED 2026-09-23: the first run is real. MEASURED + FIXED 2026-09-23 on branch `loop-first-run-real`]
 
-The catalog's D18 `loop-first-run-is-real` cell (`automated-testing-scenario-catalog.md`,
-the D18 list and the B8 additional assertion) asks for a rewind re-cross WITH the loop in
-play: "after 3 loop cycles plus one rewind re-cross of the spawn window, exactly ONE real
-vessel". A mission-loop member never reaches the terminal spawn: `GhostPlaybackEngine`
-routes it to `UpdateUnitMemberPlayback` and `continue`s before `HandlePastEndGhost`
-(~1253-1259), and `ParsekKSC.UpdateUnitMemberKsc` says the looping Mission "never fires the
-terminal-spawn". So a Rewind-to-Launch that strips the vessel while the loop is armed
-should leave ZERO real vessels until the loop is disarmed (reasoned from source, not flown).
+**RULED 2026-09-23 (operator):** "The first time through should still count as the real
+flight, so the lander should come back after a rewind even while it's looping, and only the
+extra replays should be ghost-only." This is the design's own rule (design 2.2 principle 9,
+12.7's definition of "first run" by timeline position, 13's "Looping recordings spawn their
+vessel at the end of the first playthrough") and the catalog's D18 B8 assertion.
 
-**Question for the operator:** is zero vessels after a loop-armed rewind intended (a
-looping mission is a replay, not a timeline), or a defect (the first run should still be
-real)? `LF-1-loop-first-run-real` claims the cell with the narrowed scope "rewind, then
-loop" meanwhile. A loop-armed variant of LF-1 (MissionConfig before InvokeRewindToLaunch)
-would measure it in one flight.
+**Measured before the fix:** `LF-2-loop-armed-rewind-first-run-real` run `2026-09-23_1536` on
+origin/main `1f90acc13`: loop armed, three cycles, Rewind-to-Launch, 1x Space Center time
+past EndUT with the loop unit live at KSC, a reload and a fourth cycle. The recording stayed
+`pid=0 spawned=false` after the strip and the produced save held zero real vessels.
+
+**Cause:** every looping index (a mission loop-unit member, or a recording with its own loop
+toggle) was routed to its loop renderer ABOVE the ordinary past-end completion, in the
+flight engine (`GhostPlaybackEngine` Phase D2 and the per-recording loop gate) and at the
+Space Center (`ParsekKSC` Phase E parity and the per-recording loop branch, plus
+`TrySpawnAtRecordingEnd`'s "looping recordings restart" early return), so nothing ever
+asked the spawn gate about the first run.
+
+**Fix:** one first-run seam per scene, both on the pure
+`GhostPlaybackLogic.ShouldAttemptLoopFirstRunSpawn` (looping, spawn gate allows, real UT
+past the recording's own EndUT, not yet attempted): the flight engine queues ONE spawn-only
+completion (`TryFireLoopFirstRunSpawn`, no ghost state, the hidden-completion shape) and the
+Space Center calls the ordinary `TrySpawnAtRecordingEnd` once (`TryLoopFirstRunSpawnKsc`).
+Every other gate is the normal one (VesselSpawned, the #573 rewind block, the chain rules,
+snapshot / terminal checks), so later cycles stay ghost-only and a strip re-arms exactly one
+spawn. The replay-scope (BUG-B) gate is split by purpose in
+`GhostPlaybackLogic.ResolveHistoricalNeverReplayed`: a loop still RENDERS regardless, but its
+first-run SPAWN is gated like any recording's, in flight and in the Tracking Station handoff
+(which already spawned loop members, but had exempted them from the scope gate). Unit tests:
+`LoopFirstRunSpawnTests` (loop off, armed before / after the first run, historical, rewind
+with and without a strip, reload, a blocked spawn across cycles).
+
+**Live proof:** `LF-2-loop-armed-rewind-first-run-real`, reading `2026-09-23_1551`, armed
+`2026-09-23_1554`, negative control `2026-09-23_1556` (two seeds, red on exactly both); `LF-1-loop-first-run-real` re-flown green at `2026-09-23_1558`.
+Two rewinds, one per seam: rewind #1 reloaded into FLIGHT before EndUT fires the flight seam,
+which reaches the spawn gate with `needsSpawn=True` and is blocked by the KSC pad exclusion
+zone (#170) exactly as a non-looping pad terminal is; rewind #2 lands at the Space Center and
+the KSC seam re-spawns the vessel once, whose pid holds through a reload and two cycles; the
+save holds one vessel.
+
+**Stated limits:** a first-run spawn blocked in FLIGHT is attempted once per run (until the
+playhead returns before the recording), the same as a non-looping recording whose ghost is
+not loaded; a looping ghost is not held for a retry, because the loop renderer owns it. A
+pad terminal therefore materializes only at the Space Center or the Tracking Station, which
+has always been true of non-looping pad recordings too.
+
+## LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS: should a chain with a looped segment still leave its real vessel at the end of the first run? [FILED 2026-09-23 from LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS. OPEN; OPERATOR QUESTION]
+
+In gameplay terms: a long flight that Parsek split into phases (launch, coast, landing) is a
+chain. If the player turns on the loop toggle for ONE phase (say, to watch the landing
+replay), the chain's final vessel never spawns - not on the first run, not after a rewind -
+because `ShouldSpawnAtRecordingEnd` refuses every tip of a chain that has any looped phase
+("chain looping", "ghost loops forever, never reaches a final state"). The first-run fix
+above deliberately left this alone: design 12.7 says the first run of a looped recording is
+real, but it does not say whether looping one phase of a chain makes the whole chain a
+replay. Today the question rarely bites, because a Rewind-to-Launch keeps a chain's
+recorded vessel blocked anyway (#573 lifts only standalone targets), so it surfaces only
+where a chain tip would otherwise spawn (a merge after a revert, a future-dated chain).
+**Question:** should looping a phase of a chain keep the chain's first run real (the tip
+spawns once, later replays ghost-only), or is a chain with any looped phase a pure replay?
+A mission loop over a chain-split tree is NOT affected: mission loops set no per-recording
+toggle, so its tip takes the first-run spawn like a standalone recording.
 
 ## MISSIONCONFIG-UNKNOWN-TREE-AFTER-MID-SESSION-COMMIT: the seam's MissionConfig refuses a tree committed earlier in the same game session until the Missions window has drawn once [FILED 2026-09-23 from LF-1's first two readings. OPEN; seam ergonomics, low priority]
 

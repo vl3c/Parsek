@@ -10645,6 +10645,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # Landed 1, and the new vessel census: spawnedVessels 1,
                        # vesselNames {Logi Cargo Rig: 1}).
                        "LF-1-loop-first-run-real.toml",
+                       # LF-2: `structure` armed 2026-09-23 off its reading run
+                       # `2026-09-23_1551` (trees / committedTrees / recordings 1,
+                       # Landed 1, spawnedVessels 1, vesselNames {Logi Cargo Rig: 1});
+                       # the pre-fix measurement `_1536` read spawnedVessels 0.
+                       "LF-2-loop-armed-rewind-first-run-real.toml",
                        # RF-1: `rewind` armed 2026-09-09 off TWO flights whose facets
                        # agreed across a DLL change - `2026-09-08_2146` (pre-#1658) and
                        # the merged-main confirmation - plus its own negative control
