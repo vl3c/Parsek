@@ -10,6 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane replays a loop anchored to a live vessel.**
+  `RL-1-relative-loop-live-anchor` injects one looped recording that plays relative to the
+  rover on the runway of the `pad-runway-pair` save (the new `relative-loop` injection
+  preset, built with the new `RecordingBuilder.WithLoopAnchorVesselId`). It checks that the
+  rover's arrival switches the loop on, that the ghost is placed from the rover's live
+  position for both of its recorded offsets, and that at a zero offset the ghost sits
+  exactly on the rover. It found that a loop anchored to the vessel being flown would never
+  play, because that vessel finishes loading before Parsek starts listening; nothing sets
+  such an anchor today, so this is filed rather than fixed.
 - **Automated testing: a second-dock mission for the ghost-chain harvest.** The new autopilot
   mission `bdock_second_dock` launches a third Kerbal X from the recorded docking save,
   flies the existing station-interceptor rendezvous and docking, and then tries a stock
