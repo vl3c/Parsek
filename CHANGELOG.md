@@ -10,13 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
-- **Automated testing: a lane watches a spawn blocked at the launch pad, and found that the
-  waiting ghost disappears at once.** `EX-1-ghost-extension-past-endut` records a pad probe,
-  rewinds it to launch and replays it from a rover on the runway. The pad refuses the
-  vessel's spawn and Parsek says it will keep the ghost visible while it retries, but the
-  ghost is removed in the same frame. The lane checks for the ghost to stay and is marked as
-  an expected failure until that is fixed. Its host save, `pad-runway-pair`, is built by a
-  script from two existing test saves.
+- **Automated testing: a lane watches a spawn blocked at the launch pad.**
+  `EX-1-ghost-extension-past-endut` records a pad probe, rewinds it to launch and replays it
+  from a rover on the runway. The pad refuses the vessel's spawn, and the lane checks that
+  the ghost stays for the 5 second retry window and is removed only when the hold times out.
+  It found that the ghost used to disappear at once (fixed, see Fixed below), was marked as an
+  expected failure until then, and now counts toward the ghost-extension coverage cell for
+  the pad exclusion-zone hold. Its host save, `pad-runway-pair`, is built by a script from two
+  existing test saves.
 - **Automated testing: a lane proves a looped recording leaves exactly one real vessel.**
   `LF-1-loop-first-run-real` records a pad probe in the run, rewinds it to launch (which removes
   the vessel), lets the Space Center clock pass the recording's end so the vessel comes back
@@ -863,6 +864,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A ghost whose vessel cannot spawn yet now stays visible while Parsek retries.** When a
+  recording ended inside the launch pad or runway exclusion zone, or its spawn failed,
+  Parsek logged that it would keep the ghost at its final position for the 5 second retry
+  window, but the playback engine had already removed the ghost in the same frame: its
+  past-end cleanup ran before the spawn policy had heard that the recording finished, so it
+  saw a ghost nobody was holding. The cleanup for a slot that has just finished now waits
+  until the policy has received that event (still in the same frame), so a held ghost is
+  kept until the spawn succeeds or the hold times out, and a ghost nobody holds is still
+  cleaned up at once. The same applies to the hold while a spawn waits for time warp to end.
+  The policy's log line now says when there is no ghost left to keep visible.
 - **A recording's loop period unit now survives a save and reload.** The unit chosen with
   the Recordings table's unit button (sec, min, hr or auto) was never saved, so every reload
   set it back to seconds. A Gloops recording, which starts on auto, then lost its place in the
@@ -872,7 +883,6 @@ _(unreleased — entries accumulate here per commit)_
   not seconds) and read back on load; an unreadable value falls back to seconds with one
   warning in the log. Existing saves load unchanged and keep seconds until the unit is set
   again.
-
 - **A kerbal whose committed flight ended with his recovery is free again once game time
   passes that recovery.** A Recovered flight's crew reservation was meant to last from the
   start of time until the recovery (design 9.3), but nothing ever compared it with the
