@@ -62,7 +62,15 @@ list of the exact mismatch strings (or token regexes) the bug produces; a run de
 when its mismatch set equals that list, and anything extra stays PARSEK-FAIL. First consumer:
 `EX-1-ghost-extension-past-endut` (its two defect assertions).
 
-## D18-GHOST-EXTENSION-DESIGN-VS-CODE: a vessel blocking a spawn never extends the ghost past EndUT on the non-chain path, so `ghost-extension-past-endut` exists only for the KSC exclusion zone and a failed spawn [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). OPEN; OPERATOR DESIGN QUESTION, not a defect]
+## ~~D18-GHOST-EXTENSION-DESIGN-VS-CODE: a vessel blocking a spawn never extends the ghost past EndUT on the non-chain path, so `ghost-extension-past-endut` exists only for the KSC exclusion zone and a failed spawn~~ [FILED 2026-09-23 with the D18 spawn-in-run wave, PR-E (EX-1). RULED 2026-09-23: keep the code; design rewritten to match]
+
+**RULED 2026-09-23: keep the code; design rewritten to match.** The operator kept the
+code's behaviour (recover a same-name blocker, else walk back at once, else abandon; hold the
+ghost only for the KSC exclusion zone, a single-point recording or a failed spawn, retrying
+every 1 s for up to 5 s). `docs/parsek-flight-recorder-design.md` sections 13.2, 13.5 and
+13.7 now describe that, and the catalog's D18 `ghost-extension-past-endut` wording is
+narrowed to the bounded hold. The same-frame destroy of the held ghost stays open as
+D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME.
 
 **What the design promises.** `docs/parsek-flight-recorder-design.md` section 13.2 routes
 a blocked spawn to "block spawn, start ghost extension"; section 13.5 ("Ghost Extension")
@@ -297,7 +305,13 @@ DOWNLOAD. The rotted MechJeb2 URL is left as pinned. The pin comment names the C
 archive.org mirror to use if the URL ever has to be replaced for a machine with no
 seeded cache.
 
-## LOOP-TIME-UNIT-NOT-PERSISTED: a recording's loop period unit is not saved, so Auto (and Min / Hour) revert to Sec on reload [FILED 2026-09-22 off the recording-metadata test retarget (branch `retarget-recording-metadata-tests`). A PRODUCT serialization gap. OPEN]
+## ~~LOOP-TIME-UNIT-NOT-PERSISTED: a recording's loop period unit is not saved, so Auto (and Min / Hour) revert to Sec on reload~~ [FILED 2026-09-22 off the recording-metadata test retarget (branch `retarget-recording-metadata-tests`). A PRODUCT serialization gap. FIXED 2026-09-23]
+
+**Fix (2026-09-23).** `RecordingTreeRecordCodec.SaveLoopAndPlaybackSettings` writes
+`loopTimeUnit` sparsely (Sec omitted) and `ParseLoopTimeUnitOr` reads it back, accepting only an
+exact defined member name and keeping Sec with one `[Codec]` warning otherwise; additive, no
+schema generation bump. The two `AutoLoopTests` round trips are unskipped, with new cells for the
+written name, malformed values and a `RecordingBuilder.WithLoopTimeUnit` node.
 
 **Finding.** `Recording.LoopTimeUnit` is player-set (the Recordings table's unit button
 cycles sec / min / hr / auto, `RecordingsTableUI.cs`) and `ParsekFlight` commits Gloops
@@ -316,7 +330,7 @@ recording moved into a tree, and it was deleted as test-only by the retarget. Th
 never had the key. `Mission.LoopTimeUnit` is a separate field and is persisted
 (`Mission.cs`).
 
-**Fix (not done).** In `RecordingTreeRecordCodec`, write `loopTimeUnit` sparsely (omit Sec)
+**Original fix plan.** In `RecordingTreeRecordCodec`, write `loopTimeUnit` sparsely (omit Sec)
 in `SaveLoopAndPlaybackSettings` and parse it with `Enum.TryParse` in the load mirror. This is
 additive, so no schema generation bump. Then unskip
 `AutoLoopTests.LoopTimeUnit_SaveLoad_RoundTrip_Auto` / `_Hour`, which already drive the
@@ -4758,9 +4772,63 @@ into the orbit row whenever the burn gave up before the cut, `serialize_mission_
 instead of the named MISSION-ASSERT-FAIL. Non-finite values are now written as null
 (`RfoGiveUpSerializesTests`); `_2333` and `_2337` report the named verdict.
 
-## OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT: a re-fly of the later part of an already-committed flight the optimizer split cannot retire its deaths until a load has re-derived the rows [FOUND 2026-09-23 by ruling (3)'s test. OPEN, needs a design decision]
+## ~~OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT~~: a re-fly of the later part of an already-committed flight the optimizer split cannot retire its deaths until a load has re-derived the rows [FOUND 2026-09-23 by ruling (3)'s test. FIXED 2026-09-23 on branch `optimizer-split-crew`]
 
-MEASURED HEADLESSLY by the skipped
+FIXED (branch `optimizer-split-crew`). Both triggers measured headlessly first, on main:
+trigger 1 left `Dead 8..53` live on the first segment after the re-fly of the second;
+trigger 2 split the superseded TIP (3 recordings instead of 2), the fresh-id half TIP2 was
+IN ERS (the retired flight's tail would play again), and after the second reload both
+deaths came back on TIP2 (`Dead 20..53`). Three changes, each mutation-checked:
+
+- RETAG IN THE SPLIT PASS (closes trigger 1, and trigger 2's death on its own).
+  `RunOptimizationSplitPass` calls `Ledger.RetagActionsForSplitSecondHalf`, whose predicate
+  IS `RecordingTreeSplitter.ShouldRetagLedgerActionToTip` (the Re-Fly split's step 2.9): a
+  row tagged to the first half whose attribution UT is `>= splitUT` moves to the second,
+  keeping its ActionId. A death row is screened by its EndUT, so it follows the terminal and
+  the end states `MoveCrewEndStatesToSecondHalf` moves; a non-death crew row stays with its
+  boarding UT. Every recording-scoped type moves, not only crew rows: tombstoning covers
+  them all (`TombstoneEligibility.IsSupersedeTombstoneEligible`), so the death's paired
+  KerbalDeath reputation penalty, stamped at the vessel-loss event (normally the
+  recording's end), travels with the death and a re-fly of the second segment retires
+  both (one edge filed below as DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT). Row content is left to the next load's
+  `MigrateKerbalAssignments`, which re-derives it under the same ids (ruling a1), exactly
+  as it does after a Re-Fly split. Why retag and not re-derive at the split: a1 pairs by
+  (recording, kerbal), so re-deriving would leave the death's ActionId on the first half's
+  Recovered row and give the second half's Dead a fresh id; the retag keeps the id with the
+  fate, the same identity the Re-Fly split keeps. Why not
+  "re-derive after the load-time pass": the in-session splits (every tree / chain commit
+  runs the pass over the WHOLE committed list) would stay open.
+- NEVER SPLIT A SUPERSEDED RECORDING (closes trigger 2 at its root).
+  `FindSplitCandidatesForOptimizer` skips any recording `EffectiveState.IsSupersededByRelation`
+  names. Answer to the design question: a superseded recording should never be
+  optimizer-split. The supersede relation names it by RecordingId (rewind design 3.5
+  invariants 2-3, and `fix-supersede-identity-scope.md`'s premise that every reader keys on
+  ids), so a fresh-id half is named by no relation and re-enters ERS; the recording is not
+  played, so a split buys nothing; and it is the mirror of `CanAutoMerge`'s supersede
+  guard, which already refuses to merge one. Rewind-RETIRED recordings need no such skip:
+  retirement cascades to higher-index chain members sharing `ChainId` +
+  `ProvisionalForRpId`, both of which the split copies.
+- THE MERGE DIRECTION. The optimizer merge pass retagged the absorbed recording's rows only
+  when the absorbed recording was the tree ROOT, so any other absorbed segment's rows were
+  orphaned and the next load's `Ledger.Reconcile` pruned them, ActionId and all (measured
+  on main: a split, a load and a merge back left both crew rows on a deleted id). With the
+  split now moving rows onto later segments this matters more; every absorbed recording's
+  rows now move to the target (`RetagLedgerActionsAfterOptimizationMerge`). After a merge
+  that lasts, the target holds its own Recovered handoff row AND the absorbed Dead row for
+  one kerbal; `InheritKerbalAssignmentActionIds` now prefers the stored row with the SAME
+  end state (else the first in order, as before), so the re-derived death keeps the
+  death's id (review finding).
+
+Tests (`TombstoneReloadMigrationTests`): the formerly skipped cell, un-skipped, plus two
+reloads; a retag-by-attribution-UT cell (death rows, before / at / after the cut); the
+paired rep penalty; alive crew (row stays, ids stable over two reloads); crewless; a split,
+merge back and re-split through the real pass; a lasting merge; the same-fate id
+preference; superseded vs non-superseded candidates; trigger 2 end to end over two
+reloads. Reverting the split retag reds 5 cells, the merge retag 1, the superseded skip 2,
+the same-fate preference 1. The committed-list index contract is untouched: the
+retags change ledger tags only, and the skip removes candidates.
+
+MEASURED HEADLESSLY (history) by the then-skipped
 `TombstoneReloadMigrationTests.OptimizerSplitOfPopulatedRecording_ReFlyBeforeAnyReload_CrewNotDead`.
 The shape: a committed crewed flight whose crew rows were already derived (Dead for the
 whole flight) is split later by `RecordingStore.RunOptimizationSplitPass` - e.g. a re-fly
@@ -4789,13 +4857,47 @@ re-derive or retag KerbalAssignment rows inside the optimizer split pass (closes
 triggers), or skip superseded recordings as split candidates (cheap, closes only this
 one).
 
-MEASURED LIVE 2026-09-23 (RF-13R `2026-09-23_1524` / `_1527`, the cold load of
+MEASURED LIVE 2026-09-23 on the pre-#1775 DLL (RF-13R `2026-09-23_1524` / `_1527`, the cold load of
 `refly-split-crewed-merged`): the load-time optimization pass, which runs after
 `MigrateKerbalAssignments`, split the RE-FLY `rec_92498045` (Orbiting, crew Aboard) at
 its atmosphere exit, UT 186.12 - the split its merge had deferred - and moved its crew end
 states onto the second half while its Aboard rows stayed on the first. The FIRST
 trigger's shape, on a re-fly whose crew are alive, so no death is involved and the walk
-read `permanent=0`; TIP itself was not split on that load.
+read `permanent=0`; TIP itself was not split on that load. #1775's split retag is what
+now moves those rows with the end states.
+
+## DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT: a split cut just before a crash can put the death on one segment and its reputation penalty on the other [FOUND 2026-09-23 by the PR #1775 review. OPEN, analysis only, needs a ruling]
+
+Both splits (the Re-Fly split's step 2.9 and the optimizer split pass) place a row by
+`TombstoneAttributionHelper.ComputeAttributionUT`: a KerbalAssignment death by its float
+`EndUT`, every other row by its `UT`. The paired KerbalDeath `ReputationPenalty` is stamped
+at the VesselLoss event nearest the recording's end (`LedgerOrchestrator`,
+`decision.UT = winner.ut`), not at `EndUT`. If a cut falls between the two (a last section
+that starts within the destruction frame, e.g. an Atmospheric -> Surface boundary at
+impact, or a rewind point in that window), the death moves to the second segment and the
+penalty stays on the first. `TombstoneEligibility.TryPairBundledRepPenalty` pairs on the
+same `RecordingId`, so a re-fly of the second segment retires the death and leaves the
+penalty applied. Not measured on a flight; rare (sub-frame window). Options: move a
+KerbalDeath-source penalty together with its death in both splits, or screen such a
+penalty by the recording's end. Either changes the split / tombstone-guard seam
+convention (the guard must stay bit-identical to the retag), so it is filed rather than
+guessed.
+
+## CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED [FOUND 2026-09-23 while fixing OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT and by its review. OPEN, analysis only, not measured]
+
+`ChainSegmentManager.CommitSegmentCore` commits a segment, runs
+`RecordingStore.RunOptimizationPass()`, and only THEN files the segment's ledger rows via
+`LedgerOrchestrator.OnRecordingCommitted(recId, ...)` against the pre-pass `recId`. Two
+shapes follow. (1) If the pass MERGES the fresh segment into its predecessor, `recId` no
+longer names a committed recording, so the rows are filed under a deleted id: skipped
+in-session by `KerbalsModule`'s orphaned-action check and pruned by the next load's
+`Ledger.Reconcile`. (2) If the pass SPLITS the fresh segment, the rows go to the first
+half only; the next load's `MigrateKerbalAssignments` re-derives crew rows per half but
+never files a KerbalDeath reputation penalty, so the second half (which owns the crash)
+has none. `MergeDialog`'s tree commit avoids both by committing the ledger per tree AFTER
+the pass. Fix direction: resolve the surviving ids after the pass (as the tree commit
+does) before filing. Check first whether the standalone chain path is still reachable in
+always-tree mode.
 
 ## ~~TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT~~: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. RULED 2026-09-23 (a1 + the Recovered handoff). FIXED on branch `tombstone-reload`]
 
@@ -4883,7 +4985,7 @@ FIXED (branch `tombstone-reload`):
   separates the optimizer split from the re-fly is fixed
   (`OptimizerSplitOfPopulatedRecording_ReloadThenReFlyOfSecondSegment_CrewNotDead`). The
   shape with NO load in between is NOT, for a different reason (ledger rows, not end
-  states), filed above as OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT.
+  states), filed above as OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT (since fixed).
 - `TombstoneReloadMigrationTests.SplitThenTombstone_ThenReloadMigration_DeathStaysRetired`
   is un-skipped and green, with mirror cells for two reloads, a re-commit of TIP, a merge
   that does not split, a mid-split rollback and a crewless recording; mutation-checked

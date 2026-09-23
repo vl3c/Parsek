@@ -29,6 +29,7 @@ namespace Parsek.Tests.Generators
         private int chainBranch = -1;
         private bool loopPlayback;
         private double loopIntervalSeconds = 0.0;
+        private LoopTimeUnit loopTimeUnit = LoopTimeUnit.Sec;
         private string segmentPhase;
         private string launchSiteName;
         private string startSituation;
@@ -326,6 +327,12 @@ namespace Parsek.Tests.Generators
         {
             loopPlayback = loop;
             loopIntervalSeconds = intervalSeconds;
+            return this;
+        }
+
+        public RecordingBuilder WithLoopTimeUnit(LoopTimeUnit unit)
+        {
+            loopTimeUnit = unit;
             return this;
         }
 
@@ -806,6 +813,8 @@ namespace Parsek.Tests.Generators
             if (!string.IsNullOrEmpty(startSituation))
                 node.AddValue("startSituation", startSituation);
             node.AddValue("loopIntervalSeconds", GetLoopIntervalSeconds().ToString("R", CultureInfo.InvariantCulture));
+            if (loopTimeUnit != LoopTimeUnit.Sec)
+                node.AddValue("loopTimeUnit", loopTimeUnit.ToString());
 
             if (!string.IsNullOrEmpty(parentRecordingId))
                 node.AddValue("parentRecordingId", parentRecordingId);
@@ -987,6 +996,8 @@ namespace Parsek.Tests.Generators
             if (!string.IsNullOrEmpty(startSituation))
                 node.AddValue("startSituation", startSituation);
             node.AddValue("loopIntervalSeconds", GetLoopIntervalSeconds().ToString("R", CultureInfo.InvariantCulture));
+            if (loopTimeUnit != LoopTimeUnit.Sec)
+                node.AddValue("loopTimeUnit", loopTimeUnit.ToString());
 
             if (vesselSnapshot != null)
                 node.AddNode("VESSEL_SNAPSHOT", vesselSnapshot);

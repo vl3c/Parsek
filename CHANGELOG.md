@@ -863,6 +863,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A recording's loop period unit now survives a save and reload.** The unit chosen with
+  the Recordings table's unit button (sec, min, hr or auto) was never saved, so every reload
+  set it back to seconds. A Gloops recording, which starts on auto, then lost its place in the
+  shared auto launch queue and looped on a seconds period instead: its stored 0 seconds,
+  either raised to the 5-second minimum with a warning or repaired on load to the
+  recording's own length. The unit is now saved with the recording (only when it is
+  not seconds) and read back on load; an unreadable value falls back to seconds with one
+  warning in the log. Existing saves load unchanged and keep seconds until the unit is set
+  again.
+
 - **A kerbal whose committed flight ended with his recovery is free again once game time
   passes that recovery.** A Recovered flight's crew reservation was meant to last from the
   start of time until the recovery (design 9.3), but nothing ever compared it with the
@@ -925,9 +935,22 @@ _(unreleased — entries accumulate here per commit)_
   recording optimizer later splits a recording whose crew fates were already worked out.
   Committing a flight again no longer adds a second crew row for the same kerbal next to
   a retired one. The fix applies to re-fly merges made with this build: a save whose merge
-  was made by an older build keeps the first half's Dead crew fates and is not repaired. One narrower shape stays open (OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT):
-  an optimizer split of an already-committed flight followed by a re-fly of its later
-  part with no load in between.
+  was made by an older build keeps the first half's Dead crew fates and is not repaired.
+
+- **Re-flying the later part of a flight the recording optimizer split now retires its
+  deaths at once, and a re-fly's retired flight no longer comes back.** The optimizer
+  splits a flight into segments (for example at the edge of the atmosphere). When it did
+  that to a flight whose results were already booked, every booked entry stayed on the
+  first segment: a re-fly of the later segment could not reach the crew deaths (or their
+  reputation penalty) there, so the crew stayed dead until a later load. Each entry now
+  moves to the segment it belongs to, by the same rule a re-fly's own split uses. The
+  optimizer also no longer splits a flight a re-fly replaced: the new piece was not
+  covered by the replacement, so the replaced flight's tail played again as a ghost and,
+  after a second load, its crew died again. And when the optimizer joins two segments
+  back into one, the later segment's booked entries now move to the joined flight;
+  before, they were dropped on the next load (only the mission's very first recording
+  was handled), and after such a join a crew death now keeps its identity across the
+  next load.
 
 - **A re-fly's crew assignments are no longer dropped as duplicates of another flight's.**
   The ledger's duplicate check treated any two crew-assignment rows less than 0.1 s apart

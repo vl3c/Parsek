@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Parsek.Tests.Generators;
 using UnityEngine;
 using Xunit;
 
@@ -51,9 +52,7 @@ namespace Parsek.Tests
 
         // --- Serialization round-trip (production RecordingTree codec) ---
 
-        [Fact(Skip = "LOOP-TIME-UNIT-NOT-PERSISTED: RecordingTreeRecordCodec neither writes nor reads " +
-            "loopTimeUnit, so a Recordings-table unit choice reverts to Sec on reload. " +
-            "Unskip with the codec fix (docs/dev/todo-and-known-bugs.md).")]
+        [Fact]
         public void LoopTimeUnit_SaveLoad_RoundTrip_Auto()
         {
             var source = new Recording
@@ -72,9 +71,7 @@ namespace Parsek.Tests
             Assert.Equal(LoopTimeUnit.Auto, loaded.LoopTimeUnit);
         }
 
-        [Fact(Skip = "LOOP-TIME-UNIT-NOT-PERSISTED: RecordingTreeRecordCodec neither writes nor reads " +
-            "loopTimeUnit, so a Recordings-table unit choice reverts to Sec on reload. " +
-            "Unskip with the codec fix (docs/dev/todo-and-known-bugs.md).")]
+        [Fact]
         public void LoopTimeUnit_SaveLoad_RoundTrip_Hour()
         {
             var source = new Recording
@@ -113,6 +110,49 @@ namespace Parsek.Tests
             RecordingTree.SaveRecordingInto(node, source);
 
             Assert.Null(node.GetValue("loopTimeUnit"));
+        }
+
+        [Fact]
+        public void LoopTimeUnit_Save_Auto_WritesName()
+        {
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node,
+                new Recording { RecordingId = "auto-name", LoopTimeUnit = LoopTimeUnit.Auto });
+
+            Assert.Equal("Auto", node.GetValue("loopTimeUnit"));
+        }
+
+        [Fact]
+        public void LoopTimeUnit_BuilderNode_LoadsThroughProductionCodec()
+        {
+            var node = new RecordingBuilder("Builder Vessel")
+                .WithRecordingId("builder-unit")
+                .WithLoopPlayback()
+                .WithLoopTimeUnit(LoopTimeUnit.Auto)
+                .BuildV3Metadata();
+            var loaded = RecordingCodecTestNodes.LoadPastSchemaGate(node);
+
+            Assert.Equal(LoopTimeUnit.Auto, loaded.LoopTimeUnit);
+        }
+
+        [Theory]
+        [InlineData("Bogus")]
+        [InlineData("auto")]
+        [InlineData("3")]
+        [InlineData("Min, Hour")]
+        [InlineData("")]
+        public void LoopTimeUnit_Load_MalformedValue_DefaultsSecAndWarns(string raw)
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var node = RecordingCodecTestNodes.BareCurrentContract("bad-unit");
+            node.AddValue("loopTimeUnit", raw);
+            var loaded = RecordingCodecTestNodes.LoadPastSchemaGate(node);
+
+            Assert.Equal(LoopTimeUnit.Sec, loaded.LoopTimeUnit);
+            Assert.Single(logLines, l => l.Contains("[Codec]")
+                && l.Contains("bad-unit") && l.Contains("unrecognized loopTimeUnit='" + raw + "'"));
         }
 
         // --- ResolveLoopInterval ---
