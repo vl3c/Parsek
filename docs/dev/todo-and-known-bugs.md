@@ -81,7 +81,7 @@ and honours the existing `IsWarpActiveOverrideForTesting` / `SpawnVesselOrChainT
 seams; production reads the same clock and warp as before. Mutations: forcing
 `completionPendingDelivery: false` in the loop step reds the fake-policy hold cell, the
 real-policy cell and the three post-pass cells; recomputing the chain inputs after delivery
-reds the chain-head cell. LIVE-PROVEN on EX-1: XPASS reading `2026-09-23_1510` (spec unchanged, still expectedFail), armed `2026-09-23_1514` PASS attempt 1, negative control `2026-09-23_1516` PARSEK-FAIL on exactly its one seeded forbidden token; automation DLL sha256 `85f91632...` (branch `held-ghost-fix`), IL of `ApplyStalePastEndCleanupStep` / `RunStalePastEndCleanupsAfterCompletionDelivery` read with ilspycmd. The collected log reads, in one frame,
+reds the chain-head cell. LIVE-PROVEN on EX-1: XPASS reading `2026-09-23_1510` (spec unchanged, still expectedFail), armed `2026-09-23_1514` PASS attempt 1, negative control `2026-09-23_1516` PARSEK-FAIL on exactly its one seeded forbidden token; automation DLL sha256 `85f91632...` (branch `held-ghost-fix`), IL of `ApplyStalePastEndCleanupStep` / `RunStalePastEndCleanupsAfterCompletionDelivery` read with ilspycmd. Post-review re-flight `2026-09-23_1540` PASS attempt 1 on the final fix-up DLL (deployed sha256 `318d5fb4...`, IL re-read). The collected log reads, in one frame,
 `PlaybackCompleted ... ghostWasActive=True`, `Spawn blocked ... KSC exclusion zone`,
 `Ghost held pending spawn retry ... ghost stays visible`, `Stale past-end cleanup after
 completion delivery: ghost #0 "Logi Cargo Rig" kept (held by the policy)`, then 5.0 s later
