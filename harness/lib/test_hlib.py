@@ -10664,6 +10664,12 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # Landed 1). The KSC retirement rewrite (2026-09-23, never
                        # flown) keeps the same one-recording Landed tree.
                        "EX-1-ghost-extension-past-endut.toml",
+                       # EX-2: `structure` + `points` armed 2026-09-24 off two
+                       # report-only readings (`2026-09-23_2054`, `_2103`) with
+                       # identical facets: trees / committedTrees / recordings 1,
+                       # Orbiting 1, pointCount total / largest 1 (the injected
+                       # one-point shape survives the load and the save).
+                       "EX-2-single-point-held-ghost.toml",
                        # LF-1: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-22_2350` (trees / committedTrees / recordings 1,
                        # Landed 1, and the new vessel census: spawnedVessels 1,

@@ -7045,6 +7045,16 @@ namespace Parsek.Tests
         internal const double SinglePointHoldWindowSeconds = 20.0;
 
         /// <summary>
+        /// Mean-anomaly lead (radians) of the recorded orbit over the probe's: about 70 m
+        /// ahead along track. Parsek's map-presence ghost ProtoVessel sits on the ghost's
+        /// orbit and, parked exactly on the probe, collided with it when both unpacked
+        /// (reading 2026-09-23_2103: the probe broke into 7 debris, which the overlap check
+        /// filters as Debris, so the spawn read CLEAR). The lead keeps every ghost surface
+        /// clear of the probe while the widened spawn box still covers it.
+        /// </summary>
+        internal const double SinglePointHoldMnaLead = 1.0e-4;
+
+        /// <summary>
         /// A ONE-POINT recording whose Orbiting end sits on the loaded, non-active
         /// <c>Kerbal X Probe</c>: the shape that holds a ghost past EndUT on the non-chain
         /// path (design <c>docs/parsek-flight-recorder-design.md</c> 13.5; todo
@@ -7076,27 +7086,29 @@ namespace Parsek.Tests
             var b = new RecordingBuilder(SinglePointHoldVesselName)
                 .WithRecordingId(SinglePointHoldRecordingId);
             b.AddPoint(t, SinglePointHoldProbeLat, SinglePointHoldProbeLon, SinglePointHoldProbeAlt);
+            double mna = SinglePointHoldProbeMna + SinglePointHoldMnaLead;
             b.AddOrbitSegment(t, t + SinglePointHoldWindowSeconds,
                 inc: SinglePointHoldProbeInc, ecc: SinglePointHoldProbeEcc,
                 sma: SinglePointHoldProbeSma, lan: SinglePointHoldProbeLan,
-                argPe: SinglePointHoldProbeLpe, mna: SinglePointHoldProbeMna,
+                argPe: SinglePointHoldProbeLpe, mna: mna,
                 epoch: SinglePointHoldSaveUT);
             b.WithTerminalState((int)TerminalState.Orbiting);
             b.WithTerminalOrbit("Kerbin", SinglePointHoldProbeSma, SinglePointHoldProbeEcc,
                 SinglePointHoldProbeInc, SinglePointHoldProbeLan, SinglePointHoldProbeLpe,
-                SinglePointHoldProbeMna, SinglePointHoldSaveUT);
-            // Two outrigger parts widen the spawn collision box to about 31 m half-extent
-            // (padding included). The propagated terminal orbit tracks the probe's CoM,
-            // 13-14 m from the probe's reference, and drifts from its physics orbit by
-            // about 0.6 m/s; a one-part box grazed the Mainsail and cleared on the 1 s
-            // retry (reading 2026-09-23_2054), so the hold never reached its timeout.
+                mna, SinglePointHoldSaveUT);
+            // Two outrigger parts widen the spawn collision box to about 155 m half-extent
+            // (padding included), so it covers the probe 70 m behind the propagated
+            // terminal orbit plus the drift between that orbit and the probe's physics
+            // orbit (0.6 m/s on reading 2026-09-23_2054, where a one-part box grazed the
+            // probe at 13.4 m and cleared on the 1 s retry). Nothing else is within
+            // kilometres, and a non-EVA spawn skips the focused Kerbal X.
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.ProbeShip(SinglePointHoldVesselName, pid: 71000001)
-                    .AddPart("probeCoreSphere", position: "-25,-25,-25")
-                    .AddPart("probeCoreSphere", position: "25,25,25")
+                    .AddPart("probeCoreSphere", position: "-150,-150,-150")
+                    .AddPart("probeCoreSphere", position: "150,150,150")
                     .AsOrbiting(SinglePointHoldProbeSma, SinglePointHoldProbeEcc,
                         SinglePointHoldProbeInc, lan: SinglePointHoldProbeLan,
-                        argPe: SinglePointHoldProbeLpe, mna: SinglePointHoldProbeMna,
+                        argPe: SinglePointHoldProbeLpe, mna: mna,
                         epoch: SinglePointHoldSaveUT));
             return b;
         }
@@ -7126,7 +7138,9 @@ namespace Parsek.Tests
             Assert.Equal(SinglePointHoldProbeSma, rec.TerminalOrbitSemiMajorAxis);
             Assert.Equal(SinglePointHoldSaveUT, rec.TerminalOrbitEpoch);
             Assert.NotNull(rec.VesselSnapshot);
-            Assert.True(SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot).extents.x >= 25f);
+            Assert.True(SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot).extents.x >= 150f);
+            Assert.Equal(SinglePointHoldProbeMna + SinglePointHoldMnaLead,
+                rec.TerminalOrbitMeanAnomalyAtEpoch);
         }
 
         [Fact]

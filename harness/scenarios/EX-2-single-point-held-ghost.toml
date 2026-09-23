@@ -25,18 +25,26 @@ id = "EX-2-single-point-held-ghost"
 # `Kerbal X Probe` coasting about 16 m away) plus the `single-point-hold` injected preset
 # (`SyntheticRecordingTests.SinglePointOrbitalHold`): one committed single-recording tree,
 # `Single Point Holder`, with ONE point at the save UT on the probe's saved position, a
-# 20 s orbit tail on the probe's own ORBIT elements, an Orbiting terminal carrying that
-# orbit, and a one-part probe snapshot. After the load, 1x time carries the ghost (drawn
-# from the orbit tail, beside the probe) through EndUT; the spawn propagates the terminal
-# orbit onto the probe, and the probe (loaded, not the active vessel, a different name so
+# 20 s orbit tail on the probe's ORBIT elements with a small along-track lead (see FIXTURE
+# GEOMETRY), an Orbiting terminal carrying that orbit, and a three-part probe snapshot.
+# After the load, 1x time carries the ghost (drawn from the orbit tail, about 70 m ahead of
+# the probe) through EndUT; the spawn propagates the terminal orbit, its collision box
+# covers the probe, and the probe (loaded, not the active vessel, a different name so
 # no #112 recovery) blocks it on the single-point branch. The policy holds the live ghost,
-# retries and times out. The snapshot carries two outrigger parts 25 m out so the spawn
-# collision box (about 31 m half-extent) keeps the probe inside it for the whole 5 s
-# window: the propagated orbit tracks the probe's CoM 13-14 m from its reference and
-# drifts from the probe's physics orbit by about 0.6 m/s, and the first reading
-# (`2026-09-23_2054`, one-part box) grazed the Mainsail at 13.4 m, cleared on the 1 s
-# retry and spawned. LKO is far from the KSC exclusion circles, so the #1783
+# retries and times out. LKO is far from the KSC exclusion circles, so the #1783
 # retirement cannot intercept it.
+#
+# FIXTURE GEOMETRY, and why (both readings PARSEK-FAIL on geometry, not on the hold):
+# - The recorded orbit (segment AND terminal) leads the probe's by 1.0e-4 rad of mean
+#   anomaly, about 70 m along track. Reading `2026-09-23_2103` parked the ghost exactly on
+#   the probe: Parsek's map-presence ghost ProtoVessel collided with it when both
+#   unpacked, the probe broke into 7 `Kerbal X Probe Debris`, the overlap check filters
+#   Debris, and the spawn read CLEAR (filed as todo
+#   GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE).
+# - Two outrigger parts 150 m out give the spawn collision box about 155 m half-extent, so
+#   the probe stays inside it for the whole 5 s window despite the drift between the
+#   propagated orbit and the probe's physics orbit. Reading `2026-09-23_2054` (one-part
+#   box) grazed the Mainsail at 13.4 m, cleared on the 1 s retry and spawned the vessel.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
 description = "D18 ghost-extension-past-endut, SCOPED TO THE SINGLE-POINT COLLISION HOLD (design 13.5): an injected one-point recording with an orbit tail (single-point-hold preset) ends on eva2-lko-crewed's loaded, non-active Kerbal X Probe in LKO. At EndUT the spawn is collision-blocked on the single-point branch (no walkback possible), ParsekPlaybackPolicy holds the live ghost, retries every 1 s and times out at 5 s, and the release destroys the ghost with held-spawn-timeout. Asserts the ghost survives the hold (the engine keeps it after the completion reaches the policy, no stale past-end destroy before the timeout) and no vessel spawns."
@@ -274,15 +282,18 @@ allowedAnomalies = []
 [expectations.recordings]
 count = { min = 1, max = 1 }
 
-# REPORT-ONLY until the reading run: the injected shape must survive the load (one
-# committed tree, one recording, Orbiting, and still ONE flat point).
+# ARMED 2026-09-24 off two report-only readings (`2026-09-23_2054`, `_2103`) with identical
+# facets: the injected shape survives the load and the save (one committed tree, one
+# recording, Orbiting, and still ONE flat point).
 [expectations.recordings.structure]
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 1, max = 1 }
 terminalStates = { Orbiting = { min = 1, max = 1 } }
 
 [expectations.recordings.points]
+gating  = true
 total   = { min = 1, max = 1 }
 largest = { min = 1, max = 1 }
 
