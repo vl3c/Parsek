@@ -15,6 +15,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## SEAM-HIDDEN-ADMINISTRATION-SCREEN-RESIDUE: automation-only robustness of the `activate-strategy` seam [FILED 2026-09-24 from the PR #1803 review; OPEN, low]
+
+1. The hidden Administration screen is released only on a KscAction execute or a scene change, not when the command times out or is rejected (`ParsekTestCommandAddon.KscStrategy.cs` ~:41 returns early while a canvas is held). If the singleton never appears, every later `activate-strategy` in that scene times out on `administration-not-ready`, and a real Administration screen opened in that scene would hit stock's "Instance already exists" check. Fix: release in `HandleDefer`'s TIMEOUT branch and on Reject.
+2. The readiness check tests `Administration.Instance != null`, set in `Awake`, while the slot limit and commitment ceiling are read in `Start`; safe today only because `Pump` runs once per frame. Gate on a field `Start` sets, or compare the slot limit with `GameVariables`.
+3. `StrategyDisplayNames`' production cache is not exercised by the unit tests (the test hook bypasses it).
+
 ## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach saves, the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness]
 
 Phase 1 (`harness/tools/mutation_check.py`, known-gate 17 in `autotest-status.md`) replays
