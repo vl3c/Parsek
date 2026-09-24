@@ -193,11 +193,14 @@ values = ["single-node", "undock-split", "staging-debris-ttl", "staging-debris-p
 #   overlap-expiry-soft-caps: the soft-cap system is gone (commit 1fee51149). The cell now
 #   means old overlapping copies disappear when their own flight ends, and the 20-copy cap
 #   (`GhostPlayback.MaxOverlapGhostsPerRecording`) slows relaunches, read off the
-#   `Loop cadence #N ...` Info line's `auto-adjusted (cap reached)` verdict. For a MISSION
-#   loop the cap is applied in MissionLoopUnitBuilder before the engine sees the period, so
-#   that line always reads `no adjustment` for a mission member (measured on GS-12, 2026-09-24);
-#   there the witness is the MissionConfig reply's `overlapCadenceSeconds` above the requested
-#   `intervalSeconds`.
+#   `Loop cadence #N ...` Info line's `auto-adjusted (cap reached)` verdict. The cell is
+#   CLAIMED 2026-09-24 SCOPED TO THE MISSION-LOOP CAP (`MaxOverlapMissionInstances`,
+#   MissionLoopUnitBuilder step 6b) on GS-12: that cap is applied before the engine sees the
+#   period, so the engine's line reads `requested=<the capped period> ... no adjustment` (the
+#   primary witness), with the MissionConfig reply's `overlapCadenceSeconds` above the requested
+#   `intervalSeconds` supporting. The PER-RECORDING cap (`MaxOverlapGhostsPerRecording` and its
+#   `auto-adjusted (cap reached)` verdict) has no lane yet (todo
+#   OVERLAP-CAP-PER-RECORDING-HAS-NO-LANE).
 values = ["basic-playback", "loop-period-modes", "self-overlap", "overlap-expiry-soft-caps",
           "zone-transitions", "watch-mode-retarget-explosion-hold", "spawn-at-end-pid-dedup",
           "ghost-map-presence", "non-orbital-polyline", "reentry-fx", "attitude-preservation",

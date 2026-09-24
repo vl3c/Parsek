@@ -20,20 +20,29 @@ id = "GS-12-kerbalx-loop-cycles"
 #                     auto-loop interval (MissionLoopUnitBuilder step 6b), shorter than
 #                     the span, so copies overlap. Unreachable by seam before this
 #                     lane: MissionConfig hard-coded Sec (added `unit=` with GS-12).
-#   3. sec / 5 s    - below span/20, so the 20-instance cap
-#                     (GhostPlayback.MaxOverlapMissionInstances) RAISES the cadence to
-#                     span/20. For a MISSION loop the builder applies that cap before
-#                     the engine sees the period, so the engine's `Loop cadence #N`
-#                     line reads `no adjustment` by construction; the witness is the
-#                     MissionConfig reply's `overlapCadenceSeconds` beside the
-#                     requested `intervalSeconds=5` (added with this lane).
+#   3. sec / 5 s    - below span/20, so the MISSION-loop 20-instance cap
+#                     (GhostPlayback.MaxOverlapMissionInstances,
+#                     MissionLoopUnitBuilder step 6b) RAISES the cadence to span/20.
+#                     The builder applies that cap before the engine sees the period,
+#                     so the engine's `Loop cadence #N` line reads `requested=10.00s`
+#                     (the PRIMARY playback-side witness: the engine is flying 10 s,
+#                     not the 5 s asked for) with `no adjustment`; the MissionConfig
+#                     reply's `overlapCadenceSeconds=10` beside `intervalSeconds=5` is
+#                     the supporting witness. The PER-RECORDING cap
+#                     (MaxOverlapGhostsPerRecording, whose `auto-adjusted (cap
+#                     reached)` verdict this lane never prints) is NOT covered here:
+#                     todo OVERLAP-CAP-PER-RECORDING-HAS-NO-LANE.
 # Stages 2 and 3 run long enough past their arm UT (> the span) for the first copies
 # to finish their flights: ghostlife v2's `MeshDestroyed reason=overlap expired`.
 #
-# WHY THE LOOP IS ARMED AFTER THE FIRST RUN. A looping mission member renders only
-# through the loop renderer, whose first instance is floored at the span end
-# (step 7b-i), so arming before the first run would draw nothing for it. Arming after
-# PLAYBACK-WAIT keeps GS-4's proven first run (and its rewind-point census) intact.
+# WHY THE LOOP IS ARMED AFTER THE FIRST RUN - A WORKAROUND FOR A PRODUCT DEFECT, NOT
+# INTENDED BEHAVIOUR. With a mission loop armed, a Rewind-to-Launch shows NO ghost for
+# the whole first run: MissionLoopUnitBuilder step 7b-i clamps the anchor to at least
+# the span end, and the engine skips the member as `SpanClockUnresolved` before the
+# anchor. The operator ruling (2026-09-24) is that the first run plays as a normal ghost
+# (it is the real flight, #1778) and the loop copies begin after it; todo
+# LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED. Until that is fixed this lane arms the loop
+# after PLAYBACK-WAIT, which keeps GS-4's first run (and its rewind-point census) intact.
 #
 # WHAT MUST NOT RED THIS LANE (known, filed): LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS
 # (this tree has no chain), LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED (the loop is
@@ -123,15 +132,18 @@ D1 = ["auto-record-launch"]
 #       backreference: Auto's overlap cadence IS the global interval) and
 #       "unit=Auto ... overlapCadence=30 overlaps=yes".
 # `self-overlap` <- mode (2)'s tokens (the whole mission relaunching over itself).
-# `overlap-expiry-soft-caps` <- BOTH halves: `MeshDestroyed ... vessel=Kerbal X
-#   reason=overlap expired` (copies vanish when their own flight ends) and the cap:
-#   the requested `intervalSeconds=5` comes back `overlapCadenceSeconds=10`. The
-#   attribution is exact: the phase lock (`PhaseLock APPLIED ... P=5 method=
-#   unconstrained`, required below) only quantizes to multiples of 5 s, and 5 already
-#   is one, so the raise is the 20-instance cap (109.1 / 20 = 5.455 s) rounded up to
-#   the next P. A mission loop applies the cap in MissionLoopUnitBuilder, so the
-#   engine's own `Loop cadence` line reads `no adjustment` by construction (see the
-#   header); the MissionConfig reply is the witness.
+# `overlap-expiry-soft-caps`, SCOPED TO THE MISSION-LOOP CAP
+#   (MaxOverlapMissionInstances; the per-recording cap MaxOverlapGhostsPerRecording has
+#   no lane, todo OVERLAP-CAP-PER-RECORDING-HAS-NO-LANE) <- BOTH halves: `MeshDestroyed
+#   ... vessel=Kerbal X reason=overlap expired` (copies vanish when their own flight
+#   ends) and the cap. PRIMARY witness, playback side: the engine's `Loop cadence #N
+#   "Kerbal X": requested=10.00s ... (cycles=1[01])` - the period the engine is flying,
+#   against the 5 s the stage asked for. SUPPORTING: the MissionConfig reply
+#   `intervalSeconds=5 ... overlapCadenceSeconds=10`. The attribution is exact: the phase
+#   lock (`PhaseLock APPLIED ... P=5 method=unconstrained`, required below) only
+#   quantizes to multiples of 5 s, and 5 already is one, so the raise is the cap
+#   (span / 20 = 5.455-5.473 s) rounded up to the next P. The engine line reads
+#   `no adjustment` because the builder applied the cap first (see the header).
 D6 = ["basic-playback", "mesh-lifecycle-derender", "loop-period-modes", "self-overlap",
       "overlap-expiry-soft-caps"]
 # `rewind-to-launch` <- "Rewind-to-Launch initiated to UT" + the seam terminal.
@@ -151,7 +163,10 @@ count = { min = 8, max = 8 }
 #   "missionconfig applied: ..."   ParsekTestCommandAddon.MissionConfig.cs (Info), one
 #       per stage; `loop=` / `unitBuilt=` are C# bools.
 #   "MissionLoopUnit: ..."         MissionLoopUnitBuilder (VERBOSE; verboseLogging is
-#       on): span=[30.36,139.46] spanDur=109.1, members=2 (the pod stack and the
+#       on). NOTE: the seam's own MissionConfig builds the unit too, so a
+#       `MissionLoopUnit:` line may come from that run rather than the flight engine's;
+#       the engine-side witness is the `Loop cadence` line. Measured: span=[30.36,
+#       139.46] spanDur=109.1, members=2 (the pod stack and the
 #       probe core; booster debris is not a member).
 #   "PhaseLock APPLIED ... P=5 method=unconstrained" - the unconstrained phase lock
 #       snaps the anchor and every cadence to a multiple of 5 s (span-clock cadence
@@ -182,7 +197,7 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "missionconfig applied: [^\\r\\n]*loop=True intervalSeconds=5 [^\\r\\n]*unitBuilt=True [^\\r\\n]*unit=sec overlapCadenceSeconds=10 ",
              "PhaseLock APPLIED: [^\\r\\n]*P=5 method=unconstrained",
              "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Sec cadence=[0-9]+ overlapCadence=10 overlaps=yes",
-             "Loop cadence #[0-9]+ \"Kerbal X\": requested=10\\.00s duration=[0-9.]+s cap=20 effective=10\\.00s \\(cycles=[0-9]+\\) no adjustment",
+             "Loop cadence #[0-9]+ \"Kerbal X\": requested=10\\.00s duration=[0-9.]+s cap=20 effective=10\\.00s \\(cycles=1[01]\\) no adjustment",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=overlap expired"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
