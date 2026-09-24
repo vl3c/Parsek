@@ -3157,6 +3157,47 @@ class _StepClock:
         return self.t
 
 
+class PerStateRailsWarpPermissionTests(unittest.TestCase):
+    """`allow_rails_warp` may be a per-state predicate (GS-12: kx_rewind_watch
+    permits rails warp only inside its loop-arm phases). The fly loop must call it
+    on the LIVE state each frame: a rails-warp sample in a permitted phase is not a
+    strike, and the same sample in any other phase still flakes after two strikes.
+    MUTATION: evaluate the callable once (or treat it as truthy) and the second
+    cell stops flaking."""
+
+    def _fly(self, phase):
+        clock = _StepClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = replace(mlib.kxrw_initial_state(mlib.kxrw_params_from_dict({})),
+                        phase=phase)
+        seen = {"n": 0}
+
+        def decide(st, snapshot):
+            clock.advance(0.5)
+            seen["n"] += 1
+            if seen["n"] >= 6:
+                return replace(st, done=True), []
+            return st, []
+
+        snaps = [snap(ut=100.0 + i, situation="PRE_LAUNCH", warp_mode="RAILS",
+                      warp_rate=10.0) for i in range(8)]
+        final, _ = mission_runner.fly_loop(
+            FakeMissionControl(snaps, max_last_repeats=4), state, decide, log,
+            deadline=1e12, clock=clock, sleep=lambda _s: None, poll_interval=0.0,
+            settle_frames=0, allow_rails_warp=mlib.kxrw_rails_warp_permitted)
+        return final
+
+    def test_rails_warp_inside_the_loop_block_is_permitted(self):
+        final = self._fly(mlib.KXRW_LOOP_WAIT)
+        self.assertTrue(final.done)
+        self.assertIsNone(final.verdict)
+
+    def test_the_same_warp_outside_the_loop_block_flakes(self):
+        final = self._fly(mlib.KXRW_PLAYBACK_WAIT)
+        self.assertEqual(mlib.MISSION_FLAKE, final.verdict)
+        self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, final.flake_phase)
+
+
 class WarpLivenessFloorWiringTests(unittest.TestCase):
     """The fly-loop half of the native-warp liveness floor: nothing bounded a
     warp that was ARMED ONCE and simply crawled. The runner's warp-stall

@@ -83,7 +83,7 @@ now that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or
 green (re-run `mutation_check.py` after their next tier, then apply the same per-lane
 anchor).
 
-## GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`]
+## ~~GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log~~ [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`. **DISCHARGED 2026-09-24 by GS-12** (branch `gs12-loop`): the first live reading `2026-09-24_1911` read `MeshDestroyed reason=overlap expired` x27 (Kerbal X 14, Kerbal X Probe 13), `overlap cleared` x2, `engine teardown` x13 at quit, `LoopCycle` x40 - every one `mode=overlap-demote`, ZERO `unit` and ZERO `reuse` - and spawnLines = destroyLines = 57 with unbalanced 0, so the two line counts close on a looping lane as designed. The `unit` mode did not fire because the one-copy-at-a-time stage runs with an inter-cycle tail (period 150 s > span 109 s): the member is destroyed at its window end (`chain-loop unit member outside its window` / `chain-loop unit cycle change`) and respawned, never carried across the boundary. GS-12 ARMS `destroyedReasons.required`, `vessels` (`Kerbal X Debris` spawned >= 6) and `cycleLines` (>= 10); armed re-flight `_1934` PASS. Adding the `vessels` window to GS-4 stays open as its own arming change.]
 
 Ghostlife v2 is built with no flight: the engine writes a tracing-gated
 `MeshDestroyed reason=overlap expired` (also `overlap cleared` / `engine teardown`) when an
@@ -104,7 +104,11 @@ would pin). Open:
 - Adding `vessels = { "Kerbal X Debris" = { spawned = { min = 6 } } }` to GS-4's armed block is
   an arming change and wants its own reading run.
 
-## TIERC-LOOP-PERIOD-AUTO-MODE-HOST: no lane flies a loop on the global Auto period, and no lane has overlap copies expiring or the 20-copy cap stretching a cadence [FILED 2026-09-24, ghost-replay Tier C PR 1, branch `tierc-claims`]
+## ~~TIERC-LOOP-PERIOD-AUTO-MODE-HOST: no lane flies a loop on the global Auto period, and no lane has overlap copies expiring or the 20-copy cap stretching a cadence~~ [FILED 2026-09-24, ghost-replay Tier C PR 1, branch `tierc-claims`. **CLOSED 2026-09-24 by GS-12** (branch `gs12-loop`): `MissionConfig unit=auto` reaches `LoopTimeUnit.Auto` on a MISSION loop (whose overlap cadence IS the global auto interval), and a 5 s period on the 109 s Kerbal X span is flown at 10 s with copies expiring: the MISSION-loop cap (`MaxOverlapMissionInstances`) is applied in `MissionLoopUnitBuilder` before the engine sees the period, so the engine's `Loop cadence` line reads `requested=10.00s ... no adjustment` (the primary witness), with the MissionConfig reply's `overlapCadenceSeconds=10` supporting. The unconstrained phase lock (`P=5`) rounds every mission cadence up to a multiple of 5 s, so the cap's 5.455 s reads 10. D6 `loop-period-modes` (all three modes) and `overlap-expiry-soft-caps` SCOPED TO THE MISSION-LOOP CAP are claimed on GS-12; the per-recording cap moved to OVERLAP-CAP-PER-RECORDING-HAS-NO-LANE below.]
+
+## OVERLAP-CAP-PER-RECORDING-HAS-NO-LANE: no lane flies the per-recording 20-copy cap or prints its `auto-adjusted (cap reached)` verdict [FILED 2026-09-24 from the #1808 review, operator ruling]
+
+D6 `overlap-expiry-soft-caps` is claimed on GS-12 scoped to the MISSION-loop cap (`GhostPlayback.MaxOverlapMissionInstances`, `MissionLoopUnitBuilder` step 6b). The per-recording cap, `GhostPlayback.MaxOverlapGhostsPerRecording`, applied by `GhostPlaybackEngine.UpdateOverlapPlayback` through `ComputeEffectiveLaunchCadence` and logged by `LogOverlapCadenceIfChanged` as `Loop cadence #N ... auto-adjusted (cap reached)`, has no lane: for a mission member the builder has already capped the period, so the engine verdict reads `no adjustment` by construction, and no committed lane loops a single recording below duration/20. A host needs a recording with its own loop toggle (not a mission loop) and a period under its duration/20, which the seam cannot set today (MissionConfig arms missions only). Until then the cell's per-recording half is uncovered.
 
 The operator redefined two D6 registry cells on 2026-09-24 to match the code
 (`harness/coverage/registry.toml`, D6 comment). Tier C PR 1 claimed what the archived logs
@@ -1098,7 +1102,17 @@ spawns once, later replays ghost-only), or is a chain with any looped phase a pu
 A mission loop over a chain-split tree is NOT affected: mission loops set no per-recording
 toggle, so its tip takes the first-run spawn like a standalone recording.
 
-## MISSIONCONFIG-UNKNOWN-TREE-AFTER-MID-SESSION-COMMIT: the seam's MissionConfig refuses a tree committed earlier in the same game session until the Missions window has drawn once [FILED 2026-09-23 from LF-1's first two readings. OPEN; seam ergonomics, low priority]
+## LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED: with a mission loop armed, a Rewind-to-Launch shows no ghost for the whole first run [FILED 2026-09-24 from the #1808 review. OPEN; PRODUCT DEFECT, operator ruling]
+
+**What the player sees.** Loop a mission, then Rewind to Launch. The first run after the rewind (the real flight, which #1778 already makes spawn its vessel at the end) draws no ghost at all; the first thing that appears is the first loop copy, after the recorded span has ended.
+
+**Cause.** `MissionLoopUnitBuilder` step 7b-i ("first-play floor", ~line 285) clamps the phase anchor to at least `spanEndUT`, so no loop instance exists before the span end, and the engine's unit-member path returns `SpanClockUnresolved` for every frame before the anchor and skips the member (`GhostPlaybackEngine.cs` ~2372-2381, `unit-span-clock-unresolved`). A looping member is rendered only by the loop renderer, so nothing renders the first run.
+
+**Ruling (2026-09-24).** The first run plays as a normal ghost, because it is the real flight, and the loop copies begin after it.
+
+**Workaround in place.** `GS-12-kerbalx-loop-cycles` arms the loop only after the first run's PLAYBACK-WAIT. The fix is a separate session; when it lands, a lane (or GS-12 variant) that arms the loop before the first run should require the first run's MeshSpawned and the loop copies after it.
+
+## ~~MISSIONCONFIG-UNKNOWN-TREE-AFTER-MID-SESSION-COMMIT: the seam's MissionConfig refuses a tree committed earlier in the same game session until the Missions window has drawn once~~ [FILED 2026-09-23 from LF-1's first two readings. **FIXED 2026-09-24** (branch `gs12-loop`): `MissionConfigImpl` calls the idempotent `MissionStore.EnsureDefaultsForTrees` before resolving `tree=` and logs `missionconfig seeded N default mission(s)` when it created any. Live-proven on GS-12 (commit in-run, Rewind-to-Launch, then MissionConfig with no Missions window): `missionconfig seeded 1 default mission(s)` on all three flights, now a required token there. `StartLoopPlayback` is unchanged (it refuses `loop-not-armed` before it could need a mission, and MissionConfig always runs first).]
 
 `LF-1-loop-first-run-real` commits a tree in-run (`CommitTree`), later reloads a save through
 `LoadGame`, and then calls `MissionConfig tree=<that tree>`. Both first readings

@@ -9002,6 +9002,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "index-out-of-range": "driver-arg",
     "loop-arg-invalid": "driver-arg",
     "interval-arg-invalid": "driver-arg",
+    # MissionConfig `unit=` (GS-12): present and not exactly `sec` / `auto`.
+    "unit-arg-invalid": "driver-arg",
     # Gate half: the live state declined. Nothing is misspelled - the run reached a
     # state these verbs do not drive. `loop-not-armed` wants a MissionConfig step
     # first; `unit-not-built` / `no-next-window` mean the mission resolved no loop unit

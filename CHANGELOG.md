@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane loops a recorded mission and watches its copies relaunch, overlap and expire.**
+  `GS-12-kerbalx-loop-cycles` flies GS-4's Kerbal X flight, rewinds and watches the first run, then loops
+  the whole mission three ways under 10x warp: one copy at a time (150 s period), on the global Auto
+  period, and at a 5 s period that the 20-copy cap stretches to 10 s. It requires the expiring copies'
+  destroy lines and the loop-mode readbacks, and finds exactly one real vessel left (the watcher). The
+  test command that arms a mission loop can now pick the Auto period (`unit=auto`), reports the real
+  launch-to-launch period after the cap, and no longer refuses a flight committed earlier in the same
+  session until the Missions window has been opened.
 - **Automated testing: the GUI census photographs at 1920x1080.** A scenario can now ask
   for a larger game window (`screenResolution` under `[runtime]`), and every GUI census
   lane does, so the Missions, Logistics and taller Settings windows are no longer cut off

@@ -571,6 +571,16 @@
         "2026-09-23T20:10:28Z": 331.0
       }
     },
+    "GS-12-kerbalx-loop-cycles": {
+      "last": 442.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 442.0,
+      "p95": 442.0,
+      "samples": {
+        "2026-09-24T19:41:35Z": 442.0
+      }
+    },
     "GS-2-orbital-probe-deploy": {
       "last": 99.0,
       "lastVsP50": 1.0,

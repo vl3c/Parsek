@@ -40,6 +40,13 @@ THE PHASE PLAN (``mlib.kxrw_decide``; every state name is an ``mlib.KXRW_*``):
                        open, RE-ASKED while Parsek says
                        `no-watchable-ghost`)
       -> PLAYBACK-WAIT-> DONE
+With ``loopStages`` declared (GS-12, OPT-IN) PLAYBACK-WAIT hands off instead to
+      -> LOOP-HANDLES (seam ListHandles kind=committed: the census)
+      -> (LOOP-CONFIG (seam MissionConfig loop=true unit=...)
+          -> LOOP-WATCH (seam EnterWatchMode, recorded)
+          -> LOOP-WAIT (10x rails warp until watchSeconds of game time))
+         x stages -> DONE
+and rails warp is permitted in those four phases only.
 
 THE COAST-EXIT PROFILE (``coastExitProfile``, OPT-IN, default false) is RF-9's
 branch, and the SHORTEST of the three routes: the plan above runs unchanged through
@@ -326,11 +333,13 @@ SPEC = mission_runner.MissionSpec(
     decide=decide,
     evaluate=evaluate,
     make_control=make_control,
-    # NO WARP ANYWHERE (v1). The ascent is 1x by construction and the playback wait
-    # is deliberately real time, so any warp state at all is unexpected and should
-    # flake the run rather than silently compress the very replay this lane exists
-    # to watch.
-    allow_rails_warp=False,
+    # NO WARP OUTSIDE THE LOOP-ARM BLOCK. The ascent is 1x by construction and the
+    # playback wait is deliberately real time, so any warp state there is
+    # unexpected and flakes the run rather than silently compress the very replay
+    # this lane exists to watch. The GS-12 loop-arm opt-in (`loopStages`) commands
+    # 10x rails warp itself, so its four phases alone permit it
+    # (`mlib.kxrw_rails_warp_permitted`); a lane with no stages never enters them.
+    allow_rails_warp=mlib.kxrw_rails_warp_permitted,
     max_physics_warp=0.0,
     # No settle tail (the R1 precedent, sharpened by this lane's reload straddle):
     # every assertion is machine-carried evidence, and the frames AFTER the terminal

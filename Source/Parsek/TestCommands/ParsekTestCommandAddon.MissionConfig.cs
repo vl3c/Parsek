@@ -39,6 +39,26 @@ namespace Parsek.TestCommands
     /// SINGLE-PHASE: SetLoopEnabled is synchronous state mutation; there is
     /// nothing to defer for.
     /// </para>
+    ///
+    /// <para>
+    /// UNIT (ghost-replay Tier C, GS-12). Optional <c>unit=&lt;sec|auto&gt;</c>, applied
+    /// only on an enable, like the interval. <c>sec</c> is the explicit period (the
+    /// historical behaviour of a bare <c>intervalSeconds</c>); <c>auto</c> is
+    /// <c>LoopTimeUnit.Auto</c>, whose overlap cadence reads the GLOBAL auto-loop interval
+    /// (<c>MissionLoopUnitBuilder</c> step 6), so an <c>intervalSeconds</c> sent beside it is
+    /// NOT applied. Sec / Min / Hour are display units over one seconds value, so only the
+    /// two behaviours are selectable. Absent keeps the historical rule: an interval sets
+    /// Sec, no interval leaves the mission's unit alone.
+    /// </para>
+    ///
+    /// <para>
+    /// UNKNOWN-TREE AFTER A MID-SESSION COMMIT. The default Mission for a committed tree is
+    /// seeded by <c>MissionStore.EnsureDefaultsForTrees</c>, which runs from the Missions
+    /// window's draw and from one OnLoad phase that not every load path reaches. This verb
+    /// calls the same idempotent static before resolving the tree (the Missions window's
+    /// GoTo path already does), so a tree committed in-run is addressable without a
+    /// window draw first.
+    /// </para>
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
@@ -47,6 +67,7 @@ namespace Parsek.TestCommands
             string treeArg = ArgOrNull(cmd, "tree");
             string loopArg = ArgOrNull(cmd, "loop");
             string intervalArg = ArgOrNull(cmd, "intervalSeconds");
+            string unitArg = ArgOrNull(cmd, "unit");
 
             if (string.IsNullOrEmpty(treeArg))
             {
@@ -72,6 +93,20 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            LoopTimeUnit? unitRequested;
+            if (!TestCommandMissionConfig.TryParseUnitArg(unitArg, out unitRequested))
+            {
+                ParsekLog.Warn(Tag,
+                    $"missionconfig rejected reason=unit-arg-invalid unit={unitArg ?? string.Empty}");
+                SetExecResult("REJECTED", null, "unit-arg-invalid");
+                return;
+            }
+
+            int seeded = MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
+            if (seeded > 0)
+                ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "missionconfig seeded {0} default mission(s) before resolving tree={1}",
+                    seeded, treeArg));
             Mission mission = MissionStore.FindOriginalMission(treeArg);
             if (mission == null)
             {
@@ -81,11 +116,13 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            if (TestCommandMissionConfig.ShouldApplyInterval(loopOn, intervalSeconds))
-            {
+            LoopTimeUnit? unitToApply = TestCommandMissionConfig.ResolveUnitToApply(
+                loopOn, unitRequested, intervalSeconds);
+            if (unitToApply.HasValue)
+                mission.LoopTimeUnit = unitToApply.Value;
+            if (TestCommandMissionConfig.ShouldApplyInterval(loopOn, intervalSeconds)
+                && unitToApply != LoopTimeUnit.Auto)
                 mission.LoopIntervalSeconds = intervalSeconds;
-                mission.LoopTimeUnit = LoopTimeUnit.Sec;
-            }
             double currentUT = Planetarium.GetUniversalTime();
             MissionStore.SetLoopEnabled(mission, loopOn, currentUT,
                 RecordingStore.CommittedTrees);
@@ -105,6 +142,15 @@ namespace Parsek.TestCommands
             double phaseAnchorUt = double.NaN;
             double spanStartUt = double.NaN;
             double cadenceSeconds = double.NaN;
+            // The TRUE launch-to-launch period the flight engine runs (step 6b of the
+            // builder: Auto = the global auto interval, an explicit period as-is, then
+            // raised so ceil(span / cadence) stays within MaxOverlapMissionInstances).
+            // A mission loop applies the 20-instance cap HERE, before the engine's own
+            // per-member cap check, so the engine's `Loop cadence` line reads
+            // `no adjustment` for a mission member; this key beside the requested
+            // `intervalSeconds` is the witness that the cap stretched the cadence.
+            double overlapCadenceSeconds = double.NaN;
+            double autoLoopIntervalSecondsUsed = double.NaN;
             // THE SPAN-CLOCK COMPRESSION PRIMITIVES (added 2026-08-25 after the
             // V24W reading flight measured an EMPTY observation). A re-aim loop
             // EXCISES whole-period loiter intervals from its recorded timeline
@@ -128,6 +174,7 @@ namespace Parsek.TestCommands
                 double autoLoopIntervalSeconds =
                     ParsekSettings.Current?.autoLoopIntervalSeconds
                     ?? LoopTiming.DefaultLoopIntervalSeconds;
+                autoLoopIntervalSecondsUsed = autoLoopIntervalSeconds;
                 TransitedBodyRotationMode tbrMode =
                     ParsekSettings.LandingBodyAlignmentMode;
                 bool forceFaithful =
@@ -149,6 +196,7 @@ namespace Parsek.TestCommands
                     phaseAnchorUt = unit.PhaseAnchorUT;
                     spanStartUt = unit.SpanStartUT;
                     cadenceSeconds = unit.CadenceSeconds;
+                    overlapCadenceSeconds = unit.OverlapCadenceSeconds;
                     spanSeconds = unit.SpanEndUT - unit.SpanStartUT;
                     loiterCutCount =
                         unit.LoiterCuts == null ? 0 : unit.LoiterCuts.Count;
@@ -165,7 +213,8 @@ namespace Parsek.TestCommands
                 "missionconfig applied: mission='{0}' tree={1} loop={2} " +
                 "intervalSeconds={3} anchorUt={4} unitBuilt={5} phaseAnchorUt={6} " +
                 "spanSeconds={7} compressedSpanSeconds={8} loiterCutCount={9} " +
-                "loiterCuts={10}",
+                "loiterCuts={10} unit={11} overlapCadenceSeconds={12} " +
+                "autoLoopIntervalSeconds={13}",
                 mission.Name, treeArg, mission.LoopPlayback,
                 mission.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture),
                 mission.LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture),
@@ -174,7 +223,10 @@ namespace Parsek.TestCommands
                 spanSeconds.ToString("R", CultureInfo.InvariantCulture),
                 compressedSpanSeconds.ToString("R", CultureInfo.InvariantCulture),
                 loiterCutCount.ToString(CultureInfo.InvariantCulture),
-                loiterCuts));
+                loiterCuts,
+                TestCommandMissionConfig.UnitToken(mission.LoopTimeUnit),
+                overlapCadenceSeconds.ToString("R", CultureInfo.InvariantCulture),
+                autoLoopIntervalSecondsUsed.ToString("R", CultureInfo.InvariantCulture)));
 
             SetExecResult("OK", Payload(
                 Kv("mission", mission.Name ?? string.Empty),
@@ -202,7 +254,14 @@ namespace Parsek.TestCommands
                 // you", and a consumer must refuse rather than read it as zero.
                 Kv("loiterCutCount",
                     loiterCutCount.ToString(CultureInfo.InvariantCulture)),
-                Kv("loiterCuts", loiterCuts)), null);
+                Kv("loiterCuts", loiterCuts),
+                // --- the loop mode (GS-12; see the class comment's UNIT paragraph) ---
+                Kv("unit", TestCommandMissionConfig.UnitToken(mission.LoopTimeUnit)),
+                Kv("overlapCadenceSeconds",
+                    overlapCadenceSeconds.ToString("R", CultureInfo.InvariantCulture)),
+                Kv("autoLoopIntervalSeconds",
+                    autoLoopIntervalSecondsUsed.ToString("R", CultureInfo.InvariantCulture))),
+                null);
         }
     }
 
@@ -236,6 +295,42 @@ namespace Parsek.TestCommands
                 return false;
             return !double.IsNaN(seconds) && !double.IsInfinity(seconds)
                 && seconds > 0.0;
+        }
+
+        /// <summary>Optional loop unit: null/empty means "no unit requested"
+        /// (<paramref name="unit"/> null); exactly <c>sec</c> or <c>auto</c>
+        /// (case-sensitive, the loop-arg convention) selects Sec or Auto; anything
+        /// else is the REJECTED path. Min / Hour are not accepted: they are display
+        /// units over the same seconds value, not loop modes.</summary>
+        internal static bool TryParseUnitArg(string raw, out LoopTimeUnit? unit)
+        {
+            unit = null;
+            if (string.IsNullOrEmpty(raw))
+                return true;
+            if (raw == "sec") { unit = LoopTimeUnit.Sec; return true; }
+            if (raw == "auto") { unit = LoopTimeUnit.Auto; return true; }
+            return false;
+        }
+
+        /// <summary>The unit to write on this call, or null to leave the mission's
+        /// unit alone. Only on an enable (the interval rule). An explicit unit wins;
+        /// with none requested a present interval keeps the historical Sec write, and
+        /// no interval writes nothing.</summary>
+        internal static LoopTimeUnit? ResolveUnitToApply(
+            bool loopOn, LoopTimeUnit? requested, double intervalSeconds)
+        {
+            if (!loopOn)
+                return null;
+            if (requested.HasValue)
+                return requested.Value;
+            return intervalSeconds > 0.0 ? LoopTimeUnit.Sec : (LoopTimeUnit?)null;
+        }
+
+        /// <summary>The wire token for a mission's loop unit: <c>auto</c> for Auto,
+        /// <c>sec</c> for the three display units (one seconds value).</summary>
+        internal static string UnitToken(LoopTimeUnit unit)
+        {
+            return unit == LoopTimeUnit.Auto ? "auto" : "sec";
         }
 
         /// <summary>The interval is configuration for the loop being SWITCHED

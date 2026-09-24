@@ -21922,6 +21922,15 @@ KXRW_MAP_VIEW = "MAP-VIEW"
 KXRW_MAP_EXIT = "MAP-EXIT"
 KXRW_WATCH = "WATCH"
 KXRW_PLAYBACK_WAIT = "PLAYBACK-WAIT"
+# GS-12. THE LOOP-ARM opt-in's four phases (`loopStages`; see the section below the
+# repeat-rewind helpers). Entered only when a spec declares stages; with none,
+# PLAYBACK-WAIT goes straight to DONE exactly as it always did. They sit between
+# PLAYBACK-WAIT and DONE so KXRW_POST_REWIND_PHASES stays the CONTIGUOUS TAIL of
+# KXRW_PHASES.
+KXRW_LOOP_HANDLES = "LOOP-HANDLES"
+KXRW_LOOP_CONFIG = "LOOP-CONFIG"
+KXRW_LOOP_WATCH = "LOOP-WATCH"
+KXRW_LOOP_WAIT = "LOOP-WAIT"
 KXRW_DONE = "DONE"
 
 KXRW_PHASES: Tuple[str, ...] = (
@@ -21937,7 +21946,9 @@ KXRW_PHASES: Tuple[str, ...] = (
     KXRW_TEMP_LAUNCH, KXRW_TEMP_READY,
     KXRW_REWIND, KXRW_SPACECENTER,
     KXRW_AUTORECORD_OFF, KXRW_WATCHER_LAUNCH, KXRW_WATCHER_READY, KXRW_MAP_VIEW,
-    KXRW_MAP_EXIT, KXRW_WATCH, KXRW_PLAYBACK_WAIT, KXRW_DONE)
+    KXRW_MAP_EXIT, KXRW_WATCH, KXRW_PLAYBACK_WAIT,
+    KXRW_LOOP_HANDLES, KXRW_LOOP_CONFIG, KXRW_LOOP_WATCH, KXRW_LOOP_WAIT,
+    KXRW_DONE)
 
 # The FLIGHT phases: bounded by the whole-flight clock, vessel_lost is lethal, and
 # the frozen-telemetry (vessel-destroyed) detector runs.
@@ -21966,7 +21977,8 @@ KXRW_FLIGHT_PHASES: Tuple[str, ...] = (
 KXRW_POST_REWIND_PHASES: Tuple[str, ...] = (
     KXRW_REWIND, KXRW_SPACECENTER, KXRW_AUTORECORD_OFF, KXRW_WATCHER_LAUNCH,
     KXRW_WATCHER_READY, KXRW_MAP_VIEW, KXRW_MAP_EXIT, KXRW_WATCH,
-    KXRW_PLAYBACK_WAIT)
+    KXRW_PLAYBACK_WAIT,
+    KXRW_LOOP_HANDLES, KXRW_LOOP_CONFIG, KXRW_LOOP_WATCH, KXRW_LOOP_WAIT)
 
 # The IMPACT PROFILE's post-crash block: from the settle that follows the observed
 # impact to the throwaway craft settling on the pad. A THIRD named reason for a
@@ -22234,6 +22246,244 @@ def kxrw_cycle_idle_probe_tag(cycle: int, probe: int) -> str:
     collide with RECORDER-IDLE's ``idle*`` family, whose ids the seam has already
     seen on cycle 0."""
     return "c%didle%d" % (int(cycle), int(probe))
+
+
+# ---- THE LOOP-ARM OPT-IN (`loopStages`, GS-12; default none) -----------------
+#
+# WHAT IT IS FOR. Ghost-replay Tier C item 12: loop the committed Kerbal X MISSION
+# (never a single recording - operator ruling 2026-09-24) and watch its copies
+# relaunch, overlap and expire, so the spec's ghostLifecycle v2 block can read the
+# `LoopCycle` / `MeshDestroyed reason=overlap expired` lines and the MissionConfig
+# reply can witness the loop mode. It cannot be written as post-mission seam steps:
+# the tree id is a fresh GUID only this machine captured, and the rails-warp walk
+# through the stages is a mission action.
+#
+# WHERE IT RUNS: AFTER the ordinary PLAYBACK-WAIT, so the first run after the rewind
+# plays exactly as it does on GS-4 (watched, derendered, its terminal handled by
+# the non-loop path) and the loop is armed on a clock already past the recorded
+# span. Arming BEFORE the first run is a different lane: a looping member renders
+# through the loop renderer only, whose first instance is floored at the span end
+# (MissionLoopUnitBuilder step 7b-i), so the first run itself would draw nothing.
+#
+# THE STAGES. Each is `{ unit = "sec"|"auto", intervalSeconds = <s>, watchSeconds =
+# <game s> }`, flown in order: MissionConfig loop=true (which re-stamps the anchor,
+# so every stage starts its own instance 0 at the arm UT), one EnterWatchMode (held
+# and re-asked on `no-watchable-ghost` exactly like WATCH, and RECORDED rather than
+# judged: the camera following across a seam is report-only in v1), then the clock
+# walked `watchSeconds` of GAME time under rails warp. `intervalSeconds` is sent
+# only with `sec`; `auto` reads the global auto-loop interval by design.
+#
+# THE WARP IS CAPPED AT 10x (index 2), and that is a product boundary rather than a
+# preference: above 50x the flight engine hides every overlap copy
+# (GhostPlaybackEngine's `overlap-loop-warp-hidden` / `unit-overlap-warp-hidden`
+# gates, WarpThresholds.GhostHide = 50), which would erase the population the stages
+# exist to watch. The machine re-emits the factor if the OBSERVED rate reads below
+# it (a landed watcher should hold it, but an unobserved warp is an assumption).
+#
+# NOTHING HERE INVOKES A RE-FLY. The core-discard RewindPoint survives the rewind
+# (#1788) and its Re-Fly becomes enabled once the clock passes the RP UT again; this
+# block only arms a loop, asks for a watch and waits.
+KXRW_LOOP_STAGES_MAX = 3
+KXRW_LOOP_UNITS: Tuple[str, ...] = ("sec", "auto")
+KXRW_LOOP_WARP_INDEX_MAX = 2
+KXRW_TAG_LOOP_HANDLES = "loophandles"
+# Frames between re-emissions of the rails factor while the observed rate lags it.
+KXRW_LOOP_WARP_REEMIT_FRAMES = 10
+# The most committed rows the spawned-vessel census reads off one ListHandles
+# reply (the C# side caps its own enumeration; this bounds the loop regardless).
+KXRW_LOOP_CENSUS_ROWS_MAX = 64
+
+
+@dataclass(frozen=True)
+class KxrwLoopStage:
+    """One declared loop stage. ``interval_seconds`` 0 = not sent."""
+    unit: str = "sec"
+    interval_seconds: float = 0.0
+    watch_seconds: float = 0.0
+
+
+def kxrw_loop_stages_from_list(raw) -> Tuple[Tuple[KxrwLoopStage, ...], str]:
+    """Parse the spec's ``loopStages`` list into stages, or return the reason it
+    cannot be flown (the stages parsed so far are then meaningless and the caller
+    refuses on the reason). Never raises: ``kxrw_params_from_dict`` must build a
+    params object for ANY dict, and the machine refuses on the reason on its first
+    decision frame (the rewind-cycles precedent)."""
+    if raw is None:
+        return (), ""
+    if not isinstance(raw, (list, tuple)):
+        return (), "loopStages must be a list of stage tables, got %s" % type(raw).__name__
+    out: List[KxrwLoopStage] = []
+    for i, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            return (), "loopStages[%d] is not a table" % i
+        unknown = sorted(k for k in entry if k not in
+                         ("unit", "intervalSeconds", "watchSeconds"))
+        if unknown:
+            return (), "loopStages[%d] has unknown key(s) %s" % (i, unknown)
+        unit = str(entry.get("unit", "sec"))
+        if unit not in KXRW_LOOP_UNITS:
+            return (), ("loopStages[%d].unit=%r is not one of %s"
+                        % (i, unit, list(KXRW_LOOP_UNITS)))
+        try:
+            interval = float(entry.get("intervalSeconds", 0.0))
+            watch = float(entry.get("watchSeconds", 0.0))
+        except (TypeError, ValueError):
+            return (), "loopStages[%d] carries a non-numeric value" % i
+        if not _is_finite(interval) or interval < 0.0:
+            return (), "loopStages[%d].intervalSeconds must be >= 0" % i
+        if unit == "sec" and interval <= 0.0:
+            return (), ("loopStages[%d] is unit=sec with no intervalSeconds: the "
+                        "mission would keep whatever period it already had" % i)
+        if unit == "auto" and interval > 0.0:
+            return (), ("loopStages[%d] is unit=auto with intervalSeconds=%s: Auto "
+                        "reads the GLOBAL auto-loop interval, so the value would be "
+                        "silently ignored" % (i, interval))
+        if not _is_finite(watch) or watch <= 0.0:
+            return (), "loopStages[%d].watchSeconds must be > 0 game seconds" % i
+        out.append(KxrwLoopStage(unit=unit, interval_seconds=interval,
+                                 watch_seconds=watch))
+    return tuple(out), ""
+
+
+def kxrw_loop_config_tag(stage: int) -> str:
+    """The MissionConfig tag for loop stage ``stage`` (``loopcfg0``, ...)."""
+    return "loopcfg%d" % int(stage)
+
+
+def kxrw_loop_watch_tag(probe: int) -> str:
+    """The loop EnterWatchMode tag for attempt ``probe`` (``loopwatch0``, ...).
+    One counter across every stage, so no two attempts share a wire id."""
+    return "loopwatch%d" % int(probe)
+
+
+def kxrw_loop_config_args(tree_id: str,
+                          stage: KxrwLoopStage) -> Tuple[Tuple[str, str], ...]:
+    """The MissionConfig args for one stage: the captured tree, loop on, the unit,
+    and the interval only on a ``sec`` stage (``auto`` reads the global one)."""
+    args: List[Tuple[str, str]] = [("tree", str(tree_id or "")), ("loop", "true"),
+                                   ("unit", stage.unit)]
+    if stage.unit == "sec" and stage.interval_seconds > 0.0:
+        args.append(("intervalSeconds", repr(float(stage.interval_seconds))))
+    return tuple(args)
+
+
+def kxrw_loop_stage_done(ut: float, start_ut: float, watch_seconds: float) -> bool:
+    """True once the clock has walked ``watch_seconds`` of game time past the
+    stage's arm UT. Fails CLOSED on an unreadable clock (a stuck or unread clock is
+    exactly what the stage's frame cap exists to name)."""
+    if not _is_finite(ut) or not _is_finite(start_ut) or not _is_finite(watch_seconds):
+        return False
+    return float(ut) >= float(start_ut) + float(watch_seconds)
+
+
+def kxrw_loop_spawned_census(snapshot: TelemetrySnapshot,
+                             tag: str) -> Tuple[Optional[int], int]:
+    """(committed count, how many enumerated rows read ``spawned=true``) off a
+    ``ListHandles kind=committed`` reply. The count is None when unreadable (fail
+    closed: the caller refuses to arm a loop against a tree nothing confirmed)."""
+    count = _seam_parse_int(seam_handle_from_payload(snapshot, tag, "count"))
+    if count is None:
+        return None, 0
+    spawned = 0
+    for i in range(max(0, min(count, KXRW_LOOP_CENSUS_ROWS_MAX))):
+        if _seam_payload(snapshot, tag, "rec%dspawned" % i) == "true":
+            spawned += 1
+    return count, spawned
+
+
+@dataclass(frozen=True)
+class KxrwLoopStageRecord:
+    """What ONE loop stage observed. The MissionConfig reply keys are carried as
+    the RAW strings Parsek sent (they are the witness the spec's tokens restate)."""
+    stage: int
+    unit: str
+    interval_requested: float
+    watch_seconds: float
+    config_result: str = ""
+    config_reason: str = ""
+    unit_built: str = ""
+    reply_unit: str = ""
+    reply_interval: str = ""
+    overlap_cadence: str = ""
+    cadence: str = ""
+    span: str = ""
+    anchor_ut: str = ""
+    auto_interval: str = ""
+    watch_result: str = ""
+    watch_reason: str = ""
+    watch_index: str = ""
+    watch_attempts: int = 0
+    start_ut: float = float("nan")
+    end_ut: float = float("nan")
+    warp_max: float = float("nan")
+    reached: bool = False
+
+    def to_dict(self) -> Dict:
+        def fin(v):
+            return float(v) if _is_finite(v) else None
+        return {"stage": self.stage, "unit": self.unit,
+                "intervalRequested": fin(self.interval_requested),
+                "watchSeconds": fin(self.watch_seconds),
+                "missionConfigResult": self.config_result or "NONE",
+                "missionConfigReason": self.config_reason or None,
+                "unitBuilt": self.unit_built or None,
+                "replyUnit": self.reply_unit or None,
+                "replyIntervalSeconds": self.reply_interval or None,
+                "overlapCadenceSeconds": self.overlap_cadence or None,
+                "cadenceSeconds": self.cadence or None,
+                "spanSeconds": self.span or None,
+                "anchorUt": self.anchor_ut or None,
+                "autoLoopIntervalSeconds": self.auto_interval or None,
+                "enterWatchModeResult": self.watch_result or "NONE",
+                "enterWatchModeReason": self.watch_reason or None,
+                "enterWatchModeIndex": self.watch_index or None,
+                "enterWatchModeAttempts": int(self.watch_attempts),
+                "startUT": fin(self.start_ut), "endUT": fin(self.end_ut),
+                "warpRateMax": fin(self.warp_max),
+                "reached": bool(self.reached)}
+
+
+KXRW_LOOP_PHASES: Tuple[str, ...] = (KXRW_LOOP_HANDLES, KXRW_LOOP_CONFIG,
+                                     KXRW_LOOP_WATCH, KXRW_LOOP_WAIT)
+
+
+def kxrw_rails_warp_permitted(state) -> bool:
+    """The kx shell's per-frame rails-warp permission (``MissionSpec.
+    allow_rails_warp`` as a callable): True ONLY inside the loop-arm block, where
+    the machine itself commands 10x and the factor decays across the next stage's
+    MissionConfig. Everywhere else - the ascent, the rewind, the first run's
+    real-time replay - any warp stays a flake, which is GS-4's contract."""
+    return getattr(state, "phase", None) in KXRW_LOOP_PHASES
+
+
+def kxrw_loop_conflict(params: "KxrwParams") -> str:
+    """The reason the loop-arm opt-in cannot be flown with this params set, or ""
+    when it can (or is not declared). Evaluated on the first decision frame beside
+    the other opt-in predicates, for their reason."""
+    err = str(getattr(params, "loop_stages_error", "") or "")
+    stages = tuple(getattr(params, "loop_stages", ()) or ())
+    if err:
+        return err
+    if not stages:
+        return ""
+    if len(stages) > KXRW_LOOP_STAGES_MAX:
+        return ("loopStages declares %d stages; at most %d are flown (each costs a "
+                "watch and a warped wait)" % (len(stages), KXRW_LOOP_STAGES_MAX))
+    idx = int(getattr(params, "loop_warp_index", 2))
+    if idx < 0 or idx > KXRW_LOOP_WARP_INDEX_MAX:
+        return ("loopWarpIndex=%d is outside [0, %d]: above 10x the next step is 50x, "
+                "and past 50x the flight engine hides every overlap copy"
+                % (idx, KXRW_LOOP_WARP_INDEX_MAX))
+    if getattr(params, "coast_exit_profile", False):
+        return ("loopStages and coastExitProfile are mutually exclusive: that profile "
+                "ends at COAST-EXIT without ever rewinding")
+    if int(getattr(params, "rewind_cycles", 1)) > 1:
+        return ("loopStages and rewindCycles > 1 are refused together in v1: the loop "
+                "arms after the LAST playback and a second rewind would strip it")
+    if getattr(params, "impact_profile", False):
+        return ("loopStages and impactProfile are refused together in v1: the loop "
+                "over a crashed tree is an unmeasured lane of its own")
+    return ""
 
 
 # Situations that prove the Kerbal X actually left the pad. GS-1's measured
@@ -22858,6 +23108,20 @@ class KxrwParams:
     # the assertion rows are byte-identical to the pre-opt-in lane.
     rewind_cycles: int = 1
 
+    # --- the LOOP-ARM opt-in (GS-12; see the section above the params) ------
+    # Empty = the opt-in is off and not one frame moves. `loop_stages_error` is the
+    # parse refusal, surfaced by `kxrw_loop_conflict` on the first frame.
+    loop_stages: Tuple[KxrwLoopStage, ...] = ()
+    loop_stages_error: str = ""
+    loop_warp_index: int = 2
+    # Silence bound of ONE loop seam command (ListHandles / MissionConfig /
+    # EnterWatchMode), from the frame it went out.
+    loop_seam_frames: int = 40
+    # The whole LOOP-WATCH phase: the hold-and-re-ask for a watchable loop ghost.
+    loop_watch_frames: int = 60
+    # The frame cap of one stage's warped wait (a stuck clock is what it names).
+    loop_wait_frames: int = 600
+
 
 def kxrw_params_from_dict(params: Dict) -> KxrwParams:
     """Build ``KxrwParams`` from a spec ``missionParams`` dict. Tolerant of
@@ -22961,6 +23225,12 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
                               float(window.get("max", 600.0))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
         rewind_cycles=int(params.get("rewindCycles", 1)),
+        loop_stages=kxrw_loop_stages_from_list(params.get("loopStages"))[0],
+        loop_stages_error=kxrw_loop_stages_from_list(params.get("loopStages"))[1],
+        loop_warp_index=int(params.get("loopWarpIndex", 2)),
+        loop_seam_frames=int(params.get("loopSeamFrames", 40)),
+        loop_watch_frames=int(params.get("loopWatchFrames", 60)),
+        loop_wait_frames=int(params.get("loopWaitFrames", 600)),
     )
 
 
@@ -23232,6 +23502,18 @@ class KxrwState:
     cycle_idle_since: int = -1
     cycle_idle_reading: str = ""
     cycle_history: Tuple[KxrwCycleRecord, ...] = ()
+
+    # --- the LOOP-ARM opt-in (GS-12); inert with no loopStages ---------------
+    loop_handles_result: str = ""
+    loop_committed_count: int = -1
+    loop_spawned_count: int = -1
+    loop_stage: int = 0
+    loop_current: Optional[KxrwLoopStageRecord] = None
+    loop_history: Tuple[KxrwLoopStageRecord, ...] = ()
+    loop_watch_probe: int = 0
+    loop_watch_awaiting_since: int = -1
+    loop_watch_last_reject_frame: int = -1
+    loop_warp_last_emit_frame: int = -1
 
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -23637,7 +23919,8 @@ def kxrw_decide(state: KxrwState,
         conflict = (kxrw_impact_profile_conflict(p)
                     or kxrw_coast_exit_profile_conflict(p)
                     or kxrw_rewind_cycles_conflict(p)
-                    or kxrw_close_cut_conflict(p))
+                    or kxrw_close_cut_conflict(p)
+                    or kxrw_loop_conflict(p))
         if conflict:
             return _kxrw_flake(state, "phase %s: %s" % (KXRW_ROLLOUT, conflict)), []
 
@@ -24996,6 +25279,12 @@ def kxrw_decide(state: KxrwState,
             st = replace(st, cycles_completed=st.cycles_completed + 1,
                          cycle_history=st.cycle_history + (kxrw_cycle_record(st),))
             if st.cycles_completed >= max(1, int(p.rewind_cycles)):
+                if p.loop_stages:
+                    # THE LOOP-ARM OPT-IN: read the committed census first (the
+                    # real-vessel count after the first run), then arm stage 0.
+                    return (_kxrw_enter(st, KXRW_LOOP_HANDLES, snapshot.ut),
+                            [_kxrw_seam_action("ListHandles", KXRW_TAG_LOOP_HANDLES,
+                                               KXRW_SC_COMMITTED_LIST_ARGS)])
                 return _kxrw_enter(st, KXRW_DONE, snapshot.ut), []
             # Cycles remain: OBSERVE the recorder idle before the next rewind
             # (see `_kxrw_cycle_advance`). The probe goes out on THIS frame, the
@@ -25020,7 +25309,180 @@ def kxrw_decide(state: KxrwState,
                    _obs_fmt(st.recording_end_ut), p.playback_margin)), []
         return st, []
 
+    if state.phase in (KXRW_LOOP_HANDLES, KXRW_LOOP_CONFIG, KXRW_LOOP_WATCH,
+                       KXRW_LOOP_WAIT):
+        return _kxrw_loop_decide(state, snapshot)
+
     return _kxrw_flake(state, "phase %s: unreachable phase" % state.phase), []
+
+
+def _kxrw_loop_begin_stage(state: KxrwState, stage: int,
+                           ut: float) -> Tuple[KxrwState, List[Action]]:
+    """Enter LOOP-CONFIG for ``stage`` and send its MissionConfig on this frame."""
+    p = state.params
+    decl = p.loop_stages[stage]
+    rec = KxrwLoopStageRecord(stage=stage, unit=decl.unit,
+                              interval_requested=decl.interval_seconds,
+                              watch_seconds=decl.watch_seconds)
+    st = replace(state, loop_stage=stage, loop_current=rec,
+                 loop_watch_awaiting_since=-1, loop_watch_last_reject_frame=-1)
+    return (_kxrw_enter(st, KXRW_LOOP_CONFIG, ut),
+            [_kxrw_seam_action("MissionConfig", kxrw_loop_config_tag(stage),
+                               kxrw_loop_config_args(state.tree_id, decl))])
+
+
+def _kxrw_loop_warp_action(index: int) -> Action:
+    return Action(ACTION_SET_RAILS_WARP, value=int(index))
+
+
+def _kxrw_loop_decide(state: KxrwState,
+                      snapshot: TelemetrySnapshot) -> Tuple[KxrwState, List[Action]]:
+    """The four LOOP-ARM phases (GS-12). Seam SILENCE flakes (the bridge is not
+    answering); a REJECTED / ERROR ListHandles or MissionConfig flakes too (a driver
+    precondition: nothing to watch without an armed loop); the watch verdict is
+    RECORDED and flown past, like every render verb in this machine."""
+    p = state.params
+
+    if state.phase == KXRW_LOOP_HANDLES:
+        result = _seam_result(snapshot, KXRW_TAG_LOOP_HANDLES)
+        if result == "OK":
+            count, spawned = kxrw_loop_spawned_census(snapshot, KXRW_TAG_LOOP_HANDLES)
+            if count is None or count < 1:
+                return _kxrw_flake(
+                    replace(state, loop_handles_result=result),
+                    "phase %s: ListHandles kind=committed read count=%s, so no "
+                    "committed tree is confirmed to arm a loop on"
+                    % (KXRW_LOOP_HANDLES, count)), []
+            st = replace(state, loop_handles_result=result,
+                         loop_committed_count=count, loop_spawned_count=spawned)
+            return _kxrw_loop_begin_stage(st, 0, snapshot.ut)
+        if result in ("ERROR", "TIMEOUT"):
+            return _kxrw_flake(
+                replace(state, loop_handles_result=result),
+                "phase %s: ListHandles returned %s (%s)"
+                % (KXRW_LOOP_HANDLES, result,
+                   _seam_because(_seam_reject_reason(snapshot,
+                                                     KXRW_TAG_LOOP_HANDLES)))), []
+        if state.phase_frames > p.loop_seam_frames:
+            return _kxrw_flake(
+                state, "phase %s: the ListHandles seam command never answered "
+                "within %d frames" % (KXRW_LOOP_HANDLES, p.loop_seam_frames)), []
+        return state, []
+
+    rec = state.loop_current
+    if rec is None:
+        return _kxrw_flake(state, "phase %s: no loop stage is open" % state.phase), []
+
+    if state.phase == KXRW_LOOP_CONFIG:
+        tag = kxrw_loop_config_tag(state.loop_stage)
+        result = _seam_result(snapshot, tag)
+        if result == "OK":
+            def pay(key):
+                return _seam_payload(snapshot, tag, key)
+            rec = replace(rec, config_result=result, unit_built=pay("unitBuilt"),
+                          reply_unit=pay("unit"),
+                          reply_interval=pay("intervalSeconds"),
+                          overlap_cadence=pay("overlapCadenceSeconds"),
+                          cadence=pay("cadenceSeconds"), span=pay("spanSeconds"),
+                          anchor_ut=pay("anchorUt"),
+                          auto_interval=pay("autoLoopIntervalSeconds"),
+                          start_ut=snapshot.ut)
+            # The first watch attempt goes out on LOOP-WATCH's own first frame, so
+            # the loop instance the arm just opened has had a frame to spawn.
+            return _kxrw_enter(replace(state, loop_current=rec), KXRW_LOOP_WATCH,
+                               snapshot.ut), []
+        if result in ("ERROR", "TIMEOUT"):
+            reason = _seam_reject_reason(snapshot, tag)
+            return _kxrw_flake(
+                replace(state, loop_current=replace(rec, config_result=result,
+                                                    config_reason=reason)),
+                "phase %s: MissionConfig for loop stage %d returned %s (%s); with "
+                "no armed loop there is nothing to watch"
+                % (KXRW_LOOP_CONFIG, state.loop_stage, result,
+                   _seam_because(reason))), []
+        if state.phase_frames > p.loop_seam_frames:
+            return _kxrw_flake(
+                state, "phase %s: the MissionConfig seam command for loop stage %d "
+                "never answered within %d frames"
+                % (KXRW_LOOP_CONFIG, state.loop_stage, p.loop_seam_frames)), []
+        return state, []
+
+    if state.phase == KXRW_LOOP_WATCH:
+        def to_wait(st: KxrwState) -> Tuple[KxrwState, List[Action]]:
+            st = _kxrw_enter(st, KXRW_LOOP_WAIT, snapshot.ut)
+            if p.loop_warp_index > 0:
+                return (replace(st, loop_warp_last_emit_frame=0),
+                        [_kxrw_loop_warp_action(p.loop_warp_index)])
+            return st, []
+
+        def ask(st: KxrwState) -> Tuple[KxrwState, List[Action]]:
+            probe = st.loop_watch_probe
+            st = replace(st, loop_watch_probe=probe + 1,
+                         loop_watch_awaiting_since=st.phase_frames,
+                         loop_current=replace(st.loop_current,
+                                              watch_attempts=st.loop_current
+                                              .watch_attempts + 1))
+            return st, [_kxrw_seam_action("EnterWatchMode", kxrw_loop_watch_tag(probe),
+                                          kxrw_watch_seam_args(st.tree_id))]
+
+        if rec.watch_attempts == 0:
+            return ask(state)
+        if state.loop_watch_awaiting_since < 0:
+            # Cooldown after a `no-watchable-ghost`; the phase bound covers it.
+            if state.phase_frames > p.loop_watch_frames:
+                return to_wait(state)
+            if (state.phase_frames - state.loop_watch_last_reject_frame
+                    >= KXRW_WATCH_RETRY_CADENCE_FRAMES):
+                return ask(state)
+            return state, []
+        tag = kxrw_loop_watch_tag(state.loop_watch_probe - 1)
+        result = _seam_result(snapshot, tag)
+        if result:
+            reason = _seam_reject_reason(snapshot, tag)
+            rec = replace(rec, watch_result=result, watch_reason=reason,
+                          watch_index=_seam_payload(snapshot, tag, "index"))
+            st = replace(state, loop_current=rec)
+            if kxrw_watch_entry_retryable(result, reason):
+                return replace(st, loop_watch_awaiting_since=-1,
+                               loop_watch_last_reject_frame=state.phase_frames), []
+            return to_wait(st)
+        if state.phase_frames - state.loop_watch_awaiting_since > p.watch_frames:
+            return _kxrw_flake(
+                state, "phase %s: loop EnterWatchMode (tag %s) never answered within "
+                "%d frames" % (KXRW_LOOP_WATCH, tag, p.watch_frames)), []
+        return state, []
+
+    # KXRW_LOOP_WAIT
+    rate = snapshot.warp_rate
+    warp_max = rec.warp_max
+    if _is_finite(rate) and (not _is_finite(warp_max) or rate > warp_max):
+        warp_max = float(rate)
+    st = replace(state, loop_current=replace(rec, warp_max=warp_max))
+    if kxrw_loop_stage_done(snapshot.ut, rec.start_ut, rec.watch_seconds):
+        done_rec = replace(st.loop_current, end_ut=snapshot.ut, reached=True)
+        st = replace(st, loop_current=None,
+                     loop_history=st.loop_history + (done_rec,))
+        acts: List[Action] = []
+        if p.loop_warp_index > 0:
+            acts.append(_kxrw_loop_warp_action(0))
+        nxt = st.loop_stage + 1
+        if nxt < len(p.loop_stages):
+            st2, acts2 = _kxrw_loop_begin_stage(st, nxt, snapshot.ut)
+            return st2, acts + acts2
+        return _kxrw_enter(st, KXRW_DONE, snapshot.ut), acts
+    if st.phase_frames > p.loop_wait_frames:
+        return _kxrw_flake(
+            st, "phase %s: loop stage %d never walked its %.0f game seconds within %d "
+            "frames (startUT=%s nowUT=%s)"
+            % (KXRW_LOOP_WAIT, st.loop_stage, rec.watch_seconds, p.loop_wait_frames,
+               _obs_fmt(rec.start_ut), _obs_fmt(snapshot.ut))), []
+    if (p.loop_warp_index > 0 and _is_finite(rate)
+            and rate < RAILS_WARP_RATES[p.loop_warp_index] * 0.99
+            and st.phase_frames - st.loop_warp_last_emit_frame
+            >= KXRW_LOOP_WARP_REEMIT_FRAMES):
+        return (replace(st, loop_warp_last_emit_frame=st.phase_frames),
+                [_kxrw_loop_warp_action(p.loop_warp_index)])
+    return st, []
 
 
 def evaluate_kxrw_assertions(frames, params: KxrwParams,
@@ -25363,6 +25825,8 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
     required_cycles = int(getattr(params, "rewind_cycles", 1))
     if required_cycles > 1:
         rows.append(_kxrw_rewind_cycles_row(params, state, required_cycles))
+    if tuple(getattr(params, "loop_stages", ()) or ()):
+        rows.append(_kxrw_loop_stages_row(params, state))
     promote_name = str(getattr(params, "promote_debris_vessel_name", "") or "")
     if promote_name.strip():
         # THE PROMOTION SWITCH ADDS ONE ROW (never substitutes): the switch landed
@@ -25396,6 +25860,28 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
              "postSwitchDisarm": (getattr(state, "promote_disarm_result", "")
                                   or "NONE")}))
     return rows
+
+
+def _kxrw_loop_stages_row(params: KxrwParams, state) -> AssertionOutcome:
+    """The ONE row the loop-arm opt-in adds (GS-12), and only when stages are
+    declared. MET iff the committed census was read and EVERY declared stage armed
+    its loop (MissionConfig OK) and walked its game-time window. The watch verdict
+    and the MissionConfig reply ride the per-stage detail: what Parsek rendered is
+    the spec's log contracts' to judge, so a refused watch is met by design."""
+    stages = tuple(getattr(params, "loop_stages", ()) or ())
+    history = tuple(getattr(state, "loop_history", ()) or ())
+    met = bool(getattr(state, "loop_handles_result", "") == "OK"
+               and len(history) >= len(stages)
+               and all(r.config_result == "OK" and r.reached
+                       for r in history[:len(stages)]))
+    return AssertionOutcome(
+        "loopStagesDriven", met, len(history),
+        {"declared": len(stages),
+         "committedCount": int(getattr(state, "loop_committed_count", -1)),
+         "spawnedAfterFirstRun": int(getattr(state, "loop_spawned_count", -1)),
+         "warpIndex": int(getattr(params, "loop_warp_index", 2)),
+         "stages": [r.to_dict() for r in history],
+         "metOnRejectionByDesign": True})
 
 
 def _kxrw_rewind_cycles_row(params: KxrwParams, state,

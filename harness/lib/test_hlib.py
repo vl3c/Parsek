@@ -1823,7 +1823,8 @@ class SpecValidationRejectTests(unittest.TestCase):
                 ("watch-not-entered", "driver-gate"),
                 # MissionConfig.
                 ("loop-arg-invalid%20loop%3Dyes", "driver-arg"),
-                ("interval-arg-invalid%20intervalSeconds%3D-1", "driver-arg")):
+                ("interval-arg-invalid%20intervalSeconds%3D-1", "driver-arg"),
+                ("unit-arg-invalid%20unit%3Dmin", "driver-arg")):
             with self.subTest(msg=msg):
                 self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
                 self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
@@ -8392,6 +8393,9 @@ class UnityExceptionScanTests(unittest.TestCase):
             # todo UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES), never by a lower ceiling.
             # Only an opportunistic LIVE control stays open (todo
             # GS4-UNITY-CEILING-NEGCTL-VACUOUS).
+            # GS-12 (2026-09-24): GS-4's ceiling on GS-4's subject and teardown; its
+            # reading run `2026-09-24_1911` read total 0.
+            "GS-12-kerbalx-loop-cycles.toml": 6,
             "GS-4-kerbalx-rewind-watch.toml": 6,
         }
         armed = {}
@@ -8447,6 +8451,9 @@ class UnityExceptionScanTests(unittest.TestCase):
         # 7 archived logs, parsekFrames 0 in each (`2026-08-28_0051`, `_1855`,
         # `2026-09-10_1924`, `_1930`, `2026-09-11_0049`, `_0056`, `_0102`); control host
         # `_0049` (total 4, the highest).
+        # GS-12: reading run `2026-09-24_1911` parsekFrames 0 (total 0); armed with the
+        # lane's other blocks off that run, GS-4's value on GS-4's subject.
+        "GS-12-kerbalx-loop-cycles.toml": 0,
         "GS-4-kerbalx-rewind-watch.toml": 0,
         # 4 collected logs, parsekFrames 0 in each: the two INVALID reading attempts
         # `2026-08-28_1859` / `_1902` and the two driver-valid PASS readings
@@ -9843,6 +9850,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Priority register C4 (2026-09-23, `d5-debris`): the two D5 debris lanes on
         # the kx machine's close-cut opt-in.
         "GS-10-kerbalx-debris-ttl.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-ttl: GS-7's crash lane with round 1's close cut, the kx machine's impactCutAtLastBoosterDrop opt-in); operator tier is GS-7's cadence (a 12-minute crash + rewind + watch flight), and the discipline is recorded in its status row, not a debt",
+        "GS-12-kerbalx-loop-cycles.toml": "calibration-discipline - AUTHORED 2026-09-24 (ghost-replay Tier C item 12: GS-4's flight, then the committed mission looped in three stages through the kx machine's loopStages opt-in); operator tier is GS-4's cadence plus the warped loop block, and its status row records what has flown, not a debt",
         "GS-11-kerbalx-debris-promotion.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-promotion: GS-10's close cut plus the promoteDebrisVesselName switch to a just-dropped booster inside its TTL); operator tier is GS-7's cadence; its status row records what has flown, not a debt",
         # Ghost-replay Tier B item 8 (2026-09-10, `ghost-replay-tier-b`): GS-4's
         # subject rewound TWICE off one committed tree through the kx machine's new
@@ -10658,6 +10666,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # `2026-09-23_2012` PASS (rewindPoints 1); negative control
                        # `2026-09-23_2021` on the pre-fix DLL red on exactly
                        # `rewind.rewindPoints 0 < min 1` plus the carry-over token.
+                       # GS-12: `rewind` + `recordings.structure` armed 2026-09-24 off its
+                       # reading run `2026-09-24_1911` (rewindPoints 1, no supersede / no
+                       # tombstone; spawnedVessels 0 and vesselNames {Jumping Flea: 1}, the
+                       # exactly-one-real-vessel ruling measured).
+                       "GS-12-kerbalx-loop-cycles.toml",
                        "GS-4-kerbalx-rewind-watch.toml",
                        # RF-14: `rewind` armed 2026-09-24 off its reading run
                        # `2026-09-23_2147` (rewindPoints 1, supersedeRows 1, tombstones 0):
@@ -12654,6 +12667,12 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # unbalanced []); NEGATIVE CONTROL `2026-09-11_0119` (`destroyLines` to 17,
         # uncommitted, reverted) red PARSEK-FAIL(ghost-lifecycle) attempt 1 on exactly
         # `destroyLines 16 < min 17` with every other verifier green.
+        # ARMED 2026-09-24 off the reading run `2026-09-24_1911_GS-12-kerbalx-loop-cycles`
+        # (MISSION-OK; ghostLifecycle spawned=8 spawnLines=57 destroyLines=57
+        # unbalanced=0, `overlap expired` x27, cycleLines 40 all overlap-demote, Kerbal X
+        # Debris spawned 6). The first ARMED looping lane and the first armed v2 keys
+        # (`destroyedReasons.required`, `vessels`, `cycleLines`).
+        "GS-12-kerbalx-loop-cycles.toml",
         "GS-9-kerbalx-repeat-rewind.toml",
         # ARMED 2026-09-08 off two readings of the identical census: reading run 1
         # `2026-09-08_1119_GS-8-kerbalx-zone-round-trip` (PARSEK-FAIL on the late
@@ -12907,6 +12926,13 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     at exact pins through GHOSTLIFE_ARMED_SPECS; its negative control
         #     (`2026-09-11_0119`) proved `destroyLines` gates on its own.
         "GS-9-kerbalx-repeat-rewind.toml",
+        # [D] THE FIRST LOOPING DECLARER (GS-12, 2026-09-24, ghost-replay Tier C
+        #     item 12) and the first to declare the v2 keys: GS-4's first run
+        #     (spawned >= 8, `Kerbal X Debris` spawned >= 6 via `vessels`), then
+        #     the mission loop, whose expiring copies must write `overlap expired`
+        #     (`destroyedReasons.required`). Windows authored from GS-4's census
+        #     and the v2 producer's source; REPORT-ONLY until its reading run.
+        "GS-12-kerbalx-loop-cycles.toml",
         # THE FIRST DECLARER WITH A LIVE RE-FLY SESSION (RF-8, 2026-09-09), and
         # declared with NO WINDOWS AT ALL. Every other member arrived carrying a
         # spawned floor derived from a sibling lane's census; this one has no
