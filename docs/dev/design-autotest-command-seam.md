@@ -1858,8 +1858,8 @@ mutually exclusive, which is the same thing as tabs for a census; the five Caree
 are appended after `refly` so the first four indices never moved, and a category the loaded
 GAME mode does not draw - Contracts / Strategies in Science, all five in Sandbox - is
 `REJECTED tab-hidden-in-game-mode window=timeline tab=<t> gameMode=<mode>` pre-call),
-`kerbals` (`roster`, `outcomes`), `career` (`contracts`, `strategies`, `facilities`,
-`milestones`). Settings has six SECTIONS that all draw in one
+`kerbals` (`roster`, `outcomes`), `career` (`contracts`, `strategies`; `facilities` and
+`milestones` were removed 2026-09-24 with those tabs). Settings has six SECTIONS that all draw in one
 pass, three of them Basic-hidden, so the Advanced/Basic capture PAIR is its section
 coverage; Logistics' Active / Paused / Dormant / Candidate bubbles are expand-collapse
 rather than a selector. `op=tab` on either is `REJECTED window-has-no-tabs`, deliberately
@@ -2891,7 +2891,7 @@ the tab. The set is INVERTED (membership means FOLDED), so the window gained an 
 `SetSectionFolded` behind its existing `ToggleSection` - a commanded write must not flip an
 already-correct fold. Both folds only DRAW under the divergence layout, which needs a career
 whose timeline ends later than now. (2026-09-22: the Milestones tab gained the same split,
-so the prefix now takes a third value, `pending:milestones`.)
+so the prefix now takes a third value, `pending:milestones`; removed again 2026-09-24 with the Milestones tab.)
 
 **THE GUI-TREE DUMP CARRIES `selectedIndex`** on a `buttongrid`, an ADDITIVE key at the
 unchanged `parsek-gui-tree/1`. The value was already being recorded and mislabelled as

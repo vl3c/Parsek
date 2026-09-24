@@ -967,7 +967,9 @@ Open residue:
    the seam path only or on a player click too. Not traced.
 4. The gallery's `op=mock` refuses by COMPLEXITY mode only; it does not know the launcher is
    now Career-mode only, so a mock applied in a Science save would draw a window no Science
-   player can open. No lane does that today.
+   player can open. No lane does that today. The same holds for `op=open window=career`
+   (`ParsekTestCommandAddon.UiAction.cs`), which sets `IsOpen` in any game mode and which
+   GUI-6 uses for its Sandbox banner capture; both are automation-only.
 
 ## CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is OPEN]
 

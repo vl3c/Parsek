@@ -1603,9 +1603,14 @@ namespace Parsek
         /// A slot count: <c>2 of 2 slots</c>, singular when the limit is one
         /// (<c>1 of 1 slot</c>).
         /// </summary>
+        /// <summary>A slot limit at or above this is stock's "no limit" (Mission Control L3 = 999).</summary>
+        internal const int UnlimitedSlotThreshold = 999;
+
         internal static string FormatSlotCount(int used, int max)
         {
             var ic = CultureInfo.InvariantCulture;
+            if (max >= UnlimitedSlotThreshold)
+                return used.ToString(ic) + " (no slot limit)";
             return used.ToString(ic) + " of " + max.ToString(ic)
                 + (max == 1 ? " slot" : " slots");
         }
@@ -1635,8 +1640,11 @@ namespace Parsek
         /// </summary>
         internal static string FormatPendingFold(int pendingCount, int activeAtEnd, int maxSlotsAtEnd)
         {
-            return "Pending in timeline (" + pendingCount.ToString(CultureInfo.InvariantCulture)
-                + ") - " + FormatSlotCount(activeAtEnd, maxSlotsAtEnd) + " at timeline end";
+            var ic = CultureInfo.InvariantCulture;
+            string head = "Pending in timeline (" + pendingCount.ToString(ic) + ") - ";
+            if (maxSlotsAtEnd >= UnlimitedSlotThreshold)
+                return head + activeAtEnd.ToString(ic) + " at timeline end (no slot limit)";
+            return head + FormatSlotCount(activeAtEnd, maxSlotsAtEnd) + " at timeline end";
         }
 
         /// <summary>

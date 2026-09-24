@@ -1029,11 +1029,20 @@ namespace Parsek.Tests
             Assert.Equal("Active now: 1 of 7 slots", vm.Contracts.GroupHeadingText);
             Assert.Equal("Slot limit from Mission Control L2 (L3 at timeline end).",
                 vm.Contracts.GroupHeadingTooltip);
-            Assert.Equal("Pending in timeline (1) - 2 of 999 slots at timeline end",
+            Assert.Equal("Pending in timeline (1) - 2 at timeline end (no slot limit)",
                 vm.Contracts.PendingFoldText);
             Assert.Equal("Active now: 0 of 1 slot", vm.Strategies.GroupHeadingText);
             Assert.Equal("Slot limit from Administration L1.", vm.Strategies.GroupHeadingTooltip);
             Assert.True(vm.HasDivergence);
+        }
+
+        [Theory]
+        [InlineData(4, 999, "Active now: 4 (no slot limit)")]
+        [InlineData(2, 7, "Active now: 2 of 7 slots")]
+        [InlineData(0, 1, "Active now: 0 of 1 slot")]
+        public void FormatActiveHeading_ShowsNoLimitAtStockUnlimited(int used, int max, string expected)
+        {
+            Assert.Equal(expected, CareerStateWindowUI.FormatActiveHeading(used, max));
         }
 
         [Fact]

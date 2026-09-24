@@ -87,7 +87,7 @@ here. What DOES belong here and is recorded now, because it corrects claims this
   fixture carrying a `RECORDING_SUPERSEDES` entry: it loaded, the Details tab drew one
   launch row, nothing was grey. Filed as
   GUI-CENSUS-TIMELINE-STRIKETHROUGH-IS-DUPLICATE-CREDIT-NOT-SUPERSEDE-OR-TOMBSTONE.
-- **The Career State window's Facilities tab CAN see upgrades**, which this file could not
+- (HISTORICAL: the Facilities tab was removed 2026-09-24; facility history is the Timeline's Career > Facilities view.) **The Career State window's Facilities tab CAN see upgrades**, which this file could not
   say before. Every capture across three fixtures read nine rows of `L1`, consistent both
   with "nothing was upgraded" and with "the window is blind". GUI-14 drove one
   `KscAction upgrade-facility` and the tab then read one row at `L2` (Tracking Station)
@@ -1192,7 +1192,7 @@ appendix 3 lists all of it with per-site citations; the load-bearing groups are:
 | scope statements on bulk controls | the two header select-alls IGNORE the active filters (`UI/RecordingsTableUI.cs:1220`, `:1309`) | the visible position implies otherwise |
 | filter-vs-write distinctions | the `Archive` header toggle is a FILTER and archives nothing (`:1366`) | it sits where a select-all would |
 | numeric constants | the 300 km watch range (`:1348`), the launch-to-launch period definition and its overlap consequence (`:1342`), the interval grammar `30m / 2h / 1d` (`Logistics/LogisticsIntervalPresentation.cs:24`) | no label carries any of them |
-| status-word definitions | `static` and `stationary` (`UI/RecordingsTableUI.cs:4738`, `:4740`), the STASH group's entire meaning (`UI/UnfinishedFlightsGroup.cs:42`), `(pending)` / `(closing)` (`UI/CareerStateWindowUI.cs:1519`, shared by four tables) | the word alone is not self-describing |
+| status-word definitions | `static` and `stationary` (`UI/RecordingsTableUI.cs:4738`, `:4740`), the STASH group's entire meaning (`UI/UnfinishedFlightsGroup.cs:42`), `(pending)` / `(closing)` (`UI/CareerStateWindowUI.cs`; the Career window has two tables since 2026-09-24) | the word alone is not self-describing |
 | cross-window side effects | clearing the time filter also resets the Timeline sliders (`UI/RecordingsTableUI.cs:1510`); `Info >` widens the window (`:1415`) | the click changes something off-screen |
 | full values the cell truncates | the untruncated hold clause (`UI/LogisticsWindowUI.cs:1074`), the full crew roster and span dates (`UI/MissionsWindowUI.cs:2700`), endpoint coordinates (`:1003`) | the cell shows a capped form |
 | the Gloops tooltips | `Record a ghost-only flight that your career ignores.` (`ParsekUI.cs:945`) | reaches nobody: the launcher is retired |
@@ -1872,7 +1872,7 @@ class of defect the Milestones `Rewards` overflow belongs to:
 | Recordings tab | `ColW_*` 20 / 30 / 90 / 90 / 110 / 80 / 65 / 65 / 65 / 35 / 120 / 120 / 120 / 60 / 60 / 90 / 50 / 60 / 90 / 80 (`UI/RecordingsTableUI.cs:52-75`, `:319-331`); `ColHeaderHeight` 32 (`:73`); body row height 29 measured |
 | Missions tab | 20 / 30 / expand / 105 / 120 / 110 / 85 / 120 / 90 / 80 (`UI/MissionsWindowUI.cs:302-355`); `ColW_HeaderButton` 70 (`:314`); `CompositionRowMinHeight` 22 (`:351`) |
 | Timeline | `TimeColumnWidth` 160, row action 40, `GoTo` 48, warp button 186, warp fields 36; the six filter/preset columns are responsive at `Max(93, (width - 50) / 6)` - 158 at the census width (`UI/TimelineWindowUI.cs:70-78`, `:417-424`, `:155`, `:564`) |
-| Career State | Contracts 240/90/90/70, Strategies 220/90/140/**70**, Facilities 200/120/180, Milestones 90/200/**180**/70 (`UI/CareerStateWindowUI.cs:83-98`). `ColW_PendingTag` (70) is shared by three tabs; `ColW_Rewards` (180) demonstrably overflows |
+| Career State | (since 2026-09-24 only the Contracts and Strategies tables remain; the widths below predate that) Contracts 240/90/90/70, Strategies 220/90/140/**70**, Facilities 200/120/180, Milestones 90/200/**180**/70 (`UI/CareerStateWindowUI.cs:83-98`). `ColW_PendingTag` (70) is shared by three tabs; `ColW_Rewards` (180) demonstrably overflows |
 | Kerbals | NONE - no `GUILayout.Width` call in any row; the two tabs are indented outlines |
 | Logistics | routes 30 / expand / 95 / 180 / 150 / 80 / 135 / 240 / 120 / 190 = 1220 fixed; candidates 30 / expand / 95 / 180 / 260 / 80 / 190 = 835 fixed (`UI/LogisticsWindowUI.cs:343-372`). The `MinWindowWidth` comment at `:383-389` is stale: it still totals a 90 px Next column and claims about 1175 |
 | Structure | 28 / 110 / expand / 95 / 185 / 140 (`UI/StructureListWindowUI.cs:62-67`) |

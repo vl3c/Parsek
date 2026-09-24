@@ -1212,7 +1212,7 @@ _(unreleased — entries accumulate here per commit)_
   Milestones tabs are gone. A building's level is shown at the Space Center, and dated
   facility and milestone history (including repeat world records, which the old tab left
   out) is in the Timeline's Career view. Each tab now opens with ONE heading line,
-  `Active now: 2 of 2 slots` (hover it for the Mission Control or Administration level
+  `Active now: 2 of 2 slots`, or `Active now: 4 (no slot limit)` at stock's unlimited level (hover it for the Mission Control or Administration level
   behind the limit), then one column header and the rows. The contracts or strategies the
   recorded timeline adds later sit under a fold row inside the same table,
   `Pending in timeline (1) - 3 of 3 slots at timeline end`, so both groups share one set of
