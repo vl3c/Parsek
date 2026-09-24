@@ -9714,7 +9714,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "Rewind-to-Launch ends a live Re-Fly at once): RF-14's host, the re-fly "
             "recorder stopped through the seam, then Rewind-to-Launch of the same flight "
             "and an ordinary save + load. Reading 2026-09-24_1718 found a product "
-            "defect in the first build (fixed); owes its re-flight",
+            "defect in the first build (fixed); re-flight 2026-09-24_1811 PASS, rewind "
+            "block armed off it. Discharged: cadence promotion is the only step left, a "
+            "human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -10656,6 +10658,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # the point the Rewind-to-Launch carried, one fork row from the
                        # re-fly merge, nobody dead.
                        "RF-14-rtl-refly-load-sweep.toml",
+                       # RF-15: `rewind` armed 2026-09-24 off its report-only re-flight
+                       # `2026-09-24_1811` (rewindPoints 1, supersedeRows 0, tombstones 0):
+                       # the origin point survives the rewind that ended the re-fly, and
+                       # the cancelled attempt wrote no fork row and killed nobody.
+                       "RF-15-rtl-cancels-live-refly.toml",
                        # RF-12S: `rewind` armed 2026-09-22 off its after-reading
                        # `2026-09-22_1931` (supersedeRows 5, tombstones 12); the main-DLL
                        # before-reading `_1928` read tombstones 10, so the floor is the

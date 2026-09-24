@@ -158,7 +158,14 @@ cleared, session RP purged, origin RP promoted and `IsUnfinishedFlight` still tr
 dropped, the next `LoadTimeSweep` discarding nothing; the mirror cases: no session, merge
 journal active, another live tree, failed load; the merge-dialog tokens unchanged; source-order
 gates on both entry points), every change red when reverted (nine mutants). Live lane
-`RF-15-rtl-cancels-live-refly`: FLIGHT RESULTS PENDING.
+`RF-15-rtl-cancels-live-refly` (RF-14's host, the re-fly recorder stopped through the seam
+to reach the same state, then Rewind-to-Launch of the same flight and an ordinary save + load):
+reading `2026-09-24_1718` caught the committed-first lookup defect above, re-flight
+`2026-09-24_1811` PASS with `liveTreeDropped=True`, the LoadScene prefix bypass, the scene exit
+discarding the clone without a stash, the RP carried and the quickload's sweep at
+`discarded=0`; `rewind` block armed. The crash + focus-move reachability itself stays
+code-derived: the re-fly strip turns every sibling slot into a ghost, so no committed host
+leaves a live vessel for focus to move to.
 
 Original entry (code-derived, before the ruling):
 

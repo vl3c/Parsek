@@ -42,6 +42,18 @@ id = "RF-15-rtl-cancels-live-refly"
 # run showed the committed original in the store during the re-fly (`committedTrees=2`), so
 # the second tree was dropped from the lane.
 #
+# RE-FLIGHT `2026-09-24_1811` (DLL 600e6d1f, the live-first build): PASS attempt 1, 418 s,
+# every token matched: `End reason=discardReFlyForRewind ... attemptIds=1 removedCommitted=1
+# ... restoredCommittedTree=False treeWasPending=False liveTreeDropped=True`, the LoadScene
+# prefix bypass, `FinalizeTreeOnSceneChange: suppressed tree scene-exit commit
+# dest=SPACECENTER ... recordings=9 ... discarding in-memory tree without STASH`, the RP
+# carried (`installed=1 ... [rp_...@ut=118.04]`), and the quickload's `[LoadSweep] Marker
+# valid=False; spare=0 discarded=0`; saveParse rewindPoints 1 / supersedeRows 0 /
+# tombstones 0, so the `rewind` block is armed off it. The reading run `_1718` is the flown
+# negative control: the defective first build redded on exactly the End-line token, the
+# three scene-exit drop tokens and the zombie forbid. A pre-fix (main) DLL would red on the
+# End line and on `LoadScene prefix: showing pre-transition dialog`, code-derived, not flown.
+#
 # THE HOST IS RF-14's (GS-4's `kx_rewind_watch` on `gs1-two-stage-pad`), up to and
 # including its re-fly of slot 1 off the carried point and its idle for the recorder bind.
 # =====================================================================================
@@ -163,7 +175,7 @@ forbidden = [
 ]
 
 [expectations.rewind]
-gating        = false
+gating        = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
