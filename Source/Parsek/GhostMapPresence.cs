@@ -11217,6 +11217,43 @@ namespace Parsek
             return count;
         }
 
+        /// <summary>
+        /// Called when KSP loads a ghost map vessel's parts (<c>Vessel.Load</c> postfix):
+        /// hardens the now-real parts and disables every collider under them, so the
+        /// render-only marker can neither explode nor collide with a real vessel that
+        /// shares its position inside physics range.
+        /// </summary>
+        internal static void MakeLoadedGhostVesselPhysicsInert(Vessel v, string logContext)
+        {
+            if (v == null) return;
+            int parts = HardenGhostVesselPartPhysics(v, logContext);
+            int colliders = 0;
+            if (v.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p == null) continue;
+                    Collider[] cs = p.GetComponentsInChildren<Collider>(true);
+                    for (int c = 0; c < cs.Length; c++)
+                    {
+                        if (cs[c] == null || !cs[c].enabled) continue;
+                        cs[c].enabled = false;
+                        colliders++;
+                    }
+                }
+            }
+            LogGhostVesselMadeInert(v.persistentId, v.vesselName, parts, colliders, logContext);
+        }
+
+        internal static void LogGhostVesselMadeInert(
+            uint pid, string vesselName, int parts, int colliders, string logContext)
+        {
+            ParsekLog.Verbose(Tag, string.Format(ic,
+                "Ghost vessel made physics-inert on load: vessel='{0}' pid={1} parts={2} collidersDisabled={3} for {4}",
+                vesselName ?? "(null)", pid, parts, colliders, logContext));
+        }
+
         private static void RemoveGhostProtoVessel(ProtoVessel pv, bool nullSafeFlightState)
         {
             ghostMapVesselPids.Remove(pv.persistentId);

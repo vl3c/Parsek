@@ -2003,6 +2003,14 @@ namespace Parsek.InGameTests
                         $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingForce={p.breakingForce} (expected +Inf)");
                     InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingTorque),
                         $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingTorque={p.breakingTorque} (expected +Inf)");
+                    // GhostVesselLoadedInertPatch disables every collider when the parts load.
+                    Collider[] cs = p.GetComponentsInChildren<Collider>(true);
+                    for (int c = 0; c < cs.Length; c++)
+                    {
+                        if (cs[c] == null) continue;
+                        InGameAssert.IsTrue(!cs[c].enabled,
+                            $"marker '{v.vesselName}' part[{i}] collider '{cs[c].name}' is enabled (expected disabled)");
+                    }
                     checkedParts++;
                 }
             }
@@ -2010,10 +2018,9 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(checkedVessels > 0,
                 $"Expected to inspect at least one marker vessel, ghostMapVesselPids={markerCount}");
 
-            // On-rails ghost map markers (the normal TRACKSTATION case) stay
-            // unloaded: GhostVesselLoadPatch blocks Vessel.GoOffRails for ghost map
-            // vessels, so KSP never instantiates live Part objects (v.parts stays
-            // empty). The aero/thermal/structural hardening in
+            // Ghost map markers load live Part objects only inside a flight scene's load
+            // distance (Vessel.Load; GhostVesselLoadPatch blocks only the unpack), so in
+            // TRACKSTATION v.parts normally stays empty. The aero/thermal/structural hardening in
             // HardenGhostVesselPartPhysics acts on live Part instances, so there is
             // nothing to assert when no marker loaded its parts. Treat that as
             // not-applicable rather than a failure — the per-part +Inf assertions

@@ -409,9 +409,10 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// Prevents ghost map ProtoVessels from going off rails (becoming loaded physics vessels).
+    /// Prevents ghost map ProtoVessels from going off rails (unpacking into physics vessels).
     /// Ghost vessels exist only for map presence (orbit lines, tracking station, targeting).
-    /// They must remain unloaded — the ghost mesh provides the visual representation.
+    /// KSP still LOADS their parts inside load distance (made inert by
+    /// <see cref="GhostVesselLoadedInertPatch"/>); they must never unpack; the ghost mesh provides the visual representation.
     /// </summary>
     [HarmonyPatch(typeof(Vessel), nameof(Vessel.GoOffRails))]
     internal static class GhostVesselLoadPatch
@@ -437,6 +438,31 @@ namespace Parsek.Patches
                 identity: $"block-offrails|{pid}",
                 stateKey: vesselName ?? "(null)",
                 message: $"Blocked GoOffRails for ghost vessel '{vesselName}' pid={pid}");
+        }
+    }
+
+    /// <summary>
+    /// Makes a ghost map ProtoVessel physics-inert the moment KSP instantiates its parts.
+    /// The marker is created unloaded (its creation-time hardening sees zero parts), and
+    /// KSP loads it later when it enters physics range: <c>Vessel.Load</c> runs
+    /// <c>protoVessel.LoadObjects()</c>, which builds the placeholder part with stock
+    /// tolerances and live colliders. <see cref="GhostVesselLoadPatch"/> keeps it packed,
+    /// but a packed part still collides, so a real vessel unpacking into the marker's
+    /// position was damaged (EX-2 reading 2026-09-23_2103: a probe broke into 7 debris).
+    /// </summary>
+    [HarmonyPatch(typeof(Vessel), nameof(Vessel.Load))]
+    internal static class GhostVesselLoadedInertPatch
+    {
+        static void Postfix(Vessel __instance)
+        {
+            if (__instance == null || !ShouldMakeInert(__instance.persistentId))
+                return;
+            GhostMapPresence.MakeLoadedGhostVesselPhysicsInert(__instance, "Vessel.Load");
+        }
+
+        internal static bool ShouldMakeInert(uint persistentId)
+        {
+            return GhostMapPresence.IsGhostMapVessel(persistentId);
         }
     }
 

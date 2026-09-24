@@ -956,6 +956,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A ghost passing through your vessel can no longer damage it.** Each ghost in orbit has a
+  small invisible placeholder vessel that puts it on the map. When a ghost's path ran through
+  a real vessel within a couple of kilometres of you, that placeholder could collide with it
+  as the scene loaded, exploding the placeholder or breaking the real vessel into debris. The
+  placeholder is now made fully non-physical as soon as the game loads it.
 - **Docking two halves of one recorded flight back together now records both of them.**
   Undock a pair Parsek is recording and dock it again: when the vessel you were flying kept
   its identity through the dock, Parsek recorded the dock as if only that vessel had taken
