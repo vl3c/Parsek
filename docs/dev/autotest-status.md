@@ -6084,6 +6084,59 @@ six publish or compare numbers the runner already measured.
     HARVEST of the operator's `orbital supply route` save, whose
     `Route: KSC -> Duna` satisfies every step of the roadmap's 8-step
     specification. `B32` / `V26M` / `V26T` are now authorable.
+17. MUTATION CHECK, PHASE 1 (trust risk 8): the gates are now mutation-tested over
+    local archives, REPORT-ONLY, and the first sweep's survivors are listed here for
+    triage (branch `mutation-check`, 2026-09-24). Tool: `harness/tools/mutation_check.py`
+    (pure core `harness/lib/mutlib.py`; contract in `harness/README.md` -> "Checking that
+    the gates bite"). It replays logContracts + `recordings.count`, the Unity-exception
+    scan, the anomaly sweep and ARMED save-parse windows over each spec's newest archived
+    run that still replays green against the current spec, then over mutated copies.
+    Operator rulings 2026-09-24: an operator tool run over local archives (CI cannot see
+    them), and survivors are listed, never failing a run. Phase 2 is todo
+    MUTATION-CHECK-PHASE-2.
+    FIRST SWEEP (2026-09-24, 326 s, every archive under the umbrella root): 300 specs, 151
+    lanes with a green baseline, 72 whose newest three archives do not replay green
+    against today's spec (mostly collect-logs folders of non-PASS runs, or specs that
+    moved since), 77 with no archive on this machine. 11,732 mutations: 8,492 killed,
+    3,240 survived - 3,183 `info` (free numeric fields such as UTs and pids, and the width
+    of a declared window), 19 `intended`, 38 `triage`. The triage set, read by hand:
+    - **Needs a spec change (the gate does not prove its claim):**
+      - `B1-pad-hop`, `B2-lko-ascent`, `B5-mun-flyby`: required `Recording stopped` is
+        satisfied by TEARDOWN lines alone (the flush at quit stops the recording and
+        prints the same line), so the token cannot tell whether the in-run stop happened.
+        Anchor it to an in-run step or drop it.
+      - `GUI-16-census-gloops-states`: `gloopsstop committed=true points=[0-9]+` passes a
+        Gloops stop that committed ZERO points; make it `points=[1-9][0-9]*`.
+      - `S4.1-rewind-merge`: `[expectations.unityExceptions]` arms only `maxTotal = 3`, so
+        an exception THROWN in Parsek code passes while the count has headroom (both
+        injections survive). Ruling A4-b says a Parsek frame is a finding at any count:
+        arm `maxParsekThrowSite = 0` after one report-only read of its archived runs.
+      - Failure-shaped fields the pattern leaves free (`[0-9]+`, or swallowed by `.*`):
+        `skippedOwned=` on `B32` / `V26M` / `V26T` (route line draw), `seamSkipped=` on
+        `V14M` / `V15M` / `V16M` / `V19M` / `V20M` (Split summary), `dropped=` and
+        `skippedNonImmutableOldSides=` on `RF-4`, `staleDropped=` on `RF-14`,
+        `skipped=` on `GUI-12`'s `uiaction run ok` line. Each needs a one-line ruling:
+        pin it to `0`, or record why a nonzero value is healthy.
+    - **Probably intended, confirm when next touching the spec:**
+      - count-shaped fields a presence token leaves free on purpose: `Restored: recs=.*`
+        (`trees=` on `CL-4`, `RF-1`, `RF-9`, `S4.1`), S4.1's merge-dialog `recordings=`,
+        `L3`'s science `total=`, the `reservations=` / `oldRows=` / `newRows=` counts on
+        `RF-12S` / `RF-13` / `RF-13R` (their claim is `permanent=0` and the repair count),
+        and the census `uiaction expand ... total=` read-backs on `GUI-5` / `GUI-11` /
+        `GUI-17` / `GUI-18` (the picture is the evidence).
+      - save-parse windows with only a `max` admit zero: `B17`'s
+        `terminalStates.Destroyed <= 1` and `EVA-2`'s `points.trivialRecordings <= 1` are
+        upper bounds by design.
+    - **Intended by declaration (not triage):** the 11 anomaly tokens a spec lists in
+      `allowedAnomalies`, two caller-shape exceptions under a `maxParsekThrowSite`-only
+      block (the 2026-09-22 ruling), and six numeric survivors on the operator-local
+      census lanes (`GUI-1` / `GUI-2` / `GUI-24` assert that a window drew, not what).
+    - **Multi-phase patterns** besides the three above: `GS-9`'s two tempered
+      `{8}` mesh-lifecycle patterns span the quit marker, but no phase alone satisfies
+      them (killed).
+    What the sweep does NOT cover: the 149 lanes without a green archive here (re-run it
+    after a tier), mission-side assertions, the ledger oracle and save perturbation below
+    the facet level (phase 2).
 
 ## Operator items outstanding
 

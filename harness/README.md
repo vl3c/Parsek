@@ -1069,6 +1069,57 @@ of that run's produced save. **Never delete `results/*.claim`** - the run-id sta
 are exclusive-create and load-bearing (see the ownership boundary above);
 deleting one lets a future run overwrite an earlier run's records.
 
+## Checking that the gates bite (`tools/mutation_check.py`)
+
+An operator tool (trust risk 8, phase 1): it answers "would this lane red if the
+thing its gate watches stopped happening?" over runs ALREADY archived on this
+machine. It launches nothing and never fails anything; survivors are listed for
+triage. Pure core `lib/mutlib.py`, thin shell `tools/mutation_check.py`, tests
+`lib/test_mutlib.py`.
+
+```
+python tools/mutation_check.py                    # every gating spec, newest green archive each
+python tools/mutation_check.py --spec B1-pad-hop  # one lane
+python tools/mutation_check.py --archive ../../logs/<stamp>_<specId>   # one run folder
+python tools/mutation_check.py --list-archives --spec B1-pad-hop
+```
+
+Archives: every `<umbrella>/*/harness/results` (`<runId>.json` +
+`<runId>_shots/KSP.log` + `<runId>_save/`) and every `<umbrella>/logs/<stamp>_<specId>/`
+collect folder (`KSP.log`, `saves/<save>/`, `parsek/Recordings/`). Per spec it
+tries the newest `--max-tries` (3) archives until one replays green against the
+CURRENT spec; a lane with none reports "baseline not green" and is skipped. The
+report lands in `results/mutation-check/<stamp>.md` (gitignored).
+
+What it replays - only the gating evaluators that are pure over an archive:
+
+| Evaluator | Mutations |
+|---|---|
+| `hlib.evaluate_expectations` (logContracts + `recordings.count`) | per required pattern: delete every matched line; drop each link of an ordered chain (`[\s\S]*?`, `.*` under `(?s)`, `\r?\n`); keep only its boot- or teardown-phase matches; perturb each number inside the matched spans (+1, and to zero); the recording count +1 / -1 / 0 |
+| `hlib.scan_unity_exception_stacks` + `evaluate_unity_exceptions` | inject a Parsek throw-site exception, and a stock throw with a Parsek caller |
+| the anomaly sweep | one raise of each gated token |
+| `saveparse` windows (armed blocks only) | the measured facet +1 / -1 / 0 against the evaluator's own window rule |
+
+Phases come from the log itself: `boot` is before the first seam `exec ... start`
+line, `teardown` after the `flushandquit: Application.Quit` marker. A required
+pattern whose matches span two phases is listed as multi-phase, and one that a
+boot or teardown line ALONE satisfies is a triage survivor (the gate passes
+without the run doing the thing).
+
+Survivor classes: `triage` (read it), `intended` (the spec declares the tolerance:
+an `allowedAnomalies` entry, or a caller-shape exception under a
+`maxParsekThrowSite`-only block per the 2026-09-22 ruling), `info` (a free field:
+a UT, a pid, a window's width). A number is triaged when a failure-shaped field
+(`failed=`, `skipped=`, `rejected=`...) moves off zero, or a count-shaped field
+(`count=`, `total=`, `passed=`...) drops to zero, and the lane still passes.
+Every triage survivor is re-decided by the real `hlib.evaluate_expectations` over
+the full mutated text; the cheaper incremental re-check used for the rest is held
+equal to it by `LaneEvaluatorTests`.
+
+Not replayed (phase 2, todo MUTATION-CHECK-PHASE-2): the ledger oracle, the
+mission verdict, driver validity, the C# log validator, render composition, and
+save / ledger perturbation below the facet level.
+
 ## Fixture saves and the shared craft library
 
 `fixtures/saves/<name>/` holds committed KSP save templates; `run.py::stage_fixture`

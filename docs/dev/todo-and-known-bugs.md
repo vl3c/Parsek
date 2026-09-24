@@ -15,6 +15,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach saves, the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness]
+
+Phase 1 (`harness/tools/mutation_check.py`, known-gate 17 in `autotest-status.md`) replays
+the gating evaluators that are pure over an archived KSP.log, plus the ARMED save-parse
+windows at the facet level (the measured count moved by one and to zero). Still unchecked,
+so a cell there can go vacuous with nothing noticing:
+
+- Save perturbation below the facet: edit the archived `persistent.sfs` itself (drop a
+  `RECORDING` node, a supersede row, a tombstone, a rewind point, a route stop) and re-run
+  `saveparse.parse_parsek_scenario` + `evaluate_save_structure`, so a window whose parser
+  path is dead is caught, not only a window that is too wide.
+- Ledger perturbation: the ledger oracle needs the run's seed capture; archive it (or
+  re-derive it from the archived save) so `oracle.build_oracle_result` can replay with an
+  award removed or a pool moved.
+- Mission assertions: replay a mission's recorded verdict with its sensor reads removed
+  (the kRPC telemetry lines it gates on), so a mission check that no longer reads what it
+  claims is caught.
+- Forbidden patterns: phase 1 cannot synthesize a line a forbidden regex would match; a
+  literal-shaped forbidden token (`\[Parsek\]\[ERROR\]`) could be injected directly.
+
+Also open from the first sweep: the 38 triage survivors listed in known-gate 17 (spec
+tightening; each is a one-line spec change or a recorded ruling).
+
 ## ~~TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT: re-docking two vessels of one recorded flight kept only one of them as the dock's parent when the vessel being flown was the one that survived the dock~~ [FILED 2026-09-24 off SD-1's reading run `2026-09-23_2140`. FIXED 2026-09-24 on branch `d5-samedock`]
 
 **What the player saw.** Undock a docked pair that Parsek is recording, then dock the two

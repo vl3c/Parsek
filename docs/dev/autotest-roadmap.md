@@ -778,7 +778,8 @@ One line each; the definition lives at the pointer.
 - **Trust risks** ("Trust and fail-open risks still outstanding"; the known gates in
   `autotest-status.md`):
   - risk 4: the ledger oracle's independence check is a structural no-op;
-  - risk 8: no mutation tool;
+  - risk 8: phase 1 shipped (the report-only mutation checker, known-gate 17 lists its
+    survivors); phase 2 (save / ledger perturbation, mission assertions) open;
   - known-gate 14: strict per-identity ground truth is armed by nothing;
   - known-gate 7: B4's chute latch.
 - **Operator-only hand-off** (the 2026-09-08 register's item 10):
@@ -6204,10 +6205,16 @@ Remaining fail-open surfaces, ranked:
 7. **The analyzer proves absence of malformation, not presence.** INV1-INV10 would
    catch a malformed debris recording. They cannot catch a MISSING one. That asymmetry
    is exactly why R1 is about presence tokens and not analyzer rules.
-8. **Mutation proof is prose, not a gate.** Every mutation claim in the docs was
-   produced and re-verified by hand; no mutation tool exists anywhere in `harness/` or
-   `scripts/`. A refactor that makes a cell vacuous will not red anything and the doc
-   will keep asserting the cell bites.
+8. **Mutation proof is prose, not a gate.** PHASE 1 SHIPPED 2026-09-24 (branch
+   `mutation-check`): `harness/tools/mutation_check.py` replays the pure gating
+   evaluators (logContracts, `recordings.count`, the Unity-exception scan, the anomaly
+   sweep, armed save-parse windows) over runs archived on this machine and lists the
+   mutations that survive. It is an operator tool and report-only by ruling: survivors
+   never fail a run, and CI cannot see the archives. The first sweep's survivors and
+   their triage are known-gate 17 in `autotest-status.md`. Still open (phase 2, todo
+   MUTATION-CHECK-PHASE-2): save and ledger perturbation below the facet level, and
+   replaying mission assertions with sensor reads removed. Until then a mission-side or
+   ledger-side cell can still go vacuous without anything noticing.
 9. **The near-vacuous batch is admitted by design.** The gate blocks only
    `passed == 0`, so `total=42 passed=1 failed=0 skipped=41` satisfies every rule. Pin
    whole tallies.

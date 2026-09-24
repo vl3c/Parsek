@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a report-only mutation checker asks whether each lane's checks
+  would catch a real break.** `harness/tools/mutation_check.py` replays the harness's own
+  pass/fail checks over runs already archived on the machine: first unchanged (the run
+  must still pass against the current spec, or the lane is skipped), then over copies of
+  the log and save with the watched lines deleted, numbers changed, exceptions and
+  anomalies injected and save counts moved. Each change the checks still pass is listed
+  for triage in a report; nothing fails a run and no game is launched.
 - **Automated testing: a lane undocks a recorded pair and docks it back together.**
   `SD-1-same-tree-redock` loads the second-dock save on its docked pair, undocks it, backs
   off and re-docks the halves with the MechJeb docking autopilot (the new `d5_redock`
