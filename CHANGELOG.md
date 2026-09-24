@@ -16,6 +16,15 @@ _(unreleased — entries accumulate here per commit)_
   flight ends, and each cycle advance writes a `LoopCycle` line. The ghost-lifecycle
   check can now require a destroy reason, set a floor per vessel name (for example six
   `Kerbal X Debris` ghosts), and count loop cycles. Nothing changes with tracing off.
+- **Automated testing: two loop-playback cells are claimed from existing lanes, and two cells
+  are redefined to match the ghost engine.** The loop-period cell now means the real
+  behaviours (one copy at a time, overlapping copies, the global Auto period) and the
+  overlap cell means copies expiring at their flight's end plus the 20-copy relaunch cap.
+  `V8F-eve-loop-faithful` now requires the engine's 20-copy overlap cadence line and
+  `V6M-mun-player-loop` requires its one-copy-at-a-time loop unit, both read off every
+  archived run of those lanes.
+- **Dev: the GUI mirror's rail lists current states only.** A capture drawn while its window still had a tab it no longer has is marked `outdated` (old layout) and treated like a superseded or retired capture; the rail no longer lists any of those, nor never-captured states, and the "show N hidden" link is gone. Old captures stay available as Compare's BEFORE pictures (`harness/tools/gui_mirror.py`).
+- **Dev: the GUI mirror stops drawing removed tabs on new captures.** A capture records only the selected tab's name, so each tab bar is assembled from every tab its window ever showed; after the Career window dropped its Facilities and Milestones tabs, the new two-tab captures were drawn with all four. A tab whose every capture is superseded or retired is now dropped from the tab bars of captures taken after its last capture; older captures keep it (`prune_removed_tabs`, `harness/tools/gui_mirror.py`).
 - **Automated testing: a lane undocks a recorded pair and docks it back together.**
   `SD-1-same-tree-redock` loads the second-dock save on its docked pair, undocks it, backs
   off and re-docks the halves with the MechJeb docking autopilot (the new `d5_redock`

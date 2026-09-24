@@ -1304,7 +1304,7 @@ def is_stale(cap):
     nothing, a capture a later run of the same key replaced, or one its own lane
     no longer produces."""
     return bool(cap.get("hoverEmpty") or cap.get("supersededBy")
-                or cap.get("retired"))
+                or cap.get("retired") or cap.get("outdated"))
 
 
 def rail_rows(captures, order_by_window):
@@ -1450,7 +1450,7 @@ def window_compare_summary(captures, keys, window, missing=()):
     # the window has any more, so it is left out of the state counts too.
     win_keys = {k: v for k, v in keys.items()
                 if (by_id.get(v["after"]) or {}).get("window") == window
-                and not v.get("retired")}
+                and not v.get("retired") and not v.get("outdated")}
     real_keys = {k for k, v in win_keys.items()
                  if not (by_id.get(v["after"]) or {}).get("mocked")}
     mock_keys = set(win_keys) - real_keys
@@ -1918,6 +1918,46 @@ def run_sort_key(run_id):
     return (m.group(1), int(m.group(2) or 1), int(m.group(3) or 1))
 
 
+def prune_removed_tabs(captures):
+    """Drop a tab from the tab bars of captures taken after that tab stopped existing.
+
+    A selection grid records only the SELECTED item's text, so a capture's tab bar
+    is assembled from every tab token its window has shown in any capture. When the
+    product removes a tab (the Career window's Facilities and Milestones tabs,
+    2026-09-24), the old captures keep it, and without this pass every NEW capture
+    of that window drew the removed tabs too - over a frame that shows two.
+
+    A tab counts as removed when none of its captures is live (each one is
+    superseded or retired). It is then dropped from every capture of the same
+    window taken AFTER the tab's last capture; older captures keep it, because they
+    were drawn when it still existed. Returns {window: [removed tokens]}.
+    """
+    by_window = defaultdict(lambda: defaultdict(list))
+    for cap in captures:
+        if cap.get("tab"):
+            by_window[cap["window"]][cap["tab"]].append(cap)
+    removed = {}
+    for window, tabs in by_window.items():
+        for tok, caps in tabs.items():
+            if any(not c.get("supersededBy") and not c.get("retired") for c in caps):
+                continue
+            last = max(c["capturedUtc"] for c in caps)
+            removed.setdefault(window, []).append(tok)
+            for cap in captures:
+                if cap["window"] != window:
+                    continue
+                if cap["capturedUtc"] <= last:
+                    # Drawn while the window still had the tab: a picture of a
+                    # layout the product no longer has, so not a current state.
+                    info = cap.setdefault("outdated", {"tabs": [], "window": window})
+                    if tok not in info["tabs"]:
+                        info["tabs"].append(tok)
+                    continue
+                names = cap.get("tabNames") or []
+                cap["tabNames"] = [t for t in names if t.get("token") != tok]
+    return removed
+
+
 def mark_retired(captures, runs):
     """Mark every capture its own lane no longer produces.
 
@@ -2377,10 +2417,13 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
     # round-2 rebuild) stayed current forever. See `mark_retired`.
     mark_retired(captures, [{"specId": s["specId"], "runId": s["runId"],
                              "complete": s.get("complete")} for s in scans])
+    prune_removed_tabs(captures)
     for k, info in keys.items():
         after = next(c for c in by_key[k] if c["id"] == info["after"])
         if after.get("retired"):
             info["retired"] = after["retired"]
+        if after.get("outdated"):
+            info["outdated"] = after["outdated"]
 
     fixtures = OrderedDict()
     for cap in captures:
@@ -2963,7 +3006,7 @@ function stripPrefix(t){
 }
 function capsFor(win){ return M.captures.filter(function(c){ return c.window === win; }); }
 /* The generator's `is_stale`: not the current picture of its state. */
-function isStale(c){ return !!(c.hoverEmpty || c.supersededBy || c.retired); }
+function isStale(c){ return !!(c.hoverEmpty || c.supersededBy || c.retired || c.outdated); }
 function status(msg, warn){
   var s = document.getElementById('status');
   s.textContent = msg || '';
@@ -2992,6 +3035,13 @@ function capFlags(cap){
     out.push({ cls: 'sup', text: 'superseded', short: 'old',
       title: 'a later run photographed this same key: ' + cap.supersededBy
              + '. Kept as the BEFORE of that pair; not counted as coverage.' });
+  }
+  if (cap.outdated){
+    out.push({ cls: 'sup', text: 'old layout (had ' + cap.outdated.tabs.join(', ') + ')',
+      short: 'old layout',
+      title: 'drawn while this window still had tabs it no longer has: '
+             + cap.outdated.tabs.join(', ') + '. Kept as a BEFORE picture; not '
+             + 'counted as coverage.' });
   }
   if (cap.retired){
     out.push({ cls: 'sup', text: 'no longer captured by ' + cap.retired.spec
@@ -4001,12 +4051,6 @@ function buildRail(){
        captured nothing, a capture a later run replaced, a state the seam knows
        and no lane photographed - fold behind one link per window. The row on
        screen is never folded away. */
-    var showAll = !!S.showHidden[w.token];
-    var hideable = 0, folded = 0;
-    function fold(sr, isSel){
-      hideable++;
-      if (!showAll && !isSel){ sr.classList.add('hidden'); folded++; }
-    }
     var seen = {};
     /* The generator's `rail_rows`: one row per state, the CURRENT capture of it
        where there is one, grouped by tab in the tab bar's order and running from
@@ -4034,6 +4078,10 @@ function buildRail(){
       var k = [c.tab || '', c.state || '', c.mode || ''].join('|');
       if (seen[k]) return;
       seen[k] = 1;
+      /* The rail lists CURRENT states only (owner, 2026-09-24): a superseded,
+         retired, old-layout or no-hover capture is still a Compare BEFORE, but
+         it is not a state of the window as it is today. */
+      if (isStale(c)) return;
       if (headed && r.g !== gcur){
         closeGroup();
         gcur = r.g; gshown = 0;
@@ -4052,42 +4100,12 @@ function buildRail(){
         select(c, true);
         if (S.view === 'compare') buildCompare();
       };
-      if (isStale(c)) fold(sr, c.id === S.capture);
-      if (!sr.classList.contains('hidden')) gshown++;
+      gshown++;
       list.appendChild(sr);
     });
     closeGroup();
-    M.missing.filter(function(m){ return m.window === w.token; }).forEach(function(m){
-      var sr = el('div', 's gap');
-      sr.textContent = stateLabel(w.token, m.tab, null, m.mode) + '  (no capture)';
-      sr.title = m.why;
-      sr.onclick = function(){ status('no capture for this state yet: ' + m.window +
-        ' / tab ' + tabName(m.window, m.tab) + ' / ' + m.mode + ' -- ' + m.why,
-        true); };
-      fold(sr, false);
-      list.appendChild(sr);
-    });
-    if (hideable){
-      var more = el('div', 's more', showAll ? 'hide ' + hideable
-                                            : 'show ' + folded + ' hidden');
-      more.title = 'States with no hover captured, captures a later run '
-        + 'replaced, states their own lane no longer produces, and states the '
-        + 'seam knows but no lane photographed.';
-      more.onclick = function(){ S.showHidden[w.token] = !showAll; buildRail(); };
-      if (showAll || folded) list.appendChild(more);
-    }
     rail.appendChild(list);
   });
-  var zero = M.windows.filter(function(w){ return !w.captureCount; });
-  if (zero.length){
-    rail.appendChild(el('h2', null, 'Known, never captured'));
-    zero.forEach(function(w){
-      var row = el('div','s gap', w.token + '  (no capture)');
-      row.onclick = function(){ status('the seam knows window "' + w.token +
-        '" but no census lane photographed it.', true); };
-      rail.appendChild(row);
-    });
-  }
 }
 
 function showView(){
