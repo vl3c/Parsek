@@ -264,6 +264,8 @@ tombstones    = { max = 0 }
 # `Parsek.` frame a finding at ANY count. Offline sweep of every archived S4.1 log
 # (`2026-07-28_1818`, `_1821`, `_1939`, `2026-07-31_1938`, `2026-09-23_2038`):
 # parsekFrames 0 in each. Offline negative control on `2026-09-23_2038` in known-gate 11.
+# Not re-read: the one nonzero reading among the n=19 above (its log is not among
+# the 5 archived here), so whether it carried a Parsek frame is unknown.
 [expectations.unityExceptions]
 maxTotal = 3
 maxParsekFrames = 0

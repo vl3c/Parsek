@@ -284,7 +284,7 @@ required = [
   # In-run stop, not the quit flush: the stop the CommitTree seam step causes.
   # OnDestroy's ForceStop at quit prints the same `Recording stopped.` line, so
   # the bare token could pass on the quit alone (mutation check, known-gate 17).
-  "CommitTreeFlight: starting tree commit at UT=[0-9.]+[\\s\\S]{0,4000}?Recording stopped\\. ",
+  "CommitTreeFlight: starting tree commit at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
   # Docking MERGES trees (flight 17 evidence: 'Tree merge created: type=Dock,
   # bp=.., parents=[interceptor rec], child=..'); only SPLITS log 'Tree branch
   # created' (Undock/JointBreak/EVA). The original token assumed split wording.

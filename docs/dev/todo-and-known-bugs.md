@@ -37,7 +37,7 @@ so a cell there can go vacuous with nothing noticing:
 
 Also open from the first sweep: the 723 triage survivors (96 lanes) listed by group in known-gate 17
 (spec tightening; each group is a spec change or a recorded ruling). FIRST PASS DONE
-2026-09-24 (branch `tighten-survivors`): 27 specs tightened, 723 -> 697, of which 388 are
+2026-09-24 (branch `tighten-survivors`): 26 specs tightened, 723 -> 700, of which 391 are
 recorded as intended and 309 remain (known-gate 17 lists them). Still owed from the pass:
 the teardown `Recording stopped` fix on the 25 lanes it could not verify offline - B4
 once branch `b4-chute` lands, and the 24 whose archives are missing or no longer replay

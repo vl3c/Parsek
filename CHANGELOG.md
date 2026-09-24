@@ -1212,13 +1212,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
-- **Automated testing: 27 lane checks the mutation checker found weak are tightened.**
+- **Automated testing: 26 lane checks the mutation checker found weak are tightened.**
   Fourteen lanes required only `Recording stopped`, which the recorder also prints when the
   game quits, so the check could pass without the flight ever stopping its recording; each
   now requires the stop its own step causes (the commit, the StopRecording command, the
   recovery scene exit or the crash split). `S4.1` now fails on any exception thrown from
   Parsek code, not only when the exception count passes 3. `GUI-16` no longer accepts a
-  Gloops recording committed with zero points, and eleven rewind and player-loop lanes now
+  Gloops recording committed with zero points, and ten rewind and player-loop lanes now
   require the zero their counters read on every archived passing run (nothing dropped by a
   rollback, no stale rewind point, no seam skipped at the transfer boundary, no seam check
   outside the target's sphere of influence). Each change was proven against the archived

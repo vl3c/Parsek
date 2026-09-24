@@ -1014,10 +1014,8 @@ class V17SeedTests(unittest.TestCase):
         tok = "created 0 ghost vessel\\(s\\)"
         for spec in (self.m, self.t):
             self.assertNotIn(tok, spec["expectations"]["logContracts"]["forbidden"])
-        # both lanes now carry exactly the road-independent forbid set; V17M adds the
-        # player-loop `outsideSoi=[1-9]` census forbid (known-gate 17), which the
-        # TS-arrival lane cannot carry (its creation-frame lens artifact reads 1)
-        self.assertEqual(4, len(self.m["expectations"]["logContracts"]["forbidden"]))
+        # both lanes now carry exactly the road-independent forbid set
+        self.assertEqual(3, len(self.m["expectations"]["logContracts"]["forbidden"]))
         self.assertEqual(3, len(self.t["expectations"]["logContracts"]["forbidden"]))
 
     def test_v17t_anti_vacuity_rides_the_dynamic_overlap_path(self):

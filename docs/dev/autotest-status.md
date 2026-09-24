@@ -6176,15 +6176,16 @@ six publish or compare numbers the runner already measured.
     What the sweep does NOT cover: the 148 lanes without a green archive here (re-run it
     after a tier), mission-side assertions, the ledger oracle, the offline analyzer, the
     batch tally, ghostlife and save perturbation below the facet level (phase 2).
-    FIRST TIGHTENING PASS (2026-09-24, branch `tighten-survivors`, no flight): 27 specs
+    FIRST TIGHTENING PASS (2026-09-24, branch `tighten-survivors`, no flight): 26 specs
     edited, each proven offline - it still replays green over its archived baseline and the
     re-run checker kills the mutation that had survived. Full re-sweep: 152 green lanes
-    (unchanged), triage 723 -> 697 across 91 lanes (26 fixed); of the 697, 388 are
+    (unchanged), triage 723 -> 700 across 91 lanes (23 fixed); of the 700, 391 are
     recorded as intended below and 309 remain for a later pass.
     - **Teardown `Recording stopped` (14 lanes).** OnDestroy's `ForceStop` at quit prints
       the same `Recording stopped.` line, so each lane now pins the stop its own step
-      causes, as an ordered chain with a bounded gap (`[\s\S]{0,4000}?`; measured spans
-      36-815 chars, the quit stop is always further): `CommitTreeFlight: starting tree
+      causes, as an ordered chain with a bounded gap (`[\s\S]{0,8000}?`, widened from 4000 in
+      review for margin against new diagnostics inside FinalizeRecordingState; measured
+      spans 36-815 chars, the quit stop is always further; re-verified at 8000): `CommitTreeFlight: starting tree
       commit at UT=` -> `Recording stopped\. ` on B1, B2, B5, B7, B11, B17, BDOCK-1;
       `Recording stopped\. ` -> `stoprecording stopped=true` on MC-3, V9, V11, V12;
       `CommitTreeSceneExit: finalizing tree at UT=` -> `Recording stopped\. ` on L3, L5 (0
@@ -6208,11 +6209,11 @@ six publish or compare numbers the runner already measured.
       skippedImmutable=[1-9]` (5 -> 0); RF-14 pins `installed=1 loadedFromSave=0 restored=1
       staleDropped=0` (3 -> 0); `seamSkipped=0` inside the Split summary on V14M, V15M,
       V16M, V19M, V20M; a forbidden `seam-endpoint summary evaluated=\d+
-      outsideSoi=[1-9][0-9]*` on the player-loop lanes V6M, V7M, V14M, V17M, V19M, V20M,
-      V21M (V15M / V16M already pin it strictly). Every archived green log of each lane
+      outsideSoi=[1-9][0-9]*` on the player-loop lanes V6M, V7M, V14M, V21M (V15M / V16M
+      already pin it strictly). Every archived green log of each lane
       agrees. `overTolerance` was already covered: every lane but V1 (no green archive)
       forbids `overTolerance=[1-9][0-9]*`.
-    - **Intended, recorded here (388 of the 697):** the GUI census read-backs (330
+    - **Intended, recorded here (391 of the 700):** the GUI census read-backs (330
       `dumpguitree` counts on 19 lanes plus 46 `uiaction` / `frames=` counts on 7) - the
       operator-local and census lanes assert that a window drew, not what it drew;
       `skippedOwned=` on B32 / V26M / V26T (3) - a ratified no-double-draw deferral whose
@@ -6220,7 +6221,12 @@ six publish or compare numbers the runner already measured.
       `skippedOwned=1`), so nonzero is designed; `outsideSoi=` on the TS-arrival lanes V6T,
       V8T, V14T, V15T, V17T, V19T, V20T, V21T and on V8F (9) - the creation-frame lens
       artifact reads 1 by design (V16T measured it), and V8F's faithful replay requires a
-      nonzero reading.
+      nonzero reading; and `outsideSoi=` on V17M, V19M, V20M (3), dropped from the forbid in
+      review: the summary is rate-limited to one reading per 5 s (`MapRenderProbe.cs:419`),
+      the lens is report-only by design, and the creation-frame-after-jump family (todos
+      MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME /
+      ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP) is measured on exactly those lanes, so a
+      healthy run could read 1.
     - **Remaining for a later pass (309):** the V-lane sampler counters (`evaluated=`,
       `sampled=`, `phases=`, `P=` / `cadence=` / `fixedCadenceResidual=`, 62 on 23 lanes),
       the graze and `evaluated=` counters on the V*M Split summaries (20 on 5), and 227

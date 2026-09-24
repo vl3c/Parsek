@@ -279,7 +279,7 @@ required = [
   # `Recording stopped.` line, so the bare token could pass on the quit alone
   # (mutation check, known-gate 17). The point count is 0 here by design (the
   # buffer was flushed before the stop), so it is not pinned.
-  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,4000}?Recording stopped\\. ",
+  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
   "Seeded initial science: amount=100",
   "Accept: contractId='5f2c1b84-93ae-4d07-b6c1-0e8a4d51f3b9' type='PartTest'.*activeSlots=1/2",
   "Accept: contractId='c47d0a91-6b25-4e83-9f1a-2d60be3c7845' type='PartTest'.*activeSlots=2/2",

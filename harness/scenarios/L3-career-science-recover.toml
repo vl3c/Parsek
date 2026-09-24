@@ -319,7 +319,7 @@ required = [
   # `Recording stopped.` line, so the bare token could pass on the quit alone
   # (mutation check, known-gate 17). The point count is 0 here by design (the
   # buffer was flushed before the stop), so it is not pinned.
-  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,4000}?Recording stopped\\. ",
+  "CommitTreeSceneExit: finalizing tree at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. ",
   "Seeded initial science: amount=100",
   "VesselRecovery funds patched: vessel='Jumping Flea' amount=4558",
   "Science subject captured: crewReport@KerbinSrfLandedLaunchPad.*reason='VesselRecovery'",

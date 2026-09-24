@@ -350,7 +350,7 @@ required  = ["Recording started",
              "pending tree stashed",
              # CL-1's atom, kept verbatim (CL-2 must stay a superset of CL-1's required set).
              "Recording stopped",
-             # ...and the in-run proof beside it: the destruction's chain-boundary stop.
+             # ...and the in-run proof beside it: a split or phase-boundary chain stop.
              # OnDestroy's ForceStop at quit prints a bare `Recording stopped.` line, so
              # the bare token alone could pass on the quit (mutation check, known-gate 17).
              "Recording stopped \\(chain boundary\\)\\. ",
