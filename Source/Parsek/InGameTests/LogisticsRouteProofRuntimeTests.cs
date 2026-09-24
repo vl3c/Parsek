@@ -52,7 +52,7 @@ namespace Parsek.InGameTests
             Description = "Route proof survives a dock whose partner vessel only has a committed recording from a prior tree (not in the current tree's BackgroundMap)")]
         public void RouteProof_CrossTreeCommittedPartner_HasEndpointProof()
         {
-            // The previous resolver bug: FindAbsorbedDockPartnerPid only consulted
+            // The previous resolver bug: the route target was resolved only from
             // activeTree.BackgroundMap. A dock partner whose recording was committed
             // in a prior tree is invisible to BackgroundMap, so routeTargetPid
             // resolved to 0 and no RouteConnectionWindow was attached to the merged

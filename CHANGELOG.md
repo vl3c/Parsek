@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane undocks a recorded pair and docks it back together.**
+  `SD-1-same-tree-redock` loads the second-dock save on its docked pair, undocks it, backs
+  off and re-docks the halves with the MechJeb docking autopilot (the new `d5_redock`
+  mission), and checks that the dock's two parents are both recordings of the one flight:
+  the one being flown and the half the undock left recording in the background. Its first
+  flight found the one-parent dock defect listed under Fixed.
 - **Automated testing: a lane re-flies a stage after a Rewind-to-Launch and quickloads in
   the middle of it.** `RF-14-rtl-refly-load-sweep` flies the staged Kerbal X, rewinds the
   whole flight to launch, waits on the pad until the clock passes the stage separation
@@ -950,6 +956,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Docking two halves of one recorded flight back together now records both of them.**
+  Undock a pair Parsek is recording and dock it again: when the vessel you were flying kept
+  its identity through the dock, Parsek recorded the dock as if only that vessel had taken
+  part. The other half's recording kept running as if it were still in orbit, showed up as
+  an unfinished flight to re-fly, and the commit tried to spawn a vessel that no longer
+  existed. Parsek now takes the docking partner straight from the dock event, so both halves
+  end as docked and the docked vessel's recording starts from both. The old guess that
+  replaced it could also have picked an unrelated stage of the same flight that was out of
+  loading range and marked it as docked; that can no longer happen.
 - **A Rewind to Launch no longer loses (or brings back) the re-fly points of the flight.**
   A split that leaves an unfinished sibling keeps a rewind point, shown as the Fly button in
   Unfinished Flights. Whether it survived a Rewind to Launch used to depend on which scenes

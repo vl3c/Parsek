@@ -6444,37 +6444,28 @@ namespace Parsek
         }
 
         /// <summary>
-        /// When we are the dock target (our PID unchanged), finds the PID of the vessel
-        /// that was absorbed into us. Scans BackgroundMap for a vessel that is no longer
-        /// a separate entity (its Vessel object is gone or merged into ours).
-        /// Returns 0 if the partner is not in the tree (foreign vessel or cross-tree
-        /// partner with a committed recording but no background entry). Tree-merge
-        /// bookkeeping is the only consumer — route-target resolution now uses
-        /// <see cref="ResolveDockPartnerPidFromEvent"/> instead.
+        /// Pure helper: the absorbed partner of a TARGET-side dock (our recorder's vessel
+        /// survives as the merged vessel). The couple event names the partner directly
+        /// (<paramref name="partnerPidFromEvent"/>); when that pid is a member of the active
+        /// tree's <c>BackgroundMap</c> it is the absorbed same-tree vessel and becomes the
+        /// merge's second parent. Otherwise the partner is foreign or cross-tree and the
+        /// answer is 0 (single-parent merge). No shape heuristic over the map: onPartCouple
+        /// fires BEFORE KSP merges the vessels, so the real partner still has all its parts,
+        /// and a "vessel gone or partless" scan could only match a DIFFERENT member (an
+        /// unloaded on-rails background stage reads zero parts) and dock it by mistake.
         /// </summary>
-        uint FindAbsorbedDockPartnerPid(uint mergedPid, Vessel mergedVessel)
+        internal static uint ResolveTargetSideAbsorbedPid(
+            uint partnerPidFromEvent,
+            uint mergedPid,
+            ICollection<uint> backgroundMapPids)
         {
-            if (activeTree == null) return 0;
-
-            foreach (var kvp in activeTree.BackgroundMap)
+            if (partnerPidFromEvent != 0
+                && partnerPidFromEvent != mergedPid
+                && backgroundMapPids != null
+                && backgroundMapPids.Contains(partnerPidFromEvent))
             {
-                uint bgPid = kvp.Key;
-                if (bgPid == mergedPid) continue; // skip ourselves
-
-                Vessel bgVessel = FlightRecorder.FindVesselByPid(bgPid);
-
-                // After coupling, the absorbed vessel either:
-                // (a) has its Vessel object destroyed (null)
-                // (b) has its Vessel reference pointing to the merged vessel (reparented parts)
-                // (c) still exists but with 0 parts (about to be destroyed)
-                if (bgVessel == null || bgVessel == mergedVessel
-                    || bgVessel.parts == null || bgVessel.parts.Count == 0)
-                {
-                    return bgPid;
-                }
+                return partnerPidFromEvent;
             }
-
-            // No background vessel was absorbed -- partner is a foreign vessel
             return 0;
         }
 
@@ -11321,11 +11312,21 @@ namespace Parsek
                 {
                     bool isTarget = (recorder.RecordingVesselId == mergedPid);
                     uint absorbedPid;
+                    uint fromPid = data.from?.vessel != null ? data.from.vessel.persistentId : 0u;
+                    uint toPid = data.to?.vessel != null ? data.to.vessel.persistentId : 0u;
+                    uint partnerPidFromEvent = ResolveDockPartnerPidFromEvent(
+                        fromPid, toPid, recorder.RecordingVesselId);
 
                     if (isTarget)
                     {
-                        // We are the TARGET -- find the absorbed partner (Fix 2: pass Vessel)
-                        absorbedPid = FindAbsorbedDockPartnerPid(mergedPid, data.to.vessel);
+                        // We are the TARGET -- the absorbed partner is the couple event's
+                        // partner when it is a BackgroundMap member of this tree, else 0.
+                        absorbedPid = ResolveTargetSideAbsorbedPid(
+                            partnerPidFromEvent, mergedPid, activeTree.BackgroundMap.Keys);
+                        ParsekLog.Verbose("Flight",
+                            $"OnPartCouple target-side absorbed partner: absorbedPid={absorbedPid} " +
+                            $"partnerPidFromEvent={partnerPidFromEvent} " +
+                            $"partnerInBackgroundMap={activeTree.BackgroundMap.ContainsKey(partnerPidFromEvent)}");
                     }
                     else
                     {
@@ -11335,7 +11336,7 @@ namespace Parsek
 
                     // Resolve the route-partner PID from the couple event directly.
                     // BackgroundMap is intra-tree only, so a partner with a committed
-                    // recording from a prior tree is invisible to FindAbsorbedDockPartnerPid.
+                    // recording from a prior tree is not a BackgroundMap member.
                     //
                     // Accept the partner as route-eligible when EITHER:
                     //  (a) the pre-couple partner snapshot was captured successfully
@@ -11348,10 +11349,6 @@ namespace Parsek
                     // Both paths trust real evidence; the stricter "must have prior
                     // recording" gate from the first iteration was over-conservative
                     // for the destination-loaded-from-save workflow.
-                    uint fromPid = data.from?.vessel != null ? data.from.vessel.persistentId : 0u;
-                    uint toPid = data.to?.vessel != null ? data.to.vessel.persistentId : 0u;
-                    uint partnerPidFromEvent = ResolveDockPartnerPidFromEvent(
-                        fromPid, toPid, recorder.RecordingVesselId);
                     bool partnerSnapshotCaptured = pendingDockPartnerSnapshot != null
                         && pendingDockPartnerSnapshotPid == partnerPidFromEvent
                         && partnerPidFromEvent != 0u;
