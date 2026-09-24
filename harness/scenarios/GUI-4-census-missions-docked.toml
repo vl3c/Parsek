@@ -85,7 +85,9 @@ tier = "operator"
 #   - the Missions window's right-hand columns. `RecordingsTableUI` is laid out for 1355 px
 #     against a 1280x720 instance, so the window is commanded at its own floor (`op=rect`
 #     clamps to it anyway) and honestly clipped at the client edge. Residue
-#     GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH, unchanged.
+#     GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH, CLOSED 2026-09-24: the lane now flies
+#     at 1920x1080 (`screenResolution` below) and run `2026-09-24_1902` has every column on
+#     screen.
 #   - any tint or phase colour: a GUI tree carries no colour field (section 6.3), so those
 #     claims live in the PNG alone and this lane asserts on none of them.
 #
