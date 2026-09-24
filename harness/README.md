@@ -656,11 +656,19 @@ map lanes stay at 1280x720 because their readings may depend on pixel sizes.
   the original `SCREEN_RESOLUTION_WIDTH` / `SCREEN_RESOLUTION_HEIGHT` / `FULLSCREEN`
   values) and then rewrites exactly those three values in the instance-root
   `settings.cfg` (windowed). TEARDOWN, in the per-attempt finally, writes the original
-  values back and deletes the marker, so the file is byte-identical after the run.
+  values back and deletes the marker, so the file is byte-identical after the run (a
+  provisioned `settings.cfg` carries all three keys; a key a hand-made file lacked is
+  appended by the apply and stays).
 - **Crash safety.** Every run's STAGE first restores from any marker it finds, whether
   or not that run declares a size, so a run whose harness process was killed before
-  teardown is healed by the next run on the instance. The one gap: a run from an OLDER
-  branch without this code would fly at the leaked size until a newer run stages.
+  teardown is healed by the next run on the instance. A marker left in place (a restore
+  that failed) is never overwritten: a run that finds one flies at the current size with
+  a Warn, and its teardown retries the restore. Re-provisioning also deletes a leftover
+  marker, since SETTINGS rewrites the whole file. Teardown can run while KSP is still
+  alive after an exception on the harness side; KSP may then rewrite `settings.cfg` when
+  it exits, but the next run's zombie check refuses to start while any KSP is live, and
+  its stage heal runs after that. The one gap: a run from an OLDER branch without this
+  code would fly at the leaked size until a newer run stages.
 - **The desktop has to hold the window.** The run clamps each axis to the primary
   monitor's work area minus the window frame, read DPI-aware, and logs a Warn naming the
   size it used. The dev machine's desktop (2560x1440, work area 2560x1392, frame 16x39)

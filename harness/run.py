@@ -892,7 +892,10 @@ def restore_ksp_screen_settings(instance_dir: str, logger: HarnessLogger, phase:
 
     Never raises, for the same reason reset_settings_sidecar never does: the
     teardown call runs inside run_attempt's finally. A failed restore keeps the
-    marker, so the next run's stage retries it.
+    marker, so the next run's stage retries it (and refuses to apply a size over
+    it). The file is byte-identical to before the run when it carried all three
+    keys, as a provisioned settings.cfg does; a key the file lacked was appended
+    by the apply and stays, at the value that run wrote.
     """
     marker = ksp_screen_restore_marker_path(instance_dir)
     if not os.path.isfile(marker):
@@ -934,9 +937,23 @@ def apply_ksp_screen_settings(spec: Dict, instance_dir: str, runtime: Runtime,
     declares none or the patch could not be made (a WARNED degradation: the run
     still flies, at the instance's own size, and every GUI dump records the
     screen it was taken at). The marker is written BEFORE the patch; the matching
-    restore is restore_ksp_screen_settings at teardown."""
+    restore is restore_ksp_screen_settings at teardown.
+
+    An EXISTING marker refuses the apply. It holds the only record of the
+    instance's real values (a restore that failed keeps it), and the file it
+    describes is still patched, so reading "original" values from that file and
+    writing a new marker would record the patched size as the original: teardown
+    would then restore the census size and delete the marker, leaving the shared
+    instance at that size for every later lane."""
     requested = hlib.spec_screen_resolution(spec)
     if requested is None:
+        return None
+    marker = ksp_screen_restore_marker_path(instance_dir)
+    if os.path.exists(marker):
+        logger.warn("Settings", "screen-resolution apply SKIPPED: a restore marker is still "
+                                "present at %s (a restore failed); this run keeps the current "
+                                "window size and the marker is left for teardown to restore"
+                    % marker)
         return None
     probe = runtime.desktop_work_area()
     work, frame = probe if probe else (None, (0, 0))
@@ -947,7 +964,6 @@ def apply_ksp_screen_settings(spec: Dict, instance_dir: str, runtime: Runtime,
                     % (requested[0], requested[1], work[0], work[1], frame[0], frame[1],
                        size[0], size[1]))
     settings = ksp_settings_path(instance_dir)
-    marker = ksp_screen_restore_marker_path(instance_dir)
     try:
         with open(settings, "r", encoding="utf-8", newline="") as fh:
             current = fh.read()
@@ -1266,8 +1282,11 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # (its teardown never ran), whatever THIS spec declares, then apply this
     # spec's `[runtime] screenResolution` if it has one. The matching teardown
     # restore lives in run_attempt's finally.
-    restore_ksp_screen_settings(instance_dir, logger, "stage")
-    apply_ksp_screen_settings(spec, instance_dir, runtime, logger)
+    if restore_ksp_screen_settings(instance_dir, logger, "stage"):
+        apply_ksp_screen_settings(spec, instance_dir, runtime, logger)
+    elif hlib.spec_screen_resolution(spec) is not None:
+        logger.warn("Settings", "screen-resolution apply SKIPPED: the stage restore failed, "
+                                "so this run keeps the current window size")
 
     logger.info("Stage", "stage save=%s template=%s inject=%s craft=%d "
                          "results-rotated=%s manifest-rotated=%s"

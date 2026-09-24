@@ -6483,7 +6483,7 @@ KSP_SCREEN_SETTING_KEYS: Tuple[str, ...] = (
     "SCREEN_RESOLUTION_WIDTH", "SCREEN_RESOLUTION_HEIGHT", "FULLSCREEN")
 
 # The restore marker, next to the instance-root settings.cfg.
-KSP_SCREEN_RESTORE_MARKER = "settings.cfg.harness-screen-restore"
+KSP_SCREEN_RESTORE_MARKER = provlib.KSP_SCREEN_RESTORE_MARKER
 
 _SCREEN_RES_RE = re.compile(r"^([1-9][0-9]{2,4})x([1-9][0-9]{2,4})$")
 
@@ -6536,7 +6536,8 @@ def fit_screen_resolution(requested: Tuple[int, int],
     Returns ((width, height), clamped). An unknown work area (None, a non-Windows
     host, a failed probe) leaves the request unchanged: the clamp is a courtesy,
     and a window a little larger than the work area still renders. Each axis is
-    clamped on its own (1920x1080 on a 1080p desktop becomes about 1920x1017),
+    clamped on its own (1920x1080 on a 1080p desktop with a taskbar becomes about
+    1904x1017 once the frame is added),
     never scaled by aspect, because the census wants the widest frame it can get.
     """
     w, h = int(requested[0]), int(requested[1])
@@ -6590,8 +6591,10 @@ def rewrite_ksp_settings_values(text: str, values: Dict[str, str]) -> str:
     """Return `text` with the first top-level line of each key in `values` set to
     the new value. Everything else - other keys, indentation, the spacing around
     `=`, CRLF vs LF line endings - is preserved byte for byte, so restoring the
-    original values yields the original file. A key with no line is appended at
-    the end, in the file's own newline convention."""
+    original values yields the original file whenever it carried every key. A
+    key with no line is appended at the end, in the file's own newline
+    convention; the restore marker does not record it, so it stays after the
+    restore (a provisioned settings.cfg carries all three screen keys)."""
     lines = text.split("\n")
     done: Set[str] = set()
     for i, m in list(_ksp_settings_top_level_lines(lines)):

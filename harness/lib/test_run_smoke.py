@@ -6174,6 +6174,60 @@ class ScreenResolutionStagingSmokeTests(unittest.TestCase):
         self.assertIn("does not fit the desktop work area", self._log())
         self.assertEqual(self.CFG, self._settings_bytes())
 
+    def _leave_killed_run_state(self):
+        # Patched file plus the marker holding the original values: what a run
+        # killed before teardown leaves.
+        with open(self.settings, "wb") as fh:
+            fh.write(self.CFG.replace(b"1280", b"1920").replace(b"720", b"1080"))
+        with open(self.marker, "w", encoding="utf-8") as fh:
+            fh.write(hlib.render_screen_restore_marker(
+                hlib.read_ksp_settings_values(self.CFG.decode("ascii"))))
+
+    def test_a_failed_stage_restore_never_loses_the_original_values(self):
+        """The forced-failure sequence: a killed run's marker, then a CENSUS run
+        whose stage restore cannot write settings.cfg. The apply must not read the
+        still-patched file as "original" and overwrite the marker - that would make
+        teardown restore the census size and delete the only record of the real
+        one, leaving the shared instance at 1080p for every later lane."""
+        self._leave_killed_run_state()
+        real_write = run._write_text_atomic
+        failures = []
+
+        def flaky_write(path, text):
+            if path == self.settings and not failures:
+                failures.append(path)
+                raise OSError("forced write failure")
+            return real_write(path, text)
+
+        run._write_text_atomic = flaky_write
+        try:
+            result, rt = self._run("1920x1080", work=((2560, 1392), (16, 39)))
+        finally:
+            run._write_text_atomic = real_write
+        self.assertEqual([self.settings], failures, "the forced failure did not fire")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertTrue(rt.marker_at_launch, "the marker must survive the failed restore")
+        log = self._log()
+        self.assertIn("screen-resolution restore FAILED phase=stage", log)
+        self.assertIn("screen-resolution apply SKIPPED", log)
+        # Teardown restored the REAL original, not the census size.
+        self.assertEqual(self.CFG, self._settings_bytes())
+        self.assertFalse(os.path.exists(self.marker))
+
+    def test_apply_refuses_to_overwrite_an_existing_marker(self):
+        self._leave_killed_run_state()
+        with open(self.marker, "rb") as fh:
+            marker_before = fh.read()
+        patched = self._settings_bytes()
+        spec = {"runtime": {"budgetSeconds": 60, "screenResolution": "1920x1080"}}
+        size = run.apply_ksp_screen_settings(spec, self.instance,
+                                             self._Runtime("pass"), self.logger)
+        self.assertIsNone(size)
+        with open(self.marker, "rb") as fh:
+            self.assertEqual(marker_before, fh.read())
+        self.assertEqual(patched, self._settings_bytes())
+        self.assertIn("apply SKIPPED: a restore marker is still present", self._log())
+
     def test_a_missing_settings_file_degrades_to_a_warning(self):
         os.remove(self.settings)
         result, rt = self._run("1920x1080")
