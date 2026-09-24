@@ -2407,6 +2407,46 @@ class SupersededByKeyTests(unittest.TestCase):
         self.assertEqual(gmi.build_index(model)["supersededCaptureCount"], 0)
 
 
+class RemovedTabTests(unittest.TestCase):
+    """A tab the product removed stops being drawn on captures taken after it.
+
+    A grid records only its selected item, so a capture's tab bar is assembled from
+    every token its window has shown. The Career window lost its Facilities and
+    Milestones tabs on 2026-09-24; without this pass the new two-tab captures drew
+    all four.
+    """
+
+    @staticmethod
+    def cap(utc, tab, **kw):
+        c = {"window": "career", "tab": tab, "capturedUtc": utc,
+             "tabNames": [{"token": t, "index": i, "name": t.title()}
+                          for i, t in enumerate(("contracts", "strategies",
+                                                 "facilities", "milestones"))]}
+        c.update(kw)
+        return c
+
+    def test_a_tab_with_no_live_capture_leaves_newer_bars_only(self):
+        old_fac = self.cap("2026-09-23T10:00:00Z", "facilities",
+                           retired={"spec": "GUI-5", "since": "x"})
+        old_mil = self.cap("2026-09-23T10:00:00Z", "milestones", supersededBy="old_mil2")
+        old_con = self.cap("2026-09-23T10:00:00Z", "contracts", supersededBy="new")
+        new_con = self.cap("2026-09-24T10:00:00Z", "contracts")
+        removed = gmi.prune_removed_tabs([old_fac, old_mil, old_con, new_con])
+        self.assertEqual(sorted(removed["career"]), ["facilities", "milestones"])
+        self.assertEqual([t["token"] for t in new_con["tabNames"]],
+                         ["contracts", "strategies"])
+        # the old captures were drawn while the tabs existed and keep them
+        self.assertEqual(len(old_fac["tabNames"]), 4)
+        self.assertEqual(len(old_con["tabNames"]), 4)
+
+    def test_a_tab_with_a_live_capture_stays(self):
+        fac = self.cap("2026-09-23T10:00:00Z", "facilities")
+        new_con = self.cap("2026-09-24T10:00:00Z", "contracts")
+        removed = gmi.prune_removed_tabs([fac, new_con])
+        self.assertNotIn("facilities", removed.get("career", []))
+        self.assertIn("facilities", [t["token"] for t in new_con["tabNames"]])
+
+
 class RetiredStateTests(unittest.TestCase):
     """A state its own lane no longer produces is retired.
 
