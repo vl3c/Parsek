@@ -2360,16 +2360,17 @@ UIACTION_EXPAND_PREFIXES: Dict[str, Tuple[str, ...]] = {
     "missions": ("group", "chain", "vessel", "leg", "digest"),
     "logistics": ("row",),
     "kerbals": ("roster", "flights"),
-    # The Career window's three `Pending in timeline` folds, under ONE prefix because the
+    # The Career window's two `Pending in timeline` folds, under ONE prefix because the
     # window keeps ONE fold collection. The wire VALUES are the TAB the fold belongs to
-    # (`pending:contracts` / `pending:strategies` / `pending:milestones`), not the dotted
+    # (`pending:contracts` / `pending:strategies`), not the dotted
     # production key (`Contracts.Pending`) the collection is keyed by: a spec author
     # already knows the tab, and the dotted form is an implementation detail of that
     # window. INVERTED on the production side (membership means FOLDED), and the window's
     # own setter does the flip - the wire speaks "expanded" on every row of this map. The
-    # folds only DRAW under the split layout, which needs a career whose recorded timeline
-    # adds rows after now, so on any other save the op answers OK over a fold nothing is
-    # drawing (the residue recorded for op=expand generally).
+    # folds only DRAW when a tab has pending rows, which needs a career whose recorded
+    # timeline accepts / activates something after now, so on any other save the op
+    # answers OK over a fold nothing is drawing (the residue recorded for op=expand
+    # generally).
     "career": ("pending",),
     "testrunner": ("category",),
     "testrunnerglobal": ("category",),
@@ -2582,7 +2583,11 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
     "timeline": ("overview", "details", "rewindff", "refly",
                  "contracts", "strategies", "facilities", "milestones", "tech"),
     "kerbals": ("roster", "outcomes"),
-    "career": ("contracts", "strategies", "facilities", "milestones"),
+    # The Career window's two tabs. Its Facilities and Milestones tabs were removed
+    # 2026-09-24 (the Timeline's Career view owns that history, under the Timeline's own
+    # `facilities` / `milestones` tokens above), so a `window=career` step naming either
+    # is a pre-launch error rather than a boot spent learning `tab-unknown`.
+    "career": ("contracts", "strategies"),
 }
 
 # The ops that REQUIRE a `window=` arg, mirroring TestCommandUiAction.OpNeedsWindow -

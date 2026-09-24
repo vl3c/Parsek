@@ -958,8 +958,9 @@ namespace Parsek
             // never two gaps in a row (design 7.1).
             bool showKerbalsButton =
                 UiSurfaceVisibility.IsVisible(UiSurface.MainButtonKerbals, complexity);
-            // Career is additionally hidden in Sandbox (and the mission modes): nothing
-            // career-shaped is tracked there, so every tab would be an empty sentence.
+            // Career is additionally hidden outside Career mode: contracts and strategies
+            // exist nowhere else, and Science mode's dated history (milestones, facilities,
+            // tech) is the Timeline's Career view.
             bool showCareerButton =
                 UiSurfaceVisibility.IsVisible(UiSurface.MainButtonCareer, complexity)
                 && CareerStateWindowUI.ModeOffersLauncher(CurrentGameModeOrCareer());
@@ -983,7 +984,7 @@ namespace Parsek
             {
                 if (GUILayout.Button(new GUIContent(
                     GetCareerMainButtonLabel(),
-                    "Contracts, strategies and buildings along the timeline.")))
+                    "Contracts and strategies you hold along the timeline.")))
                 {
                     careerStateUI.IsOpen = !careerStateUI.IsOpen;
                     ParsekLog.Verbose("UI", $"Career window toggled: {(careerStateUI.IsOpen ? "open" : "closed")}");

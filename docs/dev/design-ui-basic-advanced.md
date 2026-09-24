@@ -84,7 +84,7 @@ The launcher, opened by the stock ApplicationLauncher toolbar button (`ParsekFli
 | Supply Route candidate banner | when `RouteRunPrompt.HasPendingPrompt` | `ParsekUI.cs:248` |
 | `Logistics` | always, red tint when broken, cyan when prompt pending | `ParsekUI.cs:314` |
 | `Kerbals` | always | `ParsekUI.cs:329` |
-| `Career` | Career and Science games only (hidden in Sandbox and the mission modes, which track no career state; `CareerStateWindowUI.ModeOffersLauncher`, 2026-09-22) | `ParsekUI.cs:335` |
+| `Career` | Career games only (hidden in Science, Sandbox and the mission modes, which have no contracts or strategies; `CareerStateWindowUI.ModeOffersLauncher`, Career-only since 2026-09-24, Career + Science 2026-09-22 to 2026-09-24) | `ParsekUI.cs:335` |
 | `Gloops Flight Recorder` | InFlight only | `ParsekUI.cs:346` |
 | `Settings` | always | `ParsekUI.cs:356` |
 | Version footer + `Close` | always | `ParsekUI.cs:371` |
@@ -98,21 +98,21 @@ Interactive-control counts are mechanical (`Button(` and `Toggle(` occurrences) 
 | Recordings table | `UI/RecordingsTableUI.cs` | 5739 | 62 | 13 | Heavy control surface |
 | Missions tab (hosted in the above) | `UI/MissionsWindowUI.cs` | 2581 | 17 | 5 | Control surface |
 | Logistics | `UI/LogisticsWindowUI.cs` | 3820 | - | - | Route management |
-| Career State | `UI/CareerStateWindowUI.cs` | 1924 | 2 | 2 | Read-only reference |
+| Career State | `UI/CareerStateWindowUI.cs` | 2092 | 4 | 1 | Read-only reference |
 | Timeline | `UI/TimelineWindowUI.cs` | 1591 | 29 | 10 | Actionable (rewind, warp) |
 | Kerbals | `UI/KerbalsWindowUI.cs` | 1306 | 8 | 0 | Read-only reference |
 | Settings | `UI/SettingsWindowUI.cs` | 591 | - | - | Configuration |
 | Real Spawn Control | `UI/SpawnControlUI.cs` | 366 | - | - | InFlight utility |
 | Gloops Flight Recorder | `UI/GloopsRecorderUI.cs` | 330 | - | - | Manual ghost-only recorder |
 
-The Career window's two `Button(` hits are both `Close` (`CareerStateWindowUI.cs:1264`, `:1323`; its tab bar is a `Toolbar`, not counted); the Kerbals window's seven are `Close` (`KerbalsWindowUI.cs:636`), the plain-kerbal bucket fold (`:674`), the Roster's Last flight cell (`:735`), the per-kerbal Flights fold (`:814`) and the three cells of one Flights row (`:835`, `:839`, `:845`); the Last flight cell and the Flights cells cross-link to a Timeline scroll (UI state only). Re-measured against the 2026-09-22 round-2 rework; the pre-rebuild reading was four at `:326` / `:399` / `:565` / `:577`. Neither window mutates game or Parsek state. Both are pure reporting surfaces.
+The Career window's four `Button(` hits are two `Close` and the two row name cells (a contract or strategy name is a label-styled button that scrolls the Timeline's Career view to it, UI state only; its tab bar is a `Toolbar`, not counted, and its one `Toggle(` is the in-table pending fold; re-measured 2026-09-24); the Kerbals window's seven are `Close` (`KerbalsWindowUI.cs:636`), the plain-kerbal bucket fold (`:674`), the Roster's Last flight cell (`:735`), the per-kerbal Flights fold (`:814`) and the three cells of one Flights row (`:835`, `:839`, `:845`); the Last flight cell and the Flights cells cross-link to a Timeline scroll (UI state only). Re-measured against the 2026-09-22 round-2 rework; the pre-rebuild reading was four at `:326` / `:399` / `:565` / `:577`. Neither window mutates game or Parsek state. Both are pure reporting surfaces.
 
 ### 3.3 Tabs inside windows
 
 | Host window | Tabs | Source |
 |-------------|------|--------|
 | Recordings | `Recordings`, `Missions` | `RecordingsTableUI.cs:127` |
-| Career State | `Contracts`, `Strategies`, `Facilities`, `Milestones` | `CareerStateWindowUI.cs:87` |
+| Career State | `Contracts`, `Strategies` (Facilities and Milestones removed 2026-09-24; that history is the Timeline's Career view) | `CareerStateWindowUI.TabLabels` |
 | Kerbals | `Roster`, `Flights` (seam tokens still `roster` / `outcomes`) | `KerbalsWindowUI.cs:196` |
 
 ### 3.4 Settings window sections
@@ -157,7 +157,7 @@ The test applied to each surface: **can a player complete the core loop (fly -> 
 | Settings | **Keep** | Hosts the mode toggle itself. Must always be reachable. |
 | Missions tab | **Keep** | The player-facing mission abstraction: name, Watch, Delete, Archive, Log, TTL, Warp to..., Rewind / Forward. Sufficient for all routine recording management. Its manual-loop AUTHORING controls (the `Loop` toggle, the loop-period cell, the include checkboxes, and since 2026-08-20 the `Clone` button) are the one carve-out: hidden in Basic per section 4.5. |
 | Recordings tab | **Hide** | The raw per-recording table (62 buttons, 13 toggles). Almost everything a normal player needs is expressed at the Mission level; the one known exception is retroactive per-recording playback-disable, accepted as a v1 limitation in section 4.3. This is the single largest complexity reduction available. |
-| Career window | **Hide** | 2 buttons, 3 toggles, zero mutations. Reports contracts / strategies / facilities / milestones that stock screens already show, with a Timeline-end column and a Pending-in-timeline group. Pure power-user reference. Independently of the mode, its launcher is hidden in Sandbox (every tab would be empty there). |
+| Career window | **Hide** | 4 buttons (two are Timeline cross-links), 1 toggle, zero mutations. The state view of contracts and strategies: slots now, a Timeline-end column and an in-table Pending-in-timeline fold. Pure power-user reference; the dated history behind it is the Timeline's Career view, which Basic keeps. Independently of the mode, its launcher shows only in Career games (Science and Sandbox have no contracts or strategies). |
 | Kerbals window | **Keep** (was Hide; owner re-ruling 2026-09-22) | Zero mutations (every control is a fold or a Timeline cross-link). Reports roster state and per-kerbal mission outcomes. The comprehension gap that decided it: the CrewDialogFilter patch silently removes reserved kerbals from stock crew assignment, and this window is the only surface explaining why - hiding it left a Basic player with a missing kerbal and no explanation. Read-only, so showing it costs nothing a Basic player could break. Same window in both modes; no Basic-specific variant. |
 | Gloops Flight Recorder | **Hide** | Manual ghost-only recording. An explicitly opt-in power feature; the automatic recorder covers the normal path. The mode switch is refused while a Gloops recording is in progress (section 7.2), so hiding the window can never strand a running manual recording. |
 | Real Spawn Control | **Hide** | Proximity spawning of nearby recorded vessels. Advanced staging tool, already conditional (InFlight, disabled at zero candidates). Residual loss: it is also the only surface listing when a still-playing ghost becomes a real craft (`SelectiveSpawnUI.cs:35-42`); spawn-at-end itself stays automatic, so no capability is lost, only the countdown/warp convenience. |

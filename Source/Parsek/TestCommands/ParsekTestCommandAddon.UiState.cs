@@ -272,10 +272,11 @@ namespace Parsek.TestCommands
                 // window's SetSectionFolded does the flip, and the wire keeps speaking
                 // "expanded" like every other row here.
                 //
-                // BOTH FOLDS ONLY DRAW UNDER THE DIVERGENCE LAYOUT, which needs a career
-                // whose timeline ends later than now. On any other save this op answers OK
-                // with a real changed count over a fold nothing is drawing - the residue
-                // recorded for op=expand generally, and a lane rule rather than a gate.
+                // BOTH FOLDS ONLY DRAW WHEN THE TAB HAS PENDING ROWS, which needs a career
+                // whose recorded timeline accepts / activates something after now. On any
+                // other save this op answers OK with a real changed count over a fold
+                // nothing is drawing - the residue recorded for op=expand generally, and a
+                // lane rule rather than a gate.
                 CareerStateWindowUI cw = ui.GetCareerStateUI();
                 sets.Add(new UiExpandSet
                 {

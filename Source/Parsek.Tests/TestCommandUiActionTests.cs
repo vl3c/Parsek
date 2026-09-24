@@ -249,8 +249,9 @@ namespace Parsek.Tests
                                  "contracts", "strategies", "facilities", "milestones", "tech" },
                 TabsOf("timeline"));
             Assert.Equal(new[] { "roster", "outcomes" }, TabsOf("kerbals"));
-            Assert.Equal(new[] { "contracts", "strategies", "facilities", "milestones" },
-                TabsOf("career"));
+            // Career keeps two tabs; its Facilities and Milestones tabs were removed (the
+            // Timeline's Career view owns that history), and their tokens went with them.
+            Assert.Equal(new[] { "contracts", "strategies" }, TabsOf("career"));
         }
 
         [Fact]
@@ -287,10 +288,12 @@ namespace Parsek.Tests
         {
             TestCommandUiAction.TryResolveWindow("career", out UiWindowSpec career, out _);
             Assert.True(TestCommandUiAction.TryResolveTab(
-                career, "facilities", out int index, out string reason));
-            Assert.Equal(2, index);
+                career, "strategies", out int index, out string reason));
+            Assert.Equal(CareerStateWindowUI.TabStrategies, index);
             Assert.Null(reason);
-            Assert.Equal("facilities", TestCommandUiAction.TabTokenAt(career, 2));
+            Assert.Equal("strategies", TestCommandUiAction.TabTokenAt(career, 1));
+            // A removed tab is an unknown one, not a silently different index.
+            Assert.False(TestCommandUiAction.TryResolveTab(career, "facilities", out _, out _));
         }
 
         [Fact]
@@ -736,11 +739,11 @@ namespace Parsek.Tests
         [Fact]
         public void TabPayload_CarriesBothTheTokenAndTheIndex()
         {
-            var p = TestCommandUiAction.BuildTabPayload("career", "milestones", 3, false);
+            var p = TestCommandUiAction.BuildTabPayload("timeline", "milestones", 7, false);
             Assert.Equal(new[] { "op", "window", "tab", "index", "already" },
                 p.Select(kv => kv.Key).ToArray());
             Assert.Equal("milestones", Value(p, "tab"));
-            Assert.Equal("3", Value(p, "index"));
+            Assert.Equal("7", Value(p, "index"));
         }
 
         [Fact]
@@ -831,7 +834,7 @@ namespace Parsek.Tests
             };
             var p = TestCommandUiAction.BuildDescribePayload("FLIGHT", true, rows);
             Assert.Equal("280,100,980,560", Value(p, "w0rect"));
-            Assert.Equal("contracts,strategies,facilities,milestones", Value(p, "w0tabs"));
+            Assert.Equal("contracts,strategies", Value(p, "w0tabs"));
             Assert.Equal("strategies", Value(p, "w0tab"));
             Assert.Equal("basic", Value(p, "complexity"));
         }

@@ -1206,6 +1206,28 @@ _(unreleased — entries accumulate here per commit)_
   still physically exists in your save (for example because you never left it) is kept as it
   is. Rewinding to before the end brings the rule back into play the next time the clock
   passes it.
+- **The Career window is now the state view of your contracts and strategies, and links
+  into the Timeline for their history.** It keeps two tabs, Contracts and Strategies: the
+  two slot-limited things whose recorded future has consequences. The Facilities and
+  Milestones tabs are gone. A building's level is shown at the Space Center, and dated
+  facility and milestone history (including repeat world records, which the old tab left
+  out) is in the Timeline's Career view. Each tab now opens with ONE heading line,
+  `Active now: 2 of 2 slots`, or `Active now: 4 (no slot limit)` at stock's unlimited level (hover it for the Mission Control or Administration level
+  behind the limit), then one column header and the rows. The contracts or strategies the
+  recorded timeline adds later sit under a fold row inside the same table,
+  `Pending in timeline (1) - 3 of 3 slots at timeline end`, so both groups share one set of
+  columns. The old title bar and group label (`Mission Control L1 - slots 2/2 now, ...` over
+  `Active (2)`) are gone. A tab with nothing in it is one grey line (`No active contracts.`).
+  Clicking a contract or strategy name opens the Timeline on that category, scrolled to it.
+  The `Career` launcher now shows only in Career mode: Science mode has no contracts or
+  strategies, and its milestone, facility and tech history is in the Timeline's Career
+  view. The window is still Advanced-only. The GUI census `op=tab window=career` vocabulary
+  is now `contracts` / `strategies` (`op=expand key=pending:` takes the same two values);
+  `GUI-1`, `GUI-5`, `GUI-8`, `GUI-14` and `GUI-15` drop their Facilities and Milestones
+  captures (GUI-14 photographs its facility upgrade in the Timeline's Facilities view
+  instead, GUI-5 adds the Timeline's Milestones view), and GUI-15 photographs the pending
+  fold over the gallery's divergent view model. The parts of the next entry about the
+  Facilities and Milestones tabs and the Science-mode tabs are superseded by this one.
 - **The Career window shows dates, says what the recorded timeline does to each row, and
   only draws the tabs a game mode has.** Every Universal Time cell (banner, Accepted,
   Deadline, Activated, Credited) is now the compact KSP date the Kerbals and Timeline windows

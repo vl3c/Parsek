@@ -48,10 +48,9 @@ namespace Parsek.Tests
         private static string FakeDate(double ut)
             => "D" + ut.ToString("F0", CultureInfo.InvariantCulture);
 
-        private static (ContractsModule, StrategiesModule, FacilitiesModule, MilestonesModule) Modules()
+        private static (ContractsModule, StrategiesModule) Modules()
         {
-            return (new ContractsModule(), new StrategiesModule(),
-                    new FacilitiesModule(), new MilestonesModule());
+            return (new ContractsModule(), new StrategiesModule());
         }
 
         private static CareerStateWindowUI.CareerStateViewModel CachedVm(
@@ -141,43 +140,6 @@ namespace Parsek.Tests
             };
         }
 
-        private static GameAction Destroy(string facilityId, double ut)
-        {
-            return new GameAction
-            {
-                Type = GameActionType.FacilityDestruction,
-                UT = ut,
-                FacilityId = facilityId,
-                Effective = true
-            };
-        }
-
-        private static GameAction Repair(string facilityId, double ut)
-        {
-            return new GameAction
-            {
-                Type = GameActionType.FacilityRepair,
-                UT = ut,
-                FacilityId = facilityId,
-                Effective = true
-            };
-        }
-
-        private static GameAction Milestone(string id, double ut, bool effective = true,
-            float funds = 0f, float rep = 0f, float sci = 0f)
-        {
-            return new GameAction
-            {
-                Type = GameActionType.MilestoneAchievement,
-                UT = ut,
-                MilestoneId = id,
-                Effective = effective,
-                MilestoneFundsAwarded = funds,
-                MilestoneRepAwarded = rep,
-                MilestoneScienceAwarded = sci
-            };
-        }
-
         // ──────────────────────────────────────────────────────────────────
         // §8.1 Build() coverage
         // ──────────────────────────────────────────────────────────────────
@@ -187,18 +149,17 @@ namespace Parsek.Tests
         {
             // Regression: this fails if the walk throws on empty input or populates
             // per-tab collections from thin air.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
 
             var vm = CareerStateWindowUI.Build(new List<GameAction>(), 0.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Empty(vm.Contracts.CurrentRows);
             Assert.Empty(vm.Contracts.ProjectedRows);
             Assert.Empty(vm.Strategies.CurrentRows);
             Assert.Empty(vm.Strategies.ProjectedRows);
-            Assert.Empty(vm.Milestones.Rows);
-            // Facilities tab still emits the 9-row default inventory.
-            Assert.Equal(9, vm.Facilities.Rows.Count);
+            Assert.Empty(vm.Contracts.PendingRows);
+            Assert.Empty(vm.Strategies.PendingRows);
             Assert.True(double.IsPositiveInfinity(vm.NextRelevantActionUT));
             Assert.False(vm.HasDivergence);
         }
@@ -208,14 +169,14 @@ namespace Parsek.Tests
         {
             // Regression: this fails if the walk double-counts terminal state or
             // incorrectly flags divergence when current and projected match.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-1", ut: 100.0, title: "Explore Mun")
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Single(vm.Contracts.CurrentRows);
             Assert.Single(vm.Contracts.ProjectedRows);
@@ -229,14 +190,14 @@ namespace Parsek.Tests
         {
             // Regression: this fails if the UT filter is off-by-one or if
             // IsPendingAccept is mis-set.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-future", ut: 300.0, title: "Rescue Kerbal")
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Empty(vm.Contracts.CurrentRows);
             Assert.Single(vm.Contracts.ProjectedRows);
@@ -250,7 +211,7 @@ namespace Parsek.Tests
         {
             // Regression: this fails if the walk drops pending-complete contracts
             // from the current snapshot — accept should count now, completion only later.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-1", ut: 100.0, title: "Explore Mun"),
@@ -258,7 +219,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Single(vm.Contracts.CurrentRows);
             Assert.Empty(vm.Contracts.ProjectedRows);
@@ -271,7 +232,7 @@ namespace Parsek.Tests
             // Regression: without IsClosingByTimelineEnd, a contract active now but
             // completed before terminal UT would only disappear from ProjectedRows,
             // leaving the user with no on-screen indication it will wind down.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-closing", ut: 100.0, title: "Explore Mun"),
@@ -279,7 +240,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Single(vm.Contracts.CurrentRows);
             Assert.True(vm.Contracts.CurrentRows[0].IsClosingByTimelineEnd);
@@ -295,7 +256,7 @@ namespace Parsek.Tests
         [Fact]
         public void Build_Strategies_ClosingByTimelineEnd_FlaggedInCurrentRow()
         {
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Activate("strat-closing", ut: 100.0),
@@ -303,7 +264,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Single(vm.Strategies.CurrentRows);
             Assert.True(vm.Strategies.CurrentRows[0].IsClosingByTimelineEnd);
@@ -318,14 +279,14 @@ namespace Parsek.Tests
         {
             // Regression: this fails if Effective=false contract actions are still
             // written into the walk's active-set (mirrors ContractsModule.ProcessAction).
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-bad", ut: 100.0, title: "Ghost Contract", effective: false)
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Empty(vm.Contracts.CurrentRows);
             Assert.Empty(vm.Contracts.ProjectedRows);
@@ -336,7 +297,7 @@ namespace Parsek.Tests
         {
             // Regression: this fails if the activate/deactivate pairing logic is
             // inverted or if the current snapshot doesn't observe the activation.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Activate("Subsidy", ut: 100.0, commitment: 0.1f),
@@ -344,256 +305,12 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Single(vm.Strategies.CurrentRows);
             Assert.Empty(vm.Strategies.ProjectedRows);
             Assert.Equal(0.1f, vm.Strategies.CurrentRows[0].Commitment);
             Assert.True(vm.HasDivergence);
-        }
-
-        [Fact]
-        public void Build_Facilities_UpgradeSequence()
-        {
-            // Regression: this fails if last-write-wins semantics break (e.g., the walk
-            // keeps an earlier upgrade level once a later one is observed).
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Upgrade("LaunchPad", 2, ut: 100.0),
-                Upgrade("LaunchPad", 3, ut: 200.0)
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
-                Game.Modes.CAREER, c, s, f, m);
-
-            var pad = vm.Facilities.Rows.First(r => r.FacilityId == "LaunchPad");
-            Assert.Equal(2, pad.CurrentLevel);
-            Assert.Equal(3, pad.ProjectedLevel);
-            Assert.True(pad.HasUpcomingChange);
-        }
-
-        [Fact]
-        public void Build_Facilities_DestructionThenRepair()
-        {
-            // Regression: this fails if a repair the ledger carries after live UT does not
-            // clear Destroyed - the projected state should be intact even though stock
-            // says the building is down now.
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Repair("SpaceCenter/Runway/Facility/runway", ut: 200.0)
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate,
-                new[] { "SpaceCenter/Runway/Facility/runway" });
-
-            var runway = vm.Facilities.Rows.First(r => r.FacilityId == "Runway");
-            Assert.True(runway.CurrentDestroyed);
-            Assert.False(runway.ProjectedDestroyed);
-            Assert.True(runway.HasUpcomingChange);
-            Assert.Equal("repaired D200", runway.TimelineEndText);
-        }
-
-        [Fact]
-        public void Build_Facilities_RepairedAtKscReadsIntactNow()
-        {
-            // catches: the destroyed state NOW read from the ledger. A building repaired at
-            // the KSC reaches no ledger action, so the past FacilityDestruction stays the
-            // last word there; stock's live state (intact) must win, or the building reads
-            // destroyed forever.
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Destroy("SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tank", ut: 100.0),
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 500.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate, new string[0]);
-
-            var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
-            Assert.False(pad.CurrentDestroyed);
-            Assert.False(pad.ProjectedDestroyed);
-            Assert.False(pad.HasUpcomingChange);
-            Assert.Equal("L1", pad.LevelText);
-            Assert.Equal("", pad.TimelineEndText);
-            Assert.False(vm.HasDivergence);
-            Assert.Contains(logLines, l => l.Contains("[UI]")
-                && l.Contains("pastBuildingActionsIgnored=1"));
-
-            // Science mode: the same career draws no Facilities tab at all.
-            var sci = CareerStateWindowUI.Build(actions, liveUT: 500.0,
-                Game.Modes.SCIENCE_SANDBOX, c, s, f, m, FakeDate, new string[0]);
-            Assert.Equal(new[] { CareerStateWindowUI.TabMilestones },
-                CareerStateWindowUI.VisibleTabsFor(sci.Mode, sci.Facilities));
-        }
-
-        [Fact]
-        public void Build_Facilities_LiveDestroyedWithNoLedgerActionReadsDestroyed()
-        {
-            // catches: a destruction stock knows about but the ledger never saw (a crash
-            // into the pad with no recording committed) staying invisible.
-            var (c, s, f, m) = Modules();
-            var live = new[] { "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tank" };
-
-            var vm = CareerStateWindowUI.Build(new List<GameAction>(), liveUT: 500.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate, live);
-
-            var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
-            Assert.True(pad.CurrentDestroyed);
-            Assert.True(pad.ProjectedDestroyed);
-            Assert.False(pad.HasUpcomingChange);
-            Assert.Equal("L1 (destroyed)", pad.LevelText);
-
-            var sci = CareerStateWindowUI.Build(new List<GameAction>(), liveUT: 500.0,
-                Game.Modes.SCIENCE_SANDBOX, c, s, f, m, FakeDate, live);
-            Assert.Equal(
-                new[] { CareerStateWindowUI.TabFacilities, CareerStateWindowUI.TabMilestones },
-                CareerStateWindowUI.VisibleTabsFor(sci.Mode, sci.Facilities));
-            var sciPad = sci.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
-            Assert.Equal("destroyed", sciPad.LevelText);
-        }
-
-        [Fact]
-        public void Build_Facilities_NoLiveDataMeansNothingDestroyedNow()
-        {
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Destroy("SpaceCenter/Runway/Facility/runway", ut: 100.0),
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 500.0,
-                Game.Modes.CAREER, c, s, f, m);
-
-            Assert.DoesNotContain(vm.Facilities.Rows, r => r.CurrentDestroyed || r.ProjectedDestroyed);
-            Assert.Contains(logLines, l => l.Contains("liveDestroyedBuildings=unknown"));
-        }
-
-        [Fact]
-        public void Build_Facilities_FutureDestructionInScienceModeShowsTheTab()
-        {
-            // A committed flight that destroys a building after live UT: intact now, the
-            // Timeline-end cell says when, and Science mode draws the Facilities tab.
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Destroy("SpaceCenter/Runway/Facility/runway", ut: 900.0),
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 500.0,
-                Game.Modes.SCIENCE_SANDBOX, c, s, f, m, FakeDate, new string[0]);
-
-            var runway = vm.Facilities.Rows.Single(r => r.FacilityId == "Runway");
-            Assert.False(runway.CurrentDestroyed);
-            Assert.True(runway.ProjectedDestroyed);
-            Assert.Equal("intact", runway.LevelText);
-            Assert.Equal("destroyed D900", runway.TimelineEndText);
-            Assert.Contains(CareerStateWindowUI.TabFacilities,
-                CareerStateWindowUI.VisibleTabsFor(vm.Mode, vm.Facilities));
-        }
-
-        [Fact]
-        public void Build_Facilities_ChangeTimeIsTheFacilityTransitionNotTheLastBuilding()
-        {
-            // catches: DestroyedChangeUT overwritten by every destroy / repair of ANY of
-            // the facility's buildings, so "destroyed <date>" named the second building's
-            // fall instead of the moment the facility went down.
-            var (c, s, f, m) = Modules();
-            const string tank = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tank";
-            const string tower = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tower";
-            var down = new List<GameAction>
-            {
-                Destroy(tank, ut: 300.0),
-                Destroy(tower, ut: 400.0),
-            };
-            var vm = CareerStateWindowUI.Build(down, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate, new string[0]);
-            var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
-            Assert.Equal(300.0, pad.DestroyedChangeUT);
-            Assert.Equal("destroyed D300", pad.TimelineEndText);
-
-            // Repair: the facility is intact again only when its LAST building is.
-            var up = new List<GameAction>
-            {
-                Repair(tank, ut: 300.0),
-                Repair(tower, ut: 400.0),
-            };
-            vm = CareerStateWindowUI.Build(up, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate, new[] { tank, tower });
-            pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
-            Assert.True(pad.CurrentDestroyed);
-            Assert.False(pad.ProjectedDestroyed);
-            Assert.Equal("repaired D400", pad.TimelineEndText);
-
-            // Already down now: another building falling later is no change.
-            vm = CareerStateWindowUI.Build(
-                new List<GameAction> { Destroy(tower, ut: 400.0) }, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate, new[] { tank });
-            pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
-            Assert.False(pad.HasUpcomingChange);
-            Assert.Equal("", pad.TimelineEndText);
-        }
-
-        [Fact]
-        public void Build_Facilities_UnseenFacilityDefaults()
-        {
-            // Regression: this fails if the walk drops facilities that never appear
-            // in the action stream — the KSC inventory must stay stable at 9 rows.
-            var (c, s, f, m) = Modules();
-
-            var vm = CareerStateWindowUI.Build(new List<GameAction>(), 0.0,
-                Game.Modes.CAREER, c, s, f, m);
-
-            var astro = vm.Facilities.Rows.First(r => r.FacilityId == "AstronautComplex");
-            Assert.Equal(1, astro.CurrentLevel);
-            Assert.False(astro.CurrentDestroyed);
-            Assert.Equal(1, astro.ProjectedLevel);
-            Assert.False(astro.ProjectedDestroyed);
-        }
-
-        [Fact]
-        public void Build_Milestones_PendingCreditShowsInProjectedOnly()
-        {
-            // Regression: this fails if a future-UT milestone is credited into the
-            // "current" count or if IsPendingCredit isn't flipped on the row.
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Milestone("FirstOrbit", ut: 300.0, funds: 15000f)
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
-
-            Assert.Equal(0, vm.Milestones.CurrentCreditedCount);
-            Assert.Equal(1, vm.Milestones.ProjectedCreditedCount);
-            Assert.Single(vm.Milestones.Rows);
-            Assert.True(vm.Milestones.Rows[0].IsPendingCredit);
-            Assert.Equal(15000f, vm.Milestones.Rows[0].FundsAwarded);
-            Assert.True(vm.HasDivergence);
-        }
-
-        [Fact]
-        public void Build_Milestones_IneffectiveDuplicateSkipped()
-        {
-            // Regression: this fails if Effective=false duplicates still emit rows —
-            // design doc §4.3 requires only Effective actions mutate state.
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Milestone("FirstLaunch", ut: 100.0, effective: true, funds: 10000f),
-                // A FRESH id, so the AlreadyCredited arm below the Effective guard cannot
-                // catch it: only the Effective guard keeps the second row out.
-                Milestone("GhostMilestone", ut: 200.0, effective: false, funds: 500f)
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 500.0,
-                Game.Modes.CAREER, c, s, f, m);
-
-            Assert.Single(vm.Milestones.Rows);
-            Assert.Equal(100.0, vm.Milestones.Rows[0].CreditedUT);
         }
 
         [Fact]
@@ -605,7 +322,7 @@ namespace Parsek.Tests
             // contracts slots derive from MissionControl level; strategies slots derive from
             // Administration level. Upgrading Administration alone must NOT bump contract slots
             // and vice versa — an earlier Phase-1 revision had this crossed.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 // DIFFERENT levels, so a crossed key read changes both the echoed level
@@ -615,7 +332,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Equal(2, vm.Contracts.MissionControlLevel);
             Assert.Equal(2, vm.Contracts.ProjectedMissionControlLevel);
@@ -631,36 +348,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_FacilityUpgrade_ProductionSpaceCenterIdDisplaysOnStockRow()
-        {
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Upgrade("SpaceCenter/LaunchPad", 2, ut: 100.0)
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
-                Game.Modes.CAREER, c, s, f, m);
-
-            var pad = vm.Facilities.Rows.First(r => r.FacilityId == "LaunchPad");
-            Assert.Equal(2, pad.CurrentLevel);
-            Assert.Equal(2, pad.ProjectedLevel);
-        }
-
-        [Fact]
         public void Build_LiveUTEqualsActionUT_CountsAsApplied()
         {
             // Regression: design doc §4.3 calls for <=, not <. An action at the exact
             // live UT must be treated as already-applied. Fails if the comparison
             // mistakenly uses strict inequality.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-at-boundary", ut: 200.0, title: "Boundary Contract")
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Single(vm.Contracts.CurrentRows);
             Assert.False(vm.Contracts.CurrentRows[0].IsPendingAccept);
@@ -669,7 +369,7 @@ namespace Parsek.Tests
         [Fact]
         public void Build_NextRelevantActionUT_TracksFirstFutureProjectedAction()
         {
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-now", ut: 100.0, title: "Explore Mun"),
@@ -678,7 +378,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 123.4,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Equal(123.75, vm.NextRelevantActionUT);
         }
@@ -686,7 +386,7 @@ namespace Parsek.Tests
         [Fact]
         public void Build_NextRelevantActionUT_ScienceSandbox_IgnoresHiddenCareerActions()
         {
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-hidden", ut: 123.4, title: "Hidden Contract"),
@@ -694,9 +394,10 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 100.0,
-                Game.Modes.SCIENCE_SANDBOX, c, s, f, m);
+                Game.Modes.SCIENCE_SANDBOX, c, s);
 
-            Assert.Equal(150.0, vm.NextRelevantActionUT);
+            // Science draws no career rows at all, so no future action is relevant.
+            Assert.True(double.IsPositiveInfinity(vm.NextRelevantActionUT));
         }
 
         // ──────────────────────────────────────────────────────────────────
@@ -709,10 +410,10 @@ namespace Parsek.Tests
             // Regression: this fails if the walk accidentally rebuilds twice (e.g.
             // logs once for each of current/projected snapshots) — the "rebuilt VM"
             // marker must appear exactly once per Build() call.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
 
             CareerStateWindowUI.Build(new List<GameAction>(), 0.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             int matches = logLines.Count(l =>
                 l.Contains("[UI]") && l.Contains("CareerStateWindow: rebuilt VM"));
@@ -725,14 +426,14 @@ namespace Parsek.Tests
             // Regression: guards against a silent-computed-never-logged bug — if the
             // divergence flag is set in the VM but never logged, diagnostics lose the
             // "pending actions present" signal.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-pending", ut: 300.0, title: "Future")
             };
 
             CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Contains(logLines, l =>
                 l.Contains("CareerStateWindow: rebuilt VM")
@@ -746,14 +447,14 @@ namespace Parsek.Tests
             // null-returning lookup — the fallback branch must emit a Verbose line
             // with the id so debugging is traceable.
             CareerStateWindowUI.ContractTitleLookupForTesting = _ => null;
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-orphan", ut: 100.0, title: null)
             };
 
             CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[UI]")
@@ -770,74 +471,44 @@ namespace Parsek.Tests
         {
             // Regression: E1 — Sandbox mode must show empty tabs regardless of whether
             // the ledger has career actions. Fails if the walk still populates rows.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-1", ut: 100.0, title: "Career Contract"),
                 Activate("Strat", ut: 100.0),
-                Upgrade("LaunchPad", 2, ut: 100.0),
-                Milestone("FirstLaunch", ut: 100.0, funds: 10000f)
+                Upgrade("LaunchPad", 2, ut: 100.0)
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 500.0,
-                Game.Modes.SANDBOX, c, s, f, m);
+                Game.Modes.SANDBOX, c, s);
 
             Assert.Empty(vm.Contracts.CurrentRows);
             Assert.Empty(vm.Contracts.ProjectedRows);
             Assert.Empty(vm.Strategies.CurrentRows);
             Assert.Empty(vm.Strategies.ProjectedRows);
-            Assert.Empty(vm.Facilities.Rows);
-            Assert.Empty(vm.Milestones.Rows);
             Assert.Equal(Game.Modes.SANDBOX, vm.Mode);
         }
 
         [Fact]
         public void Build_Mode_Science_HidesContractsAndStrategies()
         {
-            // Regression: E2 — Science mode must hide Contracts and Strategies but keep
-            // Facilities and Milestones populated. Fails if science-mode gating is missed.
-            var (c, s, f, m) = Modules();
+            // Regression: E2 - Science mode has no contracts or strategies, so both tabs
+            // stay empty whatever the ledger holds, and nothing diverges.
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-1", ut: 100.0, title: "Should Be Hidden"),
                 Activate("Strat", ut: 100.0),
-                Upgrade("LaunchPad", 2, ut: 100.0),
-                Milestone("FirstLaunch", ut: 100.0)
+                Upgrade("MissionControl", 2, ut: 600.0)
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 500.0,
-                Game.Modes.SCIENCE_SANDBOX, c, s, f, m);
+                Game.Modes.SCIENCE_SANDBOX, c, s);
 
             Assert.Empty(vm.Contracts.CurrentRows);
             Assert.Empty(vm.Strategies.CurrentRows);
-            // Facilities and Milestones still render.
-            Assert.Equal(9, vm.Facilities.Rows.Count);
-            Assert.Single(vm.Milestones.Rows);
-        }
-
-        [Fact]
-        public void Build_Facilities_EmptyLedger_AllNineAtLevel1()
-        {
-            // Regression: E3 strengthened — an empty ledger must produce the nine
-            // stock facilities in FACILITY_DISPLAY_ORDER at L1 not-destroyed so the
-            // fresh-career view isn't blank.
-            var (c, s, f, m) = Modules();
-
-            var vm = CareerStateWindowUI.Build(new List<GameAction>(), 0.0,
-                Game.Modes.CAREER, c, s, f, m);
-
-            Assert.Equal(9, vm.Facilities.Rows.Count);
-            Assert.Equal(new[]
-            {
-                "VehicleAssemblyBuilding", "SpaceplaneHangar", "LaunchPad", "Runway",
-                "Administration", "MissionControl", "TrackingStation",
-                "ResearchAndDevelopment", "AstronautComplex"
-            }, vm.Facilities.Rows.Select(r => r.FacilityId).ToArray());
-            Assert.All(vm.Facilities.Rows, r =>
-            {
-                Assert.Equal(1, r.CurrentLevel);
-                Assert.False(r.CurrentDestroyed);
-            });
+            Assert.False(vm.HasDivergence);
+            Assert.Empty(CareerStateWindowUI.VisibleTabsFor(vm.Mode));
         }
 
         [Fact]
@@ -847,7 +518,7 @@ namespace Parsek.Tests
             // (→L2) and UT 200 (→L3), liveUT=150. Current MissionControlLevel=2,
             // CurrentMaxSlots=GetContractSlots(2)=7; projected level=3, ProjectedMaxSlots=999.
             // Fails if projections leak into current.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Upgrade("MissionControl", 2, ut: 100.0),
@@ -855,34 +526,12 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Equal(2, vm.Contracts.MissionControlLevel);
             Assert.Equal(3, vm.Contracts.ProjectedMissionControlLevel);
             Assert.Equal(7, vm.Contracts.CurrentMaxSlots);
             Assert.Equal(999, vm.Contracts.ProjectedMaxSlots);
-        }
-
-        [Fact]
-        public void Build_Facilities_DestroyAndRepairBothInFuture()
-        {
-            // Regression: E7 — destroy at UT 100, repair at UT 200, liveUT=50. Current
-            // not-destroyed, projected not-destroyed, HasUpcomingChange=false. Fails if
-            // the walk processes future actions into the current snapshot.
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Destroy("LaunchPad", ut: 100.0),
-                Repair("LaunchPad", ut: 200.0)
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 50.0,
-                Game.Modes.CAREER, c, s, f, m);
-
-            var pad = vm.Facilities.Rows.First(r => r.FacilityId == "LaunchPad");
-            Assert.False(pad.CurrentDestroyed);
-            Assert.False(pad.ProjectedDestroyed);
-            Assert.False(pad.HasUpcomingChange);
         }
 
         [Fact]
@@ -895,12 +544,10 @@ namespace Parsek.Tests
                 0.0,
                 Game.Modes.CAREER,
                 contracts: null,
-                strategies: null,
-                facilities: null,
-                milestones: null);
+                strategies: null);
 
             Assert.Empty(vm.Contracts.CurrentRows);
-            Assert.Empty(vm.Facilities.Rows);
+            Assert.Empty(vm.Strategies.CurrentRows);
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]")
                 && l.Contains("[UI]")
@@ -915,14 +562,14 @@ namespace Parsek.Tests
             // Verbose log. Fails if the lookup path isn't wrapped in try/catch.
             CareerStateWindowUI.ContractTitleLookupForTesting =
                 _ => throw new InvalidOperationException("boom");
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("ctr-crash", ut: 100.0, title: null)
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Single(vm.Contracts.CurrentRows);
             Assert.Equal("ctr-crash", vm.Contracts.CurrentRows[0].DisplayTitle);
@@ -972,7 +619,7 @@ namespace Parsek.Tests
         public void Build_Contracts_EachEndingKeepsItsOwnOutcomeAndUT()
         {
             // catches: a future FAILURE rendering like a completion (the old "(closing)").
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("done", ut: 10.0, title: "Done"),
@@ -985,7 +632,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             var byId = vm.Contracts.CurrentRows.ToDictionary(r => r.ContractId);
             Assert.Equal(CareerStateWindowUI.TimelineEndKind.Completed, byId["done"].EndKind);
@@ -1005,7 +652,7 @@ namespace Parsek.Tests
         {
             // catches: a contract the recorded future both accepts and completes being in
             // NEITHER the current nor the terminal set, and so on no row at all.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("now", ut: 100.0, title: "Now"),
@@ -1015,7 +662,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Equal(new[] { "now" }, vm.Contracts.CurrentRows.Select(r => r.ContractId));
             Assert.Equal(new[] { "now", "later" }, vm.Contracts.ProjectedRows.Select(r => r.ContractId));
@@ -1033,7 +680,7 @@ namespace Parsek.Tests
             // catches: divergence keyed only on active COUNTS, which one closing plus one
             // pending contract leave equal (1 now, 1 at the end) - the banner then hid the
             // timeline end although both rows change.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("old", ut: 100.0),
@@ -1042,7 +689,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Equal(vm.Contracts.CurrentActive, vm.Contracts.ProjectedActive);
             Assert.True(vm.HasDivergence);
@@ -1051,7 +698,7 @@ namespace Parsek.Tests
         [Fact]
         public void Build_Contracts_EndingBeforeLiveUT_LeavesNoRow()
         {
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("past", ut: 100.0),
@@ -1059,7 +706,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Empty(vm.Contracts.CurrentRows);
             Assert.Empty(vm.Contracts.PendingRows);
@@ -1069,7 +716,7 @@ namespace Parsek.Tests
         [Fact]
         public void Build_Strategies_PendingRowsAndDeactivation()
         {
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Activate("now", ut: 100.0),
@@ -1078,7 +725,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
+                Game.Modes.CAREER, c, s);
 
             Assert.Single(vm.Strategies.CurrentRows);
             Assert.Equal(CareerStateWindowUI.TimelineEndKind.None, vm.Strategies.CurrentRows[0].EndKind);
@@ -1102,91 +749,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_Facilities_ProductionDestructibleIdsReachTheFacilityRow()
-        {
-            // catches: a destruction keyed by the raw DestructibleBuilding id
-            // ("SpaceCenter/LaunchPad/Facility/..."), which never matched a facility row, so
-            // a destroyed building never showed as destroyed. Both sources speak that id:
-            // stock's live set and the ledger's future actions.
-            var (c, s, f, m) = Modules();
-            const string tank = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tank";
-            const string tower = "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/Tower";
-            var actions = new List<GameAction>
-            {
-                // Only one of the two buildings is repaired in the recorded future: the
-                // facility stays destroyed at the timeline end.
-                Repair(tank, ut: 300.0),
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate, new[] { tank, tower });
-
-            var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
-            Assert.True(pad.CurrentDestroyed);
-            Assert.True(pad.ProjectedDestroyed);
-            Assert.Equal("L1 (destroyed)", CareerStateWindowUI.FormatFacilityRow_Level(pad));
-        }
-
-        [Fact]
-        public void Build_Facilities_RecordTheUTOfEachFutureChange()
-        {
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Upgrade("SpaceCenter/LaunchPad", 2, ut: 100.0),
-                Upgrade("SpaceCenter/LaunchPad", 3, ut: 400.0),
-                Destroy("SpaceCenter/Runway/Facility/x", ut: 450.0),
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m);
-
-            var pad = vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad");
-            Assert.Equal("upgrades to L3, D400",
-                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(pad, true, FakeDate));
-            var runway = vm.Facilities.Rows.Single(r => r.FacilityId == "Runway");
-            Assert.Equal("destroyed D450",
-                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(runway, true, FakeDate));
-        }
-
-        [Fact]
-        public void Build_Milestones_UseTheTimelineTitleShape()
-        {
-            // catches: "Kerbin/ Science" (SpaceBeforeCapitals does not treat the slash as
-            // a word break).
-            var (c, s, f, m) = Modules();
-            var actions = new List<GameAction>
-            {
-                Milestone("Kerbin/Science", ut: 10.0),
-                Milestone("Minmus/ReturnFromFlyBy", ut: 20.0),
-                Milestone("FirstLaunch", ut: 30.0),
-            };
-
-            var vm = CareerStateWindowUI.Build(actions, liveUT: 100.0,
-                Game.Modes.CAREER, c, s, f, m);
-
-            Assert.Equal(
-                new[] { "Kerbin - Science", "Minmus - Return From Fly By", "First Launch" },
-                vm.Milestones.Rows.Select(r => r.DisplayTitle));
-            Assert.DoesNotContain(vm.Milestones.Rows, r => r.DisplayTitle.Contains("/ "));
-        }
-
-        [Fact]
-        public void Build_FacilityNames_ComeFromTheStockLookup()
+        public void FacilityNames_ComeFromTheStockLookup()
         {
             FacilityDisplayNames.FacilityNameLookupForTesting =
                 id => id == "LaunchPad" ? "Launchpad" : null;
             try
             {
-                var (c, s, f, m) = Modules();
-                var vm = CareerStateWindowUI.Build(new List<GameAction>(), 0.0,
-                    Game.Modes.CAREER, c, s, f, m);
-
                 Assert.Equal("Launchpad",
-                    vm.Facilities.Rows.Single(r => r.FacilityId == "LaunchPad").DisplayTitle);
+                    FacilityDisplayNames.ResolveFacilityDisplayName("LaunchPad"));
                 // No stock answer -> the humanized id, with stock's lowercase conjunction.
                 Assert.Equal("Research and Development",
-                    vm.Facilities.Rows.Single(r => r.FacilityId == "ResearchAndDevelopment").DisplayTitle);
+                    FacilityDisplayNames.ResolveFacilityDisplayName("ResearchAndDevelopment"));
             }
             finally
             {
@@ -1305,112 +878,32 @@ namespace Parsek.Tests
                 CareerStateWindowUI.ContractEndKindFor(GameActionType.ContractAccept));
         }
 
-        [Fact]
-        public void FormatFacilityRow_TimelineEnd_CoversEveryChange()
-        {
-            var up = new CareerStateWindowUI.FacilityRow
-            {
-                CurrentLevel = 1, ProjectedLevel = 2, LevelChangeUT = 40.0
-            };
-            Assert.Equal("upgrades to L2, D40",
-                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(up, true, FakeDate));
-            // Levels are not shown in Science mode, so a level change says nothing there.
-            Assert.Equal("", CareerStateWindowUI.FormatFacilityRow_TimelineEnd(up, false, FakeDate));
-            Assert.True(CareerStateWindowUI.FacilityRowChanges(up, true));
-            Assert.False(CareerStateWindowUI.FacilityRowChanges(up, false));
-
-            var repaired = new CareerStateWindowUI.FacilityRow
-            {
-                CurrentLevel = 2, ProjectedLevel = 2,
-                CurrentDestroyed = true, ProjectedDestroyed = false, DestroyedChangeUT = 90.0
-            };
-            Assert.Equal("repaired D90",
-                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(repaired, false, FakeDate));
-
-            var both = new CareerStateWindowUI.FacilityRow
-            {
-                CurrentLevel = 1, ProjectedLevel = 3, LevelChangeUT = 40.0,
-                ProjectedDestroyed = true, DestroyedChangeUT = 90.0
-            };
-            Assert.Equal("upgrades to L3, D40; destroyed D90",
-                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(both, true, FakeDate));
-
-            var still = new CareerStateWindowUI.FacilityRow { CurrentLevel = 2, ProjectedLevel = 2 };
-            Assert.Equal("", CareerStateWindowUI.FormatFacilityRow_TimelineEnd(still, true, FakeDate));
-        }
-
-        [Fact]
-        public void FormatFacilityRow_LevelAndState()
-        {
-            var ok = new CareerStateWindowUI.FacilityRow { CurrentLevel = 2 };
-            var down = new CareerStateWindowUI.FacilityRow { CurrentLevel = 3, CurrentDestroyed = true };
-            Assert.Equal("L2", CareerStateWindowUI.FormatFacilityRow_Level(ok));
-            Assert.Equal("L3 (destroyed)", CareerStateWindowUI.FormatFacilityRow_Level(down));
-            Assert.Equal("intact", CareerStateWindowUI.FormatFacilityRow_State(ok));
-            Assert.Equal("destroyed", CareerStateWindowUI.FormatFacilityRow_State(down));
-        }
-
         // ──────────────────────────────────────────────────────────────────
-        // Mode-appropriate tabs, banner, launcher (round 3)
+        // Mode-appropriate tabs, banner, launcher
         // ──────────────────────────────────────────────────────────────────
-
-        private static CareerStateWindowUI.FacilitiesTabVM Facilities(params bool[] destroyed)
-        {
-            var tab = new CareerStateWindowUI.FacilitiesTabVM
-            {
-                Rows = new List<CareerStateWindowUI.FacilityRow>()
-            };
-            foreach (bool d in destroyed)
-                tab.Rows.Add(new CareerStateWindowUI.FacilityRow { CurrentLevel = 1, CurrentDestroyed = d });
-            return tab;
-        }
 
         [Fact]
         public void VisibleTabsFor_EachMode()
         {
-            Assert.Equal(new[] { 0, 1, 2, 3 },
-                CareerStateWindowUI.VisibleTabsFor(Game.Modes.CAREER, Facilities(false)));
-            // Science: no contracts, no strategies, no building levels. Facilities only
-            // while a building is destroyed.
-            Assert.Equal(new[] { CareerStateWindowUI.TabMilestones },
-                CareerStateWindowUI.VisibleTabsFor(Game.Modes.SCIENCE_SANDBOX, Facilities(false, false)));
-            Assert.Equal(new[] { CareerStateWindowUI.TabFacilities, CareerStateWindowUI.TabMilestones },
-                CareerStateWindowUI.VisibleTabsFor(Game.Modes.SCIENCE_SANDBOX, Facilities(false, true)));
-            Assert.Empty(CareerStateWindowUI.VisibleTabsFor(Game.Modes.SANDBOX, Facilities(true)));
-            Assert.Empty(CareerStateWindowUI.VisibleTabsFor(Game.Modes.MISSION, Facilities()));
-        }
-
-        [Fact]
-        public void VisibleTabsFor_ScienceCountsAPendingDestruction()
-        {
-            var tab = Facilities(false);
-            var row = tab.Rows[0];
-            row.ProjectedDestroyed = true;
-            tab.Rows[0] = row;
-            Assert.Contains(CareerStateWindowUI.TabFacilities,
-                CareerStateWindowUI.VisibleTabsFor(Game.Modes.SCIENCE_SANDBOX, tab));
-        }
-
-        [Fact]
-        public void FacilityRowVisible_ScienceListsOnlyDestroyedBuildings()
-        {
-            var ok = new CareerStateWindowUI.FacilityRow { CurrentLevel = 1 };
-            var down = new CareerStateWindowUI.FacilityRow { CurrentLevel = 1, CurrentDestroyed = true };
-            Assert.True(CareerStateWindowUI.FacilityRowVisible(ok, Game.Modes.CAREER));
-            Assert.False(CareerStateWindowUI.FacilityRowVisible(ok, Game.Modes.SCIENCE_SANDBOX));
-            Assert.True(CareerStateWindowUI.FacilityRowVisible(down, Game.Modes.SCIENCE_SANDBOX));
-            Assert.False(CareerStateWindowUI.FacilityRowVisible(down, Game.Modes.SANDBOX));
+            // Two tabs in Career, none anywhere else: contracts and strategies exist only
+            // there, and the dated history the other modes have is the Timeline's.
+            Assert.Equal(new[] { CareerStateWindowUI.TabContracts, CareerStateWindowUI.TabStrategies },
+                CareerStateWindowUI.VisibleTabsFor(Game.Modes.CAREER));
+            Assert.Equal(2, CareerStateWindowUI.TabCountForTesting);
+            Assert.Empty(CareerStateWindowUI.VisibleTabsFor(Game.Modes.SCIENCE_SANDBOX));
+            Assert.Empty(CareerStateWindowUI.VisibleTabsFor(Game.Modes.SANDBOX));
+            Assert.Empty(CareerStateWindowUI.VisibleTabsFor(Game.Modes.MISSION));
         }
 
         [Fact]
         public void CoerceTab_KeepsADrawnTabAndOtherwiseTakesTheFirst()
         {
-            int[] science = { CareerStateWindowUI.TabMilestones };
-            Assert.Equal(CareerStateWindowUI.TabMilestones,
-                CareerStateWindowUI.CoerceTab(CareerStateWindowUI.TabContracts, science));
-            Assert.Equal(CareerStateWindowUI.TabMilestones,
-                CareerStateWindowUI.CoerceTab(CareerStateWindowUI.TabMilestones, science));
-            Assert.Equal(2, CareerStateWindowUI.CoerceTab(2, new[] { 0, 1, 2, 3 }));
+            int[] career = CareerStateWindowUI.VisibleTabsFor(Game.Modes.CAREER);
+            Assert.Equal(CareerStateWindowUI.TabStrategies,
+                CareerStateWindowUI.CoerceTab(CareerStateWindowUI.TabStrategies, career));
+            // An index past the two tabs (an old Facilities / Milestones selection) falls
+            // back to Contracts.
+            Assert.Equal(CareerStateWindowUI.TabContracts, CareerStateWindowUI.CoerceTab(3, career));
             // A mode that draws no tabs keeps the stored selection for later.
             Assert.Equal(1, CareerStateWindowUI.CoerceTab(1, new int[0]));
         }
@@ -1418,16 +911,17 @@ namespace Parsek.Tests
         [Fact]
         public void SelectedTabForTesting_CoercesAgainstTheCachedMode()
         {
-            // catches: the seam writing tab=contracts in Science mode, reading it back as
-            // applied, and photographing Milestones under a Contracts label.
+            // catches: the seam writing an index the window does not draw and reading it
+            // back as applied.
             var ui = new CareerStateWindowUI(parentUI: null);
             ui.CachedVMForTesting = new CareerStateWindowUI.CareerStateViewModel
             {
-                Mode = Game.Modes.SCIENCE_SANDBOX,
-                Facilities = Facilities(false)
+                Mode = Game.Modes.CAREER
             };
-            ui.SelectedTabForTesting = CareerStateWindowUI.TabContracts;
-            Assert.Equal(CareerStateWindowUI.TabMilestones, ui.SelectedTabForTesting);
+            ui.SelectedTabForTesting = 3;
+            Assert.Equal(CareerStateWindowUI.TabContracts, ui.SelectedTabForTesting);
+            ui.SelectedTabForTesting = CareerStateWindowUI.TabStrategies;
+            Assert.Equal(CareerStateWindowUI.TabStrategies, ui.SelectedTabForTesting);
 
             // No cached VM yet: stored as written, the draw coerces it.
             var fresh = new CareerStateWindowUI(parentUI: null);
@@ -1436,10 +930,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ModeOffersLauncher_HidesCareerInSandbox()
+        public void ModeOffersLauncher_OnlyInCareer()
         {
             Assert.True(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.CAREER));
-            Assert.True(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.SCIENCE_SANDBOX));
+            // Science mode has no contracts or strategies; its milestones, facilities and
+            // tech live in the Timeline's Career view.
+            Assert.False(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.SCIENCE_SANDBOX));
             Assert.False(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.SANDBOX));
             Assert.False(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.MISSION));
             Assert.False(CareerStateWindowUI.ModeOffersLauncher(Game.Modes.MISSION_BUILDER));
@@ -1456,7 +952,7 @@ namespace Parsek.Tests
             Assert.Equal("Career mode - D1000  (timeline ends D5000)",
                 CareerStateWindowUI.FormatModeBanner(vm, FakeDate));
 
-            Assert.Equal("Science mode - no contracts, strategies or building levels",
+            Assert.Equal("Science mode - contracts and strategies are not tracked",
                 CareerStateWindowUI.FormatModeBanner(
                     CachedVm(1000.0, mode: Game.Modes.SCIENCE_SANDBOX), FakeDate));
             Assert.Equal("Sandbox mode - career state is not tracked",
@@ -1464,17 +960,181 @@ namespace Parsek.Tests
                     CachedVm(1000.0, mode: Game.Modes.SANDBOX), FakeDate));
         }
 
+        // ──────────────────────────────────────────────────────────────────
+        // Heading line, pending fold, empty state
+        // ──────────────────────────────────────────────────────────────────
+
         [Fact]
-        public void CountPendingMilestones_CountsOnlyFutureCredits()
+        public void FormatSlotCount_PluralisesOnTheLimit()
         {
-            var rows = new List<CareerStateWindowUI.MilestoneRow>
+            Assert.Equal("2 of 2 slots", CareerStateWindowUI.FormatSlotCount(2, 2));
+            Assert.Equal("0 of 3 slots", CareerStateWindowUI.FormatSlotCount(0, 3));
+            Assert.Equal("1 of 1 slot", CareerStateWindowUI.FormatSlotCount(1, 1));
+            Assert.Equal("0 of 1 slot", CareerStateWindowUI.FormatSlotCount(0, 1));
+        }
+
+        [Fact]
+        public void FormatActiveHeading_IsOneLineWithTheSlotsNow()
+        {
+            Assert.Equal("Active now: 2 of 2 slots", CareerStateWindowUI.FormatActiveHeading(2, 2));
+            Assert.Equal("Active now: 1 of 1 slot", CareerStateWindowUI.FormatActiveHeading(1, 1));
+        }
+
+        [Fact]
+        public void FormatSlotLimitTooltip_NamesTheLevelAndAnUpgradeBeforeTheEnd()
+        {
+            Assert.Equal("Slot limit from Mission Control L1.",
+                CareerStateWindowUI.FormatSlotLimitTooltip("Mission Control", 1, 1));
+            Assert.Equal("Slot limit from Administration L2 (L3 at timeline end).",
+                CareerStateWindowUI.FormatSlotLimitTooltip("Administration", 2, 3));
+        }
+
+        [Fact]
+        public void FormatPendingFold_CountsAndSlotsAtTheTimelineEnd()
+        {
+            Assert.Equal("Pending in timeline (1) - 3 of 3 slots at timeline end",
+                CareerStateWindowUI.FormatPendingFold(1, 3, 3));
+            Assert.Equal("Pending in timeline (2) - 1 of 1 slot at timeline end",
+                CareerStateWindowUI.FormatPendingFold(2, 1, 1));
+        }
+
+        [Fact]
+        public void IsTabEmpty_OnlyWithNothingNowAndNothingPending()
+        {
+            Assert.True(CareerStateWindowUI.IsTabEmpty(0, 0));
+            Assert.False(CareerStateWindowUI.IsTabEmpty(1, 0));
+            // Nothing now but something pending still draws the table (the fold lives in it).
+            Assert.False(CareerStateWindowUI.IsTabEmpty(0, 2));
+            Assert.Equal("No active contracts.", CareerStateWindowUI.NoActiveContractsText);
+            Assert.Equal("No active strategies.", CareerStateWindowUI.NoActiveStrategiesText);
+        }
+
+        [Fact]
+        public void FillDisplayText_WritesTheHeadingTooltipAndFoldFromTheWalk()
+        {
+            // Mission Control L2 now (7 slots), L3 (999) after a future upgrade; one
+            // contract now, one more the recorded timeline accepts.
+            var (c, s) = Modules();
+            var actions = new List<GameAction>
             {
-                new CareerStateWindowUI.MilestoneRow { IsPendingCredit = false },
-                new CareerStateWindowUI.MilestoneRow { IsPendingCredit = true },
-                new CareerStateWindowUI.MilestoneRow { IsPendingCredit = true },
+                Upgrade("SpaceCenter/MissionControl", 2, ut: 50.0),
+                Accept("ctr-now", ut: 100.0, title: "Now"),
+                Accept("ctr-later", ut: 300.0, title: "Later"),
+                Upgrade("SpaceCenter/MissionControl", 3, ut: 400.0),
             };
-            Assert.Equal(2, CareerStateWindowUI.CountPendingMilestones(rows));
-            Assert.Equal(0, CareerStateWindowUI.CountPendingMilestones(null));
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, FakeDate);
+
+            Assert.Equal("Active now: 1 of 7 slots", vm.Contracts.GroupHeadingText);
+            Assert.Equal("Slot limit from Mission Control L2 (L3 at timeline end).",
+                vm.Contracts.GroupHeadingTooltip);
+            Assert.Equal("Pending in timeline (1) - 2 at timeline end (no slot limit)",
+                vm.Contracts.PendingFoldText);
+            Assert.Equal("Active now: 0 of 1 slot", vm.Strategies.GroupHeadingText);
+            Assert.Equal("Slot limit from Administration L1.", vm.Strategies.GroupHeadingTooltip);
+            Assert.True(vm.HasDivergence);
+        }
+
+        [Theory]
+        [InlineData(4, 999, "Active now: 4 (no slot limit)")]
+        [InlineData(2, 7, "Active now: 2 of 7 slots")]
+        [InlineData(0, 1, "Active now: 0 of 1 slot")]
+        public void FormatActiveHeading_ShowsNoLimitAtStockUnlimited(int used, int max, string expected)
+        {
+            Assert.Equal(expected, CareerStateWindowUI.FormatActiveHeading(used, max));
+        }
+
+        [Fact]
+        public void Build_AFutureSlotUpgradeAloneDiverges()
+        {
+            // The heading tooltip and the fold both print the limit at the timeline end,
+            // so a future Mission Control upgrade with no contract change is still a
+            // difference between now and the end.
+            var (c, s) = Modules();
+            var vm = CareerStateWindowUI.Build(
+                new List<GameAction> { Upgrade("SpaceCenter/MissionControl", 2, ut: 300.0) },
+                liveUT: 200.0, Game.Modes.CAREER, c, s);
+            Assert.True(vm.HasDivergence);
+            Assert.Equal(300.0, vm.NextRelevantActionUT);
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // Timeline cross-link
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void LinkSubjects_AreTheIdsTheTimelineStampsOnTheSameActions()
+        {
+            // catches: the Career row and the Timeline row naming one contract / strategy
+            // by different keys, which would make every click log "not found".
+            var (c, s) = Modules();
+            GameAction accept = Accept("ctr-7", ut: 100.0, title: "Seven");
+            GameAction activate = Activate("PatentsLicensingCfg", ut: 100.0);
+            var vm = CareerStateWindowUI.Build(new List<GameAction> { accept, activate },
+                liveUT: 200.0, Game.Modes.CAREER, c, s);
+
+            Assert.Equal(TimelineCareerCategory.Contracts, TimelineCareerCategories.Classify(accept));
+            Assert.Equal(
+                TimelineCareerCategories.ResolveSubjectId(accept, TimelineCareerCategory.Contracts),
+                CareerStateWindowUI.ContractLinkSubject(vm.Contracts.CurrentRows.Single()));
+            Assert.Equal(TimelineCareerCategory.Strategies, TimelineCareerCategories.Classify(activate));
+            Assert.Equal(
+                TimelineCareerCategories.ResolveSubjectId(activate, TimelineCareerCategory.Strategies),
+                CareerStateWindowUI.StrategyLinkSubject(vm.Strategies.CurrentRows.Single()));
+
+            // A row with no id is not a link.
+            Assert.Null(CareerStateWindowUI.ContractLinkSubject(new CareerStateWindowUI.ContractRow()));
+            Assert.Null(CareerStateWindowUI.StrategyLinkSubject(
+                new CareerStateWindowUI.StrategyRow { StrategyId = "" }));
+        }
+
+        [Fact]
+        public void OnRowNameClicked_ScrollsTheTimelineAndLogs()
+        {
+            TimelineCareerCategory gotCategory = TimelineCareerCategory.None;
+            string gotSubject = null;
+            CareerStateWindowUI.OnRowNameClicked(
+                (cat, id) => { gotCategory = cat; gotSubject = id; },
+                TimelineCareerCategory.Strategies, "PatentsLicensingCfg");
+
+            Assert.Equal(TimelineCareerCategory.Strategies, gotCategory);
+            Assert.Equal("PatentsLicensingCfg", gotSubject);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("CareerStateWindow: row -> Timeline scroll")
+                && l.Contains("category=Strategies")
+                && l.Contains("subject=PatentsLicensingCfg"));
+
+            // A null callback (no Timeline window yet) does not throw and still logs.
+            logLines.Clear();
+            CareerStateWindowUI.OnRowNameClicked(null, TimelineCareerCategory.Contracts, "ctr-1");
+            Assert.Contains(logLines, l => l.Contains("subject=ctr-1")
+                                           && l.Contains("(no Timeline window)"));
+        }
+
+        [Fact]
+        public void TheLinkTooltipsFitTheHelpStrip()
+        {
+            // The budget scan does not see these (they sit behind a conditional), so the
+            // one-line fit at the 820 px first-open width is asserted here with the same
+            // 7 px/char bound and 30 px padding TooltipEchoBudgetTests uses.
+            int budget = (int)Math.Floor((CareerStateWindowUI.DefaultWindowWidth - 30f) / 7f);
+            foreach (string t in new[]
+                     { CareerStateWindowUI.ContractLinkTooltip, CareerStateWindowUI.StrategyLinkTooltip })
+            {
+                Assert.True(t.Length <= budget, t + " is " + t.Length + " chars; budget " + budget);
+                Assert.DoesNotContain('\n', t);
+            }
+        }
+
+        [Fact]
+        public void TheLinkTooltipsSayWhatTheClickDoes()
+        {
+            Assert.Contains("Timeline", CareerStateWindowUI.ContractLinkTooltip);
+            Assert.Contains("Contracts", CareerStateWindowUI.ContractLinkTooltip);
+            Assert.Contains("Timeline", CareerStateWindowUI.StrategyLinkTooltip);
+            Assert.Contains("Strategies", CareerStateWindowUI.StrategyLinkTooltip);
         }
 
         [Fact]
@@ -1482,25 +1142,23 @@ namespace Parsek.Tests
         {
             // The automation seam's `op=expand window=career key=pending:<tab>` names the
             // TAB; every wire value must resolve to one of the window's own fold keys.
-            Assert.Equal(new[] { "contracts", "strategies", "milestones" },
+            Assert.Equal(new[] { "contracts", "strategies" },
                 Parsek.TestCommands.TestCommandUiState.CareerPendingFoldValues);
-            Assert.Equal(CareerStateWindowUI.GroupKey_MilestonesPending,
-                Parsek.TestCommands.TestCommandUiState.CareerFoldKeyFor("milestones"));
             foreach (string v in Parsek.TestCommands.TestCommandUiState.CareerPendingFoldValues)
                 Assert.Contains(Parsek.TestCommands.TestCommandUiState.CareerFoldKeyFor(v),
                     CareerStateWindowUI.FoldGroupKeys);
+            Assert.Null(Parsek.TestCommands.TestCommandUiState.CareerFoldKeyFor("milestones"));
             Assert.Null(Parsek.TestCommands.TestCommandUiState.CareerFoldKeyFor("facilities"));
         }
 
         [Fact]
-        public void FoldGroupKeys_CoverThePendingGroupOfEveryTabThatSplits()
+        public void FoldGroupKeys_CoverThePendingGroupOfEveryTab()
         {
             Assert.Equal(
                 new[]
                 {
                     CareerStateWindowUI.GroupKey_ContractsPending,
                     CareerStateWindowUI.GroupKey_StrategiesPending,
-                    CareerStateWindowUI.GroupKey_MilestonesPending,
                 },
                 CareerStateWindowUI.FoldGroupKeys);
         }
@@ -1620,11 +1278,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRebuildCachedVM_ScienceSandbox_MinuteBoundary_ReturnsTrue()
+        public void ShouldRebuildCachedVM_ScienceSandbox_MinuteBoundary_ReturnsFalse()
         {
-            // Science has no live date, but stock's destroyed buildings are re-read on
-            // the same minute cadence.
-            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+            // Science draws only a banner, so a minute boundary rebuilds nothing.
+            Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
                 CachedVm(179.9, nextRelevantActionUT: 500.0, mode: Game.Modes.SCIENCE_SANDBOX),
                 currentMode: Game.Modes.SCIENCE_SANDBOX,
                 liveUT: 180.1));
@@ -1633,24 +1290,20 @@ namespace Parsek.Tests
         [Fact]
         public void FillDisplayText_FormatsOnceAndPicksTheCadence()
         {
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var far = new List<GameAction>
             {
                 AcceptWithDeadline("far", ut: 100.0, deadlineUT: 10_000.0),
-                Milestone("FirstLaunch", ut: 150.0, funds: 800f),
             };
             var vm = CareerStateWindowUI.Build(far, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate);
+                Game.Modes.CAREER, c, s, FakeDate);
             Assert.Equal(CareerStateWindowUI.MinuteRefreshSeconds, vm.RefreshSeconds);
             Assert.Equal("Career mode - D200", vm.BannerText);
             var row = vm.Contracts.CurrentRows.Single();
             Assert.Equal("D100", row.AcceptText);
             Assert.StartsWith("D10000 (in ", row.DeadlineText, StringComparison.Ordinal);
             Assert.False(row.DeadlineOverdue);
-            Assert.Equal("D150", vm.Milestones.Rows.Single().CreditedText);
-            Assert.Equal(CareerStateWindowUI.FormatMilestoneRow_Rewards(vm.Milestones.Rows.Single()),
-                vm.Milestones.Rows.Single().RewardsText);
-            Assert.StartsWith("Mission Control L1 - slots 1/", vm.Contracts.HeaderText,
+            Assert.StartsWith("Active now: 1 of ", vm.Contracts.GroupHeadingText,
                 StringComparison.Ordinal);
 
             var near = new List<GameAction>
@@ -1658,7 +1311,7 @@ namespace Parsek.Tests
                 AcceptWithDeadline("near", ut: 100.0, deadlineUT: 230.0),
             };
             vm = CareerStateWindowUI.Build(near, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate);
+                Game.Modes.CAREER, c, s, FakeDate);
             Assert.Equal(CareerStateWindowUI.SecondRefreshSeconds, vm.RefreshSeconds);
         }
 
@@ -1667,7 +1320,7 @@ namespace Parsek.Tests
         {
             // catches: the row active now losing its deactivation date because the later
             // re-activation cleared the id's ending; it then read as running to the end.
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Activate("Subsidy", ut: 100.0),
@@ -1676,7 +1329,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate);
+                Game.Modes.CAREER, c, s, FakeDate);
 
             var now = vm.Strategies.CurrentRows.Single();
             Assert.Equal(CareerStateWindowUI.TimelineEndKind.Deactivated, now.EndKind);
@@ -1690,7 +1343,7 @@ namespace Parsek.Tests
         [Fact]
         public void Build_Contracts_ActiveNowCompletedThenReaccepted_CurrentRowSaysWhen()
         {
-            var (c, s, f, m) = Modules();
+            var (c, s) = Modules();
             var actions = new List<GameAction>
             {
                 Accept("c1", ut: 100.0),
@@ -1699,7 +1352,7 @@ namespace Parsek.Tests
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
-                Game.Modes.CAREER, c, s, f, m, FakeDate);
+                Game.Modes.CAREER, c, s, FakeDate);
 
             var now = vm.Contracts.CurrentRows.Single();
             Assert.Equal(CareerStateWindowUI.TimelineEndKind.Completed, now.EndKind);
@@ -1744,9 +1397,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRebuildCachedVM_ScienceSandbox_VisibleActionBoundary_ReturnsTrue()
+        public void ShouldRebuildCachedVM_ScienceSandbox_ActionBoundary_ReturnsFalse()
         {
-            Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
+            Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
                 CachedVm(123.1, nextRelevantActionUT: 123.4, mode: Game.Modes.SCIENCE_SANDBOX),
                 currentMode: Game.Modes.SCIENCE_SANDBOX,
                 liveUT: 123.4));
@@ -1769,9 +1422,7 @@ namespace Parsek.Tests
                 liveUT: 123.4,
                 mode: Game.Modes.CAREER,
                 contracts: null,
-                strategies: null,
-                facilities: null,
-                milestones: null);
+                strategies: null);
 
             Assert.True(fallbackVm.IsTransientFallback);
             Assert.True(CareerStateWindowUI.ShouldRebuildCachedVM(
@@ -1779,15 +1430,13 @@ namespace Parsek.Tests
                 currentMode: Game.Modes.CAREER,
                 liveUT: 123.4));
 
-            var (contracts, strategies, facilities, milestones) = Modules();
+            var (contracts, strategies) = Modules();
             var recoveredVm = CareerStateWindowUI.Build(
                 actions: Array.Empty<GameAction>(),
                 liveUT: 123.4,
                 mode: Game.Modes.CAREER,
                 contracts: contracts,
-                strategies: strategies,
-                facilities: facilities,
-                milestones: milestones);
+                strategies: strategies);
 
             Assert.False(recoveredVm.IsTransientFallback);
             Assert.False(CareerStateWindowUI.ShouldRebuildCachedVM(
@@ -1844,7 +1493,7 @@ namespace Parsek.Tests
             int matches = logLines.Count(l =>
                 l.Contains("[UI]")
                 && l.Contains("rendered science-mode")
-                && l.Contains("contracts/strategies hidden"));
+                && l.Contains("banner (no tabs)"));
             Assert.Equal(2, matches);
         }
 
@@ -1925,163 +1574,12 @@ namespace Parsek.Tests
             Assert.Equal("Funds -> Science @ 10.0%", s);
         }
 
-        [Fact]
-        public void FormatFacilityRow_Title_UsesDisplayTitleOrId()
-        {
-            // Regression: mirrors the contract/strategy title helpers.
-            var rowWithTitle = new CareerStateWindowUI.FacilityRow
-            {
-                FacilityId = "LaunchPad", DisplayTitle = "Launch Pad"
-            };
-            var rowIdOnly = new CareerStateWindowUI.FacilityRow
-            {
-                FacilityId = "LaunchPad", DisplayTitle = null
-            };
-            var rowBlank = new CareerStateWindowUI.FacilityRow
-            {
-                FacilityId = null, DisplayTitle = ""
-            };
-
-            Assert.Equal("Launch Pad", CareerStateWindowUI.FormatFacilityRow_Title(rowWithTitle));
-            Assert.Equal("LaunchPad", CareerStateWindowUI.FormatFacilityRow_Title(rowIdOnly));
-            Assert.Equal("(unknown)", CareerStateWindowUI.FormatFacilityRow_Title(rowBlank));
-        }
-
-        [Fact]
-        public void FormatFacilityRow_Level_CurrentOnly()
-        {
-            // Regression: the Level cell is the level NOW; what the timeline changes
-            // lives in the Timeline-end cell, never as an arrow here.
-            var row = new CareerStateWindowUI.FacilityRow
-            {
-                CurrentLevel = 2, ProjectedLevel = 3, HasUpcomingChange = true
-            };
-
-            Assert.Equal("L2", CareerStateWindowUI.FormatFacilityRow_Level(row));
-        }
-
-        [Fact]
-        public void FormatMilestoneRow_UT_ShowsDate()
-        {
-            var row = new CareerStateWindowUI.MilestoneRow { CreditedUT = 8230.0 };
-
-            Assert.Equal("D8230", CareerStateWindowUI.FormatMilestoneRow_UT(row, FakeDate));
-        }
-
-        [Fact]
-        public void FormatMilestoneRow_Title_UsesDisplayTitleOrId()
-        {
-            // Regression: mirrors the other title helpers.
-            var rowWithTitle = new CareerStateWindowUI.MilestoneRow
-            {
-                MilestoneId = "FirstOrbit", DisplayTitle = "First Orbit"
-            };
-            var rowIdOnly = new CareerStateWindowUI.MilestoneRow
-            {
-                MilestoneId = "FirstOrbit", DisplayTitle = null
-            };
-            var rowBlank = new CareerStateWindowUI.MilestoneRow
-            {
-                MilestoneId = null, DisplayTitle = ""
-            };
-
-            Assert.Equal("First Orbit", CareerStateWindowUI.FormatMilestoneRow_Title(rowWithTitle));
-            Assert.Equal("FirstOrbit", CareerStateWindowUI.FormatMilestoneRow_Title(rowIdOnly));
-            Assert.Equal("(unknown)", CareerStateWindowUI.FormatMilestoneRow_Title(rowBlank));
-        }
-
-        [Fact]
-        public void FormatMilestoneRow_Rewards_ElidesZeros()
-        {
-            // Regression: fails if zero-reward entries leak into the column
-            // as "+ 0 sci" clutter (design doc E8).
-            var row = new CareerStateWindowUI.MilestoneRow
-            {
-                FundsAwarded = 10000f, RepAwarded = 5f, ScienceAwarded = 0f
-            };
-
-            string s = CareerStateWindowUI.FormatMilestoneRow_Rewards(row);
-
-            Assert.Contains("+ 10000 funds", s);
-            Assert.Contains("+ 5 rep", s);
-            Assert.DoesNotContain("sci", s);
-        }
-
-        [Fact]
-        public void FormatMilestoneRow_Rewards_EmptyWhenNoRewards()
-        {
-            // Regression: fails if a rewards-less milestone still emits
-            // separators or leaves an empty-space placeholder.
-            var row = new CareerStateWindowUI.MilestoneRow
-            {
-                FundsAwarded = 0f, RepAwarded = 0f, ScienceAwarded = 0f
-            };
-
-            Assert.Equal("", CareerStateWindowUI.FormatMilestoneRow_Rewards(row));
-        }
-
-        // catches: the Rewards column narrowing back under what a three-part reward needs.
-        // The 2026-09-11 GUI census caught this LIVE in a shipped capture
-        // (ksc-career-milestones-advanced.gui.json): at the old 180f, two three-part cells
-        // rendered 36 px tall inside a 21 px row grid - IMGUI wrapped them, and a wrapped
-        // label in a fixed-stride row overlaps its neighbours. The 7 px/char advance and the
-        // padding allowance are the same figures TooltipEchoBudgetTests uses for this font.
-        //
-        // WHERE THE VALUES COME FROM. Parsek captures whatever floats KSP passes to
-        // ProgressNode.AwardProgress (Patches/ProgressRewardPatch.cs) and stores them
-        // verbatim, so nothing on Parsek's side bounds them. KSP's own milestone path is
-        // ProgressNode.AwardProgressStandard -> FinePrint.Utilities.ProgressUtilities
-        // .WorldFirstStandardReward (decompiled, 1.12.5):
-        //   ContractDefs.Progression.<Currency>.BaseReward   80000 funds / 8 sci / 16 rep
-        //                                                    (GameData/Squad/Contracts/Contracts.cfg)
-        //   * PassiveBaseRatio (0.2)                         the milestone's share of that
-        //   * ScoreProgressType(type, body)                  <= 2.0 (the record tracks)
-        //   * OutlierMilestoneMultiplier (1.5) when outlier
-        //   * GetContract<Currency>CompletionFactor(prestige) prestige * a GameVariables asset
-        //                                                    factor * the career's reward
-        //                                                    multiplier (a difficulty slider)
-        //   * (funds only) 1 + (destinationWeight - 1) * PassiveBodyRatio (0.3)
-        // The last two factors are a PLAYER SETTING times a Unity-asset value, so there is no
-        // code-derivable maximum. The bound below is therefore a DOCUMENTED CHOICE, not a
-        // derived cap: 7 digits of funds, 4 of reputation, 4 + one decimal of science. At
-        // stock Normal the same product is about 48000 funds / 5 sci / 10 rep before the
-        // completion factor, so the funds figure still holds a ~200x reward multiplier and
-        // the other two hold more.
-        [Fact]
-        public void MilestoneRewardsColumn_HoldsAThreePartRewardOnOneLine()
-        {
-            const float AvgCharWidthPx = 7f;
-            // Cell padding: GUI.skin.label's own horizontal padding plus the horizontal
-            // group's inter-column spacing - the same 30 px allowance TooltipEchoBudgetTests
-            // makes for window chrome + box padding. Without it the 7 px/char bound is spent
-            // to the last pixel and a one-character growth wraps.
-            const float CellPaddingPx = 30f;
-
-            var row = new CareerStateWindowUI.MilestoneRow
-            {
-                FundsAwarded = 9999999f, RepAwarded = 9999f, ScienceAwarded = 9999.9f
-            };
-            string text = CareerStateWindowUI.FormatMilestoneRow_Rewards(row);
-
-            Assert.Contains("funds", text);
-            Assert.Contains("rep", text);
-            Assert.Contains("sci", text);
-            Assert.True(
-                text.Length * AvgCharWidthPx + CellPaddingPx <= CareerStateWindowUI.ColW_Rewards,
-                $"the widest three-part reward is {text.Length} chars = "
-                + $"{text.Length * AvgCharWidthPx + CellPaddingPx} px with padding, but the "
-                + $"Rewards column is {CareerStateWindowUI.ColW_Rewards} px - IMGUI will wrap "
-                + "it into a row grid that has no room for a second line");
-        }
-
         // catches: a table's fixed columns growing until the expanding name column has
         // no room at the window's default width. Each row is one table's fixed columns at
         // their widest (with the Timeline-end column shown).
         [Theory]
         [InlineData("contracts", CareerStateWindowUI.ColW_Date + CareerStateWindowUI.ColW_Deadline + CareerStateWindowUI.ColW_TimelineEnd)]
         [InlineData("strategies", CareerStateWindowUI.ColW_Date + CareerStateWindowUI.ColW_Flow + CareerStateWindowUI.ColW_TimelineEnd)]
-        [InlineData("facilities", CareerStateWindowUI.ColW_Level + CareerStateWindowUI.ColW_TimelineEnd)]
-        [InlineData("milestones", CareerStateWindowUI.ColW_Date + CareerStateWindowUI.ColW_Rewards)]
         public void EachTableLeavesTheNameColumnRoomAtTheDefaultWidth(string table, float fixedColumns)
         {
             float needed = fixedColumns + CareerStateWindowUI.MinNameColumnWidth;
@@ -2098,7 +1596,7 @@ namespace Parsek.Tests
             Assert.True("Y12, D426, 05:17".Length * 7f + 30f <= CareerStateWindowUI.ColW_Date);
             Assert.True("Y12, D426, 05:17 (in 99d)".Length * 7f + 30f
                         <= CareerStateWindowUI.ColW_Deadline);
-            Assert.True("upgrades to L3, Y12, D426, 05:17".Length * 7f
+            Assert.True("deactivates Y12, D426, 05:17".Length * 7f + 30f
                         <= CareerStateWindowUI.ColW_TimelineEnd);
         }
 

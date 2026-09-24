@@ -71,23 +71,9 @@ namespace Parsek.Tests
                 RowMethod = "DrawStrategyRow",
                 HeaderPinnedOutsideScrollView = false,
             },
-            new TableSite
-            {
-                File = Path.Combine("UI", "CareerStateWindowUI.cs"),
-                HeaderMethod = "DrawFacilitiesColumnHeader",
-                RowMethod = "DrawFacilityRow",
-                HeaderPinnedOutsideScrollView = false,
-            },
-            new TableSite
-            {
-                File = Path.Combine("UI", "CareerStateWindowUI.cs"),
-                HeaderMethod = "DrawMilestonesColumnHeader",
-                RowMethod = "DrawMilestoneRow",
-                HeaderPinnedOutsideScrollView = false,
-            },
             // The Kerbals window's two tabs, rebuilt as column tables 2026-09-15. Both
             // headers are drawn INSIDE the window scroll view that holds their rows, so
-            // like Career's four they take the body row container rather than the
+            // like Career's two they take the body row container rather than the
             // gutter-reserving header variant.
             new TableSite
             {

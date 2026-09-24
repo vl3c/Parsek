@@ -17016,7 +17016,14 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         # real tab NAME on a DIFFERENT window, so a flat closed-value set over the union
         # of every tab token would pass it and the spec would cost a boot to fix.
         self.assertEqual([], hlib.validate_ui_action_step(
-            0, {"op": "tab", "window": "career", "tab": "facilities"}))
+            0, {"op": "tab", "window": "career", "tab": "strategies"}))
+        # A tab the Career window no longer has (its Facilities / Milestones history moved
+        # to the Timeline) is refused before a boot, though the TIMELINE still has both.
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "tab", "window": "career", "tab": "facilities"})
+        self.assertTrue(any("not a tab of window" in e for e in errors), errors)
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "tab", "window": "timeline", "tab": "facilities"}))
         errors = hlib.validate_ui_action_step(
             0, {"op": "tab", "window": "career", "tab": "recordings"})
         self.assertTrue(any("not a tab of window" in e for e in errors), errors)

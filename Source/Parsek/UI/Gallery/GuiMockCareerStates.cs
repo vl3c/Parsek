@@ -4,18 +4,18 @@ using System.Collections.Generic;
 namespace Parsek.UI.Gallery
 {
     /// <summary>
-    /// Catalogue states for the Career State window (all four tabs plus the mode banner).
+    /// Catalogue states for the Career State window (both tabs plus the mode banner).
     ///
     /// <para><b>Every state is a synthetic LEDGER, not a synthetic view model.</b> Each
     /// builder assembles a <c>GameAction</c> list and a live UT and hands them to the real
     /// <see cref="CareerStateWindowUI.Build"/>, which is the same pure walk the window
     /// runs over <c>EffectiveState.ComputeELS()</c>. So the now-vs-pending split, the
-    /// Timeline-end outcomes, the divergence flag, the slot counts and the facility levels
-    /// are all decided by production code - the catalogue only decides what happened in
+    /// Timeline-end outcomes, the divergence flag and the slot counts (from the Mission
+    /// Control / Administration levels) are all decided by production code - the catalogue only decides what happened in
     /// the career.</para>
     ///
     /// <para>That is also what makes the completeness guard meaningful on this window: the
-    /// ten <c>GameActionType</c> branches <c>Build</c> switches on are the row variants,
+    /// seven <c>GameActionType</c> branches <c>Build</c> switches on are the row variants,
     /// and a state claims the branch it drives.</para>
     ///
     /// <para><b>One live cell this window keeps under a mock</b>, recorded rather than
@@ -29,11 +29,9 @@ namespace Parsek.UI.Gallery
     {
         private const string ContractsTab = "contracts";
         private const string StrategiesTab = "strategies";
-        private const string FacilitiesTab = "facilities";
-        private const string MilestonesTab = "milestones";
-
-        // The Milestones tab's four fixed columns total 680px, so anything under ~700
-        // clips (IMGUI does not reflow). 980x560 shows every catalogue state whole.
+        // The Contracts tab's three fixed columns plus Timeline end total 605px beside the
+        // expanding name column (IMGUI does not reflow). 980x560 shows every catalogue
+        // state whole.
         private const int RectW = 980;
         private const int RectH = 560;
 
@@ -73,20 +71,20 @@ namespace Parsek.UI.Gallery
                 () => Build(ContractsNoDeadline())));
 
             into.Add(New("career.banner.divergent", ContractsTab,
-                "The whole point of the window, and no capture has it: 'Career mode - UT N "
-                + " (timeline ends at UT M)' over the split 'Active now (N)' / 'Pending in "
-                + "timeline (K)' layout - one career produces both.",
+                "The whole point of the window, and no capture has it: 'Career mode - <date> "
+                + " (timeline ends <date>)' over the 'Active now: N of M slots' rows and the "
+                + "in-table 'Pending in timeline (K) - ...' fold - one career produces both.",
                 new[] { "CareerBanner.Divergent", "GameActionType.ContractAccept",
                         "ContractRow.IsPendingAccept" },
                 () => Build(ContractsPendingSplit())));
 
             into.Add(New("career.contracts.slots-full", ContractsTab,
-                "Active == max slots at a Mission Control above level 1, so the header "
+                "Active == max slots at a Mission Control above level 1, so the heading "
                 + "shows the raised slot count rather than the day-one one. LIVE CELL "
                 + "NOTE: that count is a NUMBER, so the state's witnesses are its own "
                 + "contract titles instead - which is why its ledger shares no contract "
                 + "with career.contracts.active-rows.",
-                new[] { "GameActionType.ContractAccept" },
+                new[] { "GameActionType.ContractAccept", "GameActionType.FacilityUpgrade" },
                 () => Build(ContractsSlotsFull())));
 
             // ---------- Strategies ----------
@@ -114,64 +112,8 @@ namespace Parsek.UI.Gallery
                 + "strategy slot count. LIVE CELL NOTE: that count is a NUMBER, so the "
                 + "state's witnesses are its own strategy rows instead - which is why its "
                 + "ledger shares no strategy with career.strategies.active-rows.",
-                new[] { "GameActionType.StrategyActivate" },
+                new[] { "GameActionType.StrategyActivate", "GameActionType.FacilityUpgrade" },
                 () => Build(StrategiesAdminUpgraded())));
-
-            // ---------- Facilities ----------
-
-            into.Add(New("career.facilities.level-above-one", FacilitiesTab,
-                "Every capture across three fixtures reads nine uniform L1 rows.",
-                new[] { "GameActionType.FacilityUpgrade" },
-                () => Build(FacilitiesUpgraded())));
-
-            into.Add(New("career.facilities.upcoming-upgrade", FacilitiesTab,
-                "'upgrades to L3, <date>' - the Timeline-end column on the Facilities tab.",
-                new[] { "GameActionType.FacilityUpgrade",
-                        "FacilityRow.HasUpcomingChange" },
-                () => Build(FacilitiesUpcoming())));
-
-            // Destroyed NOW is stock's state (ScenarioDestructibles), never the ledger's,
-            // so the synthetic building is handed in as the live destroyed set, the way
-            // the window reads it.
-            into.Add(New("career.facilities.destroyed", FacilitiesTab,
-                "A facility destroyed now (stock's live building state).",
-                new[] { "FacilityRow.CurrentDestroyed" },
-                () => Build(FacilitiesUpgraded(), LaunchPadBuilding)));
-
-            // What the ledger says about the recorded future: a committed flight that
-            // destroys a building after live UT, and a KSC repair after live UT (a
-            // repair made after the point the career was rewound to).
-            into.Add(New("career.facilities.destroyed-in-timeline", FacilitiesTab,
-                "Intact now; a committed flight destroys it later: 'destroyed <date>'.",
-                new[] { "GameActionType.FacilityDestruction",
-                        "FacilityRow.DestroyedInTimeline" },
-                () => Build(FacilitiesDestroyedInTimeline())));
-
-            into.Add(New("career.facilities.repaired-in-timeline", FacilitiesTab,
-                "Destroyed now; the recorded timeline repairs it later: 'repaired <date>'.",
-                new[] { "GameActionType.FacilityRepair",
-                        "FacilityRow.RepairedInTimeline" },
-                () => Build(FacilitiesRepairedInTimeline(), LaunchPadBuilding)));
-
-            // ---------- Milestones ----------
-
-            into.Add(New("career.milestones.pending", MilestonesTab,
-                "Milestones the recorded timeline credits after live UT: the 'Pending in "
-                + "timeline' group.",
-                new[] { "GameActionType.MilestoneAchievement",
-                        "MilestoneRow.IsPendingCredit" },
-                () => Build(MilestonesPending())));
-
-            into.Add(New("career.milestones.zero-reward", MilestonesTab,
-                "A milestone that paid nothing, which is what the Rewards column looks "
-                + "like with every award at zero.",
-                new[] { "MilestoneRow.ZeroReward" },
-                () => Build(MilestonesZeroReward())));
-
-            // And no separate "divergent-count" state: it differed from
-            // career.milestones.pending by one row, which is the same picture with one
-            // more line rather than a different one. The pending state already shows both
-            // counts, because a pending milestone IS what makes them differ.
         }
 
         // ----- state factory -----
@@ -198,8 +140,8 @@ namespace Parsek.UI.Gallery
         }
 
         /// <summary>
-        /// Runs the REAL VM walk over a synthetic ledger. The four modules are read only
-        /// for their slot helpers, so fresh instances are what the window would hand it.
+        /// Runs the REAL VM walk over a synthetic ledger. The two modules are only
+        /// null-checked, so fresh instances are what the window would hand it.
         ///
         /// <para><b>The list is UT-SORTED first, and that is load-bearing rather than
         /// tidy.</b> <c>Build</c> walks the actions in LIST order and takes its
@@ -209,22 +151,14 @@ namespace Parsek.UI.Gallery
         /// about the input. The effective ledger the window walks is UT-ordered, so this
         /// makes the synthetic one the same shape.</para>
         /// </summary>
-        private static CareerStateWindowUI.CareerStateViewModel Build(
-            List<GameAction> actions, params string[] liveDestroyedBuildings)
+        private static CareerStateWindowUI.CareerStateViewModel Build(List<GameAction> actions)
         {
             actions.Sort((a, b) => a.UT.CompareTo(b.UT));
             return CareerStateWindowUI.Build(
                 actions, LiveUT, Game.Modes.CAREER,
                 new ContractsModule(), new StrategiesModule(),
-                new FacilitiesModule(), new MilestonesModule(),
-                CareerStateWindowUI.FormatDate,
-                liveDestroyedBuildings);
+                CareerStateWindowUI.FormatDate);
         }
-
-        // One of the Launchpad's DestructibleBuilding ids, the shape the ledger and
-        // ScenarioDestructibles both key a building by.
-        private const string LaunchPadBuilding =
-            "SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_cylTank";
 
         // ----- synthetic ledgers -----
 
@@ -269,36 +203,12 @@ namespace Parsek.UI.Gallery
                 FacilityId = facilityId, ToLevel = toLevel, Effective = true,
             };
 
-        private static GameAction Destroy(string facilityId, double ut)
-            => new GameAction
-            {
-                Type = GameActionType.FacilityDestruction, UT = ut,
-                FacilityId = facilityId, Effective = true,
-            };
-
-        private static GameAction Repair(string facilityId, double ut, float cost)
-            => new GameAction
-            {
-                Type = GameActionType.FacilityRepair, UT = ut,
-                FacilityId = facilityId, FacilityCost = cost, Effective = true,
-            };
-
-        private static GameAction Milestone(string id, double ut,
-                                            float funds, float rep, float science)
-            => new GameAction
-            {
-                Type = GameActionType.MilestoneAchievement,
-                UT = ut,
-                MilestoneId = id,
-                MilestoneFundsAwarded = funds,
-                MilestoneRepAwarded = rep,
-                MilestoneScienceAwarded = science,
-                Effective = true,
-            };
-
         private static List<GameAction> ContractsActive()
             => new List<GameAction>
             {
+                // Mission Control L2 (7 slots): a real career cannot hold more contracts
+                // than its limit, and the heading prints "N of M slots" from the real walk.
+                Upgrade("MissionControl", 2, 60_000.0),
                 Accept("ctr-mun-flyby", 120_000.0, "Perform a flyby of the Mun", 900_000.0),
                 Accept("ctr-minmus-sci", 240_000.0, "Transmit science from Minmus", 1_200_000.0),
                 Accept("ctr-rescue-1", 300_000.0, "Rescue Dilbert Kerman from orbit of Kerbin",
@@ -318,6 +228,9 @@ namespace Parsek.UI.Gallery
         private static List<GameAction> ContractsClosing()
             => new List<GameAction>
             {
+                // Mission Control L2 (7 slots): a real career cannot hold more contracts
+                // than its limit, and the heading prints "N of M slots" from the real walk.
+                Upgrade("MissionControl", 2, 60_000.0),
                 Accept("ctr-mun-flyby", 120_000.0, "Perform a flyby of the Mun", 900_000.0),
                 Contract(GameActionType.ContractComplete, "ctr-mun-flyby", 800_000.0),
                 Accept("ctr-minmus-sci", 240_000.0, "Transmit science from Minmus", 1_200_000.0),
@@ -337,7 +250,7 @@ namespace Parsek.UI.Gallery
         private static List<GameAction> ContractsSlotsFull()
         {
             // The slot count comes from the Mission Control LEVEL, which the ledger walk
-            // reads off FacilityUpgrade actions - so the header's "N / M" is production
+            // reads off FacilityUpgrade actions - so the heading's "N of M slots" is production
             // arithmetic over this list rather than a number typed here.
             //
             // It shares NO contract with ContractsActive on purpose: two states whose
@@ -358,6 +271,10 @@ namespace Parsek.UI.Gallery
                        "Build an orbital station around Kerbin", 1_400_000.0),
                 Accept("ctr-base-1", 420_000.0,
                        "Build a base on the surface of the Mun", 1_500_000.0),
+                // The seventh, so Active == max at Mission Control L2 (7 slots), which is
+                // what this state claims to show.
+                Accept("ctr-rover-1", 440_000.0,
+                       "Drive a rover to the Mun's East Crater", 1_600_000.0),
             };
         }
 
@@ -385,6 +302,9 @@ namespace Parsek.UI.Gallery
         private static List<GameAction> StrategiesActive()
             => new List<GameAction>
             {
+                // Administration L2 (3 slots), for the same reason as the contract states:
+                // two strategies do not fit day-one Administration's one slot.
+                Upgrade("Administration", 2, 60_000.0),
                 // Reputation -> Funds, the cfg's own input / output.
                 Activate(FundraisingCampaign, 150_000.0, 0.35f,
                          StrategyResource.Reputation, StrategyResource.Funds),
@@ -418,7 +338,8 @@ namespace Parsek.UI.Gallery
             // is the header and the witnesses are these rows.
             return new List<GameAction>
             {
-                Upgrade("Administration", 2, 90_000.0),
+                // L3 (5 slots), above the L2 the other strategy states already carry.
+                Upgrade("Administration", 3, 90_000.0),
                 // Funds -> Science.
                 Activate(OutsourcedResearch, 150_000.0, 0.25f,
                          StrategyResource.Funds, StrategyResource.Science),
@@ -430,74 +351,6 @@ namespace Parsek.UI.Gallery
                          StrategyResource.Science, StrategyResource.Reputation),
             };
         }
-
-        private static List<GameAction> FacilitiesUpgraded()
-            => new List<GameAction>
-            {
-                Upgrade("VehicleAssemblyBuilding", 3, 100_000.0),
-                Upgrade("LaunchPad", 2, 120_000.0),
-                Upgrade("TrackingStation", 2, 200_000.0),
-                Upgrade("ResearchAndDevelopment", 3, 260_000.0),
-                Upgrade("AstronautComplex", 2, 300_000.0),
-            };
-
-        private static List<GameAction> FacilitiesUpcoming()
-        {
-            var actions = FacilitiesUpgraded();
-            // After live UT, so the row's Timeline-end cell reads "upgrades to L3, ...".
-            actions.Add(Upgrade("LaunchPad", 3, 1_500_000.0));
-            actions.Add(Upgrade("Runway", 2, 1_700_000.0));
-            return actions;
-        }
-
-        private static List<GameAction> FacilitiesDestroyedInTimeline()
-        {
-            var actions = FacilitiesUpgraded();
-            // After live UT: a committed flight that takes the Launchpad down.
-            actions.Add(Destroy(LaunchPadBuilding, 1_600_000.0));
-            return actions;
-        }
-
-        private static List<GameAction> FacilitiesRepairedInTimeline()
-        {
-            var actions = FacilitiesUpgraded();
-            // Before live UT: the flight that took the Launchpad down (the live set says it
-            // is still down). After live UT: the KSC repair the rewound career holds.
-            actions.Add(Destroy(LaunchPadBuilding, 400_000.0));
-            actions.Add(Repair(LaunchPadBuilding, 1_600_000.0, 12_750f));
-            return actions;
-        }
-
-        // ----- the milestone id shape, as production writes it -----
-        //
-        // A MilestoneId is a stock ProgressNode key: either a bare node name
-        // ("FirstLaunch", "FirstCrewToSurvive") or "<Body>/<Node>" ("Mun/Landing",
-        // "Kerbin/Orbit"). Both forms are all over the committed fixtures' ledgers. The
-        // first version of this file used "FirstOrbitKerbin" / "FirstFlybyMun", which are
-        // neither - so SpaceBeforeCapitals rendered a title no career can hold. Pinned by
-        // GuiMockCareerIdShapeTests.
-        private static List<GameAction> MilestonesCredited()
-            => new List<GameAction>
-            {
-                Milestone("FirstLaunch", 40_000.0, 0f, 2f, 0f),
-                Milestone("Kerbin/Orbit", 90_000.0, 8_000f, 6f, 12f),
-                Milestone("Mun/Flyby", 150_000.0, 14_000f, 9f, 24f),
-            };
-
-        private static List<GameAction> MilestonesPending()
-        {
-            var actions = MilestonesCredited();
-            actions.Add(Milestone("Mun/Landing", 1_400_000.0, 22_000f, 18f, 45f));
-            actions.Add(Milestone("Minmus/Orbit", 1_700_000.0, 16_000f, 11f, 30f));
-            return actions;
-        }
-
-        private static List<GameAction> MilestonesZeroReward()
-            => new List<GameAction>
-            {
-                Milestone("FirstLaunch", 40_000.0, 0f, 0f, 0f),
-                Milestone("FirstCrewToSurvive", 60_000.0, 0f, 0f, 0f),
-            };
 
     }
 }

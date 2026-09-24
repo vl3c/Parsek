@@ -138,7 +138,7 @@ namespace Parsek.Tests
                   + "untouched already draws it" },
 
                 // Every GameActionType the Career VM walk does NOT branch on. The walk
-                // switches on ten; the rest are other subsystems' rows (recordings,
+                // switches on seven; the rest are other subsystems' rows (recordings,
                 // kerbals, routes, science, funds, reputation) that this window never
                 // renders. Listed as ONE reason rather than forty entries by the
                 // scope-derived check below - see NonCareerGameActionTypes.
@@ -149,7 +149,7 @@ namespace Parsek.Tests
         /// branch on, derived from its own comment-stripped BODY rather than listed.
         ///
         /// <para>That derivation is the honest form: the enum has around forty members and
-        /// the window renders ten of them, so a hand-kept exemption list would be
+        /// the window renders seven of them, so a hand-kept exemption list would be
         /// thirty rows of "this window does not draw route rows" - and would go stale
         /// silently the moment the walk grew an arm. The reflection guard below therefore
         /// asks only about the members the walk MENTIONS, and this method is what makes
@@ -185,24 +185,6 @@ namespace Parsek.Tests
                 { "StrategyRow.IsClosingByTimelineEnd",
                   () => AnyCareer(vm => vm.Strategies.CurrentRows.Any(
                       r => r.IsClosingByTimelineEnd)) },
-                { "FacilityRow.HasUpcomingChange",
-                  () => AnyCareer(vm => vm.Facilities.Rows.Any(
-                      r => r.HasUpcomingChange && r.CurrentLevel != r.ProjectedLevel)) },
-                { "FacilityRow.CurrentDestroyed",
-                  () => AnyCareer(vm => vm.Facilities.Rows.Any(
-                      r => r.CurrentDestroyed && r.ProjectedDestroyed)) },
-                { "FacilityRow.DestroyedInTimeline",
-                  () => AnyCareer(vm => vm.Facilities.Rows.Any(
-                      r => !r.CurrentDestroyed && r.ProjectedDestroyed)) },
-                { "FacilityRow.RepairedInTimeline",
-                  () => AnyCareer(vm => vm.Facilities.Rows.Any(
-                      r => r.CurrentDestroyed && !r.ProjectedDestroyed)) },
-                { "MilestoneRow.IsPendingCredit",
-                  () => AnyCareer(vm => vm.Milestones.Rows.Any(r => r.IsPendingCredit)) },
-                { "MilestoneRow.ZeroReward",
-                  () => AnyCareer(vm => vm.Milestones.Rows.Any(
-                      r => r.FundsAwarded == 0f && r.RepAwarded == 0f
-                           && r.ScienceAwarded == 0f)) },
                 { "RosterRow.StatusTooltip",
                   () => AnyKerbals(vm => AllRosterRows(vm).Any(
                       r => !string.IsNullOrEmpty(r.StatusTooltipText))) },
@@ -240,7 +222,7 @@ namespace Parsek.Tests
             //
             // The source scan is still here, in the narrow role it is actually good for:
             // deciding which GameActionType members the Career walk renders at all (that
-            // enum has around forty members and the window draws ten). For every OTHER
+            // enum has around forty members and the window draws seven). For every OTHER
             // guarded enum the whole member set must be claimed or exempted.
             var claimed = new HashSet<string>(StringComparer.Ordinal);
             foreach (GuiMockState state in GuiMockCatalogue.All)
@@ -248,7 +230,7 @@ namespace Parsek.Tests
                     claimed.Add(cover);
 
             HashSet<string> careerWalk = CareerWalkBranchMembers();
-            Assert.True(careerWalk.Count >= 10,
+            Assert.True(careerWalk.Count >= 7,
                 "the Career walk scan found only " + careerWalk.Count + " branches; the "
                 + "parse or the method moved");
 
@@ -280,9 +262,9 @@ namespace Parsek.Tests
             }
 
             // A hardcoded FLOOR so the loop cannot go vacuous: 6 RosterStatus + 4
-            // ChainMemberStatus + 4 KerbalEndState + 9 TerminalState + 10 rendered
-            // GameActionType = 33.
-            Assert.True(membersChecked >= 33,
+            // ChainMemberStatus + 4 KerbalEndState + 9 TerminalState + 7 rendered
+            // GameActionType = 30.
+            Assert.True(membersChecked >= 30,
                 "the guard checked only " + membersChecked + " members across "
                 + Guarded.Length + " enums; reflection or the scoping broke");
 
@@ -297,7 +279,7 @@ namespace Parsek.Tests
             // The OTHER half of design 11.1, and the half the first version had no reach
             // into at all: several of these windows' most consequential cells are decided
             // by a BOOL rather than by an enum - the divergence banner, (pending),
-            // (closing), (destroyed), (upcoming), the pending-accept split. Reflection
+            // (closing), the pending-accept split. Reflection
             // cannot see those, so each is a NAMED branch key a state must claim, checked
             // here against the real formatter that renders it.
             var claimed = new HashSet<string>(StringComparer.Ordinal);
@@ -512,11 +494,11 @@ namespace Parsek.Tests
         public void TheMethodScopeReallyNarrowsTheScan()
         {
             // Proves the scoping is load-bearing rather than decorative: the
-            // GameActionType guard reads Build()'s body, and Build() branches on ten of
+            // GameActionType guard reads Build()'s body, and Build() branches on seven of
             // the enum's members while the whole file names more.
             GuardedEnum gameActions = Guarded.Single(g => g.ShortName == "GameActionType");
             List<string> scoped = BranchMembers(gameActions);
-            Assert.Equal(10, scoped.Count);
+            Assert.Equal(7, scoped.Count);
 
             List<string> wholeFile = MembersIn(
                 PreparedSource(gameActions.RelativePath), "GameActionType",

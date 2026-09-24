@@ -45,24 +45,15 @@ namespace Parsek.UI.Gallery
         /// <summary>
         /// The shortest string that can serve as a witness.
         ///
-        /// <para>TWO characters, and the Facilities tab is why: its Level cell is
-        /// <c>"L2"</c> / <c>"L3"</c>, the shortest discriminating cell in the program. A
-        /// one-character floor would let the shared <c>-</c> placeholder through, which
-        /// matches half the cells in any window.</para>
+        /// <para>TWO characters: a one-character floor would let the shared <c>-</c>
+        /// placeholder through, which matches half the cells in any window.</para>
         /// </summary>
         internal const int MinWitnessLength = 2;
-
-        /// <summary>The Level cell of an un-upgraded facility. A row reading exactly this
-        /// with an empty status is day-one state, which an UNMOCKED window draws too, so
-        /// it cannot witness a swap.</summary>
-        private const string DayOneFacilityLevel = "L1";
 
         // The window tab tokens this deriver switches on, named once.
         private const string FlightsTab = "outcomes";
         private const string ContractsTab = "contracts";
         private const string StrategiesTab = "strategies";
-        private const string FacilitiesTab = "facilities";
-        private const string MilestonesTab = "milestones";
 
         /// <summary>
         /// The derived witness set for a built payload: the covered-row derivations first,
@@ -241,30 +232,10 @@ namespace Parsek.UI.Gallery
                                         r => r.IsClosingByTimelineEnd, into);
                     return;
                 case "FacilityUpgrade":
-                    // An upgrade seen from the Contracts / Strategies tabs shows only
-                    // through the SLOT COUNTS, which are numbers rather than cells - so
-                    // the covered derivation defers to the generic scan there rather than
-                    // producing a numeric witness any capture would satisfy.
-                    if (tab == ContractsTab || tab == StrategiesTab) return;
-                    AppendFirstFacility(
-                        vm.Facilities.Rows,
-                        r => r.HasUpcomingChange && r.CurrentLevel != r.ProjectedLevel,
-                        into);
-                    AppendFirstFacility(vm.Facilities.Rows, r => r.CurrentLevel > 1, into);
-                    return;
-                case "FacilityDestruction":
-                    AppendFirstFacility(vm.Facilities.Rows,
-                                        r => r.CurrentDestroyed && r.ProjectedDestroyed,
-                                        into);
-                    return;
-                case "FacilityRepair":
-                    AppendFirstFacility(vm.Facilities.Rows,
-                                        r => r.CurrentDestroyed && !r.ProjectedDestroyed,
-                                        into);
-                    return;
-                case "MilestoneAchievement":
-                    AppendFirstMilestone(vm.Milestones.Rows, r => r.IsPendingCredit, into);
-                    AppendFirstMilestone(vm.Milestones.Rows, r => true, into);
+                    // An upgrade shows in this window only through the SLOT COUNTS, which
+                    // are numbers rather than cells - so the covered derivation defers to
+                    // the generic scan rather than producing a numeric witness any
+                    // capture would satisfy.
                     return;
             }
         }
@@ -333,35 +304,6 @@ namespace Parsek.UI.Gallery
                 // that matters most on this tab.
                 Add(into, CareerStateWindowUI.FormatStrategyRow_Flow(rows[i]));
                 Add(into, CareerStateWindowUI.FormatStrategyRow_Title(rows[i]));
-                return;
-            }
-        }
-
-        private static void AppendFirstFacility(
-            List<CareerStateWindowUI.FacilityRow> rows,
-            Func<CareerStateWindowUI.FacilityRow, bool> match, List<string> into)
-        {
-            if (rows == null || into.Count >= MaxWitnesses) return;
-            for (int i = 0; i < rows.Count; i++)
-            {
-                if (!match(rows[i])) continue;
-                Add(into, CareerStateWindowUI.FormatFacilityRow_TimelineEnd(
-                    rows[i], true, CareerStateWindowUI.FormatDate));
-                Add(into, CareerStateWindowUI.FormatFacilityRow_Level(rows[i]));
-                return;
-            }
-        }
-
-        private static void AppendFirstMilestone(
-            List<CareerStateWindowUI.MilestoneRow> rows,
-            Func<CareerStateWindowUI.MilestoneRow, bool> match, List<string> into)
-        {
-            if (rows == null || into.Count >= MaxWitnesses) return;
-            for (int i = 0; i < rows.Count; i++)
-            {
-                if (!match(rows[i])) continue;
-                Add(into, CareerStateWindowUI.FormatMilestoneRow_Title(rows[i]));
-                Add(into, CareerStateWindowUI.FormatMilestoneRow_Rewards(rows[i]));
                 return;
             }
         }
@@ -480,37 +422,6 @@ namespace Parsek.UI.Gallery
                     AppendFirstStrategy(vm.Strategies.CurrentRows,
                                         r => r.IsClosingByTimelineEnd, into);
                     return;
-                case "FacilityRow.HasUpcomingChange":
-                    AppendFirstFacility(
-                        vm.Facilities.Rows,
-                        r => r.HasUpcomingChange && r.CurrentLevel != r.ProjectedLevel,
-                        into);
-                    return;
-                case "FacilityRow.CurrentDestroyed":
-                    AppendFirstFacility(vm.Facilities.Rows,
-                                        r => r.CurrentDestroyed && r.ProjectedDestroyed,
-                                        into);
-                    return;
-                case "FacilityRow.DestroyedInTimeline":
-                    AppendFirstFacility(vm.Facilities.Rows,
-                                        r => !r.CurrentDestroyed && r.ProjectedDestroyed,
-                                        into);
-                    return;
-                case "FacilityRow.RepairedInTimeline":
-                    AppendFirstFacility(vm.Facilities.Rows,
-                                        r => r.CurrentDestroyed && !r.ProjectedDestroyed,
-                                        into);
-                    return;
-                case "MilestoneRow.IsPendingCredit":
-                    AppendFirstMilestone(vm.Milestones.Rows, r => r.IsPendingCredit, into);
-                    return;
-                case "MilestoneRow.ZeroReward":
-                    AppendFirstMilestone(
-                        vm.Milestones.Rows,
-                        r => r.FundsAwarded == 0f && r.RepAwarded == 0f
-                             && r.ScienceAwarded == 0f,
-                        into);
-                    return;
             }
         }
 
@@ -619,38 +530,6 @@ namespace Parsek.UI.Gallery
                 AppendStrategyRows(vm.Strategies.CurrentRows, into);
                 if (into.Count < MaxWitnesses)
                     AppendStrategyRows(vm.Strategies.ProjectedRows, into);
-                return;
-            }
-            if (tab == FacilitiesTab)
-            {
-                List<CareerStateWindowUI.FacilityRow> rows = vm.Facilities.Rows;
-                if (rows == null) return;
-                for (int i = 0; i < rows.Count && into.Count < MaxWitnesses; i++)
-                {
-                    // The LEVEL and TIMELINE-END cells are the discriminating ones: EVERY
-                    // facility row draws a title (the tab emits the whole nine-building
-                    // inventory even on day one), so a title would match an unmocked
-                    // window exactly. A row that reads plain "L1" with no timeline change
-                    // is day-one state and is skipped for the same reason.
-                    string level = CareerStateWindowUI.FormatFacilityRow_Level(rows[i]);
-                    string end = CareerStateWindowUI.FormatFacilityRow_TimelineEnd(
-                        rows[i], true, CareerStateWindowUI.FormatDate);
-                    if (level == DayOneFacilityLevel && string.IsNullOrEmpty(end))
-                        continue;
-                    Add(into, level);
-                    Add(into, end);
-                }
-                return;
-            }
-            if (tab == MilestonesTab)
-            {
-                List<CareerStateWindowUI.MilestoneRow> rows = vm.Milestones.Rows;
-                if (rows == null) return;
-                for (int i = 0; i < rows.Count && into.Count < MaxWitnesses; i++)
-                {
-                    Add(into, CareerStateWindowUI.FormatMilestoneRow_Title(rows[i]));
-                    Add(into, CareerStateWindowUI.FormatMilestoneRow_Rewards(rows[i]));
-                }
                 return;
             }
 
