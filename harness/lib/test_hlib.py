@@ -20066,16 +20066,23 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # spec -> (min, max, decide fn, commands a debris-producing stage drop beyond
     # launch ignition). The FLOOR follows the last field, NOT the decide function:
     # B5/B6/B7 drop a flameout-staged core via _b5_flameout_stage, and B4 drops its
-    # service stage via an ACTION_ACTIVATE_STAGE on the sole path into B4_REENTRY.
+    # service stage via the ACTION_ACTIVATE_STAGE REENTRY pays after the deorbit cutoff.
     # Only B2 stages once (at ignition) and therefore floors at 7. The first cut
     # floored B4 at 7 by keying on _b5_flameout_stage alone.
     GATED = {
         "B2-lko-ascent.toml":         (7, 8, "b2_decide", False),
-        "B4-reentry-splashdown.toml": (8, 9, "b4_decide", True),
+        "B4-reentry-splashdown.toml": (9, 10, "b4_decide", True),
         "B5-mun-flyby.toml":          (8, 9, "b5_decide", True),
         "B6-minmus-flyby.toml":       (8, 9, "b5_decide", True),
         "B7-duna-flyby.toml":         (8, 8, "b5_decide", True),
     }
+
+    # Stacks a spec drops BEYOND the one extra stage the GATED flag counts. B4's
+    # REENTRY pays reentryStageCount = 3 owed activations (core drop, Poodle
+    # ignition at zero throttle, Poodle-stack drop) from its ONE stage site, so the
+    # site count cannot see the second dropped stack; measured 9 on
+    # 2026-09-24_1820_B4-reentry-splashdown.
+    EXTRA_DROPS = {"B4-reentry-splashdown.toml": 1}
 
     # spec -> (measured count, the PASS run ids it was read from). Every value is
     # `verifiers.expectations.observed.recordings.count` off a verdict=PASS result
@@ -20091,7 +20098,9 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # and are not this population.
     MEASURED = {
         "B2-lko-ascent.toml":         (7, ("2026-07-25_0824_B2-lko-ascent",)),
-        "B4-reentry-splashdown.toml": (8, ("2026-07-25_0828_B4-reentry-splashdown",)),
+        # 9 since 2026-09-24: the flight now drops the core AND the Poodle stack
+        # (reentryStageCount = 3) so the pod reenters alone and its chute can open.
+        "B4-reentry-splashdown.toml": (9, ("2026-09-24_1820_B4-reentry-splashdown",)),
         "B5-mun-flyby.toml":          (8, ("2026-07-25_0643_B5-mun-flyby",
                                            "2026-07-25_0847_B5-mun-flyby")),
         "B6-minmus-flyby.toml":       (8, ("2026-07-25_0636_B6-minmus-flyby",
@@ -20291,9 +20300,11 @@ class DebrisPopulationGateTests(unittest.TestCase):
                 count = load_spec(name)["expectations"]["recordings"]["count"]
                 self.assertEqual(cmin, count["min"])
                 self.assertEqual(cmax, count["max"])
-                self.assertEqual(8 if extra_stage else 7, cmin,
+                self.assertEqual((8 if extra_stage else 7) + self.EXTRA_DROPS.get(name, 0),
+                                 cmin,
                                  "a spec that commands a debris-producing stage drop "
-                                 "beyond ignition floors at 8, the others at 7")
+                                 "beyond ignition floors at 8, the others at 7, plus "
+                                 "any further stack a spec drops (EXTRA_DROPS)")
                 self.assertGreater(cmin, 1, "min = 1 is the vacuity this gate removes")
 
     def test_every_floor_admits_its_measured_count(self):
@@ -22830,6 +22841,93 @@ class ListHandlesExpectDigestValidationTests(unittest.TestCase):
         self.assertTrue(any("only the ListHandles verb" in e for e in errs), errs)
         errs = self._errs("ListHandles", {"kind": "chains", "expectdigest": "0a1b2c3d"})
         self.assertTrue(any("spelled 'expectDigest' exactly" in e for e in errs), errs)
+
+
+class KscActionRefusalSourceSyncTests(unittest.TestCase):
+    """Reads OUTSIDE harness/: `Source/Parsek/TestCommands/TestCommandKscAction.cs`.
+    Every typed refusal token the KscAction core and appliers can emit must have a row
+    in `_SEAM_REFUSAL_SUBKINDS`, or a refusal on a flown lane collapses to the coarse
+    `driver-verdict-mismatch` and the report stops naming which driver fault it was.
+
+    The C# is read as CODE (each line stripped of its `//` comment, quote-aware), and
+    the tokens are taken from the three shapes that emit one: a
+    `RejectReason = "<token>"` assignment in `Decide`, the reason literal passed to
+    `Refuse(...)` / `KscActionExecOutcome.Reject(...)` (the leading token of a
+    `"<token> " + <stock reason>` concatenation), and the `return "<token>";` arms of
+    the reason-mapping helpers."""
+
+    PATH = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandKscAction.cs")
+    TOKEN = r"[a-z]+(?:-[a-z]+)+"
+
+    @classmethod
+    def setUpClass(cls):
+        if not os.path.isfile(cls.PATH):
+            raise AssertionError("the C# KscAction half moved; this mirror is "
+                                 "vacuous: %s" % cls.PATH)
+        with open(cls.PATH, encoding="utf-8-sig") as fh:
+            raw = fh.read().replace("\r\n", "\n")
+        cls.code = "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+
+    def _emitted_tokens(self):
+        t = self.TOKEN
+        found = set(re.findall(r'RejectReason\s*=\s*"(%s)"' % t, self.code))
+        found |= set(re.findall(r'\bRefuse\([^;]*?"(%s) ?"' % t, self.code))
+        found |= set(re.findall(r'\bReject\(\s*"(%s)"' % t, self.code))
+        for helper in ("UnknownTargetReason", "MapResearchFailure"):
+            found |= set(re.findall(r'\breturn\s+"(%s)"\s*;' % t,
+                                    self._method_body(helper)))
+        return found
+
+    def _method_body(self, name):
+        head = re.search(r"\bstatic\s+string\s+%s\s*\(" % name, self.code)
+        self.assertIsNotNone(head, "%s declaration not found" % name)
+        start = self.code.index("{", head.end())
+        depth = 0
+        for i in range(start, len(self.code)):
+            if self.code[i] == "{":
+                depth += 1
+            elif self.code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return self.code[start:i + 1]
+        self.fail("%s body is unbalanced" % name)
+
+    def test_every_emitted_refusal_token_is_classified(self):
+        tokens = self._emitted_tokens()
+        unmapped = sorted(tok for tok in tokens
+                          if tok not in hlib._SEAM_REFUSAL_SUBKINDS)
+        self.assertEqual([], unmapped,
+                         "KscAction refusal tokens with no _SEAM_REFUSAL_SUBKINDS row")
+
+    def test_the_parse_is_not_vacuous(self):
+        """The strategy pair's tokens, one of each emitting shape, must be found - a
+        parse that silently matched nothing would pass the cell above against any
+        source."""
+        tokens = self._emitted_tokens()
+        for tok in ("unknown-strategy",          # return arm (UnknownTargetReason)
+                    "no-strategy-slot",          # RejectReason assignment
+                    "strategy-cannot-activate",  # Refuse with a stock-reason suffix
+                    "activate-not-applied",      # Refuse with a bare literal
+                    "unknown-action"):           # KscActionExecOutcome.Reject
+            with self.subTest(token=tok):
+                self.assertIn(tok, tokens)
+
+    def test_the_strategy_refusals_classify_as_designed(self):
+        for msg, expected in (
+                ("unknown-strategy", "driver-arg"),
+                ("factor-arg-invalid", "driver-arg"),
+                ("strategy-already-active", "driver-career"),
+                ("strategy-not-active", "driver-career"),
+                ("no-strategy-slot", "driver-career"),
+                # The wire msg is percent-encoded and carries stock's reason after the
+                # token; classification reads the head token only.
+                ("strategy-cannot-activate%20Not%20enough%20funds", "driver-career"),
+                ("strategy-cannot-deactivate%20(none)", "driver-career"),
+                ("activate-not-applied", "driver-gate"),
+                ("deactivate-not-applied", "driver-gate")):
+            with self.subTest(msg=msg):
+                self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
+                self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
 
 
 class ListHandlesSourceSyncTests(unittest.TestCase):

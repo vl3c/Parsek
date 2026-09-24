@@ -74,13 +74,13 @@ tier = "operator"
 #     below is the all-level-0 form (which is itself unphotographed and worth having), and
 #     the upgraded form still needs a fixture that does not exist. Section 6.1 is corrected
 #     in this PR rather than left to mislead the next author.
-#   - the Career Strategies tab POPULATED. Section 6.1 names `strategy-career` for the
-#     `Flow` cell, and that is also wrong off the bytes: that fixture's `STRATEGIES` node
-#     is EMPTY by construction - it seeds `rep = 25` so that `L3`'s in-game cell can
-#     ACTIVATE `LeadershipInitiative` at run time, and the activation is undone in the
-#     cell's own `finally`. So a census boot of it photographs the same empty tab this lane
-#     does. A populated Strategies capture needs a save with a live `STRATEGY` node and no
-#     committed fixture has one; corrected in section 6.1 in this PR.
+#   - the Career Strategies tab POPULATED, from the fixture alone. Section 6.1 names
+#     `strategy-career` for the `Flow` cell, and that is also wrong off the bytes: that
+#     fixture's `STRATEGIES` node is EMPTY by construction - it seeds `rep = 25` so that
+#     `L3`'s in-game cell can ACTIVATE `LeadershipInitiative` at run time, and the
+#     activation is undone in the cell's own `finally`. No committed fixture carries a
+#     live `STRATEGY` node. 2026-09-24: the lane now MAKES one instead - see "THE STRATEGY
+#     BLOCK" below.
 #   - any `PopupDialog`. All 21 stay dark for the structural reason GUI-3's header sets out
 #     (no seam path raises one and leaves it standing), so this lane asserts the NEGATIVE
 #     through one `op=dialog` step.
@@ -127,7 +127,33 @@ tier = "operator"
 # reads `Jebediah Kerman [Pilot] - 2 flights: 1 recovered, 1 aboard` over two dated rows.
 # Header-vs-cell delta ZERO on both tabs. An earlier round (`2026-09-15_1557`, also PASS)
 # measured the date clipping that moved the two date columns to 130 px.
-description = "GUI census wave 2, the populated career host: photograph both Career State tabs, both Kerbals tabs, five Timeline views (the four filter modes plus the Milestones career view) and the Missions and Recordings tabs over a committed EARNED career with fifteen ledger actions, real milestone rewards, non-round pools and nine OFFERED (not accepted) contracts, plus one attempt at a populated tooltip echo strip."
+# THE STRATEGY BLOCK (2026-09-24). The last block before FlushAndQuit activates one
+# stock strategy through the Administration building's own call and photographs what the
+# owner had never seen: the Career window's Strategies tab with a row in it, and the
+# Timeline's Career > Strategies view with the activation row. It runs LAST, after the
+# Basic pass, so every capture above it keeps the fixture's own career and reads exactly
+# as it did on the flights recorded here.
+#   - `KscAction action=activate-strategy strategy=OutsourcedResearchCfg` is the seam's
+#     strategy kind: it writes the commitment into `Strategy.Factor` (no `factor=` arg, so
+#     stock's slider default, 0.05) and calls `Strategy.Activate()` against a HIDDEN copy
+#     of the Administration screen the addon hosts for that one command, because stock's
+#     `CanBeActivated` reads the slot table off that screen's singleton. Parsek sees a
+#     player click: `StrategyActivatePatch` -> `GameStateRecorder.OnStrategyActivated` ->
+#     the KSC forwarding into the ledger.
+#   - WHY OUTSOURCED R&D. It converts Funds -> Science, so the Flow cell reads two named
+#     pools; its setup cost is FUNDS only (38000 -> 800000 lerped by the factor: 76100 at
+#     0.05), which this host's 536558 covers, where the reputation-costed strategies do
+#     not (rep 2); its group tag (`Basic,C`) conflicts with nothing active; and its
+#     required reputation at 0.05 is -437.5, below the host's 2. Administration is level 0
+#     here, so the slot table reads 1 of 1 once it is active - the heading's full form.
+#   - NO DEACTIVATE and NO pending row: stock refuses a cancel inside the strategy's
+#     minimum duration, and a pending row needs a strategy activated in a recording's
+#     future, which this vessel-less host has no way to author cheaply.
+# FLOWN 2026-09-24 `2026-09-24_1818`, PASS attempt 1, 108 s, 19 PNGs + 19 dumps. The
+# Career tab reads `Active now: 1 of 1 slot` over `Outsourced R&D | Y1, D01, 00:07 |
+# Funds -> Science @ 5.0%`; the Timeline reads `Activate: Outsourced R&D (5 % Funds->
+# Science)`. The seam line reads `factor=0.05 slots=1/1 setupFunds=76100 fundsDelta=-76100`.
+description = "GUI census wave 2, the populated career host: photograph both Career State tabs, both Kerbals tabs, five Timeline views (the four filter modes plus the Milestones career view) and the Missions and Recordings tabs over a committed EARNED career with fifteen ledger actions, real milestone rewards, non-round pools and nine OFFERED (not accepted) contracts, plus one attempt at a populated tooltip echo strip; then activate one stock strategy (Outsourced R&D) through the seam and photograph the Career Strategies tab and the Timeline Strategies view with it."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "career", "GUI-5", "pending-operator"]
 
@@ -260,12 +286,33 @@ steps = [
 
   # Leave the install in Advanced.
   { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+
+  # ================== THE STRATEGY BLOCK (see the header) ==================
+  # One real activation, then the two views of it. KscAction defers
+  # `administration-not-ready` for the frame or two the hidden Administration screen takes
+  # to wake, inside the verb's default 60 s budget.
+  { cmd = "KscAction", args = { action = "activate-strategy", strategy = "OutsourcedResearchCfg" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-career-strategies-active-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-career-strategies-active-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "strategies" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-timeline-strategies-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-timeline-strategies-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
 [dimensionsCovered]
-# BASICS ONLY, the GUI-3 discipline: this lane observes LAYOUT over a career, and drives
-# no career action, so no D8 value is EXERCISED here. `H45-stock-ui-overlay` and
+# BASICS ONLY, the GUI-3 discipline: this lane observes LAYOUT over a career. The strategy
+# block drives one career action, but only to put a row on screen; D8 `strategies` stays
+# claimed by the `L3-strategy-*` lanes, which assert the ledger arithmetic this lane does
+# not. `H45-stock-ui-overlay` and
 # `H71-resource-topbar-ksc` are the lanes that claim on this same host.
 D14 = ["career", "scene-ksc"]
 
@@ -313,6 +360,14 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-missions-recordings-expanded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-main-basic .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-overview-basic .*patched=17/17",
+  # --- the strategy block: the seam's activation, Parsek's capture of it, the two views ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] kscaction hidden Administration screen hosted for head=",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] kscaction action=activate-strategy target=OutsourcedResearchCfg applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 ",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] kscaction hidden Administration screen released \\(kscaction-complete\\)",
+  "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: StrategyActivated 'OutsourcedResearchCfg'",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-strategies-active-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-strategies-advanced .*patched=17/17",
 ]
 # EMPTY, the census host decision: a career's cold-OnLoad ERROR surface (ledger recalc over
 # 15 actions, contract patching over nine) is not what a LAYOUT review controls or observes,
@@ -320,7 +375,7 @@ required = [
 forbidden = []
 
 [runtime]
-# 17 captures and 17 dumps, one in-memory `op=find` capture, two OS-cursor moves, about 55
+# 19 captures and 19 dumps (17 before the strategy block), one in-memory `op=find` capture, two OS-cursor moves, about 55
 # single-phase UI ops, and a cold load of a vessel-less career with a 15-action ledger.
 # Sized off GUI-1's MEASURED 96 s for 22 captures plus 22 dumps plus an in-game batch on a
 # 42 MB career; this lane is smaller and drives no batch. Generous rather than tight because

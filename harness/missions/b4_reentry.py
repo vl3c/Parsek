@@ -7,7 +7,8 @@ AutoPilot (point retrograde, burn periapsis down), stages off the service stage
 the chutes, and SPLASHES DOWN INTACT. B4's contract REQUIRES survival: any
 vessel-lost / frozen terminal in ANY phase is an ASSERT-FAIL loss (no B1-style
 DOWN success terminal). Asserts reached-ORBIT phase evidence, a peak-apoapsis
-floor, the final landed/splashed situation, and the chute deploy -- all
+floor, the final landed/splashed situation, and the OBSERVED canopy (the craft's
+ParachuteState read Deployed, never merely "we sent deploy") -- all
 terminal-focused DRIVER-VALIDITY assertions, never a golden trajectory and never
 orbital precision post-deorbit.
 
@@ -46,18 +47,25 @@ def decide(state, snapshot):
 
 
 def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
-    # The machine state carries the phase evidence (reachedOrbit) and the chute
-    # deploy the frames cannot: both ride the shared evaluate seam.
+    # The machine state carries the phase evidence (reachedOrbit) and the OBSERVED
+    # canopy latch the frames cannot: both ride the shared evaluate seam. The
+    # commanded latch rides along as detail only (armCommanded), never as the gate.
     return mlib.evaluate_b4_assertions(
         frames, mlib.b4_params_from_dict(params),
         phases_reached=tuple(getattr(state, "phases_reached", ()) or ()),
-        chute_deployed=bool(getattr(state, "chute_deployed", False)))
+        craft_canopy_observed=bool(getattr(state, "craft_chute_full_seen", False)),
+        arm_commanded=bool(getattr(state, "chute_deployed", False)),
+        last_chute_state=str(getattr(state, "last_chute_state", "") or ""))
 
 
 def make_control() -> mission_runner.MissionControl:
     # KRPC.MechJeb AscentAutopilot for the ascent half (same path as B2); the
     # deorbit half drives kRPC's native AutoPilot through the same seam.
-    return mission_runner.KrpcMissionControl(use_mechjeb=True, client_name=MISSION_NAME)
+    # read_chute=True is LOAD-BEARING, not diagnostic: the craftCanopyObserved
+    # assertion gates on the OBSERVED ParachuteState, and without the read every
+    # frame carries the "" unread sentinel and the assertion can never be met.
+    return mission_runner.KrpcMissionControl(use_mechjeb=True, client_name=MISSION_NAME,
+                                             read_chute=True)
 
 
 SPEC = mission_runner.MissionSpec(

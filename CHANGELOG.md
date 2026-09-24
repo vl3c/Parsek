@@ -15,6 +15,19 @@ _(unreleased — entries accumulate here per commit)_
   lane does, so the Missions, Logistics and taller Settings windows are no longer cut off
   at the old 1280x720 edge. The size is set for that run only and put back afterwards;
   every other lane keeps 1280x720.
+- **Dev: the GUI mirror draws a label-styled button as plain text.** The Career row names (links to the Timeline) are label-styled buttons that KSP draws with no outline or bevel; the mirror drew them boxed (`harness/tools/gui_mirror.py`).
+- **Automated testing: the test seam can activate and cancel a stock strategy, and the
+  GUI census photographs a Strategies tab with a row in it.** `KscAction` gains
+  `action=activate-strategy strategy=<name> [factor=<0..1>]` and
+  `action=deactivate-strategy strategy=<name>`, which make the Administration building's
+  own calls (`Strategy.Activate()` / `Deactivate()`), so Parsek records the activation and
+  its setup cost exactly as it records a player's click. Stock checks the strategy slots
+  against the Administration screen, so the seam opens a hidden copy of that screen for
+  the one command and closes it afterwards. Refusals name the problem: an unknown strategy,
+  a bad factor, already active or not active, no free slot, or stock's own reason.
+  `GUI-5-census-career-ksc` now ends by activating Outsourced R&D and photographing the
+  Career window's Strategies tab and the Timeline's Career > Strategies view; every
+  earlier capture had shown "No active strategies."
 - **Automated testing: a report-only mutation checker asks whether each lane's checks
   would catch a real break.** `harness/tools/mutation_check.py` replays the harness's own
   pass/fail checks over runs already archived on the machine: first unchanged (the run
@@ -988,6 +1001,24 @@ _(unreleased — entries accumulate here per commit)_
   new atlas section. No player-visible behavior changes.
 
 ### Fixed
+
+- **Automated testing: the reentry lane now checks that the parachute really opened, and
+  flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
+  soon as it had sent the deploy command. It now reads the parachute's own state and
+  requires Parsek's recording of both parachute stages. Flying the real check found that
+  the lane's craft could not open its chute: dropping the spent stage in the same moment
+  as cutting the engine broke the craft up, and with that fixed, the pod came down with
+  the whole upper stage still attached, too fast for the parachute to open. The lane now
+  drops each stage a moment after the last, sheds the upper stage so the pod reenters
+  alone, and arms the parachute high enough to open once it is safe. Nothing in Parsek
+  itself changed.
+- **Timeline strategy rows show the strategy's real name.** The Timeline named strategies
+  from a hand-written table whose ids never matched stock's (`AppreciationCamp` against
+  stock's `AppreciationCampaignCfg`), so every stock strategy read as its split config
+  name, e.g. "Activate: Outsourced Research Cfg". The Timeline and the Career window's
+  Strategies tab now share one lookup: stock's own title ("Outsourced R&D") when the
+  game can answer, else the config name without its `Cfg` suffix ("Outsourced Research").
+  The Career window had shown the raw config name in that fallback case.
 
 - **A ghost passing through your vessel can no longer damage it.** Each ghost in orbit has a
   small invisible placeholder vessel that puts it on the map. When a ghost's path ran through

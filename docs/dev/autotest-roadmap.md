@@ -787,11 +787,17 @@ One line each; the definition lives at the pointer.
   D18-REALSPAWN-RECOVER-SEAM-VERB-PAIR).
 - **Trust risks** ("Trust and fail-open risks still outstanding"; the known gates in
   `autotest-status.md`):
-  - risk 4: the ledger oracle's independence check is a structural no-op;
+  - ~~risk 4: the ledger oracle's independence check is a structural no-op~~ (CLOSED:
+    mechanism 2026-07-29, ARMED 2026-07-31 on `CL-2-pod-impact-ledger`'s
+    `captureCrossCheck = "gate"`; known-gate 3 in `autotest-status.md`);
   - risk 8: phase 1 shipped (the report-only mutation checker, known-gate 17 lists its
     survivors); phase 2 (save / ledger perturbation, mission assertions) open;
-  - known-gate 14: strict per-identity ground truth is armed by nothing;
-  - known-gate 7: B4's chute latch.
+  - ~~known-gate 14: strict per-identity ground truth is armed by nothing~~ (CLOSED
+    2026-08-20: ARMED by `L4-ledger-groundtruth-strict`);
+  - ~~known-gate 7: B4's chute latch~~ (CLOSED 2026-09-24: `craftCanopyObserved`
+    reads the observed ParachuteState and the spec requires the two `parachuteLarge`
+    Part-event tokens; flying it found and fixed two B4 flight defects, see
+    known-gate 7 in `autotest-status.md`).
 - **Operator-only hand-off** (the 2026-09-08 register's item 10):
   - D14 inter-body surface delivery;
   - D10 `harvest-provenance` on an ore drill;
@@ -973,11 +979,12 @@ remains is, in order:
    Gloops is its only seam-reachable producer, so it closes with `manual-gloops` through
    one seam verb pair on branch `gloops-seam-verbs`, Gloops code untouched (todo
    D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE).
-9. **Trust risks** that no lane moves by itself: risk 4 (the ledger oracle's
-   independence check is a structural no-op; needs a reputation-producing scenario
-   carrying a ledger block), risk 8 (no mutation tool), known-gate 14 (strict
-   per-identity ground truth armed by nothing), known-gate 7 (B4's chute latch,
-   needs its own diagnosis from a B4 recording).
+9. **Trust risks** that no lane moves by itself: ~~risk 4 (the ledger oracle's
+   independence check is a structural no-op)~~ (CLOSED 2026-07-29, ARMED 2026-07-31 on
+   CL-2; known-gate 3), risk 8 (no mutation tool), ~~known-gate 14 (strict
+   per-identity ground truth armed by nothing)~~ (CLOSED 2026-08-20, armed by
+   `L4-ledger-groundtruth-strict`), ~~known-gate 7 (B4's chute latch)~~ (CLOSED
+   2026-09-24, armed on B4's observed canopy + Part-event tokens).
 10. **Operator-only hand-off** (manual flights, schedule rather than attempt
     opportunistically): D14 inter-body surface delivery, D13 / D10
     `harvest-provenance` on an ore drill, the recovery-credit third of costed
@@ -4141,7 +4148,7 @@ Forensics live in `docs/dev/todo-and-known-bugs.md`; this is a pointer index onl
 | ~~EVA-4 mission oracle returns MISSION-OK while the kerbal dies~~ (CLOSED by PR #1359, merged 2026-07-27) | Was: anyone reading `results/*_mission.json` alone read that flight as a success, with survival proven only by seam log tokens. Closed on both sides: the canopy-gated standoff completion in `TestCommandEvaExit.cs` (the C# EvaExit verb no longer completes before the observed canopy state allows it) plus the harness-side `missionOutcome` gate (`classify_post_mission_outcome_miss`), which reds a subject death as `PARSEK-FAIL(mission-outcome)` instead of letting a retry discard the evidence. Mission-level verdicts stay HANDOFF-scoped by design (`mlib.MISSION_HANDOFF_CONTRACTS` declares what a mission did not verify); the gate, not the mission JSON, carries survival. `autotest-status.md` already reflects this. |
 | ~~`ANOMALY_TOKENS` drift (status doc known-gate 0)~~ (RESOLVED 2026-08-04, branch `arming-sweep`) | Was: `icon-jump` a dead token; nine raised reasons including `icon-teleport` ungated. Closed in two halves: the dead token retired 2026-07-29, then the per-token calls made 2026-08-04 off the real-geometry silence baseline - seven promoted into the gated set (a raise now reds the tracer-armed specs), two kept as declared report-only instruments (`unaccounted-drawn-recording`, `factory-parity`). Known-gate 0 carries the full resolution record. |
 | ~~`STOCK_AWARD_PATTERNS` dead against real KSP logs (known-gate 3)~~ (CLOSED: mechanism 2026-07-29, ARMED on CL-2 2026-07-31, re-verified at HEAD 2026-08-04) | Was: `unmatched_captured_awards` captured nothing, making the ledger oracle's independence cross-check a structural no-op. The patterns were rewritten from measured lines (reputation-only, permanently - KSP logs no funds/science award line), and `CL-2-pod-impact-ledger` arms `captureCrossCheck = "gate"` with `utWindow` phase bounds; nine consecutive bit-stable captures archived. Known-gate 3 carries the record. |
-| B4 `chuteDeployed` is still a commanded latch (known-gate 7, audit debt) | Same class that let B1 ship four months of green nightlies on a chute that never opened. B4's fixture carries the same `automateSafeDeploy = 0`. Needs its own diagnosis from a B4 recording before anyone concludes either way. |
+| ~~B4 `chuteDeployed` is still a commanded latch (known-gate 7, audit debt)~~ (CLOSED 2026-09-24, branch `b4-chute`) | Was: the same class that let B1 ship four months of green nightlies on a chute that never opened. The row now reads the OBSERVED ParachuteState, and the first flights at origin/main confirmed the fear: the craft broke up at the deorbit stage drop, and with that fixed the chute read `Armed` to impact because the Poodle stack was still on the pod. Both flight defects fixed (settled staging, the pod reenters alone, the chute arms at 12 km); reading `2026-09-24_1820` PASS with the canopy observed. Known-gate 7 carries the record. |
 | INV2 double-cover recorder seam (known-gate 5) | Real Parsek defect, fixed in its own lane. |
 | The no-1x-coast certification cannot see coast warp-thrash (known-gate 8) | A real gap in an existing gate. Bounded for now by the machine-side thrash fast-fail. |
 | ~~`autotest-status.md` EVA-2 rows contradict themselves~~ (CLOSED, verified 2026-09-07: the contradicting row is gone - the only `does not exist yet` left in `docs/dev/autotest-status.md` at `cc1c4c573` is the `eva2-lko-crewed` fixture row's own "Row corrected 2026-07-29" note quoting the old text - and the EVA-2 row reads LIVE-PROVEN 2026-07-24) | Was: the EVA table said "STILL pending-fixture: `eva2-lko-crewed` does not exist yet" while the section header says all four EVA scenarios are LIVE-PROVEN, Operator item 2 says the fixture was forged and committed, the fixture exists on disk with 7 VESSEL nodes, the spec reads `tier = "daily"`, and `duration.json` carries a measured 57 s run. Not a system bug; a stale doc row that reads as a blocker. Deliberately NOT edited here to avoid colliding with concurrent sessions; filed as a todo. |
@@ -6204,9 +6211,13 @@ Remaining fail-open surfaces, ranked:
    spelling kept so a spec cannot declare it by mistake):
    zero committed declarers, so an evaluator would be unused surface; the
    spec-author trap is bounded to the one block nobody declares.
-4. **The ledger oracle's independence check is a structural no-op** (see the open-bugs
-   table). `compute_expected` consumes seam-declared entries only, with no live
-   cross-check, in the one verifier the entire L-track depends on.
+4. ~~**The ledger oracle's independence check is a structural no-op**~~ (CLOSED: the
+   mechanism 2026-07-29, ARMED 2026-07-31 on `CL-2-pod-impact-ledger`, whose
+   `captureCrossCheck = "gate"` makes `unmatched_captured_awards` a live cross-check of
+   the seam-declared entries against KSP's own `Added ... reputation:` lines; known-gate
+   3 in `autotest-status.md` carries the record). Was: `compute_expected` consumed
+   seam-declared entries only, with no live cross-check, in the one verifier the entire
+   L-track depends on.
 5. **Claim is not gate.** `[dimensionsCovered]` is declarative and
    `hlib.validate_spec` does not check that a claimed cell has a gating assertion. A
    pass that added claims without tokens would move 83 to roughly 130 and prove
