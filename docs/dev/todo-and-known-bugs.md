@@ -15,6 +15,50 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach saves, the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness]
+
+Phase 1 (`harness/tools/mutation_check.py`, known-gate 17 in `autotest-status.md`) replays
+the gating evaluators that are pure over an archived KSP.log, plus the ARMED save-parse
+windows at the facet level (the measured count moved by one and to zero). Still unchecked,
+so a cell there can go vacuous with nothing noticing:
+
+- Save perturbation below the facet: edit the archived `persistent.sfs` itself (drop a
+  `RECORDING` node, a supersede row, a tombstone, a rewind point, a route stop) and re-run
+  `saveparse.parse_parsek_scenario` + `evaluate_save_structure`, so a window whose parser
+  path is dead is caught, not only a window that is too wide.
+- Ledger perturbation: the ledger oracle needs the run's seed capture; archive it (or
+  re-derive it from the archived save) so `oracle.build_oracle_result` can replay with an
+  award removed or a pool moved.
+- Mission assertions: replay a mission's recorded verdict with its sensor reads removed
+  (the kRPC telemetry lines it gates on), so a mission check that no longer reads what it
+  claims is caught.
+- Forbidden patterns: phase 1 cannot synthesize a line a forbidden regex would match; a
+  literal-shaped forbidden token (`\[Parsek\]\[ERROR\]`) could be injected directly.
+
+Also open from the first sweep: the 723 triage survivors (96 lanes) listed by group in known-gate 17
+(spec tightening; each group is a spec change or a recorded ruling).
+
+## GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`]
+
+Ghostlife v2 is built with no flight: the engine writes a tracing-gated
+`MeshDestroyed reason=overlap expired` (also `overlap cleared` / `engine teardown`) when an
+overlap copy that wrote its own MeshSpawned vanishes, and `LoopCycle cycle=N prev=M
+mode=reuse|overlap-demote|unit` when a live ghost's cycle advances; `harness/lib/ghostlife.py`
+reads `destroyedReasons.required`, per-vessel `vessels` windows and the `cycleLines` census.
+Offline, every archived GS-4 / GS-9 log replays through v2 with status, mismatches and all v1
+facets identical, and each reads `Kerbal X Debris` spawned 6 (the floor a `vessels` window
+would pin). Open:
+
+- No committed spec declares a v2 key. The first live reading is Tier C item 12 (loop the
+  GS-4 subject), which also needs a lane whose period is below span/20 to see
+  `overlap expired` and `auto-adjusted (cap reached)` (see the D6 `overlap-expiry-soft-caps`
+  cell).
+- The `unit` LoopCycle mode fires only when a mission-unit member's ghost object survives the
+  cycle boundary; if a live reading on V6M shows zero `unit` lines, the member is destroyed and
+  respawned per cycle and the census there reads spawn lines instead.
+- Adding `vessels = { "Kerbal X Debris" = { spawned = { min = 6 } } }` to GS-4's armed block is
+  an arming change and wants its own reading run.
+
 ## TIERC-LOOP-PERIOD-AUTO-MODE-HOST: no lane flies a loop on the global Auto period, and no lane has overlap copies expiring or the 20-copy cap stretching a cadence [FILED 2026-09-24, ghost-replay Tier C PR 1, branch `tierc-claims`]
 
 The operator redefined two D6 registry cells on 2026-09-24 to match the code

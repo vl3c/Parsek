@@ -10,6 +10,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a report-only mutation checker asks whether each lane's checks
+  would catch a real break.** `harness/tools/mutation_check.py` replays the harness's own
+  pass/fail checks over runs already archived on the machine: first unchanged (the run
+  must still pass against the current spec, or the lane is skipped), then over copies of
+  the log and save with the watched lines deleted, numbers changed, exceptions and
+  anomalies injected and save counts moved. Each change the checks still pass is listed
+  for triage in a report; nothing fails a run and no game is launched.
+- **Automated testing: loop playback now logs when an overlapping ghost copy disappears
+  and when a ghost starts a new loop cycle.** With ghost render tracing on, a looped
+  flight's older overlapping copy writes a destroyed line (`overlap expired`) when its
+  flight ends, and each cycle advance writes a `LoopCycle` line. The ghost-lifecycle
+  check can now require a destroy reason, set a floor per vessel name (for example six
+  `Kerbal X Debris` ghosts), and count loop cycles. Nothing changes with tracing off.
 - **Automated testing: two loop-playback cells are claimed from existing lanes, and two cells
   are redefined to match the ghost engine.** The loop-period cell now means the real
   behaviours (one copy at a time, overlapping copies, the global Auto period) and the

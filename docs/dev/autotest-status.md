@@ -1,6 +1,6 @@
 # Automated Testing System - Status
 
-Last updated: 2026-09-24 (**GHOST-REPLAY TIER C PR 1: D6 `self-overlap` CLAIMED ON V8F AND D6 `loop-period-modes` (mode 1 only) ON V6M, NO FLIGHT**, branch `tierc-claims`. The operator redefined D6 `loop-period-modes` (one ghost per cycle when period >= span / overlapping copies when period < span / the global Auto period; Sec/Min/Hour are display units) and `overlap-expiry-soft-caps` (soft caps are gone; old overlap copies vanish at their flight's end, the 20-copy cap slows relaunches). V8F gains the engine's `Loop cadence #N "Kerbal X": ... (cycles=20) no adjustment` token, V6M gains the `overlaps=no` unit summary (cadence 12.9x the span) under its armed `cycles >= 2` render-composition floor; both read off every archived log of the lane and red offline when mutated. `overlap-expiry-soft-caps` stays uncovered: no archived loop log prints `auto-adjusted (cap reached)`, and no copy's expiry is logged until ghostlife v2. Coverage 204 of 250. Previous: D9 `load-time-sweep` claimed by RF-14 on `tierb-rtl-refly`, coverage 201 of 250.)
+Last updated: 2026-09-24 (**GHOSTLIFE v2 BUILT, NO FLIGHT**, branch `ghostlife-v2`, ghost-replay Tier C item 10. The engine now writes a tracing-gated `MeshDestroyed reason=overlap expired` line when an overlap copy vanishes (plus `overlap cleared` / `engine teardown`, only for a copy that wrote its own MeshSpawned) and a `LoopCycle cycle=N prev=M mode=reuse|overlap-demote|unit` line when a live ghost's cycle advances. `harness/lib/ghostlife.py` gains `destroyedReasons.required`, per-vessel-name windows (`vessels`) and the LoopCycle census (window key `cycleLines`, facets `cycleCensus` / `cycleModes`). Offline proof: all 12 distinct archived GS-4 / GS-9 logs replay through v2 with status, mismatches and every v1 facet identical to v1; every one reads `Kerbal X Debris` spawned 6. No spec declares a v2 key yet; the first live reading belongs to Tier C item 12. Previous: ghost-replay Tier C PR 1 (#1798) claimed D6 `self-overlap` on V8F and `loop-period-modes` (mode 1, one copy at a time) on V6M, coverage 204 of 250.)
 Previously: 2026-09-24 (**D18 `ghost-extension-past-endut` RE-CLAIMED ON THE SINGLE-POINT COLLISION HOLD BY EX-2**, branch `ghost-ext-single-point`. New injected preset `single-point-hold` (`SyntheticRecordingTests.SinglePointOrbitalHold`, the four preset surfaces in step) on `eva2-lko-crewed`: one committed one-point recording `Single Point Holder` plus a 20 s orbit tail and an Orbiting terminal, led 70 m ahead of the save's non-focused `Kerbal X Probe`, with a spawn collision footprint widened to about 155 m half-extent. New lane `EX-2-single-point-held-ghost`: at EndUT the orbital spawn is collision-blocked by the probe on `CheckSpawnCollisions`' single-point branch (no walkback possible), the policy holds the live ghost, retries every 1 s, times out at 5 s and releases it with `held-spawn-timeout`. Two source findings shaped it: a point-ONLY one-point recording is never live (activation starts at its only point, which is also EndUT; the policy holds only a ghost live at completion), and a non-EVA spawn skips the ACTIVE vessel, so the blocker is the non-focused probe. Readings `2026-09-23_2054` (one-part box grazed the probe at 13.4 m and cleared on the 1 s retry) and `_2103` (the ghost parked on the probe; Parsek's map-presence ghost ProtoVessel collided with it on unpack and broke it into 7 debris, which the overlap check filters, todo GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE) PARSEK-FAILed on geometry; armed `_2110` PASS attempt 1 (blocked at 70 m, `held=5.0s`, `destroyed (held-spawn-timeout)`, after-hold mark pid 0 spawned-false, saveParse structure + points armed: 1 tree, 1 recording, Orbiting 1, pointCount 1), negative control `_2113` PARSEK-FAIL on exactly its one seeded forbidden token, reverted. Automation DLL sha256 `bbfc81c5...` (origin/main `6a17f1717` build, no C# change). Coverage **199 -> 200 of 250** (after merging `origin/main` with RL-1 / GS-10 / GS-11), D18 **10 -> 11 of 12**, 298 specs, re-derived with the roadmap one-liner.)
 Previously: 2026-09-23 (**D3 `relative-loop` LIVE-PROVEN AND CLAIMED BY RL-1, D3 NOW 7 OF 7**, branch `d3-relloop`, priority register C5. New `RecordingBuilder.WithLoopAnchorVesselId` and injection preset `relative-loop` (fact `InjectRelativeLoopAnchor`): one looped recording on `pad-runway-pair` whose two RELATIVE sections (offset (0,0,0) then (0,20,0)) are loop-anchored to the NON-active runway rover `rover fuel 0` (pid 95298807), plus a stationary Absolute anchor track the sections name as their recorded anchor. New lane `RL-1-relative-loop-live-anchor` gates the production live-PID loop path: `ShouldSpawnLoopedGhost ... anchor pid=95298807 valid`, `Anchor vessel loaded:`, `Anchor-relative loop playback started:`, `RELATIVE playback: ... source=live` for both offsets, and a placement facet: the resolver output equals the live anchor pose at zero offset (source=live gated). The captured output is ResolveRelativePlaybackPosition(anchorPos, rot, 0,0,0) printed beside anchorPos, so the equality itself is arithmetic; what the facet gates is that the loop-relative-position resolver ran against the LIVE anchor (a regex backreference on the traced `resolver=loop-relative-position` line). reading `2026-09-23_2041` (attempt 2 PASS; attempt 1 `_2040` INVALID `warp-locked`, WarpToUT sent before the focused vessel unpacked, fixed with twelve settle steps), armed re-flight `2026-09-23_2044` PASS attempt 1, negative control discharged offline against `_2044`'s log (the backreference moved to the 20 m section reds on exactly that token). Offline measurement on `_2044`'s log (not a gate): 719 zero-offset traced placements at 0.00 m from the live anchor, 477 at the 20 m offset at 20.00 m. A first attempt `2026-09-23_2034` without the recorded anchor track PARSEK-FAILed: the zone distance resolves a RELATIVE section through the recorded anchor only, read `unresolved`, and the ghost was hidden before positioning. Findings filed, not fixed (no product C#): todo LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED (a loop anchored to the vessel being flown never plays, and the zone distance reads the recorded, not the live, anchor). Deployed DLL sha256 `a7c050dd...` built from this worktree (origin/main `b7b6005d7` source). Coverage **198 -> 199 of 250** after merging origin/main with #1789 (D5) and #1788, 297 specs, re-derived with the roadmap one-liner.)
 Previously: 2026-09-23 (**RP SURVIVES REWIND-TO-LAUNCH: GS-4 ARMED ON `rewindPoints {1,1}`, S4.1 FLIES THE FUTURE-RP GATE**, branch `rp-survives-rewind`. Operator ruling: a rewind point always survives a Rewind-to-Launch and its Re-Fly waits until the clock reaches the RP UT. The defect was scene-history carry-over (the rewind's OnLoad reads persistent.sfs, which `SpaceCenterMain.Start` reloads), which also explains GS-7's survival and RF-4's resurrected RP. GS-4 armed flight `2026-09-23_2012` PASS attempt 1 (rewindPoints 1); negative control `_2021` on the pre-fix DLL red on exactly `rewind.rewindPoints 0 < min 1` plus the carry-over token. S4.1 `_2038` PASS attempt 1 with its new REJECTED -> TimeJump -> OK sequence. S4.2-S4.4 gain the same TimeJump, not re-flown; RF-4's report-only window returns to `max = 0`. No coverage change. Todo RP-SURVIVES-REWIND-TO-LAUNCH.)
@@ -4694,8 +4694,12 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   spawn-census window, spawn / destroy LINE-count windows (`spawnLines` /
   `destroyLines`, added 2026-09-10 for the repeat-rewind lane: the distinct
   census and the set-based balance cannot see a second replay of the SAME
-  recordings leak a ghost; honest only on a non-looping lane) and a zero-spawn
-  vacuity floor; gates as
+  recordings leak a ghost; on a looping lane honest only on a v2-producer log) and a zero-spawn
+  vacuity floor; since 2026-09-24 (ghostlife v2, Tier C item 10) also
+  `destroyedReasons.required`, per-vessel-name windows (`vessels`) and a
+  per-cycle census off the producer's `phase=LoopCycle` line (window key
+  `cycleLines`), with the producer writing `MeshDestroyed reason=overlap
+  expired` for a vanishing overlap copy; gates as
   `PARSEK-FAIL(ghost-lifecycle)` only for specs on `GHOSTLIFE_ARMED_SPECS`
   (empty as shipped - `GS-4-kerbalx-rewind-watch` is the first DECLARER and
   stays report-only until its reading run).
@@ -6085,6 +6089,84 @@ six publish or compare numbers the runner already measured.
     HARVEST of the operator's `orbital supply route` save, whose
     `Route: KSC -> Duna` satisfies every step of the roadmap's 8-step
     specification. `B32` / `V26M` / `V26T` are now authorable.
+17. MUTATION CHECK, PHASE 1 (trust risk 8): the gates are now mutation-tested over
+    local archives, REPORT-ONLY, and the first sweep's survivors are listed here for
+    triage (branch `mutation-check`, 2026-09-24). Tool: `harness/tools/mutation_check.py`
+    (pure core `harness/lib/mutlib.py`; contract in `harness/README.md` -> "Checking that
+    the gates bite"). It replays logContracts + `recordings.count`, the Unity-exception
+    scan, the anomaly sweep and ARMED save-parse windows over each spec's newest archived
+    run that still replays green against the current spec, then over mutated copies.
+    Operator rulings 2026-09-24: an operator tool run over local archives (CI cannot see
+    them), and survivors are listed, never failing a run. Phase 2 is todo
+    MUTATION-CHECK-PHASE-2.
+    NUMERIC RULE (after the #1801 review): an identifier-shaped field (`pid`, `id`,
+    `idx`, `index`, `inst`, `rec`, `slot`, `dist`, the UT fields, `frame=`, a `...Root`
+    part pid, an unlabelled number) is `info`; EVERY other field that moves between zero
+    and nonzero while the lane still passes is `triage`; a nonzero value moved by one is
+    `info`.
+    FIRST SWEEP (2026-09-24, every archive under the umbrella root): 300 specs, 152
+    lanes with a green baseline, 71 whose newest three archives do not replay green
+    against today's spec (mostly collect-logs folders of non-PASS runs, or specs that
+    moved since), 77 with no archive on this machine. 11,776 mutations: 8,511 killed,
+    3,265 survived - 2,380 `info` (identifier fields, nonzero magnitudes moved by one,
+    the width of a declared window, and the count window), 162 `intended`, 723
+    `triage` across 96 lanes (716 of them numeric: 556 a field dropping to zero, 160 a
+    field leaving zero). Read by hand, by group:
+    - **Needs a spec change (the gate does not prove its claim):**
+      - `B1-pad-hop`, `B2-lko-ascent`, `B5-mun-flyby`: required `Recording stopped` is
+        satisfied by TEARDOWN lines alone (the flush at quit stops the recording and
+        prints the same line), so the token cannot tell whether the in-run stop happened.
+        Anchor it to an in-run step or drop it. The same bare `"Recording stopped"` is
+        required by B4, B6, B7, B11-B26, B28-B30 and fifteen more specs (V1, V9, V11-V13,
+        S0.5, S0.6, CL-1, CL-2, EVA-4, GS-2, L3, L5, MC-3, BDOCK-1), so the teardown gap
+        almost certainly applies to them too; only B1 / B2 / B5 had a green archive here.
+      - `GUI-16-census-gloops-states`: `gloopsstop committed=true points=[0-9]+` passes a
+        Gloops stop that committed ZERO points; make it `points=[1-9][0-9]*`.
+      - `S4.1-rewind-merge`: `[expectations.unityExceptions]` arms only `maxTotal = 3`, so
+        an exception THROWN in Parsek code passes while the count has headroom (both
+        injections survive). Ruling A4-b says a Parsek frame is a finding at any count:
+        arm `maxParsekThrowSite = 0` after one report-only read of its archived runs.
+      - Failure-shaped fields left free (`[0-9]+`, or swallowed by `.*`):
+        `skippedOwned=` on `B32` / `V26M` / `V26T` (route line draw), `seamSkipped=` on
+        `V14M` / `V15M` / `V16M` / `V19M` / `V20M` (Split summary), `dropped=` and
+        `skippedNonImmutableOldSides=` on `RF-4`, `staleDropped=` on `RF-14`,
+        `skipped=` on `GUI-12` / `RF-12L` / `RF-12W`, and `outsideSoi=` on every
+        V-lane map-dwell sampler line (16 lanes).
+    - **Presence tokens whose counts are free (each needs a one-line ruling: pin the
+      floor, or record why zero is healthy):**
+      - the render-sampler summaries on the V lanes: `sampled=` (19), `evaluated=` (18),
+        `phases=` (13), `P=` / `cadence=` / `fixedCadenceResidual=` / `anchor=` (six
+        loop-periodicity lanes), the graze counters on the V*M Split summaries, and the
+        orbital elements (`sma` / `ecc` / `inc` / `argPe` / `mna` / `epoch`) on the four
+        V*T arrival lanes;
+      - the census read-backs: `dumpguitree ok ... nodes= bytes= windows=` (110 of each,
+        every GUI lane that dumps a tree), `frames=` (17), `changed=` / `expanded=` /
+        `total=` on `uiaction` lines - a zero-byte dump or a zero-node tree passes today;
+      - the re-fly / ledger counts: the `Restored: recs=.*` scenario summary (`trees=`,
+        `actions=`, `crew=`, `tombstones=`, `supersedes=`, `rps=`... on `CL-4`, `RF-1`,
+        `RF-9`, `S4.1`), the per-module ledger tallies (`Funds=`, `Science=`,
+        `Contract=`... on `CL-4`, `RF-12S`, `RF-13`), `reservations=` / `oldRows=` /
+        `newRows=` on `RF-12S` / `RF-13` / `RF-13R`;
+      - the logistics counters on the RVR lanes (`cMin=` on nine, `debited=`, `units=`,
+        `capacity=`, `stop=`), the loop lanes' `intervalSeconds=` / `suppressed=`, the
+        spawn-decision tallies on `V22T` / `V23T` (`created=`, `debris=`, `spawned=`...).
+    - **Classifier noise to discount:** `children=` on the GS lanes (10) is a PID list
+      (`Controllable split children: [pid,pid]`), and a handful of capitalised prose
+      words (`Ghost=`, `HEAD=`, part-name fragments on `S1.9`) - identifiers in
+      substance.
+    - **Save-parse windows with only a `max` admit zero:** `B17`'s
+      `terminalStates.Destroyed <= 1` and `EVA-2`'s `points.trivialRecordings <= 1`
+      (upper bounds by design; confirm when next touching the spec).
+    - **Intended by declaration (not triage, 162):** the anomaly tokens a spec lists in
+      `allowedAnomalies`, two caller-shape exceptions under a `maxParsekThrowSite`-only
+      block (the 2026-09-22 ruling), and the numeric survivors on the operator-local
+      census lanes (`GUI-1` / `GUI-2` / `GUI-24` assert that a window drew, not what).
+    - **Multi-phase patterns** besides the three above: `GS-9`'s two tempered `{8}`
+      mesh-lifecycle patterns span the quit marker, but no phase alone satisfies them
+      (killed).
+    What the sweep does NOT cover: the 148 lanes without a green archive here (re-run it
+    after a tier), mission-side assertions, the ledger oracle, the offline analyzer, the
+    batch tally, ghostlife and save perturbation below the facet level (phase 2).
 
 ## Operator items outstanding
 
