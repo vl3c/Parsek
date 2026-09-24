@@ -229,8 +229,8 @@ required = [
 
   # --- the two recording-shaped raises resolved a REAL recording out of the effective set
   # (32 bare hex characters - a RecordingId carries no prefix, unlike an rp_ id).
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise popup=fastforward name=ParsekFastForwardConfirm title=Confirm: Fast-Forward rec=[0-9a-f]{32} pressable=Cancel",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise popup=seal name=ParsekUFSealDialog title=Confirm: Seal Unfinished Flight rec=[0-9a-f]{32} pressable=Cancel",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise popup=fastforward name=ParsekFastForwardConfirm title=Confirm: Fast-Forward rec=[0-9a-f]{32} route=- candidate=- pressable=Cancel",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise popup=seal name=ParsekUFSealDialog title=Confirm: Seal Unfinished Flight rec=[0-9a-f]{32} route=- candidate=- pressable=Cancel",
 
   # --- BOTH DISMISSAL ROUTES. One press (the only harmless button in the set) and five
   # plain dismissals, each confirmed gone after a drawn frame.

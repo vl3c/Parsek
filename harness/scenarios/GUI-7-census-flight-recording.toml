@@ -311,7 +311,7 @@ required = [
   # tracked the commanded point - so the two pipelines genuinely disagree, and a hover is
   # decided by the one that does not move. That is the whole content of
   # GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT's remaining half.
-  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] tooltip echo strip pointer probe eventLocal=[0-9.-]+,[0-9.-]+ eventScreen=[0-9.-]+,[0-9.-]+ input=[0-9.-]+,[0-9.-]+ inputGuiY=[0-9.-]+ screenH=720 frame=[0-9]+ text=",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] tooltip echo strip pointer probe eventLocal=[0-9.-]+,[0-9.-]+ eventScreen=[0-9.-]+,[0-9.-]+ input=[0-9.-]+,[0-9.-]+ inputGuiY=[0-9.-]+ screenH=1080 frame=[0-9]+ text=",
   # --- the state machine moved, which is what makes the three status captures a sequence
   # rather than three pictures of the same thing.
   #
