@@ -22,6 +22,27 @@ _(unreleased — entries accumulate here per commit)_
   `GUI-5-census-career-ksc` now ends by activating Outsourced R&D and photographing the
   Career window's Strategies tab and the Timeline's Career > Strategies view; every
   earlier capture had shown "No active strategies."
+- **Automated testing: a report-only mutation checker asks whether each lane's checks
+  would catch a real break.** `harness/tools/mutation_check.py` replays the harness's own
+  pass/fail checks over runs already archived on the machine: first unchanged (the run
+  must still pass against the current spec, or the lane is skipped), then over copies of
+  the log and save with the watched lines deleted, numbers changed, exceptions and
+  anomalies injected and save counts moved. Each change the checks still pass is listed
+  for triage in a report; nothing fails a run and no game is launched.
+- **Automated testing: loop playback now logs when an overlapping ghost copy disappears
+  and when a ghost starts a new loop cycle.** With ghost render tracing on, a looped
+  flight's older overlapping copy writes a destroyed line (`overlap expired`) when its
+  flight ends, and each cycle advance writes a `LoopCycle` line. The ghost-lifecycle
+  check can now require a destroy reason, set a floor per vessel name (for example six
+  `Kerbal X Debris` ghosts), and count loop cycles. Nothing changes with tracing off.
+- **Automated testing: two loop-playback cells are claimed from existing lanes, and two cells
+  are redefined to match the ghost engine.** The loop-period cell now means the real
+  behaviours (one copy at a time, overlapping copies, the global Auto period) and the
+  overlap cell means copies expiring at their flight's end plus the 20-copy relaunch cap.
+  `V8F-eve-loop-faithful` now requires the engine's 20-copy overlap cadence line and
+  `V6M-mun-player-loop` requires its one-copy-at-a-time loop unit, both read off every
+  archived run of those lanes.
+- **Dev: the GUI mirror's rail lists current states only.** A capture drawn while its window still had a tab it no longer has is marked `outdated` (old layout) and treated like a superseded or retired capture; the rail no longer lists any of those, nor never-captured states, and the "show N hidden" link is gone. Old captures stay available as Compare's BEFORE pictures (`harness/tools/gui_mirror.py`).
 - **Dev: the GUI mirror stops drawing removed tabs on new captures.** A capture records only the selected tab's name, so each tab bar is assembled from every tab its window ever showed; after the Career window dropped its Facilities and Milestones tabs, the new two-tab captures were drawn with all four. A tab whose every capture is superseded or retired is now dropped from the tab bars of captures taken after its last capture; older captures keep it (`prune_removed_tabs`, `harness/tools/gui_mirror.py`).
 - **Automated testing: a lane undocks a recorded pair and docks it back together.**
   `SD-1-same-tree-redock` loads the second-dock save on its docked pair, undocks it, backs
@@ -29,6 +50,12 @@ _(unreleased — entries accumulate here per commit)_
   mission), and checks that the dock's two parents are both recordings of the one flight:
   the one being flown and the half the undock left recording in the background. Its first
   flight found the one-parent dock defect listed under Fixed.
+- **Automated testing: a lane takes a Rewind-to-Launch in the middle of a Re-Fly.**
+  `RF-15-rtl-cancels-live-refly` re-flies the Kerbal X core stage, stops the re-fly recording,
+  rewinds the same flight to launch, then saves and loads. It checks that the rewind ends the
+  Re-Fly at once with no dialog, that the rewind point survives, and that the following load
+  finds nothing left over to clean up. Its first flight caught the fix working on the wrong
+  copy of the flight, which is corrected.
 - **Automated testing: a lane re-flies a stage after a Rewind-to-Launch and quickloads in
   the middle of it.** `RF-14-rtl-refly-load-sweep` flies the staged Kerbal X, rewinds the
   whole flight to launch, waits on the pad until the clock passes the stage separation
@@ -1211,6 +1238,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **A Rewind-to-Launch taken in the middle of a Re-Fly now ends that Re-Fly on the spot.**
+  Rewinding is refused while the Re-Fly recording is live, but after the re-flown vessel is
+  destroyed while another part of the flight is still flying, and focus moves on, the Rewind
+  button (and Warp-to-time's go-back) became available with the Re-Fly still open. Taking it
+  now cancels the Re-Fly the same way returning to the Space Center without merging does:
+  the unfinished attempt and its files are thrown away, rewind points made during it are
+  removed, and the stage you were re-flying stays in Unfinished Flights, re-flyable again once
+  the clock passes its separation. Before, the rewind could stop in flight on the Re-Fly merge
+  dialog with the rewound game already loaded, or leave the cancelled attempt behind for the
+  next load to clean up. No new dialog.
 - **A flight that ends parked on the launch pad or the runway start is over: it never
   becomes a real vessel.** If the last stop of a recorded flight is inside the 50 m safety
   circle around the launch pad or the runway's west end on Kerbin, Parsek now treats the

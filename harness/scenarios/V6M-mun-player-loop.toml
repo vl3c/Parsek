@@ -946,7 +946,24 @@ steps = [
 # NOT claimed: any watch-mode cell (a measured REFUSAL to enter watch mode is not
 # evidence of watch behaviour - V4's rule), any D11 arrival cell (this observes an
 # arrival epoch, it asserts no arrival geometry), and D6 `time-jump`.
+#   D6 `loop-period-modes` (claimed 2026-09-24, ghost-replay Tier C PR 1, no flight) is
+#     SCOPED TO MODE (1) of the 2026-09-24 redefinition: ONE copy at a time (period >=
+#     span). It does NOT witness that the SAME ghost object is reused across cycles - no
+#     line in these logs says so (ghostlife v2's `LoopCycle mode=` line would). Gated by
+#     the unit summary
+#     `spanDur=21710.x unit=Sec cadence=280142.x overlapCadence=280142.x overlaps=no`
+#     (cadence 12.9x the span; required) plus `overlaps=yes` forbidden, and the cycle
+#     rollover itself by the ARMED `[expectations.renderComposition] cycles >= 2` floor:
+#     N `cycle-rollover` clock events (RenderCompositionRecorder, one per new
+#     `ComputeSpanLoopFrame` CycleIndex on this unit's own clock) close N-1 cycles, and
+#     this lane's three observation brackets emit three. All eight archived V6M logs
+#     (2026-08-08 through 2026-09-10) print the summary line 4-5 times and never
+#     `overlaps=yes`; they print no `Loop cadence #` line either, which only an
+#     overlapping member emits. Modes (2) overlapping copies (witnessed on V8F:
+#     `overlaps=yes`, `(cycles=20)`) and (3) the global Auto period are NOT claimed here;
+#     Auto has no host (todo TIERC-LOOP-PERIOD-AUTO-MODE-HOST).
 [dimensionsCovered]
+D6  = ["loop-period-modes"]
 D9  = ["fast-forward"]
 D11 = ["phase-lock", "zero-drift-schedule"]
 D14 = ["mun", "scene-flight", "sandbox"]
@@ -1176,9 +1193,12 @@ required  = [
   "surface=Proto(Icon|OrbitLine) .*body=Mun",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
+  # D6 loop-period-modes, mode (1): one copy at a time (period >= span).
+  "spanDur=21710\\.\\d+ unit=Sec cadence=280142\\.\\d+ overlapCadence=280142\\.\\d+ overlaps=no",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
+  "overlaps=yes",
   # THE RE-AIM FORBID TRIO - the falsifiable half of the routing claim. Each is a token
   # V4's re-aim lane either requires or guards; here every one of them appearing would
   # mean the moon mission took the interplanetary road, which `!phaseLocked` says it

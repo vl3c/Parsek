@@ -19,3 +19,5 @@ summary.txt
 # Tier-runner output: per-invocation dated logs + the history.txt skim surface
 # (tools/tier_runner.py). Local run evidence, never committed.
 tier-runs/
+# tools/mutation_check.py reports (local sweep evidence, never committed).
+mutation-check/

@@ -15,6 +15,73 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach saves, the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness]
+
+Phase 1 (`harness/tools/mutation_check.py`, known-gate 17 in `autotest-status.md`) replays
+the gating evaluators that are pure over an archived KSP.log, plus the ARMED save-parse
+windows at the facet level (the measured count moved by one and to zero). Still unchecked,
+so a cell there can go vacuous with nothing noticing:
+
+- Save perturbation below the facet: edit the archived `persistent.sfs` itself (drop a
+  `RECORDING` node, a supersede row, a tombstone, a rewind point, a route stop) and re-run
+  `saveparse.parse_parsek_scenario` + `evaluate_save_structure`, so a window whose parser
+  path is dead is caught, not only a window that is too wide.
+- Ledger perturbation: the ledger oracle needs the run's seed capture; archive it (or
+  re-derive it from the archived save) so `oracle.build_oracle_result` can replay with an
+  award removed or a pool moved.
+- Mission assertions: replay a mission's recorded verdict with its sensor reads removed
+  (the kRPC telemetry lines it gates on), so a mission check that no longer reads what it
+  claims is caught.
+- Forbidden patterns: phase 1 cannot synthesize a line a forbidden regex would match; a
+  literal-shaped forbidden token (`\[Parsek\]\[ERROR\]`) could be injected directly.
+
+Also open from the first sweep: the 723 triage survivors (96 lanes) listed by group in known-gate 17
+(spec tightening; each group is a spec change or a recorded ruling).
+
+## GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`]
+
+Ghostlife v2 is built with no flight: the engine writes a tracing-gated
+`MeshDestroyed reason=overlap expired` (also `overlap cleared` / `engine teardown`) when an
+overlap copy that wrote its own MeshSpawned vanishes, and `LoopCycle cycle=N prev=M
+mode=reuse|overlap-demote|unit` when a live ghost's cycle advances; `harness/lib/ghostlife.py`
+reads `destroyedReasons.required`, per-vessel `vessels` windows and the `cycleLines` census.
+Offline, every archived GS-4 / GS-9 log replays through v2 with status, mismatches and all v1
+facets identical, and each reads `Kerbal X Debris` spawned 6 (the floor a `vessels` window
+would pin). Open:
+
+- No committed spec declares a v2 key. The first live reading is Tier C item 12 (loop the
+  GS-4 subject), which also needs a lane whose period is below span/20 to see
+  `overlap expired` and `auto-adjusted (cap reached)` (see the D6 `overlap-expiry-soft-caps`
+  cell).
+- The `unit` LoopCycle mode fires only when a mission-unit member's ghost object survives the
+  cycle boundary; if a live reading on V6M shows zero `unit` lines, the member is destroyed and
+  respawned per cycle and the census there reads spawn lines instead.
+- Adding `vessels = { "Kerbal X Debris" = { spawned = { min = 6 } } }` to GS-4's armed block is
+  an arming change and wants its own reading run.
+
+## TIERC-LOOP-PERIOD-AUTO-MODE-HOST: no lane flies a loop on the global Auto period, and no lane has overlap copies expiring or the 20-copy cap stretching a cadence [FILED 2026-09-24, ghost-replay Tier C PR 1, branch `tierc-claims`]
+
+The operator redefined two D6 registry cells on 2026-09-24 to match the code
+(`harness/coverage/registry.toml`, D6 comment). Tier C PR 1 claimed what the archived logs
+already carry, with no flight: D6 `self-overlap` on V8F (the engine's
+`Loop cadence #N "Kerbal X": ... (cycles=20) no adjustment` line) and D6
+`loop-period-modes` on V6M, SCOPED TO MODE (1) - one copy at a time, period >= span; object reuse across cycles is not witnessed
+(`overlaps=no` unit summary under the armed `cycles >= 2` render-composition floor). Coverage
+204 of 250. What is still open:
+
+- `loop-period-modes` mode (3), the global Auto period (`LoopTimeUnit.Auto`, read by
+  `GhostPlaybackLogic.ResolveLoopInterval` and the auto launch queue): every committed loop lane
+  arms a MISSION loop unit, whose cadence is the phase-lock / span clock, not a recording's
+  loop interval. A host needs a standalone recording set to Auto and a witness of the resolved
+  interval (no Info line prints it today). Mode (2), overlapping copies, is witnessed on V8F
+  (`overlaps=yes`, `(cycles=20)`) but V8F declares only `self-overlap`.
+- `overlap-expiry-soft-caps` (redefined: old overlap copies vanish when their own flight ends,
+  and the 20-copy cap slows relaunches): no archived loop log prints
+  `auto-adjusted (cap reached)` (V8F's period is exactly span/20, so the cap is met and not
+  exceeded), and an expiring overlap copy writes no line at all until ghostlife v2 adds the
+  tracing-gated `overlap expired` destroy line (branch `ghostlife-v2`). A host needs a
+  period below span/20 and `ghostRenderTracing` on.
+
 ## ~~TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT: re-docking two vessels of one recorded flight kept only one of them as the dock's parent when the vessel being flown was the one that survived the dock~~ [FILED 2026-09-24 off SD-1's reading run `2026-09-23_2140`. FIXED 2026-09-24 on branch `d5-samedock`]
 
 **What the player saw.** Undock a docked pair that Parsek is recording, then dock the two
@@ -82,7 +149,70 @@ Rewind-to-Launch mid-re-fly may be reachable through the path filed below as
 REFLY-DESTROYED-THEN-RTL-MID-SESSION. The rewind's own OnLoad returns before the sweep
 runs. Also noted: CI-3 already produced the same two sweep lines on its F5/F9, unclaimed.
 
-## REFLY-DESTROYED-THEN-RTL-MID-SESSION: a Rewind-to-Launch may be reachable during a live Re-Fly once the re-flown vessel is destroyed [FILED 2026-09-24 from the #1793 review. OPEN; CODE-DERIVED, NOT FLOWN]
+## ~~REFLY-DESTROYED-THEN-RTL-MID-SESSION: a Rewind-to-Launch may be reachable during a live Re-Fly once the re-flown vessel is destroyed~~ [FILED 2026-09-24 from the #1793 review. RULED 2026-09-24 (operator): option 1. FIXED 2026-09-24 on branch `refly-rtl-cancel`]
+
+**Ruling (operator, 2026-09-24): option 1.** A plain Rewind-to-Launch taken while a Re-Fly
+session is live CANCELS the re-fly cleanly and immediately, exactly like the design section
+6.8 Space Center end: marker cleared, the NotCommitted provisional and its sidecars
+discarded, session-provisional RPs purged, before or as part of the rewind and never deferred
+to the next load's zombie sweep. The origin slot stays in Unfinished Flights, re-flyable once
+the clock passes its RP again (the #1788 rule). No dialog, no new UI.
+
+**Fix.** `MergeDialog.TryDiscardLiveReFlySessionForRewind`, called by both plain-rewind entry
+points (`RecordingStore.InitiateRewind`, which the Recordings table, the seam and Warp-to-time
+use, and `InitiateRewindToCareerStart`, Warp-to-time's UT-0 reset) after their merge-journal
+refusal and before the rewind is armed. It runs the merge-dialog Discard's own body, now split
+into two shared halves (`DiscardReFlyAttemptRecordingsAndRewindPoints`: attempt recordings,
+sidecars, events, ledger tags, origin RP promotion, session RP purge, the detached committed
+tree put back sanitized; `EndDiscardedReFlySession`: marker, journal slot, caches, revert
+gate, anchor snapshots), logs `[ReFlySession] End reason=discardReFlyForRewind`, and, when the
+flight scene's live tree is the session tree, arms the tree scene-exit suppression so the
+rewind's scene exit drops that live reference without a stash. The session tree is looked up
+LIVE FIRST: after the invoke's load the reconciliation bundle restores the pre-re-fly committed
+tree, so a live re-fly normally has two instances under one id (the untouched committed
+original, and the live clone the RP save loaded, which alone holds the attempt), and
+`FindTreeForReFlyFork` answers the committed original first. The RF-15 reading flight
+`2026-09-24_1718` caught exactly that on the first build: the cancel pruned nothing from the
+clone, the scene exit stashed it with the provisional inside, and the following load's sweep
+read `discarded=1`. A failed rewind load undoes the
+drop (`RecordingStore.UndoLiveTreeDropAfterFailedRewind`); the session stays ended. Why the
+entry point and not `HandleRewindOnLoad`: the rewind carries the in-memory RP list across its
+load (`CaptureRewindPointsForRewind`, taken before the load), so session RPs must be gone
+first; the FLIGHT scene exit runs before any OnLoad; and a SaveGame must never run inside
+OnLoad. The merge journal is untouched (the entry points already refuse an in-flight one).
+
+**Found while tracing it (corrects the entry below).** The pre-fix outcome was not only the
+silent split across two loads. With the session tree still live in FLIGHT, the rewind's
+`HighLogic.LoadScene(SPACECENTER)` goes through `SceneExitInterceptor`'s prefix, whose gate
+answers `ReFlyAttempt` whenever the marker is live, so the Re-Fly merge dialog came up in
+flight after `ExecuteRewindSaveLoad` had already swapped the rewind game into
+`HighLogic.CurrentGame`. The armed suppression makes that prefix stand aside (its step 3).
+The cancel applies whichever tree is rewound, including the committed original of the flight
+being re-flown (the reconciliation bundle keeps it in the committed store during the re-fly).
+
+**Residual, not new (not fixed).** No plain rewind persists anything after its load: the
+rewind's OnLoad reads persistent.sfs as last written, and the in-memory result (this cancel,
+the #1788 RP carry, the supersede drop) reaches disk at the next KSP save. A crash before that
+save loads the pre-rewind file, whose marker then fails validation (the provisional's sidecars
+and the session RP quicksaves are already deleted) and the sweep discards what is left: the
+pre-fix fallback, in the crash window only.
+
+**Proof.** xUnit `ReFlyRewindDiscardTests` (real session-end path: provisional gone, marker
+cleared, session RP purged, origin RP promoted and `IsUnfinishedFlight` still true, live tree
+dropped, the next `LoadTimeSweep` discarding nothing; the mirror cases: no session, merge
+journal active, another live tree, failed load; the merge-dialog tokens unchanged; source-order
+gates on both entry points), every change red when reverted (nine mutants). Live lane
+`RF-15-rtl-cancels-live-refly` (RF-14's host, the re-fly recorder stopped through the seam
+to reach the same state, then Rewind-to-Launch of the same flight and an ordinary save + load):
+reading `2026-09-24_1718` caught the committed-first lookup defect above, re-flight
+`2026-09-24_1811` PASS with `liveTreeDropped=True`, the LoadScene prefix bypass, the scene exit
+discarding the clone without a stash, the RP carried and the quickload's sweep at
+`discarded=0`; `rewind` block armed. The crash + focus-move reachability itself stays
+code-derived: the re-fly strip turns every sibling slot into a ghost, so no committed host
+leaves a live vessel for focus to move to.
+
+Original entry (code-derived, before the ruling):
+
 
 The normal guard: while the re-fly recorder is live, `RecordingStore.CanRewind` refuses
 "Stop recording before rewinding" (the Recordings table passes `flight.IsRecording`,
