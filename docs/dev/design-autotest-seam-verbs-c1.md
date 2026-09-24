@@ -752,6 +752,8 @@ case below.
 
 **Args.** `action=<research-node|upgrade-facility|hire-kerbal|dismiss-kerbal>` plus the
 action-specific target: `node=<techId>` / `facility=<facilityId>` / `kerbal=<name>`.
+(Later kinds: `demolish-building` / `repair-facility` for the KSC-building ledger lane,
+and `activate-strategy` / `deactivate-strategy`, below.)
 
 **Dispatch (per sub-action).** The scene gate splits by sub-action:
 - `research-node` / `hire-kerbal` / `dismiss-kerbal` are `AnyScene` with a
@@ -848,6 +850,44 @@ no effect - no `OperationResult`, no level change, no roster change), the verb r
 Parsek fault: the orchestrator mis-sequenced (it did not ensure funds / science, named a
 wrong id, or targeted a committed action). The verifier chain still judges whether Parsek
 accounted whatever DID happen.
+
+> Update (2026-09-24, the strategy kinds). `action=activate-strategy strategy=<name>
+> [factor=<0..1>]` and `action=deactivate-strategy strategy=<name>` drive the
+> Administration building's Accept and Cancel. `strategy=` is the stock config name
+> (`Strategy.Config.Name`, e.g. `OutsourcedResearchCfg`), matched exactly. `factor=` is the
+> commitment slider; absent, the strategy keeps its own factor (stock's slider default,
+> 0.05); present, it must parse invariantly as a float in (0, 1].
+>
+> Stock path: activate writes `Strategy.Factor` (the slider's own write), asks
+> `Strategy.CanBeActivated(out reason)`, then calls `Strategy.Activate()`, which
+> re-checks and debits the setup costs under `TransactionReasons.StrategySetup`;
+> deactivate asks `CanBeDeactivated(out reason)` and calls `Strategy.Deactivate()`. The
+> effect is confirmed by `Strategy.IsActive`. Parsek observes it exactly as it observes a
+> click: `StrategyActivatePatch` / `StrategyDeactivatePatch` (Harmony postfixes) ->
+> `GameStateRecorder.OnStrategyActivated` / `OnStrategyDeactivated` -> the KSC forwarding
+> into the ledger (`LedgerOrchestrator.OnKscSpending`).
+>
+> Dispatch: both are CAREER + SPACECENTER (`career-not-ready` needs Funding, Reputation,
+> R&D and the strategy system live; `not-at-space-center`). Activate adds one more defer,
+> `administration-not-ready`: stock's `CanBeActivated` reads the slot count and the
+> commitment ceiling off `KSP.UI.Screens.Administration.Instance`, the building's UI
+> screen, which exists only while the building is open. On that defer the addon
+> instantiates the screen's canvas from the scene's `AdministrationSceneSpawner` prefab
+> with the canvas disabled (Awake / Start run, nothing draws), the way the in-game
+> `StrategyLifecycle` category hosts it, and destroys it when the command completes or the
+> scene changes (`ParsekTestCommandAddon.KscStrategy.cs`). A fresh screen per command
+> matters because stock counts active strategies once, in Start.
+>
+> Refusals (pure `Decide`, in order after `missing-arg`): `unknown-strategy`;
+> activate `factor-arg-invalid`, `strategy-already-active`, `no-strategy-slot` (active count
+> at the Administration level's limit); deactivate `strategy-not-active`. The applier adds
+> `strategy-cannot-activate <stock reason>` / `strategy-cannot-deactivate <stock reason>`
+> (stock's localized reason, reduced to one plain line) and `activate-not-applied` /
+> `deactivate-not-applied` when the stock call left the strategy unchanged. Every token has
+> a row in `hlib._SEAM_REFUSAL_SUBKINDS`, held there by
+> `KscActionRefusalSourceSyncTests`. Payload: activate `factor` / `slots` (`used/limit`) /
+> `fundsAfter`; deactivate `slots`. Manifest kinds: `strategy-activate` /
+> `strategy-deactivate`. First flown on `GUI-5-census-career-ksc`'s strategy block.
 
 **Payload.** `OK action=<action> target=<target> applied=true` plus an observed-after
 field for logging only (`scienceAfter` / `fundsAfter` / `level` / `crewCount`). The

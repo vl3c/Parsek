@@ -308,17 +308,21 @@ class SpecSurfaceTests(unittest.TestCase):
         self.assertIn("unknown key(s)", errs[0])
         self.assertIn("spawnd", errs[0])
 
-    def test_the_accepted_key_set_is_exactly_the_six(self):
+    def test_the_accepted_key_set_is_exactly_the_eight(self):
         # Four keys until 2026-09-10, when the two LINE-count windows joined for
         # the repeat-rewind lane (GS-9): the distinct `spawned` count and the
         # set-based balance ledger cannot see a second replay of the SAME
         # recordings leak a ghost. See SPAWN_LINES_KEY in ghostlife.py.
+        # Six until 2026-09-24, when ghostlife v2 added the `cycleLines` window
+        # (LoopCycle census) and the per-vessel-name `vessels` table.
         self.assertEqual(
-            ("gating", "spawned", "spawnLines", "destroyLines",
-             "requireBalanced", "destroyedReasons"),
+            ("gating", "spawned", "spawnLines", "destroyLines", "cycleLines",
+             "requireBalanced", "destroyedReasons", "vessels"),
             ghostlife.GHOST_LIFECYCLE_BLOCK_KEYS)
-        self.assertEqual(("spawned", "spawnLines", "destroyLines"),
+        self.assertEqual(("spawned", "spawnLines", "destroyLines", "cycleLines"),
                          ghostlife.GHOST_LIFECYCLE_WINDOW_KEYS)
+        self.assertEqual(("forbidden", "required"),
+                         ghostlife.DESTROYED_REASONS_BLOCK_KEYS)
 
     def test_gating_must_be_a_bool(self):
         self.assertTrue(any("must be a bool" in e
@@ -801,7 +805,7 @@ class EmitterSourceGuardTests(unittest.TestCase):
 
     def test_the_tail_puts_vessel_before_reason(self):
         src = self._read("GhostPlaybackEngine.cs")
-        body = self._method_body(src, "private static void EmitMeshLifecycleTrace(")
+        body = self._method_body(src, "private static bool EmitMeshLifecycleTrace(")
         v, r = body.find("vessel="), body.find(" reason=")
         self.assertGreaterEqual(v, 0, "EmitMeshLifecycleTrace no longer emits vessel=")
         self.assertGreaterEqual(r, 0, "EmitMeshLifecycleTrace no longer emits ' reason='")
@@ -834,6 +838,255 @@ class EmitterSourceGuardTests(unittest.TestCase):
         src = self._strip_comments(self._read("GhostRenderTrace.cs"))
         self.assertIn('ParsekLog.Info("GhostRenderTrace"', src)
         self.assertEqual("[GhostRenderTrace]", ghostlife.TRACE_SUBSYSTEM_TAG)
+
+
+def cycle_line(cycle, prev, mode="reuse", rec_id="rec00001aaaabbbbccccddddeeeeffff",
+               ghost_index=0, vessel="Test Craft", tag=TAG):
+    """One production-shaped LoopCycle line (GhostPlaybackEngine.EmitLoopCycleTrace:
+    the BuildPrefix fields, then cycle= prev= mode= and the vessel LAST)."""
+    short = rec_id[:8] if len(rec_id) > 8 else rec_id
+    return ("[Parsek][INFO]%s phase=LoopCycle rec=%s recId=%s ghostIndex=%d "
+            "frame=77 currentUT=500.000 playbackUT=500.000 cycle=%d prev=%d "
+            "mode=%s vessel=%s" % (tag, short, rec_id, ghost_index, cycle, prev,
+                                   mode, vessel))
+
+
+class GhostlifeV2Tests(unittest.TestCase):
+    """v2 (ghost-replay Tier C): destroyedReasons.required, per-vessel windows and
+    the LoopCycle census. The binding property: none of it moves a v1 facet."""
+
+    DEBRIS = "Kerbal X Debris"
+
+    def _debris_log(self, n_debris, destroy_reason="playback completed"):
+        lines = [line(ghostlife.PHASE_SPAWNED, rec_id="parent0000000000", vessel="Kerbal X"),
+                 line(ghostlife.PHASE_DESTROYED, rec_id="parent0000000000", vessel="Kerbal X")]
+        for i in range(n_debris):
+            rid = "debris%010d" % i
+            lines.append(line(ghostlife.PHASE_SPAWNED, rec_id=rid, vessel=self.DEBRIS))
+            lines.append(line(ghostlife.PHASE_DESTROYED, rec_id=rid, vessel=self.DEBRIS,
+                              reason=destroy_reason))
+        return log(*lines)
+
+    def _eval(self, block, text):
+        return ghostlife.evaluate_ghost_lifecycle(
+            {"ghostLifecycle": block}, ghostlife.parse_ghost_lifecycle(text))
+
+    def _errs(self, block):
+        return ghostlife.validate_ghost_lifecycle_expectations(block)
+
+    # ---- parser ----
+    def test_a_loop_cycle_line_parses_every_field_and_keeps_the_vessel_spaces(self):
+        snap = ghostlife.parse_ghost_lifecycle(log(
+            cycle_line(5, 4, mode="overlap-demote", ghost_index=3,
+                       vessel="Kerbal X Mk2 mode=odd")))
+        self.assertEqual(0, snap.malformed)
+        self.assertEqual((), snap.lines)
+        self.assertEqual(1, len(snap.cycles))
+        c = snap.cycles[0]
+        self.assertEqual((5, 4, "overlap-demote", 3, "Kerbal X Mk2 mode=odd"),
+                         (c.cycle, c.prev, c.mode, c.ghost_index, c.vessel))
+        self.assertEqual("rec00001", c.rec)
+
+    def test_a_torn_loop_cycle_line_counts_malformed(self):
+        snap = ghostlife.parse_ghost_lifecycle(log(
+            "[Parsek][INFO]%s phase=LoopCycle rec=x recId=x cycle=nope" % TAG))
+        self.assertEqual(1, snap.malformed)
+        self.assertEqual((), snap.cycles)
+
+    def test_an_untagged_loop_cycle_line_is_not_a_hit(self):
+        snap = ghostlife.parse_ghost_lifecycle(log(cycle_line(1, 0, tag="[Engine]")))
+        self.assertEqual((), snap.cycles)
+        self.assertEqual(0, snap.malformed)
+
+    # ---- facets ----
+    def test_loop_cycle_lines_move_no_v1_facet(self):
+        base = self._debris_log(2)
+        with_cycles = base + cycle_line(1, 0) + "\n" + cycle_line(2, 1) + "\n"
+        f0 = ghostlife.observed_ghost_lifecycle_facets(
+            ghostlife.parse_ghost_lifecycle(base))["ghostLifecycle"]
+        f1 = ghostlife.observed_ghost_lifecycle_facets(
+            ghostlife.parse_ghost_lifecycle(with_cycles))["ghostLifecycle"]
+        for key in ("spawned", "spawnLines", "destroyLines", "destroyedRecordings",
+                    "unbalanced", "spawnedRecordingIds", "destroyedReasons",
+                    "spawnReasons", "vessels", "malformed"):
+            with self.subTest(key=key):
+                self.assertEqual(f0[key], f1[key])
+        self.assertEqual(0, f0["cycleLines"])
+        self.assertEqual(2, f1["cycleLines"])
+
+    def test_the_cycle_census_is_in_numeric_order_with_modes(self):
+        text = log(cycle_line(10, 9, "unit"), cycle_line(2, 1, "reuse"),
+                   cycle_line(2, 1, "reuse", rec_id="other00000000000"))
+        f = ghostlife.observed_ghost_lifecycle_facets(
+            ghostlife.parse_ghost_lifecycle(text))["ghostLifecycle"]
+        self.assertEqual(["2", "10"], list(f["cycleCensus"]))
+        self.assertEqual({"2": 2, "10": 1}, f["cycleCensus"])
+        self.assertEqual({"reuse": 2, "unit": 1}, f["cycleModes"])
+        self.assertEqual(2, f["cycleRecordings"])
+
+    def test_per_vessel_rows_count_distinct_ids_and_lines(self):
+        f = ghostlife.observed_ghost_lifecycle_facets(
+            ghostlife.parse_ghost_lifecycle(self._debris_log(3)))["ghostLifecycle"]
+        self.assertEqual({"spawned": 3, "spawnLines": 3, "destroyLines": 3},
+                         f["perVessel"][self.DEBRIS])
+        self.assertEqual({"spawned": 1, "spawnLines": 1, "destroyLines": 1},
+                         f["perVessel"]["Kerbal X"])
+
+    def test_every_vessel_window_key_is_on_every_row(self):
+        f = ghostlife.observed_ghost_lifecycle_facets(
+            ghostlife.parse_ghost_lifecycle(self._debris_log(1)))["ghostLifecycle"]
+        for row in f["perVessel"].values():
+            for key in ghostlife.VESSEL_WINDOW_KEYS:
+                self.assertIn(key, row)
+
+    # ---- spec surface ----
+    def test_required_reason_shapes(self):
+        self.assertEqual([], self._errs({"destroyedReasons": {"required": ["overlap expired"]}}))
+        self.assertEqual([], self._errs({"destroyedReasons": {
+            "required": ["^overlap expired$"], "forbidden": ["explod"]}}))
+        self.assertTrue(self._errs({"destroyedReasons": {"required": []}}))
+        self.assertTrue(self._errs({"destroyedReasons": {"required": "x"}}))
+        self.assertTrue(self._errs({"destroyedReasons": {"required": [3]}}))
+        errs = self._errs({"destroyedReasons": {"required": ["(unclosed"]}})
+        self.assertTrue(any("not a valid regex" in e and "required" in e for e in errs), errs)
+
+    def test_vessel_window_shapes(self):
+        self.assertEqual([], self._errs({"vessels": {self.DEBRIS: {"spawned": {"min": 6}}}}))
+        self.assertEqual([], self._errs({"vessels": {self.DEBRIS: {
+            "spawned": 6, "spawnLines": {"min": 6}, "destroyLines": {"min": 1, "max": 9}}}}))
+        self.assertTrue(self._errs({"vessels": {}}))
+        self.assertTrue(self._errs({"vessels": ["Kerbal X"]}))
+        self.assertTrue(self._errs({"vessels": {self.DEBRIS: {}}}))
+        self.assertTrue(self._errs({"vessels": {self.DEBRIS: 6}}))
+        self.assertTrue(self._errs({"vessels": {self.DEBRIS: {"cycleLines": 2}}}))
+        self.assertTrue(self._errs({"vessels": {self.DEBRIS: {"spawned": {"min": 5, "max": 2}}}}))
+        self.assertTrue(self._errs({"vessels": {" ": {"spawned": 1}}}))
+        errs = self._errs({"vessels": {self.DEBRIS: {"spawned": "many"}}})
+        self.assertTrue(any(self.DEBRIS in e for e in errs), errs)
+
+    def test_an_armed_min_zero_vessel_window_is_refused(self):
+        errs = self._errs({"gating": True, "vessels": {self.DEBRIS: {"spawned": {"min": 0}}}})
+        self.assertTrue(any("can never red" in e for e in errs), errs)
+        self.assertEqual([], self._errs({"vessels": {self.DEBRIS: {"spawned": {"min": 0}}}}))
+
+    def test_the_cycle_lines_window_runs_the_shared_grammar(self):
+        self.assertEqual([], self._errs({"cycleLines": {"min": 2}}))
+        self.assertTrue(self._errs({"cycleLines": "two"}))
+
+    # ---- evaluation ----
+    def test_a_required_reason_that_fired_passes_and_one_that_did_not_reds(self):
+        text = self._debris_log(2, destroy_reason=ghostlife.OVERLAP_EXPIRED_REASON)
+        ok = self._eval({"gating": True, "destroyedReasons": {
+            "required": ["^overlap expired$"]}}, text)
+        self.assertEqual("PASS", ok.status, ok.mismatches)
+        bad = self._eval({"gating": True, "destroyedReasons": {
+            "required": ["^overlap cleared$"]}}, text)
+        self.assertEqual("FAIL", bad.status)
+        self.assertEqual(1, len(bad.mismatches), bad.mismatches)
+        self.assertIn("required destroy reason", bad.mismatches[0])
+        self.assertIn("overlap expired", bad.mismatches[0])
+
+    def test_required_reasons_report_only_when_unarmed(self):
+        r = self._eval({"destroyedReasons": {"required": ["never"]}}, self._debris_log(1))
+        self.assertEqual("REPORT", r.status)
+        self.assertEqual(1, len(r.mismatches))
+        self.assertEqual((), r.armed_mismatches)
+
+    def test_the_debris_floor_reds_below_six_and_passes_at_six(self):
+        block = {"gating": True, "vessels": {self.DEBRIS: {"spawned": {"min": 6}}}}
+        self.assertEqual("PASS", self._eval(block, self._debris_log(6)).status)
+        r = self._eval(block, self._debris_log(5))
+        self.assertEqual("FAIL", r.status)
+        self.assertEqual(1, len(r.mismatches), r.mismatches)
+        self.assertIn("Kerbal X Debris", r.mismatches[0])
+        self.assertIn("5 < min 6", r.mismatches[0])
+
+    def test_a_vessel_never_seen_measures_zero(self):
+        r = self._eval({"vessels": {"Ghost Of Nothing": {"spawned": {"min": 1}}}},
+                       self._debris_log(1))
+        self.assertEqual(1, len(r.mismatches), r.mismatches)
+        self.assertIn("0 < min 1", r.mismatches[0])
+
+    def test_the_vessel_name_is_matched_exactly(self):
+        r = self._eval({"vessels": {"Kerbal X": {"spawned": 1}}}, self._debris_log(4))
+        self.assertEqual((), r.mismatches)
+
+    def test_the_cycle_lines_window_reads_the_loop_cycle_count(self):
+        text = self._debris_log(1) + cycle_line(1, 0) + "\n"
+        self.assertEqual((), self._eval({"cycleLines": {"min": 1}}, text).mismatches)
+        r = self._eval({"cycleLines": {"min": 2}}, text)
+        self.assertEqual(1, len(r.mismatches), r.mismatches)
+        self.assertIn("cycleLines 1 < min 2", r.mismatches[0])
+
+    def test_an_overlap_expired_destroy_closes_the_line_counts(self):
+        # A demoted overlap copy under the v2 producer: the second primary's
+        # MeshSpawned pairs with the first copy's `overlap expired` destroy.
+        rid = "loop000000000000"
+        text = log(line(ghostlife.PHASE_SPAWNED, rec_id=rid),
+                   cycle_line(1, 0, "overlap-demote", rec_id=rid),
+                   line(ghostlife.PHASE_SPAWNED, rec_id=rid),
+                   line(ghostlife.PHASE_DESTROYED, rec_id=rid,
+                        reason=ghostlife.OVERLAP_EXPIRED_REASON),
+                   line(ghostlife.PHASE_DESTROYED, rec_id=rid, reason="engine teardown"))
+        r = self._eval({"gating": True, "spawnLines": 2, "destroyLines": 2,
+                        "cycleLines": 1,
+                        "destroyedReasons": {"required": ["^overlap expired$"]}}, text)
+        self.assertEqual("PASS", r.status, r.mismatches)
+
+
+class GhostlifeV2EmitterSourceGuardTests(unittest.TestCase):
+    """The v2 producer vocabulary, pinned at the C# emit sites (comments
+    stripped first, one brace-matched body - EmitterSourceGuardTests' rules)."""
+
+    _CALL_MODE_RE = re.compile(r'"([\w-]+)"\)')
+
+    def _engine(self):
+        return EmitterSourceGuardTests._read("GhostPlaybackEngine.cs")
+
+    def test_the_loop_cycle_tail_is_cycle_prev_mode_then_vessel_last(self):
+        body = EmitterSourceGuardTests._method_body(
+            self._engine(), "internal static void EmitLoopCycleTrace(")
+        self.assertIn('"%s"' % ghostlife.PHASE_LOOP_CYCLE, body)
+        at = [body.find(tok) for tok in ("cycle=", " prev=", " mode=", " vessel=")]
+        self.assertTrue(all(a >= 0 for a in at), at)
+        self.assertEqual(sorted(at), at, "LoopCycle tail order moved; _CYCLE_RE "
+                                         "parses cycle= prev= mode= vessel=")
+
+    def test_every_loop_cycle_mode_is_a_live_call_site(self):
+        src = EmitterSourceGuardTests._strip_comments(self._engine())
+        passed = set()
+        for call in src.split("EmitLoopCycleTrace(")[1:]:
+            m = self._CALL_MODE_RE.search(call.split(";")[0])
+            if m:
+                passed.add(m.group(1))
+        self.assertEqual(set(ghostlife.LOOP_CYCLE_MODES), passed)
+
+    def test_the_spawn_funnel_marks_the_state_it_traced(self):
+        # xUnit cannot finalize a real spawn (Unity GameObject), so the flag set
+        # that gates every overlap-copy destroy line is pinned in the funnel body.
+        body = EmitterSourceGuardTests._method_body(
+            self._engine(), "private void QueueOrEmitGhostCreated(")
+        self.assertIsNotNone(re.search(
+            r'if\s*\(\s*EmitMeshLifecycleTrace\("MeshSpawned"[^;]*\)\s*&&\s*state\s*!=\s*null\s*\)'
+            r'\s*state\.meshSpawnTraced\s*=\s*true\s*;', body),
+            "QueueOrEmitGhostCreated no longer sets meshSpawnTraced from the "
+            "MeshSpawned emit; overlap copies would never write their destroy line")
+
+    def test_the_reuse_path_emits_a_reuse_loop_cycle_line(self):
+        # The loaded-ghost reuse needs a live GameObject, so its emit is pinned in
+        # the method body rather than driven from xUnit.
+        body = EmitterSourceGuardTests._method_body(
+            self._engine(), "internal void ReusePrimaryGhostAcrossCycle(")
+        self.assertIsNotNone(re.search(
+            r'EmitLoopCycleTrace\(\s*index,\s*traj,\s*state,\s*previousCycle,\s*'
+            r'newCycleIndex,\s*"reuse"\s*\)\s*;', body),
+            "ReusePrimaryGhostAcrossCycle no longer emits the reuse LoopCycle line")
+
+    def test_the_overlap_expired_reason_is_passed_at_a_live_call_site(self):
+        src = EmitterSourceGuardTests._strip_comments(self._engine())
+        self.assertIn('"%s");' % ghostlife.OVERLAP_EXPIRED_REASON, src)
+        self.assertIn('EmitMeshLifecycleTrace("MeshDestroyed", index, traj, state, reason)',
+                      src)
 
 
 if __name__ == "__main__":  # pragma: no cover

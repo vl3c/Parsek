@@ -683,6 +683,7 @@ Stock Revert intercepted. 3-option dialog:
 ### 6.8 Session end without merge
 
 - Return to Space Center: clear marker + discard provisional + purge session-provisional RPs.
+- Parsek's own Rewind-to-Launch (or Warp-to-time's go-back) taken while the session is live (reachable once the re-fly recorder is no longer recording, e.g. the re-flown vessel was destroyed while another leaf lives and focus moved): the same end as Return to Space Center, done by the rewind entry point before the rewind is armed and before its load (`MergeDialog.TryDiscardLiveReFlySessionForRewind`), never deferred to the rewind's OnLoad (which returns before the section 6.9 sweep) or to the next load's zombie pass. The origin RP is promoted and survives the rewind, so its slot stays in Unfinished Flights. No dialog. Logs `[ReFlySession] End reason=discardReFlyForRewind`. Operator ruling 2026-09-24.
 - Quit without Space Center: marker stays. Load-time validation decides (§6.9).
 
 ### 6.9 Load-time sweep (single pass, gather-then-delete)
@@ -943,7 +944,7 @@ Tags: `Rewind`, `RewindSave`, `Supersede`, `LedgerSwap`, `UnfinishedFlights`, `R
 
 ### 10.3 Session suppression
 - Session start: `Info` "[ReFlySession] Start. SuppressedSubtree=[<ids>]"
-- Session end: `Info` "[ReFlySession] End reason=<merge|discard|retry|fullRevert|loadInvalid>"
+- Session end: `Info` "[ReFlySession] End reason=<merge|discard|retry|fullRevert|loadInvalid|discardReFlyForRewind>" (the last: a plain rewind taken during a live session, section 6.8)
 
 ### 10.4 Supersede / LedgerSwap (v1 narrow scope)
 - Supersede relation: `Info` "[Supersede] rel=<id> old=<oldId> new=<newId>"

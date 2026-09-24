@@ -5380,15 +5380,44 @@ namespace Parsek
                 return;
             }
 
+            // A plain rewind taken while a Re-Fly session is live ends that session here, before
+            // the rewind is armed and before the load (operator ruling 2026-09-24; the reasons
+            // it cannot wait for the rewind's OnLoad are on the callee).
+            MergeDialog.TryDiscardLiveReFlySessionForRewind(
+                ParsekFlight.Instance?.ActiveTreeForSerialization, "Rewind",
+                out string droppedLiveTreeId, out bool droppedTreeRestored);
+
             BeginRewindForOwner(owner);
 
             // Shared load: pre-process (strip + lead-time windback) keyed by the owner, and
             // drop supersede relations rewound out of existence for the owner's tree.
-            ExecuteRewindSaveLoad(
+            bool loaded = ExecuteRewindSaveLoad(
                 owner.RewindSaveFileName,
                 preProcessOwner: owner,
                 dropSupersedeOwner: owner,
                 messageLabel: "Rewind");
+            if (!loaded)
+                UndoLiveTreeDropAfterFailedRewind(droppedLiveTreeId, droppedTreeRestored, "Rewind");
+        }
+
+        /// <summary>
+        /// A rewind whose load failed stays in the flight scene. When ending the live Re-Fly
+        /// session armed the scene exit to drop the live tree, disarm it, and when the tree was
+        /// also put back in the committed store take it out again, so the flight keeps one live
+        /// tree (minus the discarded attempt) instead of a tree that is live and committed at
+        /// once. The session itself stays ended.
+        /// </summary>
+        internal static void UndoLiveTreeDropAfterFailedRewind(
+            string treeId, bool restoredToCommitted, string label)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return;
+            TryConsumeNextTreeSceneExitCommitSuppression(GameScenes.FLIGHT, out _);
+            bool removed = restoredToCommitted
+                && RemoveCommittedTreeById(treeId, $"{label} load failed");
+            ParsekLog.Warn("Rewind",
+                $"{label} load failed after ending the live Re-Fly session: tree={treeId} " +
+                $"returned to the flight scene (removedFromCommitted={removed}); the session stays ended");
         }
 
         // internal (not private) so RewindLoggingTests can drive the real
@@ -5586,6 +5615,11 @@ namespace Parsek
                 return false;
             }
 
+            // Same live Re-Fly session end as InitiateRewind.
+            MergeDialog.TryDiscardLiveReFlySessionForRewind(
+                ParsekFlight.Instance?.ActiveTreeForSerialization, "Warp-to-game-start",
+                out string droppedLiveTreeId, out bool droppedTreeRestored);
+
             // UT-0 reset: no owner, no reserved budget, no baseline. ApplyRewindResourceAdjustment
             // recalcs the ledger at the adjusted UT (~0), which restores pristine career resources.
             RewindContext.BeginRewind(0.0, default(BudgetSummary), 0, 0, 0f);
@@ -5599,11 +5633,14 @@ namespace Parsek
             // Pristine snapshot: no PreProcessRewindSave (no future vessels to strip, and it
             // must NOT be wound back below UT 0) and no supersede drop (refused above when any
             // supersede relation exists).
-            return ExecuteRewindSaveLoad(
+            bool loaded = ExecuteRewindSaveLoad(
                 saveFileName,
                 preProcessOwner: null,
                 dropSupersedeOwner: null,
                 messageLabel: "Warp-to-game-start");
+            if (!loaded)
+                UndoLiveTreeDropAfterFailedRewind(droppedLiveTreeId, droppedTreeRestored, "Warp-to-game-start");
+            return loaded;
         }
 
         /// <summary>

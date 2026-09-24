@@ -3,7 +3,7 @@ id = "B4-reentry-splashdown"
 # nightly: fixture committed (shares b2-lko-craft with B2) and flown missions
 # are too long for daily. LIVE-PROVEN 2026-07-20: the full cycle PASSed (ascent,
 # ~350s retrograde flip, aligned deorbit burn, stage drop, exo warp hops, chute
-# at 2950m, splashdown; flakedThenPassed).
+# at 2950m (pre-2026-09-24 profile), splashdown; flakedThenPassed).
 tier = "nightly"
 description = "Full flight cycle: MechJeb ascent to LKO, retrograde deorbit burn, staged reentry, chute splashdown INTACT; assert orbit reached + landed situation + the OBSERVED canopy (craftCanopyObserved reads the live ParachuteState, never the deploy command)."
 instanceProfile = "stock-minimal"

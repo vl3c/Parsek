@@ -115,7 +115,15 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 202 of 250 registry cells (was 201 of 250 before SD-1 claimed D5 `dock-merge-same-tree` on 2026-09-24, 200 of 250 before RF-14 claimed D9 `load-time-sweep` on 2026-09-24, 199 of 250 before EX-2 re-claimed `ghost-extension-past-endut` on the single-point collision hold on 2026-09-24, 198 of 250 before RL-1 claimed D3 `relative-loop` on 2026-09-23, 196 of 250 before GS-10 / GS-11 claimed D5 `staging-debris-ttl` and `staging-debris-promotion` on 2026-09-23, 195 of 250 before CI-4 claimed `cross-tree-chain-linking` on 2026-09-23, 196 of 250 before the KSC end-of-flight retirement ruling moved EX-1 off `ghost-extension-past-endut` on 2026-09-23, 195 of 250 before the held-ghost fix PR claimed `ghost-extension-past-endut` on EX-1 on 2026-09-23, 194 of 250 before the D18 spawn-in-run wave's PR-C claimed `loop-first-run-is-real` on LF-1 on 2026-09-23, 192 of 250 before the D18 spawn-in-run wave's PR-B claimed `ghost-conversion-quicksave` and `chain-state-rederived` on CI-3 on 2026-09-22, 190 of 250 before PR-A claimed `intermediate-spawn-suppression` and the destroyed half of `chain-terminated-destruction-recovery` on V26T on 2026-09-22, 189 of 250 before register item C2 claimed D3 `boundary-seam` on LT-2 on 2026-09-22, 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
+### Coverage: 204 of 250 registry cells (was 202 of 250 before ghost-replay Tier C PR 1 claimed D6 `self-overlap` on V8F and `loop-period-modes` (mode 1) on V6M on 2026-09-24, 201 of 250 before SD-1 claimed D5 `dock-merge-same-tree` on 2026-09-24, 200 of 250 before RF-14 claimed D9 `load-time-sweep` on 2026-09-24, 199 of 250 before EX-2 re-claimed `ghost-extension-past-endut` on the single-point collision hold on 2026-09-24, 198 of 250 before RL-1 claimed D3 `relative-loop` on 2026-09-23, 196 of 250 before GS-10 / GS-11 claimed D5 `staging-debris-ttl` and `staging-debris-promotion` on 2026-09-23, 195 of 250 before CI-4 claimed `cross-tree-chain-linking` on 2026-09-23, 196 of 250 before the KSC end-of-flight retirement ruling moved EX-1 off `ghost-extension-past-endut` on 2026-09-23, 195 of 250 before the held-ghost fix PR claimed `ghost-extension-past-endut` on EX-1 on 2026-09-23, 194 of 250 before the D18 spawn-in-run wave's PR-C claimed `loop-first-run-is-real` on LF-1 on 2026-09-23, 192 of 250 before the D18 spawn-in-run wave's PR-B claimed `ghost-conversion-quicksave` and `chain-state-rederived` on CI-3 on 2026-09-22, 190 of 250 before PR-A claimed `intermediate-spawn-suppression` and the destroyed half of `chain-terminated-destruction-recovery` on V26T on 2026-09-22, 189 of 250 before register item C2 claimed D3 `boundary-seam` on LT-2 on 2026-09-22, 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
+
+RE-DERIVED 2026-09-24 on `tierc-claims` (ghost-replay Tier C PR 1, no flight): the one-liner
+below prints `300 specs 204 of 250`. `V8F-eve-loop-faithful` claims D6 `self-overlap` off the
+engine's `Loop cadence #N ... (cycles=20) no adjustment` line and `V6M-mun-player-loop` claims D6
+`loop-period-modes`, scoped to mode (1) of the 2026-09-24 redefinition (one copy at a
+time, period >= span; object reuse is not witnessed). The denominator does not move: the operator REDEFINED `loop-period-modes` and
+`overlap-expiry-soft-caps` in place (registry comment). D6 is 15 of 18;
+`overlap-expiry-soft-caps`, `attitude-preservation` and `commnet-relay` are left.
 
 RE-DERIVED 2026-09-24 on `d5-samedock` after merging `origin/main` (with #1793): the one-liner
 below prints `300 specs 202 of 250`. `SD-1-same-tree-redock` claims D5 `dock-merge-same-tree`
@@ -372,7 +380,7 @@ with what closing the rest takes:
 | D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
 | D14 | bodies / scenes | 24 / 32 | Tylo / Bop / Pol (G9), `atmosphere`, `situation`, `warp-1x`, `warp-phys`, `scene-editor`: breadth, behind everything else. |
 | D11 | missions abstraction | 12 / 18 | `default-mission`, `leg-trim`, `whole-mission-loop`, `clone`, `station-phase-lock`, `s4-arrival-restitch`: Missions-tab semantics that need seam verbs equivalent to the tab's buttons (`MissionConfig` exists; the rest do not). |
-| D6 | playback / ghosts | 13 / 18 | Register item 3 took the three cells that had subjects on 2026-09-08 (`watch-mode-retarget-explosion-hold`, `zone-transitions`, `reentry-fx`; the reentry replay surface stays open as Tier A item 3's second half); `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
+| D6 | playback / ghosts | 15 / 18 | Register item 3 took the three cells that had subjects on 2026-09-08 (`watch-mode-retarget-explosion-hold`, `zone-transitions`, `reentry-fx`; the reentry replay surface stays open as Tier A item 3's second half); Tier C PR 1 (2026-09-24) took `self-overlap` (V8F) and `loop-period-modes` mode 1 (V6M) after the operator redefined that cell and `overlap-expiry-soft-caps` to today's code; `overlap-expiry-soft-caps` waits on ghostlife v2's `overlap expired` destroy line and a cap-reached host, `attitude-preservation` on a loop-cycle instrument; `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
 | D5 | tree topology | 12 / 12 | (none). `dock-merge-same-tree` was CLAIMED 2026-09-24 (branch `d5-samedock`) on `SD-1-same-tree-redock`: the second-dock save's docked pair undocked and MechJeb-re-docked in one flight, the dock's second parent joined by id to the undock's background child (first flight on the fix `2026-09-23_2210`, armed re-flight `_2213` with `recordings.structure` gating, controls offline over the pre-fix `_2140` and a seeded `_2213`). Its first flight found TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT, fixed in the same PR. `staging-debris-ttl` and `staging-debris-promotion` were CLAIMED 2026-09-23 (priority register C4, branch `d5-debris`) on `GS-10-kerbalx-debris-ttl` (stability reading `2026-09-23_1941` / `_1947`, armed `_1959`, offline control) and `GS-11-kerbalx-debris-promotion` (reading `_1953`, armed re-flight, offline control), both on the kx machine's new close-cut opt-in. `bg-on-rails` was CLAIMED 2026-09-10 on LT-2, off the wave's one post-assert C# line `BgOnRailsNoEnvSectionsWitness` (armed `2026-09-10_1957`, control `_2002`). Its caveat: the cell seeds its state, injects its segments and passes a null vessel finder, so only the CheckpointAllVessels close path is production. `chain-continuation-switch` (CI-1) and `crash-coalescing` (GS-7) closed 2026-09-08. |
 | D12 | crew | 7 / 10 | `stand-ins` is CL-4's (Stage B closure, 2026-09-09, live-proven `2026-09-09_1815`; the registry pins the cell to a Parsek-GENERATED stand-in); `tombstone-rep-penalty` is CL-4's too since 2026-09-10, once the product change shipped (`LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions` files a `ReputationPenalty(KerbalDeath)` row at commit from the recording's captured `VesselLoss` event and the merge tail tombstones it with the death; token `Tombstoned ... Reputation=[1-9]`, facet `tombstones=2`); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
 | D3 | reference frames | 7 / 7 | Done. The claim-gap wave claimed two on 2026-09-10 (register item 3, part 0). `absolute` is on V27M, off its already-required KSC `branch=absolute` token (armed `2026-09-10_1748`, control `_1752`). `relative-anchored-nonloop` is on LT-2, off `SceneAndPatch`'s `ParsekKscRelativePlaybackUsesRecordedAnchor` post-assert probe line (armed `2026-09-10_1957`, control `_2005`; the positioner line is required as uncontrolled corroboration); that cell plays a Relative section through the production KSC positioner. H11's mapping is confirmed NO: its seven `Pipeline-Anchor` cells resolve through test seams, so they earn no D3 cell. The seams are `ResolverOverrideForTesting`, `PutAnchorForTesting` and the `RebuildFromMarker` test overload (RuntimeTests.cs:25157 / 25249 / 25749 / 25820 / 25893). `boundary-seam` is on LT-2 since 2026-09-22 (register item C2), off the production `Persisted no-payload on-rails boundary section: ... (seam=1)` line and the optimizer's `Split summary ... seamSkipped=1`, both driven by the new `Optimizer` cell `OnRailsBoundarySeam_SuppressesSplit_InGame` (reading `2026-09-22_1736`, armed re-flight `2026-09-22_1738`, negative control `2026-09-22_1739`). `relative-loop` is on RL-1 since 2026-09-23 (register item C5), off a synthetic loop-anchored recording on `pad-runway-pair` played by the production live-PID loop positioner, with a resolver-output-equals-live-anchor facet at zero offset, source=live gated (reading `2026-09-23_2041`, armed `_2044`, control offline). |
@@ -478,8 +486,10 @@ Re-derive before acting:
   from the specs' `tier` keys; re-derived 2026-09-15 after the registry PR, which was 256 =
   125 / 26 / 105 when this register was written and moved four lanes operator -> nightly
   under item B7).
-- Coverage, from `harness/`: the one-liner below prints `283 specs 190 of 250`, so **190 of
-  250** cells are covered and 60 are uncovered (re-derived 2026-09-22 by item C2, which
+- Coverage, from `harness/`: the one-liner below prints `300 specs 204 of 250`, so **204 of
+  250** cells are covered and 46 are uncovered (re-derived 2026-09-24 by ghost-replay Tier C
+  PR 1; the "Coverage:" heading above carries every step since. Was 190 of 250 over 283 specs,
+  re-derived 2026-09-22 by item C2, which
   claimed D3 `boundary-seam` on LT-2; the same one-liner over the same 283 specs read 189 of
   250 before the claim, so the lanes merged since the Gloops PR moved the spec count 266 ->
   283 and not the numerator. Was 187 of 250 over 263 specs; the Gloops PR
@@ -780,7 +790,8 @@ One line each; the definition lives at the pointer.
   - ~~risk 4: the ledger oracle's independence check is a structural no-op~~ (CLOSED:
     mechanism 2026-07-29, ARMED 2026-07-31 on `CL-2-pod-impact-ledger`'s
     `captureCrossCheck = "gate"`; known-gate 3 in `autotest-status.md`);
-  - risk 8: no mutation tool;
+  - risk 8: phase 1 shipped (the report-only mutation checker, known-gate 17 lists its
+    survivors); phase 2 (save / ledger perturbation, mission assertions) open;
   - ~~known-gate 14: strict per-identity ground truth is armed by nothing~~ (CLOSED
     2026-08-20: ARMED by `L4-ledger-groundtruth-strict`);
   - ~~known-gate 7: B4's chute latch~~ (CLOSED 2026-09-24: `craftCanopyObserved`
@@ -4397,7 +4408,12 @@ first spawn frame (hold-then-retry, never a single eager ask).
 
 ### Tier C - machinery that raises the ceiling (build before the lanes that need it)
 
-10. **ghostlife v2.** Three additive surfaces, each motivated by a documented
+10. **ghostlife v2.** BUILT 2026-09-24 on `ghostlife-v2`, no flight: the producer
+    writes a tracing-gated `MeshDestroyed reason=overlap expired` when an overlap copy
+    vanishes and a `LoopCycle cycle=N` line when a live ghost's cycle advances, and
+    `ghostlife.py` reads `destroyedReasons.required`, `vessels` windows and the
+    `cycleLines` census; GS-4 / GS-9 archived logs replay identically to v1. Item 12
+    is unblocked. Three additive surfaces, each motivated by a documented
     gap: PER-CYCLE balance for loop playback (the loop demote path emits no
     destroy by design - the evaluator's census caveat says spawnLines vs
     destroyLines must not be read as a leak on a looping lane, which today
@@ -6215,10 +6231,16 @@ Remaining fail-open surfaces, ranked:
 7. **The analyzer proves absence of malformation, not presence.** INV1-INV10 would
    catch a malformed debris recording. They cannot catch a MISSING one. That asymmetry
    is exactly why R1 is about presence tokens and not analyzer rules.
-8. **Mutation proof is prose, not a gate.** Every mutation claim in the docs was
-   produced and re-verified by hand; no mutation tool exists anywhere in `harness/` or
-   `scripts/`. A refactor that makes a cell vacuous will not red anything and the doc
-   will keep asserting the cell bites.
+8. **Mutation proof is prose, not a gate.** PHASE 1 SHIPPED 2026-09-24 (branch
+   `mutation-check`): `harness/tools/mutation_check.py` replays the pure gating
+   evaluators (logContracts, `recordings.count`, the Unity-exception scan, the anomaly
+   sweep, armed save-parse windows) over runs archived on this machine and lists the
+   mutations that survive. It is an operator tool and report-only by ruling: survivors
+   never fail a run, and CI cannot see the archives. The first sweep's survivors and
+   their triage are known-gate 17 in `autotest-status.md`. Still open (phase 2, todo
+   MUTATION-CHECK-PHASE-2): save and ledger perturbation below the facet level, and
+   replaying mission assertions with sensor reads removed. Until then a mission-side or
+   ledger-side cell can still go vacuous without anything noticing.
 9. **The near-vacuous batch is admitted by design.** The gate blocks only
    `passed == 0`, so `total=42 passed=1 failed=0 skipped=41` satisfies every rule. Pin
    whole tallies.

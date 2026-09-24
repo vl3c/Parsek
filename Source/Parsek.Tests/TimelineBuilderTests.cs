@@ -1059,14 +1059,14 @@ namespace Parsek.Tests
                     {
                         ut = 200,
                         eventType = GameStateEventType.StrategyActivated,
-                        key = "UnpaidInterns",
+                        key = "UnpaidResearchProgramCfg",
                         detail = "title=Unpaid Research Program"
                     },
                     new GameStateEvent
                     {
                         ut = 300,
                         eventType = GameStateEventType.StrategyDeactivated,
-                        key = "UnpaidInterns",
+                        key = "UnpaidResearchProgramCfg",
                         detail = "title=Unpaid Research Program"
                     },
                     new GameStateEvent
@@ -1094,7 +1094,7 @@ namespace Parsek.Tests
                     UT = 200,
                     Type = GameActionType.StrategyActivate,
                     Effective = true,
-                    StrategyId = "UnpaidInterns",
+                    StrategyId = "UnpaidResearchProgramCfg",
                     Commitment = 0.15f,
                     SourceResource = StrategyResource.Funds,
                     TargetResource = StrategyResource.Reputation
@@ -1104,7 +1104,7 @@ namespace Parsek.Tests
                     UT = 300,
                     Type = GameActionType.StrategyDeactivate,
                     Effective = true,
-                    StrategyId = "UnpaidInterns"
+                    StrategyId = "UnpaidResearchProgramCfg"
                 }
             };
 
@@ -1163,14 +1163,14 @@ namespace Parsek.Tests
                     {
                         ut = 200,
                         eventType = GameStateEventType.StrategyActivated,
-                        key = "UnpaidInterns",
+                        key = "UnpaidResearchProgramCfg",
                         detail = "title=Unpaid Research Program"
                     },
                     new GameStateEvent
                     {
                         ut = 300,
                         eventType = GameStateEventType.StrategyDeactivated,
-                        key = "UnpaidInterns",
+                        key = "UnpaidResearchProgramCfg",
                         detail = "title=Unpaid Research Program"
                     }
                 }
@@ -1190,7 +1190,7 @@ namespace Parsek.Tests
                     UT = 201,
                     Type = GameActionType.StrategyActivate,
                     Effective = true,
-                    StrategyId = "UnpaidInterns",
+                    StrategyId = "UnpaidResearchProgramCfg",
                     Commitment = 0.15f,
                     SourceResource = StrategyResource.Funds,
                     TargetResource = StrategyResource.Reputation
@@ -1691,9 +1691,12 @@ namespace Parsek.Tests
         // 29. HumanizeStrategyId
         // ================================================================
 
+        // Headless: no strategy system, so every id takes the humanized fallback. Stock's
+        // real config names (Strategies.cfg) end in `Cfg`, which the fallback drops.
         [Theory]
-        [InlineData("AggressiveNeg", "Aggressive Negotiations")]
-        [InlineData("PatentsLic", "Patents Licensing")]
+        [InlineData("OutsourcedResearchCfg", "Outsourced Research")]
+        [InlineData("PatentsLicensingCfg", "Patents Licensing")]
+        [InlineData("AgressiveNegotiations", "Agressive Negotiations")]
         [InlineData("UnknownModStrategy", "Unknown Mod Strategy")]
         [InlineData(null, "unknown")]
         public void HumanizeStrategyId_MapsCorrectly(string input, string expected)
