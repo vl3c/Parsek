@@ -1159,6 +1159,12 @@ ACTION_BG_SUBJECT_SET_ENGINES_ACTIVE = "bg_subject_set_engines_active"  # value 
 # member. NEAREST because every staging drop of a craft carries the same name and
 # the pair dropped on the previous frames is the one beside the active vessel.
 ACTION_SWITCH_TO_NEAREST_NAMED_VESSEL = "switch_to_nearest_named_vessel"  # text = vessel name
+# d5_redock's re-dock target (D5 `dock-merge-same-tree`): the nearest loaded vessel
+# named `text` other than the active one becomes the captured station handle AND
+# `sc.target_vessel`, so SET_TARGET_VESSEL / SET_TARGET_DOCKING_PORT resolve against
+# it. NEAREST because the half a split just ejected sits metres away and carries
+# the same craft name as every other copy of the craft in orbit.
+ACTION_TARGET_NEAREST_NAMED_VESSEL = "target_nearest_named_vessel"  # text = vessel name
 
 # THE ACTIONS THAT NEED NO ACTIVE VESSEL, and the SINGLE authority on which those
 # are. `KrpcMissionControl.perform` resolves `sc.active_vessel` for the whole
@@ -16368,6 +16374,225 @@ def evaluate_sdock_assertions(frames, params: SDockParams, phases_reached=(),
                          else _last(), {"required": BDOCK_INT_SEPARATE}),
         AssertionOutcome("docked", (BDOCK_DOCK in phases) and docked_ev, docked_ev,
                          {"required": BDOCK_DOCK}),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# REDOCK phase state machine (mission d5_redock: D5 `dock-merge-same-tree`).
+# Pure. Boots a fixture whose ACTIVE vessel is a docked pair recorded in ONE
+# tree, splits it and docks the two halves back together in the same flight:
+#
+#   RD-START    -> after start_settle_seconds, the pair reads Docked and the
+#                  vessel count is read; hold attitude (SAS + RCS) and undock the
+#                  live-resolved docked port
+#   RD-UNDOCK   -> the split: vessel count up by one AND the port no longer Docked
+#                  (Parsek authors the Undock split; the half left behind becomes
+#                  a background member of the SAME tree)
+#   RD-BACKOFF  -> wait backoff_seconds so the ejected ports leave Disengage
+#   RD-TARGET   -> target the nearest vessel named craft_name (the other half,
+#                  metres away) and wait for a finite MechJeb target distance
+#   DOCK        -> B-DOCK's own DOCK phase, delegated verbatim (deferred AP
+#                  enable, liveness watchdogs, corroborated Docked read)
+#   RD-SETTLE   -> dwell settle_seconds on the re-docked pair
+#   RD-TERMINAL -> done; the assertions judge
+#
+# The dock is the whole point: both halves are members of the active tree when
+# it lands, so Parsek's merge has TWO parents. The machine never reads that; the
+# spec's log contract does.
+# ---------------------------------------------------------------------------
+
+RDOCK_START = "RD-START"
+RDOCK_UNDOCK = "RD-UNDOCK"
+RDOCK_BACKOFF = "RD-BACKOFF"
+RDOCK_TARGET = "RD-TARGET"
+RDOCK_SETTLE = "RD-SETTLE"
+RDOCK_TERMINAL = "RD-TERMINAL"
+# The delegated phase keeps B-DOCK's own name, so its flake reasons read the same.
+RDOCK_PHASES: Tuple[str, ...] = (
+    RDOCK_START, RDOCK_UNDOCK, RDOCK_BACKOFF, RDOCK_TARGET, BDOCK_DOCK,
+    RDOCK_SETTLE, RDOCK_TERMINAL)
+
+
+@dataclass(frozen=True)
+class RDockParams:
+    """REDOCK tuning (spec [driver.missionParams] for d5_redock). Budgets are GAME
+    seconds at 1x (the mission never warps)."""
+    bdock: BDockParams = field(default_factory=BDockParams)
+    craft_name: str = "Kerbal X"
+    # RD-START dwell before the undock: the scene-entry restore that puts the pair's
+    # recording back under a live recorder runs a second or two after the load, and
+    # an undock before it would split an unrecorded vessel.
+    start_settle_seconds: float = 10.0
+    # RD-START give-up: the booted pair must read Docked with a readable vessel
+    # count within this window, or the fixture is not the shape this lane needs.
+    start_timeout: float = 60.0
+    undock_timeout: float = 120.0
+    backoff_seconds: float = 20.0
+    target_timeout: float = 60.0
+    settle_seconds: float = 10.0
+
+
+def rdock_params_from_dict(params: Dict) -> RDockParams:
+    params = params or {}
+    return RDockParams(
+        bdock=bdock_params_from_dict(params),
+        craft_name=str(params.get("craftName", "Kerbal X")),
+        start_settle_seconds=float(params.get("startSettleSeconds", 10)),
+        start_timeout=float(params.get("startTimeoutSeconds", 60)),
+        undock_timeout=float(params.get("undockTimeoutSeconds", 120)),
+        backoff_seconds=float(params.get("backoffSeconds", 20)),
+        target_timeout=float(params.get("targetTimeoutSeconds", 60)),
+        settle_seconds=float(params.get("settleSeconds", 10)),
+    )
+
+
+@dataclass(frozen=True)
+class RDockState:
+    """REDOCK machine state. ``inner`` is the delegated B-DOCK state, live only in
+    DOCK; the top-level fields are the ones the fly loop reads and replaces."""
+    params: RDockParams
+    inner: BDockState
+    phase: str = RDOCK_START
+    phase_entry_ut: float = float("nan")
+    phases_reached: Tuple[str, ...] = (RDOCK_START,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+    # Evidence for the assertions.
+    started_docked: bool = False
+    undock_baseline_vessel_count: int = 0
+    undock_confirmed: bool = False
+    redock_confirmed: bool = False
+
+
+def rdock_initial_state(params: RDockParams) -> RDockState:
+    return RDockState(params=params, inner=bdock_initial_state(params.bdock))
+
+
+def _rdock_enter(state: RDockState, new_phase: str, ut: float,
+                 **fields) -> RDockState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(state, phase=new_phase, phase_entry_ut=entry,
+                   phases_reached=state.phases_reached + (new_phase,),
+                   done=(new_phase == RDOCK_TERMINAL), **fields)
+
+
+def _rdock_elapsed(state: RDockState, snapshot: TelemetrySnapshot) -> float:
+    if not _is_finite(snapshot.ut) or not _is_finite(state.phase_entry_ut):
+        return 0.0
+    return snapshot.ut - state.phase_entry_ut
+
+
+def _rdock_flake(state: RDockState, reason: str) -> RDockState:
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="phase %s: %s" % (state.phase, reason), done=True)
+
+
+def rdock_decide(state: RDockState,
+                 snapshot: TelemetrySnapshot) -> Tuple[RDockState, List[Action]]:
+    """Advance the REDOCK machine one frame; return (new_state, actions)."""
+    if state.done:
+        return state, []
+    p = state.params
+
+    if state.phase == RDOCK_START:
+        if not _is_finite(state.phase_entry_ut) and _is_finite(snapshot.ut):
+            state = replace(state, phase_entry_ut=snapshot.ut)
+        docked = snapshot.docking_state == DOCKING_STATE_DOCKED
+        settled = _rdock_elapsed(state, snapshot) >= p.start_settle_seconds
+        if docked and snapshot.vessel_count > 0 and settled:
+            return (_rdock_enter(state, RDOCK_UNDOCK, snapshot.ut,
+                                 started_docked=True,
+                                 undock_baseline_vessel_count=snapshot.vessel_count),
+                    [Action(ACTION_SET_SAS), Action(ACTION_SET_RCS, value=1.0),
+                     Action(ACTION_UNDOCK)])
+        if _rdock_elapsed(state, snapshot) > p.start_timeout:
+            return _rdock_flake(state, (
+                "the booted vessel never read a Docked port with a readable vessel "
+                "count (docking_state=%r vessel_count=%d)"
+                % (snapshot.docking_state, snapshot.vessel_count))), []
+        return state, []
+
+    if state.phase == RDOCK_UNDOCK:
+        split = (snapshot.vessel_count > state.undock_baseline_vessel_count
+                 and snapshot.docking_state != DOCKING_STATE_DOCKED)
+        if split:
+            return _rdock_enter(state, RDOCK_BACKOFF, snapshot.ut,
+                                undock_confirmed=True), []
+        if _rdock_elapsed(state, snapshot) > p.undock_timeout:
+            return _rdock_flake(state, (
+                "no undock split observed (vessel_count=%d baseline=%d "
+                "docking_state=%r)" % (snapshot.vessel_count,
+                                        state.undock_baseline_vessel_count,
+                                        snapshot.docking_state))), []
+        return state, []
+
+    if state.phase == RDOCK_BACKOFF:
+        if _rdock_elapsed(state, snapshot) < p.backoff_seconds:
+            return state, []
+        return (_rdock_enter(state, RDOCK_TARGET, snapshot.ut),
+                [Action(ACTION_TARGET_NEAREST_NAMED_VESSEL, text=p.craft_name)])
+
+    if state.phase == RDOCK_TARGET:
+        if snapshot.target_set and _is_finite(snapshot.target_distance):
+            # Hand the pair to B-DOCK's DOCK phase exactly as MATCH-VELOCITY does:
+            # port target now, AP enable deferred one poll (flight 9).
+            inner = _bdock_enter(
+                replace(state.inner, dock_enable_pending=True), BDOCK_DOCK,
+                snapshot.ut, dock_last_progress_ut=snapshot.ut,
+                dock_entry_docked=(snapshot.docking_state == DOCKING_STATE_DOCKED))
+            st = _rdock_enter(state, BDOCK_DOCK, snapshot.ut, inner=inner)
+            return st, [Action(ACTION_SET_SAS), Action(ACTION_SET_RCS, value=1.0),
+                        Action(ACTION_SET_TARGET_DOCKING_PORT)]
+        if _rdock_elapsed(state, snapshot) > p.target_timeout:
+            return _rdock_flake(state, (
+                "no target acquired on the undocked half (target_set=%s "
+                "target_distance=%s)" % (snapshot.target_set, snapshot.target_distance))), []
+        return state, []
+
+    if state.phase == BDOCK_DOCK:
+        inner, actions = bdock_decide(state.inner, snapshot)
+        if inner.phase == BDOCK_TRANSFER and inner.docked_confirmed:
+            # B-DOCK completed DOCK on a corroborated read; drop its transfer.
+            st = replace(state, inner=inner)
+            return (_rdock_enter(st, RDOCK_SETTLE, snapshot.ut, redock_confirmed=True),
+                    [Action(ACTION_MJ_DISABLE_DOCKING)])
+        if inner.done:
+            return replace(state, inner=inner, verdict=inner.verdict,
+                           flake_phase=inner.flake_phase,
+                           flake_reason=inner.flake_reason,
+                           loss_reason=inner.loss_reason, done=True), actions
+        return replace(state, inner=inner), actions
+
+    if state.phase == RDOCK_SETTLE:
+        if _rdock_elapsed(state, snapshot) < p.settle_seconds:
+            return state, []
+        return _rdock_enter(state, RDOCK_TERMINAL, snapshot.ut), []
+
+    return _rdock_flake(state, "unknown phase"), []
+
+
+def evaluate_rdock_assertions(frames, params: RDockParams, phases_reached=(),
+                              state=None) -> List[AssertionOutcome]:
+    """Three REDOCK driver-validity assertions:
+
+    - ``startedDocked``  the booted vessel read a Docked port (the fixture shape).
+    - ``undocked``       the split was observed (count up, port not Docked).
+    - ``redocked``       DOCK completed on B-DOCK's corroborated Docked read.
+    """
+    del frames, params
+    phases = tuple(phases_reached or ())
+    started = bool(getattr(state, "started_docked", False))
+    undocked = bool(getattr(state, "undock_confirmed", False))
+    redocked = bool(getattr(state, "redock_confirmed", False))
+    return [
+        AssertionOutcome("startedDocked", started, started, {"required": RDOCK_UNDOCK}),
+        AssertionOutcome("undocked", (RDOCK_BACKOFF in phases) and undocked, undocked,
+                         {"required": RDOCK_BACKOFF}),
+        AssertionOutcome("redocked", (RDOCK_SETTLE in phases) and redocked, redocked,
+                         {"required": RDOCK_SETTLE}),
     ]
 
 
