@@ -10,6 +10,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the GUI census photographs at 1920x1080.** A scenario can now ask
+  for a larger game window (`screenResolution` under `[runtime]`), and every GUI census
+  lane does, so the Missions, Logistics and taller Settings windows are no longer cut off
+  at the old 1280x720 edge. The size is set for that run only and put back afterwards;
+  every other lane keeps 1280x720.
 - **Dev: the GUI mirror draws a label-styled button as plain text.** The Career row names (links to the Timeline) are label-styled buttons that KSP draws with no outline or bevel; the mirror drew them boxed (`harness/tools/gui_mirror.py`).
 - **Automated testing: the test seam can activate and cancel a stock strategy, and the
   GUI census photographs a Strategies tab with a row in it.** `KscAction` gains

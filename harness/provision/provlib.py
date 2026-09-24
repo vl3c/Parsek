@@ -1251,6 +1251,12 @@ STREAMINGASSETS = "StreamingAssets"
 # `.provision-incomplete`).
 PROVISION_INCOMPLETE_MARKER = ".provision-incomplete"
 
+# The harness's per-run KSP window-size restore marker (hlib, `[runtime]
+# screenResolution`), beside the instance-root settings.cfg. Defined here because
+# SETTINGS rewrites that settings.cfg and so deletes a leftover marker; hlib
+# re-exports this one name.
+KSP_SCREEN_RESTORE_MARKER = "settings.cfg.harness-screen-restore"
+
 # Top-level dev-install entries never copied verbatim into a fresh instance:
 #   GameData      -- built selectively (junction stock, copy dev-sourced, install
 #                    stack, delete MM cache); handled by the GameData builder.

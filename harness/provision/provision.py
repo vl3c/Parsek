@@ -980,6 +980,24 @@ def _copy_and_verify_dev_mod(ctx: ProvisionContext, name: str, src: str, dst: st
     return dst_hash
 
 
+def _clear_screen_restore_marker(ctx) -> None:
+    """Delete the harness's KSP screen restore marker after SETTINGS wrote a fresh
+    settings.cfg. Provisioning owns that file, so a marker left by a harness run
+    that died before teardown describes a file that no longer exists; keeping it
+    would make the next run "restore" old values over the profile's. Clearing it
+    here also makes re-provisioning the operator's way to drop a leaked marker."""
+    marker = os.path.join(ctx.instance_dir, provlib.KSP_SCREEN_RESTORE_MARKER)
+    if not os.path.exists(marker):
+        return
+    try:
+        os.remove(marker)
+    except OSError as exc:
+        log(ctx, "Warn", "Settings", "could not delete the leftover screen restore marker %s (%s)"
+            % (marker, exc))
+        return
+    log(ctx, "Info", "Settings", "deleted the leftover screen restore marker %s" % marker)
+
+
 def phase_settings(ctx: ProvisionContext) -> Dict[str, str]:
     """Apply the profile settings deltas over the dev settings.cfg."""
     deltas = {k: str(v) for k, v in (ctx.profile.get("settings", {}) or {}).items()}
@@ -1027,6 +1045,7 @@ def phase_settings(ctx: ProvisionContext) -> Dict[str, str]:
         # applies by default on Windows, so the on-disk bytes match final_text.
         with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(final_text)
+        _clear_screen_restore_marker(ctx)
         # Record settingsFinalSha256 over the bytes ACTUALLY on disk, not the
         # in-memory text: VERIFY (and the harness) re-hash the raw file, so the
         # recorded value must be that same raw-byte hash or every live run would

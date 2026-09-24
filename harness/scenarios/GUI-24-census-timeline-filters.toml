@@ -294,6 +294,9 @@ gating = false
 # 1500 s budget; the first flight of this lane (with two more captures than it now has)
 # measured 88 s. 900 s is the budget every other census lane uses.
 budgetSeconds = 900
+# The census frame (`screenResolution`, harness README): 1280x720 cropped every
+# Parsek window wider or taller than it, so the census lanes capture at 1920x1080.
+screenResolution = "1920x1080"
 
 [retry]
 policy = "once"
