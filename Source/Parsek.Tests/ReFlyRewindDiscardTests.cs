@@ -206,7 +206,7 @@ namespace Parsek.Tests
             var s = BuildLiveSession();
 
             bool ended = MergeDialog.TryDiscardLiveReFlySessionForRewind(
-                s.Tree, "Rewind", out string droppedLiveTreeId);
+                s.Tree, "Rewind", out string droppedLiveTreeId, out bool restored);
 
             Assert.True(ended);
             // Marker cleared.
@@ -228,6 +228,7 @@ namespace Parsek.Tests
             // SceneExitInterceptor prefix bypasses on the same flag (no Re-Fly dialog).
             Assert.True(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Equal(TreeId, droppedLiveTreeId);
+            Assert.True(restored);
             Assert.Contains(logLines, l => l.Contains("[ReFlySession]")
                 && l.Contains("End reason=discardReFlyForRewind")
                 && l.Contains("sess=" + SessionId)
@@ -243,7 +244,7 @@ namespace Parsek.Tests
         public void LiveSessionEndedByRewind_LeavesNoZombieForTheNextLoadsSweep()
         {
             var s = BuildLiveSession();
-            MergeDialog.TryDiscardLiveReFlySessionForRewind(s.Tree, "Rewind", out _);
+            MergeDialog.TryDiscardLiveReFlySessionForRewind(s.Tree, "Rewind", out _, out _);
             logLines.Clear();
 
             LoadTimeSweep.Run();
@@ -262,7 +263,7 @@ namespace Parsek.Tests
             var otherLive = new RecordingTree { Id = "tree-unrelated-live", TreeName = "Unrelated" };
 
             bool ended = MergeDialog.TryDiscardLiveReFlySessionForRewind(
-                otherLive, "Warp-to-game-start", out string droppedLiveTreeId);
+                otherLive, "Warp-to-game-start", out string droppedLiveTreeId, out bool restored);
 
             Assert.True(ended);
             Assert.Null(s.Scenario.ActiveReFlySessionMarker);
@@ -272,6 +273,7 @@ namespace Parsek.Tests
             // An unrelated live tree takes the ordinary scene-exit commit.
             Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
             Assert.Null(droppedLiveTreeId);
+            Assert.False(restored);
             Assert.Contains(logLines, l => l.Contains("End reason=discardReFlyForRewind")
                 && l.Contains("treeWasPending=True")
                 && l.Contains("liveTreeDropped=False"));
@@ -281,9 +283,10 @@ namespace Parsek.Tests
         public void FailedRewindLoad_UndoReturnsTheLiveTreeToTheFlightScene()
         {
             var s = BuildLiveSession();
-            MergeDialog.TryDiscardLiveReFlySessionForRewind(s.Tree, "Rewind", out string droppedLiveTreeId);
+            MergeDialog.TryDiscardLiveReFlySessionForRewind(
+                s.Tree, "Rewind", out string droppedLiveTreeId, out bool restored);
 
-            RecordingStore.UndoLiveTreeDropAfterFailedRewind(droppedLiveTreeId, "Rewind");
+            RecordingStore.UndoLiveTreeDropAfterFailedRewind(droppedLiveTreeId, restored, "Rewind");
 
             Assert.False(CommittedTreeHas(TreeId));
             Assert.False(CommittedHas(OriginId));
@@ -301,9 +304,21 @@ namespace Parsek.Tests
         {
             RecordingStore.ArmNextTreeSceneExitCommitSuppression("owned-by-someone-else");
 
-            RecordingStore.UndoLiveTreeDropAfterFailedRewind(null, "Rewind");
+            RecordingStore.UndoLiveTreeDropAfterFailedRewind(null, false, "Rewind");
 
             Assert.True(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+        }
+
+        [Fact]
+        public void FailedRewindLoad_DroppedButNotRestored_UndoStillDisarms_LeavesCommittedStoreAlone()
+        {
+            var committed = new RecordingTree { Id = "tree-committed-bystander", TreeName = "Bystander" };
+            RecordingStore.ArmNextTreeSceneExitCommitSuppression("discardReFlyForRewind sess=x");
+
+            RecordingStore.UndoLiveTreeDropAfterFailedRewind(committed.Id, false, "Rewind");
+
+            Assert.False(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.Contains(logLines, l => l.Contains("removedFromCommitted=False"));
         }
 
         // ---------- Mirror direction: what must not change --------------
@@ -327,7 +342,7 @@ namespace Parsek.Tests
             };
             ParsekScenario.SetInstanceForTesting(scenario);
 
-            bool ended = MergeDialog.TryDiscardLiveReFlySessionForRewind(tree, "Rewind", out string dropped);
+            bool ended = MergeDialog.TryDiscardLiveReFlySessionForRewind(tree, "Rewind", out string dropped, out _);
 
             Assert.False(ended);
             Assert.Null(dropped);
@@ -344,7 +359,7 @@ namespace Parsek.Tests
             var journal = new MergeJournal { JournalId = "journal-rtl", SessionId = SessionId };
             s.Scenario.ActiveMergeJournal = journal;
 
-            bool ended = MergeDialog.TryDiscardLiveReFlySessionForRewind(s.Tree, "Rewind", out _);
+            bool ended = MergeDialog.TryDiscardLiveReFlySessionForRewind(s.Tree, "Rewind", out _, out _);
 
             Assert.False(ended);
             Assert.NotNull(s.Scenario.ActiveReFlySessionMarker);

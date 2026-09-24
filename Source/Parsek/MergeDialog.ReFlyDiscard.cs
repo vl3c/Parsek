@@ -425,14 +425,18 @@ namespace Parsek
         /// </summary>
         /// <param name="liveActiveTree">The flight scene's live active tree, or null outside FLIGHT.</param>
         /// <param name="rewindLabel">Log label of the rewind that ended the session.</param>
-        /// <param name="droppedLiveTreeId">Id of the live tree put back in the committed store
-        /// and armed to be dropped at the scene exit, else null; the rewind undoes that when its
-        /// load fails (<see cref="RecordingStore.UndoLiveTreeDropAfterFailedRewind"/>).</param>
+        /// <param name="droppedLiveTreeId">Id of the live tree the scene exit was armed to drop,
+        /// else null; the rewind undoes the drop when its load fails
+        /// (<see cref="RecordingStore.UndoLiveTreeDropAfterFailedRewind"/>).</param>
+        /// <param name="droppedTreeRestoredToCommitted">True when that tree was also put back in
+        /// the committed store.</param>
         /// <returns>True when a live session was ended.</returns>
         internal static bool TryDiscardLiveReFlySessionForRewind(
-            RecordingTree liveActiveTree, string rewindLabel, out string droppedLiveTreeId)
+            RecordingTree liveActiveTree, string rewindLabel,
+            out string droppedLiveTreeId, out bool droppedTreeRestoredToCommitted)
         {
             droppedLiveTreeId = null;
+            droppedTreeRestoredToCommitted = false;
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario))
                 return false;
@@ -464,15 +468,18 @@ namespace Parsek
             var discard = DiscardReFlyAttemptRecordingsAndRewindPoints(
                 scenario, marker, tree, RewindDiscardReason);
             if (treeWasPending)
+            {
                 RecordingStore.PopPendingTree();
+                ClearPendingFlag("rewind discard of a pending Re-Fly tree");
+            }
             EndDiscardedReFlySession(scenario, sessionId, "Rewind:discard-refly-session");
 
             if (dropLiveTree)
             {
                 RecordingStore.ArmNextTreeSceneExitCommitSuppression(
                     $"{RewindDiscardReason} sess={sessionId ?? "<no-id>"}");
-                if (discard.RestoredCommittedTree)
-                    droppedLiveTreeId = tree.Id;
+                droppedLiveTreeId = tree.Id;
+                droppedTreeRestoredToCommitted = discard.RestoredCommittedTree;
             }
 
             ParsekLog.Info("ReFlySession",
