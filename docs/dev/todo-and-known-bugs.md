@@ -58,6 +58,66 @@ exactly the two-parent token and the single-parent forbid; the first flight on t
 save's terminal split (Docked 4 / Orbiting 8, pre-fix 3 / 9) gating. Both flew the first cut of
 the fix (heuristic kept as a fallback, which answered 0 there); the final head `2927c4460` re-flew
 as `2026-09-23_2236`, PASS attempt 1 with the same two-parent merge.
+## ~~TIERB-7-RTL-X-REFLY-LOAD-SWEEP: ghost-replay Tier B item 7, the lane for D9 `load-time-sweep`~~ [DONE 2026-09-24 on branch `tierb-rtl-refly`]
+
+`RF-14-rtl-refly-load-sweep` flies GS-4's Kerbal X, Rewind-to-Launches it, re-flies the
+core's slot off the RewindPoint the rewind carried (PR #1788), then quicksaves and
+quickloads in the middle of that re-fly. The quickload's `LoadTimeSweep` validated the
+live marker against the carried point and spared the session's provisional
+(`[LoadSweep] Marker valid=True; spare=1 discarded=0`), the recorder resumed on that
+session, and the merge concluded it with no zombie discarded anywhere. Reading
+`2026-09-23_2147` (one timing token: the F5 came before the re-fly recorder binds at
+OnFlightReady, so the lane now idles ~3 s first), armed `2026-09-23_2200` PASS with the
+`rewind` block armed, negative control offline over `_2200`. D9 `load-time-sweep`
+claimed (coverage 201 of 250 after merging main, D9 18 of 18). No product defect.
+
+Scope, so the claim is not overread: the cell is claimed on the sweep's marker-validation
+and spare-set half. The other branches are not driven by RF-14, and two of them are
+reachable in other shapes (corrected 2026-09-24 in the #1793 review): staging DURING a
+re-fly authors a session-scoped RP (`RewindPointAuthor` stamps `CreatingSessionId =
+ActiveReFlySessionMarker?.SessionId`), which the sweep spares while the marker is valid,
+a conclusion un-scopes (`MergeJournalOrchestrator.TagRpsForReap`, the merge-dialog
+discard), and the sweep discards only after a lost or crashed marker; and a
+Rewind-to-Launch mid-re-fly may be reachable through the path filed below as
+REFLY-DESTROYED-THEN-RTL-MID-SESSION. The rewind's own OnLoad returns before the sweep
+runs. Also noted: CI-3 already produced the same two sweep lines on its F5/F9, unclaimed.
+
+## REFLY-DESTROYED-THEN-RTL-MID-SESSION: a Rewind-to-Launch may be reachable during a live Re-Fly once the re-flown vessel is destroyed [FILED 2026-09-24 from the #1793 review. OPEN; CODE-DERIVED, NOT FLOWN]
+
+The normal guard: while the re-fly recorder is live, `RecordingStore.CanRewind` refuses
+"Stop recording before rewinding" (the Recordings table passes `flight.IsRecording`,
+`RecordingsTableUI.cs`), and no player control stops a recorder. The path that reads as an
+exception, traced in source only:
+
+1. The re-flown vessel is destroyed. `FlightRecorder` sets `VesselDestroyedDuringRecording`
+   but keeps `IsRecording = true`, so the guard still holds at this point.
+2. `ParsekFlight`'s destruction handler schedules `ShowPostDestructionTreeMergeDialog`.
+   If every leaf is terminal (or only debris blocks), it finalizes the tree and
+   `StashPendingTree`s it, and `HasPendingTree` then refuses the rewind ("Merge or discard
+   pending tree first"). If a non-debris leaf is still alive,
+   `ClassifyPostDestructionMergeResolution` returns `AbortAndKeepRecording`: no stash.
+3. If KSP then hands focus to another vessel, `HandleVesselSwitchDuringRecording` takes
+   `TransitionToBackground`, and the switch-complete handler flushes the recorder to the
+   background and sets `recorder = null`. `IsRecording` is now false, no tree is pending,
+   and `InitiateRewind` refuses only an in-flight merge journal. Nothing checks the live
+   `ReFlySessionMarker`. The Rewind button would then be enabled mid-session.
+
+What the sweep would then do, also code-derived: the rewind's OnLoad takes
+`HandleRewindOnLoad`, which clears the marker (`ClearActiveReFlyMarkerForPlainRewind`,
+"cleared stale active Re-Fly marker during plain rewind") and returns before
+`LoadTimeSweep` runs. The session's provisional was added to the committed list as
+`NotCommitted` (`RecordingStore.AddProvisional`), and a rewind keeps in-memory recordings,
+so unless the scene change's tree finalization disposes of it (not traced), the next
+non-rewind OnLoad's sweep finds a NotCommitted recording with no marker and discards it
+as a zombie (`[LoadSweep] ... discarded=1`). A session-scoped RP authored during that
+re-fly would be discarded by the same pass. In gameplay terms: rewinding a whole flight to
+launch after the re-flown stage crashed silently abandons that re-fly; whether that is the
+wanted outcome, or the rewind should be refused or offer the re-fly merge first, is an
+operator question.
+
+To confirm: a lane that re-flies a slot while a sibling leaf is still flying, crashes the
+re-flown vessel, lets focus move, then tries `InvokeRewindToLaunch` (the seam's own
+dispatch guard refuses a live recorder, so it reads the same predicate).
 
 ## RP-SURVIVES-REWIND-TO-LAUNCH: a rewind point survives a Rewind-to-Launch, and its Re-Fly waits for the clock [RULED 2026-09-23 (operator). FIXED 2026-09-23 on branch `rp-survives-rewind`]
 
@@ -325,7 +385,25 @@ and route it through the body-fixed surface (or `TryResolveRelativeWorldPosition
 test can build a parent-anchored debris recording with Relative sections, promote it, and
 assert the distance.
 
-## D18-GHOST-EXTENSION-SINGLE-POINT-HOST: `ghost-extension-past-endut` has no host lane since the pad hold became a retirement [FILED 2026-09-23 with KSC-PAD-END-OF-FLIGHT-RETIREMENT. OPEN]
+## ~~D18-GHOST-EXTENSION-SINGLE-POINT-HOST: `ghost-extension-past-endut` has no host lane since the pad hold became a retirement~~ [FILED 2026-09-23 with KSC-PAD-END-OF-FLIGHT-RETIREMENT. CLOSED 2026-09-24 by `EX-2-single-point-held-ghost`]
+
+**CLOSED 2026-09-24.** `EX-2-single-point-held-ghost` claims the cell, SCOPED TO THE SINGLE-POINT
+COLLISION HOLD. LIVE-PROVEN: armed `2026-09-23_2110` PASS attempt 1 (blocked by `Kerbal X Probe`
+at 70 m on the single-point branch, `Ghost held pending spawn retry ... ghost stays visible`, the
+post-delivery `kept (held by the policy)`, `Held ghost timed out ... held=5.0s`,
+`destroyed (held-spawn-timeout)`, no vessel), negative control `2026-09-23_2113` red on exactly its one
+seeded forbidden token, reverted; automation DLL sha256 `bbfc81c5...` (origin/main build, no C#
+change). Two findings changed the shape the filing asked for, both re-derived from source:
+a point-ONLY one-point recording is never live (ghost activation starts at its only point, which
+is also EndUT, and the policy holds only a ghost live at completion), and a non-EVA spawn skips
+the ACTIVE vessel in the overlap check, so "parked on the focused vessel" never blocks. The host
+is therefore one flat point PLUS a 20 s orbit tail with an Orbiting terminal (the injected
+`single-point-hold` preset on `eva2-lko-crewed`), led 70 m ahead of the save's non-focused
+`Kerbal X Probe`, with a spawn collision footprint widened to cover the probe. Readings
+`2026-09-23_2054` / `_2103` PARSEK-FAILed on that geometry (the one-part box cleared on the 1 s
+retry; the second found GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE below).
+
+**Original filing.**
 
 The only non-chain paths that still hold a ghost past EndUT are a SINGLE-POINT recording whose
 endpoint overlaps a loaded vessel (no walkback is possible, so `CheckSpawnCollisions` reports
@@ -337,6 +415,29 @@ the focused vessel is the cheapest shape), asserting `Ghost held pending spawn r
 held-ghost keep line of the stale-cleanup fix, `Held ghost timed out ... held=5.[0-9]s` and
 `destroyed (held-spawn-timeout)`. That lane would also be the live witness of
 D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME again.
+
+## GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE: a ghost's map-presence ProtoVessel, placed inside a loaded real vessel, collides with it when they unpack [FILED 2026-09-24 off EX-2's reading runs. OPEN]
+
+**Observed.** EX-2's first two readings parked a committed ghost's orbit exactly on the
+non-focused `Kerbal X Probe` of `eva2-lko-crewed`, about 16 m from the focused ship. In FLIGHT
+`GhostMapPresence` created `Ghost: Single Point Holder` (ghostPid 3236074800, a `sensorBarometer`
+placeholder part, source `visible-segment`) at the ghost's position; when the scene's vessels
+unpacked about 1 s later, `Blocked GoOffRails for ghost vessel` logged for it, and then:
+- `2026-09-23_2054`: `sensorBarometer (Ghost: Single Point Holder) Exploded!! - blast awesomeness: 0.5`
+  37 ms after `Unpacking Kerbal X Probe`.
+- `2026-09-23_2103`: `Part sensorBarometer (Ghost: Single Point Holder) exited collision with
+  collider, but it wasn't in collision count list!`, and the REAL probe broke into seven
+  `Kerbal X Probe Debris` vessels (produced save: `lct = 422.23`, the probe's unpack UT). No
+  other lane flying this fixture leaves probe debris (EVA-2 `2026-09-10_1720` / `_2122` /
+  `2026-09-11_0133`, CI-1 `2026-09-15_1529` / `_1532`: 0 each).
+
+So the map ProtoVessel carries live colliders inside physics range, and a real vessel that shares
+its position is damaged. Stock-play reach (not measured): a ghost replaying an approach to a
+station the player is parked at puts its map ProtoVessel on or next to the station's parts. The
+fix direction (collider-free placeholder, or keep the ProtoVessel unloaded inside physics range)
+belongs to `docs/dev/design-map-ts-render-architecture.md`, Appendix A. EX-2 now leads the probe
+by 70 m, so it no longer exercises this; a witness lane would park the ghost on the vessel again
+and gate `Probe Debris` absent in the produced-save vessel census.
 
 ## ~~FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE: a launch made from FLIGHT inside the first 60 frames of a flight scene recorded INTO the tree of the vessel the scene opened on (a committed tree's restore clone), and the commit rewrote that committed tree~~ [FILED 2026-09-23 off the D18 PR-D harvest (#1768, runs `2026-09-22_2157` / `_2239`). FIXED 2026-09-23. Harness-reachable only; not reachable in stock play]
 
@@ -17447,7 +17548,7 @@ register (2026-09-11)" item C4; no decision needed.
 - D5 is 11 of 12 (`dock-merge-same-tree` left); coverage 198 of 250.
 - `dock-merge-same-tree`: CLAIMED 2026-09-24 on `SD-1-same-tree-redock` (the second-dock save's
   docked pair undocked and re-docked in one flight). Its first flight found and the same PR fixed
-  TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT. D5 is 12 of 12; coverage 200 of 250.
+  TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT. D5 is 12 of 12; coverage 202 of 250 with #1793.
 
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone
 claims against them.**

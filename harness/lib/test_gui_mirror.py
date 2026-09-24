@@ -226,7 +226,8 @@ class LabelGrammarTests(unittest.TestCase):
     TABS = {"missions": {"missions", "recordings"},
             "kerbals": {"roster", "outcomes"},
             "career": {"contracts", "strategies", "facilities", "milestones"},
-            "timeline": {"overview", "details", "rewindff", "refly"}}
+            "timeline": {"overview", "details", "rewindff", "refly",
+                         "contracts", "strategies", "facilities", "milestones", "tech"}}
 
     def parse(self, label):
         return gmi.parse_label(label, self.WINDOWS, self.TABS)

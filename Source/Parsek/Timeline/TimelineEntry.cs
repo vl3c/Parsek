@@ -96,5 +96,17 @@ namespace Parsek
         public float MilestoneFundsAwarded;
         public float MilestoneRepAwarded;
         public float MilestoneScienceAwarded;
+        /// <summary>
+        /// The career subject this row belongs to, from the ledger action type (never the
+        /// display type): the Timeline's Career view shows one category at a time. None on
+        /// recording and legacy rows and on ledger rows outside the five categories.
+        /// </summary>
+        public TimelineCareerCategory CareerCategory;
+        /// <summary>
+        /// The row's subject inside <see cref="CareerCategory"/> (contract id, strategy id,
+        /// facility id, milestone id or tech node id), the key
+        /// <c>TimelineWindowUI.ScrollToCareerSubject</c> scrolls to. Null when None.
+        /// </summary>
+        public string CareerSubjectId;
     }
 }

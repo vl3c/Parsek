@@ -46,8 +46,25 @@ tier = "operator"
 # ONE COMBINATION IS REFUSED BY DESIGN and this lane is deliberately not near it:
 # `key=srcRecordings state=false` answers `REJECTED state-clamped-by-tab` while the tier
 # filter is `rewindff` or `refly`, because those tabs' own draw pass forces the toggle
-# back on. The preamble leaves `overview` selected and this lane never switches tab, so
-# the gate never fires here.
+# back on. Every source-toggle step runs under `overview` (the preamble's default), and
+# the only tab switches are the Career category views at the END, after the last source
+# write, so the gate never fires here.
+#
+# THE TWO-ROW FILTER AREA (2026-09-24). Row 1 is the view group (`Overview`, `Details`,
+# `Rewind/FF`, `Re-Fly`, `Career`) plus a `Time: <range>` button; row 2 is the selected
+# view's context row (the three source toggles and `Archived` under Overview / Details,
+# the five career categories under Career). The old `Custom` button is folded into Time:
+# `key=customRange` now opens the Time fold (preset row plus the From / To sliders), so
+# `ksc-timeline-customrange-advanced` photographs the open fold, and the two preset
+# captures stand over it with the Time label naming the range.
+#
+# THE CAREER CATEGORY CAPTURES are one per category that has rows on this host: the
+# operator's career ledger carries contract accepts and completions, 40 milestone credits
+# and 17 tech unlocks, and NO strategy or facility action at all, so `strategies` and
+# `facilities` would photograph an empty list under a populated label and are not taken.
+# `ksc-timeline-milestones-thisyear-advanced` is the owner ruling in one picture: the time
+# range applies in a category view too, with the Time fold CLOSED so the lit
+# `Time: This Year` button is the only sign of it.
 #
 # THE PRESET ROW'S `All` BUTTON IS A CLEAR, not a range, and the seam reports it
 # honestly: `ApplyTimeRangePreset` calls `filter.Clear()` for it and
@@ -74,7 +91,7 @@ tier = "operator"
 # so the two steps are GONE rather than relabelled - GUI-1 already photographs both tabs
 # in their resting form on this host. Filed as
 # GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER.
-description = "GUI census wave 6: the Timeline window's scalar view state - each source toggle off, the archive filter on, the Custom range revealed, two time-range presets and a scrolled entry list - on the dense operator-local census host."
+description = "GUI census wave 6: the Timeline window's scalar view state - each source toggle off, the archive filter on, the Time fold open, two time-range presets, a scrolled entry list, and the Career view's contracts / milestones / tech categories (one under a This Year range) - on the dense operator-local census host."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "timeline", "career", "GUI-24", "pending-operator"]
 
@@ -131,8 +148,8 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-archivedfilter-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "state", window = "timeline", key = "archived", state = "false" }, expect = "OK" },
 
-  # --- STATE 5: the Custom reveal - the window's ONLY two sliders plus the From: / To:
-  # labels, which have zero hits program-wide today.
+  # --- STATE 5: the Time fold open (the `customRange` key) - the preset row plus the
+  # window's ONLY two sliders and their From: / To: labels.
   { cmd = "UiAction", args = { op = "state", window = "timeline", key = "customRange", state = "true" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-customrange-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-customrange-advanced" }, expect = "OK" },
@@ -156,6 +173,28 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-scrolled-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-scrolled-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "state", window = "timeline", key = "scrollY", value = "0" }, expect = "OK" },
+
+  # --- STATE 9-11: the Career view, one capture per category with rows on this host
+  # (see the header). Row 2 shows all five category buttons; the list only that
+  # category's rows, both tiers, past and future around the "now" divider.
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "contracts" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-contracts-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-contracts-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "milestones" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-milestones-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-milestones-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "tech" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-tech-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-tech-advanced" }, expect = "OK" },
+
+  # --- STATE 12: a category view under a time range, with the Time fold CLOSED (it was
+  # closed after STATE 7), so the lit `Time: This Year` label is what says rows are hidden.
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "milestones" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "preset", value = "This Year" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-milestones-thisyear-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-milestones-thisyear-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "preset", value = "All" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
 
   { cmd = "FlushAndQuit", expect = "OK" },
@@ -205,6 +244,16 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-presetthisyear-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-presetlastday-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-scrolled-advanced .*patched=17/17",
+
+  # The Career view: each category tab write names its token and its index (4, 7 and 8,
+  # appended after `refly`), and each capture beside it dumped whole.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction tab window=timeline tab=contracts index=4 already=false",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction tab window=timeline tab=milestones index=7 already=false",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction tab window=timeline tab=tech index=8 already=false",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-contracts-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-milestones-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-tech-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-milestones-thisyear-advanced .*patched=17/17",
 ]
 forbidden = []
 
@@ -218,7 +267,7 @@ forbidden = []
 gating = false
 
 [runtime]
-# Eight captures and eight dumps, a 300 s cold load of a 42 MB career and ~35 single-phase
+# Twelve captures and twelve dumps, a 300 s cold load of a 42 MB career and ~35 single-phase
 # UI ops. GUI-1 measures 22 captures plus 22 dumps on the same host at 96 s wall against a
 # 1500 s budget; the first flight of this lane (with two more captures than it now has)
 # measured 88 s. 900 s is the budget every other census lane uses.

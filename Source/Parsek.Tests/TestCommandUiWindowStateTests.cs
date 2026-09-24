@@ -419,7 +419,8 @@ namespace Parsek.Tests
             Assert.False(TestCommandUiWindowState.IsSourceToggleClampedByTab(
                 TestCommandUiAction.TimelineWindow,
                 TestCommandUiWindowState.SrcRecordingsKey, want: true, tabToken: "refly"));
-            // The other two source toggles stay enabled on those tabs.
+            // The other two source toggles are not forced there (they are hidden, not
+            // written back), so a write to them is not refused.
             Assert.False(TestCommandUiWindowState.IsSourceToggleClampedByTab(
                 TestCommandUiAction.TimelineWindow,
                 TestCommandUiWindowState.SrcActionsKey, want: false, tabToken: "refly"));

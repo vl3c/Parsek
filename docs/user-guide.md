@@ -99,11 +99,13 @@ When you choose "Merge to Timeline", the recorded crew (e.g. Jeb) are reserved f
 
 Click the "Timeline" button in the main Parsek window to open a read-only chronological view of every committed recording, player action, and game event, anchored by a `— UT (now) —` divider between past and future.
 
-Top of the window:
+Top of the window, two rows of buttons:
 
-- **Tier toggles** - **Overview** shows the headline entries; **Details** adds lower-significance events (resource changes, individual career-event rows, etc.).
-- **Source toggles** - **Recordings**, **Actions**, **Events** each toggle that kind of row in and out.
-- **Time-Range Filter** - preset buttons (Last Day / Last 7d / Last 30d / This Year / All) and a **Custom range** disclosure with From/To sliders. The filter is shared with the Recordings Manager.
+- **Views** (first row, one at a time) - **Overview** shows the headline entries; **Details** adds lower-significance events (resource changes, individual career-event rows, etc.); **Rewind/FF** and **Re-Fly** show only the flights you can rewind to, fast-forward to, fly again or seal; **Career** shows one career subject at a time (see below).
+- **Time** (end of the first row) - the label names the active time range (`Time: All`, `Time: Last 7d`, `Time: Custom`) and the button stays lit while a range is active. Click it to open the time-range presets and the From/To sliders. The filter is shared with the Recordings Manager.
+- **Second row** - depends on the view. Under Overview and Details: **Recordings**, **Actions**, **Events** (each toggles that kind of row in and out) and **Archived** (brings back rows for archived flights). Under Rewind/FF and Re-Fly: only **Archived**. Under Career: **Contracts**, **Strategies**, **Facilities**, **Milestones** and **Tech**.
+
+The **Career** view lists every row of one subject from both Overview and Details, past and future: contracts accepted, completed, failed or cancelled; strategies activated or deactivated; facility upgrades, destructions and repairs; milestones; and tech unlocks. Career reopens the last subject you picked. The time range still applies, so a Last Day / 7d / 30d range hides the future rows. Science games show only Facilities, Milestones and Tech, and Sandbox games have no Career button.
 
 Each entry row shows UT, a description, and (for `RecordingStart` entries) the following buttons:
 
@@ -141,8 +143,8 @@ Bottom bar: **Info** toggles the expanded-stats columns; **New Group** creates a
 
 A shared filter at the top of the Timeline window narrows both the Timeline and the Recordings table to a slice of the career:
 
-- Quick presets: **Last Day**, **Last 7d**, **Last 30d**, **This Year**, **All** (clears the filter).
-- **Custom range**: a collapsible disclosure with **From** / **To** sliders over the full data range.
+- Click **Time** to open it. Quick presets: **Last Day**, **Last 7d**, **Last 30d**, **This Year**, **All** (clears the filter).
+- **From** / **To** sliders under the presets pick any range over the full data range; the Time button then reads `Time: Custom`.
 
 When a filter is active, the Recordings table shows a `Filtered: ...` line with a **Clear** button so the filter stays visible even with the Timeline closed.
 

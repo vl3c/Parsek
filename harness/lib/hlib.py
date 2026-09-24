@@ -163,7 +163,20 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # `--filter InjectRelativeLoopAnchor`. No
                                         # RewindPoint. Consumer:
                                         # RL-1-relative-loop-live-anchor.
-                                        "relative-loop")
+                                        "relative-loop",
+                                        # single-point-hold: ONE committed
+                                        # one-point recording (plus an orbit
+                                        # tail) whose Orbiting end sits on
+                                        # eva2-lko-crewed's loaded, non-active
+                                        # Kerbal X Probe, so its end-of-playback
+                                        # spawn is collision-blocked with no
+                                        # walkback and the ghost is held past
+                                        # EndUT. `--filter
+                                        # InjectSinglePointHold`; the injector
+                                        # refuses a target save at another UT.
+                                        # No RP. Consumer:
+                                        # EX-2-single-point-held-ghost.
+                                        "single-point-hold")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -2566,7 +2579,8 @@ UIACTION_PRESS_VALUES: Tuple[str, ...] = ("OK", "Cancel")
 # are expand-collapse, not a selector.
 UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
     "missions": ("missions", "recordings"),
-    "timeline": ("overview", "details", "rewindff", "refly"),
+    "timeline": ("overview", "details", "rewindff", "refly",
+                 "contracts", "strategies", "facilities", "milestones", "tech"),
     "kerbals": ("roster", "outcomes"),
     "career": ("contracts", "strategies", "facilities", "milestones"),
 }

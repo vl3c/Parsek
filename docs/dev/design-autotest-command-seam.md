@@ -1853,9 +1853,13 @@ button does; adding a table ROW for either would still need a way to drive its C
 
 **Tabs, and the two windows that only look tabbed.** Four windows carry a selector:
 `missions` (`missions`, `recordings`), `timeline` (`overview`, `details`, `rewindff`,
-`refly` - its filter modes, four mutually exclusive views of one window, which is the same
-thing as tabs for a census), `kerbals` (`roster`, `outcomes`), `career` (`contracts`,
-`strategies`, `facilities`, `milestones`). Settings has six SECTIONS that all draw in one
+`refly`, `contracts`, `strategies`, `facilities`, `milestones`, `tech` - its views,
+mutually exclusive, which is the same thing as tabs for a census; the five Career categories
+are appended after `refly` so the first four indices never moved, and a category the loaded
+GAME mode does not draw - Contracts / Strategies in Science, all five in Sandbox - is
+`REJECTED tab-hidden-in-game-mode window=timeline tab=<t> gameMode=<mode>` pre-call),
+`kerbals` (`roster`, `outcomes`), `career` (`contracts`, `strategies`, `facilities`,
+`milestones`). Settings has six SECTIONS that all draw in one
 pass, three of them Basic-hidden, so the Advanced/Basic capture PAIR is its section
 coverage; Logistics' Active / Paused / Dormant / Candidate bubbles are expand-collapse
 rather than a selector. `op=tab` on either is `REJECTED window-has-no-tabs`, deliberately
@@ -2283,7 +2287,9 @@ the settled read-back, always `false` on an OK).
 valid op list), `window-arg-missing` / `window-unknown` (the message carries the whole
 valid window list, which is the only place a spec author learns the spelling without
 reading the source), `window-not-in-scene`, `tab-arg-missing` / `tab-unknown` (message
-carries THAT window's tabs) / `window-has-no-tabs`, `mode-arg-missing` /
+carries THAT window's tabs) / `window-has-no-tabs` / `tab-hidden-in-game-mode` (a
+Timeline career category the loaded game mode hides; the message names the mode),
+`mode-arg-missing` /
 `mode-arg-invalid`, `rect-arg-missing` / `rect-arg-invalid`, `ui-host-unavailable`, and
 `complexity-refused-gloops-recording` - the ONE production refusal
 (`ParsekUI.ShouldRefuseModeChange`: switching to Basic while a Gloops recording runs would
