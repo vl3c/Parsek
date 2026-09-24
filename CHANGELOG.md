@@ -10,6 +10,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the test seam can activate and cancel a stock strategy, and the
+  GUI census photographs a Strategies tab with a row in it.** `KscAction` gains
+  `action=activate-strategy strategy=<name> [factor=<0..1>]` and
+  `action=deactivate-strategy strategy=<name>`, which make the Administration building's
+  own calls (`Strategy.Activate()` / `Deactivate()`), so Parsek records the activation and
+  its setup cost exactly as it records a player's click. Stock checks the strategy slots
+  against the Administration screen, so the seam opens a hidden copy of that screen for
+  the one command and closes it afterwards. Refusals name the problem: an unknown strategy,
+  a bad factor, already active or not active, no free slot, or stock's own reason.
+  `GUI-5-census-career-ksc` now ends by activating Outsourced R&D and photographing the
+  Career window's Strategies tab and the Timeline's Career > Strategies view; every
+  earlier capture had shown "No active strategies."
 - **Dev: the GUI mirror stops drawing removed tabs on new captures.** A capture records only the selected tab's name, so each tab bar is assembled from every tab its window ever showed; after the Career window dropped its Facilities and Milestones tabs, the new two-tab captures were drawn with all four. A tab whose every capture is superseded or retired is now dropped from the tab bars of captures taken after its last capture; older captures keep it (`prune_removed_tabs`, `harness/tools/gui_mirror.py`).
 - **Automated testing: a lane undocks a recorded pair and docks it back together.**
   `SD-1-same-tree-redock` loads the second-dock save on its docked pair, undocks it, backs
