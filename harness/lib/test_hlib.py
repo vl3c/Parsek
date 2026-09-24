@@ -22832,6 +22832,93 @@ class ListHandlesExpectDigestValidationTests(unittest.TestCase):
         self.assertTrue(any("spelled 'expectDigest' exactly" in e for e in errs), errs)
 
 
+class KscActionRefusalSourceSyncTests(unittest.TestCase):
+    """Reads OUTSIDE harness/: `Source/Parsek/TestCommands/TestCommandKscAction.cs`.
+    Every typed refusal token the KscAction core and appliers can emit must have a row
+    in `_SEAM_REFUSAL_SUBKINDS`, or a refusal on a flown lane collapses to the coarse
+    `driver-verdict-mismatch` and the report stops naming which driver fault it was.
+
+    The C# is read as CODE (each line stripped of its `//` comment, quote-aware), and
+    the tokens are taken from the three shapes that emit one: a
+    `RejectReason = "<token>"` assignment in `Decide`, the reason literal passed to
+    `Refuse(...)` / `KscActionExecOutcome.Reject(...)` (the leading token of a
+    `"<token> " + <stock reason>` concatenation), and the `return "<token>";` arms of
+    the reason-mapping helpers."""
+
+    PATH = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandKscAction.cs")
+    TOKEN = r"[a-z]+(?:-[a-z]+)+"
+
+    @classmethod
+    def setUpClass(cls):
+        if not os.path.isfile(cls.PATH):
+            raise AssertionError("the C# KscAction half moved; this mirror is "
+                                 "vacuous: %s" % cls.PATH)
+        with open(cls.PATH, encoding="utf-8-sig") as fh:
+            raw = fh.read().replace("\r\n", "\n")
+        cls.code = "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+
+    def _emitted_tokens(self):
+        t = self.TOKEN
+        found = set(re.findall(r'RejectReason\s*=\s*"(%s)"' % t, self.code))
+        found |= set(re.findall(r'\bRefuse\([^;]*?"(%s) ?"' % t, self.code))
+        found |= set(re.findall(r'\bReject\(\s*"(%s)"' % t, self.code))
+        for helper in ("UnknownTargetReason", "MapResearchFailure"):
+            found |= set(re.findall(r'\breturn\s+"(%s)"\s*;' % t,
+                                    self._method_body(helper)))
+        return found
+
+    def _method_body(self, name):
+        head = re.search(r"\bstatic\s+string\s+%s\s*\(" % name, self.code)
+        self.assertIsNotNone(head, "%s declaration not found" % name)
+        start = self.code.index("{", head.end())
+        depth = 0
+        for i in range(start, len(self.code)):
+            if self.code[i] == "{":
+                depth += 1
+            elif self.code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return self.code[start:i + 1]
+        self.fail("%s body is unbalanced" % name)
+
+    def test_every_emitted_refusal_token_is_classified(self):
+        tokens = self._emitted_tokens()
+        unmapped = sorted(tok for tok in tokens
+                          if tok not in hlib._SEAM_REFUSAL_SUBKINDS)
+        self.assertEqual([], unmapped,
+                         "KscAction refusal tokens with no _SEAM_REFUSAL_SUBKINDS row")
+
+    def test_the_parse_is_not_vacuous(self):
+        """The strategy pair's tokens, one of each emitting shape, must be found - a
+        parse that silently matched nothing would pass the cell above against any
+        source."""
+        tokens = self._emitted_tokens()
+        for tok in ("unknown-strategy",          # return arm (UnknownTargetReason)
+                    "no-strategy-slot",          # RejectReason assignment
+                    "strategy-cannot-activate",  # Refuse with a stock-reason suffix
+                    "activate-not-applied",      # Refuse with a bare literal
+                    "unknown-action"):           # KscActionExecOutcome.Reject
+            with self.subTest(token=tok):
+                self.assertIn(tok, tokens)
+
+    def test_the_strategy_refusals_classify_as_designed(self):
+        for msg, expected in (
+                ("unknown-strategy", "driver-arg"),
+                ("factor-arg-invalid", "driver-arg"),
+                ("strategy-already-active", "driver-career"),
+                ("strategy-not-active", "driver-career"),
+                ("no-strategy-slot", "driver-career"),
+                # The wire msg is percent-encoded and carries stock's reason after the
+                # token; classification reads the head token only.
+                ("strategy-cannot-activate%20Not%20enough%20funds", "driver-career"),
+                ("strategy-cannot-deactivate%20(none)", "driver-career"),
+                ("activate-not-applied", "driver-gate"),
+                ("deactivate-not-applied", "driver-gate")):
+            with self.subTest(msg=msg):
+                self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
+                self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
+
+
 class ListHandlesSourceSyncTests(unittest.TestCase):
     """Reads OUTSIDE harness/: `Source/Parsek/TestCommands/TestCommandListHandles.cs`.
     hlib's closed `kind=` set and its `expectDigest=` key and refusal reasons are a

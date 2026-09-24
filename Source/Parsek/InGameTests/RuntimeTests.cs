@@ -17854,7 +17854,7 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Live count of ACTIVE stock strategies. Null-guarded exactly like
-        /// <c>CareerStateWindowUI.LookupStrategyTitleLive</c> (StrategySystem.Instance is
+        /// <c>StrategyDisplayNames.LookupStockTitleCore</c> (StrategySystem.Instance is
         /// null pre-scene-load and in Sandbox) and per-element try/catch'd like the two
         /// probe helpers above, because stale probe data can throw on a property read.
         /// Returns -1 when the system is unavailable, so a caller can tell "no strategies

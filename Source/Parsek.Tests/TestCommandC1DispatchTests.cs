@@ -326,6 +326,54 @@ namespace Parsek.Tests
             Assert.Equal(DispatchDecision.Execute, r.Decision);
         }
 
+        [Theory]
+        [InlineData("activate-strategy strategy=OutsourcedResearchCfg")]
+        [InlineData("deactivate-strategy strategy=OutsourcedResearchCfg")]
+        public void KscAction_StrategySubActions_NeedCareerAndSpaceCenter(string args)
+        {
+            var notCareer = new DispatchState { Scene = TestCommandScene.SpaceCenter, AtSpaceCenter = true,
+                StrategyAdministrationReady = true };
+            AssertDefer(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=KscAction action=" + args), notCareer),
+                "career-not-ready");
+
+            var away = new DispatchState { Scene = TestCommandScene.TrackingStation, CareerPresent = true,
+                AtSpaceCenter = false, StrategyAdministrationReady = true };
+            AssertDefer(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=KscAction action=" + args), away),
+                "not-at-space-center");
+        }
+
+        [Fact]
+        public void KscAction_ActivateStrategy_DefersUntilTheAdministrationScreenIsLive()
+        {
+            var st = new DispatchState { Scene = TestCommandScene.SpaceCenter, CareerPresent = true, AtSpaceCenter = true };
+            var cmd = Cmd("id=1 cmd=KscAction action=activate-strategy strategy=OutsourcedResearchCfg");
+            AssertDefer(TestCommandDispatcher.DecideDispatch(cmd, st),
+                TestCommandDispatcher.AdministrationNotReadyDeferReason);
+            Assert.Equal("administration-not-ready", TestCommandDispatcher.AdministrationNotReadyDeferReason);
+
+            st.StrategyAdministrationReady = true;
+            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(cmd, st).Decision);
+        }
+
+        [Fact]
+        public void KscAction_DeactivateStrategy_DoesNotWaitForTheAdministrationScreen()
+        {
+            // Deactivate reads no Administration state (CanBeDeactivated checks only the
+            // strategy's own minimum duration), so it never hosts the hidden screen.
+            var st = new DispatchState { Scene = TestCommandScene.SpaceCenter, CareerPresent = true, AtSpaceCenter = true };
+            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=KscAction action=deactivate-strategy strategy=OutsourcedResearchCfg"), st).Decision);
+        }
+
+        [Fact]
+        public void KscAction_BuildingSubActions_IgnoreTheAdministrationBit()
+        {
+            var st = new DispatchState { Scene = TestCommandScene.SpaceCenter, CareerPresent = true, AtSpaceCenter = true,
+                StrategyAdministrationReady = false };
+            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=KscAction action=upgrade-facility facility=Administration"), st).Decision);
+        }
+
         [Fact]
         public void KscAction_NonUpgrade_AtAnyScene_DoesNotRequireSpaceCenter()
         {

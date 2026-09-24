@@ -160,9 +160,15 @@ namespace Parsek
         internal static Func<string, string> ContractTitleLookupForTesting;
 
         /// <summary>
-        /// Test seam for strategy title lookup. See <see cref="ContractTitleLookupForTesting"/>.
+        /// Test seam for strategy title lookup, forwarded to
+        /// <see cref="StrategyDisplayNames.TitleLookupForTesting"/> so the Career window and
+        /// the Timeline resolve a strategy's name through one resolver.
         /// </summary>
-        internal static Func<string, string> StrategyTitleLookupForTesting;
+        internal static Func<string, string> StrategyTitleLookupForTesting
+        {
+            get => StrategyDisplayNames.TitleLookupForTesting;
+            set => StrategyDisplayNames.TitleLookupForTesting = value;
+        }
 
         public bool IsOpen
         {
@@ -1107,47 +1113,10 @@ namespace Parsek
             return null;
         }
 
+        // Stock's localized title, else the humanized config name: the same resolver the
+        // Timeline's strategy rows use, so both windows name a strategy identically.
         private static string ResolveStrategyTitle(string strategyId)
-        {
-            try
-            {
-                string fromLive = LookupStrategyTitleLive(strategyId);
-                if (!string.IsNullOrEmpty(fromLive)) return fromLive;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.VerboseRateLimited("UI",
-                    "CareerStateWindow.strategyTitleThrew." + strategyId,
-                    $"CareerStateWindow: strategy title lookup threw id={strategyId} ex={ex.GetType().Name}");
-            }
-
-            // Rate-limited per id so a career with a mod-generated or retired strategy
-            // does not re-log the fallback on every ledger invalidation.
-            ParsekLog.VerboseRateLimited("UI",
-                "CareerStateWindow.strategyTitleFallback." + strategyId,
-                $"CareerStateWindow: strategy title fallback id={strategyId}");
-            return strategyId;
-        }
-
-        private static string LookupStrategyTitleLive(string strategyId)
-        {
-            var lookup = StrategyTitleLookupForTesting;
-            if (lookup != null) return lookup(strategyId);
-
-            // Production path: read live StrategySystem. Guarded with null-checks
-            // because pre-scene-load (or Sandbox) Instance will be null.
-            var system = Strategies.StrategySystem.Instance;
-            if (system == null) return null;
-            var list = system.Strategies;
-            if (list == null) return null;
-            for (int i = 0; i < list.Count; i++)
-            {
-                var s = list[i];
-                if (s == null || s.Config == null) continue;
-                if (s.Config.Name == strategyId) return s.Config.Title;
-            }
-            return null;
-        }
+            => StrategyDisplayNames.Resolve(strategyId);
 
         // ================================================================
         // SpaceBeforeCapitals - humanization helper (design doc section 4.4)

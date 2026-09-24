@@ -10,6 +10,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the test seam can activate and cancel a stock strategy, and the
+  GUI census photographs a Strategies tab with a row in it.** `KscAction` gains
+  `action=activate-strategy strategy=<name> [factor=<0..1>]` and
+  `action=deactivate-strategy strategy=<name>`, which make the Administration building's
+  own calls (`Strategy.Activate()` / `Deactivate()`), so Parsek records the activation and
+  its setup cost exactly as it records a player's click. Stock checks the strategy slots
+  against the Administration screen, so the seam opens a hidden copy of that screen for
+  the one command and closes it afterwards. Refusals name the problem: an unknown strategy,
+  a bad factor, already active or not active, no free slot, or stock's own reason.
+  `GUI-5-census-career-ksc` now ends by activating Outsourced R&D and photographing the
+  Career window's Strategies tab and the Timeline's Career > Strategies view; every
+  earlier capture had shown "No active strategies."
 - **Automated testing: a report-only mutation checker asks whether each lane's checks
   would catch a real break.** `harness/tools/mutation_check.py` replays the harness's own
   pass/fail checks over runs already archived on the machine: first unchanged (the run
@@ -983,6 +995,14 @@ _(unreleased — entries accumulate here per commit)_
   new atlas section. No player-visible behavior changes.
 
 ### Fixed
+
+- **Timeline strategy rows show the strategy's real name.** The Timeline named strategies
+  from a hand-written table whose ids never matched stock's (`AppreciationCamp` against
+  stock's `AppreciationCampaignCfg`), so every stock strategy read as its split config
+  name, e.g. "Activate: Outsourced Research Cfg". The Timeline and the Career window's
+  Strategies tab now share one lookup: stock's own title ("Outsourced R&D") when the
+  game can answer, else the config name without its `Cfg` suffix ("Outsourced Research").
+  The Career window had shown the raw config name in that fallback case.
 
 - **A ghost passing through your vessel can no longer damage it.** Each ghost in orbit has a
   small invisible placeholder vessel that puts it on the map. When a ghost's path ran through
