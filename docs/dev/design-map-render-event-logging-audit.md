@@ -351,6 +351,8 @@ phase=MarkerDecision      surface=ImguiLabeledMarker pid=ab12cd34 recId=ab12cd34
 # Flight-scene mesh (tag [GhostRenderTrace]; prefix is phase= rec= recId= ghostIndex= frame= currentUT= playbackUT= — NO surface= field)
 phase=MeshSpawned   rec=ab12cd34 recId=ab12cd34 ghostIndex=0 frame=… currentUT=… playbackUT=… vessel=Munar_Probe reason=ghost-created          (Info)
 phase=MeshDestroyed rec=ab12cd34 recId=ab12cd34 ghostIndex=0 frame=… currentUT=… playbackUT=… vessel=Munar_Probe reason=retire-out-of-window   (Info)
+phase=MeshDestroyed rec=ab12cd34 recId=ab12cd34 ghostIndex=0 frame=… currentUT=… playbackUT=… vessel=Munar_Probe reason=overlap expired   (Info; overlap copy, only if the same object wrote MeshSpawned; also `overlap cleared` / `engine teardown`)
+phase=LoopCycle     rec=ab12cd34 recId=ab12cd34 ghostIndex=0 frame=… currentUT=… playbackUT=… cycle=5 prev=4 mode=reuse vessel=Munar_Probe   (Info; mode reuse / overlap-demote / unit, vessel LAST)
 ```
 
 IMPORTANT lines (`PolylineLegChange`, `GhostCreated`/`GhostDestroyed`, `MeshSpawned`/`MeshDestroyed`,
