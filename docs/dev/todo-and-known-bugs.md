@@ -15,6 +15,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT: re-docking two vessels of one recorded flight kept only one of them as the dock's parent when the vessel being flown was the one that survived the dock~~ [FILED 2026-09-24 off SD-1's reading run `2026-09-23_2140`. FIXED 2026-09-24 on branch `d5-samedock`]
+
+**What the player saw.** Undock a docked pair that Parsek is recording, then dock the two
+halves back together. When the vessel being flown kept its identity through the dock (KSP made
+it the survivor, the usual case when it is the heavier or crewed side), Parsek recorded the dock
+as if only that vessel had taken part. The other half's recording was never closed as docked: it
+kept running until the commit, was saved as a vessel still in orbit, was offered as an
+unfinished flight to re-fly, and the commit then tried to spawn it and logged a spawn death,
+because the vessel it describes no longer exists.
+
+**Root cause.** `ParsekFlight.OnPartCouple`'s TARGET branch (the recorder's own vessel is the
+merged survivor) found the absorbed partner with `FindAbsorbedDockPartnerPid`, which only accepts a
+`BackgroundMap` member whose vessel is already gone, reparented, or partless. `onPartCouple` fires
+BEFORE KSP merges the two vessels, so the partner still exists with all its parts and the heuristic
+answered 0 (`dock merge pending (merged=3620499050, absorbed=0, isTarget=True)`), although the couple
+event itself names the partner (`partnerPidFromEvent=2009145679`) and that pid was a `BackgroundMap`
+member of the same tree. `HandleTreeDockMerge` then looked up only the absorbed pid (0) and the
+merged pid (the active vessel, never in the map), so `CreateMergeBranch` got one parent. The
+INITIATOR branch (the recorder's vessel is absorbed) was unaffected: its partner is the merged
+survivor, which the merged-pid lookup finds. That is also why the pre-#1780 BDOCK-2 accident
+produced a two-parent dock: the fresh launch was the initiator.
+
+**Fix.** The new pure `ParsekFlight.ResolveTargetSideAbsorbedPid` takes the couple event's
+partner as the absorbed side when it is a member of the active tree's `BackgroundMap`, and answers
+0 otherwise (a foreign or cross-tree partner: single-parent merge, as before). The TARGET branch
+logs `OnPartCouple target-side absorbed partner: ...`. The old post-couple heuristic
+(`FindAbsorbedDockPartnerPid`, "first map member whose vessel is gone or partless") is DELETED
+(#1794 review): pre-couple the real partner is intact, so that scan could only ever match a
+DIFFERENT member - an unloaded on-rails background stage reads zero parts - and dock it by mistake,
+stamping it Docked and truncating its recording. Nothing depended on it: across every archived
+harness KSP.log (97 tree dock merges) it never returned a non-zero pid; the 39 pre-fix target-side
+docks (H56, H57 and its controls, SD-1's reading, rover-c) all read `absorbed=0`, which is exactly
+what the fix answers for their foreign partners, and the other 56 were initiator-side. Mirror walk:
+the initiator branch, the retroactive branch (initiator-only), a cross-tree partner, a vessel that
+is not in the tree, and the undock path are unchanged. Guarded by
+`DockPartnerResolverTests.TargetAbsorbed_*` (including the unloaded-stage case; the precedence and
+zero-fallback cells red under mutation, and a comment-stripped source gate pins the call site and
+its `activeTree.BackgroundMap.Keys` argument). Live proof: SD-1's pre-fix reading run reds on
+exactly the two-parent token and the single-parent forbid; the first flight on the fix
+(`2026-09-23_2210`) and the armed re-flight (`2026-09-23_2213`) are green, the latter with the
+save's terminal split (Docked 4 / Orbiting 8, pre-fix 3 / 9) gating. Both flew the first cut of
+the fix (heuristic kept as a fallback, which answered 0 there); the final head `2927c4460` re-flew
+as `2026-09-23_2236`, PASS attempt 1 with the same two-parent merge.
 ## ~~TIERB-7-RTL-X-REFLY-LOAD-SWEEP: ghost-replay Tier B item 7, the lane for D9 `load-time-sweep`~~ [DONE 2026-09-24 on branch `tierb-rtl-refly`]
 
 `RF-14-rtl-refly-load-sweep` flies GS-4's Kerbal X, Rewind-to-Launches it, re-flies the
@@ -373,7 +416,28 @@ held-ghost keep line of the stale-cleanup fix, `Held ghost timed out ... held=5.
 `destroyed (held-spawn-timeout)`. That lane would also be the live witness of
 D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME again.
 
-## GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE: a ghost's map-presence ProtoVessel, placed inside a loaded real vessel, collides with it when they unpack [FILED 2026-09-24 off EX-2's reading runs. OPEN]
+## ~~GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE: a ghost's map-presence ProtoVessel, placed inside a loaded real vessel, collides with it when they unpack~~ [FILED 2026-09-24 off EX-2's reading runs. FIXED 2026-09-24]
+
+**Root cause.** `BuildAndLoadGhostProtoVesselCore` runs `HardenGhostVesselPartPhysics` right
+after `ProtoVessel.Load`, while the marker is still UNLOADED, so it hardens zero parts (both
+readings log `Ghost vessel parts hardened: ... parts=0`). KSP loads the marker later, when it
+enters physics range: `Vessel.Load` runs `protoVessel.LoadObjects()` and builds the
+`sensorBarometer` placeholder with stock tolerances and live colliders. `GhostVesselLoadPatch`
+keeps it packed, but a packed part still collides.
+
+**Fix.** New Harmony postfix `GhostVesselLoadedInertPatch` on `Vessel.Load`: for a ghost map
+pid it calls `GhostMapPresence.MakeLoadedGhostVesselPhysicsInert`, which hardens the now-real
+parts and disables every collider under them, then logs `Ghost vessel made physics-inert on
+load: vessel=... pid=... parts=N collidersDisabled=M`. Unit cells: the gate (ghost pids only)
+and the log line (`GhostVesselLoadPatchTests`). LIVE PROOF `2026-09-24_1454` (DLL sha256
+`956e6595...`, branch `ghost-map-collision`): EX-2 flown once with a TEMPORARY, uncommitted
+lead of 0, so the ghost sat exactly on the probe (spawn overlap `at 0m`). The marker logged
+`made physics-inert on load ... parts=1 collidersDisabled=1` 1.1 s before `Unpacking Kerbal X
+Probe`; no `Exploded`, no collision line, 0 `Kerbal X Probe Debris` in the produced save, and
+the lane PASSed on every token. EX-2 keeps its 70 m lead, so no committed lane re-flies the
+parked shape; the collider disabling itself is proven only by that flight.
+
+**Original filing.**
 
 **Observed.** EX-2's first two readings parked a committed ghost's orbit exactly on the
 non-focused `Kerbal X Probe` of `eva2-lko-crewed`, about 16 m from the focused ship. In FLIGHT
@@ -17537,6 +17601,9 @@ register (2026-09-11)" item C4; no decision needed.
   TTL; armed re-flight `_2004` PASS; negative control offline over both logs. It also produced two report-only
   findings: D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED and D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME.
 - D5 is 11 of 12 (`dock-merge-same-tree` left); coverage 198 of 250.
+- `dock-merge-same-tree`: CLAIMED 2026-09-24 on `SD-1-same-tree-redock` (the second-dock save's
+  docked pair undocked and re-docked in one flight). Its first flight found and the same PR fixed
+  TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT. D5 is 12 of 12; coverage 202 of 250 with #1793.
 
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone
 claims against them.**

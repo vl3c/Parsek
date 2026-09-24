@@ -1,0 +1,130 @@
+# =============================================================================
+# SD-1: D5 `dock-merge-same-tree` - a docked pair recorded in ONE tree is undocked
+# and docked back together in the same flight.
+#
+# HOST: `bdock-second-dock-recorded` (harvested from BDOCK-2 run 2026-09-23_1704).
+# Its ACTIVE vessel is the Station + third-Kerbal-X combination (pid 3620499050,
+# two docking ports, both `Docked`), the tip `30b49a24...` of committed tree
+# `ac9641d6...`. Scene entry promotes that tip into a copy-on-write restore of the
+# tree with a live recorder (RH-1's finding, designed behaviour: the player loaded a
+# save in flight on a vessel whose history is committed).
+#
+# THE PLAYER SHAPE: undock the pair, back off, dock it again. The undock is a Parsek
+# split inside the restored tree - the recorder follows the active half and the
+# ejected half becomes a BACKGROUND member of the SAME tree - so when the halves
+# re-mate, `HandleTreeDockMerge` finds the partner in that tree's `BackgroundMap`
+# and `CreateMergeBranch` authors a Dock branch point with TWO parents, both
+# recordings of the one tree. No launch, no switch, no scene change.
+#
+# WHY NOT THE ACCIDENTAL PATH: before #1780, BDOCK-2 produced a two-parent dock by
+# recording a FRESH LAUNCH into the restored committed tree
+# (FRESH-LAUNCH-JOINS-RESTORED-COMMITTED-TREE). That shape is fixed and was never a
+# player shape; here both parents descend from one recorded vessel through a split
+# the log names.
+#
+# THE WITNESS (production literals, ParsekFlight.cs):
+#   `Tree branch created: type=Undock, bp=..., activeChild=<id> (pid=...),
+#    bgChild=<id> (pid=...)` - CreateSplitBranch's exit line;
+#   `Tree merge created: type=Dock, bp=..., parents=[<active>,<bg>], child=...` -
+#    CreateMergeBranch's step-11 line (parents are the active parent first, then
+#    the BackgroundMap parent, both read from the ACTIVE tree).
+# The required regex joins the two with a backreference: the dock's SECOND parent
+# is the undock's `bgChild`, so the merge is two members of one tree, not a
+# cross-tree or single-parent dock.
+# =============================================================================
+schema = 1
+id = "SD-1-same-tree-redock"
+tier = "operator"
+description = "D5 `dock-merge-same-tree`: bdock-second-dock-recorded boots on its docked Station + Kerbal X pair (the tip of committed tree ac9641d6, promoted into a live restore), mission d5_redock undocks it, backs off 20 s, targets the ejected half and hard-docks the two halves back together with the MechJeb docking autopilot. The undock's background child is the dock's second parent, so Parsek authors a two-parent Dock branch point inside one tree."
+instanceProfile = "stock-minimal"
+tags = ["SD-1", "dock", "undock", "redock", "same-tree", "mechjeb", "D5", "kerbin",
+        "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-second-dock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "d5_redock"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+# The post-mission CommitTree commits the restored tree (the production commit
+# button, merge consent included); RecordingState dumps the tree for the record.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },     expect = "OK" },
+  { phase = "mission",      expect = "MISSION-OK", budget = 2400 },
+  { cmd = "CommitTree",                                                             expect = "OK" },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[driver.missionParams]
+craftName              = "Kerbal X"
+startSettleSeconds     = 10
+startTimeoutSeconds    = 60
+undockTimeoutSeconds   = 120
+# The ejected ports leave Disengage once past their re-engage distance; 20 s at the
+# undock ejection speed puts the halves several metres apart.
+backoffSeconds         = 20
+targetTimeoutSeconds   = 60
+settleSeconds          = 10
+# bdock_dock_transfer's DOCK values (BDOCK-1, nightly).
+dockSpeedMetersPerSec  = 0.5
+dockTimeoutSeconds     = 1800
+dockNoProgressSeconds  = 120
+
+[dimensionsCovered]
+D5  = ["dock-merge-same-tree"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 34, max = 34 }
+
+# Armed 2026-09-24 off the first flight on the fix, `2026-09-23_2210` (PASS attempt 1):
+# the fixture's 30 recordings plus the undock's two children, the re-docked child and
+# the capture segment. The terminal split is the save-side witness: the two re-dock
+# parents both end `Docked` (fixture 2 -> 4) and neither half stays `Orbiting`. The
+# pre-fix reading `2026-09-23_2140` read Docked 3 / Orbiting 9 on the same facets.
+[expectations.recordings.structure]
+gating          = true
+trees           = { min = 3, max = 3 }
+committedTrees  = { min = 3, max = 3 }
+recordings      = { min = 34, max = 34 }
+branchPoints    = { Dock = { min = 3, max = 3 }, Undock = { min = 2, max = 2 }, JointBreak = { min = 15, max = 15 } }
+terminalStates  = { Docked = { min = 4, max = 4 }, Orbiting = { min = 8, max = 8 }, Destroyed = { min = 19, max = 19 } }
+ghostChainNodes = { max = 0 }
+
+[expectations.logContracts]
+required = [
+  # The split inside the restored tree, joined to the dock by the bg child's id.
+  "(?s)Tree branch created: type=Undock, bp=[0-9a-f]+, activeChild=[0-9a-f]+ \\(pid=[0-9]+\\), bgChild=([0-9a-f]+) \\(pid=[0-9]+\\).*?Tree merge created: type=Dock, bp=[0-9a-f]+, parents=\\[[0-9a-f]+,\\1\\], child=[0-9a-f]+ \\(pid=[0-9]+\\)",
+  "Tree dock merge completed",
+  # The fix's witness (TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT): the active pair half
+  # survives as the merged vessel and the couple event's partner - a BackgroundMap
+  # member - becomes the absorbed side. Re-shaped 2026-09-24 by the #1794 review, which
+  # dropped the post-couple heuristic and its `heuristicPid=` field from the line; the
+  # runs `_2210` / `_2213` printed `heuristicPid=0` between these two fields; the re-shaped
+  # token matched live on `2026-09-23_2236` (head `2927c4460`, PASS attempt 1).
+  "OnPartCouple target-side absorbed partner: absorbedPid=([0-9]+) partnerPidFromEvent=\\1 partnerInBackgroundMap=True",
+  "onPartCouple \\(tree\\): dock merge pending \\(merged=3620499050, absorbed=[1-9][0-9]*, isTarget=True\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # A single-parent dock would mean the ejected half was not a member of the tree.
+  "Tree merge created: type=Dock, bp=[0-9a-f]+, parents=\\[[0-9a-f]+\\], ",
+]
+
+[runtime]
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

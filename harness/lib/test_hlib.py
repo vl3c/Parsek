@@ -9589,6 +9589,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "operator by the reading-run discipline (CI-3's host family and reason): the "
             "D18 cross-tree-chain-linking cell, a rewind into the second-dock harvest "
             "and a chains readback; no human call owed",
+        "SD-1-same-tree-redock.toml":
+            "operator by the reading-run discipline (CI-4's host and reason): the D5 "
+            "dock-merge-same-tree cell, an undock and MechJeb re-dock of the second-dock "
+            "harvest's docked pair; no human call owed",
         # THE RE-FLY CONTINUATION PROGRAM (RF-1..RF-10, authored 2026-09-08 and 2026-09-09).
         # All eleven
         # are `operator` by the READING-RUN discipline and none owes a human call.
@@ -10682,6 +10686,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # `2026-09-23_1830` (trees / committed 3, recordings 32, Dock 2 /
                        # Undock 1 / JointBreak 15, terminals as measured, ghostChainNodes 0).
                        "CI-4-cross-tree-chain-pooled.toml",
+                       # SD-1: `structure` armed 2026-09-24 off its first flight on the
+                       # fix, `2026-09-23_2210` (trees / committed 3, recordings 34, Dock 3 /
+                       # Undock 2 / JointBreak 15, Docked 4 / Orbiting 8 / Destroyed 19); the
+                       # pre-fix reading `2026-09-23_2140` read Docked 3 / Orbiting 9.
+                       "SD-1-same-tree-redock.toml",
                        # EX-1: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-23_0000` (trees / committedTrees / recordings 1,
                        # Landed 1). The KSC retirement rewrite (2026-09-23, never
