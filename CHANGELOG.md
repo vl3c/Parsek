@@ -10,6 +10,7 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the GUI mirror draws a label-styled button as plain text.** The Career row names (links to the Timeline) are label-styled buttons that KSP draws with no outline or bevel; the mirror drew them boxed (`harness/tools/gui_mirror.py`).
 - **Automated testing: the test seam can activate and cancel a stock strategy, and the
   GUI census photographs a Strategies tab with a row in it.** `KscAction` gains
   `action=activate-strategy strategy=<name> [factor=<0..1>]` and
