@@ -100,7 +100,14 @@ sidecars, events, ledger tags, origin RP promotion, session RP purge, the detach
 tree put back sanitized; `EndDiscardedReFlySession`: marker, journal slot, caches, revert
 gate, anchor snapshots), logs `[ReFlySession] End reason=discardReFlyForRewind`, and, when the
 flight scene's live tree is the session tree, arms the tree scene-exit suppression so the
-rewind's scene exit drops that live reference without a stash. A failed rewind load undoes the
+rewind's scene exit drops that live reference without a stash. The session tree is looked up
+LIVE FIRST: after the invoke's load the reconciliation bundle restores the pre-re-fly committed
+tree, so a live re-fly normally has two instances under one id (the untouched committed
+original, and the live clone the RP save loaded, which alone holds the attempt), and
+`FindTreeForReFlyFork` answers the committed original first. The RF-15 reading flight
+`2026-09-24_1718` caught exactly that on the first build: the cancel pruned nothing from the
+clone, the scene exit stashed it with the provisional inside, and the following load's sweep
+read `discarded=1`. A failed rewind load undoes the
 drop (`RecordingStore.UndoLiveTreeDropAfterFailedRewind`); the session stays ended. Why the
 entry point and not `HandleRewindOnLoad`: the rewind carries the in-memory RP list across its
 load (`CaptureRewindPointsForRewind`, taken before the load), so session RPs must be gone
@@ -113,9 +120,8 @@ silent split across two loads. With the session tree still live in FLIGHT, the r
 answers `ReFlyAttempt` whenever the marker is live, so the Re-Fly merge dialog came up in
 flight after `ExecuteRewindSaveLoad` had already swapped the rewind game into
 `HighLogic.CurrentGame`. The armed suppression makes that prefix stand aside (its step 3).
-Also: during a re-fly the session's own tree is detached from the committed store
-(`TryRestoreActiveTreeNode`'s `RemoveCommittedTreeById`), so the tree a player rewinds here is
-always ANOTHER mission's; the cancel applies whichever tree is rewound.
+The cancel applies whichever tree is rewound, including the committed original of the flight
+being re-flown (the reconciliation bundle keeps it in the committed store during the re-fly).
 
 **Residual, not new (not fixed).** No plain rewind persists anything after its load: the
 rewind's OnLoad reads persistent.sfs as last written, and the in-memory result (this cancel,

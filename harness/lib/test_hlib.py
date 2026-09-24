@@ -9711,9 +9711,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RF-15-rtl-cancels-live-refly.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-24 as the proof "
             "lane of REFLY-DESTROYED-THEN-RTL-MID-SESSION (operator ruling: a plain "
-            "Rewind-to-Launch ends a live Re-Fly at once): RF-14's host, a second tree "
-            "off the pad watcher, the re-fly recorder stopped through the seam, then "
-            "Rewind-to-Launch and an ordinary save + load. Owes its reading flight",
+            "Rewind-to-Launch ends a live Re-Fly at once): RF-14's host, the re-fly "
+            "recorder stopped through the seam, then Rewind-to-Launch of the same flight "
+            "and an ordinary save + load. Reading 2026-09-24_1718 found a product "
+            "defect in the first build (fixed); owes its re-flight",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",

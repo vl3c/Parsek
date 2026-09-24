@@ -23,21 +23,30 @@ id = "RF-15-rtl-cancels-live-refly"
 # the one caller that stops a recorder without a player control. What it proves is
 # everything downstream of that state; the crash + focus reachability stays code-derived.
 #
-# WHY A SECOND TREE. During a re-fly the session's own tree is detached from the
-# committed store (TryRestoreActiveTreeNode's RemoveCommittedTreeById), so neither the
-# Recordings table nor `InvokeRewindToLaunch` can target it; a player rewinds some other
-# mission's tree. No committed fixture carries a parsek_rw_* rewind save, so the lane
-# records one in-flight: the watcher Jumping Flea sits on the pad after the mission,
-# `StartRecording` captures its rewind save, `CommitTree` commits it. That tree starts
-# after the split, so the rewind here moves the clock FORWARD from the re-fly's UT; the
-# rewind mechanics do not care, and the ruling covers any plain rewind.
+# THE TREE REWOUND IS THE ONE BEING RE-FLOWN. After the invoke's load the reconciliation
+# bundle restores the pre-re-fly committed tree, so during a live re-fly the committed
+# store holds the untouched original while the flight scene's live tree is the clone the
+# RP save loaded, which alone holds the attempt. The player's natural move - rewind the
+# whole flight to launch - targets that committed original (`tree=latest`, the only
+# committed tree here). The cancel must work on the live clone and drop it at the scene
+# exit; the committed original is what the rewind then replays from launch, and the RP
+# at the split, now in the player's future, stays listed (the #1788 carry).
+#
+# READING RUN `2026-09-24_1718` (first build, DLL 8611029c; that spec also recorded a
+# second tree off the pad watcher and rewound THAT): PARSEK-FAIL, a product defect in the
+# first build. The cancel looked the session tree up committed-first, pruned nothing from
+# the live clone (`attemptIds=1 removedCommitted=1 deletedFiles=0 ... restoredCommittedTree=False
+# treeWasPending=False liveTreeDropped=False`), the scene exit ran CommitTreeSceneExit and
+# stashed the clone with the provisional inside, and the following load read
+# `Zombies discarded=1` / `[LoadSweep] ... discarded=1`. Fixed (live tree first); the same
+# run showed the committed original in the store during the re-fly (`committedTrees=2`), so
+# the second tree was dropped from the lane.
 #
 # THE HOST IS RF-14's (GS-4's `kx_rewind_watch` on `gs1-two-stage-pad`), up to and
 # including its re-fly of slot 1 off the carried point and its idle for the recorder bind.
-# NEVER FLOWN: every token below is code-derived until the reading run.
 # =====================================================================================
 tier = "operator"
-description = "Rewind-to-Launch during a live Re-Fly ends the session at once (operator ruling 2026-09-24): RF-14's host flies, commits, rewinds and re-flies the core's slot, a second committed tree is recorded off the pad watcher, the re-fly recorder is stopped through the seam, and Rewind-to-Launch of the watcher's tree must log End reason=discardReFlyForRewind, drop the live tree at the scene exit with no Re-Fly dialog, keep the origin RP, and leave a following ordinary load's sweep with nothing to discard."
+description = "Rewind-to-Launch during a live Re-Fly ends the session at once (operator ruling 2026-09-24): RF-14's host flies, commits, rewinds and re-flies the core's slot, the re-fly recorder is stopped through the seam, and Rewind-to-Launch of the same flight must log End reason=discardReFlyForRewind, drop the live re-fly tree at the scene exit with no Re-Fly dialog, keep the rewind point, and leave a following ordinary load's sweep with nothing to discard."
 instanceProfile = "stock-minimal"
 tags = ["RF-15", "rewind", "rewind-to-launch", "refly", "load-time-sweep", "quicksave",
         "quickload", "runtime-handles", "kerbin", "sandbox"]
@@ -54,13 +63,11 @@ mission = "kx_rewind_watch"
 # `steps` MUST stay in [driver], ABOVE the [driver.missionParams] header.
 #
 # ACT 1: RF-14's mission, byte for byte.
-# ACT 2: the second tree. The mission leaves the watcher on the pad with auto-record off;
-#   StartRecording captures its rewind save, a short idle, StopRecording, CommitTree.
-# ACT 3: RF-14's re-fly of slot 1 off the carried point, then its idle so the re-fly
+# ACT 2: RF-14's re-fly of slot 1 off the carried point, then its idle so the re-fly
 #   recorder binds (OnFlightReady, ~2 s after the marker write).
-# ACT 4: StopRecording (marker stays live, tree stays live), then Rewind-to-Launch of the
-#   latest committed tree, which is the watcher's.
-# ACT 5: SaveGame + LoadGame of that state: an ordinary load, whose sweep must find no
+# ACT 3: StopRecording (marker stays live, tree stays live), then Rewind-to-Launch of the
+#   latest committed tree: the committed original of the flight being re-flown.
+# ACT 4: SaveGame + LoadGame of that state: an ordinary load, whose sweep must find no
 #   marker and nothing NotCommitted.
 steps = [
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
@@ -68,20 +75,8 @@ steps = [
   { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
   { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
   { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
-  # --- ACT 2: a second committed tree with its own rewind save --------------------------
   { cmd = "StopRecording",                                                               expect = "OK" },
-  { cmd = "StartRecording",                                                              expect = "OK" },
-  { cmd = "RecordingState",                                                              expect = "OK" },
-  { cmd = "RecordingState",                                                              expect = "OK" },
-  { cmd = "RecordingState",                                                              expect = "OK" },
-  { cmd = "RecordingState",                                                              expect = "OK" },
-  { cmd = "RecordingState",                                                              expect = "OK" },
-  { cmd = "RecordingState",                                                              expect = "OK" },
-  { cmd = "RecordingState",                                                              expect = "OK" },
-  { cmd = "RecordingState",                                                              expect = "OK" },
-  { cmd = "StopRecording",                                                               expect = "OK" },
-  { cmd = "CommitTree",                                                                  expect = "OK" },
-  # --- ACT 3: RF-14's re-fly of the core's slot ------------------------------------------
+  # --- ACT 2: RF-14's re-fly of the core's slot ------------------------------------------
   { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
   { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                              expect = "OK" },
@@ -108,10 +103,10 @@ steps = [
   { cmd = "RecordingState",                                                              expect = "OK" },
   { cmd = "RecordingState",                                                              expect = "OK" },
   { cmd = "RecordingState",                                                              expect = "OK" },
-  # --- ACT 4: stop the re-fly recorder, then Rewind-to-Launch another tree ---------------
+  # --- ACT 3: stop the re-fly recorder, then Rewind-to-Launch the same flight ----------------
   { cmd = "StopRecording",                                                               expect = "OK" },
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                            expect = "OK", budget = 300 },
-  # --- ACT 5: an ordinary save + load of what the rewind left -----------------------------
+  # --- ACT 4: an ordinary save + load of what the rewind left -----------------------------
   { cmd = "SaveGame",          args = { name = "quicksave" },                            expect = "OK" },
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave" },       expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                              expect = "OK" },
