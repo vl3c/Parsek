@@ -1,0 +1,183 @@
+schema = 1
+id = "RF-15-rtl-cancels-live-refly"
+# =====================================================================================
+# A REWIND-TO-LAUNCH TAKEN DURING A LIVE RE-FLY ENDS THAT RE-FLY AT ONCE.
+#
+# THE RULING (operator, 2026-09-24, todo REFLY-DESTROYED-THEN-RTL-MID-SESSION): when the
+# player takes a plain Rewind-to-Launch while a Re-Fly session is live, the session is
+# cancelled cleanly and immediately, the way design section 6.8's Space Center end
+# cancels it: marker cleared, the NotCommitted provisional and its sidecars discarded,
+# the session's own RPs purged, `[ReFlySession] End reason=discardReFlyForRewind`, all
+# BEFORE the rewind's load. The origin RP is promoted and survives (the #1788 carry), so
+# the slot stays in Unfinished Flights. No dialog. Before the fix the rewind's LoadScene
+# hit SceneExitInterceptor's prefix with the marker live and the session tree live, so
+# the Re-Fly merge dialog came up in FLIGHT after the rewind game was already swapped in.
+#
+# THE STATE UNDER TEST: marker live, re-fly recorder NOT recording, the session's tree
+# the flight scene's live active tree, no pending tree. Ordinary play reaches it when
+# the re-flown vessel is destroyed while a non-debris leaf is still alive and focus then
+# moves (the todo's code-derived path). That shape is not cheaply hostable: the re-fly
+# strip turns every sibling slot into a ghost, so nothing live is left for focus to move
+# to, and a crash on RF-14's host leaves every leaf terminal (FinalizeNow, pending tree,
+# rewind refused). This lane reaches the SAME state through the seam's `StopRecording`,
+# the one caller that stops a recorder without a player control. What it proves is
+# everything downstream of that state; the crash + focus reachability stays code-derived.
+#
+# WHY A SECOND TREE. During a re-fly the session's own tree is detached from the
+# committed store (TryRestoreActiveTreeNode's RemoveCommittedTreeById), so neither the
+# Recordings table nor `InvokeRewindToLaunch` can target it; a player rewinds some other
+# mission's tree. No committed fixture carries a parsek_rw_* rewind save, so the lane
+# records one in-flight: the watcher Jumping Flea sits on the pad after the mission,
+# `StartRecording` captures its rewind save, `CommitTree` commits it. That tree starts
+# after the split, so the rewind here moves the clock FORWARD from the re-fly's UT; the
+# rewind mechanics do not care, and the ruling covers any plain rewind.
+#
+# THE HOST IS RF-14's (GS-4's `kx_rewind_watch` on `gs1-two-stage-pad`), up to and
+# including its re-fly of slot 1 off the carried point and its idle for the recorder bind.
+# NEVER FLOWN: every token below is code-derived until the reading run.
+# =====================================================================================
+tier = "operator"
+description = "Rewind-to-Launch during a live Re-Fly ends the session at once (operator ruling 2026-09-24): RF-14's host flies, commits, rewinds and re-flies the core's slot, a second committed tree is recorded off the pad watcher, the re-fly recorder is stopped through the seam, and Rewind-to-Launch of the watcher's tree must log End reason=discardReFlyForRewind, drop the live tree at the scene exit with no Re-Fly dialog, keep the origin RP, and leave a following ordinary load's sweep with nothing to discard."
+instanceProfile = "stock-minimal"
+tags = ["RF-15", "rewind", "rewind-to-launch", "refly", "load-time-sweep", "quicksave",
+        "quickload", "runtime-handles", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+# `steps` MUST stay in [driver], ABOVE the [driver.missionParams] header.
+#
+# ACT 1: RF-14's mission, byte for byte.
+# ACT 2: the second tree. The mission leaves the watcher on the pad with auto-record off;
+#   StartRecording captures its rewind save, a short idle, StopRecording, CommitTree.
+# ACT 3: RF-14's re-fly of slot 1 off the carried point, then its idle so the re-fly
+#   recorder binds (OnFlightReady, ~2 s after the marker write).
+# ACT 4: StopRecording (marker stays live, tree stays live), then Rewind-to-Launch of the
+#   latest committed tree, which is the watcher's.
+# ACT 5: SaveGame + LoadGame of that state: an ordinary load, whose sweep must find no
+#   marker and nothing NotCommitted.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
+  # --- ACT 2: a second committed tree with its own rewind save --------------------------
+  { cmd = "StopRecording",                                                               expect = "OK" },
+  { cmd = "StartRecording",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "StopRecording",                                                               expect = "OK" },
+  { cmd = "CommitTree",                                                                  expect = "OK" },
+  # --- ACT 3: RF-14's re-fly of the core's slot ------------------------------------------
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  # --- ACT 4: stop the re-fly recorder, then Rewind-to-Launch another tree ---------------
+  { cmd = "StopRecording",                                                               expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                            expect = "OK", budget = 300 },
+  # --- ACT 5: an ordinary save + load of what the rewind left -----------------------------
+  { cmd = "SaveGame",          args = { name = "quicksave" },                            expect = "OK" },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave" },       expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+watcherCraftName = "Jumping Flea"
+
+[dimensionsCovered]
+D9 = ["rewind-to-launch", "rewind-to-separation"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=\\S+ slot=1",
+  "Invocation complete",
+  "stoprecording stopped=true",
+  "invokerewindtolaunch target resolved tree=\\S+ resolvedBy=LatestKeyword ",
+  # THE SUBJECT: the rewind ended the live session itself, before its load, and handed
+  # the live session tree to the scene exit to drop.
+  "\\[ReFlySession\\] End reason=discardReFlyForRewind sess=sess_[0-9a-f]{32} rewind=Rewind [^\\r\\n]*attemptIds=[1-9][0-9]* removedCommitted=[0-9]+ [^\\r\\n]*restoredCommittedTree=True treeWasPending=False liveTreeDropped=True",
+  "Origin RP promoted to persistent rp=\\S+ sess=\\S+ reason=discardReFlyForRewind|Origin RP session metadata cleared rp=\\S+ sess=\\S+ reason=discardReFlyForRewind|Origin RP already persistent rp=\\S+ sess=\\S+ reason=discardReFlyForRewind",
+  # The session end precedes the rewind's own start line.
+  "End reason=discardReFlyForRewind [\\s\\S]*?Rewind-to-Launch initiated to UT",
+  # The scene exit consumed the drop, and the LoadScene prefix stood aside on the same flag.
+  "LoadScene prefix: bypassing - existing tree-scene-exit-commit suppression armed",
+  "Consumed tree scene-exit commit suppression reason='discardReFlyForRewind sess=",
+  "suppressed tree scene-exit commit dest=SPACECENTER",
+  "invokerewindtolaunch complete rec=",
+  # The origin RP rode the rewind across (PR #1788) and the slot is still there.
+  "End reason=discardReFlyForRewind [\\s\\S]*?RewindPoints carried across rewind: installed=1 ",
+  # THE FOLLOWING ORDINARY LOAD: no marker, nothing NotCommitted left for its sweep.
+  "loadgame start save=\\S+ name=quicksave",
+  "\\[LoadSweep\\] Marker valid=False; spare=0 discarded=0 ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The pre-fix face: the rewind's LoadScene raised the Re-Fly merge dialog.
+  "LoadScene prefix: showing pre-transition dialog",
+  # The session must not be concluded any other way.
+  "End reason=merged",
+  "End reason=discardReFlyAttemptFromMergeDialog",
+  # NO ZOMBIE ANYWHERE: the old split-across-two-loads face was a nonzero discard here.
+  "\\[LoadSweep\\] Marker valid=(?:True|False); spare=[0-9]+ discarded=[1-9]",
+  "invokerewindtolaunch refused",
+  "refly-gate This separation is in your future",
+]
+
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+budgetSeconds = 7400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

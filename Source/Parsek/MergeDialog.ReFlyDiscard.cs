@@ -277,50 +277,13 @@ namespace Parsek
             }
 
             string sessionId = marker.SessionId;
-            var attemptIds = CollectReFlyAttemptOwnedRecordingIds(tree, marker);
-
-            int removedCommitted = RemoveCommittedAttemptRecordings(attemptIds);
-            int purgedEvents = GameStateStore.PurgeEventsForRecordings(
-                attemptIds,
-                $"MergeDialog Re-Fly discard sess={sessionId ?? "<no-id>"}");
-            int deletedFiles = DeleteAttemptRecordingFiles(tree, attemptIds);
-            int prunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(
-                attemptIds, marker);
-            int transientCleared = ClearReFlyAttemptTransientFields(tree, marker, attemptIds);
-            // Retire-time tag re-home, same contract as
-            // SupersedeCommit.ConcludeRetiredProvisional: this path already purges the
-            // attempt's store events and files but never touched Ledger.Actions, so a payout
-            // earned during the attempt kept a tag pointing at a recording this discard
-            // deletes. RecordingId is the tombstone scoping key
-            // (TombstoneAttributionHelper.InSupersedeScope, no UT guard of its own; the
-            // write-set's pre-rewind screen protects only rows earned before the rewind
-            // point) and FundsEarning /
-            // ScienceEarning are tombstone-eligible, so a stale tag can later scope a
-            // tombstone onto a REAL payout. Clearing keeps the row and its career effect.
-            // Accepted exposure: untagged rows become eligible for PruneOrphanActionsAfterUT,
-            // identical to the exposure the existing discard re-home already accepts.
-            int ledgerTagsCleared = Ledger.ClearRecordingTagForRecordings(attemptIds);
-            bool committedTreeDetached = !CommittedTreeExists(tree.Id);
-            bool rpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker);
-            int discardedSessionRps = PurgeDiscardedSessionRewindPoints(scenario, marker);
-            bool restoredCommittedTree = committedTreeDetached
-                && RestoreSanitizedPendingTreeIfDetached(tree, marker, attemptIds);
+            var discard = DiscardReFlyAttemptRecordingsAndRewindPoints(
+                scenario, marker, tree, MergeDialogDiscardReason);
 
             RecordingStore.PopPendingTree();
-            GameStateRecorder.PendingScienceSubjects.Clear();
             RecordingStore.ClearRewindReplayTargetScope();
 
-            scenario.ClearActiveReFlySessionMarker("marker-cleared");
-            scenario.ActiveMergeJournal = null;
-            // Live variant (route-timeline events): the Re-Fly discard dialog
-            // choice is player-driven; a route whose sources this discard
-            // restores or retires stamps its auto-pause / auto-resume marker.
-            scenario.BumpSupersedeStateVersionLive();
-            ReFlyRevertButtonGate.Apply("MergeDialog:discard-refly-attempt");
-            SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
-            // Discard is a terminal conclusion too: the prune hand-over must not
-            // outlive the session that owned it. Dropped by
-            // ClearActiveReFlySessionMarker above - the pairing is central now.
+            EndDiscardedReFlySession(scenario, sessionId, "MergeDialog:discard-refly-attempt");
 
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                 ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
@@ -334,18 +297,206 @@ namespace Parsek
                 $"treeId={tree.Id ?? "<none>"}, sess={sessionId ?? "<no-id>"}, " +
                 $"origin={marker.OriginChildRecordingId ?? "<none>"}, " +
                 $"active={marker.ActiveReFlyRecordingId ?? "<none>"}, " +
-                $"attemptIds={attemptIds.Count}, removedCommitted={removedCommitted}, " +
-                $"purgedEvents={purgedEvents}, deletedFiles={deletedFiles}, " +
-                $"prunedCommittedTreeEntries={prunedCommittedTreeEntries}, " +
-                $"transientCleared={transientCleared}, " +
-                $"ledgerTagsCleared={ledgerTagsCleared}, " +
-                $"rpPromoted={rpPromoted}, discardedSessionRps={discardedSessionRps}, " +
-                $"restoredCommittedTree={restoredCommittedTree}, durableSaved={durableSaved})");
+                $"attemptIds={discard.AttemptIds.Count}, removedCommitted={discard.RemovedCommitted}, " +
+                $"purgedEvents={discard.PurgedEvents}, deletedFiles={discard.DeletedFiles}, " +
+                $"prunedCommittedTreeEntries={discard.PrunedCommittedTreeEntries}, " +
+                $"transientCleared={discard.TransientCleared}, " +
+                $"ledgerTagsCleared={discard.LedgerTagsCleared}, " +
+                $"rpPromoted={discard.RpPromoted}, discardedSessionRps={discard.DiscardedSessionRps}, " +
+                $"restoredCommittedTree={discard.RestoredCommittedTree}, durableSaved={durableSaved})");
             ParsekLog.Info("ReFlySession",
-                $"End reason=discardReFlyAttemptFromMergeDialog sess={sessionId ?? "<no-id>"} " +
+                $"End reason={MergeDialogDiscardReason} sess={sessionId ?? "<no-id>"} " +
                 $"tree={tree.Id ?? "<none>"} active={marker.ActiveReFlyRecordingId ?? "<none>"} " +
                 $"origin={marker.OriginChildRecordingId ?? "<none>"}");
             return true;
+        }
+
+        /// <summary><c>[ReFlySession] End reason=</c> token of the scene-exit merge dialog's Discard.</summary>
+        internal const string MergeDialogDiscardReason = "discardReFlyAttemptFromMergeDialog";
+
+        /// <summary><c>[ReFlySession] End reason=</c> token of a plain rewind taken during a live session.</summary>
+        internal const string RewindDiscardReason = "discardReFlyForRewind";
+
+        /// <summary>Per-call counters from <see cref="DiscardReFlyAttemptRecordingsAndRewindPoints"/>.</summary>
+        internal struct ReFlyAttemptDiscardResult
+        {
+            internal HashSet<string> AttemptIds;
+            internal int RemovedCommitted;
+            internal int PurgedEvents;
+            internal int DeletedFiles;
+            internal int PrunedCommittedTreeEntries;
+            internal int TransientCleared;
+            internal int LedgerTagsCleared;
+            internal bool RpPromoted;
+            internal int DiscardedSessionRps;
+            internal bool RestoredCommittedTree;
+        }
+
+        /// <summary>
+        /// The recording + rewind-point half of a Re-Fly session discard (design section 6.8:
+        /// discard provisional, purge session-provisional RPs), shared by the scene-exit merge
+        /// dialog's Discard and <see cref="TryDiscardLiveReFlySessionForRewind"/>. Removes the
+        /// attempt-owned recordings (committed list, events, sidecars, committed-tree entries,
+        /// transient fields, ledger tags), promotes the origin RP so its slot stays in Unfinished
+        /// Flights, purges the RPs this session authored, and puts a detached committed tree back
+        /// sanitized. Leaves the marker alone: <see cref="EndDiscardedReFlySession"/> is the other half.
+        /// </summary>
+        private static ReFlyAttemptDiscardResult DiscardReFlyAttemptRecordingsAndRewindPoints(
+            ParsekScenario scenario, ReFlySessionMarker marker, RecordingTree tree, string reason)
+        {
+            var result = new ReFlyAttemptDiscardResult();
+            string sessionId = marker.SessionId;
+            result.AttemptIds = CollectReFlyAttemptOwnedRecordingIds(tree, marker);
+            result.RemovedCommitted = RemoveCommittedAttemptRecordings(result.AttemptIds);
+            result.PurgedEvents = GameStateStore.PurgeEventsForRecordings(
+                result.AttemptIds,
+                reason == MergeDialogDiscardReason
+                    ? $"MergeDialog Re-Fly discard sess={sessionId ?? "<no-id>"}"
+                    : $"Re-Fly discard ({reason}) sess={sessionId ?? "<no-id>"}");
+            result.DeletedFiles = DeleteAttemptRecordingFiles(tree, result.AttemptIds);
+            result.PrunedCommittedTreeEntries = PruneAttemptRecordingsFromCommittedTrees(
+                result.AttemptIds, marker);
+            result.TransientCleared = ClearReFlyAttemptTransientFields(tree, marker, result.AttemptIds);
+            // Retire-time tag re-home, same contract as
+            // SupersedeCommit.ConcludeRetiredProvisional: this path already purges the
+            // attempt's store events and files but never touched Ledger.Actions, so a payout
+            // earned during the attempt kept a tag pointing at a recording this discard
+            // deletes. RecordingId is the tombstone scoping key
+            // (TombstoneAttributionHelper.InSupersedeScope, no UT guard of its own; the
+            // write-set's pre-rewind screen protects only rows earned before the rewind
+            // point) and FundsEarning /
+            // ScienceEarning are tombstone-eligible, so a stale tag can later scope a
+            // tombstone onto a REAL payout. Clearing keeps the row and its career effect.
+            // Accepted exposure: untagged rows become eligible for PruneOrphanActionsAfterUT,
+            // identical to the exposure the existing discard re-home already accepts.
+            result.LedgerTagsCleared = Ledger.ClearRecordingTagForRecordings(result.AttemptIds);
+            bool committedTreeDetached = tree != null && !CommittedTreeExists(tree.Id);
+            result.RpPromoted = PromoteOriginRewindPointForDiscard(scenario, marker, reason);
+            result.DiscardedSessionRps = PurgeDiscardedSessionRewindPoints(scenario, marker);
+            result.RestoredCommittedTree = committedTreeDetached
+                && RestoreSanitizedPendingTreeIfDetached(tree, marker, result.AttemptIds);
+            return result;
+        }
+
+        /// <summary>
+        /// The session-state half of a Re-Fly session discard: drops the attempt's pending
+        /// science, the marker (with everything <see cref="ParsekScenario.ClearActiveReFlySessionMarker"/>
+        /// pairs with it) and the journal slot, bumps the supersede caches, re-applies the stock
+        /// revert gate, and drops the session's pre-Re-Fly anchor snapshots.
+        /// </summary>
+        private static void EndDiscardedReFlySession(
+            ParsekScenario scenario, string sessionId, string gateCallSite)
+        {
+            GameStateRecorder.PendingScienceSubjects.Clear();
+            scenario.ClearActiveReFlySessionMarker("marker-cleared");
+            scenario.ActiveMergeJournal = null;
+            // Live variant (route-timeline events): the discard is player-driven; a route
+            // whose sources this discard restores or retires stamps its auto-pause /
+            // auto-resume marker.
+            scenario.BumpSupersedeStateVersionLive();
+            ReFlyRevertButtonGate.Apply(gateCallSite);
+            SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
+            // Discard is a terminal conclusion too: the prune hand-over must not outlive the
+            // session that owned it. Dropped by ClearActiveReFlySessionMarker above.
+        }
+
+        /// <summary>
+        /// Ends a live Re-Fly session because the player took a plain rewind (Rewind-to-Launch,
+        /// or Warp-to-time's go-back) while it was live: operator ruling 2026-09-24, design
+        /// section 6.8. Same outcome as the Space Center end: marker cleared, provisional and its
+        /// sidecars discarded, session-provisional RPs purged, origin RP promoted so the slot
+        /// stays in Unfinished Flights. No dialog.
+        ///
+        /// <para>Runs from the rewind entry points BEFORE the rewind context is armed and before
+        /// the load, never from OnLoad (the plain-rewind OnLoad returns before
+        /// <see cref="LoadTimeSweep"/>, and a SaveGame must never run inside OnLoad). Before the
+        /// load matters twice: the rewind carries the in-memory RP list across the load
+        /// (<c>CaptureRewindPointsForRewind</c>), so the session RPs must be gone first; and the
+        /// FLIGHT scene exit would otherwise stash the live session tree or, through
+        /// <c>SceneExitInterceptor</c>'s LoadScene prefix, raise the Re-Fly merge dialog after
+        /// the rewind game is already swapped in. When the live flight tree IS the session tree,
+        /// the sanitized tree is back in the committed store, so the scene exit is told to drop
+        /// the live reference without a stash (the prefix bypasses on the same flag). No durable
+        /// save here: the rewind's own load replaces the game, and a marker the plain-rewind
+        /// OnLoad reads back off persistent.sfs is cleared there as before.</para>
+        ///
+        /// <para>A merge journal in flight is refused by every caller before this runs; the
+        /// check here is defensive and leaves the session untouched.</para>
+        /// </summary>
+        /// <param name="liveActiveTree">The flight scene's live active tree, or null outside FLIGHT.</param>
+        /// <param name="rewindLabel">Log label of the rewind that ended the session.</param>
+        /// <param name="droppedLiveTreeId">Id of the live tree put back in the committed store
+        /// and armed to be dropped at the scene exit, else null; the rewind undoes that when its
+        /// load fails (<see cref="RecordingStore.UndoLiveTreeDropAfterFailedRewind"/>).</param>
+        /// <returns>True when a live session was ended.</returns>
+        internal static bool TryDiscardLiveReFlySessionForRewind(
+            RecordingTree liveActiveTree, string rewindLabel, out string droppedLiveTreeId)
+        {
+            droppedLiveTreeId = null;
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario))
+                return false;
+            var marker = scenario.ActiveReFlySessionMarker;
+            if (marker == null)
+                return false;
+
+            string sessionId = marker.SessionId;
+            if (scenario.ActiveMergeJournal != null)
+            {
+                ParsekLog.Warn("ReFlySession",
+                    $"Rewind discard refused: merge journal active sess={sessionId ?? "<no-id>"} " +
+                    $"journal={scenario.ActiveMergeJournal.JournalId ?? "<no-id>"} rewind={rewindLabel}");
+                return false;
+            }
+
+            // FindTreeForReFlyFork already ends on the flight scene's live tree; the explicit
+            // fallback keeps the lookup honest when the caller passes that tree directly.
+            var tree = RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
+            if (tree == null && liveActiveTree != null
+                && string.Equals(liveActiveTree.Id, marker.TreeId, System.StringComparison.Ordinal))
+            {
+                tree = liveActiveTree;
+            }
+            bool treeWasPending = tree != null
+                && object.ReferenceEquals(tree, RecordingStore.PendingTree);
+            bool dropLiveTree = ShouldDropLiveTreeOnRewindSceneExit(tree, liveActiveTree);
+
+            var discard = DiscardReFlyAttemptRecordingsAndRewindPoints(
+                scenario, marker, tree, RewindDiscardReason);
+            if (treeWasPending)
+                RecordingStore.PopPendingTree();
+            EndDiscardedReFlySession(scenario, sessionId, "Rewind:discard-refly-session");
+
+            if (dropLiveTree)
+            {
+                RecordingStore.ArmNextTreeSceneExitCommitSuppression(
+                    $"{RewindDiscardReason} sess={sessionId ?? "<no-id>"}");
+                if (discard.RestoredCommittedTree)
+                    droppedLiveTreeId = tree.Id;
+            }
+
+            ParsekLog.Info("ReFlySession",
+                $"End reason={RewindDiscardReason} sess={sessionId ?? "<no-id>"} " +
+                $"rewind={rewindLabel} tree={marker.TreeId ?? "<none>"} " +
+                $"active={marker.ActiveReFlyRecordingId ?? "<none>"} " +
+                $"origin={marker.OriginChildRecordingId ?? "<none>"} rp={marker.RewindPointId ?? "<no-rp>"} " +
+                $"attemptIds={discard.AttemptIds.Count} removedCommitted={discard.RemovedCommitted} " +
+                $"deletedFiles={discard.DeletedFiles} rpPromoted={discard.RpPromoted} " +
+                $"discardedSessionRps={discard.DiscardedSessionRps} " +
+                $"restoredCommittedTree={discard.RestoredCommittedTree} " +
+                $"treeWasPending={treeWasPending} liveTreeDropped={dropLiveTree}");
+            return true;
+        }
+
+        /// <summary>
+        /// The live flight tree is dropped at the rewind's scene exit only when it is the
+        /// session's own tree; any other live tree takes the ordinary scene-exit commit.
+        /// </summary>
+        internal static bool ShouldDropLiveTreeOnRewindSceneExit(
+            RecordingTree sessionTree, RecordingTree liveActiveTree)
+        {
+            return sessionTree != null && liveActiveTree != null
+                && object.ReferenceEquals(sessionTree, liveActiveTree);
         }
 
         private static bool IsReFlyMarkerScopedToTree(
@@ -1126,7 +1277,8 @@ namespace Parsek
 
         private static bool PromoteOriginRewindPointForDiscard(
             ParsekScenario scenario,
-            ReFlySessionMarker marker)
+            ReFlySessionMarker marker,
+            string reason)
         {
             RewindPoint rp = FindRewindPointForMarker(scenario, marker);
             if (rp == null)
@@ -1140,19 +1292,19 @@ namespace Parsek
             {
                 ParsekLog.Info("ReFlySession",
                     $"Origin RP promoted to persistent rp={marker.RewindPointId} " +
-                    $"sess={marker.SessionId ?? "<no-id>"} reason=discardReFlyAttemptFromMergeDialog");
+                    $"sess={marker.SessionId ?? "<no-id>"} reason={reason}");
             }
             else if (hadCreatingSessionId)
             {
                 ParsekLog.Info("ReFlySession",
                     $"Origin RP session metadata cleared rp={marker.RewindPointId} " +
-                    $"sess={marker.SessionId ?? "<no-id>"} reason=discardReFlyAttemptFromMergeDialog");
+                    $"sess={marker.SessionId ?? "<no-id>"} reason={reason}");
             }
             else
             {
                 ParsekLog.Verbose("ReFlySession",
                     $"Origin RP already persistent rp={marker.RewindPointId} " +
-                    $"sess={marker.SessionId ?? "<no-id>"} reason=discardReFlyAttemptFromMergeDialog");
+                    $"sess={marker.SessionId ?? "<no-id>"} reason={reason}");
             }
             return promoted;
         }

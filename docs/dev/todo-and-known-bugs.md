@@ -82,7 +82,57 @@ Rewind-to-Launch mid-re-fly may be reachable through the path filed below as
 REFLY-DESTROYED-THEN-RTL-MID-SESSION. The rewind's own OnLoad returns before the sweep
 runs. Also noted: CI-3 already produced the same two sweep lines on its F5/F9, unclaimed.
 
-## REFLY-DESTROYED-THEN-RTL-MID-SESSION: a Rewind-to-Launch may be reachable during a live Re-Fly once the re-flown vessel is destroyed [FILED 2026-09-24 from the #1793 review. OPEN; CODE-DERIVED, NOT FLOWN]
+## ~~REFLY-DESTROYED-THEN-RTL-MID-SESSION: a Rewind-to-Launch may be reachable during a live Re-Fly once the re-flown vessel is destroyed~~ [FILED 2026-09-24 from the #1793 review. RULED 2026-09-24 (operator): option 1. FIXED 2026-09-24 on branch `refly-rtl-cancel`]
+
+**Ruling (operator, 2026-09-24): option 1.** A plain Rewind-to-Launch taken while a Re-Fly
+session is live CANCELS the re-fly cleanly and immediately, exactly like the design section
+6.8 Space Center end: marker cleared, the NotCommitted provisional and its sidecars
+discarded, session-provisional RPs purged, before or as part of the rewind and never deferred
+to the next load's zombie sweep. The origin slot stays in Unfinished Flights, re-flyable once
+the clock passes its RP again (the #1788 rule). No dialog, no new UI.
+
+**Fix.** `MergeDialog.TryDiscardLiveReFlySessionForRewind`, called by both plain-rewind entry
+points (`RecordingStore.InitiateRewind`, which the Recordings table, the seam and Warp-to-time
+use, and `InitiateRewindToCareerStart`, Warp-to-time's UT-0 reset) after their merge-journal
+refusal and before the rewind is armed. It runs the merge-dialog Discard's own body, now split
+into two shared halves (`DiscardReFlyAttemptRecordingsAndRewindPoints`: attempt recordings,
+sidecars, events, ledger tags, origin RP promotion, session RP purge, the detached committed
+tree put back sanitized; `EndDiscardedReFlySession`: marker, journal slot, caches, revert
+gate, anchor snapshots), logs `[ReFlySession] End reason=discardReFlyForRewind`, and, when the
+flight scene's live tree is the session tree, arms the tree scene-exit suppression so the
+rewind's scene exit drops that live reference without a stash. A failed rewind load undoes the
+drop (`RecordingStore.UndoLiveTreeDropAfterFailedRewind`); the session stays ended. Why the
+entry point and not `HandleRewindOnLoad`: the rewind carries the in-memory RP list across its
+load (`CaptureRewindPointsForRewind`, taken before the load), so session RPs must be gone
+first; the FLIGHT scene exit runs before any OnLoad; and a SaveGame must never run inside
+OnLoad. The merge journal is untouched (the entry points already refuse an in-flight one).
+
+**Found while tracing it (corrects the entry below).** The pre-fix outcome was not only the
+silent split across two loads. With the session tree still live in FLIGHT, the rewind's
+`HighLogic.LoadScene(SPACECENTER)` goes through `SceneExitInterceptor`'s prefix, whose gate
+answers `ReFlyAttempt` whenever the marker is live, so the Re-Fly merge dialog came up in
+flight after `ExecuteRewindSaveLoad` had already swapped the rewind game into
+`HighLogic.CurrentGame`. The armed suppression makes that prefix stand aside (its step 3).
+Also: during a re-fly the session's own tree is detached from the committed store
+(`TryRestoreActiveTreeNode`'s `RemoveCommittedTreeById`), so the tree a player rewinds here is
+always ANOTHER mission's; the cancel applies whichever tree is rewound.
+
+**Residual, not new (not fixed).** No plain rewind persists anything after its load: the
+rewind's OnLoad reads persistent.sfs as last written, and the in-memory result (this cancel,
+the #1788 RP carry, the supersede drop) reaches disk at the next KSP save. A crash before that
+save loads the pre-rewind file, whose marker then fails validation (the provisional's sidecars
+and the session RP quicksaves are already deleted) and the sweep discards what is left: the
+pre-fix fallback, in the crash window only.
+
+**Proof.** xUnit `ReFlyRewindDiscardTests` (real session-end path: provisional gone, marker
+cleared, session RP purged, origin RP promoted and `IsUnfinishedFlight` still true, live tree
+dropped, the next `LoadTimeSweep` discarding nothing; the mirror cases: no session, merge
+journal active, another live tree, failed load; the merge-dialog tokens unchanged; source-order
+gates on both entry points), every change red when reverted (nine mutants). Live lane
+`RF-15-rtl-cancels-live-refly`: FLIGHT RESULTS PENDING.
+
+Original entry (code-derived, before the ruling):
+
 
 The normal guard: while the re-fly recorder is live, `RecordingStore.CanRewind` refuses
 "Stop recording before rewinding" (the Recordings table passes `flight.IsRecording`,
