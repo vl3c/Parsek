@@ -290,5 +290,116 @@ namespace Parsek.Tests
             var d = TestCommandKscAction.Decide("dismiss-kerbal", "Val Kerman", Dismiss(true, managed: false, dismissable: false));
             Assert.Equal("kerbal-not-dismissable", d.RejectReason);
         }
+
+        // ----- activate-strategy / deactivate-strategy -----
+
+        private static KscActionInputs Strategy(bool resolves = true, bool applied = false,
+            bool factorInvalid = false, int used = 0, int limit = 1)
+            => new KscActionInputs
+            {
+                ArgPresent = true, TargetResolves = resolves, AlreadyApplied = applied,
+                FactorArgInvalid = factorInvalid, SlotsUsed = used, SlotLimit = limit,
+            };
+
+        [Fact]
+        public void ParseKind_And_ManifestKind_StrategySubActions()
+        {
+            Assert.Equal(KscActionKind.ActivateStrategy, TestCommandKscAction.ParseKind("activate-strategy"));
+            Assert.Equal("strategy-activate", TestCommandKscAction.ManifestKindFor(KscActionKind.ActivateStrategy));
+            Assert.Equal(KscActionKind.DeactivateStrategy, TestCommandKscAction.ParseKind("deactivate-strategy"));
+            Assert.Equal("strategy-deactivate", TestCommandKscAction.ManifestKindFor(KscActionKind.DeactivateStrategy));
+            // Exact kebab-case only, like every other sub-action.
+            Assert.Equal(KscActionKind.Unknown, TestCommandKscAction.ParseKind("Activate-Strategy"));
+        }
+
+        [Fact]
+        public void Decide_ActivateStrategy_RefusalsInOrder()
+        {
+            Assert.Equal("missing-arg", TestCommandKscAction.Decide("activate-strategy", null,
+                new KscActionInputs { ArgPresent = false }).RejectReason);
+            Assert.Equal("unknown-strategy", TestCommandKscAction.Decide("activate-strategy", "Nope",
+                Strategy(resolves: false)).RejectReason);
+            // A bad factor is named before the strategy's own state, so a typo never reads
+            // as "already active" or "no slot".
+            Assert.Equal("factor-arg-invalid", TestCommandKscAction.Decide("activate-strategy", "S",
+                Strategy(factorInvalid: true, applied: true, used: 1, limit: 1)).RejectReason);
+            Assert.Equal("strategy-already-active", TestCommandKscAction.Decide("activate-strategy", "S",
+                Strategy(applied: true, used: 1, limit: 1)).RejectReason);
+            Assert.Equal("no-strategy-slot", TestCommandKscAction.Decide("activate-strategy", "S",
+                Strategy(used: 1, limit: 1)).RejectReason);
+            // A zero limit (the read failed) is a refusal, never a free slot.
+            Assert.Equal("no-strategy-slot", TestCommandKscAction.Decide("activate-strategy", "S",
+                Strategy(used: 0, limit: 0)).RejectReason);
+        }
+
+        [Fact]
+        public void Decide_ActivateStrategy_Accepts_WithAFreeSlot()
+        {
+            var d = TestCommandKscAction.Decide("activate-strategy", "OutsourcedResearchCfg", Strategy(used: 1, limit: 2));
+            Assert.True(d.Accepted);
+            Assert.Null(d.RejectReason);
+            Assert.Equal("strategy-activate", d.ManifestKind);
+            Assert.Equal("OutsourcedResearchCfg", d.Target);
+        }
+
+        [Fact]
+        public void Decide_DeactivateStrategy_RefusalsAndAccept()
+        {
+            Assert.Equal("unknown-strategy", TestCommandKscAction.Decide("deactivate-strategy", "Nope",
+                Strategy(resolves: false)).RejectReason);
+            Assert.Equal("strategy-not-active", TestCommandKscAction.Decide("deactivate-strategy", "S",
+                Strategy(applied: true)).RejectReason);
+            // Slots do not gate a cancel.
+            var d = TestCommandKscAction.Decide("deactivate-strategy", "S", Strategy(used: 1, limit: 1));
+            Assert.True(d.Accepted);
+            Assert.Equal("strategy-deactivate", d.ManifestKind);
+        }
+
+        [Theory]
+        [InlineData(null, true, float.NaN)]
+        [InlineData("", true, float.NaN)]
+        [InlineData("0.05", true, 0.05f)]
+        [InlineData("1", true, 1f)]
+        [InlineData("0.25", true, 0.25f)]
+        [InlineData("0", false, float.NaN)]
+        [InlineData("-0.1", false, float.NaN)]
+        [InlineData("1.5", false, float.NaN)]
+        [InlineData("NaN", false, float.NaN)]
+        [InlineData("Infinity", false, float.NaN)]
+        [InlineData("abc", false, float.NaN)]
+        public void TryParseStrategyFactor_AcceptsOnlyAHalfOpenUnitRange(string raw, bool ok, float expected)
+        {
+            Assert.Equal(ok, TestCommandKscAction.TryParseStrategyFactor(raw, out float f));
+            if (float.IsNaN(expected)) Assert.True(float.IsNaN(f));
+            else Assert.Equal(expected, f);
+        }
+
+        [Fact]
+        public void TryParseStrategyFactor_IsCultureInvariant()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+                Assert.True(TestCommandKscAction.TryParseStrategyFactor("0.5", out float f));
+                Assert.Equal(0.5f, f);
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
+        [Theory]
+        [InlineData(null, "(none)")]
+        [InlineData("", "(none)")]
+        [InlineData("   ", "(none)")]
+        [InlineData("Not enough funds", "Not enough funds")]
+        [InlineData("<color=orange>Requires 20%\ncommitment</color>", "Requires 20% commitment")]
+        [InlineData("  a \t\r\n  b  ", "a b")]
+        public void SanitizeStockReason_OneLineNoTags(string raw, string expected)
+        {
+            Assert.Equal(expected, TestCommandKscAction.SanitizeStockReason(raw));
+        }
     }
 }

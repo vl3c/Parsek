@@ -2407,6 +2407,13 @@ class SupersededByKeyTests(unittest.TestCase):
         self.assertEqual(gmi.build_index(model)["supersededCaptureCount"], 0)
 
 
+class LabelButtonStyleTests(unittest.TestCase):
+    def test_a_label_styled_button_has_no_outline_or_bevel(self):
+        # KSP draws a label-styled button (the Career name link) as plain text.
+        self.assertIn(".gn.k-button.s-label,.gn.k-button.s-{background:none;border:0;box-shadow:none;",
+                      gmi.CSS)
+
+
 class RemovedTabTests(unittest.TestCase):
     """A tab the product removed stops being drawn on captures taken after it.
 

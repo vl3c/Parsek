@@ -10,6 +10,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the GUI mirror draws a label-styled button as plain text.** The Career row names (links to the Timeline) are label-styled buttons that KSP draws with no outline or bevel; the mirror drew them boxed (`harness/tools/gui_mirror.py`).
+- **Automated testing: the test seam can activate and cancel a stock strategy, and the
+  GUI census photographs a Strategies tab with a row in it.** `KscAction` gains
+  `action=activate-strategy strategy=<name> [factor=<0..1>]` and
+  `action=deactivate-strategy strategy=<name>`, which make the Administration building's
+  own calls (`Strategy.Activate()` / `Deactivate()`), so Parsek records the activation and
+  its setup cost exactly as it records a player's click. Stock checks the strategy slots
+  against the Administration screen, so the seam opens a hidden copy of that screen for
+  the one command and closes it afterwards. Refusals name the problem: an unknown strategy,
+  a bad factor, already active or not active, no free slot, or stock's own reason.
+  `GUI-5-census-career-ksc` now ends by activating Outsourced R&D and photographing the
+  Career window's Strategies tab and the Timeline's Career > Strategies view; every
+  earlier capture had shown "No active strategies."
 - **Automated testing: a report-only mutation checker asks whether each lane's checks
   would catch a real break.** `harness/tools/mutation_check.py` replays the harness's own
   pass/fail checks over runs already archived on the machine: first unchanged (the run
@@ -38,6 +51,12 @@ _(unreleased — entries accumulate here per commit)_
   mission), and checks that the dock's two parents are both recordings of the one flight:
   the one being flown and the half the undock left recording in the background. Its first
   flight found the one-parent dock defect listed under Fixed.
+- **Automated testing: a lane takes a Rewind-to-Launch in the middle of a Re-Fly.**
+  `RF-15-rtl-cancels-live-refly` re-flies the Kerbal X core stage, stops the re-fly recording,
+  rewinds the same flight to launch, then saves and loads. It checks that the rewind ends the
+  Re-Fly at once with no dialog, that the rewind point survives, and that the following load
+  finds nothing left over to clean up. Its first flight caught the fix working on the wrong
+  copy of the flight, which is corrected.
 - **Automated testing: a lane re-flies a stage after a Rewind-to-Launch and quickloads in
   the middle of it.** `RF-14-rtl-refly-load-sweep` flies the staged Kerbal X, rewinds the
   whole flight to launch, waits on the pad until the clock passes the stage separation
@@ -978,6 +997,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Automated testing: the reentry lane now checks that the parachute really opened, and
+  flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
+  soon as it had sent the deploy command. It now reads the parachute's own state and
+  requires Parsek's recording of both parachute stages. Flying the real check found that
+  the lane's craft could not open its chute: dropping the spent stage in the same moment
+  as cutting the engine broke the craft up, and with that fixed, the pod came down with
+  the whole upper stage still attached, too fast for the parachute to open. The lane now
+  drops each stage a moment after the last, sheds the upper stage so the pod reenters
+  alone, and arms the parachute high enough to open once it is safe. Nothing in Parsek
+  itself changed.
+- **Timeline strategy rows show the strategy's real name.** The Timeline named strategies
+  from a hand-written table whose ids never matched stock's (`AppreciationCamp` against
+  stock's `AppreciationCampaignCfg`), so every stock strategy read as its split config
+  name, e.g. "Activate: Outsourced Research Cfg". The Timeline and the Career window's
+  Strategies tab now share one lookup: stock's own title ("Outsourced R&D") when the
+  game can answer, else the config name without its `Cfg` suffix ("Outsourced Research").
+  The Career window had shown the raw config name in that fallback case.
+
 - **A ghost passing through your vessel can no longer damage it.** Each ghost in orbit has a
   small invisible placeholder vessel that puts it on the map. When a ghost's path ran through
   a real vessel within a couple of kilometres of you, that placeholder could collide with it
@@ -1223,6 +1260,16 @@ _(unreleased — entries accumulate here per commit)_
   rollback, no stale rewind point, no seam skipped at the transfer boundary, no seam check
   outside the target's sphere of influence). Each change was proven against the archived
   logs: the lane still passes, and the break it now watches for fails it.
+- **A Rewind-to-Launch taken in the middle of a Re-Fly now ends that Re-Fly on the spot.**
+  Rewinding is refused while the Re-Fly recording is live, but after the re-flown vessel is
+  destroyed while another part of the flight is still flying, and focus moves on, the Rewind
+  button (and Warp-to-time's go-back) became available with the Re-Fly still open. Taking it
+  now cancels the Re-Fly the same way returning to the Space Center without merging does:
+  the unfinished attempt and its files are thrown away, rewind points made during it are
+  removed, and the stage you were re-flying stays in Unfinished Flights, re-flyable again once
+  the clock passes its separation. Before, the rewind could stop in flight on the Re-Fly merge
+  dialog with the rewound game already loaded, or leave the cancelled attempt behind for the
+  next load to clean up. No new dialog.
 - **A flight that ends parked on the launch pad or the runway start is over: it never
   becomes a real vessel.** If the last stop of a recorded flight is inside the 50 m safety
   circle around the launch pad or the runway's west end on Kerbin, Parsek now treats the

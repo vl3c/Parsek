@@ -8733,6 +8733,21 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # repaired nothing, e.g. its CanAfford gate declined).
     "demolish-not-applied": "driver-gate",
     "repair-not-applied": "driver-gate",
+    # KscAction activate-strategy / deactivate-strategy (the Administration building's
+    # activate and cancel). A name the strategy system does not know and an unparseable
+    # commitment are the SPEC's fault; an already-active / not-active strategy, a full slot
+    # table and stock's own CanBeActivated / CanBeDeactivated decline (the msg carries
+    # stock's localized reason after the token) are career state; a stock call that left
+    # no effect is a gate, like demolish-not-applied.
+    "unknown-strategy": "driver-arg",
+    "factor-arg-invalid": "driver-arg",
+    "strategy-already-active": "driver-career",
+    "strategy-not-active": "driver-career",
+    "no-strategy-slot": "driver-career",
+    "strategy-cannot-activate": "driver-career",
+    "strategy-cannot-deactivate": "driver-career",
+    "activate-not-applied": "driver-gate",
+    "deactivate-not-applied": "driver-gate",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these

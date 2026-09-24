@@ -99,7 +99,9 @@ here. What DOES belong here and is recorded now, because it corrects claims this
   `RouteStatus == DestinationFull`, a status the loop dispatch path never assigns - it records
   a hold and transitions only to `Paused`); and the Career State window's populated Strategies
   rows (that tab reads Parsek's effective LEDGER, and `strategy-career` carries no Parsek
-  footprint at all, so it draws `(no active strategies)` like every other host).
+  footprint at all, so it draws `(no active strategies)` like every other host). The last
+  of the three is reachable since 2026-09-24: `GUI-5-census-career-ksc` activates a strategy
+  through `KscAction action=activate-strategy` and photographs the populated tab.
 
 Sections 3 to 5 and 7 still carry the 2026-09-11 reading against `4eb427e9e`. A full
 re-measure against the wave-5 captures is its own task; the per-lane reading lives in each

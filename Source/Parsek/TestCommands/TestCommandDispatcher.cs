@@ -118,6 +118,12 @@ namespace Parsek.TestCommands
         /// never runs before the collapse it repairs has landed.</summary>
         public bool KscStructuresSettling;
 
+        /// <summary>Stock's Administration screen singleton
+        /// (<c>KSP.UI.Screens.Administration.Instance</c>) is live. <c>activate-strategy</c>
+        /// defers <c>administration-not-ready</c> without it, because
+        /// <c>Strategy.CanBeActivated</c> reads the slot count and commitment ceiling off it.</summary>
+        public bool StrategyAdministrationReady;
+
         // ----- M-C2 EVA seam-verb bits (design-autotest-eva-missions.md, Data Model) -----
 
         /// <summary><c>FlightGlobals.ActiveVessel?.isEVA == true</c>. The readiness bit for
@@ -276,6 +282,14 @@ namespace Parsek.TestCommands
         /// run out its deferral budget, and the addon recognises exactly this pair.
         /// </summary>
         internal const string BatchRunningDeferReason = "batch-running";
+
+        /// <summary>
+        /// The defer reason a <c>KscAction action=activate-strategy</c> head gets while stock's
+        /// Administration screen singleton is absent (<c>Strategy.CanBeActivated</c>
+        /// dereferences it). Named because the ADDON reads it too: on this defer it hosts a
+        /// hidden copy of that screen, and the next dispatch finds the singleton live.
+        /// </summary>
+        internal const string AdministrationNotReadyDeferReason = "administration-not-ready";
 
         // Per-verb scene/state precondition. LoadGame's recording-active /
         // load-in-flight guards and the global batch-running / safe-point gates are
@@ -579,9 +593,13 @@ namespace Parsek.TestCommands
                     if (!ready)
                         return DispatchResult.Defer("career-not-ready");
                     bool needsSpaceCenter = action == "upgrade-facility"
-                        || action == "demolish-building" || action == "repair-facility";
+                        || action == "demolish-building" || action == "repair-facility"
+                        || action == "activate-strategy" || action == "deactivate-strategy";
                     if (needsSpaceCenter && !state.AtSpaceCenter)
                         return DispatchResult.Defer("not-at-space-center");
+                    // The Administration building's screen owns the slot count stock checks.
+                    if (action == "activate-strategy" && !state.StrategyAdministrationReady)
+                        return DispatchResult.Defer(AdministrationNotReadyDeferReason);
                     // The building sub-actions act on DestructibleBuilding instances, whose
                     // collapse / repair completes on an animation after the stock call.
                     if ((action == "demolish-building" || action == "repair-facility")

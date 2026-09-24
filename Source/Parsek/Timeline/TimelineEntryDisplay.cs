@@ -11,18 +11,6 @@ namespace Parsek
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
-        // KSP stock strategy ID → human-readable name
-        private static readonly Dictionary<string, string> StrategyNames = new Dictionary<string, string>
-        {
-            { "AggressiveNeg", "Aggressive Negotiations" },
-            { "AppreciationCamp", "Appreciation Campaign" },
-            { "FundraisingCamp", "Fundraising Campaign" },
-            { "OutreachProg", "Outreach Program" },
-            { "PatentsLic", "Patents Licensing" },
-            { "RecoveryTransp", "Recovery Transponder" },
-            { "UnpaidInterns", "Unpaid Research Program" }
-        };
-
         /// <summary>
         /// Returns the default significance tier for the given entry type.
         /// T1 = Overview (mission structure), T2 = Detail (resource transactions).
@@ -276,17 +264,11 @@ namespace Parsek
             return $"{experiment} @ {location}";
         }
 
-        /// <summary>Maps KSP strategy ID to human name, falls back to camelCase split.</summary>
+        /// <summary>A strategy's display name: stock's localized title, else the humanized
+        /// config name (<see cref="StrategyDisplayNames.Resolve"/>, shared with the Career
+        /// window).</summary>
         internal static string HumanizeStrategyId(string strategyId)
-        {
-            if (string.IsNullOrEmpty(strategyId)) return "unknown";
-            string name;
-            if (StrategyNames.TryGetValue(strategyId, out name)) return name;
-            // Fallback for modded strategies: camelCase split + capitalize
-            name = InsertSpacesBeforeUppercase(strategyId);
-            if (name.Length > 0) name = char.ToUpper(name[0]) + name.Substring(1);
-            return name;
-        }
+            => StrategyDisplayNames.Resolve(strategyId);
 
         private static string InsertSpacesBeforeUppercase(string s)
         {

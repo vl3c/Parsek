@@ -15,6 +15,45 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~B4-CHUTE-ROW-READ-THE-DEPLOY-COMMAND: B4's chute assertion passed on the machine's own "deploy sent" latch, and the flight it guarded could not open its chute~~ [FILED and FIXED 2026-09-24, branch `b4-chute`; known-gate 7 in `autotest-status.md`]
+
+**What was wrong.** `B4-reentry-splashdown` reported "chute splashdown INTACT" off
+`evaluate_b4_assertions`'s `chuteDeployed` row, which read `B4State.chute_deployed`: the
+flag the machine sets the moment it emits the deploy action. B4 never enabled the chute
+read, so nothing observed the canopy - B1's fail-open class (the fixture's
+`parachuteLarge` persists `automateSafeDeploy = 0`, open only while SAFE).
+
+**What flying the fixed check found (origin/main DLL, 2026-09-24).** Two flight defects,
+each on both attempts of its run:
+- `2026-09-24_1657` + `_a2`: the craft exploded at ~84 km, before any chute.
+  `b4_decide` cut the throttle and dropped the service stage in the SAME frame; kRPC
+  applies the throttle write on the next physics tick while ActivateNextStage fires at
+  once, so the Mainsail core, still at full thrust, drove into the Poodle stack.
+- `2026-09-24_1727` + `_a2` (staging fixed): only the core had been dropped, so the pod
+  reentered with the whole Poodle stack attached, the chute was armed at ~2,950 m at -368
+  and -188 m/s, and it read `Armed` all the way to impact. The old row would have been
+  met on these runs.
+
+**Fix.** Observed check: `read_chute=True`, B1's debounced SPLASHDOWN-scoped canopy latch
+in `B4State` (`craft_chute_full_seen`), `craftCanopyObserved` replaces `chuteDeployed`
+with the commanded latch as `armCommanded` detail, and a loss after the deploy names the
+observed state. Flight: the drops after the deorbit cutoff are OWED and paid
+`stageSettleSeconds` (default 2) apart, `reentryStageCount = 3` (core, Poodle ignition at
+zero throttle, Poodle stack) so the pod reenters alone with its heat shield, and the chute
+arms at 12 km so the module opens it itself once SAFE. Spec: the two `parachuteLarge`
+Part-event tokens are required and the recording floor is 9 (the second dropped stack).
+Reading run `2026-09-24_1820` PASS (SemiDeployed ~11 km, Deployed at 1000 m, splashdown at
+-8.4 m/s); armed run `2026-09-24_1842` PASS attempt 1 with the Part-event tokens required. `V22M`'s `kerbin-splashdown-recorded`
+fixture came from a pre-fix B4 flight, so its subject may be a breakup rather than a chute
+descent; noted on the spec and its status row, not re-harvested (operator ruling).
+
+---
+## SEAM-HIDDEN-ADMINISTRATION-SCREEN-RESIDUE: automation-only robustness of the `activate-strategy` seam [FILED 2026-09-24 from the PR #1803 review; OPEN, low]
+
+1. The hidden Administration screen is released only on a KscAction execute or a scene change, not when the command times out or is rejected (`ParsekTestCommandAddon.KscStrategy.cs` ~:41 returns early while a canvas is held). If the singleton never appears, every later `activate-strategy` in that scene times out on `administration-not-ready`, and a real Administration screen opened in that scene would hit stock's "Instance already exists" check. Fix: release in `HandleDefer`'s TIMEOUT branch and on Reject.
+2. The readiness check tests `Administration.Instance != null`, set in `Awake`, while the slot limit and commitment ceiling are read in `Start`; safe today only because `Pump` runs once per frame. Gate on a field `Start` sets, or compare the slot limit with `GameVariables`.
+3. `StrategyDisplayNames`' production cache is not exercised by the unit tests (the test hook bypasses it).
+
 ## MUTATION-CHECK-PHASE-2: the mutation checker does not yet reach saves, the ledger or mission assertions [FILED 2026-09-24 with phase 1 (branch `mutation-check`). OPEN; harness]
 
 Phase 1 (`harness/tools/mutation_check.py`, known-gate 17 in `autotest-status.md`) replays
@@ -40,7 +79,7 @@ Also open from the first sweep: the 723 triage survivors (96 lanes) listed by gr
 2026-09-24 (branch `tighten-survivors`): 26 specs tightened, 723 -> 700, of which 391 are
 recorded as intended and 309 remain (known-gate 17 lists them). Still owed from the pass:
 the teardown `Recording stopped` fix on the 25 lanes it could not verify offline - B4
-once branch `b4-chute` lands, and the 24 whose archives are missing or no longer replay
+now that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or no longer replay
 green (re-run `mutation_check.py` after their next tier, then apply the same per-lane
 anchor).
 
@@ -155,7 +194,70 @@ Rewind-to-Launch mid-re-fly may be reachable through the path filed below as
 REFLY-DESTROYED-THEN-RTL-MID-SESSION. The rewind's own OnLoad returns before the sweep
 runs. Also noted: CI-3 already produced the same two sweep lines on its F5/F9, unclaimed.
 
-## REFLY-DESTROYED-THEN-RTL-MID-SESSION: a Rewind-to-Launch may be reachable during a live Re-Fly once the re-flown vessel is destroyed [FILED 2026-09-24 from the #1793 review. OPEN; CODE-DERIVED, NOT FLOWN]
+## ~~REFLY-DESTROYED-THEN-RTL-MID-SESSION: a Rewind-to-Launch may be reachable during a live Re-Fly once the re-flown vessel is destroyed~~ [FILED 2026-09-24 from the #1793 review. RULED 2026-09-24 (operator): option 1. FIXED 2026-09-24 on branch `refly-rtl-cancel`]
+
+**Ruling (operator, 2026-09-24): option 1.** A plain Rewind-to-Launch taken while a Re-Fly
+session is live CANCELS the re-fly cleanly and immediately, exactly like the design section
+6.8 Space Center end: marker cleared, the NotCommitted provisional and its sidecars
+discarded, session-provisional RPs purged, before or as part of the rewind and never deferred
+to the next load's zombie sweep. The origin slot stays in Unfinished Flights, re-flyable once
+the clock passes its RP again (the #1788 rule). No dialog, no new UI.
+
+**Fix.** `MergeDialog.TryDiscardLiveReFlySessionForRewind`, called by both plain-rewind entry
+points (`RecordingStore.InitiateRewind`, which the Recordings table, the seam and Warp-to-time
+use, and `InitiateRewindToCareerStart`, Warp-to-time's UT-0 reset) after their merge-journal
+refusal and before the rewind is armed. It runs the merge-dialog Discard's own body, now split
+into two shared halves (`DiscardReFlyAttemptRecordingsAndRewindPoints`: attempt recordings,
+sidecars, events, ledger tags, origin RP promotion, session RP purge, the detached committed
+tree put back sanitized; `EndDiscardedReFlySession`: marker, journal slot, caches, revert
+gate, anchor snapshots), logs `[ReFlySession] End reason=discardReFlyForRewind`, and, when the
+flight scene's live tree is the session tree, arms the tree scene-exit suppression so the
+rewind's scene exit drops that live reference without a stash. The session tree is looked up
+LIVE FIRST: after the invoke's load the reconciliation bundle restores the pre-re-fly committed
+tree, so a live re-fly normally has two instances under one id (the untouched committed
+original, and the live clone the RP save loaded, which alone holds the attempt), and
+`FindTreeForReFlyFork` answers the committed original first. The RF-15 reading flight
+`2026-09-24_1718` caught exactly that on the first build: the cancel pruned nothing from the
+clone, the scene exit stashed it with the provisional inside, and the following load's sweep
+read `discarded=1`. A failed rewind load undoes the
+drop (`RecordingStore.UndoLiveTreeDropAfterFailedRewind`); the session stays ended. Why the
+entry point and not `HandleRewindOnLoad`: the rewind carries the in-memory RP list across its
+load (`CaptureRewindPointsForRewind`, taken before the load), so session RPs must be gone
+first; the FLIGHT scene exit runs before any OnLoad; and a SaveGame must never run inside
+OnLoad. The merge journal is untouched (the entry points already refuse an in-flight one).
+
+**Found while tracing it (corrects the entry below).** The pre-fix outcome was not only the
+silent split across two loads. With the session tree still live in FLIGHT, the rewind's
+`HighLogic.LoadScene(SPACECENTER)` goes through `SceneExitInterceptor`'s prefix, whose gate
+answers `ReFlyAttempt` whenever the marker is live, so the Re-Fly merge dialog came up in
+flight after `ExecuteRewindSaveLoad` had already swapped the rewind game into
+`HighLogic.CurrentGame`. The armed suppression makes that prefix stand aside (its step 3).
+The cancel applies whichever tree is rewound, including the committed original of the flight
+being re-flown (the reconciliation bundle keeps it in the committed store during the re-fly).
+
+**Residual, not new (not fixed).** No plain rewind persists anything after its load: the
+rewind's OnLoad reads persistent.sfs as last written, and the in-memory result (this cancel,
+the #1788 RP carry, the supersede drop) reaches disk at the next KSP save. A crash before that
+save loads the pre-rewind file, whose marker then fails validation (the provisional's sidecars
+and the session RP quicksaves are already deleted) and the sweep discards what is left: the
+pre-fix fallback, in the crash window only.
+
+**Proof.** xUnit `ReFlyRewindDiscardTests` (real session-end path: provisional gone, marker
+cleared, session RP purged, origin RP promoted and `IsUnfinishedFlight` still true, live tree
+dropped, the next `LoadTimeSweep` discarding nothing; the mirror cases: no session, merge
+journal active, another live tree, failed load; the merge-dialog tokens unchanged; source-order
+gates on both entry points), every change red when reverted (nine mutants). Live lane
+`RF-15-rtl-cancels-live-refly` (RF-14's host, the re-fly recorder stopped through the seam
+to reach the same state, then Rewind-to-Launch of the same flight and an ordinary save + load):
+reading `2026-09-24_1718` caught the committed-first lookup defect above, re-flight
+`2026-09-24_1811` PASS with `liveTreeDropped=True`, the LoadScene prefix bypass, the scene exit
+discarding the clone without a stash, the RP carried and the quickload's sweep at
+`discarded=0`; `rewind` block armed. The crash + focus-move reachability itself stays
+code-derived: the re-fly strip turns every sibling slot into a ghost, so no committed host
+leaves a live vessel for focus to move to.
+
+Original entry (code-derived, before the ruling):
+
 
 The normal guard: while the re-fly recorder is live, `RecordingStore.CanRewind` refuses
 "Stop recording before rewinding" (the Recordings table passes `flight.IsRecording`,
@@ -1654,7 +1756,7 @@ Same reasoning retires six more RouteStatus values (`InTransit`,
 legacy wait-state path that assigns those statuses, or re-gate the capacity line on
 `LastHoldKind`. The second is a product question, not an instrument one.
 
-**5. `strategy-career` cannot photograph populated Strategies rows.** It is `fresh-career`
+**5. ~~`strategy-career` cannot photograph populated Strategies rows.~~** DONE 2026-09-24: no fixture was built; the seam's new `KscAction action=activate-strategy` activates a stock strategy through the Administration building's own call, and `GUI-5-census-career-ksc` photographs the populated tab and the Timeline Strategies view (`2026-09-24_1818`). Original reading: It is `fresh-career`
 plus one reputation seed: its stock `STRATEGIES` node is empty and it carries no Parsek
 footprint, while `CareerStateWindowUI`'s Strategies tab reads Parsek's own effective ledger
 (`EffectiveState.ComputeELS()`). With no ledger row it draws `(no active strategies)`,
