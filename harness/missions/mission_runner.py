@@ -57,7 +57,7 @@ import time
 import traceback
 from collections import deque
 from dataclasses import dataclass, replace
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 # The mission shells run as subprocesses (``python missions/<name>.py ...``) with
 # their own directory (missions/) as sys.path[0]; the pure decision library lives
@@ -4043,7 +4043,7 @@ def fly_loop(
     sleep: Callable[[float], None] = time.sleep,
     poll_interval: float = POLL_INTERVAL_SECONDS,
     settle_frames: int = DEFAULT_SETTLE_FRAMES,
-    allow_rails_warp: bool = False,
+    allow_rails_warp: Union[bool, Callable[[object], bool]] = False,
     max_physics_warp: float = 0.0,
     status_writer: Optional[StatusFileWriter] = None,
     wall_budget: Optional[float] = None,
@@ -4330,12 +4330,17 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # continuously-ramping quantity, so a single sample caught mid-ramp or
         # on a frame-hitch spike must not kill an otherwise clean flight; a
         # REAL unexpected warp state persists across the 0.5s poll gap.
-        if mlib.is_unexpected_warp(snapshot.warp_mode, snapshot.warp_rate, allow_rails_warp,
+        # `allow_rails_warp` may be a PER-STATE predicate (a callable taking the live
+        # machine state): kx_rewind_watch permits rails warp ONLY inside its GS-12
+        # loop-arm block and keeps GS-4's no-warp contract everywhere else.
+        allow_rails_now = (allow_rails_warp(state) if callable(allow_rails_warp)
+                           else allow_rails_warp)
+        if mlib.is_unexpected_warp(snapshot.warp_mode, snapshot.warp_rate, allow_rails_now,
                                    max_physics_warp=max_physics_warp):
             warp_violations += 1
             log.warn(state.phase, "unexpected %s-warp x%s in phase %s (allow_rails=%s) strike %d/2"
                      % (snapshot.warp_mode, _fmt(snapshot.warp_rate), state.phase,
-                        allow_rails_warp, warp_violations))
+                        allow_rails_now, warp_violations))
             if warp_violations >= 2:
                 log.warn(state.phase, "unexpected warp persisted 2 consecutive samples -> %s"
                          % (mlib.MISSION_FLAKE,))
@@ -4740,7 +4745,8 @@ class MissionSpec:
         need frames accept and ignore it (``state=None`` default).
       - ``make_control``: () -> a real MissionControl (KrpcMissionControl); tests
         inject their own control and never call this.
-      - ``allow_rails_warp``: whether RAILS warp is a PERMITTED warp state for this
+      - ``allow_rails_warp``: a bool, or a callable ``(state) -> bool`` evaluated per
+        frame on the live machine state; whether RAILS warp is a PERMITTED warp state for this
         mission's fly loop (design edge 7). B1 flies 1x throughout (False); B2
         permits RAILS on its exo-atmospheric coast (True). PHYSICS warp is never
         permitted for either. An unexpected warp state flakes the mission.
@@ -4750,7 +4756,7 @@ class MissionSpec:
     decide: Callable
     evaluate: Callable
     make_control: Callable[[], MissionControl]
-    allow_rails_warp: bool = False
+    allow_rails_warp: Union[bool, Callable[[object], bool]] = False
     # Highest PERMITTED physics-warp rate (0.0 = never, the B1 default). B2
     # sets 2.0: MechJeb's AscentAutopilot engages its own 2x physics warp
     # during ascent and KRPC.MechJeb 0.8.1 exposes no toggle for it (observed

@@ -59,6 +59,55 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // The loop unit (GS-12, 2026-09-24): `unit=sec|auto`, applied only on an
+        // enable. Auto is the one mode the seam could not reach before (the
+        // applier hard-coded Sec), and an interval sent beside it is not written.
+        // ------------------------------------------------------------------
+
+        [Theory]
+        [InlineData(null, true, null)]
+        [InlineData("", true, null)]
+        [InlineData("sec", true, LoopTimeUnit.Sec)]
+        [InlineData("auto", true, LoopTimeUnit.Auto)]
+        [InlineData("Auto", false, null)]   // strict: case-sensitive
+        [InlineData("min", false, null)]    // display units are not loop modes
+        [InlineData("hour", false, null)]
+        [InlineData("bogus", false, null)]
+        public void Unit_arg_is_optional_and_strict(string raw, bool ok, LoopTimeUnit? want)
+        {
+            bool parsed = TestCommandMissionConfig.TryParseUnitArg(raw, out LoopTimeUnit? unit);
+            Assert.Equal(ok, parsed);
+            Assert.Equal(want, unit);
+        }
+
+        [Fact]
+        public void Unit_to_apply_follows_the_enable_rule()
+        {
+            // Disable never writes a unit, whatever was requested.
+            Assert.Null(TestCommandMissionConfig.ResolveUnitToApply(
+                false, LoopTimeUnit.Auto, 30.0));
+            // An explicit unit wins on an enable, with or without an interval.
+            Assert.Equal(LoopTimeUnit.Auto, TestCommandMissionConfig.ResolveUnitToApply(
+                true, LoopTimeUnit.Auto, 30.0));
+            Assert.Equal(LoopTimeUnit.Sec, TestCommandMissionConfig.ResolveUnitToApply(
+                true, LoopTimeUnit.Sec, 0.0));
+            // No unit requested: the historical rule (an interval writes Sec).
+            Assert.Equal(LoopTimeUnit.Sec, TestCommandMissionConfig.ResolveUnitToApply(
+                true, null, 5.0));
+            Assert.Null(TestCommandMissionConfig.ResolveUnitToApply(true, null, 0.0));
+        }
+
+        [Theory]
+        [InlineData(LoopTimeUnit.Auto, "auto")]
+        [InlineData(LoopTimeUnit.Sec, "sec")]
+        [InlineData(LoopTimeUnit.Min, "sec")]
+        [InlineData(LoopTimeUnit.Hour, "sec")]
+        public void Unit_token_names_the_two_modes(LoopTimeUnit unit, string want)
+        {
+            Assert.Equal(want, TestCommandMissionConfig.UnitToken(unit));
+        }
+
+        // ------------------------------------------------------------------
         // The span-clock compression payload (added 2026-08-25). The V24W
         // reading flight (run 2026-08-25_1415) dwelled three windows built as
         // phaseAnchorUt + RECORDED offset against a unit whose clock COMPRESSES

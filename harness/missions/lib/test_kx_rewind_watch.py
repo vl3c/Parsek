@@ -575,7 +575,9 @@ class SceneReloadToleranceTests(unittest.TestCase):
         self.assertEqual(
             (mlib.KXRW_REWIND, mlib.KXRW_SPACECENTER, mlib.KXRW_AUTORECORD_OFF,
              mlib.KXRW_WATCHER_LAUNCH, mlib.KXRW_WATCHER_READY, mlib.KXRW_MAP_VIEW,
-             mlib.KXRW_MAP_EXIT, mlib.KXRW_WATCH, mlib.KXRW_PLAYBACK_WAIT),
+             mlib.KXRW_MAP_EXIT, mlib.KXRW_WATCH, mlib.KXRW_PLAYBACK_WAIT,
+             mlib.KXRW_LOOP_HANDLES, mlib.KXRW_LOOP_CONFIG, mlib.KXRW_LOOP_WATCH,
+             mlib.KXRW_LOOP_WAIT),
             mlib.KXRW_POST_REWIND_PHASES)
         # MAP-EXIT sits in the block for the SAME reason MAP-VIEW does, and the
         # block's own rule is that it is ONE CONTIGUOUS RUN from the rewind to the
@@ -1227,7 +1229,7 @@ class MapClosedBeforeTheWatchTests(unittest.TestCase):
     def test_map_exit_sits_between_the_open_and_the_watch(self):
         """The phase order IS the rule. MUTATION: move MAP-EXIT after WATCH and the
         map closes only once the watch camera has already driven under it."""
-        self.assertEqual(34, len(mlib.KXRW_PHASES))
+        self.assertEqual(38, len(mlib.KXRW_PHASES))
         self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(i(mlib.KXRW_MAP_VIEW) + 1, i(mlib.KXRW_MAP_EXIT))
@@ -1710,10 +1712,10 @@ class HappyPathTests(unittest.TestCase):
             | set(mlib.KXRW_IMPACT_PHASES) \
             | {mlib.KXRW_IMPACT_AUTORECORD_OFF, mlib.KXRW_IMPACT_COAST} \
             | {mlib.KXRW_PROMOTE_SWITCH, mlib.KXRW_PROMOTE_WAIT,
-               mlib.KXRW_PROMOTE_DISARM}
+               mlib.KXRW_PROMOTE_DISARM}             | set(mlib.KXRW_LOOP_PHASES)
         self.assertEqual(set(mlib.KXRW_PHASES) - opt_in, set(st.phases_reached))
         self.assertEqual(set(), opt_in & set(st.phases_reached))
-        self.assertEqual(34, len(mlib.KXRW_PHASES))
+        self.assertEqual(38, len(mlib.KXRW_PHASES))
 
         rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict),
                                              st)
@@ -2713,7 +2715,7 @@ class ImpactProfileTests(unittest.TestCase):
         KXRW_POST_REWIND_PHASES is still the contiguous TAIL of KXRW_PHASES - the
         property the carve-out's own cell asserts. MUTATION: append them after
         DONE (or interleave them past REWIND) and that slice stops matching."""
-        self.assertEqual(34, len(mlib.KXRW_PHASES))
+        self.assertEqual(38, len(mlib.KXRW_PHASES))
         self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(
@@ -3136,7 +3138,7 @@ class CoastExitProfileTests(unittest.TestCase):
         is still the contiguous TAIL of KXRW_PHASES - the property the carve-out's
         own cell asserts. MUTATION: append it after DONE and that slice stops
         matching."""
-        self.assertEqual(34, len(mlib.KXRW_PHASES))
+        self.assertEqual(38, len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(i(mlib.KXRW_COAST) + 1, i(mlib.KXRW_COAST_EXIT))
         self.assertEqual(i(mlib.KXRW_COAST_EXIT) + 1, i(mlib.KXRW_PART_SWEEP))
@@ -3275,7 +3277,14 @@ class CraftAndSchemaSyncTests(unittest.TestCase):
     def test_the_shell_wires_the_machine_and_flies_no_warp(self):
         spec = kx_rewind_watch.SPEC
         self.assertEqual("kx_rewind_watch", spec.name)
-        self.assertFalse(spec.allow_rails_warp)
+        # Rails warp is a PER-STATE permission: only the GS-12 loop-arm block may
+        # warp (it commands 10x itself); every other phase keeps GS-4's no-warp
+        # contract. MUTATION: return True for PLAYBACK-WAIT and this reds.
+        self.assertTrue(callable(spec.allow_rails_warp))
+        for phase in mlib.KXRW_PHASES:
+            st_phase = dataclasses.replace(machine(), phase=phase)
+            self.assertEqual(phase in mlib.KXRW_LOOP_PHASES,
+                             spec.allow_rails_warp(st_phase), phase)
         self.assertEqual(0.0, spec.max_physics_warp)
         self.assertEqual(0, spec.settle_frames)
         st = spec.build_state({})
@@ -3919,6 +3928,280 @@ class CloseCutAndPromotionTests(unittest.TestCase):
         self.assertIsNone(pick([("Kerbal X Debris", float("nan"), False)],
                                "Kerbal X Debris"))
         self.assertIsNone(pick([], "x"))
+
+
+class LoopArmTests(unittest.TestCase):
+    """GS-12 (ghost-replay Tier C item 12): `loopStages` loops the committed
+    MISSION after the ordinary playback and walks each stage under rails warp.
+
+    Five properties, each a way the opt-in could be silently wrong:
+      1. ABSENT IS BYTE-IDENTICAL: PLAYBACK-WAIT still goes straight to DONE with
+         eight rows (the RepeatRewindTests default cell covers the trace).
+      2. THE ORDER IS CENSUS -> ARM -> WATCH -> WARPED WAIT per stage, every stage
+         under its own wire tags, the interval sent only on a `sec` stage.
+      3. A WATCH REFUSAL IS RECORDED (and `no-watchable-ghost` re-asked); a
+         MissionConfig refusal or a silent seam FLAKES.
+      4. THE WARP IS COMMANDED, RE-EMITTED WHILE THE OBSERVED RATE LAGS, DROPPED TO
+         1x AT EVERY STAGE END, and never above 10x.
+      5. A MALFORMED STAGE LIST IS REFUSED ON THE FIRST FRAME, before any click."""
+
+    TREE = RepeatRewindTests.TREE
+    _d = RepeatRewindTests._d
+    _to_first_rewind = RepeatRewindTests._to_first_rewind
+    _post_rewind_leg = RepeatRewindTests._post_rewind_leg
+
+    STAGES = [{"unit": "sec", "intervalSeconds": 150, "watchSeconds": 330},
+              {"unit": "auto", "watchSeconds": 170}]
+
+    def _at_handles(self, **over):
+        over.setdefault("loopStages", self.STAGES)
+        st, _, pdict = self._to_first_rewind(**over)
+        st, _ = self._post_rewind_leg(st, 0)
+        st, acts = self._d(st, snap(ut=1231.0, situation="PRE_LAUNCH"))
+        return st, acts, pdict
+
+    def _config_ok(self, st, tag, ut, unit="sec", interval="150", overlap="150"):
+        payload = (("unitBuilt", "true"), ("unit", unit), ("intervalSeconds", interval),
+                   ("overlapCadenceSeconds", overlap), ("cadenceSeconds", "150"),
+                   ("spanSeconds", "109.12"), ("anchorUt", repr(float(ut))),
+                   ("autoLoopIntervalSeconds", "30"))
+        return self._d(st, seam(tag, "OK", payload, ut=ut, situation="PRE_LAUNCH"))
+
+    def _to_wait(self, **over):
+        st, _, pdict = self._at_handles(**over)
+        st, _ = self._d(st, seam("loophandles", "OK", (("count", "1"),), ut=1232.0,
+                                 situation="PRE_LAUNCH"))
+        st, _ = self._config_ok(st, "loopcfg0", 1233.0)
+        st, _ = self._d(st, snap(ut=1233.5, situation="PRE_LAUNCH"))
+        st, acts = self._d(st, seam("loopwatch0", "OK", (), ut=1234.0,
+                                    situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_LOOP_WAIT, st.phase)
+        return st, acts, pdict
+
+    def test_the_census_goes_out_when_the_playback_completes(self):
+        st, acts, _ = self._at_handles()
+        self.assertEqual(mlib.KXRW_LOOP_HANDLES, st.phase)
+        self.assertEqual([("ListHandles", "loophandles", (("kind", "committed"),))],
+                         [(a.seam_verb, a.seam_tag, tuple(a.seam_args)) for a in acts])
+
+    def test_two_stages_arm_watch_warp_and_reach_done(self):
+        st, _, pdict = self._at_handles()
+        # The census: 8 committed, one of them spawned.
+        census = (("count", "8"),) + tuple(
+            ("rec%dspawned" % i, "true" if i == 3 else "false") for i in range(8))
+        st, acts = self._d(st, seam("loophandles", "OK", census, ut=1232.0,
+                                    situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_LOOP_CONFIG, st.phase)
+        self.assertEqual(8, st.loop_committed_count)
+        self.assertEqual(1, st.loop_spawned_count)
+        self.assertEqual([("MissionConfig", "loopcfg0",
+                           (("tree", self.TREE), ("loop", "true"), ("unit", "sec"),
+                            ("intervalSeconds", "150.0")))],
+                         [(a.seam_verb, a.seam_tag, tuple(a.seam_args)) for a in acts])
+        st, acts = self._config_ok(st, "loopcfg0", 1233.0)
+        self.assertEqual(mlib.KXRW_LOOP_WATCH, st.phase)
+        self.assertEqual([], acts)
+        # The first watch attempt on LOOP-WATCH's own first frame; a race refusal
+        # is re-asked after the cadence under a FRESH tag.
+        st, acts = self._d(st, snap(ut=1233.5, situation="PRE_LAUNCH"))
+        self.assertEqual([("EnterWatchMode", "loopwatch0", (("tree", self.TREE),))],
+                         [(a.seam_verb, a.seam_tag, tuple(a.seam_args)) for a in acts])
+        st, acts = self._d(st, seam("loopwatch0", "ERROR",
+                                    (("msg", "no-watchable-ghost"),), ut=1234.0,
+                                    situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_LOOP_WATCH, st.phase)
+        self.assertEqual([], acts)
+        for _ in range(mlib.KXRW_WATCH_RETRY_CADENCE_FRAMES):
+            st, acts = self._d(st, snap(ut=1235.0, situation="PRE_LAUNCH"))
+            if acts:
+                break
+        self.assertEqual(["loopwatch1"], [a.seam_tag for a in acts])
+        st, acts = self._d(st, seam("loopwatch1", "OK", (("index", "0"),), ut=1236.0,
+                                    situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_LOOP_WAIT, st.phase)
+        self.assertEqual([(mlib.ACTION_SET_RAILS_WARP, 2)],
+                         [(a.kind, a.value) for a in acts])
+        # Mid-stage the warp holds at 10x; the stage ends at startUT + 330.
+        st, acts = self._d(st, snap(ut=1400.0, situation="PRE_LAUNCH",
+                                    warp_mode="RAILS", warp_rate=10.0))
+        self.assertEqual([], acts)
+        st, acts = self._d(st, snap(ut=1563.0, situation="PRE_LAUNCH",
+                                    warp_mode="RAILS", warp_rate=10.0))
+        self.assertEqual(mlib.KXRW_LOOP_CONFIG, st.phase)
+        self.assertEqual(1, st.loop_stage)
+        # Warp to 1x FIRST, then the next stage's arm - auto, with NO interval.
+        self.assertEqual([(mlib.ACTION_SET_RAILS_WARP, None, None),
+                          (mlib.ACTION_PARSEK_SEAM_COMMAND, "MissionConfig", "loopcfg1")],
+                         [(a.kind, a.seam_verb, a.seam_tag) for a in acts])
+        self.assertEqual(0, acts[0].value)
+        self.assertEqual((("tree", self.TREE), ("loop", "true"), ("unit", "auto")),
+                         tuple(acts[1].seam_args))
+        st, acts = self._config_ok(st, "loopcfg1", 1564.0, unit="auto",
+                                   interval="150", overlap="30")
+        st, acts = self._d(st, snap(ut=1564.5, situation="PRE_LAUNCH"))
+        self.assertEqual(["loopwatch2"], [a.seam_tag for a in acts])
+        st, acts = self._d(st, seam("loopwatch2", "ERROR",
+                                    (("msg", "already-watching"),), ut=1565.0,
+                                    situation="PRE_LAUNCH"))
+        # A non-race refusal is RECORDED and the stage walks on.
+        self.assertEqual(mlib.KXRW_LOOP_WAIT, st.phase)
+        st, acts = self._d(st, snap(ut=1735.0, situation="PRE_LAUNCH",
+                                    warp_mode="RAILS", warp_rate=10.0))
+        self.assertEqual(mlib.KXRW_DONE, st.phase)
+        self.assertIsNone(st.verdict)
+        self.assertEqual([(mlib.ACTION_SET_RAILS_WARP, 0)],
+                         [(a.kind, a.value) for a in acts])
+        # Every seam tag the whole run emitted is unique, and the loop stayed in
+        # the contiguous post-rewind block.
+        emitted = [tag for _, acts in self.trace for (_, _, tag, _) in acts if tag]
+        self.assertEqual(len(emitted), len(set(emitted)), emitted)
+        first = st.phases_reached.index(mlib.KXRW_REWIND)
+        self.assertEqual(set(), set(st.phases_reached[first:])
+                         - set(mlib.KXRW_POST_REWIND_PHASES) - {mlib.KXRW_DONE})
+        rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict), st)
+        self.assertEqual(9, len(rows))
+        self.assertEqual([], [r.name for r in rows if not r.met],
+                         [r.to_dict() for r in rows])
+        row = rows[-1]
+        self.assertEqual("loopStagesDriven", row.name)
+        self.assertEqual(2, row.value)
+        self.assertEqual(8, row.detail["committedCount"])
+        self.assertEqual(1, row.detail["spawnedAfterFirstRun"])
+        stages = row.detail["stages"]
+        self.assertEqual(["sec", "auto"], [x["unit"] for x in stages])
+        self.assertEqual(["150", "30"], [x["overlapCadenceSeconds"] for x in stages])
+        self.assertEqual(["OK", "ERROR"], [x["enterWatchModeResult"] for x in stages])
+        self.assertEqual([2, 1], [x["enterWatchModeAttempts"] for x in stages])
+        self.assertEqual([10.0, 10.0], [x["warpRateMax"] for x in stages])
+        self.assertEqual([1233.0, 1564.0], [x["startUT"] for x in stages])
+
+    def test_a_lagging_warp_is_re_emitted_on_a_cadence(self):
+        st, _, _ = self._to_wait(loopStages=[self.STAGES[0]])
+        reemits = 0
+        for _ in range(3 * mlib.KXRW_LOOP_WARP_REEMIT_FRAMES):
+            st, acts = self._d(st, snap(ut=1240.0, situation="PRE_LAUNCH",
+                                        warp_mode="NONE", warp_rate=1.0))
+            reemits += sum(1 for a in acts if a.kind == mlib.ACTION_SET_RAILS_WARP)
+        self.assertEqual(3, reemits)
+        # A held 10x emits nothing more.
+        st, acts = self._d(st, snap(ut=1245.0, situation="PRE_LAUNCH",
+                                    warp_mode="RAILS", warp_rate=10.0))
+        self.assertEqual([], acts)
+
+    def test_a_stuck_clock_flakes_at_the_stage_cap(self):
+        st, _, _ = self._to_wait(loopStages=[self.STAGES[0]], loopWaitFrames=5)
+        for _ in range(10):
+            st, _ = self._d(st, snap(ut=1234.0, situation="PRE_LAUNCH",
+                                     warp_mode="RAILS", warp_rate=10.0))
+            if st.done:
+                break
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_LOOP_WAIT, st.flake_phase)
+        self.assertIn("never walked its 330 game seconds", st.flake_reason)
+
+    def test_warp_index_zero_commands_no_warp_at_all(self):
+        st, acts, _ = self._to_wait(loopStages=[self.STAGES[0]], loopWarpIndex=0)
+        self.assertEqual([], acts)
+        st, acts = self._d(st, snap(ut=1600.0, situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_DONE, st.phase)
+        self.assertEqual([], acts)
+
+    def test_a_refused_mission_config_flakes_naming_parseks_reason(self):
+        st, _, pdict = self._at_handles()
+        st, _ = self._d(st, seam("loophandles", "OK", (("count", "8"),), ut=1232.0,
+                                 situation="PRE_LAUNCH"))
+        st, _ = self._d(st, seam("loopcfg0", "ERROR", (("msg", "unknown-tree"),),
+                                 ut=1233.0, situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_LOOP_CONFIG, st.flake_phase)
+        self.assertIn("unknown-tree", st.flake_reason)
+        rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict), st)
+        self.assertFalse(rows[-1].met)
+
+    def test_a_silent_mission_config_flakes(self):
+        st, _, _ = self._at_handles(loopSeamFrames=3)
+        st, _ = self._d(st, seam("loophandles", "OK", (("count", "8"),), ut=1232.0,
+                                 situation="PRE_LAUNCH"))
+        for _ in range(6):
+            st, _ = self._d(st, snap(ut=1233.0, situation="PRE_LAUNCH"))
+            if st.done:
+                break
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("never answered", st.flake_reason)
+
+    def test_an_empty_census_refuses_to_arm(self):
+        st, _, _ = self._at_handles()
+        st, _ = self._d(st, seam("loophandles", "OK", (("count", "0"),), ut=1232.0,
+                                 situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_LOOP_HANDLES, st.flake_phase)
+        # An unreadable count is refused the same way (fail closed).
+        st, _, _ = self._at_handles()
+        st, _ = self._d(st, seam("loophandles", "OK", (), ut=1232.0,
+                                 situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+
+    def test_a_previous_commands_ok_never_advances_the_stage(self):
+        st, _, _ = self._at_handles()
+        st, _ = self._d(st, seam("loophandles", "OK", (("count", "8"),), ut=1232.0,
+                                 situation="PRE_LAUNCH"))
+        # The census OK still riding the snapshot is not stage 0's arm.
+        held, _ = self._d(st, seam("loophandles", "OK", (("count", "8"),), ut=1232.5,
+                                   situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_LOOP_CONFIG, held.phase)
+
+    def test_stage_parsing_refuses_every_ambiguous_shape(self):
+        ok, err = mlib.kxrw_loop_stages_from_list(self.STAGES)
+        self.assertEqual("", err)
+        self.assertEqual(2, len(ok))
+        for raw, needle in (
+                ({"unit": "sec"}, "list"),
+                ([5], "not a table"),
+                ([{"unit": "min", "intervalSeconds": 5, "watchSeconds": 9}], "unit"),
+                ([{"unit": "sec", "watchSeconds": 9}], "no intervalSeconds"),
+                ([{"unit": "auto", "intervalSeconds": 5, "watchSeconds": 9}],
+                 "silently ignored"),
+                ([{"unit": "sec", "intervalSeconds": 5}], "watchSeconds"),
+                ([{"unit": "sec", "intervalSeconds": 5, "watchSeconds": 9,
+                   "cadence": 1}], "unknown key"),
+                ([{"unit": "sec", "intervalSeconds": "x", "watchSeconds": 9}],
+                 "non-numeric")):
+            with self.subTest(raw=raw):
+                stages, err = mlib.kxrw_loop_stages_from_list(raw)
+                self.assertEqual((), stages)
+                self.assertIn(needle, err)
+        self.assertEqual(((), ""), mlib.kxrw_loop_stages_from_list(None))
+
+    def test_conflicts_are_refused_on_the_first_frame(self):
+        for over, needle in (
+                ({"loopStages": [{"unit": "sec", "watchSeconds": 9}]},
+                 "no intervalSeconds"),
+                ({"loopStages": self.STAGES, "loopWarpIndex": 3}, "loopWarpIndex=3"),
+                ({"loopStages": self.STAGES, "rewindCycles": 2}, "rewindCycles"),
+                ({"loopStages": self.STAGES, "coastExitProfile": True},
+                 "coastExitProfile"),
+                ({"loopStages": self.STAGES * 2}, "at most")):
+            with self.subTest(over=over):
+                st, acts = mlib.kxrw_decide(machine(**over),
+                                            snap(ut=0.0, situation="PRE_LAUNCH"))
+                self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+                self.assertEqual(mlib.KXRW_ROLLOUT, st.flake_phase)
+                self.assertIn(needle, st.flake_reason)
+                self.assertEqual([], acts)
+        self.assertEqual("", mlib.kxrw_loop_conflict(mlib.kxrw_params_from_dict({})))
+
+    def test_the_warp_ceiling_is_the_ghost_hide_boundary(self):
+        """10x is index 2; the next rung (50x) is the flight engine's GhostHide
+        threshold, past which every overlap copy is hidden. MUTATION: raise the max
+        to 3 and this reds."""
+        self.assertEqual(10.0, mlib.RAILS_WARP_RATES[mlib.KXRW_LOOP_WARP_INDEX_MAX])
+        self.assertEqual(50.0,
+                         mlib.RAILS_WARP_RATES[mlib.KXRW_LOOP_WARP_INDEX_MAX + 1])
+        with open(SCHEMA_PATH, "rb") as fh:
+            schema = tomllib.load(fh)
+        self.assertEqual(mlib.KXRW_LOOP_WARP_INDEX_MAX,
+                         schema["params"]["loopWarpIndex"]["max"])
+        self.assertEqual(mlib.KXRW_LOOP_STAGES_MAX, 3)
 
 if __name__ == "__main__":
     unittest.main()

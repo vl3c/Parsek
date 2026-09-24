@@ -405,6 +405,18 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > `driver-arg` either way, because `hlib._SEAM_REFUSAL_SUBKINDS` maps the msg token and
 > never reads the verdict.
 
+> Update (GS-12, ghost-replay Tier C item 12, 2026-09-24): `MissionConfig` gained an optional
+> `unit=<sec|auto>` (applied only on an enable, like `intervalSeconds`; `auto` is
+> `LoopTimeUnit.Auto`, whose overlap cadence reads the global auto-loop interval, so an
+> interval sent beside it is not written; anything else is `REJECTED unit-arg-invalid`,
+> subkind `driver-arg`), three reply keys (`unit`, `overlapCadenceSeconds` - the TRUE
+> launch-to-launch period after the 20-instance cap, the only witness of that cap on a
+> mission loop because the builder applies it before the engine's own `Loop cadence` check
+> - and `autoLoopIntervalSeconds`), and it now calls the idempotent
+> `MissionStore.EnsureDefaultsForTrees` before resolving `tree=`, so a tree committed in-run
+> is addressable without a Missions-window draw first. All additive; the wire token and
+> every pre-existing key are unchanged.
+
 > Update (M-A7): one further verb, `ExportRenderManifest`, added the ADDITIVE way (never
 > in the reserved list above, like `SaveGame` and the EVA family), bringing the table to
 > **25 implemented / 7 reserved**. It flushes the armed render-composition recorder's

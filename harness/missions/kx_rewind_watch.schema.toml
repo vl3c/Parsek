@@ -615,6 +615,59 @@ type = "int"
 min = 1
 max = 3
 
+# ---- the LOOP-ARM opt-in (OPTIONAL; omitted = no loop) -------------------------
+#
+# GS-12 (ghost-replay Tier C item 12): after the ordinary PLAYBACK-WAIT, loop the
+# committed MISSION and watch its copies. A list of stage tables, flown in order:
+#   loopStages = [ { unit = "sec", intervalSeconds = 150, watchSeconds = 330 },
+#                  { unit = "auto", watchSeconds = 170 } ]
+# Each stage sends `MissionConfig tree=<captured> loop=true unit=<unit>` (plus
+# `intervalSeconds` on a `sec` stage; `auto` reads the GLOBAL auto-loop interval, so
+# an interval beside it is refused), asks for one EnterWatchMode (held and re-asked
+# on `no-watchable-ghost`, recorded, never judged), then walks `watchSeconds` of GAME
+# time under rails warp. A `ListHandles kind=committed` census runs once before
+# stage 0. With the key omitted not one frame moves. One added row,
+# `loopStagesDriven`. The element shape is validated by
+# `mlib.kxrw_loop_stages_from_list` and refused on the machine's first decision
+# frame (`mlib.kxrw_loop_conflict`), with `coastExitProfile`, `rewindCycles` > 1 and
+# `impactProfile` refused alongside in v1. At most `mlib.KXRW_LOOP_STAGES_MAX`.
+[params.loopStages]
+required = false
+type = "list"
+
+# The rails warp factor INDEX the stages wait under (0 = 1x, 1 = 5x, 2 = 10x). The
+# max is a product boundary: past 50x the flight engine hides every overlap copy
+# (WarpThresholds.GhostHide), which would erase the population being watched. Pinned
+# equal to `mlib.KXRW_LOOP_WARP_INDEX_MAX`.
+[params.loopWarpIndex]
+required = false
+type = "int"
+min = 0
+max = 2
+
+# Silence bound of ONE loop seam command (ListHandles / MissionConfig /
+# EnterWatchMode), in frames from the frame it went out.
+[params.loopSeamFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
+# The whole LOOP-WATCH phase: holding and re-asking for a watchable loop ghost.
+# Exhausting it records the last refusal and walks the stage anyway.
+[params.loopWatchFrames]
+required = false
+type = "int"
+min = 1
+max = 1000
+
+# The frame cap of one stage's warped wait; a stuck clock is what it names.
+[params.loopWaitFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
 # ---- FRAME budgets ------------------------------------------------------------
 #
 # FRAMES, not game seconds, and the reason is structural: Rewind-to-Launch puts
