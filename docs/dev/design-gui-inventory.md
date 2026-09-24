@@ -527,26 +527,31 @@ fast-forward and warp-to-time - which is why its launcher is deliberately kept i
 Hosts: `ParsekFlight.cs:2133` and `ParsekKSC.cs:255`; not the Tracking Station. Input lock
 `Parsek_TimelineWindow` (`:297-308`).
 
-Structure: a two-row filter area (below), an optional Time fold (the five time-range
-presets plus the From / To sliders), the entry scroll view with a "now" divider, a warp row,
-the single-line echo strip, `Close`, resize handle, drag. Minimum size 720x150
-(`MinWindowWidth`): both filter rows are six-cell grids on `GetResponsiveButtonWidth`, and
-the widest cell label, `Time: This Year`, needs about 110 px.
+Structure: a three-row filter area (below), the From / To sliders while `Custom` is lit, the
+entry scroll view with a "now" divider, a warp row, the single-line echo strip, `Close`,
+resize handle, drag. Minimum size 610x150 (`MinWindowWidth`): rows 2 and 3 are six-cell grids
+on `GetResponsiveButtonWidth` (`ComputeFilterCellWidth`), their widest labels (`Recordings`,
+`Strategies`, `Milestones`) fit the 93 px cell floor, and six floor cells plus margins and
+chrome are 608 px.
 
-Filter area (2026-09-24, `DrawFilterBar`). Row 1 is the one-at-a-time view group
-`Overview` / `Details` / `Rewind/FF` / `Re-Fly` / `Career` plus a `Time: <range>` button in
-column 6. Row 2 is the selected view's context row, always drawn and always one button tall
-so the list never moves (`ResolveContextRow`): the source toggles `Recordings` / `Actions` /
-`Events` plus `Archived` under Overview and Details; `Archived` alone under Rewind/FF and
-Re-Fly (the sources are forced or inert there, so they are hidden rather than greyed); the
-category buttons `Contracts` / `Strategies` / `Facilities` / `Milestones` / `Tech` under
-Career (single-select; `Career` reopens the last one used). The Career cell and the category
-set read the GAME mode, never the UI complexity mode: Career mode draws all five, Science
-draws Facilities / Milestones / Tech, Sandbox draws no Career cell (a grid-filler label keeps
-Time in column 6), and a category view the loaded mode does not show falls back to one it
-does. The `Time` button's label names the active range (`Time: All`, `Time: Last 7d`,
-`Time: Custom`, `FormatTimeButtonLabel`); it draws lit while its fold is open or a range is
-active, and clicking it opens and closes the fold. There is no separate `Custom` button.
+Filter area (2026-09-24, `DrawFilterBar` + `DrawTimeRangeFilterBar`). Row 1 is the
+one-at-a-time view group `Overview` / `Details` / `Rewind/FF` / `Re-Fly` / `Career`, its cells
+stretched over the full width (`ViewRowCellCount`: five, four in Sandbox). Row 2 is the
+selected view's context row, always drawn and always one button tall so the list never moves
+(`ResolveContextRow`): the source toggles `Recordings` / `Actions` / `Events` plus `Archived`
+under Overview and Details; `Archived` alone under Rewind/FF and Re-Fly (the sources are
+forced or inert there, so they are hidden rather than greyed); the category buttons
+`Contracts` / `Strategies` / `Facilities` / `Milestones` / `Tech` under Career (single-select;
+`Career` reopens the last one used). The Career cell and the category set read the GAME mode,
+never the UI complexity mode: Career mode draws all five, Science draws Facilities /
+Milestones / Tech, Sandbox draws no Career cell, and a category view the loaded mode does not
+show falls back to one it does. Row 3 is always drawn: `Last Day` / `Last 7d` / `Last 30d` /
+`This Year` / `All` / `Custom`, exactly one lit (`ResolveLitTimeRangeButton`; `All` by
+default), so the range in force is always visible. `Custom` shows the sliders
+(`SetCustomRangeSelected`; on over a preset keeps that range without its preset name, off
+clears to `All`); a slider drag lights `Custom` (`ApplyCustomSliderRange`); a preset turns
+`Custom` off (`ApplyTimeRangePreset`). `Custom` is disabled while the data spans no range.
+The earlier `Time: <range>` fold button (PR #1792) is gone.
 
 Row model: one row per `TimelineEntry` surviving `IsEntryVisible` (`:1162`); the list is built
 by `TimelineBuilder.Build` from `EffectiveState.ComputeERS()` + `ComputeELS()` +
@@ -628,7 +633,10 @@ Basic-hidden, this toggle is **the only archive control a Basic player can reach
 
 Career-view pictures (GUI-24 `2026-09-23_2134`): `ksc-timeline-contracts-advanced`,
 `ksc-timeline-milestones-advanced`, `ksc-timeline-tech-advanced` and
-`ksc-timeline-milestones-thisyear-advanced` (fold closed, `Time: This Year` lit). The Contracts
+`ksc-timeline-milestones-thisyear-advanced` (then a fold closed with `Time: This Year` lit; since
+the preset-row revert, GUI-24 `2026-09-24_1942`, the `This Year` preset lit on row 3). The same
+re-fly adds `ksc-timeline-customlastday-advanced` (Custom over Last Day: readout plus moved thumbs)
+and `ksc-timeline-minwidth-advanced` (all three rows at the 610 px floor). The Contracts
 view is also the first picture of the grey `!IsEffective` row: the host's duplicate contract
 completions (the `ContractsModule` already-resolved arm) draw grey between the effective ones.
 
@@ -1556,7 +1564,7 @@ wave-6 lane plan, the grammar and refusals in
 | --- | --- | --- |
 | `op=state key=srcRecordings\|srcActions\|srcEvents` | the three source-OFF row-population branches, all reading `true` in every existing dump | Timeline |
 | `op=state key=archived` | the Archived toggle ON plus the `[archived]` row marker (zero hits program-wide today); the same flag from the Recordings tab's Archive checkbox | Timeline + Missions |
-| `op=state key=customRange` + `key=preset` | the Time fold (formerly the Custom reveal: the preset row plus the window's only two sliders), the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout | Timeline |
+| `op=state key=customRange` + `key=preset` | the Custom range (the window's only two sliders; between 2026-09-24 PR #1792 and the preset-row revert the key opened a Time fold), the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout | Timeline |
 | `op=state key=scrollY` | the window's first scrolled PNG. Note the dump already carried below-fold content with full rects, so this buys the PICTURE, not the data | Timeline |
 | `op=state key=expandedStats` | the Info toggle's six extra columns (`MaxAlt` / `MaxSpd` / `Dist` / `Pts` / `Start` / `End`, in zero dumps) at +458 px - the largest single layout change in the window | Missions (Recordings tab) |
 | `op=state key=archivedMissions` | whole missions dropping out; the only way to exercise `DisplayBlockRendersAnything` and the corner-connector precedence table | Missions (Missions tab) |

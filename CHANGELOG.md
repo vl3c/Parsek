@@ -1254,6 +1254,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Timeline: the time-range presets are back on their own always-visible row.** This
+  partly reverts the `Time: <range>` button from the two-row filter area above. The filter
+  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career)
+  stretched across the full width, the view's own toggles (unchanged), and Last Day /
+  Last 7d / Last 30d / This Year / All / Custom. Exactly one of those six is lit, so the
+  range in force is always on screen (All by default). Custom shows the From / To sliders;
+  dragging a slider lights Custom, picking a preset turns Custom off and hides the sliders,
+  and turning Custom off returns to All. Turning Custom on over a preset keeps that range
+  as a custom one, and a preset and Custom are never lit together any more. The range
+  still applies in every view, the Career categories included. The window's minimum width
+  drops from 720 to 610 px, the width the six-button rows need. For the GUI census,
+  `op=state key=customRange` again means Custom selected (the sliders shown) rather than
+  the Time fold open; `GUI-24-census-timeline-filters` photographs the new rows.
+
 - **Automated testing: 26 lane checks the mutation checker found weak are tightened.**
   Fourteen lanes required only `Recording stopped`, which the recorder also prints when the
   game quits, so the check could pass without the flight ever stopping its recording; each

@@ -8,7 +8,8 @@ namespace Parsek.Tests
     /// <summary>
     /// The Timeline's two-row filter area and its Career view: the category and subject
     /// every row carries (from the ledger action type, never the display type), which
-    /// views and row-2 controls each game mode draws, the Time button's label, the row
+    /// views and row-2 controls each game mode draws, the time-range preset row's one lit
+    /// button and its Custom toggle, the row
     /// filter per view (the time range included on category views) and the career
     /// cross-link's scroll target.
     /// </summary>
@@ -379,38 +380,216 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
-        // The Time button
+        // The time-range preset row (Last Day ... All, Custom)
         // ------------------------------------------------------------------
 
         [Theory]
-        [InlineData(false, null, "Time: All")]
-        [InlineData(false, "Last 7d", "Time: All")]
-        [InlineData(true, "Last Day", "Time: Last Day")]
-        [InlineData(true, "Last 7d", "Time: Last 7d")]
-        [InlineData(true, "Last 30d", "Time: Last 30d")]
-        [InlineData(true, "This Year", "Time: This Year")]
-        [InlineData(true, null, "Time: Custom")]
-        public void TimeButtonLabel_NamesTheActiveRange(bool active, string preset, string expected)
+        [InlineData(false, false, null, "All")]
+        [InlineData(false, false, "Last 7d", "All")]
+        [InlineData(false, true, "Last Day", "Last Day")]
+        [InlineData(false, true, "Last 7d", "Last 7d")]
+        [InlineData(false, true, "Last 30d", "Last 30d")]
+        [InlineData(false, true, "This Year", "This Year")]
+        // A range no preset names is a slider range: Custom, even when not selected.
+        [InlineData(false, true, null, "Custom")]
+        [InlineData(false, true, "", "Custom")]
+        // Custom selected wins over everything, so a preset and Custom never both light.
+        [InlineData(true, false, null, "Custom")]
+        [InlineData(true, true, null, "Custom")]
+        [InlineData(true, true, "This Year", "Custom")]
+        public void LitTimeRangeButton_IsExactlyOne(bool customSelected, bool rangeActive,
+            string preset, string expected)
         {
-            Assert.Equal(expected, TimelineWindowUI.FormatTimeButtonLabel(active, preset));
+            Assert.Equal(expected,
+                TimelineWindowUI.ResolveLitTimeRangeButton(customSelected, rangeActive, preset));
         }
 
         [Fact]
-        public void TimeButton_LitWhileTheFoldIsOpenOrARangeIsActive()
+        public void ResetTimeRangeSliders_TurnsCustomOff()
         {
-            Assert.False(TimelineWindowUI.IsTimeButtonLit(false, false));
-            Assert.True(TimelineWindowUI.IsTimeButtonLit(true, false));
-            Assert.True(TimelineWindowUI.IsTimeButtonLit(false, true));
+            var window = new TimelineWindowUI(null);
+            window.SetCustomRangeSelected(new TimeRangeFilterState(), true);
+            Assert.True(window.IsCustomRangeSelectedForTesting);
+            window.ResetTimeRangeSliders();
+            Assert.False(window.IsCustomRangeSelectedForTesting);
         }
 
         [Fact]
-        public void CustomRangeStateKey_IsTheTimeFold()
+        public void TimeRangeRow_DefaultsToAll_WithCustomOff()
         {
             var window = new TimelineWindowUI(null);
             Assert.False(window.ShowCustomRangeForTesting);
-            window.ShowCustomRangeForTesting = true;
-            Assert.True(window.ShowCustomRangeForTesting);
+            Assert.Equal("All", TimelineWindowUI.ResolveLitTimeRangeButton(false, false, null));
+            Assert.Equal("Custom", TimelineWindowUI.CustomRangeButtonName);
         }
+
+        [Theory]
+        [InlineData("Last Day")]
+        [InlineData("Last 7d")]
+        [InlineData("Last 30d")]
+        [InlineData("This Year")]
+        public void PickingAPreset_LightsIt_AndTurnsCustomOff(string preset)
+        {
+            var window = new TimelineWindowUI(null);
+            var filter = new TimeRangeFilterState();
+            window.SetCustomRangeSelected(filter, true);
+            Assert.True(IsCustomLit(window, filter));
+
+            window.ApplyTimeRangePreset(filter, preset, 10_000_000);
+
+            Assert.False(IsCustomLit(window, filter));
+            Assert.Equal(preset, filter.ActivePresetName);
+            Assert.Equal(preset, Lit(window, filter));
+        }
+
+        [Fact]
+        public void PickingAll_ClearsTheRange_AndTurnsCustomOff()
+        {
+            var window = new TimelineWindowUI(null);
+            var filter = new TimeRangeFilterState();
+            window.ApplyCustomSliderRange(filter, 100f, 200f);
+            Assert.Equal("Custom", Lit(window, filter));
+
+            window.ApplyTimeRangePreset(filter, "All", 10_000_000);
+
+            Assert.False(filter.IsActive);
+            Assert.Equal("All", Lit(window, filter));
+        }
+
+        [Fact]
+        public void CustomOn_KeepsAPresetRange_AsACustomRange()
+        {
+            var window = new TimelineWindowUI(null);
+            var filter = new TimeRangeFilterState();
+            filter.SetRange(500, 900, "Last 7d");
+
+            window.SetCustomRangeSelected(filter, true);
+
+            Assert.Equal("Custom", Lit(window, filter));
+            Assert.Null(filter.ActivePresetName);
+            Assert.Equal(500, filter.MinUT);
+            Assert.Equal(900, filter.MaxUT);
+            Assert.Contains(logLines, l => l.Contains("[UI]")
+                && l.Contains("Custom selected, keeping the 'Last 7d' range as a custom range"));
+        }
+
+        [Fact]
+        public void CustomOn_WithNoRange_LeavesTheListWhole()
+        {
+            var window = new TimelineWindowUI(null);
+            var filter = new TimeRangeFilterState();
+
+            window.SetCustomRangeSelected(filter, true);
+
+            Assert.False(filter.IsActive);
+            Assert.Equal("Custom", Lit(window, filter));
+            Assert.Contains(logLines, l => l.Contains("[UI]")
+                && l.Contains("Custom selected, sliders shown"));
+        }
+
+        [Fact]
+        public void CustomOff_ClearsTheRange_AndLightsAll()
+        {
+            var window = new TimelineWindowUI(null);
+            var filter = new TimeRangeFilterState();
+            window.ApplyCustomSliderRange(filter, 100f, 200f);
+
+            window.SetCustomRangeSelected(filter, false);
+
+            Assert.False(filter.IsActive);
+            Assert.Equal("All", Lit(window, filter));
+            Assert.Contains(logLines, l => l.Contains("[UI]")
+                && l.Contains("Custom off, cleared (All)"));
+        }
+
+        [Fact]
+        public void SliderDrag_SelectsCustom_AndClearsThePreset()
+        {
+            var window = new TimelineWindowUI(null);
+            var filter = new TimeRangeFilterState();
+            window.ApplyTimeRangePreset(filter, "This Year", 10_000_000);
+            Assert.Equal("This Year", Lit(window, filter));
+
+            window.ApplyCustomSliderRange(filter, 300f, 250f);
+
+            Assert.Equal("Custom", Lit(window, filter));
+            Assert.Null(filter.ActivePresetName);
+            // From is clamped to To.
+            Assert.Equal(250, filter.MinUT);
+            Assert.Equal(250, filter.MaxUT);
+        }
+
+        [Fact]
+        public void CustomRangeStateKey_IsCustomSelected()
+        {
+            // No ParsekUI: the seam property runs on a null filter, so only the selection
+            // itself decides.
+            var window = new TimelineWindowUI(null);
+            Assert.False(window.ShowCustomRangeForTesting);
+            window.SetCustomRangeSelected(new TimeRangeFilterState(), true);
+            Assert.True(window.ShowCustomRangeForTesting);
+            window.ShowCustomRangeForTesting = false;
+            Assert.False(window.ShowCustomRangeForTesting);
+        }
+
+        [Fact]
+        public void SeamReadBack_FollowsTheLitButton()
+        {
+            var ui = new ParsekUI(UIMode.KSC);
+            TimelineWindowUI window = ui.GetTimelineUI();
+            Assert.Equal("All", window.ActiveTimeRangePresetForTesting);
+            Assert.False(window.ShowCustomRangeForTesting);
+
+            window.ApplyTimeRangePresetForTesting("This Year", 10_000_000);
+            Assert.Equal("This Year", window.ActiveTimeRangePresetForTesting);
+            Assert.False(window.ShowCustomRangeForTesting);
+
+            // Custom over the preset: the preset read-back goes null (no preset is lit), so a
+            // later `preset=All` reads as a change even though the filter keeps its range.
+            window.SetCustomRangeSelected(new TimeRangeFilterState(), true);
+            Assert.True(window.ShowCustomRangeForTesting);
+            Assert.Null(window.ActiveTimeRangePresetForTesting);
+            Assert.True(ui.TimeRangeFilter.IsActive);
+
+            window.ShowCustomRangeForTesting = false;
+            Assert.False(ui.TimeRangeFilter.IsActive);
+            Assert.Equal("All", window.ActiveTimeRangePresetForTesting);
+        }
+
+        [Fact]
+        public void ViewRow_FillsTheWidth_WithFiveOrFourCells()
+        {
+            Assert.Equal(5, TimelineWindowUI.ViewRowCellCount(drawCareer: true));
+            Assert.Equal(4, TimelineWindowUI.ViewRowCellCount(drawCareer: false));
+            // At the first-open width a five-cell row spans the width exactly:
+            // chrome 22 + margins 4 * (5 + 1) + 5 cells.
+            float w = TimelineWindowUI.ComputeFilterCellWidth(820f, 5);
+            Assert.Equal(820.0, 22.0 + 24.0 + 5.0 * w, 3);
+            Assert.True(w > TimelineWindowUI.ComputeFilterCellWidth(820f, TimelineWindowUI.GridCells));
+        }
+
+        [Fact]
+        public void EveryFilterRow_FitsAtTheMinimumWidth()
+        {
+            // The six-cell rows are the widest; at the floor width their cells must not be
+            // held up by the cell floor, or the row would widen the window past its minimum.
+            float cell = TimelineWindowUI.ComputeFilterCellWidth(
+                TimelineWindowUI.MinWindowWidth, TimelineWindowUI.GridCells);
+            Assert.True(22f + 28f + TimelineWindowUI.GridCells * cell
+                <= TimelineWindowUI.MinWindowWidth + 0.001f);
+            float viewCell = TimelineWindowUI.ComputeFilterCellWidth(
+                TimelineWindowUI.MinWindowWidth, TimelineWindowUI.ViewRowCellCount(true));
+            Assert.True(22f + 24f + 5 * viewCell <= TimelineWindowUI.MinWindowWidth + 0.001f);
+            Assert.True(viewCell >= cell);
+        }
+
+        // The button the row draws lit: the window's Custom selection plus the filter.
+        private static string Lit(TimelineWindowUI window, TimeRangeFilterState filter)
+            => TimelineWindowUI.ResolveLitTimeRangeButton(window.IsCustomRangeSelectedForTesting,
+                filter.IsActive, filter.ActivePresetName);
+
+        private static bool IsCustomLit(TimelineWindowUI window, TimeRangeFilterState filter)
+            => Lit(window, filter) == TimelineWindowUI.CustomRangeButtonName;
 
         // ------------------------------------------------------------------
         // Row filter

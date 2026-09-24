@@ -50,21 +50,27 @@ tier = "operator"
 # the only tab switches are the Career category views at the END, after the last source
 # write, so the gate never fires here.
 #
-# THE TWO-ROW FILTER AREA (2026-09-24). Row 1 is the view group (`Overview`, `Details`,
-# `Rewind/FF`, `Re-Fly`, `Career`) plus a `Time: <range>` button; row 2 is the selected
-# view's context row (the three source toggles and `Archived` under Overview / Details,
-# the five career categories under Career). The old `Custom` button is folded into Time:
-# `key=customRange` now opens the Time fold (preset row plus the From / To sliders), so
-# `ksc-timeline-customrange-advanced` photographs the open fold, and the two preset
-# captures stand over it with the Time label naming the range.
+# THE THREE-ROW FILTER AREA (2026-09-24, the preset-row revert). Row 1 is the view group
+# (`Overview`, `Details`, `Rewind/FF`, `Re-Fly`, `Career`) stretched over the full width;
+# row 2 is the selected view's context row (the three source toggles and `Archived` under
+# Overview / Details, the five career categories under Career); row 3 is the always-drawn
+# preset row `Last Day` / `Last 7d` / `Last 30d` / `This Year` / `All` / `Custom` with
+# exactly one lit. `key=customRange` means Custom selected, i.e. the From / To sliders
+# shown (between PR #1792 and this revert it opened a Time fold). So
+# `ksc-timeline-customrange-advanced` photographs Custom lit with the sliders at the full
+# data range, the two preset captures show the preset lit and the sliders GONE (a preset
+# turns Custom off), and `ksc-timeline-customlastday-advanced` turns Custom on over the
+# Last Day preset: the range carries over as a custom one, so the active-range readout and
+# the moved thumbs are in frame. `ksc-timeline-minwidth-advanced` commands the window
+# narrower than its floor (the rect op clamps to `MinWindowWidth`) in the Career view,
+# whose row 2 holds the widest labels, to show every row fits at the minimum width.
 #
 # THE CAREER CATEGORY CAPTURES are one per category that has rows on this host: the
 # operator's career ledger carries contract accepts and completions, 40 milestone credits
 # and 17 tech unlocks, and NO strategy or facility action at all, so `strategies` and
 # `facilities` would photograph an empty list under a populated label and are not taken.
 # `ksc-timeline-milestones-thisyear-advanced` is the owner ruling in one picture: the time
-# range applies in a category view too, with the Time fold CLOSED so the lit
-# `Time: This Year` button is the only sign of it.
+# range applies in a category view too, with the lit `This Year` preset naming it.
 #
 # THE PRESET ROW'S `All` BUTTON IS A CLEAR, not a range, and the seam reports it
 # honestly: `ApplyTimeRangePreset` calls `filter.Clear()` for it and
@@ -91,7 +97,7 @@ tier = "operator"
 # so the two steps are GONE rather than relabelled - GUI-1 already photographs both tabs
 # in their resting form on this host. Filed as
 # GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER.
-description = "GUI census wave 6: the Timeline window's scalar view state - each source toggle off, the archive filter on, the Time fold open, two time-range presets, a scrolled entry list, and the Career view's contracts / milestones / tech categories (one under a This Year range) - on the dense operator-local census host."
+description = "GUI census wave 6: the Timeline window's scalar view state - each source toggle off, the archive filter on, Custom selected with its sliders (at full range and over Last Day), two lit time-range presets, a scrolled entry list, the Career view's contracts / milestones / tech categories (one under a This Year range) and the window at its minimum width - on the dense operator-local census host."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "timeline", "career", "GUI-24", "pending-operator"]
 
@@ -148,14 +154,14 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-archivedfilter-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "state", window = "timeline", key = "archived", state = "false" }, expect = "OK" },
 
-  # --- STATE 5: the Time fold open (the `customRange` key) - the preset row plus the
-  # window's ONLY two sliders and their From: / To: labels.
+  # --- STATE 5: Custom selected (the `customRange` key) - Custom lit on the preset row
+  # and the window's ONLY two sliders with their From: / To: labels, at the full range.
   { cmd = "UiAction", args = { op = "state", window = "timeline", key = "customRange", state = "true" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-customrange-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-customrange-advanced" }, expect = "OK" },
 
-  # --- STATE 6-7: two ranged presets over the revealed sliders, so the active-range
-  # readout and the moved thumbs are both in frame.
+  # --- STATE 6-7: two ranged presets. Each lights its own button and turns Custom off,
+  # so the sliders are hidden in both captures.
   { cmd = "UiAction", args = { op = "state", window = "timeline", key = "preset", value = "This Year" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-presetthisyear-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-presetthisyear-advanced" }, expect = "OK" },
@@ -164,7 +170,14 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-presetlastday-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-presetlastday-advanced" }, expect = "OK" },
 
-  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "preset", value = "All" }, expect = "OK" },
+  # --- STATE 7b: Custom on over the Last Day preset - the range carries over without its
+  # preset name, so Custom lights, the sliders sit at Last Day's range and the dim
+  # active-range readout draws above them.
+  { cmd = "UiAction", args = { op = "state", window = "timeline", key = "customRange", state = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-customlastday-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-customlastday-advanced" }, expect = "OK" },
+
+  # Custom off returns to All (the button's own body), so no separate preset step.
   { cmd = "UiAction", args = { op = "state", window = "timeline", key = "customRange", state = "false" }, expect = "OK" },
 
   # --- STATE 8: a lower band of the entry list. PNG-only: the dump carries below-fold
@@ -187,12 +200,19 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-tech-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-tech-advanced" }, expect = "OK" },
 
-  # --- STATE 12: a category view under a time range, with the Time fold CLOSED (it was
-  # closed after STATE 7), so the lit `Time: This Year` label is what says rows are hidden.
+  # --- STATE 12: a category view under a time range; the lit `This Year` preset is what
+  # says rows are hidden.
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "milestones" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "state", window = "timeline", key = "preset", value = "This Year" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-milestones-thisyear-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-timeline-milestones-thisyear-advanced" }, expect = "OK" },
+
+  # --- STATE 13: the minimum width. A 400 px rect is clamped to the window's floor
+  # (`MinWindowWidth`), and the Career view's row 2 carries the widest labels, so every
+  # filter row is in frame at the narrowest width a player can drag to.
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "400", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-minwidth-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-minwidth-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "state", window = "timeline", key = "preset", value = "All" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
@@ -243,6 +263,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-customrange-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-presetthisyear-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-presetlastday-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-customlastday-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-scrolled-advanced .*patched=17/17",
 
   # The Career view: each category tab write names its token and its index (4, 7 and 8,
@@ -254,6 +275,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-milestones-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-tech-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-milestones-thisyear-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-minwidth-advanced .*patched=17/17",
 ]
 forbidden = []
 
@@ -267,7 +289,7 @@ forbidden = []
 gating = false
 
 [runtime]
-# Twelve captures and twelve dumps, a 300 s cold load of a 42 MB career and ~35 single-phase
+# Fourteen captures and fourteen dumps, a 300 s cold load of a 42 MB career and ~35 single-phase
 # UI ops. GUI-1 measures 22 captures plus 22 dumps on the same host at 96 s wall against a
 # 1500 s budget; the first flight of this lane (with two more captures than it now has)
 # measured 88 s. 900 s is the budget every other census lane uses.
