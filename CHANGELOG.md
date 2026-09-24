@@ -38,6 +38,12 @@ _(unreleased — entries accumulate here per commit)_
   mission), and checks that the dock's two parents are both recordings of the one flight:
   the one being flown and the half the undock left recording in the background. Its first
   flight found the one-parent dock defect listed under Fixed.
+- **Automated testing: a lane takes a Rewind-to-Launch in the middle of a Re-Fly.**
+  `RF-15-rtl-cancels-live-refly` re-flies the Kerbal X core stage, stops the re-fly recording,
+  rewinds the same flight to launch, then saves and loads. It checks that the rewind ends the
+  Re-Fly at once with no dialog, that the rewind point survives, and that the following load
+  finds nothing left over to clean up. Its first flight caught the fix working on the wrong
+  copy of the flight, which is corrected.
 - **Automated testing: a lane re-flies a stage after a Rewind-to-Launch and quickloads in
   the middle of it.** `RF-14-rtl-refly-load-sweep` flies the staged Kerbal X, rewinds the
   whole flight to launch, waits on the pad until the clock passes the stage separation
@@ -1212,6 +1218,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **A Rewind-to-Launch taken in the middle of a Re-Fly now ends that Re-Fly on the spot.**
+  Rewinding is refused while the Re-Fly recording is live, but after the re-flown vessel is
+  destroyed while another part of the flight is still flying, and focus moves on, the Rewind
+  button (and Warp-to-time's go-back) became available with the Re-Fly still open. Taking it
+  now cancels the Re-Fly the same way returning to the Space Center without merging does:
+  the unfinished attempt and its files are thrown away, rewind points made during it are
+  removed, and the stage you were re-flying stays in Unfinished Flights, re-flyable again once
+  the clock passes its separation. Before, the rewind could stop in flight on the Re-Fly merge
+  dialog with the rewound game already loaded, or leave the cancelled attempt behind for the
+  next load to clean up. No new dialog.
 - **A flight that ends parked on the launch pad or the runway start is over: it never
   becomes a real vessel.** If the last stop of a recorded flight is inside the 50 m safety
   circle around the launch pad or the runway's west end on Kerbin, Parsek now treats the
