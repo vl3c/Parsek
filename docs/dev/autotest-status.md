@@ -6094,49 +6094,74 @@ six publish or compare numbers the runner already measured.
     Operator rulings 2026-09-24: an operator tool run over local archives (CI cannot see
     them), and survivors are listed, never failing a run. Phase 2 is todo
     MUTATION-CHECK-PHASE-2.
-    FIRST SWEEP (2026-09-24, 326 s, every archive under the umbrella root): 300 specs, 151
-    lanes with a green baseline, 72 whose newest three archives do not replay green
+    NUMERIC RULE (after the #1801 review): an identifier-shaped field (`pid`, `id`,
+    `idx`, `index`, `inst`, `rec`, `slot`, `dist`, the UT fields, `frame=`, a `...Root`
+    part pid, an unlabelled number) is `info`; EVERY other field that moves between zero
+    and nonzero while the lane still passes is `triage`; a nonzero value moved by one is
+    `info`.
+    FIRST SWEEP (2026-09-24, every archive under the umbrella root): 300 specs, 152
+    lanes with a green baseline, 71 whose newest three archives do not replay green
     against today's spec (mostly collect-logs folders of non-PASS runs, or specs that
-    moved since), 77 with no archive on this machine. 11,732 mutations: 8,492 killed,
-    3,240 survived - 3,183 `info` (free numeric fields such as UTs and pids, and the width
-    of a declared window), 19 `intended`, 38 `triage`. The triage set, read by hand:
+    moved since), 77 with no archive on this machine. 11,776 mutations: 8,511 killed,
+    3,265 survived - 2,380 `info` (identifier fields, nonzero magnitudes moved by one,
+    the width of a declared window, and the count window), 162 `intended`, 723
+    `triage` across 96 lanes (716 of them numeric: 556 a field dropping to zero, 160 a
+    field leaving zero). Read by hand, by group:
     - **Needs a spec change (the gate does not prove its claim):**
       - `B1-pad-hop`, `B2-lko-ascent`, `B5-mun-flyby`: required `Recording stopped` is
         satisfied by TEARDOWN lines alone (the flush at quit stops the recording and
         prints the same line), so the token cannot tell whether the in-run stop happened.
-        Anchor it to an in-run step or drop it.
+        Anchor it to an in-run step or drop it. The same bare `"Recording stopped"` is
+        required by B4, B6, B7, B11-B26, B28-B30 and fifteen more specs (V1, V9, V11-V13,
+        S0.5, S0.6, CL-1, CL-2, EVA-4, GS-2, L3, L5, MC-3, BDOCK-1), so the teardown gap
+        almost certainly applies to them too; only B1 / B2 / B5 had a green archive here.
       - `GUI-16-census-gloops-states`: `gloopsstop committed=true points=[0-9]+` passes a
         Gloops stop that committed ZERO points; make it `points=[1-9][0-9]*`.
       - `S4.1-rewind-merge`: `[expectations.unityExceptions]` arms only `maxTotal = 3`, so
         an exception THROWN in Parsek code passes while the count has headroom (both
         injections survive). Ruling A4-b says a Parsek frame is a finding at any count:
         arm `maxParsekThrowSite = 0` after one report-only read of its archived runs.
-      - Failure-shaped fields the pattern leaves free (`[0-9]+`, or swallowed by `.*`):
+      - Failure-shaped fields left free (`[0-9]+`, or swallowed by `.*`):
         `skippedOwned=` on `B32` / `V26M` / `V26T` (route line draw), `seamSkipped=` on
         `V14M` / `V15M` / `V16M` / `V19M` / `V20M` (Split summary), `dropped=` and
         `skippedNonImmutableOldSides=` on `RF-4`, `staleDropped=` on `RF-14`,
-        `skipped=` on `GUI-12`'s `uiaction run ok` line. Each needs a one-line ruling:
-        pin it to `0`, or record why a nonzero value is healthy.
-    - **Probably intended, confirm when next touching the spec:**
-      - count-shaped fields a presence token leaves free on purpose: `Restored: recs=.*`
-        (`trees=` on `CL-4`, `RF-1`, `RF-9`, `S4.1`), S4.1's merge-dialog `recordings=`,
-        `L3`'s science `total=`, the `reservations=` / `oldRows=` / `newRows=` counts on
-        `RF-12S` / `RF-13` / `RF-13R` (their claim is `permanent=0` and the repair count),
-        and the census `uiaction expand ... total=` read-backs on `GUI-5` / `GUI-11` /
-        `GUI-17` / `GUI-18` (the picture is the evidence).
-      - save-parse windows with only a `max` admit zero: `B17`'s
-        `terminalStates.Destroyed <= 1` and `EVA-2`'s `points.trivialRecordings <= 1` are
-        upper bounds by design.
-    - **Intended by declaration (not triage):** the 11 anomaly tokens a spec lists in
+        `skipped=` on `GUI-12` / `RF-12L` / `RF-12W`, and `outsideSoi=` on every
+        V-lane map-dwell sampler line (16 lanes).
+    - **Presence tokens whose counts are free (each needs a one-line ruling: pin the
+      floor, or record why zero is healthy):**
+      - the render-sampler summaries on the V lanes: `sampled=` (19), `evaluated=` (18),
+        `phases=` (13), `P=` / `cadence=` / `fixedCadenceResidual=` / `anchor=` (six
+        loop-periodicity lanes), the graze counters on the V*M Split summaries, and the
+        orbital elements (`sma` / `ecc` / `inc` / `argPe` / `mna` / `epoch`) on the four
+        V*T arrival lanes;
+      - the census read-backs: `dumpguitree ok ... nodes= bytes= windows=` (110 of each,
+        every GUI lane that dumps a tree), `frames=` (17), `changed=` / `expanded=` /
+        `total=` on `uiaction` lines - a zero-byte dump or a zero-node tree passes today;
+      - the re-fly / ledger counts: the `Restored: recs=.*` scenario summary (`trees=`,
+        `actions=`, `crew=`, `tombstones=`, `supersedes=`, `rps=`... on `CL-4`, `RF-1`,
+        `RF-9`, `S4.1`), the per-module ledger tallies (`Funds=`, `Science=`,
+        `Contract=`... on `CL-4`, `RF-12S`, `RF-13`), `reservations=` / `oldRows=` /
+        `newRows=` on `RF-12S` / `RF-13` / `RF-13R`;
+      - the logistics counters on the RVR lanes (`cMin=` on nine, `debited=`, `units=`,
+        `capacity=`, `stop=`), the loop lanes' `intervalSeconds=` / `suppressed=`, the
+        spawn-decision tallies on `V22T` / `V23T` (`created=`, `debris=`, `spawned=`...).
+    - **Classifier noise to discount:** `children=` on the GS lanes (10) is a PID list
+      (`Controllable split children: [pid,pid]`), and a handful of capitalised prose
+      words (`Ghost=`, `HEAD=`, part-name fragments on `S1.9`) - identifiers in
+      substance.
+    - **Save-parse windows with only a `max` admit zero:** `B17`'s
+      `terminalStates.Destroyed <= 1` and `EVA-2`'s `points.trivialRecordings <= 1`
+      (upper bounds by design; confirm when next touching the spec).
+    - **Intended by declaration (not triage, 162):** the anomaly tokens a spec lists in
       `allowedAnomalies`, two caller-shape exceptions under a `maxParsekThrowSite`-only
-      block (the 2026-09-22 ruling), and six numeric survivors on the operator-local
+      block (the 2026-09-22 ruling), and the numeric survivors on the operator-local
       census lanes (`GUI-1` / `GUI-2` / `GUI-24` assert that a window drew, not what).
-    - **Multi-phase patterns** besides the three above: `GS-9`'s two tempered
-      `{8}` mesh-lifecycle patterns span the quit marker, but no phase alone satisfies
-      them (killed).
-    What the sweep does NOT cover: the 149 lanes without a green archive here (re-run it
-    after a tier), mission-side assertions, the ledger oracle and save perturbation below
-    the facet level (phase 2).
+    - **Multi-phase patterns** besides the three above: `GS-9`'s two tempered `{8}`
+      mesh-lifecycle patterns span the quit marker, but no phase alone satisfies them
+      (killed).
+    What the sweep does NOT cover: the 148 lanes without a green archive here (re-run it
+    after a tier), mission-side assertions, the ledger oracle, the offline analyzer, the
+    batch tally, ghostlife and save perturbation below the facet level (phase 2).
 
 ## Operator items outstanding
 

@@ -35,8 +35,8 @@ so a cell there can go vacuous with nothing noticing:
 - Forbidden patterns: phase 1 cannot synthesize a line a forbidden regex would match; a
   literal-shaped forbidden token (`\[Parsek\]\[ERROR\]`) could be injected directly.
 
-Also open from the first sweep: the 38 triage survivors listed in known-gate 17 (spec
-tightening; each is a one-line spec change or a recorded ruling).
+Also open from the first sweep: the 723 triage survivors (96 lanes) listed by group in known-gate 17
+(spec tightening; each group is a spec change or a recorded ruling).
 
 ## ~~TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT: re-docking two vessels of one recorded flight kept only one of them as the dock's parent when the vessel being flown was the one that survived the dock~~ [FILED 2026-09-24 off SD-1's reading run `2026-09-23_2140`. FIXED 2026-09-24 on branch `d5-samedock`]
 

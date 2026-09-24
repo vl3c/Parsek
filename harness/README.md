@@ -1088,8 +1088,13 @@ Archives: every `<umbrella>/*/harness/results` (`<runId>.json` +
 `<runId>_shots/KSP.log` + `<runId>_save/`) and every `<umbrella>/logs/<stamp>_<specId>/`
 collect folder (`KSP.log`, `saves/<save>/`, `parsek/Recordings/`). Per spec it
 tries the newest `--max-tries` (3) archives until one replays green against the
-CURRENT spec; a lane with none reports "baseline not green" and is skipped. The
-report lands in `results/mutation-check/<stamp>.md` (gitignored).
+CURRENT spec; a lane with none reports "baseline not green" and is skipped. A
+collect-logs folder carries NO verdict (collect-logs runs only on a non-PASS run, and
+the folder holds no result JSON), so a green baseline there means only that today's
+replayable evaluators pass over that log - the run itself may have red on a verifier
+this tool does not replay. An archive with no saved recordings leaves
+`recordings.count` unchecked; the lane notes it. The report lands in
+`results/mutation-check/<stamp>.md` (gitignored).
 
 What it replays - only the gating evaluators that are pure over an archive:
 
@@ -1109,16 +1114,20 @@ without the run doing the thing).
 Survivor classes: `triage` (read it), `intended` (the spec declares the tolerance:
 an `allowedAnomalies` entry, or a caller-shape exception under a
 `maxParsekThrowSite`-only block per the 2026-09-22 ruling), `info` (a free field:
-a UT, a pid, a window's width). A number is triaged when a failure-shaped field
-(`failed=`, `skipped=`, `rejected=`...) moves off zero, or a count-shaped field
-(`count=`, `total=`, `passed=`...) drops to zero, and the lane still passes.
+a UT, a pid, a window's width). A number is triaged when it moves from zero to
+nonzero, or from nonzero to zero, and the lane still passes - for EVERY field except
+an identifier-shaped one (`pid`, `id`, `idx`, `index`, `inst`, `rec`, `slot`, `dist`,
+the UT fields, a `...Root` part pid, and an unlabelled number), which stays `info`.
+A nonzero value moved by one is `info` (magnitude, not presence).
 Every triage survivor is re-decided by the real `hlib.evaluate_expectations` over
 the full mutated text; the cheaper incremental re-check used for the rest is held
 equal to it by `LaneEvaluatorTests`.
 
 Not replayed (phase 2, todo MUTATION-CHECK-PHASE-2): the ledger oracle, the
-mission verdict, driver validity, the C# log validator, render composition, and
-save / ledger perturbation below the facet level.
+mission verdict, driver validity, the C# log validator, the offline recording
+analyzer, the in-game `testResults` / batch tally row, the ghost-lifecycle row
+(`ghostlife`), render composition, and save / ledger perturbation below the facet
+level.
 
 ## Fixture saves and the shared craft library
 

@@ -215,7 +215,62 @@ class NumericPerturbationTests(unittest.TestCase):
         self.assertEqual(mutlib.perturb_number("12.50"), [("plus1", "13.50"), ("zero", "0.00")])
 
 
+class NumericClassificationTests(unittest.TestCase):
+    """Identifier-shaped fields are free; every other field moving between zero and
+    nonzero while the gate passes is triage."""
+
+    FREE_FIELD_RE = re.compile(
+        r"([A-Za-z_][\w.]*)=(?:\(\?:)?(?:\[0-9\]\+|\[0-9\.\]\+|\\d\+|\[1-9\]\[0-9\]\*|"
+        r"\[0-9\]\*|\\S\+|\[-0-9\.\]\+|\[0-9\.\-\]\+|\[-0-9\.eE\+\]\+)")
+    IDENTIFIERS = {"pid", "id", "index", "rec", "slot", "dist", "distance", "ut", "UT",
+                   "currentUT", "expiryUT", "recId", "ghostIndex", "focusedPid", "midx",
+                   "anchorDist", "originRoot", "focusSlot", "#", "#Mk1", "#b63f", "frame"}
+    GAPS_THE_OLD_LIST_HID = {"overTolerance", "outsideSoi", "frames", "sampled", "evaluated",
+                             "matches", "delivered", "created", "debris", "vessels", "parts",
+                             "links", "steps"}
+
+    def _committed_free_labels(self):
+        import glob
+        import tomllib
+        labels = set()
+        for path in glob.glob(os.path.join(os.path.dirname(_HERE), "scenarios", "*.toml")):
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            lc = (spec.get("expectations") or {}).get("logContracts") or {}
+            for pat in lc.get("required", []) or []:
+                labels.update(m.group(1) for m in self.FREE_FIELD_RE.finditer(str(pat)))
+        return labels
+
+    def test_every_committed_free_field_label_classifies(self):
+        labels = self._committed_free_labels()
+        self.assertGreater(len(labels), 50)
+        for label in sorted(labels | self.IDENTIFIERS | self.GAPS_THE_OLD_LIST_HID):
+            ident = mutlib.is_identifier_label(label)
+            off_zero = mutlib.classify_numeric_survivor(label, "plus1", ["0"])[0]
+            to_zero = mutlib.classify_numeric_survivor(label, "zero", ["7"])[0]
+            magnitude = mutlib.classify_numeric_survivor(label, "plus1", ["7"])[0]
+            self.assertEqual(magnitude, mutlib.INFO, label)
+            if ident:
+                self.assertEqual((off_zero, to_zero), (mutlib.INFO, mutlib.INFO), label)
+            else:
+                self.assertEqual((off_zero, to_zero), (mutlib.TRIAGE, mutlib.TRIAGE), label)
+        for label in self.IDENTIFIERS:
+            self.assertTrue(mutlib.is_identifier_label(label), label)
+        for label in self.GAPS_THE_OLD_LIST_HID:
+            self.assertFalse(mutlib.is_identifier_label(label), label)
+        # Names that merely END in an identifier-looking run stay countable.
+        for label in ("invalid", "valid", "paid"):
+            self.assertFalse(mutlib.is_identifier_label(label), label)
+
+
 class CountAndSideVerifierTests(unittest.TestCase):
+
+    def test_a_missing_archived_save_is_noted(self):
+        lane = mutlib.check_lane(_spec(count={"min": 1}), _inputs(_log(run=[_p("x")]), None))
+        self.assertEqual(lane.baseline, mutlib.BASELINE_GREEN)
+        self.assertTrue(any("recordings.count" in n and "no archived save" in n
+                            for n in lane.notes), lane.notes)
+        self.assertEqual(_by_kind(lane, "count"), [])
 
     def test_a_count_window_admitting_zero_is_triage(self):
         text = _log(run=[_p("x")])
@@ -272,8 +327,13 @@ class SaveWindowTests(unittest.TestCase):
         facets = saveparse.observed_structure_facets(self.snapshot)
         exp = {"rewind": {"gating": True, "supersedeRows": 0, "tombstones": 0, "rewindPoints": 0},
                "recordings": {"structure": {"gating": True, "trees": 0, "recordings": 0,
-                                            "terminalStates": {"Orbiting": 0}},
-                              "points": {"gating": True, "total": 0}}}
+                                            "terminalStates": {"Orbiting": 0},
+                                            "branchPoints": {"Undock": 0},
+                                            "vesselNames": {"B9 Stack": 0}},
+                              "points": {"gating": True, "total": 0}},
+               "routes": {"gating": True, "count": 0, "stops": 0,
+                          "statuses": {"Active": 0}, "connectionKinds": {"None": 0},
+                          "originBodies": {"Kerbin": 0}, "destinationBodies": {"Mun": 0}}}
         walked = mutlib.save_windows(exp, self.snapshot)
         # Pin every walked window to measured+1: the evaluator must name each label.
         for label, _w, measured, _a in walked:
@@ -283,8 +343,16 @@ class SaveWindowTests(unittest.TestCase):
                 node = node[part]
             node[key] = measured + 1
         sp = saveparse.evaluate_save_structure(exp, self.snapshot)
-        named = {m.split(" ")[0] for m in sp.mismatches}
-        self.assertEqual(named, {label for label, _w, _m, _a in walked})
+        # Group labels can carry spaces (a vessel name), so compare by prefix.
+        walked_labels = {label for label, _w, _m, _a in walked}
+        for label in walked_labels:
+            self.assertTrue(any(m.startswith(label + " ") for m in sp.mismatches), label)
+        self.assertEqual(len(sp.mismatches), len(walked_labels))
+        for label in ("recordings.structure.branchPoints.Undock",
+                      "recordings.structure.vesselNames.B9 Stack", "routes.count",
+                      "routes.stops", "routes.statuses.Active", "routes.connectionKinds.None",
+                      "routes.originBodies.Kerbin", "routes.destinationBodies.Mun"):
+            self.assertIn(label, walked_labels)
         self.assertEqual(facets["recordings"]["structure"]["trees"],
                          dict((l, m) for l, _w, m, _a in walked)["recordings.structure.trees"])
 
@@ -309,7 +377,7 @@ class LaneEvaluatorTests(unittest.TestCase):
         self.assertTrue(mutlib.is_line_local(r"Recording started: pid=[0-9]+ \(x\)"))
         self.assertTrue(mutlib.is_line_local(r"digest=([0-9a-f]{8}) expected=\1"))
         for pat in (r"a\s+b", r"a[^x]b", r"(?s)a.b", r"^a", r"a$", r"a[\s\S]*?b",
-                    r"(?<=x)a", r"a\nb", r"a\Db"):
+                    r"(?<=x)a", r"a\nb", r"a\Db", "a\nb", "a\rb", "done count=3\n"):
             self.assertFalse(mutlib.is_line_local(pat), pat)
 
     def test_shortcut_agrees_with_the_real_evaluator(self):
@@ -322,12 +390,27 @@ class LaneEvaluatorTests(unittest.TestCase):
         run += [_p("Chain A pid=4"), _p("filler"), _p("Chain B pid=4"), _p("done count=3")]
         spec = _spec(required=[r"Recording started: vessel=V2 points=[0-9]+ failed=0",
                                r"Chain A pid=([0-9]+)[\s\S]*?Chain B pid=\1",
-                               r"done\s+count=[1-9]"],
+                               r"done\s+count=[1-9]",
+                               # a lookahead reading past the matched text
+                               r"vessel=V1(?= points=[0-9]*7 )",
+                               # a LITERAL line break in the pattern text
+                               "Chain B pid=4\n",
+                               # a hit set capped below its real size (see below)
+                               r"tick ut=[0-9]+\.5"],
                      forbidden=[r"failed=[1-9]", r"count=0\b", r"ut=40\.5[\s\S]*?done"])
         text = _log(run=run)
         model = mutlib.build_log_model(text)
         exp = spec["expectations"]
-        ev = mutlib.LaneEvaluator(exp, None, model, {})
+        saved_cap = mutlib.MAX_MATCHES_PER_PATTERN
+        mutlib.MAX_MATCHES_PER_PATTERN = 5
+        try:
+            hits = {}
+            ev = mutlib.LaneEvaluator(exp, None, model, hits)
+        finally:
+            mutlib.MAX_MATCHES_PER_PATTERN = saved_cap
+        self.assertTrue(hits[r"tick ut=[0-9]+\.5"].truncated)
+        self.assertFalse(hits["Chain B pid=4\n"].line_local)
+        self.assertEqual(ev.confirm((), {}), mutlib.SURVIVED)   # the baseline is green
         numbers = [(i, m.start(), m.end(), m.group(0)) for i, ln in enumerate(model.lines)
                    for m in mutlib.NUMBER_TOKEN_RE.finditer(ln)]
         disagreements = []

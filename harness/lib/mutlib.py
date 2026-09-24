@@ -29,7 +29,8 @@ Evaluators replayed, each verified pure over an archived artifact:
 
 NOT replayed (not pure over an archive, or phase 2): the ledger oracle (needs the
 seed capture), the mission verdict, the response-stream driver validity, the
-log validator (a C# subprocess) and the render-composition row.
+log validator and the offline recording analyzer (C# subprocesses), the in-game
+testResults / batch tally row, the ghost-lifecycle row and render composition.
 
 Pure: no file I/O, no clock. ``harness/tools/mutation_check.py`` is the shell.
 """
@@ -74,13 +75,15 @@ _LABEL_KV_RE = re.compile(r"([A-Za-z_][\w.]*)\s*[=:]\s*[(\['\"]?$")
 _LABEL_WORD_RE = re.compile(r"([A-Za-z_]\w*)\W*$")
 
 # Label shapes used only to CLASSIFY a numeric survivor, never to decide a kill.
-_FAILURE_LABEL_RE = re.compile(
-    r"(fail|error|skip|mismatch|reject|drift|drop|lost|orphan|unparsed|missing|"
-    r"invalid|violation|exception|warn|stale|leak|refus)", re.IGNORECASE)
-_COUNT_LABEL_RE = re.compile(
-    r"(count|total|passed|points?$|recordings?$|rows$|segments?$|sections?$|trees$|"
-    r"cycles$|hits$|entries$|committed|spawned|kept|reservations|remain)",
-    re.IGNORECASE)
+# The rule is inverted on purpose: an IDENTIFIER-shaped field (a pid, an id, an
+# index, a slot, a distance, a UT, an unlabelled number) is free by nature, and
+# EVERY other field that moves between zero and nonzero while the gate still
+# passes is triage. A list of "interesting" names hid real gaps as info
+# (overTolerance, outsideSoi, frames, delivered...).
+_IDENTIFIER_EXACT = frozenset({"#", "pid", "id", "idx", "midx", "index", "inst", "rec",
+                               "slot", "dist", "distance", "ut", "t", "frame"})
+_IDENTIFIER_SUFFIX_RE = re.compile(r"(?:Pid|PID|Id|ID|Idx|Index|Inst|Slot|Dist|Distance|"
+                                   r"UT|Ut|Root)$")
 
 MAX_MATCHES_PER_PATTERN = 20000
 MAX_INSTANCES_PER_PATTERN = 30
@@ -652,9 +655,12 @@ def _token_label(line: str, span_start_col: int, tok_start: int) -> str:
     m = _LABEL_KV_RE.search(before)
     if m is not None:
         return m.group(1)
+    # No `key=` / `key:` form: the number sits in prose, a part name, a guid run or
+    # the Unity record header. It is UNLABELLED; the nearest word is kept only to
+    # tell such positions apart ("#Mk1", "#for", "#b63f").
     m = _LABEL_WORD_RE.search(before)
     if m is not None:
-        return m.group(1)
+        return "#" + m.group(1)
     return "#"
 
 
@@ -687,13 +693,24 @@ def numeric_token_keys(hits: PatternHits, model: LogModel
     return keys
 
 
+def is_identifier_label(label: str) -> bool:
+    """A field whose value names or places something rather than counting it: a
+    pid, id, index, slot, distance, UT, a frame NUMBER (``frame=``, not ``frames=``),
+    a ``...Root`` part pid, or an unlabelled number (``#...``)."""
+    return (label.startswith("#") or label.lower() in _IDENTIFIER_EXACT
+            or label.lower().startswith("ut")
+            or _IDENTIFIER_SUFFIX_RE.search(label) is not None)
+
+
 def classify_numeric_survivor(label: str, variant: str, baseline_values: Sequence[str]) -> Tuple[str, str]:
+    if is_identifier_label(label):
+        return INFO, "identifier-shaped field (a pid, id, index, slot, distance or UT)"
     all_zero = all(float(v) == 0 for v in baseline_values)
-    if _FAILURE_LABEL_RE.search(label) and all_zero and variant in ("plus1", "one"):
-        return TRIAGE, "a failure-shaped field moved off zero and the gate still passed"
-    if _COUNT_LABEL_RE.search(label) and not all_zero and variant == "zero":
-        return TRIAGE, "a count-shaped field dropped to zero and the gate still passed"
-    return INFO, "free numeric field"
+    if all_zero and variant in ("plus1", "one"):
+        return TRIAGE, "the field moved off zero and the gate still passed"
+    if not all_zero and variant == "zero":
+        return TRIAGE, "the field dropped to zero and the gate still passed"
+    return INFO, "a nonzero value moved by one (magnitude, not presence)"
 
 
 # ---------------------------------------------------------------------------
@@ -713,6 +730,8 @@ def is_line_local(pattern: str) -> bool:
     touched."""
     if re.search(r"\(\?[aiLmsux-]*[smx][aiLmsux-]*[):]", pattern):
         return False
+    if "\n" in pattern or "\r" in pattern:
+        return False     # a literal line break in the pattern text itself
     risky_escapes = ("s", "D", "W", "n", "A", "Z", "x", "u", "U", "0", "N", "")
     i, n = 0, len(pattern)
     while i < n:
@@ -1190,6 +1209,10 @@ def check_lane(spec: Dict, inputs: ArchiveInputs) -> LaneReport:
     model = build_log_model(inputs.log_text)
     if not any(EXEC_START_RE.search(ln) for ln in model.lines):
         lane.notes.append("no seam exec line: phases collapse to run")
+    if (inputs.recording_count is None
+            and isinstance((expectations.get("recordings") or {}).get("count"), dict)):
+        lane.notes.append("no archived save: recordings.count was not checked by the "
+                          "baseline and its mutations were skipped")
     local_fixture = hlib.is_local_fixture_template(
         (spec.get("fixture") or {}).get("saveTemplate"))
     hits: Dict[str, PatternHits] = {}
