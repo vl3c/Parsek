@@ -111,10 +111,10 @@ LAYOUT_EPOCHS = {
     # PR #1762 (merged 2026-09-22T20:38:41Z): slot-grouped roster, no Since column.
     # First run on it: GUI-11-census-kerbals-crewed 2026-09-22_2004.
     "kerbals": {"utc": "2026-09-22T20:04:25Z", "pr": 1762},
-    # PR #1792 (merged 2026-09-23T22:08:59Z): two filter rows, the Career view,
-    # the time presets folded behind one toggle.
-    # First run on it: GUI-24-census-timeline-filters 2026-09-23_2134.
-    "timeline": {"utc": "2026-09-23T21:34:53Z", "pr": 1792},
+    # PR #1809 (after #1792): five view buttons, the source / category row, and the
+    # always-visible preset row with Custom (the "Time:" toggle is gone).
+    # First run on it: GUI-24-census-timeline-filters 2026-09-24_1942.
+    "timeline": {"utc": "2026-09-24T19:42:55Z", "pr": 1809},
     # PR #1796 (merged 2026-09-24T16:18:48Z): the state view, two tabs.
     # First run on it: GUI-15-census-career-contracts 2026-09-24_1522.
     "career": {"utc": "2026-09-24T15:22:01Z", "pr": 1796},
