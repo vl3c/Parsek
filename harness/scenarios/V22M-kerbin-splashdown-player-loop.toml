@@ -17,6 +17,16 @@ id = "V22M-kerbin-splashdown-player-loop"
 # carries zero `missionconfig applied:` / `PhaseLock APPLIED` lines (grepped). The
 # eight jump UTs are therefore still CALIBRATION SEEDS - but now seeded off this
 # fixture's REAL UT0, span and save clock instead of off a guessed profile.
+#
+# SUBJECT CAVEAT (2026-09-24, known-gate 7 in docs/dev/autotest-status.md): the
+# harvest flight's chute was never OBSERVED. B4's chute row then read the machine's
+# own deploy COMMAND, and the fixture's parachuteLarge persists
+# `automateSafeDeploy = 0`; B4 flown at HEAD on 2026-09-24 armed the chute at
+# ~2,950 m at up to -368 m/s and it stayed Armed to impact. So this subject may be a
+# BREAKUP or a hard touchdown rather than a chute descent. Nothing this lane gates
+# depends on the canopy (its pins are the descent polyline, the suppressed-icon
+# marker and the landed-terminal policy skip), so the fixture is deliberately NOT
+# re-harvested (operator ruling 2026-09-24). Do not cite it as a chute-borne arrival.
 # =====================================================================================
 #
 # -------------------------------------------------------------------------------------

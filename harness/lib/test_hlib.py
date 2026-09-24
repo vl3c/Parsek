@@ -20052,16 +20052,23 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # spec -> (min, max, decide fn, commands a debris-producing stage drop beyond
     # launch ignition). The FLOOR follows the last field, NOT the decide function:
     # B5/B6/B7 drop a flameout-staged core via _b5_flameout_stage, and B4 drops its
-    # service stage via an ACTION_ACTIVATE_STAGE on the sole path into B4_REENTRY.
+    # service stage via the ACTION_ACTIVATE_STAGE REENTRY pays after the deorbit cutoff.
     # Only B2 stages once (at ignition) and therefore floors at 7. The first cut
     # floored B4 at 7 by keying on _b5_flameout_stage alone.
     GATED = {
         "B2-lko-ascent.toml":         (7, 8, "b2_decide", False),
-        "B4-reentry-splashdown.toml": (8, 9, "b4_decide", True),
+        "B4-reentry-splashdown.toml": (9, 10, "b4_decide", True),
         "B5-mun-flyby.toml":          (8, 9, "b5_decide", True),
         "B6-minmus-flyby.toml":       (8, 9, "b5_decide", True),
         "B7-duna-flyby.toml":         (8, 8, "b5_decide", True),
     }
+
+    # Stacks a spec drops BEYOND the one extra stage the GATED flag counts. B4's
+    # REENTRY pays reentryStageCount = 3 owed activations (core drop, Poodle
+    # ignition at zero throttle, Poodle-stack drop) from its ONE stage site, so the
+    # site count cannot see the second dropped stack; measured 9 on
+    # 2026-09-24_1820_B4-reentry-splashdown.
+    EXTRA_DROPS = {"B4-reentry-splashdown.toml": 1}
 
     # spec -> (measured count, the PASS run ids it was read from). Every value is
     # `verifiers.expectations.observed.recordings.count` off a verdict=PASS result
@@ -20077,7 +20084,9 @@ class DebrisPopulationGateTests(unittest.TestCase):
     # and are not this population.
     MEASURED = {
         "B2-lko-ascent.toml":         (7, ("2026-07-25_0824_B2-lko-ascent",)),
-        "B4-reentry-splashdown.toml": (8, ("2026-07-25_0828_B4-reentry-splashdown",)),
+        # 9 since 2026-09-24: the flight now drops the core AND the Poodle stack
+        # (reentryStageCount = 3) so the pod reenters alone and its chute can open.
+        "B4-reentry-splashdown.toml": (9, ("2026-09-24_1820_B4-reentry-splashdown",)),
         "B5-mun-flyby.toml":          (8, ("2026-07-25_0643_B5-mun-flyby",
                                            "2026-07-25_0847_B5-mun-flyby")),
         "B6-minmus-flyby.toml":       (8, ("2026-07-25_0636_B6-minmus-flyby",
@@ -20277,9 +20286,11 @@ class DebrisPopulationGateTests(unittest.TestCase):
                 count = load_spec(name)["expectations"]["recordings"]["count"]
                 self.assertEqual(cmin, count["min"])
                 self.assertEqual(cmax, count["max"])
-                self.assertEqual(8 if extra_stage else 7, cmin,
+                self.assertEqual((8 if extra_stage else 7) + self.EXTRA_DROPS.get(name, 0),
+                                 cmin,
                                  "a spec that commands a debris-producing stage drop "
-                                 "beyond ignition floors at 8, the others at 7")
+                                 "beyond ignition floors at 8, the others at 7, plus "
+                                 "any further stack a spec drops (EXTRA_DROPS)")
                 self.assertGreater(cmin, 1, "min = 1 is the vacuity this gate removes")
 
     def test_every_floor_admits_its_measured_count(self):
