@@ -633,7 +633,10 @@ Basic-hidden, this toggle is **the only archive control a Basic player can reach
 
 Career-view pictures (GUI-24 `2026-09-23_2134`): `ksc-timeline-contracts-advanced`,
 `ksc-timeline-milestones-advanced`, `ksc-timeline-tech-advanced` and
-`ksc-timeline-milestones-thisyear-advanced` (fold closed, `Time: This Year` lit). The Contracts
+`ksc-timeline-milestones-thisyear-advanced` (then a fold closed with `Time: This Year` lit; since
+the preset-row revert, GUI-24 `2026-09-24_1942`, the `This Year` preset lit on row 3). The same
+re-fly adds `ksc-timeline-customlastday-advanced` (Custom over Last Day: readout plus moved thumbs)
+and `ksc-timeline-minwidth-advanced` (all three rows at the 610 px floor). The Contracts
 view is also the first picture of the grey `!IsEffective` row: the host's duplicate contract
 completions (the `ContractsModule` already-resolved arm) draw grey between the effective ones.
 
