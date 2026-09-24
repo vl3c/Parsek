@@ -1061,6 +1061,27 @@ class GhostlifeV2EmitterSourceGuardTests(unittest.TestCase):
                 passed.add(m.group(1))
         self.assertEqual(set(ghostlife.LOOP_CYCLE_MODES), passed)
 
+    def test_the_spawn_funnel_marks_the_state_it_traced(self):
+        # xUnit cannot finalize a real spawn (Unity GameObject), so the flag set
+        # that gates every overlap-copy destroy line is pinned in the funnel body.
+        body = EmitterSourceGuardTests._method_body(
+            self._engine(), "private void QueueOrEmitGhostCreated(")
+        self.assertIsNotNone(re.search(
+            r'if\s*\(\s*EmitMeshLifecycleTrace\("MeshSpawned"[^;]*\)\s*&&\s*state\s*!=\s*null\s*\)'
+            r'\s*state\.meshSpawnTraced\s*=\s*true\s*;', body),
+            "QueueOrEmitGhostCreated no longer sets meshSpawnTraced from the "
+            "MeshSpawned emit; overlap copies would never write their destroy line")
+
+    def test_the_reuse_path_emits_a_reuse_loop_cycle_line(self):
+        # The loaded-ghost reuse needs a live GameObject, so its emit is pinned in
+        # the method body rather than driven from xUnit.
+        body = EmitterSourceGuardTests._method_body(
+            self._engine(), "internal void ReusePrimaryGhostAcrossCycle(")
+        self.assertIsNotNone(re.search(
+            r'EmitLoopCycleTrace\(\s*index,\s*traj,\s*state,\s*previousCycle,\s*'
+            r'newCycleIndex,\s*"reuse"\s*\)\s*;', body),
+            "ReusePrimaryGhostAcrossCycle no longer emits the reuse LoopCycle line")
+
     def test_the_overlap_expired_reason_is_passed_at_a_live_call_site(self):
         src = EmitterSourceGuardTests._strip_comments(self._engine())
         self.assertIn('"%s");' % ghostlife.OVERLAP_EXPIRED_REASON, src)

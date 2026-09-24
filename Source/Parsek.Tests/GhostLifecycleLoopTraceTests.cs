@@ -125,6 +125,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DestroyAllOverlapGhosts_WritesOverlapClearedForSpawnTracedCopiesOnly()
+        {
+            GhostRenderTrace.ForceEnabledForTesting = true;
+            var destroyed = new List<GhostPlaybackState>();
+            var engine = EngineWithResourceSpy(destroyed);
+            var traced = OverlapCopy(spawnTraced: true);
+            var secondary = OverlapCopy(spawnTraced: false);
+            secondary.isBoundaryOverlapSecondary = true;
+            engine.overlapGhosts[7] = new List<GhostPlaybackState> { traced, secondary };
+
+            engine.DestroyAllOverlapGhosts(7);
+
+            var lines = TraceLines("MeshDestroyed");
+            Assert.Single(lines);
+            Assert.Contains("ghostIndex=7", lines[0]);
+            Assert.EndsWith("reason=overlap cleared", lines[0]);
+            Assert.Equal(2, destroyed.Count);
+            Assert.Empty(engine.overlapGhosts[7]);
+        }
+
+        [Fact]
+        public void DestroyAllGhosts_WritesEngineTeardownForOverlapCopies()
+        {
+            GhostRenderTrace.ForceEnabledForTesting = true;
+            var destroyed = new List<GhostPlaybackState>();
+            var engine = EngineWithResourceSpy(destroyed);
+            engine.overlapGhosts[3] = new List<GhostPlaybackState> { OverlapCopy(spawnTraced: true) };
+
+            engine.DestroyAllGhosts();
+
+            var lines = TraceLines("MeshDestroyed");
+            Assert.Single(lines);
+            Assert.Contains("ghostIndex=3", lines[0]);
+            Assert.EndsWith("reason=engine teardown", lines[0]);
+            Assert.Single(destroyed);
+            Assert.Empty(engine.overlapGhosts);
+        }
+
+        [Fact]
         public void LoopCycle_TracingOn_WritesCycleLineWithVesselLast()
         {
             GhostRenderTrace.ForceEnabledForTesting = true;

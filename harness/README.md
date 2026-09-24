@@ -33,7 +33,9 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   GhostRenderTrace MeshSpawned/MeshDestroyed per-recId spawn/destroy balance,
   spawn-census window, `spawnLines` / `destroyLines` line-count windows (the
   repeat-replay leak the set-based balance cannot see; on a looping lane only
-  with the v2 producer's overlap destroy lines), zero-spawn vacuity floor, and
+  with the v2 producer's overlap destroy lines; never honest when copies are
+  alive at log end - killed run, no teardown - or when tracing was enabled
+  mid-run), zero-spawn vacuity floor, and
   (v2) `destroyedReasons.required`, per-vessel-name `vessels` windows and the
   `phase=LoopCycle` census (`cycleLines`); REPORT-ONLY unless armed via
   `GHOSTLIFE_ARMED_SPECS` - empty as shipped),

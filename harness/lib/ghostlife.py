@@ -339,7 +339,11 @@ SPAWNED_KEY = "spawned"
 # design. From v2 an overlap copy that wrote a MeshSpawned writes its own
 # MeshDestroyed when it expires (`overlap expired`), is cleared (`overlap
 # cleared`) or is torn down (`engine teardown`), so the two counts close again.
-# A log from an older DLL still carries the lag.
+# A log from an older DLL still carries the lag. EVEN WITH v2 the counts are
+# not honest when copies are still alive at log end (a killed run, no clean
+# teardown, so no `engine teardown` lines) or when ghostRenderTracing was
+# turned on mid-run (copies spawned before it wrote no MeshSpawned, and a
+# primary spawned before it still writes MeshDestroyed).
 SPAWN_LINES_KEY = "spawnLines"
 DESTROY_LINES_KEY = "destroyLines"
 # v2: the count of LoopCycle lines (cycle advances observed on live objects).
@@ -734,6 +738,9 @@ def observed_ghost_lifecycle_facets(snapshot: Optional[GhostLifecycleSnapshot]
             # copy writes its own MeshDestroyed (`overlap expired` / `overlap
             # cleared` / `engine teardown`). The per-recording balance ledger
             # (`unbalanced`) is the leak signal that holds on both producers.
+            # Neither the line counts nor the ledger are honest when copies
+            # are alive at log end (killed run, no teardown) or when tracing
+            # was enabled mid-run (spawns before it are missing).
             # On a NON-looping lane that replays the
             # same recordings more than once (repeat rewind) the ledger is blind
             # to a second-replay leak, and these two are what a window reads

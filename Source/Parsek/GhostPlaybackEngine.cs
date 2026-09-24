@@ -2989,7 +2989,7 @@ namespace Parsek
             if (status == GhostVisualLoadStatus.Failed)
             {
                 CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
-                DestroyOverlapGhostState(sec);
+                DestroyOverlapGhostState(sec, index, traj, "boundary-overlap secondary build failed");
                 ParsekLog.Warn("Engine",
                     $"Boundary-overlap secondary: SpawnGhost failed for #{index} cycle={secondaryCycle}");
                 return null;
@@ -8945,7 +8945,7 @@ namespace Parsek
         /// Destroys a single overlap ghost's resources. Does NOT remove from any collection.
         /// </summary>
         internal void DestroyOverlapGhostState(GhostPlaybackState state,
-            int index = -1, IPlaybackTrajectory traj = null, string reason = "overlap expired")
+            int index, IPlaybackTrajectory traj, string reason)
         {
             if (state == null) return;
             ParsekLog.VerboseRateLimited("Engine", "destroy-overlap",
