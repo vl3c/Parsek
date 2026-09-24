@@ -15,6 +15,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## TIERC-LOOP-PERIOD-AUTO-MODE-HOST: no lane flies a loop on the global Auto period, and no lane has overlap copies expiring or the 20-copy cap stretching a cadence [FILED 2026-09-24, ghost-replay Tier C PR 1, branch `tierc-claims`]
+
+The operator redefined two D6 registry cells on 2026-09-24 to match the code
+(`harness/coverage/registry.toml`, D6 comment). Tier C PR 1 claimed what the archived logs
+already carry, with no flight: D6 `self-overlap` on V8F (the engine's
+`Loop cadence #N "Kerbal X": ... (cycles=20) no adjustment` line) and D6
+`loop-period-modes` on V6M, SCOPED TO MODE (1) - one ghost reused each cycle, period >= span
+(`overlaps=no` unit summary under the armed `cycles >= 2` render-composition floor). Coverage
+204 of 250. What is still open:
+
+- `loop-period-modes` mode (3), the global Auto period (`LoopTimeUnit.Auto`, read by
+  `GhostPlaybackLogic.ResolveLoopInterval` and the auto launch queue): every committed loop lane
+  arms a MISSION loop unit, whose cadence is the phase-lock / span clock, not a recording's
+  loop interval. A host needs a standalone recording set to Auto and a witness of the resolved
+  interval (no Info line prints it today). Mode (2), overlapping copies, is witnessed on V8F
+  (`overlaps=yes`, `(cycles=20)`) but V8F declares only `self-overlap`.
+- `overlap-expiry-soft-caps` (redefined: old overlap copies vanish when their own flight ends,
+  and the 20-copy cap slows relaunches): no archived loop log prints
+  `auto-adjusted (cap reached)` (V8F's period is exactly span/20, so the cap is met and not
+  exceeded), and an expiring overlap copy writes no line at all until ghostlife v2 adds the
+  tracing-gated `overlap expired` destroy line (branch `ghostlife-v2`). A host needs a
+  period below span/20 and `ghostRenderTracing` on.
+
 ## ~~TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT: re-docking two vessels of one recorded flight kept only one of them as the dock's parent when the vessel being flown was the one that survived the dock~~ [FILED 2026-09-24 off SD-1's reading run `2026-09-23_2140`. FIXED 2026-09-24 on branch `d5-samedock`]
 
 **What the player saw.** Undock a docked pair that Parsek is recording, then dock the two

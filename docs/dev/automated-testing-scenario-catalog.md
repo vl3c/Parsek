@@ -39,8 +39,12 @@ report; headline values only here.
   (TTL, promotion), EVA branch, controlled-decoupled child, dock merge
   (same tree), cross-tree foreign dock, chain continuation across switch,
   crash coalescing, BG recording, BG on-rails (NO TrackSections - modeled).
-- **D6 Playback / ghost engine**: basic playback, loop (period modes),
-  self-overlap, overlap expiry / soft caps, zone transitions
+- **D6 Playback / ghost engine**: basic playback, loop period modes (one
+  ghost reused per cycle when period >= span, overlapping copies when
+  period < span, the global Auto period; Sec/Min/Hour are display units),
+  self-overlap, overlap expiry and the 20-copy relaunch cap (old copies
+  vanish when their flight ends; the cap auto-adjusts the cadence; the
+  soft-cap system is removed), zone transitions
   (2.3km/50km/120km), watch mode + retarget + explosion hold, spawn-at-end
   (PID dedup), ghost map presence (TS icons, orbit lines, targeting),
   non-orbital polyline, reentry FX, attitude preservation, SOI-crossing
@@ -432,7 +436,7 @@ with a Crashed sibling + RP for re-fly scenarios).
   game-days of UT).
 - Re-aim per-window correctness over many synodic windows.
 - Multi-moon config hold (needs a Jool-5-shaped tree fixture).
-- Loop self-overlap caps (several relaunch cycles under warp).
+- Loop self-overlap expiry and the 20-copy cadence cap (several relaunch cycles under warp).
 - Ledger recalc-from-UT=0 with many actions at distinct UTs.
 - Quickload/rewind against in-progress recording (save-state manipulation).
 - Warp-reseed-lag (scripted high-warp crossing of specific gaps).

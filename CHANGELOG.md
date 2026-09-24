@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: two loop-playback cells are claimed from existing lanes, and two cells
+  are redefined to match the ghost engine.** The loop-period cell now means the real
+  behaviours (one ghost per cycle, overlapping copies, the global Auto period) and the
+  overlap cell means copies expiring at their flight's end plus the 20-copy relaunch cap.
+  `V8F-eve-loop-faithful` now requires the engine's 20-copy overlap cadence line and
+  `V6M-mun-player-loop` requires its one-ghost-per-cycle loop unit, both read off every
+  archived run of those lanes.
 - **Automated testing: a lane undocks a recorded pair and docks it back together.**
   `SD-1-same-tree-redock` loads the second-dock save on its docked pair, undocks it, backs
   off and re-docks the halves with the MechJeb docking autopilot (the new `d5_redock`

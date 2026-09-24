@@ -179,6 +179,19 @@ values = ["single-node", "undock-split", "staging-debris-ttl", "staging-debris-p
 # `EnterWatchMode expect="REJECTED"` lane refuses from a FOREIGN-ORBIT geometry, where
 # the different-body guard and the distance guard are indistinguishable, so the 300 km
 # boundary has never been the measured variable.
+# "loop-period-modes" and "overlap-expiry-soft-caps" were REDEFINED 2026-09-24 (operator
+# ruling, ghost-replay Tier C) to match the code as it stands; the value strings stay so no
+# spec or history row is renamed.
+#   loop-period-modes: the three real launch-to-launch behaviours - (1) ONE ghost reused
+#   each cycle when the period is at least the flight span, (2) OVERLAPPING copies when the
+#   period is shorter than the span, (3) the global Auto period (`LoopTimeUnit.Auto` reads
+#   the shared auto interval and the auto launch queue). Sec / Min / Hour are DISPLAY units
+#   only: `GhostPlaybackLogic.ResolveLoopInterval` reads one seconds value for all three, so
+#   they are not modes. A claim names the mode(s) it witnesses in its spec comment.
+#   overlap-expiry-soft-caps: the soft-cap system is gone (commit 1fee51149). The cell now
+#   means old overlapping copies disappear when their own flight ends, and the 20-copy cap
+#   (`GhostPlayback.MaxOverlapGhostsPerRecording`) slows relaunches, read off the
+#   `Loop cadence #N ...` Info line's `auto-adjusted (cap reached)` verdict.
 values = ["basic-playback", "loop-period-modes", "self-overlap", "overlap-expiry-soft-caps",
           "zone-transitions", "watch-mode-retarget-explosion-hold", "spawn-at-end-pid-dedup",
           "ghost-map-presence", "non-orbital-polyline", "reentry-fx", "attitude-preservation",
