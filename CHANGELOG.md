@@ -997,6 +997,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Automated testing: the reentry lane now checks that the parachute really opened, and
+  flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
+  soon as it had sent the deploy command. It now reads the parachute's own state and
+  requires Parsek's recording of both parachute stages. Flying the real check found that
+  the lane's craft could not open its chute: dropping the spent stage in the same moment
+  as cutting the engine broke the craft up, and with that fixed, the pod came down with
+  the whole upper stage still attached, too fast for the parachute to open. The lane now
+  drops each stage a moment after the last, sheds the upper stage so the pod reenters
+  alone, and arms the parachute high enough to open once it is safe. Nothing in Parsek
+  itself changed.
 - **Timeline strategy rows show the strategy's real name.** The Timeline named strategies
   from a hand-written table whose ids never matched stock's (`AppreciationCamp` against
   stock's `AppreciationCampaignCfg`), so every stock strategy read as its split config

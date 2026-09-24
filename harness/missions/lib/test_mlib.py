@@ -2101,8 +2101,10 @@ class B4MachineTests(unittest.TestCase):
                  periapsis=24000.0),                                    # 13 below threshold: no warp
             snap(ut=600.0, altitude=2500.0, vertical_speed=-200.0),     # 14 ->SPLASHDOWN + chute
             snap(ut=650.0, altitude=1000.0, vertical_speed=-8.0,
-                 situation="FLYING"),                                   # 15 descending on chute
-            snap(ut=700.0, altitude=0.0, situation="SPLASHED"),         # 16 terminal
+                 situation="FLYING",
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),          # 15 descending on chute
+            snap(ut=700.0, altitude=0.0, situation="SPLASHED",
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),          # 16 terminal
         ]
         state, per_frame = drive_b4(state, frames)
         self.assertTrue(state.done)
@@ -2110,6 +2112,7 @@ class B4MachineTests(unittest.TestCase):
         self.assertIsNone(state.verdict)
         self.assertIsNone(state.loss_reason)
         self.assertTrue(state.chute_deployed)
+        self.assertTrue(state.craft_chute_full_seen)
         self.assertEqual(state.phases_reached,
                          (mlib.B4_PRELAUNCH, mlib.B4_MJ_ASCENT, mlib.B4_CIRCULARIZE,
                           mlib.B4_ORBIT, mlib.B4_DEORBIT, mlib.B4_REENTRY,
@@ -2127,10 +2130,13 @@ class B4MachineTests(unittest.TestCase):
         self.assertEqual(per_frame[6], [])   # attitude still settling: no throttle
         self.assertEqual(per_frame[7], [Action(mlib.ACTION_SET_THROTTLE, 1.0)])
         self.assertEqual(per_frame[8], [])   # burn latch: throttle issued ONCE
+        # The cut and the stage never share a frame (2026-09-24_1657: a same-frame
+        # stage fired at full throttle and blew up the pod).
         self.assertEqual(per_frame[9], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
-                                        Action(mlib.ACTION_AP_DISENGAGE),
-                                        Action(mlib.ACTION_ACTIVATE_STAGE)])
-        self.assertEqual(per_frame[10], [])  # ascending: warp gated off
+                                        Action(mlib.ACTION_AP_DISENGAGE)])
+        # 10 s after the cutoff (> stageSettleSeconds): the owed stage, and
+        # nothing else on that frame.
+        self.assertEqual(per_frame[10], [Action(mlib.ACTION_ACTIVATE_STAGE)])
         self.assertEqual(per_frame[11], [Action(mlib.ACTION_WARP_TO, 320.0 + 120.0)])
         self.assertEqual(per_frame[12], [Action(mlib.ACTION_WARP_TO, 440.0 + 120.0)])
         self.assertEqual(per_frame[13], [])  # below warpAboveAltMeters: no hop
@@ -2169,6 +2175,70 @@ class B4MachineTests(unittest.TestCase):
         self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 1.0)])
         self.assertTrue(state.burn_started)
         state, actions = mlib.b4_decide(state, snap(ut=12.0, periapsis=70000.0, ap_error=0.0))
+        self.assertEqual(actions, [])
+
+    def test_service_stage_waits_for_the_throttle_cut_to_land(self):
+        state = _b4_state(mlib.B4_DEORBIT, burn_started=True)
+        # Periapsis target met: cut + release, stage OWED, no stage this frame.
+        state, actions = mlib.b4_decide(
+            state, snap(ut=100.0, periapsis=20000.0, altitude=83000.0))
+        self.assertEqual(state.phase, mlib.B4_REENTRY)
+        self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                   Action(mlib.ACTION_AP_DISENGAGE)])
+        self.assertEqual(state.stages_owed, 1)
+        self.assertEqual(state.last_stage_ut, 100.0)
+        # Inside the settle: nothing, not even a warp hop on a descending exo frame.
+        state, actions = mlib.b4_decide(
+            state, snap(ut=101.0, altitude=83000.0, vertical_speed=-5.0))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.stages_owed, 1)
+        # A non-finite UT never pays the stage (fails closed to the budget).
+        state, actions = mlib.b4_decide(
+            state, snap(ut=float("nan"), altitude=83000.0, vertical_speed=-5.0))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.stages_owed, 1)
+        # Settle elapsed (inclusive): exactly one stage, and nothing else that frame.
+        state, actions = mlib.b4_decide(
+            state, snap(ut=102.0, altitude=83000.0, vertical_speed=-5.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.stages_owed, 0)
+        # Next frame: ordinary REENTRY (the warp hop resumes), no second stage.
+        state, actions = mlib.b4_decide(
+            state, snap(ut=103.0, altitude=83000.0, vertical_speed=-5.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 103.0 + 120.0)])
+
+    def test_multiple_owed_stages_are_spaced_by_the_settle(self):
+        params = B4_PARAMS.__class__(**{**B4_PARAMS.__dict__, "reentry_stage_count": 3})
+        base = mlib.b4_initial_state(params)
+        state = base.__class__(**{**base.__dict__, "phase": mlib.B4_DEORBIT,
+                                  "burn_started": True})
+        state, actions = mlib.b4_decide(state, snap(ut=100.0, periapsis=20000.0))
+        self.assertEqual(state.stages_owed, 3)
+        self.assertNotIn(Action(mlib.ACTION_ACTIVATE_STAGE), actions)
+        stages_at = []
+        for ut in (101.0, 102.0, 103.0, 104.0, 104.5, 106.0, 107.0):
+            state, actions = mlib.b4_decide(
+                state, snap(ut=ut, altitude=83000.0, vertical_speed=5.0))
+            if Action(mlib.ACTION_ACTIVATE_STAGE) in actions:
+                self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+                stages_at.append(ut)
+        # 2 s after the cutoff, then 2 s after each activation; never more than owed.
+        self.assertEqual(stages_at, [102.0, 104.0, 106.0])
+        self.assertEqual(state.stages_owed, 0)
+
+    def test_params_parse_the_stage_shed_keys(self):
+        p = mlib.b4_params_from_dict({"stageSettleSeconds": 3, "reentryStageCount": 3})
+        self.assertEqual(p.stage_settle_seconds, 3.0)
+        self.assertEqual(p.reentry_stage_count, 3)
+        self.assertIsInstance(p.reentry_stage_count, int)
+        d = mlib.b4_params_from_dict({})
+        self.assertEqual((d.stage_settle_seconds, d.reentry_stage_count), (2.0, 1))
+
+    def test_pending_stage_still_flakes_on_the_reentry_budget(self):
+        state = _b4_state(mlib.B4_REENTRY, stages_owed=1, last_stage_ut=0.0)
+        state, actions = mlib.b4_decide(state, snap(ut=4000.0, altitude=83000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertEqual(actions, [])
 
     def test_deorbit_burn_gated_on_attitude_error(self):
@@ -2321,6 +2391,121 @@ class B4ParamTests(unittest.TestCase):
         self.assertIsInstance(p.frozen_sample_limit, int)
 
 
+class B4CanopyLatchTests(unittest.TestCase):
+    """Guards B4's OBSERVED canopy latch (known-gate 7): SPLASHDOWN-scoped,
+    debounced over B4_CANOPY_DEBOUNCE_K live Deployed reads, sticky once earned,
+    never fed by a vessel_lost frame, and never earned by the commanded latch."""
+
+    DEP = mlib.CHUTE_STATE_DEPLOYED
+
+    def _drive(self, state, frames):
+        for f in frames:
+            state, _ = mlib.b4_decide(state, f)
+        return state
+
+    def test_reentry_entry_frame_commands_but_does_not_observe(self):
+        state = _b4_state(mlib.B4_REENTRY)
+        state, actions = mlib.b4_decide(
+            state, snap(ut=10.0, altitude=2900.0, vertical_speed=-200.0,
+                        craft_chute_state=self.DEP))
+        self.assertEqual(state.phase, mlib.B4_SPLASHDOWN)
+        self.assertEqual(actions, [Action(mlib.ACTION_DEPLOY_CHUTE)])
+        self.assertTrue(state.chute_deployed)
+        # The read on the REENTRY frame predates the deploy: phase-scoped out.
+        self.assertEqual(state.canopy_seen_streak, 0)
+        self.assertFalse(state.craft_chute_full_seen)
+
+    def test_debounce_needs_consecutive_deployed_reads(self):
+        state = _b4_state(mlib.B4_SPLASHDOWN, chute_deployed=True)
+        state = self._drive(state, [
+            snap(ut=1.0, altitude=2000.0, situation="FLYING", craft_chute_state=self.DEP),
+            snap(ut=2.0, altitude=1900.0, situation="FLYING", craft_chute_state="Armed"),
+        ])
+        self.assertEqual(state.canopy_seen_streak, 0)
+        self.assertFalse(state.craft_chute_full_seen)
+        state = self._drive(state, [
+            snap(ut=3.0, altitude=1800.0, situation="FLYING", craft_chute_state=self.DEP),
+            snap(ut=4.0, altitude=1700.0, situation="FLYING", craft_chute_state=self.DEP),
+        ])
+        self.assertTrue(state.craft_chute_full_seen)
+
+    def test_latch_is_sticky_after_a_cut(self):
+        state = _b4_state(mlib.B4_SPLASHDOWN, chute_deployed=True)
+        state = self._drive(state, [
+            snap(ut=1.0, altitude=900.0, situation="FLYING", craft_chute_state=self.DEP),
+            snap(ut=2.0, altitude=800.0, situation="FLYING", craft_chute_state=self.DEP),
+            snap(ut=3.0, altitude=0.0, situation="SPLASHED", craft_chute_state="Cut"),
+        ])
+        self.assertTrue(state.done)
+        self.assertTrue(state.craft_chute_full_seen)
+        self.assertEqual(state.last_chute_state, "Cut")
+
+    def test_deployed_reads_before_splashdown_never_count(self):
+        # A stale / handoff Deployed read during REENTRY must not pre-load the
+        # streak: the latch only runs on SPLASHDOWN frames.
+        state = _b4_state(mlib.B4_REENTRY)
+        state = self._drive(state, [
+            snap(ut=1.0, altitude=40000.0, vertical_speed=-300.0,
+                 craft_chute_state=self.DEP),
+            snap(ut=2.0, altitude=30000.0, vertical_speed=-300.0,
+                 craft_chute_state=self.DEP),
+        ])
+        self.assertEqual(state.phase, mlib.B4_REENTRY)
+        self.assertEqual(state.canopy_seen_streak, 0)
+        self.assertFalse(state.craft_chute_full_seen)
+        self.assertEqual(state.last_chute_state, self.DEP)   # diagnostic still tracks
+
+    def test_vessel_lost_frame_never_feeds_the_latch(self):
+        state = _b4_state(mlib.B4_SPLASHDOWN, chute_deployed=True, canopy_seen_streak=1)
+        new, _ = mlib.b4_decide(state, snap(ut=5.0, vessel_lost=True,
+                                            craft_chute_state=self.DEP))
+        self.assertFalse(new.craft_chute_full_seen)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+
+    def test_inert_chute_splashdown_reds_through_the_assertion(self):
+        # B1's old failure shape on B4: the deploy is commanded, the chute stays
+        # Armed all the way down, and the craft still reaches SPLASHED. The machine
+        # terminal is reached (verdict None), and the OBSERVED row must red it.
+        state = _b4_state(mlib.B4_REENTRY)
+        state = self._drive(state, [
+            snap(ut=1.0, altitude=2900.0, vertical_speed=-200.0, situation="FLYING"),
+            snap(ut=2.0, altitude=2000.0, vertical_speed=-200.0, situation="FLYING",
+                 craft_chute_state="Armed"),
+            snap(ut=3.0, altitude=0.0, situation="SPLASHED", craft_chute_state="Armed"),
+        ])
+        self.assertTrue(state.done)
+        self.assertIsNone(state.verdict)
+        self.assertTrue(state.chute_deployed)
+        self.assertFalse(state.craft_chute_full_seen)
+        frames = [snap(apoapsis=80000.0, situation="FLYING"),
+                  snap(apoapsis=79900.0, situation="SPLASHED")]
+        outs = mlib.evaluate_b4_assertions(
+            frames, B4_PARAMS,
+            phases_reached=(mlib.B4_PRELAUNCH, mlib.B4_MJ_ASCENT, mlib.B4_CIRCULARIZE,
+                            mlib.B4_ORBIT, mlib.B4_DEORBIT, mlib.B4_REENTRY,
+                            mlib.B4_SPLASHDOWN),
+            craft_canopy_observed=state.craft_chute_full_seen,
+            arm_commanded=state.chute_deployed,
+            last_chute_state=state.last_chute_state)
+        verdict, _ = mlib.resolve_flight_verdict(state, outs)
+        self.assertEqual(verdict, mlib.MISSION_ASSERT_FAIL)
+
+    def test_loss_after_deploy_names_the_observed_chute(self):
+        state = _b4_state(mlib.B4_SPLASHDOWN, chute_deployed=True,
+                          last_chute_state="Armed")
+        new, _ = mlib.b4_decide(state, snap(ut=5.0, vessel_lost=True))
+        self.assertIn("vessel-lost", new.loss_reason)
+        self.assertIn("craftChute=Armed", new.loss_reason)
+        self.assertIn("canopyObserved=no", new.loss_reason)
+        self.assertIn("armCommanded=yes", new.loss_reason)
+
+    def test_loss_before_deploy_reason_is_unchanged(self):
+        state = _b4_state(mlib.B4_REENTRY)
+        new, _ = mlib.b4_decide(state, snap(ut=5.0, vessel_lost=True))
+        self.assertEqual(new.loss_reason,
+                         "vessel-lost (unreadable after repeated telemetry failures)")
+
+
 class B4AssertionTests(unittest.TestCase):
     """Guards evaluate_b4_assertions: terminal-focused, derivable from frames +
     phase evidence, no orbital precision post-deorbit."""
@@ -2338,10 +2523,10 @@ class B4AssertionTests(unittest.TestCase):
     def test_all_met(self):
         outs = mlib.evaluate_b4_assertions(self._frames(), B4_PARAMS,
                                            phases_reached=self._phases(),
-                                           chute_deployed=True)
+                                           craft_canopy_observed=True)
         self.assertEqual([o.name for o in outs],
                          ["reachedOrbit", "apoapsisFloor", "landedSituation",
-                          "chuteDeployed"])
+                          "craftCanopyObserved"])
         self.assertTrue(mlib.all_assertions_met(outs))
         self.assertEqual(outs[0].value, mlib.B4_SPLASHDOWN)  # deepest phase
         self.assertEqual(outs[1].value, 80000.0)             # the peak
@@ -2350,7 +2535,7 @@ class B4AssertionTests(unittest.TestCase):
     def test_orbit_never_reached_unmet(self):
         outs = mlib.evaluate_b4_assertions(self._frames(), B4_PARAMS,
                                            phases_reached=self._phases(False),
-                                           chute_deployed=True)
+                                           craft_canopy_observed=True)
         self.assertFalse(outs[0].met)
         self.assertEqual(outs[0].value, mlib.B4_MJ_ASCENT)
 
@@ -2358,28 +2543,45 @@ class B4AssertionTests(unittest.TestCase):
         # floor = 80000 - 5000 = 75000: exactly 75000 met, just below unmet.
         outs = mlib.evaluate_b4_assertions(self._frames(peak=75000.0), B4_PARAMS,
                                            phases_reached=self._phases(),
-                                           chute_deployed=True)
+                                           craft_canopy_observed=True)
         self.assertTrue(outs[1].met)
         outs = mlib.evaluate_b4_assertions(self._frames(peak=74999.0), B4_PARAMS,
                                            phases_reached=self._phases(),
-                                           chute_deployed=True)
+                                           craft_canopy_observed=True)
         self.assertFalse(outs[1].met)
 
     def test_all_nan_apoapsis_unmet_value_null(self):
         frames = [snap(apoapsis=float("nan"), situation="SPLASHED") for _ in range(3)]
         outs = mlib.evaluate_b4_assertions(frames, B4_PARAMS,
                                            phases_reached=self._phases(),
-                                           chute_deployed=True)
+                                           craft_canopy_observed=True)
         self.assertFalse(outs[1].met)
         self.assertIsNone(outs[1].to_dict()["value"])
 
     def test_final_situation_and_chute(self):
         outs = mlib.evaluate_b4_assertions(self._frames(final="FLYING"), B4_PARAMS,
                                            phases_reached=self._phases(),
-                                           chute_deployed=False)
+                                           craft_canopy_observed=False)
         self.assertFalse(outs[2].met)   # never landed
-        self.assertFalse(outs[3].met)   # chute never deployed
+        self.assertFalse(outs[3].met)   # canopy never observed
         self.assertIs(outs[3].value, False)
+        self.assertEqual(outs[3].detail["lastChuteState"], "UNREAD")
+
+    def test_commanded_chute_without_observed_canopy_is_unmet(self):
+        # Known-gate 7: the old chuteDeployed row read the COMMANDED latch and was
+        # met by any run that emitted the deploy action. A splashed craft whose
+        # chute was commanded but never read Deployed must red this row.
+        outs = mlib.evaluate_b4_assertions(self._frames(), B4_PARAMS,
+                                           phases_reached=self._phases(),
+                                           craft_canopy_observed=False,
+                                           arm_commanded=True,
+                                           last_chute_state="Armed")
+        self.assertTrue(outs[2].met)    # SPLASHED
+        self.assertFalse(outs[3].met)
+        self.assertFalse(mlib.all_assertions_met(outs))
+        self.assertTrue(outs[3].detail["armCommanded"])
+        self.assertEqual(outs[3].detail["lastChuteState"], "Armed")
+        self.assertEqual(outs[3].detail["required"], mlib.CHUTE_STATE_DEPLOYED)
 
     def test_loss_reason_short_circuits_before_assertions(self):
         # A B4 vessel-lost terminal must fail even with all-met assertions (the
@@ -2388,7 +2590,7 @@ class B4AssertionTests(unittest.TestCase):
         state, _ = mlib.b4_decide(state, snap(ut=20.0, vessel_lost=True))
         outs = mlib.evaluate_b4_assertions(self._frames(), B4_PARAMS,
                                            phases_reached=self._phases(),
-                                           chute_deployed=True)
+                                           craft_canopy_observed=True)
         self.assertTrue(mlib.all_assertions_met(outs))
         verdict, reason = mlib.resolve_flight_verdict(state, outs)
         self.assertEqual(verdict, mlib.MISSION_ASSERT_FAIL)
