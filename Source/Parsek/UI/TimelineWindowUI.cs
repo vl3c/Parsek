@@ -128,13 +128,14 @@ namespace Parsek
         }
 
         private const float DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth;
-        // Both filter rows are six-cell grids (GetResponsiveButtonWidth). The widest cell
-        // label is the Time button's "Time: This Year" (15 characters), which needs about
-        // 110 px in the button style; six such cells plus the 28 px margin budget and
-        // 22 px window chrome is 710. At the old 520 floor the rows could not fit even at
-        // the 93 px cell floor (608 px), so GUILayout widened the window past its own drag
-        // minimum.
-        internal const float MinWindowWidth = 720f;
+        // The filter area is three rows (DrawFilterBar, DrawTimeRangeFilterBar). The view
+        // row stretches its five cells over the width; the context row and the preset
+        // row are six-cell grids (GetResponsiveButtonWidth), so they set the floor. Their
+        // widest labels are ten characters ("Recordings", "Strategies", "Milestones"),
+        // about 75 px in the button style, well inside the 93 px cell floor. Six floor
+        // cells plus the 28 px margin budget and 22 px window chrome is 608, so the window
+        // floor is 610 and no row has to widen the window past its own drag minimum.
+        internal const float MinWindowWidth = 610f;
         internal const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
         private const float TimeColumnWidth = 160f;
@@ -142,9 +143,9 @@ namespace Parsek
         private const float RowActionButtonWidth = 40f;
         private const float GoToButtonWidth = 48f;
 
-        // Floor of the shared cell width for the top zone: the view row, the context row
-        // (sources, Archived or the career categories) and the Time fold's presets.
-        // Every button in the Timeline's top zone uses the same width so the rows align.
+        // Floor of the cell width for the top zone: the view row, the context row
+        // (sources, Archived or the career categories) and the time-range preset row.
+        // The two six-cell rows share one width so their columns align.
         private const float FilterButtonWidth = 93f;
 
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
@@ -214,7 +215,7 @@ namespace Parsek
         private bool showEventEntries = true;
 
         /// <summary>
-        /// The three source toggles, the Time fold and the entry list's scroll
+        /// The three source toggles, the Custom range and the entry list's scroll
         /// offset, readable and writable from outside the draw pass for the automation-only
         /// <c>UiAction op=state</c> seam op.
         ///
@@ -249,14 +250,23 @@ namespace Parsek
             set { showEventEntries = value; }
         }
 
-        /// <summary>Whether the Time fold (preset row plus From / To sliders) is open. The
-        /// seam's <c>customRange</c> key maps onto it: the sliders are visible exactly while
-        /// the fold is open.</summary>
+        /// <summary>Whether Custom is the lit time-range button, which is exactly when the
+        /// From / To sliders draw. The seam's <c>customRange</c> key maps onto it; a write
+        /// runs the Custom toggle's own click body (<see cref="SetCustomRangeSelected"/>),
+        /// so turning it off lands on All like the button does.</summary>
         internal bool ShowCustomRangeForTesting
         {
-            get { return timeFoldOpen; }
-            set { timeFoldOpen = value; }
+            get
+            {
+                TimeRangeFilterState filter = parentUI?.TimeRangeFilter;
+                return IsCustomRangeLit(filter);
+            }
+            set { SetCustomRangeSelected(parentUI?.TimeRangeFilter, value); }
         }
+
+        /// <summary>The Custom selection flag alone (tests; the draw reads it through
+        /// <see cref="ResolveLitTimeRangeButton"/>).</summary>
+        internal bool IsCustomRangeSelectedForTesting => customRangeSelected;
 
         /// <summary>The entry list's vertical scroll offset in pixels. Read back AFTER a
         /// drawn frame it carries the value the scroll view CLAMPED to its own content, which
@@ -268,15 +278,19 @@ namespace Parsek
             set { timelineScrollPos.y = value; }
         }
 
-        /// <summary>The active time-range preset name, or null for a custom range or no
-        /// filter. Reads the shared filter <see cref="ParsekUI"/> owns, so it agrees with the
+        /// <summary>The lit preset button's name (<c>All</c> included), or null while Custom
+        /// is lit. Reads the shared filter <see cref="ParsekUI"/> owns, so it agrees with the
         /// Recordings tab's view of the same filter.</summary>
-        internal string ActiveTimeRangePresetForTesting =>
-            parentUI == null || parentUI.TimeRangeFilter == null
-                ? null
-                : (parentUI.TimeRangeFilter.IsActive
-                    ? parentUI.TimeRangeFilter.ActivePresetName
-                    : TestCommands.TestCommandUiWindowState.PresetAllToken);
+        internal string ActiveTimeRangePresetForTesting
+        {
+            get
+            {
+                TimeRangeFilterState filter = parentUI?.TimeRangeFilter;
+                if (filter == null) return null;
+                string lit = LitTimeRangeButton(filter);
+                return lit == CustomRangeButtonName ? null : lit;
+            }
+        }
 
         /// <summary>
         /// Runs the preset row's own click body for a named preset, from outside the draw
@@ -378,9 +392,9 @@ namespace Parsek
         private bool warpCachedLandsAtStart;
         private bool warpResolveDirty = true;
 
-        // Time-range filter UI state. The Time button in filter row 1 opens a fold holding
-        // the preset row and the From / To sliders.
-        private bool timeFoldOpen;
+        // Time-range filter UI state. The preset row (Last Day ... All, Custom) is always
+        // drawn; the From / To sliders only while Custom is the lit button.
+        private bool customRangeSelected;
         private float sliderMin;
         private float sliderMax;
         private float sliderBoundMin;
@@ -669,21 +683,31 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Shared button width used by every cell of the Timeline's top zone: the view row,
-        /// the context row and the Time fold's preset row, each a six-cell grid. Computed
-        /// each frame from the current window width so all rows scale uniformly and their
-        /// columns line up. The margin budget (outer + inter-cell gaps at 2px per
-        /// margin.left/right) is subtracted before dividing by 6 so a full row fills the
-        /// available span exactly. Floored at FilterButtonWidth so buttons never shrink
-        /// below the minimum legibility width.
+        /// Cell width for a top-zone row of <paramref name="cells"/> buttons that fills the
+        /// window width: the context row and the preset row are six-cell grids (so their
+        /// columns line up), the view row divides the width among its own buttons so it
+        /// has no empty cell. Computed each frame from the current window width. Floored
+        /// at FilterButtonWidth so buttons never shrink below the legibility width.
         /// </summary>
-        private float GetResponsiveButtonWidth()
+        private float GetResponsiveButtonWidth(int cells = GridCells)
+            => ComputeFilterCellWidth(timelineWindowRect.width, cells);
+
+        /// <summary>Cells in the context row and the preset row.</summary>
+        internal const int GridCells = 6;
+
+        /// <summary>
+        /// Pure form of <see cref="GetResponsiveButtonWidth"/>. The toggle style's
+        /// margin is (4,4) and IMGUI collapses adjacent margins to the larger one, so a row
+        /// of n cells spends 4 px outside each end plus 4 px per gap: 4 * (n + 1). That and
+        /// the window chrome come off before dividing, so a full row spans the width exactly.
+        /// </summary>
+        internal static float ComputeFilterCellWidth(float windowWidth, int cells)
         {
             const float horizontalChromePx = 22f;      // approx left+right window padding
-            // margin=(4,4,0,0): outer left (4) + 5 inter-button gaps (4 each) + outer right (4) = 28
-            const float marginBudget = 28f;
-            float avail = timelineWindowRect.width - horizontalChromePx - marginBudget;
-            return Mathf.Max(FilterButtonWidth, avail / 6f);
+            if (cells < 1) cells = 1;
+            float marginBudget = 4f * (cells + 1);
+            float avail = windowWidth - horizontalChromePx - marginBudget;
+            return Math.Max(FilterButtonWidth, avail / cells);
         }
 
         private void DrawTimelineWindow(int windowID)
@@ -1017,44 +1041,47 @@ namespace Parsek
         {
             GUILayout.Space(5);
 
-            // Two six-cell rows on the shared GetResponsiveButtonWidth grid.
+            // Rows 1 and 2 of the filter area (row 3, the time-range presets, is
+            // DrawTimeRangeFilterBar).
             //   Row 1: the one-at-a-time view group (Overview, Details, Rewind/FF, Re-Fly,
-            //          Career) plus the Time fold button, whose label names the active range.
-            //   Row 2: the context row for the selected view (ResolveContextRow), ALWAYS
-            //          drawn and always one button tall, so switching views never moves the
-            //          list.
+            //          Career), its buttons stretched over the whole width.
+            //   Row 2: the context row for the selected view (ResolveContextRow) on the
+            //          six-cell grid, ALWAYS drawn and always one button tall, so switching
+            //          views never moves the list.
             // Nothing here reads the UI complexity mode: Basic and Advanced draw the same
             // controls. The Career cell reads the GAME mode (absent in Sandbox; Science
             // shows only Facilities, Milestones and Tech).
-            float btnW = GetResponsiveButtonWidth();
             Game.Modes? gameMode = GetCurrentGameMode();
             EnsureViewAvailableInMode(gameMode);
+            bool drawCareer = ShouldDrawCareerViewButton(gameMode);
+            float viewW = GetResponsiveButtonWidth(ViewRowCellCount(drawCareer));
+            float btnW = GetResponsiveButtonWidth();
 
             GUILayout.BeginHorizontal();
             DrawViewToggle(TimelineTierFilterMode.Overview,
                 new GUIContent("Overview",
                     "Shows only the headline rows: launches, endings and career events."),
-                btnW);
+                viewW);
             DrawViewToggle(TimelineTierFilterMode.Details,
                 new GUIContent("Details",
                     "Adds the fine-grained rows Overview hides, such as staging and docking."),
-                btnW);
+                viewW);
             DrawViewToggle(TimelineTierFilterMode.RewindOrFastForward,
                 new GUIContent("Rewind/FF",
                     "Shows only the flights you can rewind to or fast-forward to."),
-                btnW);
+                viewW);
             DrawViewToggle(TimelineTierFilterMode.ReFly,
                 new GUIContent("Re-Fly",
                     "Shows only the flights you can fly again or seal as final."),
-                btnW);
+                viewW);
 
-            if (ShouldDrawCareerViewButton(gameMode))
+            if (drawCareer)
             {
                 bool careerActive = IsCareerCategoryView(tierFilterMode);
                 if (GUILayout.Toggle(careerActive,
                         new GUIContent("Career",
                             "Shows one career subject at a time: contracts, strategies, facilities, milestones or tech."),
-                        toggleButtonStyle, GUILayout.Width(btnW)) && !careerActive)
+                        toggleButtonStyle, GUILayout.Width(viewW)) && !careerActive)
                 {
                     TimelineCareerCategory category =
                         TimelineCareerCategories.ResolveRemembered(lastCareerCategory, gameMode);
@@ -1062,14 +1089,7 @@ namespace Parsek
                     ParsekLog.Verbose("UI", $"Timeline filter: Career ({category})");
                 }
             }
-            else
-            {
-                // Sandbox: no Career cell. The Label-not-Space grid filler keeps Time in
-                // column 6 (a Label carries the margins a Space does not).
-                GUILayout.Label("", GUILayout.Width(btnW));
-            }
-
-            DrawTimeFoldButton(btnW);
+            // Sandbox: no Career cell, and the four remaining views share the width.
             GUILayout.EndHorizontal();
 
             bool actionFilterMode = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward
@@ -1110,30 +1130,6 @@ namespace Parsek
                     || mode == TimelineTierFilterMode.ReFly)
                     showRecordingEntries = true;
                 ParsekLog.Verbose("UI", $"Timeline filter: {content.text}");
-            }
-        }
-
-        /// <summary>
-        /// Row 1, column 6: opens and closes the Time fold (preset row plus From / To
-        /// sliders). The label names the active range (<see cref="FormatTimeButtonLabel"/>)
-        /// and the button draws lit while the fold is open OR a range is active, so a
-        /// narrowed list always shows why.
-        /// </summary>
-        private void DrawTimeFoldButton(float btnW)
-        {
-            TimeRangeFilterState filter = parentUI.TimeRangeFilter;
-            bool rangeActive = filter != null && filter.IsActive;
-            bool lit = IsTimeButtonLit(timeFoldOpen, rangeActive);
-            string label = FormatTimeButtonLabel(rangeActive, filter?.ActivePresetName);
-            bool clicked = GUILayout.Toggle(lit,
-                new GUIContent(label,
-                    "Shows the time-range presets and sliders; the label names the active range."),
-                toggleButtonStyle, GUILayout.Width(btnW)) != lit;
-            if (clicked)
-            {
-                timeFoldOpen = !timeFoldOpen;
-                ParsekLog.Verbose("UI",
-                    $"Time-range filter: fold {(timeFoldOpen ? "opened" : "closed")} ({label})");
             }
         }
 
@@ -1335,23 +1331,82 @@ namespace Parsek
                 : ViewOfCategory(fallback);
         }
 
+        /// <summary>Cells in the view row: five, or four where no Career cell draws.</summary>
+        internal static int ViewRowCellCount(bool drawCareer) => drawCareer ? 5 : 4;
+
+        /// <summary>The Custom button's label in the time-range preset row.</summary>
+        internal const string CustomRangeButtonName = "Custom";
+
         /// <summary>
-        /// The Time button's label: <c>Time: All</c> with no range, <c>Time: &lt;preset&gt;</c>
-        /// for a preset (<c>Time: Last 7d</c>, <c>Time: This Year</c>), <c>Time: Custom</c>
-        /// for a slider range.
+        /// Which one of the six time-range buttons draws lit: <c>Custom</c> while it is
+        /// selected or the filter holds a range no preset names (a slider drag); otherwise
+        /// the active preset's name; otherwise <c>All</c>. Exactly one answer, so the row
+        /// never lights two buttons and always names the range in force.
         /// </summary>
-        internal static string FormatTimeButtonLabel(bool rangeActive, string activePresetName)
+        internal static string ResolveLitTimeRangeButton(bool customSelected, bool rangeActive,
+            string activePresetName)
         {
-            if (!rangeActive) return "Time: " + TestCommands.TestCommandUiWindowState.PresetAllToken;
+            if (customSelected) return CustomRangeButtonName;
+            if (!rangeActive) return TestCommands.TestCommandUiWindowState.PresetAllToken;
             return string.IsNullOrEmpty(activePresetName)
-                ? "Time: Custom"
-                : "Time: " + activePresetName;
+                ? CustomRangeButtonName
+                : activePresetName;
         }
 
-        /// <summary>The Time button draws lit while its fold is open or a range is
-        /// active.</summary>
-        internal static bool IsTimeButtonLit(bool foldOpen, bool rangeActive)
-            => foldOpen || rangeActive;
+        private string LitTimeRangeButton(TimeRangeFilterState filter)
+            => ResolveLitTimeRangeButton(customRangeSelected,
+                filter != null && filter.IsActive, filter?.ActivePresetName);
+
+        private bool IsCustomRangeLit(TimeRangeFilterState filter)
+            => LitTimeRangeButton(filter) == CustomRangeButtonName;
+
+        /// <summary>
+        /// The Custom toggle's click body (and the seam's <c>customRange</c> write).
+        /// <para>On: Custom lights and the sliders show. A preset range in force is kept
+        /// as the same range without its preset name, so the list does not change and the
+        /// thumbs start where the preset left them; with no range the list stays whole
+        /// until a thumb moves.</para>
+        /// <para>Off: back to All - the filter clears and the thumbs return to the ends -
+        /// because a row with nothing lit would hide which range applies.</para>
+        /// </summary>
+        internal void SetCustomRangeSelected(TimeRangeFilterState filter, bool on)
+        {
+            if (on)
+            {
+                customRangeSelected = true;
+                if (filter != null && filter.IsActive && filter.ActivePresetName != null)
+                {
+                    string from = filter.ActivePresetName;
+                    filter.SetRange(filter.MinUT ?? sliderBoundMin, filter.MaxUT ?? sliderBoundMax);
+                    ParsekLog.Verbose("UI",
+                        $"Time-range filter: Custom selected, keeping the '{from}' range as a custom range");
+                }
+                else
+                {
+                    ParsekLog.Verbose("UI", "Time-range filter: Custom selected, sliders shown");
+                }
+                return;
+            }
+
+            customRangeSelected = false;
+            filter?.Clear();
+            sliderMin = sliderBoundMin;
+            sliderMax = sliderBoundMax;
+            ParsekLog.Verbose("UI", "Time-range filter: Custom off, cleared (All)");
+        }
+
+        /// <summary>
+        /// A slider drag's body: the thumbs define the range, stored with no preset name,
+        /// and Custom becomes the lit button.
+        /// </summary>
+        internal void ApplyCustomSliderRange(TimeRangeFilterState filter, float min, float max)
+        {
+            if (min > max) min = max;
+            sliderMin = min;
+            sliderMax = max;
+            customRangeSelected = true;
+            filter?.SetRange(min, max);
+        }
 
         private void DrawTimeRangeFilterBar()
         {
@@ -1362,8 +1417,8 @@ namespace Parsek
             double currentUT = 0;
             try { currentUT = Planetarium.GetUniversalTime(); } catch { }
 
-            // Recompute slider bounds when timeline data changes. Runs with the fold shut
-            // too: a preset applied by the seam clamps against these bounds.
+            // Recompute slider bounds when timeline data changes. Runs with the sliders
+            // hidden too: a preset applied by the seam clamps against these bounds.
             if (!sliderBoundsInitialized || timelineDirty)
             {
                 TimeRangeFilterLogic.ComputeSliderBounds(committed, currentUT,
@@ -1387,13 +1442,13 @@ namespace Parsek
                 }
             }
 
-            if (!timeFoldOpen) return;
-
             bool hasRange = sliderBoundMax - sliderBoundMin > 1f;
 
-            // Every preset button (including All) uses the same responsive width as the
-            // filter rows above so the columns align and scale together.
+            // Row 3, always drawn: the four presets, All and Custom on the six-cell grid
+            // shared with row 2, exactly one of them lit (ResolveLitTimeRangeButton), so
+            // the range in force is always on screen.
             float btnW = GetResponsiveButtonWidth();
+            string lit = LitTimeRangeButton(filter);
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();
 
@@ -1404,39 +1459,44 @@ namespace Parsek
             DrawPresetButton(filter,
                 new GUIContent("Last Day",
                     "Narrows the list to rows from the last day of game time."),
-                currentUT, btnW);
+                lit, currentUT, btnW);
             DrawPresetButton(filter,
                 new GUIContent("Last 7d",
                     "Narrows the list to rows from the last seven days of game time."),
-                currentUT, btnW);
+                lit, currentUT, btnW);
             DrawPresetButton(filter,
                 new GUIContent("Last 30d",
                     "Narrows the list to rows from the last thirty days of game time."),
-                currentUT, btnW);
+                lit, currentUT, btnW);
             DrawPresetButton(filter,
                 new GUIContent("This Year",
                     "Narrows the list to rows from the current game year."),
-                currentUT, btnW);
+                lit, currentUT, btnW);
+            // "All" clears the filter; ApplyTimeRangePreset's no-range arm is its body.
+            DrawPresetButton(filter,
+                new GUIContent("All", "Clears the time filter and shows the whole timeline."),
+                lit, currentUT, btnW);
 
-            // "All" = clear filter
-            bool allActive = !filter.IsActive;
-            if (GUILayout.Toggle(allActive,
-                    new GUIContent("All", "Clears the time filter and shows the whole timeline."),
-                    toggleButtonStyle, GUILayout.Width(btnW)) && !allActive)
-            {
-                filter.Clear();
-                sliderMin = sliderBoundMin;
-                sliderMax = sliderBoundMax;
-                ParsekLog.Verbose("UI", "Time-range filter: cleared (All)");
-            }
+            // "Custom" toggles the From / To sliders underneath. Disabled while the data
+            // spans no range to slide over, unless it is already the lit button.
+            bool customLit = lit == CustomRangeButtonName;
+            bool prevEnabled = GUI.enabled;
+            GUI.enabled = prevEnabled && (hasRange || customLit);
+            bool newCustom = GUILayout.Toggle(customLit,
+                new GUIContent(CustomRangeButtonName,
+                    "Shows From / To sliders for picking your own start and end time."),
+                toggleButtonStyle, GUILayout.Width(btnW));
+            GUI.enabled = prevEnabled;
+            if (newCustom != customLit)
+                SetCustomRangeSelected(filter, newCustom);
 
             GUILayout.EndHorizontal();
 
-            // The From / To sliders draw whenever the fold is open and the data spans more
-            // than a second (there is no separate Custom reveal button).
-            if (!hasRange) return;
+            // The From / To sliders draw only while Custom is lit (read after the click
+            // above, so a click shows or hides them in the same frame).
+            if (!hasRange || !IsCustomRangeLit(filter)) return;
 
-            // Active-range readout (only meaningful when the filter is set to a custom range, not a preset).
+            // Active-range readout (a custom range; the lit Custom button names it).
             if (filter.IsActive && filter.ActivePresetName == null)
             {
                 string rangeLabel = TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? sliderBoundMin)
@@ -1468,16 +1528,9 @@ namespace Parsek
             GUILayout.Label(toLabel, GUILayout.Width(120));
             GUILayout.EndHorizontal();
 
-            // Clamp so From <= To
-            if (newMin > newMax) newMin = newMax;
-
-            // Apply immediately on slider change
+            // Apply immediately on slider change (ApplyCustomSliderRange clamps From <= To).
             if (System.Math.Abs(newMin - sliderMin) > 0.5f || System.Math.Abs(newMax - sliderMax) > 0.5f)
-            {
-                sliderMin = newMin;
-                sliderMax = newMax;
-                filter.SetRange(sliderMin, sliderMax);
-            }
+                ApplyCustomSliderRange(filter, newMin, newMax);
         }
 
         /// <summary>
@@ -1488,10 +1541,10 @@ namespace Parsek
         /// <c>content.text</c>, so label and stored preset name cannot drift apart.
         /// </summary>
         private void DrawPresetButton(TimeRangeFilterState filter, GUIContent content,
-            double currentUT, float width)
+            string litButton, double currentUT, float width)
         {
             string name = content.text;
-            bool isActive = filter.IsActive && filter.ActivePresetName == name;
+            bool isActive = litButton == name;
             if (GUILayout.Toggle(isActive, content, toggleButtonStyle,
                     GUILayout.Width(width)) && !isActive)
             {
@@ -1515,11 +1568,13 @@ namespace Parsek
                                            double currentUT)
         {
             if (filter == null) return;
+            // Any preset (All included) is the lit button from here on; Custom goes dark
+            // and its sliders hide.
+            customRangeSelected = false;
             if (!TimeRangeFilterLogic.TryResolvePresetRange(name, currentUT,
                                                             out double minUT, out double maxUT))
             {
-                // "All": the row's clear button, whose handler calls Clear() and resets the
-                // thumbs to the bounds.
+                // "All": no range. Clears the filter and returns the thumbs to the ends.
                 filter.Clear();
                 sliderMin = sliderBoundMin;
                 sliderMax = sliderBoundMax;
@@ -1664,7 +1719,7 @@ namespace Parsek
         /// and events alike; the source toggles are ignored.</item>
         /// </list>
         /// The time range applies in EVERY view, a category view included: a "Last N" range
-        /// ends at now and so hides the future rows, which the Time button's label names.
+        /// ends at now and so hides the future rows, which the lit preset button names.
         /// </summary>
         internal static bool IsEntryVisibleInView(TimelineTierFilterMode mode, TimelineEntry entry,
             bool actionableInActionView, bool showRecordings, bool showActions, bool showEvents,
