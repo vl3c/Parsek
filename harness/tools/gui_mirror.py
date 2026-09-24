@@ -88,6 +88,38 @@ NOTE_VERDICTS = ("keep", "change", "unsure")
 NOTES_FIELDS = ("key", "window", "tab", "state", "mode", "fixture", "mocked",
                 "mockState", "beforeId", "afterId", "verdict", "note")
 
+# LAYOUT EPOCHS: window token -> the UTC instant from which that window's captures
+# show its CURRENT layout. A capture of the window taken before it is `outdated`
+# (old layout): the rail never lists it and it counts as no coverage, but it stays
+# a Compare BEFORE picture. See `mark_layout_epochs` and design-gui-mirror.md
+# section 17 (e).
+#
+# This is the one piece of product history the corpus cannot tell: a re-layout
+# that removed no tab leaves nothing a capture could be told apart by, so every
+# state a lane did not re-fly would otherwise stay "current" in the old layout.
+#
+# UPDATE THIS TABLE IN EVERY PR THAT CHANGES A WINDOW'S LAYOUT. Set `utc` to the
+# `startedUtc` (run.py's result JSON) of the FIRST census run that PR flew on the
+# new layout - NOT its merge time: a window-round PR re-flies its lanes before it
+# merges, and a merge-time floor would mark that proof itself as the old layout.
+# The floor is a time, not a build: a lane flown after it from a branch that does
+# not carry the change still counts as current, so re-fly from a branch that does.
+LAYOUT_EPOCHS = {
+    # PR #1755 (merged 2026-09-22T19:16:54Z): no flight status block, bold title.
+    # First run on it: GUI-1-census-ksc 2026-09-22_1841.
+    "main": {"utc": "2026-09-22T18:41:11Z", "pr": 1755},
+    # PR #1762 (merged 2026-09-22T20:38:41Z): slot-grouped roster, no Since column.
+    # First run on it: GUI-11-census-kerbals-crewed 2026-09-22_2004.
+    "kerbals": {"utc": "2026-09-22T20:04:25Z", "pr": 1762},
+    # PR #1809 (after #1792): five view buttons, the source / category row, and the
+    # always-visible preset row with Custom (the "Time:" toggle is gone).
+    # First run on it: GUI-24-census-timeline-filters 2026-09-24_1942.
+    "timeline": {"utc": "2026-09-24T19:42:55Z", "pr": 1809},
+    # PR #1796 (merged 2026-09-24T16:18:48Z): the state view, two tabs.
+    # First run on it: GUI-15-census-career-contracts 2026-09-24_1522.
+    "career": {"utc": "2026-09-24T15:22:01Z", "pr": 1796},
+}
+
 
 # --------------------------------------------------------------------------
 # pure helpers
@@ -1480,6 +1512,7 @@ def window_compare_summary(captures, keys, window, missing=()):
         "capturesMocked": len([c for c in caps if c.get("mocked")]),
         "superseded": len([c for c in caps if c.get("supersededBy")]),
         "retired": len([c for c in caps if c.get("retired")]),
+        "outdated": len([c for c in caps if c.get("outdated")]),
         "hoverNotCaptured": len([c for c in caps if c.get("hoverEmpty")]),
         "labelDisagreements": len([c for c in caps if c.get("disagrees")]),
         "statesReal": len(real_keys),
@@ -1958,6 +1991,51 @@ def prune_removed_tabs(captures):
     return removed
 
 
+def parse_utc(text):
+    """An ISO-8601 UTC stamp (`2026-09-23T21:35:49Z`, optionally with fractional
+    seconds) as an aware datetime, or None when it is absent or unreadable."""
+    if not text:
+        return None
+    s = str(text).strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt
+
+
+def mark_layout_epochs(captures, epochs=None):
+    """Mark every capture drawn before its window's current layout existed.
+
+    `epochs` maps a window token to `{"utc", "pr"}` (default `LAYOUT_EPOCHS`). A
+    capture of that window whose `capturedUtc` is EARLIER than the epoch is
+    `outdated`, with the epoch recorded beside any removed-tab reason
+    `prune_removed_tabs` already gave it; a capture taken at the epoch or after it
+    is current. A window with no epoch, and a capture with no readable time, are
+    not judged. Independent of superseded / retired: those say a later capture
+    exists or the lane stopped, this says the picture shows a layout the product
+    no longer has. Returns the captures it marked.
+    """
+    epochs = LAYOUT_EPOCHS if epochs is None else epochs
+    out = []
+    for cap in captures:
+        ep = epochs.get(cap.get("window"))
+        if not ep:
+            continue
+        floor = parse_utc(ep.get("utc"))
+        at = parse_utc(cap.get("capturedUtc"))
+        if floor is None or at is None or at >= floor:
+            continue
+        info = cap.setdefault("outdated", {"tabs": [], "window": cap["window"]})
+        info["epoch"] = {"utc": ep["utc"], "pr": ep.get("pr")}
+        out.append(cap)
+    return out
+
+
 def mark_retired(captures, runs):
     """Mark every capture its own lane no longer produces.
 
@@ -2081,7 +2159,7 @@ def classify_foreign(all_caps):
 
 def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
                 budget=DEFAULT_BUDGET_BYTES, verbose=False, stamp="",
-                pin_fixture=""):
+                pin_fixture="", layout_epochs=None):
     scans = [scan_shots_dir(d, scenarios_dir, verbose=verbose) for d in shots_dirs]
     all_caps = [c for s in scans for c in s["captures"]]
     if not all_caps:
@@ -2417,7 +2495,10 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
     # round-2 rebuild) stayed current forever. See `mark_retired`.
     mark_retired(captures, [{"specId": s["specId"], "runId": s["runId"],
                              "complete": s.get("complete")} for s in scans])
+    # A tab counts as removed from superseded / retired captures only, never from
+    # old-layout ones: a tab whose only captures predate a re-layout still exists.
     prune_removed_tabs(captures)
+    mark_layout_epochs(captures, layout_epochs)
     for k, info in keys.items():
         after = next(c for c in by_key[k] if c["id"] == info["after"])
         if after.get("retired"):
@@ -2489,6 +2570,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         # The page's own generation stamp. It travels in the notes blob, because
         # a verdict is about the corpus that was on screen when it was typed.
         "generatedUtc": stamp or "",
+        # The layout epochs this page was judged against (`mark_layout_epochs`).
+        "layoutEpochs": dict(LAYOUT_EPOCHS if layout_epochs is None else layout_epochs),
         # The windows the command seam can open. A capture whose subject is not
         # one of them is a diagnostic surface (the GuiTree probe), shown in the
         # mirror because it WAS photographed but left out of Compare, which is
@@ -3039,11 +3122,15 @@ function capFlags(cap){
              + '. Kept as the BEFORE of that pair; not counted as coverage.' });
   }
   if (cap.outdated){
-    out.push({ cls: 'sup', text: 'old layout (had ' + cap.outdated.tabs.join(', ') + ')',
+    var had = cap.outdated.tabs || [], ep = cap.outdated.epoch, why = [];
+    if (had.length) why.push('drawn while this window still had tabs it no longer has: '
+                             + had.join(', '));
+    if (ep) why.push('drawn before the current layout of this window (PR #' + ep.pr
+                     + ', first captured ' + ep.utc + ')');
+    out.push({ cls: 'sup', text: had.length ? 'old layout (had ' + had.join(', ') + ')'
+                                            : 'old layout (before #' + ep.pr + ')',
       short: 'old layout',
-      title: 'drawn while this window still had tabs it no longer has: '
-             + cap.outdated.tabs.join(', ') + '. Kept as a BEFORE picture; not '
-             + 'counted as coverage.' });
+      title: why.join('; ') + '. Kept as a BEFORE picture; not counted as coverage.' });
   }
   if (cap.retired){
     out.push({ cls: 'sup', text: 'no longer captured by ' + cap.retired.spec
@@ -3495,12 +3582,13 @@ function pick(win, tab, state, mode, fixture){
   if (!pool.length) return null;
   /* A capture a LATER run photographed the same key of is not the current
      picture of that state, so a click never lands on it. It stays reachable as
-     the BEFORE of its own Compare pair and from its own rail row, which is how a
-     re-flown lane retires its predecessor without a label being named anywhere.
-     A capture its own lane no longer produces (RETIRED) is left out the same
-     way. If every candidate is out (nothing else was ever photographed) the
-     pool is left alone rather than emptied. */
-  var live = pool.filter(function(c){ return !c.supersededBy && !c.retired; });
+     the BEFORE of its own Compare pair, which is how a re-flown lane retires its
+     predecessor without a label being named anywhere. A capture its own lane no
+     longer produces (RETIRED) and one drawn with an old layout of the window
+     (OUTDATED) are left out the same way, so neither is ever a window's default.
+     If every candidate is out (nothing else was ever photographed) the pool is
+     left alone rather than emptied. */
+  var live = pool.filter(function(c){ return !c.supersededBy && !c.retired && !c.outdated; });
   if (live.length) pool = live;
   var cmp = rank(win);
   var exact = pool.filter(function(c){ return c.fixture === fixture; });
@@ -4725,7 +4813,7 @@ def build_index(model):
     for cap in model["captures"]:
         w = per_window.setdefault(cap["window"], {
             "captures": 0, "capturesMocked": 0, "superseded": 0, "retired": 0,
-            "hoverNotCaptured": 0, "labelDisagreements": 0,
+            "outdated": 0, "hoverNotCaptured": 0, "labelDisagreements": 0,
             "states": {}, "fixtures": {}})
         w["captures"] += 1
         if cap.get("mocked"):
@@ -4734,6 +4822,8 @@ def build_index(model):
             w["superseded"] += 1
         if cap.get("retired"):
             w["retired"] += 1
+        if cap.get("outdated"):
+            w["outdated"] += 1
         if cap.get("hoverEmpty"):
             w["hoverNotCaptured"] += 1
         if cap.get("disagrees"):
@@ -4748,6 +4838,8 @@ def build_index(model):
             row["superseded"] += 1
         if cap.get("retired"):
             row["retired"] = cap["retired"]
+        if cap.get("outdated"):
+            row["outdated"] = row.get("outdated", 0) + 1
         if cap.get("hoverEmpty"):
             row["hoverNotCaptured"] = row.get("hoverNotCaptured", 0) + 1
         if cap.get("disagrees"):
@@ -4766,6 +4858,10 @@ def build_index(model):
         "retiredCaptureCount": len([c for c in caps if c.get("retired")]),
         "retiredKeyCount": len([k for k, v in model["keys"].items()
                                 if v.get("retired")]),
+        "outdatedCaptureCount": len([c for c in caps if c.get("outdated")]),
+        "outdatedKeyCount": len([k for k, v in model["keys"].items()
+                                 if v.get("outdated")]),
+        "layoutEpochs": model.get("layoutEpochs") or {},
         "hoverNotCapturedCount": len([c for c in caps if c.get("hoverEmpty")]),
         "labelDisagreementCount": len([c for c in caps if c.get("disagrees")]),
         "defaultFixture": model["defaultFixture"],
@@ -4776,7 +4872,8 @@ def build_index(model):
         "compare": {k: {"before": v["before"], "after": v["after"],
                         "changed": v["changed"],
                         "superseded": v.get("superseded") or [],
-                        "retired": v.get("retired")}
+                        "retired": v.get("retired"),
+                        "outdated": v.get("outdated")}
                     for k, v in model["keys"].items()},
         "photoBytes": model.get("photoBytes", 0),
     }
