@@ -1581,7 +1581,7 @@ Same reasoning retires six more RouteStatus values (`InTransit`,
 legacy wait-state path that assigns those statuses, or re-gate the capacity line on
 `LastHoldKind`. The second is a product question, not an instrument one.
 
-**5. `strategy-career` cannot photograph populated Strategies rows.** It is `fresh-career`
+**5. ~~`strategy-career` cannot photograph populated Strategies rows.~~** DONE 2026-09-24: no fixture was built; the seam's new `KscAction action=activate-strategy` activates a stock strategy through the Administration building's own call, and `GUI-5-census-career-ksc` photographs the populated tab and the Timeline Strategies view (`2026-09-24_1818`). Original reading: It is `fresh-career`
 plus one reputation seed: its stock `STRATEGIES` node is empty and it carries no Parsek
 footprint, while `CareerStateWindowUI`'s Strategies tab reads Parsek's own effective ledger
 (`EffectiveState.ComputeELS()`). With no ledger row it draws `(no active strategies)`,
