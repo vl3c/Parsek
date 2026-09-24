@@ -409,9 +409,10 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// Prevents ghost map ProtoVessels from going off rails (becoming loaded physics vessels).
+    /// Prevents ghost map ProtoVessels from going off rails (unpacking into physics vessels).
     /// Ghost vessels exist only for map presence (orbit lines, tracking station, targeting).
-    /// They must remain unloaded — the ghost mesh provides the visual representation.
+    /// KSP still LOADS their parts inside load distance (made inert by
+    /// <see cref="GhostVesselLoadedInertPatch"/>); they must never unpack; the ghost mesh provides the visual representation.
     /// </summary>
     [HarmonyPatch(typeof(Vessel), nameof(Vessel.GoOffRails))]
     internal static class GhostVesselLoadPatch
