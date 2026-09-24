@@ -638,6 +638,45 @@ Steps 2 to 6 below apply to any census lane. In order:
 
 6. **Copy the directory out** if the census matters (the retention pass above).
 
+### The census frame (`[runtime] screenResolution`)
+
+Every GUI census lane (`gui-census` tag) declares `screenResolution = "1920x1080"` under
+`[runtime]`, and no other lane does (`ScreenResolutionSpecTests` in `lib/test_hlib.py`
+pins that set against the tag). The provisioned `stock-minimal` instance runs KSP at
+1280x720, which cropped every Parsek window wider or taller than that (Missions floors at
+1355 px, Logistics at 1410 px, several Settings states run past 720 px). The render and
+map lanes stay at 1280x720 because their readings may depend on pixel sizes.
+
+- **Allowed values** are `"1280x720"` (the profile default, a no-op) and `"1920x1080"`;
+  anything else, and any unknown `[runtime]` key, is an INVALID-SPEC, so a misspelled
+  opt-in cannot silently fly at 720p.
+- **How it is applied.** A Unity `-screen-width` argument would not survive: KSP's
+  `GameSettings` calls `Screen.SetResolution` from its own `settings.cfg` ten frames
+  after boot. So STAGE writes a restore marker (`settings.cfg.harness-screen-restore`,
+  the original `SCREEN_RESOLUTION_WIDTH` / `SCREEN_RESOLUTION_HEIGHT` / `FULLSCREEN`
+  values) and then rewrites exactly those three values in the instance-root
+  `settings.cfg` (windowed). TEARDOWN, in the per-attempt finally, writes the original
+  values back and deletes the marker, so the file is byte-identical after the run (a
+  provisioned `settings.cfg` carries all three keys; a key a hand-made file lacked is
+  appended by the apply and stays).
+- **Crash safety.** Every run's STAGE first restores from any marker it finds, whether
+  or not that run declares a size, so a run whose harness process was killed before
+  teardown is healed by the next run on the instance. A marker left in place (a restore
+  that failed) is never overwritten: a run that finds one flies at the current size with
+  a Warn, and its teardown retries the restore. Re-provisioning also deletes a leftover
+  marker, since SETTINGS rewrites the whole file. Teardown can run while KSP is still
+  alive after an exception on the harness side; KSP may then rewrite `settings.cfg` when
+  it exits, but the next run's zombie check refuses to start while any KSP is live, and
+  its stage heal runs after that. The one gap: a run from an OLDER branch without this
+  code would fly at the leaked size until a newer run stages.
+- **The desktop has to hold the window.** The run clamps each axis to the primary
+  monitor's work area minus the window frame, read DPI-aware, and logs a Warn naming the
+  size it used. The dev machine's desktop (2560x1440, work area 2560x1392, frame 16x39)
+  hosts 1920x1080 unclamped.
+- **What reads it.** Every `.gui.json` records the `screen` it was taken at, and
+  `tools/gui_mirror.py` / `tools/gui_mirror_fidelity.py` size each capture from its own
+  dump, so a mirror built over 1280x720 and 1920x1080 corpora renders each at its frame.
+
 ### The census op vocabulary (what a coverage lane reaches for)
 
 The lanes above photograph WINDOWS, with the wave-3 one photographing MODALS. A
@@ -700,9 +739,10 @@ SIX AUTHORING RULES that cost a flight if missed:
   the operator's foreground mid-run, which the same Info line records.
 - **`op=rect` now CLAMPS to the window's own minimum** and reports `clamped= minW= minH=`.
   Command the floor outright rather than a number below it: `missions` is 1355 and
-  `logistics` 1410, both wider than the 1280 px `stock-minimal` profile, so those two
-  pictures are honestly CLIPPED. `op=describe` carries every window's floor as `w<i>min=`,
-  so read a describe before choosing a size.
+  `logistics` 1410, both wider than the 1280 px `stock-minimal` profile, which is why the
+  census lanes fly at 1920x1080 (the census frame, above); a capture flown before
+  2026-09-24 is CLIPPED at 1280. `op=describe` carries every window's floor as
+  `w<i>min=`, so read a describe before choosing a size.
 - **Ids are save-specific; `key=all` and `recording=first` are not.** A committed spec
   cannot carry a mission id or a route id from a local fixture, so prefer the bulk forms,
   or discover an id with `ListHandles` / `op=find` and chain it. A COMMITTED fixture is the

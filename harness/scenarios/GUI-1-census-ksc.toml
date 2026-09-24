@@ -661,6 +661,9 @@ gating = false
 # 2026-09-10 INVALID attempts read 79 / 80 s), so the budget is 15x the measurement and
 # stays where it is rather than being trimmed to it.
 budgetSeconds = 1500
+# The census frame (`screenResolution`, harness README): 1280x720 cropped every
+# Parsek window wider or taller than it, so the census lanes capture at 1920x1080.
+screenResolution = "1920x1080"
 
 [retry]
 policy = "once"
