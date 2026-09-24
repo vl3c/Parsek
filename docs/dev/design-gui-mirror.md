@@ -46,9 +46,11 @@ produced:
 
 Two consequences are worth stating because they are the point of the design:
 
-* **The mirror cannot drift.** There is nothing to update when a window changes;
-  there is only a census to re-fly. A window that changed and was not re-flown
-  shows its last capture with the run id it came from, which is the honest answer.
+* **The mirror cannot drift.** There is nothing to update when a window changes
+  but one line of the layout-epoch table (section 17 (e)); there is otherwise only
+  a census to re-fly. A state that was not re-flown after its window changed drops
+  off the rail and stays reachable as a Compare BEFORE with the run id it came
+  from, which is the honest answer.
 * **A click with no capture behind it does nothing but say so.** The state graph
   has an edge only where the destination capture exists. Everything else flashes
   the control and writes `no capture for this state yet` in the status line. The
@@ -60,9 +62,11 @@ Two consequences are worth stating because they are the point of the design:
 mechanical guard on the first claim: it renders a synthetic capture and then
 asserts the generator's own SOURCE does not contain the strings the page showed.
 
-### Two things the generator does contain
+### Three things the generator does contain
 
-The CSS skin (window chrome, borders, row metrics, the fallback greys) and the
+The layout-epoch table (section 17 (e)): per window, the instant its current
+layout was first captured, typed because no capture can say when a re-layout
+happened. Then the CSS skin (window chrome, borders, row metrics, the fallback greys) and the
 glyph metrics. The metrics are calibrated rather than guessed: the ink extent of
 three text runs in `bdk-kerbals-roster-expanded-advanced.png` measures
 136 / 144 / 87 px, and Arial at 13px renders them at 136.6 / 144.5 / 86.8, so the
@@ -927,7 +931,7 @@ which the "every bare rule is scoped to the bare class" cell keeps mechanical.
 
 ## 17. Retiring false coverage
 
-Four rules, none of which names a label. A label typed into the generator is a
+Five rules, none of which names a label. A label typed into the generator is a
 label that rots, and the state audit's own finding was that the mirror was
 reporting 230 captures over 134 distinct labels with 8 of them photographing
 nothing.
@@ -935,10 +939,10 @@ nothing.
 **(a) SUPERSEDED: a later capture exists for the same key.** Every capture of a
 key but the latest is marked `supersededBy` that one. The mirror shows the latest
 - `pick` filters superseded captures out of the pool, and so does the capture the
-page OPENS on - the rail lists the current one per state and greys a superseded
-row, and coverage counts DISTINCT KEYS rather than files. The superseded capture
-stays reachable as its pair's BEFORE and from its own rail row, because it is the
-evidence of what changed. This is what retires the audit's four stale labels with
+page OPENS on - the rail lists the current one per state and never a superseded
+one, and coverage counts DISTINCT KEYS rather than files. The superseded capture
+stays reachable as its pair's BEFORE, because it is the evidence of what
+changed. This is what retires the audit's four stale labels with
 no label named: wave 5 re-flew their lanes, so
 `ksc-settings-advanced` / `-basic`, `ksc-career-milestones-advanced`,
 `ksc-kerbals-roster-advanced` / `-outcomes-advanced`,
@@ -997,7 +1001,64 @@ lane that died half way lacks captures for a reason that is not the product. A
 state a later run photographed again is not retired, the retirement is dated from
 the first witnessing run, and a superseded capture is not also retired. A retired
 capture is treated like the other stale rows: `pick` leaves it out (so it is never
-a window's default), the rail greys it and folds it behind the window's "show N
-hidden" link, it is badged "no longer captured by S since R", and its key drops
-out of the window's state counts. On the gen9 corpus it retires exactly one
-capture, that owner chain.
+a window's default), the rail does not list it, it is badged "no longer captured
+by S since R", and its key drops out of the window's state counts. On the gen9
+corpus it retires exactly one capture, that owner chain.
+
+**(e) OLD LAYOUT: drawn before the window's current layout existed.** The rail
+lists the windows as they are today, never a state drawn with an older layout of
+the window (owner, 2026-09-24). (a) and (d) cannot see a re-layout: a state no
+lane re-flew after the change has no later capture of its key and its own lane
+never flew again, so it stayed current. PR #1792 moved the Timeline from three
+filter rows to two, and the rail listed the six GUI-6 / GUI-7 / GUI-19 Timeline
+states from 2026-09-15 and 2026-09-21 in the three-row layout beside the new
+two-row captures. Two passes mark a capture `outdated`:
+
+* `prune_removed_tabs` - the window lost a TAB. A tab none of whose captures is
+  live (each superseded or retired) is removed; a capture of the window taken up
+  to that tab's last capture was drawn with it and is `outdated.tabs`. Captures
+  after it lose the tab from their assembled tab bar. Only superseded and retired
+  captures count here, never an old-layout one: a tab whose only captures predate
+  a re-layout still exists.
+* `mark_layout_epochs` - any other re-layout, against the explicit
+  `LAYOUT_EPOCHS` table in the generator: window token -> the UTC instant from
+  which its captures show the current layout. A capture of that window EARLIER
+  than the instant is `outdated.epoch`; one taken at the instant or after it is
+  current; a window with no entry, and a capture with no readable `capturedUtc`,
+  are not judged. The flag is orthogonal to (a) and (d).
+
+An `outdated` capture stays a Compare BEFORE picture, badged "old layout (had T)"
+or "old layout (before #N)"; the rail never lists it, `pick` leaves it out so a
+window never opens on it (unless nothing else of that state exists), and its key
+drops out of the window's state counts. The index carries `outdatedCaptureCount`,
+`outdatedKeyCount` and the `layoutEpochs` the page was judged against.
+
+The table is the one piece of product history the corpus cannot tell, so it is
+typed, and **every PR that changes a window's layout updates it** in the same
+commit. The instant is the `startedUtc` (run.py's result JSON) of the first
+census run that PR flew on the new layout, NOT its merge time: a window-round PR
+re-flies its lanes before it merges, and a merge-time floor would mark that proof
+itself as the old layout (for #1792 it would have hidden all 46 two-row
+captures). The floor is a time, not a build: a lane flown after it from a branch
+that does not carry the change still reads as current, so re-fly from a branch
+that does. On the 2026-09-24 corpus the career-round3 runs (2026-09-22_2051 to
+_2054) are that case for the Kerbals window - flown after #1762's instant from a
+branch without it - and are harmless only because later runs superseded them.
+
+| Window | Instant (UTC) | PR, merged | First run on the new layout |
+| --- | --- | --- | --- |
+| `main` | 2026-09-22T18:41:11Z | #1755, 2026-09-22T19:16:54Z | GUI-1-census-ksc 2026-09-22_1841 |
+| `kerbals` | 2026-09-22T20:04:25Z | #1762, 2026-09-22T20:38:41Z | GUI-11-census-kerbals-crewed 2026-09-22_2004 |
+| `timeline` | 2026-09-23T21:34:53Z | #1792, 2026-09-23T22:08:59Z | GUI-24-census-timeline-filters 2026-09-23_2134 |
+| `career` | 2026-09-24T15:22:01Z | #1796, 2026-09-24T16:18:48Z | GUI-15-census-career-contracts 2026-09-24_1522 |
+
+Each boundary was checked against the captures' own chrome: every Timeline
+capture from 2026-09-23_2134 on draws the `Career` view toggle and the one
+`Time: ...` toggle, and every earlier one draws the `Last Day ... All` preset row;
+the Kerbals roster before 2026-09-22_2004 carries a `Since` column; the flight
+main window before 2026-09-22_1841 draws the `Status` block. On that corpus the
+epochs take 32 states off the rail that no current capture covers: 21 of the main
+window (the GUI-10 dialogs, the GUI-9 map-scope states, the GUI-7 recording
+states, the GUI-6 playback states), 5 of Kerbals (GUI-6) and 6 of Timeline (GUI-6,
+GUI-7, GUI-19). Re-flying GUI-6, GUI-7, GUI-9, GUI-10 and GUI-19 on the current
+build puts them back.

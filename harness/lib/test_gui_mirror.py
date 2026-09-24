@@ -1141,6 +1141,9 @@ class EndToEndRenderTests(unittest.TestCase):
         with open(gmi.__file__, encoding="utf-8") as fh:
             src = fh.read()
         exempt = set(gmi.SEAM_VERBS) | set(gmi.MODE_TOKENS)
+        # The layout-epoch table is keyed by seam WINDOW tokens (held to the seam's
+        # own vocabulary by LayoutEpochTests), and one of them spells a button.
+        exempt |= {gmi.norm(t) for t in gmi.LAYOUT_EPOCHS}
         for w in self.model["windows"]:
             exempt.add(gmi.norm(w["token"]))
             for t in w["tabs"]:
@@ -2374,7 +2377,7 @@ class SupersededByKeyTests(unittest.TestCase):
         body = self.html[self.html.index("function pick(win, tab, state, mode, fixture){"):]
         body = body[:body.index("\n/* ---- rendering")]
         self.assertIn("var live = pool.filter(function(c){ return !c.supersededBy "
-                      "&& !c.retired; });", body)
+                      "&& !c.retired && !c.outdated; });", body)
         self.assertIn("if (live.length) pool = live;", body)
 
     def test_the_rail_lists_the_current_capture_of_each_state(self):
@@ -2463,6 +2466,183 @@ class RemovedTabTests(unittest.TestCase):
         removed = gmi.prune_removed_tabs([fac, new_con])
         self.assertNotIn("facilities", removed.get("career", []))
         self.assertIn("facilities", [t["token"] for t in new_con["tabNames"]])
+
+
+class LayoutEpochTests(unittest.TestCase):
+    """A capture drawn before its window's current layout is `outdated`.
+
+    PR #1792 re-laid the Timeline's filter area without removing a tab, so
+    `prune_removed_tabs` had nothing to go on and every Timeline state a lane had
+    not re-flown stayed on the rail in the three-row layout beside the new
+    two-row captures. The epoch table is the explicit floor.
+    """
+
+    EPOCHS = {"career": {"utc": "2026-09-24T15:22:01Z", "pr": 1796}}
+
+    @staticmethod
+    def cap(utc, window="career", tab="contracts", **kw):
+        c = {"window": window, "tab": tab, "capturedUtc": utc}
+        c.update(kw)
+        return c
+
+    def test_a_capture_before_the_epoch_is_outdated_and_stale(self):
+        old = self.cap("2026-09-24T15:22:00Z")
+        marked = gmi.mark_layout_epochs([old], self.EPOCHS)
+        self.assertEqual(marked, [old])
+        self.assertEqual(old["outdated"]["epoch"],
+                         {"utc": "2026-09-24T15:22:01Z", "pr": 1796})
+        self.assertEqual(old["outdated"]["tabs"], [])
+        self.assertTrue(gmi.is_stale(old))
+
+    def test_a_capture_exactly_at_the_epoch_is_current(self):
+        at = self.cap("2026-09-24T15:22:01Z")
+        after = self.cap("2026-09-24T15:22:01.5Z")
+        self.assertEqual(gmi.mark_layout_epochs([at, after], self.EPOCHS), [])
+        self.assertNotIn("outdated", at)
+        self.assertFalse(gmi.is_stale(at))
+
+    def test_a_window_with_no_epoch_is_not_judged(self):
+        other = self.cap("2020-01-01T00:00:00Z", window="settings")
+        self.assertEqual(gmi.mark_layout_epochs([other], self.EPOCHS), [])
+        self.assertNotIn("outdated", other)
+
+    def test_a_capture_with_no_readable_time_is_not_judged(self):
+        for utc in ("", None, "not a time"):
+            c = self.cap(utc)
+            self.assertEqual(gmi.mark_layout_epochs([c], self.EPOCHS), [], utc)
+            self.assertNotIn("outdated", c)
+
+    def test_an_epoch_joins_a_removed_tab_reason_rather_than_replacing_it(self):
+        c = self.cap("2026-09-23T10:00:00Z",
+                     outdated={"tabs": ["facilities"], "window": "career"})
+        gmi.mark_layout_epochs([c], self.EPOCHS)
+        self.assertEqual(c["outdated"]["tabs"], ["facilities"])
+        self.assertEqual(c["outdated"]["epoch"]["pr"], 1796)
+
+    def test_superseded_and_retired_captures_are_marked_too(self):
+        # Orthogonal flags: an old-layout capture a later run superseded is still
+        # an old-layout picture, which is what Compare's BEFORE badge says.
+        sup = self.cap("2026-09-23T10:00:00Z", supersededBy="x")
+        ret = self.cap("2026-09-23T10:00:00Z", retired={"spec": "S", "since": "r"})
+        self.assertEqual(gmi.mark_layout_epochs([sup, ret], self.EPOCHS), [sup, ret])
+
+    def test_the_default_table_is_the_module_table(self):
+        c = self.cap("2020-01-01T00:00:00Z", window="timeline")
+        gmi.mark_layout_epochs([c])
+        self.assertEqual(c["outdated"]["epoch"]["pr"],
+                         gmi.LAYOUT_EPOCHS["timeline"]["pr"])
+        self.assertEqual(gmi.mark_layout_epochs(
+            [self.cap("2020-01-01T00:00:00Z", window="timeline")], {}), [])
+
+    def test_the_table_names_seam_windows_and_readable_instants(self):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import hlib
+        for win, ep in gmi.LAYOUT_EPOCHS.items():
+            self.assertIn(win, hlib.UIACTION_WINDOW_VALUES, win)
+            self.assertIsNotNone(gmi.parse_utc(ep["utc"]), win)
+            self.assertTrue(ep["utc"].endswith("Z"), win)
+            self.assertIsInstance(ep["pr"], int, win)
+
+    def test_parse_utc(self):
+        self.assertEqual(gmi.parse_utc("2026-09-23T21:34:53Z"),
+                         gmi.parse_utc("2026-09-23T21:34:53+00:00"))
+        self.assertLess(gmi.parse_utc("2026-09-23T21:34:53Z"),
+                        gmi.parse_utc("2026-09-23T21:34:53.25Z"))
+        self.assertIsNone(gmi.parse_utc("2026-13-45"))
+
+
+class LayoutEpochEndToEndTests(unittest.TestCase):
+    """The epoch through `build_model`, the rail and the index.
+
+    SYN-1 photographed both states before the widgets window's epoch; SYN-2, a
+    different lane, re-photographed only zynthia at the epoch itself. Qorvex is
+    therefore neither superseded (no later capture of its key) nor retired (its
+    own lane never flew again): without the epoch it stayed current in the old
+    layout, which is the Timeline defect this rule closes.
+    """
+
+    EPOCH = "2026-09-22T20:04:00Z"
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.old = make_shots(self.root, "2026-09-15_1744_SYN-1-census-widgets_shots",
+                              utc="2026-09-15T17:44:00Z")
+        self.new = make_shots(self.root, "2026-09-22_2004_SYN-2-census-widgets_shots",
+                              utc=self.EPOCH)
+        for ext in (".gui.json", ".png"):
+            os.remove(os.path.join(self.new, "syn-widgets-qorvex-advanced" + ext))
+        make_scenarios(self.root)
+        self.scenarios = make_scenarios(self.root, spec_id="SYN-2-census-widgets")
+
+    def build(self, epochs):
+        return gmi.build_model([self.old, self.new], self.scenarios,
+                               with_photos=False, layout_epochs=epochs)
+
+    def by(self, model, run, tab):
+        (c,) = [c for c in model["captures"]
+                if c["runId"].startswith(run) and c["tab"] == tab]
+        return c
+
+    def test_without_an_epoch_the_old_layout_state_stays_current(self):
+        model = self.build({})
+        qorvex = self.by(model, "2026-09-15", "qorvex")
+        self.assertFalse(gmi.is_stale(qorvex))
+        self.assertIn(qorvex["id"], [r["id"] for r in model["railRows"]["widgets"]])
+
+    def test_the_epoch_takes_the_old_layout_state_off_the_rail(self):
+        model = self.build({"widgets": {"utc": self.EPOCH, "pr": 1}})
+        qorvex = self.by(model, "2026-09-15", "qorvex")
+        old_z = self.by(model, "2026-09-15", "zynthia")
+        new_z = self.by(model, "2026-09-22", "zynthia")
+        self.assertTrue(gmi.is_stale(qorvex))
+        self.assertEqual(qorvex["outdated"]["epoch"]["pr"], 1)
+        self.assertNotIn("supersededBy", qorvex)
+        self.assertNotIn("retired", qorvex)
+        self.assertTrue(old_z.get("supersededBy") and old_z.get("outdated"))
+        self.assertNotIn("outdated", new_z, "a capture AT the epoch is current")
+        live = [c["id"] for c in model["captures"] if not gmi.is_stale(c)]
+        self.assertEqual(live, [new_z["id"]])
+        self.assertEqual(model["keys"][qorvex["key"]]["outdated"]["epoch"]["pr"], 1)
+        s = model["windowSummaries"]["widgets"]
+        self.assertEqual(s["outdated"], 2)
+        self.assertEqual(s["statesReal"], 1, "an old-layout state is not coverage")
+        idx = gmi.build_index(model)
+        self.assertEqual(idx["outdatedCaptureCount"], 2)
+        self.assertEqual(idx["outdatedKeyCount"], 1)
+        self.assertEqual(idx["layoutEpochs"], {"widgets": {"utc": self.EPOCH, "pr": 1}})
+
+    def test_an_epoch_does_not_make_a_tab_read_as_removed(self):
+        # Qorvex's only capture is old-layout, not superseded or retired: the tab
+        # still exists, so the new capture's tab bar keeps it.
+        model = self.build({"widgets": {"utc": self.EPOCH, "pr": 1}})
+        new_z = self.by(model, "2026-09-22", "zynthia")
+        self.assertIn("qorvex", [t["token"] for t in new_z["tabNames"]])
+        self.assertEqual(self.by(model, "2026-09-15", "qorvex")["outdated"]["tabs"], [])
+
+    def test_the_page_script_parses(self):
+        # A quote slip in the page's script leaves an empty page and no Python
+        # error, so the emitted script is parsed where node is on PATH.
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not on PATH")
+        import subprocess
+        html = gmi.render_html(self.build({"widgets": {"utc": self.EPOCH, "pr": 1}}))
+        scripts = re.findall(r"<script[^>]*>(.*?)</script>", html, re.S)
+        self.assertTrue(scripts)
+        for i, js in enumerate(scripts):
+            path = os.path.join(self.root, "page%d.js" % i)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(js)
+            r = subprocess.run([node, "--check", path], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_page_badges_the_epoch_and_never_opens_on_it(self):
+        html = gmi.render_html(self.build({"widgets": {"utc": self.EPOCH, "pr": 1}}))
+        self.assertIn("'old layout (before #' + ep.pr + ')'", html)
+        body = html[html.index("function pick(win, tab, state, mode, fixture){"):]
+        body = body[:body.index("\n/* ---- rendering")]
+        self.assertIn("!c.outdated", body)
 
 
 class RetiredStateTests(unittest.TestCase):
@@ -2648,7 +2828,7 @@ class RetiredEndToEndTests(unittest.TestCase):
         html = gmi.render_html(self.build("PASS"))
         body = html[html.index("function pick(win, tab, state, mode, fixture){"):]
         body = body[:body.index("\n/* ---- rendering")]
-        self.assertIn("return !c.supersededBy && !c.retired;", body)
+        self.assertIn("return !c.supersededBy && !c.retired && !c.outdated;", body)
         self.assertIn("function isStale(c){ return !!(c.hoverEmpty || c.supersededBy "
                       "|| c.retired || c.outdated); }", html)
         self.assertIn("text: 'no longer captured by ' + cap.retired.spec", html)
