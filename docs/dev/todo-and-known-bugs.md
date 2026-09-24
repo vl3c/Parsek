@@ -75,7 +75,13 @@ so a cell there can go vacuous with nothing noticing:
   literal-shaped forbidden token (`\[Parsek\]\[ERROR\]`) could be injected directly.
 
 Also open from the first sweep: the 723 triage survivors (96 lanes) listed by group in known-gate 17
-(spec tightening; each group is a spec change or a recorded ruling).
+(spec tightening; each group is a spec change or a recorded ruling). FIRST PASS DONE
+2026-09-24 (branch `tighten-survivors`): 26 specs tightened, 723 -> 700, of which 391 are
+recorded as intended and 309 remain (known-gate 17 lists them). Still owed from the pass:
+the teardown `Recording stopped` fix on the 25 lanes it could not verify offline - B4
+now that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or no longer replay
+green (re-run `mutation_check.py` after their next tier, then apply the same per-lane
+anchor).
 
 ## GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`]
 

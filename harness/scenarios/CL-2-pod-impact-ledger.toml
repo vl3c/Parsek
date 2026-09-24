@@ -348,7 +348,12 @@ required  = ["Recording started",
              "Game state: CrewStatusChanged 'Jebediah Kerman' Assigned .* Dead",
              "ShowPostDestructionTreeMergeDialog: finalized tree",
              "pending tree stashed",
+             # CL-1's atom, kept verbatim (CL-2 must stay a superset of CL-1's required set).
              "Recording stopped",
+             # ...and the in-run proof beside it: a split or phase-boundary chain stop.
+             # OnDestroy's ForceStop at quit prints a bare `Recording stopped.` line, so
+             # the bare token alone could pass on the quit (mutation check, known-gate 17).
+             "Recording stopped \\(chain boundary\\)\\. ",
              "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=false hasPendingTree=true switchSegmentSession=false activeTreeVariant=None pendingTreeVariant=None",
              "exittospacecenter driving scene-exit dest=SPACECENTER persisted=true",
              "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",

@@ -5697,6 +5697,16 @@ six publish or compare numbers the runner already measured.
     `UnityStackScanTests.test_throw_site_lanes_red_only_on_an_injected_throw_site` re-drives
     the shape headlessly through each committed spec. The V23M wheel NRE itself is filed as
     the product question V23M-FORWARD-JUMP-PACKS-LANDED-WHEELS.
+    ARMED `maxParsekFrames = 0` on S4.1 2026-09-24 (branch `tighten-survivors`, beside its
+    `maxTotal = 3`), off the mutation check (known-gate 17): both injected Parsek-frame
+    exceptions passed under the count ceiling alone. Offline sweep of every archived S4.1
+    log (`2026-07-28_1818`, `_1821`, `_1939`, `2026-07-31_1938`, `2026-09-23_2038`):
+    parsekFrames 0 and parsekThrowSite 0 in each. Offline control through `run.load_toml` +
+    `hlib.evaluate_unity_exceptions` on `2026-09-23_2038` (1,832,807 bytes, sha256
+    `400a3df9a944...`, PASS attempt 1): the log PASSES, the same bytes plus
+    `UnityStackScanTests.PARSEK_EXC` (an `EnsureGhostOrbitRenderers` record) red on exactly `unityExceptions.parsekFrames 1 >
+    maxParsekFrames 0 (Parsek.GhostMapPresence.EnsureGhostOrbitRenderers=1)`, and under the
+    old `maxTotal = 3`-only block the same bytes PASS. Pinned in `ARMED_MAX_PARSEK_FRAMES`.
 
 12. ~~AN ORBITAL EVA RECORDS NOTHING~~ - **BOTH HALVES NOW CLOSED.** The PRODUCT
     defect was fixed 2026-08-01 and merged as `545e8099d` (PR #1408, branch
@@ -6195,6 +6205,63 @@ six publish or compare numbers the runner already measured.
     What the sweep does NOT cover: the 148 lanes without a green archive here (re-run it
     after a tier), mission-side assertions, the ledger oracle, the offline analyzer, the
     batch tally, ghostlife and save perturbation below the facet level (phase 2).
+    FIRST TIGHTENING PASS (2026-09-24, branch `tighten-survivors`, no flight): 26 specs
+    edited, each proven offline - it still replays green over its archived baseline and the
+    re-run checker kills the mutation that had survived. Full re-sweep: 152 green lanes
+    (unchanged), triage 723 -> 700 across 91 lanes (23 fixed); of the 700, 391 are
+    recorded as intended below and 309 remain for a later pass.
+    - **Teardown `Recording stopped` (14 lanes).** OnDestroy's `ForceStop` at quit prints
+      the same `Recording stopped.` line, so each lane now pins the stop its own step
+      causes, as an ordered chain with a bounded gap (`[\s\S]{0,8000}?`, widened from 4000 in
+      review for margin against new diagnostics inside FinalizeRecordingState; measured
+      spans 36-815 chars, the quit stop is always further; re-verified at 8000): `CommitTreeFlight: starting tree
+      commit at UT=` -> `Recording stopped\. ` on B1, B2, B5, B7, B11, B17, BDOCK-1;
+      `Recording stopped\. ` -> `stoprecording stopped=true` on MC-3, V9, V11, V12;
+      `CommitTreeSceneExit: finalizing tree at UT=` -> `Recording stopped\. ` on L3, L5 (0
+      points there by design, so the count is not pinned); `Recording stopped \(chain
+      boundary\)\. ` on CL-2 (only in-run producers call the chain-boundary stop; CL-1's bare
+      atom stays beside it because CL-2 must remain a superset of CL-1). The point count is
+      NOT pinned on the commit lanes: B7's `2026-07-22_2122` commit stopped at `0 points, 1
+      orbit segments`. Every PASS-verdict archive of each lane matches. Survivors: B1 / B2
+      / B5 1 -> 0; the other eleven had no quit-stop line in their archive (0 -> 0, closed
+      by construction). NOT VERIFIABLE (left bare, 25): B4 (held while #1806, branch `b4-chute`, was
+      changing its mission and spec); archives that do not replay green today - B6, B12,
+      B15, B19, B20, B25, B26, B29, CL-1, EVA-4, S0.5, V1; no archive on this machine -
+      B13, B14, B16, B18, B21, B22, B23, B24, B28, B30, S0.6, V13.
+    - **S4.1** arms `maxParsekFrames = 0` beside `maxTotal = 3` (evidence and offline
+      control in known-gate 11); both injections now killed (14 -> 12, the rest are the
+      `Restored:` summary counts).
+    - **GUI-16** `gloopsstop committed=true points=[1-9][0-9]*` (archived 15, 15, 17, 21;
+      not deterministic, so floored rather than pinned): 13 -> 12.
+    - **Failure-shaped counters.** RF-4 pins the whole rollback prefix `dropped=0
+      retiredForks=0 retiredOldSides=0 skippedNonImmutableOldSides=0 restored=0
+      skippedImmutable=[1-9]` (5 -> 0); RF-14 pins `installed=1 loadedFromSave=0 restored=1
+      staleDropped=0` (3 -> 0); `seamSkipped=0` inside the Split summary on V14M, V15M,
+      V16M, V19M, V20M; a forbidden `seam-endpoint summary evaluated=\d+
+      outsideSoi=[1-9][0-9]*` on the player-loop lanes V6M, V7M, V14M, V21M (V15M / V16M
+      already pin it strictly). Every archived green log of each lane
+      agrees. `overTolerance` was already covered: every lane but V1 (no green archive)
+      forbids `overTolerance=[1-9][0-9]*`.
+    - **Intended, recorded here (391 of the 700):** the GUI census read-backs (330
+      `dumpguitree` counts on 19 lanes plus 46 `uiaction` / `frames=` counts on 7) - the
+      operator-local and census lanes assert that a window drew, not what it drew;
+      `skippedOwned=` on B32 / V26M / V26T (3) - a ratified no-double-draw deferral whose
+      input is epoch-dependent ghost presence (V26M's reading run 2 measured
+      `skippedOwned=1`), so nonzero is designed; `outsideSoi=` on the TS-arrival lanes V6T,
+      V8T, V14T, V15T, V17T, V19T, V20T, V21T and on V8F (9) - the creation-frame lens
+      artifact reads 1 by design (V16T measured it), and V8F's faithful replay requires a
+      nonzero reading; and `outsideSoi=` on V17M, V19M, V20M (3), dropped from the forbid in
+      review: the summary is rate-limited to one reading per 5 s (`MapRenderProbe.cs:419`),
+      the lens is report-only by design, and the creation-frame-after-jump family (todos
+      MAPRENDER-SEAM-LENS-EVALUATES-UNSHIFTED-EPOCH-ON-CREATION-FRAME /
+      ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP) is measured on exactly those lanes, so a
+      healthy run could read 1.
+    - **Remaining for a later pass (309):** the V-lane sampler counters (`evaluated=`,
+      `sampled=`, `phases=`, `P=` / `cadence=` / `fixedCadenceResidual=`, 62 on 23 lanes),
+      the graze and `evaluated=` counters on the V*M Split summaries (20 on 5), and 227
+      others on 59 lanes (the re-fly / ledger counts, the RVR logistics counters, the loop
+      and spawn tallies, `skipped=` on RF-12L / RF-12W / GUI-12, B17's and EVA-2's max-only
+      save windows, L3's science-capture amounts, L5's contract `advance=`).
 
 ## Operator items outstanding
 
