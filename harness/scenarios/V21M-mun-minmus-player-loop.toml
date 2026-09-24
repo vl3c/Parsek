@@ -1305,6 +1305,12 @@ forbidden = [
   # rendered-vs-recorded drift, which is a defect in the RENDER rather than a reading
   # about the routing. Road-independent.
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+  # The seam-endpoint census verdict (V15M / V16M carry it as a strict required pin):
+  # a destination-approach check OVER the SOI tolerance on a player-loop lane is a
+  # finding at any count. Every archived green log of this lane reads outsideSoi=0
+  # (mutation check, known-gate 17). TS-arrival lanes keep the presence form: their
+  # creation-frame lens artifact reads 1 by design (V16T).
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=[1-9][0-9]*",
 ]
 # NOT CARRIED AND COULD NOT FIRE: `created 0 ghost vessel\(s\)`. **THE `ghost
 # vessel(s)` SHAPE HAS TWO EMITTERS, NOT ONE**, and the correction is worth making

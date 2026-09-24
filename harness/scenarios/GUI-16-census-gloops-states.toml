@@ -198,15 +198,17 @@ count = { min = 1, max = 1 }
 # `rejected` line there would mean the recorder never armed and the RECORDING capture
 # photographs the idle window under a recording label. `gloopsstop committed=true` is
 # pinned off the reading run rather than matched outcome-agnostically, which is how this
-# lane was authored and why - see the count block below. `points=` stays regexed and
-# `recordingId=` is shape-matched, because a commit that produced a different point count
-# is the same STATE and this lane photographs states.
+# lane was authored and why - see the count block below. `points=` stays regexed but
+# floored at 1 (a commit of zero points passed the old `[0-9]+`; mutation check,
+# known-gate 17; archived readings 15, 15, 17, 21) and `recordingId=` is shape-matched,
+# because a commit that produced a different point count is the same STATE and this
+# lane photographs states.
 required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,gloops",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,settings",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] gloopsstart started=true vessel=",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] gloopsstop committed=true points=[0-9]+ recordingId=[0-9a-f]{32}",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] gloopsstop committed=true points=[1-9][0-9]* recordingId=[0-9a-f]{32}",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=b2-gloops-recording-advanced",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b2-gloops-idle-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b2-gloops-recording-advanced .*patched=17/17",

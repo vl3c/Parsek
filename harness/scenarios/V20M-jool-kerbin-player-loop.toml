@@ -1645,7 +1645,10 @@ required  = [
   # ` splittableButRejected=0` is load-bearing: it stops `...Kept=2` matching a future
   # `...Kept=20`. **PINNED ON THIS LANE ONLY**: V20T pins the COUNT, this lane pins the
   # MECHANISM, one gate per fact across the pair (the V19M/V19T split, verbatim).
-  "Split summary: .*exoCoastBodyChangeKept=2 splittableButRejected=0",
+  # `seamSkipped=0` pinned (known-gate 17): a producer seam short-circuiting this
+  # boundary would mean the coast was not kept by the exo-coast rule; every archived
+  # green log reads 0. The graze counters stay inside `.*` (a later pass).
+  "Split summary: .*seamSkipped=0 exoCoastBodyChangeKept=2 splittableButRejected=0",
 ]
 # THREE, NOT THE SAME-PARENT FAMILY'S SIX. `[ReaimDiag]`, `ENGAGED re-aim` and
 # `FORCED FAITHFUL` are all REMOVED relative to V14M/V15M/V16M - those lanes forbid them
@@ -1669,6 +1672,12 @@ forbidden = [
   # rendered-vs-recorded drift, which is a defect in the RENDER rather than a reading
   # about the routing. Road-independent.
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+  # The seam-endpoint census verdict (V15M / V16M carry it as a strict required pin):
+  # a destination-approach check OVER the SOI tolerance on a player-loop lane is a
+  # finding at any count. Every archived green log of this lane reads outsideSoi=0
+  # (mutation check, known-gate 17). TS-arrival lanes keep the presence form: their
+  # creation-frame lens artifact reads 1 by design (V16T).
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=[1-9][0-9]*",
 ]
 
 [expectations.rewind]

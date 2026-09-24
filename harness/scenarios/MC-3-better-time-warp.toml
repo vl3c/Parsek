@@ -112,7 +112,8 @@ tier = "nightly"
 # instances (stock-minimal's live [4] is already positive), and only the zeroed-limit
 # line tells them apart: that literal is the gate. Shape note, not gated: the control
 # printed `Recording stopped` twice (the second at quit, 0 points) where the armed run
-# printed it once; the token is presence-only.
+# printed it once. That quit-time stop is why the token now pins the StopRecording
+# verb's own stop instead of the bare line (known-gate 17).
 #
 # NOT H-SERIES, same reason as MC-1: the H7+ wiring group pins a stock-fixture skip
 # floor this instance does not share. THE TIER STAYS operator: a nightly slot beside
@@ -190,7 +191,10 @@ required  = [
   "ComputeApproachAltitude\\(Mun\\): live limit zeroed by a warp mod; using stock 25000m",
   "Altitude state reseeded: body=Mun, aboveThreshold=True \\(was False\\), threshold=25000m, alt=[0-9]+m",
   "Recording started",
-  "Recording stopped",
+  # In-run stop, not the quit flush: the stop the StopRecording seam verb
+  # answers for. OnDestroy's ForceStop at quit prints the same `Recording
+  # stopped.` line, so the bare token could pass on the quit alone (known-gate 17).
+  "Recording stopped\\. [\\s\\S]{0,1000}?stoprecording stopped=true",
   "committree committed=true",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]

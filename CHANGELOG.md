@@ -1212,6 +1212,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: 27 lane checks the mutation checker found weak are tightened.**
+  Fourteen lanes required only `Recording stopped`, which the recorder also prints when the
+  game quits, so the check could pass without the flight ever stopping its recording; each
+  now requires the stop its own step causes (the commit, the StopRecording command, the
+  recovery scene exit or the crash split). `S4.1` now fails on any exception thrown from
+  Parsek code, not only when the exception count passes 3. `GUI-16` no longer accepts a
+  Gloops recording committed with zero points, and eleven rewind and player-loop lanes now
+  require the zero their counters read on every archived passing run (nothing dropped by a
+  rollback, no stale rewind point, no seam skipped at the transfer boundary, no seam check
+  outside the target's sphere of influence). Each change was proven against the archived
+  logs: the lane still passes, and the break it now watches for fails it.
 - **A flight that ends parked on the launch pad or the runway start is over: it never
   becomes a real vessel.** If the last stop of a recorded flight is inside the 50 m safety
   circle around the launch pad or the runway's west end on Kerbin, Parsek now treats the

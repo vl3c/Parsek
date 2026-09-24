@@ -1138,7 +1138,10 @@ required  = [
   "startloopplayback initiated:",
   "FastForwardToEventUT: jumping to UT=",
   "phase=body-orbit surface=ProtoOrbitLine .*body=Jool",
-  "Split summary: .*exoCoastBodyChangeKept=1 splittableButRejected=0",
+  # `seamSkipped=0` pinned (known-gate 17): a producer seam short-circuiting this
+  # boundary would mean the coast was not kept by the exo-coast rule; every archived
+  # green log reads 0. The graze counters stay inside `.*` (a later pass).
+  "Split summary: .*seamSkipped=0 exoCoastBodyChangeKept=1 splittableButRejected=0",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
 ]
@@ -1165,6 +1168,12 @@ forbidden = [
   # rendered-vs-recorded drift, which is a defect in the RENDER rather than a reading
   # about the routing. Road-independent.
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+  # The seam-endpoint census verdict (V15M / V16M carry it as a strict required pin):
+  # a destination-approach check OVER the SOI tolerance on a player-loop lane is a
+  # finding at any count. Every archived green log of this lane reads outsideSoi=0
+  # (mutation check, known-gate 17). TS-arrival lanes keep the presence form: their
+  # creation-frame lens artifact reads 1 by design (V16T).
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=[1-9][0-9]*",
 ]
 
 [expectations.rewind]

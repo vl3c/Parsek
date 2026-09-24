@@ -8465,6 +8465,12 @@ class UnityExceptionScanTests(unittest.TestCase):
         "V15T-gilly-ts-arrival.toml": 0,
         "V18T-depot-route-ts-arrival.toml": 0,
         "V26T-interbody-route-ts-arrival.toml": 0,
+        # Armed 2026-09-24 off the mutation check (known-gate 17: both injected
+        # Parsek-frame exceptions passed under maxTotal 3 alone). 5 archived logs,
+        # parsekFrames 0 in each (`2026-07-28_1818`, `_1821`, `_1939`,
+        # `2026-07-31_1938`, `2026-09-23_2038`); control host `2026-09-23_2038`
+        # (total 0). Keeps its maxTotal 3.
+        "S4.1-rewind-merge.toml": 0,
     }
 
     # `maxParsekThrowSite` arming (operator ruling 2026-09-22 on todo
@@ -20399,7 +20405,10 @@ class DebrisPopulationGateTests(unittest.TestCase):
     def test_the_gate_bites_end_to_end(self):
         spec = load_spec("B2-lko-ascent.toml")
         exp = spec["expectations"]
-        good = "Recording started\n%s\nRecording stopped\n" % self.EMITTED_FG
+        # B2's stop token is the commit-caused stop (known-gate 17), not the bare line.
+        good = ("Recording started\n%s\nCommitTreeFlight: starting tree commit at UT=264.5\n"
+                "Recording stopped. 226 points, 1 orbit segments over 195.4s\n"
+                % self.EMITTED_FG)
         self.assertEqual("PASS", hlib.evaluate_expectations(exp, 7, good).status)
 
         no_debris = "Recording started\nRecording stopped\n"

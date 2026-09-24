@@ -250,7 +250,10 @@ count = { min = 6, max = 6 }
 required = [
   "MissionConfig",
   "StartLoopPlayback",
-  "Recording stopped",
+  # In-run stop, not the quit flush: the stop the StopRecording seam verb
+  # answers for. OnDestroy's ForceStop at quit prints the same `Recording
+  # stopped.` line, so the bare token could pass on the quit alone (known-gate 17).
+  "Recording stopped\\. [\\s\\S]{0,1000}?stoprecording stopped=true",
   # Classification: the cohesion fix holding on a second body.
   "member#1 segs=18 startBody=Kerbin supported=True target=Moho",
   "transferMemberSegs=18 plan.Supported=True",

@@ -259,8 +259,14 @@ tombstones    = { max = 0 }
 # 2026-08-04 run: 0). The single raise is why this is not maxTotal = 0 - one
 # observation of a nonzero reading is enough to make 0 a flake. Full baseline
 # table in the arming-sweep PR.
+# maxParsekFrames = 0 (armed 2026-09-24, known-gate 17): the count ceiling alone let an
+# exception THROWN in Parsek code pass while it had headroom, and ruling A4-b makes a
+# `Parsek.` frame a finding at ANY count. Offline sweep of every archived S4.1 log
+# (`2026-07-28_1818`, `_1821`, `_1939`, `2026-07-31_1938`, `2026-09-23_2038`):
+# parsekFrames 0 in each. Offline negative control on `2026-09-23_2038` in known-gate 11.
 [expectations.unityExceptions]
 maxTotal = 3
+maxParsekFrames = 0
 
 [runtime]
 # Budget arithmetic (M-A5 S8): sized so the WORST DEFER path surfaces a clean per-step
