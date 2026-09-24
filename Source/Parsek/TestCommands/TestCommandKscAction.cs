@@ -21,6 +21,14 @@ namespace Parsek.TestCommands
         /// call, <c>SpaceCenterBuilding.RepairFacility(true)</c> (funds deducted).</summary>
         RepairFacility,
 
+        /// <summary>Activate one stock strategy through the Administration building's own
+        /// call, <c>Strategy.Activate()</c> (setup costs deducted by stock).</summary>
+        ActivateStrategy,
+
+        /// <summary>End an active stock strategy through <c>Strategy.Deactivate()</c>, the
+        /// Administration building's Cancel path.</summary>
+        DeactivateStrategy,
+
         /// <summary>An unrecognized <c>action</c> arg (REJECTED unknown-action).</summary>
         Unknown,
     }
@@ -42,8 +50,12 @@ namespace Parsek.TestCommands
         /// missing-arg / unknown-tech-node / node-already-unlocked / insufficient-science /
         /// unknown-facility / facility-at-max / insufficient-funds / unknown-kerbal /
         /// kerbal-not-applicant / kerbal-not-dismissable / kerbal-parsek-managed /
-        /// unknown-building / building-already-down / facility-intact. The building applier adds
-        /// demolish-not-applied / repair-not-applied when stock's call left no effect.</summary>
+        /// unknown-building / building-already-down / facility-intact / unknown-strategy /
+        /// factor-arg-invalid / strategy-already-active / no-strategy-slot /
+        /// strategy-not-active. The building applier adds demolish-not-applied /
+        /// repair-not-applied when stock's call left no effect; the strategy applier adds
+        /// strategy-cannot-activate / strategy-cannot-deactivate (carrying stock's own reason)
+        /// and activate-not-applied / deactivate-not-applied.</summary>
         public string RejectReason;
 
         public KscActionKind Kind;
@@ -51,7 +63,7 @@ namespace Parsek.TestCommands
 
         /// <summary>The seam-declared manifest kind the harness attaches (M-B2):
         /// tech-unlock / facility-upgrade / kerbal-hire / kerbal-dismiss /
-        /// facility-destruction / facility-repair.</summary>
+        /// facility-destruction / facility-repair / strategy-activate / strategy-deactivate.</summary>
         public string ManifestKind;
     }
 
@@ -92,6 +104,16 @@ namespace Parsek.TestCommands
         /// <summary>false = the cost facet is science; true = funds. Selects the
         /// insufficient-science vs insufficient-funds refusal.</summary>
         public bool CostIsFunds;
+
+        /// <summary>activate-strategy: the optional <c>factor</c> arg was present but did not
+        /// parse as a commitment in (0, 1].</summary>
+        public bool FactorArgInvalid;
+
+        /// <summary>activate-strategy: strategies active now.</summary>
+        public int SlotsUsed;
+
+        /// <summary>activate-strategy: the Administration level's active-strategy limit.</summary>
+        public int SlotLimit;
     }
 
     internal static class TestCommandKscAction
@@ -108,6 +130,8 @@ namespace Parsek.TestCommands
                 case "dismiss-kerbal": return KscActionKind.DismissKerbal;
                 case "demolish-building": return KscActionKind.DemolishBuilding;
                 case "repair-facility": return KscActionKind.RepairFacility;
+                case "activate-strategy": return KscActionKind.ActivateStrategy;
+                case "deactivate-strategy": return KscActionKind.DeactivateStrategy;
                 default: return KscActionKind.Unknown;
             }
         }
@@ -124,6 +148,8 @@ namespace Parsek.TestCommands
                 case KscActionKind.DismissKerbal: return "kerbal-dismiss";
                 case KscActionKind.DemolishBuilding: return "facility-destruction";
                 case KscActionKind.RepairFacility: return "facility-repair";
+                case KscActionKind.ActivateStrategy: return "strategy-activate";
+                case KscActionKind.DeactivateStrategy: return "strategy-deactivate";
                 default: return string.Empty;
             }
         }
@@ -194,6 +220,20 @@ namespace Parsek.TestCommands
                     if (inputs.AlreadyApplied) { d.RejectReason = "facility-intact"; return d; }
                     if (inputs.CostAmount > inputs.AvailableAmount) { d.RejectReason = "insufficient-funds"; return d; }
                     break;
+
+                case KscActionKind.ActivateStrategy:
+                    // Stock's CanBeActivated is the authority on costs, reputation, group
+                    // conflicts and the commitment ceiling (the applier asks it next and
+                    // refuses with its own reason); the three checked here are the ones a
+                    // spec can get wrong without stock ever being asked.
+                    if (inputs.FactorArgInvalid) { d.RejectReason = "factor-arg-invalid"; return d; }
+                    if (inputs.AlreadyApplied) { d.RejectReason = "strategy-already-active"; return d; }
+                    if (inputs.SlotsUsed >= inputs.SlotLimit) { d.RejectReason = "no-strategy-slot"; return d; }
+                    break;
+
+                case KscActionKind.DeactivateStrategy:
+                    if (inputs.AlreadyApplied) { d.RejectReason = "strategy-not-active"; return d; }
+                    break;
             }
 
             d.Accepted = true;
@@ -210,6 +250,8 @@ namespace Parsek.TestCommands
                 case KscActionKind.DemolishBuilding: return "unknown-building";
                 case KscActionKind.HireKerbal:
                 case KscActionKind.DismissKerbal: return "unknown-kerbal";
+                case KscActionKind.ActivateStrategy:
+                case KscActionKind.DeactivateStrategy: return "unknown-strategy";
                 default: return "unknown-target";
             }
         }
@@ -249,7 +291,8 @@ namespace Parsek.TestCommands
         /// guard-blocked call (no observed effect) is REJECTED <c>blocked-committed</c>.
         /// </summary>
         internal static KscActionExecOutcome Execute(
-            string action, string node, string facility, string kerbal, string building = null)
+            string action, string node, string facility, string kerbal, string building = null,
+            string strategy = null, string factor = null)
         {
             KscActionKind kind = ParseKind(action);
             switch (kind)
@@ -260,6 +303,8 @@ namespace Parsek.TestCommands
                 case KscActionKind.DismissKerbal: return ExecuteDismissKerbal(kerbal);
                 case KscActionKind.DemolishBuilding: return ExecuteDemolishBuilding(building);
                 case KscActionKind.RepairFacility: return ExecuteRepairFacility(facility);
+                case KscActionKind.ActivateStrategy: return ExecuteActivateStrategy(strategy, factor);
+                case KscActionKind.DeactivateStrategy: return ExecuteDeactivateStrategy(strategy);
                 default:
                     ParsekLog.Warn(Tag, "kscaction refused action=" + (action ?? string.Empty) + " reason=unknown-action target=");
                     return KscActionExecOutcome.Reject("unknown-action");
@@ -787,6 +832,223 @@ namespace Parsek.TestCommands
             string observed = crewCount.ToString(CultureInfo.InvariantCulture);
             LogApplied(action, kerbal, d.ManifestKind, "crewCount=" + observed);
             return KscActionExecOutcome.Ok(OkPayload(action, kerbal, "crewCount", observed));
+        }
+
+        // ------------------------------------------------------------------
+        // Strategies. The Administration building activates a strategy by writing the
+        // commitment slider into Strategy.Factor and then calling Strategy.Activate(),
+        // which re-runs CanBeActivated and debits the setup costs under
+        // TransactionReasons.StrategySetup. The seam does exactly that, so Parsek's
+        // StrategyActivatePatch postfix and the StrategySetup funds leg see a player click.
+        // CanBeActivated dereferences Administration.Instance (the building's UI screen);
+        // the dispatcher defers `administration-not-ready` until the addon has hosted a
+        // hidden copy of that screen (ParsekTestCommandAddon.KscStrategy.cs).
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Pure: parse the optional <c>factor</c> arg (the Administration commitment slider,
+        /// 0..1). Absent or empty -&gt; true with <see cref="float.NaN"/> (keep the strategy's
+        /// own factor, stock's slider default). Otherwise an invariant-culture float in
+        /// (0, 1]; anything else is false.
+        /// </summary>
+        internal static bool TryParseStrategyFactor(string raw, out float factor)
+        {
+            factor = float.NaN;
+            if (string.IsNullOrEmpty(raw)) return true;
+            if (!float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out float f))
+                return false;
+            if (float.IsNaN(f) || float.IsInfinity(f) || f <= 0f || f > 1f)
+                return false;
+            factor = f;
+            return true;
+        }
+
+        /// <summary>
+        /// Pure: reduce stock's localized CanBeActivated / CanBeDeactivated reason to one
+        /// plain line for the refusal msg: rich-text tags dropped, whitespace collapsed,
+        /// empty -&gt; <c>(none)</c>.
+        /// </summary>
+        internal static string SanitizeStockReason(string reason)
+        {
+            if (string.IsNullOrEmpty(reason)) return "(none)";
+            var sb = new System.Text.StringBuilder(reason.Length);
+            bool inTag = false;
+            bool lastSpace = false;
+            foreach (char c in reason)
+            {
+                if (c == '<') { inTag = true; continue; }
+                if (inTag) { if (c == '>') inTag = false; continue; }
+                if (char.IsWhiteSpace(c))
+                {
+                    if (!lastSpace && sb.Length > 0) sb.Append(' ');
+                    lastSpace = true;
+                    continue;
+                }
+                sb.Append(c);
+                lastSpace = false;
+            }
+            string s = sb.ToString().Trim();
+            return s.Length == 0 ? "(none)" : s;
+        }
+
+        private static Strategies.Strategy ResolveStrategy(string name)
+        {
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null || system.Strategies == null || string.IsNullOrEmpty(name)) return null;
+            for (int i = 0; i < system.Strategies.Count; i++)
+            {
+                var s = system.Strategies[i];
+                if (s != null && s.Config != null && s.Config.Name == name)
+                    return s;
+            }
+            return null;
+        }
+
+        private static int CountActiveStrategies()
+        {
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null || system.Strategies == null) return 0;
+            int n = 0;
+            for (int i = 0; i < system.Strategies.Count; i++)
+            {
+                if (system.Strategies[i] != null && system.Strategies[i].IsActive) n++;
+            }
+            return n;
+        }
+
+        // The slot limit CanBeActivated compares against: the hosted Administration
+        // screen's own value when it exists, else the same GameVariables call its Start()
+        // makes.
+        private static int LiveStrategySlotLimit()
+        {
+            try
+            {
+                if (KSP.UI.Screens.Administration.Instance != null)
+                    return KSP.UI.Screens.Administration.Instance.MaxActiveStrategies;
+                if (GameVariables.Instance != null)
+                    return GameVariables.Instance.GetActiveStrategyLimit(
+                        ScenarioUpgradeableFacilities.GetFacilityLevel(SpaceCenterFacility.Administration));
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn(Tag, "kscaction strategy slot limit read threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return 0;
+        }
+
+        private static KscActionExecOutcome ExecuteActivateStrategy(string strategyArg, string factorArg)
+        {
+            const string action = "activate-strategy";
+            bool argPresent = !string.IsNullOrEmpty(strategyArg);
+            bool factorOk = TryParseStrategyFactor(factorArg, out float factor);
+            Strategies.Strategy strategy = argPresent ? ResolveStrategy(strategyArg) : null;
+            int used = CountActiveStrategies();
+            int limit = LiveStrategySlotLimit();
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = strategy != null,
+                AlreadyApplied = strategy != null && strategy.IsActive,
+                FactorArgInvalid = !factorOk,
+                SlotsUsed = used,
+                SlotLimit = limit,
+            };
+
+            KscActionDecision d = Decide(action, strategyArg, inputs);
+            if (!d.Accepted)
+                return Refuse(action, strategyArg, d.RejectReason);
+
+            // The commitment slider's own write (Administration.OnSliderCommitmentValueChanged).
+            float factorBefore = strategy.Factor;
+            if (!float.IsNaN(factor))
+                strategy.Factor = factor;
+
+            string stockReason = null;
+            bool canActivate = false;
+            try { canActivate = strategy.CanBeActivated(out stockReason); }
+            catch (System.Exception ex)
+            {
+                stockReason = "CanBeActivated threw " + ex.GetType().Name + ": " + ex.Message;
+            }
+            if (!canActivate)
+            {
+                strategy.Factor = factorBefore;
+                return Refuse(action, strategyArg, "strategy-cannot-activate " + SanitizeStockReason(stockReason));
+            }
+
+            double fundsBefore = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
+            bool activated = false;
+            try { activated = strategy.Activate(); }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn(Tag, "kscaction activate-strategy Activate threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            if (!activated || !strategy.IsActive)
+            {
+                strategy.Factor = factorBefore;
+                return Refuse(action, strategyArg, "activate-not-applied");
+            }
+
+            double fundsAfter = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
+            int usedAfter = CountActiveStrategies();
+            string factorText = strategy.Factor.ToString("R", CultureInfo.InvariantCulture);
+            string slots = usedAfter.ToString(CultureInfo.InvariantCulture) + "/" + limit.ToString(CultureInfo.InvariantCulture);
+            string observed = string.Format(CultureInfo.InvariantCulture,
+                "factor={0} slots={1} setupFunds={2} setupSci={3} setupRep={4} fundsDelta={5} dateActivated={6}",
+                factorText, slots,
+                strategy.InitialCostFunds.ToString("R", CultureInfo.InvariantCulture),
+                strategy.InitialCostScience.ToString("R", CultureInfo.InvariantCulture),
+                strategy.InitialCostReputation.ToString("R", CultureInfo.InvariantCulture),
+                ((float)(fundsAfter - fundsBefore)).ToString("R", CultureInfo.InvariantCulture),
+                strategy.DateActivated.ToString("R", CultureInfo.InvariantCulture));
+            LogApplied(action, strategyArg, d.ManifestKind, observed);
+            var payload = OkPayload(action, strategyArg, "factor", factorText);
+            payload.Add(new KeyValuePair<string, string>("slots", slots));
+            payload.Add(new KeyValuePair<string, string>("fundsAfter", fundsAfter.ToString("R", CultureInfo.InvariantCulture)));
+            return KscActionExecOutcome.Ok(payload);
+        }
+
+        private static KscActionExecOutcome ExecuteDeactivateStrategy(string strategyArg)
+        {
+            const string action = "deactivate-strategy";
+            bool argPresent = !string.IsNullOrEmpty(strategyArg);
+            Strategies.Strategy strategy = argPresent ? ResolveStrategy(strategyArg) : null;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = strategy != null,
+                AlreadyApplied = strategy != null && !strategy.IsActive,
+            };
+
+            KscActionDecision d = Decide(action, strategyArg, inputs);
+            if (!d.Accepted)
+                return Refuse(action, strategyArg, d.RejectReason);
+
+            string stockReason = null;
+            bool canDeactivate = false;
+            try { canDeactivate = strategy.CanBeDeactivated(out stockReason); }
+            catch (System.Exception ex)
+            {
+                stockReason = "CanBeDeactivated threw " + ex.GetType().Name + ": " + ex.Message;
+            }
+            if (!canDeactivate)
+                return Refuse(action, strategyArg, "strategy-cannot-deactivate " + SanitizeStockReason(stockReason));
+
+            bool deactivated = false;
+            try { deactivated = strategy.Deactivate(); }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn(Tag, "kscaction deactivate-strategy Deactivate threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            if (!deactivated || strategy.IsActive)
+                return Refuse(action, strategyArg, "deactivate-not-applied");
+
+            string slots = CountActiveStrategies().ToString(CultureInfo.InvariantCulture)
+                + "/" + LiveStrategySlotLimit().ToString(CultureInfo.InvariantCulture);
+            LogApplied(action, strategyArg, d.ManifestKind, "slots=" + slots);
+            return KscActionExecOutcome.Ok(OkPayload(action, strategyArg, "slots", slots));
         }
     }
 }

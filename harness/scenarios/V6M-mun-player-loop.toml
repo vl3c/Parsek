@@ -1216,6 +1216,12 @@ forbidden = [
   # above): any faithful-parity sample OVER tolerance is a rendered-vs-recorded drift.
   # Measured 0 on all seven archived tracer-on runs of this family.
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+  # The seam-endpoint census verdict (V15M / V16M carry it as a strict required pin):
+  # a destination-approach check OVER the SOI tolerance on a player-loop lane is a
+  # finding at any count. Every archived green log of this lane reads outsideSoi=0
+  # (mutation check, known-gate 17). TS-arrival lanes keep the presence form: their
+  # creation-frame lens artifact reads 1 by design (V16T).
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=[1-9][0-9]*",
 ]
 
 [expectations.renderComposition]

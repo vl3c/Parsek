@@ -351,6 +351,16 @@ B4_SPLASHDOWN = "SPLASHDOWN"
 B4_PHASES: Tuple[str, ...] = (B4_PRELAUNCH, B4_MJ_ASCENT, B4_CIRCULARIZE, B4_ORBIT,
                               B4_DEORBIT, B4_REENTRY, B4_SPLASHDOWN)
 
+# Consecutive SPLASHDOWN frames that must read ParachuteState Deployed before B4's
+# OBSERVED canopy latch (B4State.craft_chute_full_seen) is earned. B1's latch, reused
+# for the same two reasons: stock flips the state to DEPLOYED at the START of the
+# canopy animation, and a lone glitched read must not certify a chute descent. B4's
+# ``craftCanopyObserved`` assertion replaced the old ``chuteDeployed`` row, which read
+# the machine's own COMMANDED latch and so could not fail once the deploy action was
+# emitted (known-gate 7 in docs/dev/autotest-status.md; the fixture's parachuteLarge
+# persists the same ``automateSafeDeploy = 0`` that kept B1's chute inert).
+B4_CANOPY_DEBOUNCE_K = B1_CANOPY_DEBOUNCE_K
+
 # B5 phase names (mission b5_mun_flyby: the B2 ascent, then a MechJeb
 # ManeuverPlanner Hohmann transfer to the Mun, a NodeExecutor-autowarped TLI
 # burn, an optional course-correction refinement, a rails-warp coast across the
@@ -3425,6 +3435,24 @@ class B4Params:
                                            # caught it pointing RADIAL, and the radial
                                            # burn raised apoapsis to 382km while pushing
                                            # periapsis through the exit gate.
+    stage_settle_seconds: float = 2.0      # GAME-time wait between the deorbit throttle
+                                           # cut and the service-stage drop. Same-frame
+                                           # cut + stage blew up the pod on both attempts
+                                           # of 2026-09-24_1657: kRPC's throttle write
+                                           # lands on the next physics tick but
+                                           # ActivateNextStage fires at once, so the upper
+                                           # engine ignited at full throttle into the
+                                           # decoupled core.
+    reentry_stage_count: int = 1           # stage activations owed after the deorbit
+                                           # cutoff, each stage_settle_seconds after the
+                                           # last. The Kerbal X needs 3 to reenter as
+                                           # pod + heat shield (drop the Mainsail core,
+                                           # the Poodle ignition stage at zero throttle,
+                                           # drop the Poodle stack). Dropping only the
+                                           # core reentered the whole Poodle stack and
+                                           # hit 2,951 m at -368 m/s, too fast for the
+                                           # automateSafeDeploy=0 chute to ever open
+                                           # (2026-09-24_1727).
     warp_above_alt: float = 70000.0        # bounded warp hops only above this altitude.
                                            # 70km = the atmosphere ceiling: below it KSP
                                            # cannot rails-warp, so a 120s hop runs at
@@ -3542,6 +3570,8 @@ def b4_params_from_dict(params: Dict) -> B4Params:
         deorbit_periapsis=float(params.get("deorbitPeriapsisMeters", 25000)),
         retro_settle_seconds=float(params.get("retroSettleSeconds", 10)),
         max_attitude_error_deg=float(params.get("maxAttitudeErrorDeg", 5.0)),
+        stage_settle_seconds=float(params.get("stageSettleSeconds", 2.0)),
+        reentry_stage_count=int(params.get("reentryStageCount", 1)),
         warp_above_alt=float(params.get("warpAboveAltMeters", 70000)),
         warp_hop_seconds=float(params.get("warpHopSeconds", 120)),
         chute_deploy_alt=float(params.get("chuteDeployAltMeters", 3000)),
@@ -9901,15 +9931,32 @@ class B4State:
     (verdict None; the settle tail RUNS -- evidence for the assertions) or on a
     flake / loss terminal. B4 REQUIRES survival: any vessel-lost / frozen terminal
     in ANY phase is an ASSERT-FAIL ``loss_reason`` (no B1-style DOWN equivalent).
-    ``peak_apoapsis`` / ``chute_deployed`` are carried evidence for the evaluator;
-    ``burn_started`` latches the one deorbit throttle-up after the attitude
-    settle."""
+    ``peak_apoapsis`` is carried evidence for the evaluator; ``burn_started``
+    latches the one deorbit throttle-up after the attitude settle.
+
+    Two chute latches, and the evaluator reads only one of them:
+      - ``chute_deployed`` is the COMMANDED latch (the machine emitted the deploy
+        action). Diagnostic only: it proves the machine acted, never that KSP
+        complied, and it is carried into the result as ``armCommanded``.
+      - ``craft_chute_full_seen`` is the OBSERVED latch: the craft's parachute READ
+        Deployed (kRPC ParachuteState) on B4_CANOPY_DEBOUNCE_K consecutive live
+        SPLASHDOWN frames. The ``craftCanopyObserved`` assertion reads this one.
+    ``canopy_seen_streak`` is the latch's debounce run; ``last_chute_state`` is the
+    last live chute read, named in loss reasons (diagnostic only)."""
     params: B4Params
     phase: str = B4_PRELAUNCH
     phase_entry_ut: float = 0.0
     peak_apoapsis: Optional[float] = None
     chute_deployed: bool = False
+    craft_chute_full_seen: bool = False
+    canopy_seen_streak: int = 0
+    last_chute_state: str = ""
     burn_started: bool = False
+    # Stage activations still owed after the deorbit cutoff, each paid
+    # stage_settle_seconds of game time after ``last_stage_ut`` (the cutoff for the
+    # first one). See B4Params.stage_settle_seconds / reentry_stage_count.
+    stages_owed: int = 0
+    last_stage_ut: float = 0.0
     phases_reached: Tuple[str, ...] = (B4_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -9968,10 +10015,16 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
       - DEORBIT: wait retroSettleSeconds of GAME time (a pure wait-in-phase
         condition, never a sleep) for the attitude to settle, throttle up once,
         and burn until periapsis <= deorbitPeriapsisMeters; then cut throttle,
-        release attitude control (ACTION_AP_DISENGAGE), stage ONCE (the dropped
-        service stage becomes debris Parsek records), and enter REENTRY. Bounded
-        by deorbitTimeoutSeconds.
-      - REENTRY: coast to the atmosphere in bounded RAILS-warp HOPS: while
+        release attitude control (ACTION_AP_DISENGAGE), and enter REENTRY with the
+        service-stage drops OWED (``stages_owed``). Bounded by
+        deorbitTimeoutSeconds.
+      - REENTRY: first pay the owed stages: reentryStageCount activations, each
+        stageSettleSeconds of game time after the last (the first after the
+        cutoff); the dropped stacks become debris Parsek records, and nothing
+        else runs while a stage is owed. The cut and the stage used to share a
+        frame and the stage fired before the throttle write landed; one drop
+        left the whole upper stack on the pod (see B4Params). Then coast
+        to the atmosphere in bounded RAILS-warp HOPS: while
         altitude > warpAboveAltMeters AND descending (vertical_speed < 0), emit
         one ACTION_WARP_TO with value = snapshot.ut + warpHopSeconds per decision
         frame -- bounded hops keep the machine in control and avoid computing the
@@ -9983,7 +10036,9 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
         warp condition -- the wall budget must absorb that stretch.
       - SPLASHDOWN: situation in landedSituations -> terminal (done, verdict
         None; the settle tail RUNS so the assertions have settled evidence).
-        Bounded by descentTimeoutSeconds.
+        Bounded by descentTimeoutSeconds. Every live SPLASHDOWN frame also feeds
+        the OBSERVED canopy latch (``craft_chute_full_seen``); the terminal does
+        not gate on it, the ``craftCanopyObserved`` assertion does.
     Vessel-lost / frozen telemetry in ANY phase -> ASSERT-FAIL loss_reason (B4's
     contract REQUIRES survival; there is no DOWN success terminal). A timed phase
     out-running its budget yields MISSION-FLAKE naming the stuck phase. Once
@@ -9994,12 +10049,32 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
 
     peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
 
+    # OBSERVED canopy latch (B1's, reused), from live frames only: a vessel_lost
+    # snapshot carries benign defaults and must not fabricate a canopy.
+    # ``last_chute_state`` tracks every live frame (diagnostic, named in a loss
+    # reason). ``craft_chute_full_seen`` is SPLASHDOWN-scoped and debounced: the chute
+    # is stowed until the deploy action that enters SPLASHDOWN, so a Deployed read in
+    # any earlier phase is a stale or handoff read and must not certify a descent.
+    # Sticky once earned: a canopy that opened and was then destroyed at splashdown
+    # still flew a chuted descent.
+    if not snapshot.vessel_lost and snapshot.craft_chute_state:
+        state = replace(state, last_chute_state=snapshot.craft_chute_state)
+    if (not snapshot.vessel_lost and state.phase == B4_SPLASHDOWN
+            and not state.craft_chute_full_seen):
+        if snapshot.craft_chute_state == CHUTE_STATE_DEPLOYED:
+            streak = state.canopy_seen_streak + 1
+            state = replace(state, canopy_seen_streak=streak,
+                            craft_chute_full_seen=(streak >= B4_CANOPY_DEBOUNCE_K))
+        else:
+            state = replace(state, canopy_seen_streak=0)
+
     # Runner-signaled vessel loss: phase-independent ASSERT-FAIL terminal. B4 has
     # NO chute-deployed DOWN carve-out -- survival is the contract.
     if snapshot.vessel_lost:
         return replace(
             state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
-            loss_reason="vessel-lost (unreadable after repeated telemetry failures)"), []
+            loss_reason=_b4_loss_reason_with_chute(
+                state, "vessel-lost (unreadable after repeated telemetry failures)")), []
 
     # Frozen-telemetry (vessel-destroyed) detection, every phase except PRELAUNCH
     # (pad telemetry is legitimately static). Mirrors B1/B2.
@@ -10011,8 +10086,9 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
             return replace(
                 state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
                 done=True, verdict=MISSION_ASSERT_FAIL,
-                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
-                             "while airborne; vessel presumed destroyed)" % limit)), []
+                loss_reason=_b4_loss_reason_with_chute(
+                    state, "vessel-lost (telemetry frozen %d consecutive samples "
+                           "while airborne; vessel presumed destroyed)" % limit)), []
         state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
 
     if state.phase == B4_PRELAUNCH:
@@ -10051,12 +10127,18 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
 
     if state.phase == B4_DEORBIT:
         if _is_finite(snapshot.periapsis) and snapshot.periapsis <= state.params.deorbit_periapsis:
-            # Burn done: cut throttle, release the autopilot, stage once (the
-            # service stage becomes recorded debris), coast into REENTRY.
-            return (_b4_enter(state, B4_REENTRY, snapshot.ut, peak),
+            # Burn done: cut throttle and release the autopilot, then coast into
+            # REENTRY with the service-stage drop OWED. The stage must NOT ride this
+            # frame: kRPC applies the throttle write on the next physics tick while
+            # ActivateNextStage fires at once, so a same-frame stage decouples at
+            # full throttle and the freshly ignited upper engine drives into the
+            # core (both attempts of 2026-09-24_1657 lost the pod that way at ~84 km).
+            entered = _b4_enter(state, B4_REENTRY, snapshot.ut, peak)
+            cutoff = snapshot.ut if _is_finite(snapshot.ut) else entered.phase_entry_ut
+            return (replace(entered, stages_owed=max(1, state.params.reentry_stage_count),
+                            last_stage_ut=cutoff),
                     [Action(ACTION_CUT_THROTTLE, 0.0),
-                     Action(ACTION_AP_DISENGAGE),
-                     Action(ACTION_ACTIVATE_STAGE)])
+                     Action(ACTION_AP_DISENGAGE)])
         if not state.burn_started:
             settled = (_is_finite(snapshot.ut)
                        and (snapshot.ut - state.phase_entry_ut) >= state.params.retro_settle_seconds)
@@ -10077,6 +10159,22 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
         return _b4_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B4_REENTRY:
+        if state.stages_owed > 0:
+            # Pay the owed stages (the dropped stacks become recorded debris), each
+            # once stage_settle_seconds of game time have passed since the cutoff or
+            # the previous activation, so the throttle cut has landed and each
+            # separation has cleared. Nothing else runs while one is owed: no warp
+            # hop (a hop would carry the pending drop across the whole coast) and no
+            # chute (the pod must be alone first).
+            stayed = _b4_stay_or_flake(state, snapshot, peak)
+            if stayed.done:
+                return stayed, []
+            if (_is_finite(snapshot.ut)
+                    and snapshot.ut - state.last_stage_ut >= state.params.stage_settle_seconds):
+                return (replace(stayed, stages_owed=state.stages_owed - 1,
+                                last_stage_ut=snapshot.ut),
+                        [Action(ACTION_ACTIVATE_STAGE)])
+            return stayed, []
         alt_finite = _is_finite(snapshot.altitude)
         if alt_finite and snapshot.altitude <= state.params.chute_deploy_alt:
             entered = _b4_enter(state, B4_SPLASHDOWN, snapshot.ut, peak)
@@ -10101,6 +10199,20 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
 
     return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase, done=True,
                    peak_apoapsis=peak), []
+
+
+def _b4_loss_reason_with_chute(state: B4State, base: str) -> str:
+    """Append the OBSERVED and COMMANDED chute state to a loss reason once the deploy
+    has been commanded, so a loss under an inert chute names itself
+    (``craftChute=Armed canopyObserved=no`` is the B1 inert-chute signature) instead
+    of reading as a generic breakup. ``UNREAD`` means no live chute read ever arrived.
+    Earlier losses (ascent, deorbit, reentry heating) are left unchanged: the chute
+    is stowed there and naming it would only add noise."""
+    if not state.chute_deployed:
+        return base
+    return "%s; craftChute=%s, canopyObserved=%s, armCommanded=yes" % (
+        base, state.last_chute_state or "UNREAD",
+        "yes" if state.craft_chute_full_seen else "no")
 
 
 def _b4_enter(state: B4State, new_phase: str, ut: float, peak: Optional[float]) -> B4State:
@@ -17418,7 +17530,9 @@ def evaluate_b2_assertions(frames, params: B2Params,
 
 
 def evaluate_b4_assertions(frames, params: B4Params,
-                           phases_reached=(), chute_deployed: bool = False,
+                           phases_reached=(), craft_canopy_observed: bool = False,
+                           arm_commanded: bool = False,
+                           last_chute_state: str = "",
                            k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
     """Evaluate the four B4 driver-validity assertions: terminal-focused and
     derivable from the frames + the machine's phase evidence, NEVER
@@ -17432,7 +17546,15 @@ def evaluate_b4_assertions(frames, params: B4Params,
       floor, not a window -- the deorbit tail never lowers the recorded peak).
     - ``landedSituation``: the FINAL situation is one of landedSituations (the
       splashdown/landing that B4's survival contract requires).
-    - ``chuteDeployed``:   the machine deployed the chutes (carried evidence).
+    - ``craftCanopyObserved``: the craft's parachute READ Deployed (kRPC
+      ParachuteState) on B4_CANOPY_DEBOUNCE_K consecutive live SPLASHDOWN frames
+      (``craft_canopy_observed``, the machine's sticky OBSERVED latch). It replaced
+      ``chuteDeployed``, which read the machine's COMMANDED latch and so was met by
+      any run that emitted the deploy action, canopy or not (known-gate 7). The
+      COMMANDED half rides the detail (``armCommanded``) beside the last observed
+      state, so the result JSON holds both halves of the distinction. Independent of
+      ``landedSituation`` on purpose: a craft that reaches SPLASHED under an inert
+      chute must still red here.
 
     ``k`` is retained for signature symmetry with the B1/B2 evaluators but unused:
     every B4 assertion is a settled terminal / peak quantity, not a noisy
@@ -17458,8 +17580,13 @@ def evaluate_b4_assertions(frames, params: B4Params,
     sit = AssertionOutcome("landedSituation", sit_met, final_situation,
                            {"accepted": list(params.landed_situations)})
 
-    chute = AssertionOutcome("chuteDeployed", bool(chute_deployed),
-                             bool(chute_deployed), {})
+    chute = AssertionOutcome(
+        "craftCanopyObserved", bool(craft_canopy_observed), bool(craft_canopy_observed),
+        {"required": CHUTE_STATE_DEPLOYED,
+         "debounceK": B4_CANOPY_DEBOUNCE_K,
+         "armCommanded": bool(arm_commanded),
+         "lastChuteState": last_chute_state or "UNREAD",
+         "deployAltitude": params.chute_deploy_alt})
 
     return [orbit, apo, sit, chute]
 

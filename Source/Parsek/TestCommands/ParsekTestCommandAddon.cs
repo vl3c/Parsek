@@ -658,6 +658,10 @@ namespace Parsek.TestCommands
                     InterruptHead(head); // owns its dequeue via the terminal completion
                     break;
                 case DispatchDecision.Defer:
+                    if (string.Equals(result.Reason,
+                            TestCommandDispatcher.AdministrationNotReadyDeferReason,
+                            StringComparison.Ordinal))
+                        EnsureHiddenAdministrationScreen(head.Id);
                     HandleDefer(head, result.Reason); // dequeues only on TIMEOUT
                     break;
             }
@@ -1275,6 +1279,7 @@ namespace Parsek.TestCommands
                 KscStructuresSettling = head.Verb == "KscAction"
                     && HighLogic.LoadedScene == GameScenes.SPACECENTER
                     && TestCommandKscAction.LiveStructuresSettling(),
+                StrategyAdministrationReady = KSP.UI.Screens.Administration.Instance != null,
                 // M-C2 EVA seam-verb bits.
                 ActiveVesselIsEva = FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA,
                 StructuralSplitPending = flight != null && flight.StructuralSplitPending,
@@ -2896,6 +2901,13 @@ namespace Parsek.TestCommands
                     return Funding.Instance != null;
                 case "demolish-building":
                     return true;
+                case "activate-strategy":
+                case "deactivate-strategy":
+                    // Activate debits whichever of the three pools the strategy's setup
+                    // costs name, so all three must be live, plus the strategy system.
+                    return Funding.Instance != null && Reputation.Instance != null
+                        && ResearchAndDevelopment.Instance != null
+                        && Strategies.StrategySystem.Instance != null;
                 default:
                     return ResearchAndDevelopment.Instance != null && Funding.Instance != null;
             }
@@ -3064,6 +3076,7 @@ namespace Parsek.TestCommands
             // write into a dead object. Cleared UNCONDITIONALLY here and again on
             // onLevelWasLoaded, the ReleaseRaisedDialogInputLock discipline.
             ClearGuiMockSessionOnExit("scene-change");
+            ReleaseHiddenAdministrationScreen("scene-change");
             // A scene load destroys the runner window and its runner, so the batch the
             // relaxation was armed for cannot report itself finished from here on: without
             // this clear the flag would survive the transition and relax the gate around

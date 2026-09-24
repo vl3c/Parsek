@@ -492,7 +492,7 @@ namespace Parsek.Tests
 
         // ---------- source wiring -----------------------------------------
 
-        private static string ReadSource(string relative)
+        internal static string ReadSource(string relative)
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
@@ -558,7 +558,7 @@ namespace Parsek.Tests
             Assert.Contains("b(\"// kept\");", stripped);
         }
 
-        private static string MethodBody(string source, string declaration)
+        internal static string MethodBody(string source, string declaration)
         {
             int start = source.IndexOf(declaration, StringComparison.Ordinal);
             Assert.True(start >= 0, "declaration not found: " + declaration);

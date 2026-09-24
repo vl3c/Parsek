@@ -69,6 +69,29 @@ type = "number"
 min = 0.5
 max = 45.0
 
+# GAME-time wait between the deorbit throttle cut and the service-stage drop.
+# The two used to ride the SAME frame, and kRPC applies a throttle write on the
+# next physics tick while ActivateNextStage runs at once: the stage fired at full
+# throttle, the freshly ignited upper engine drove into the decoupled core, and the
+# chain explosion took the pod (both attempts of 2026-09-24_1657, and the
+# 2026-07-21 archives). Defaults to 2 when absent.
+[params.stageSettleSeconds]
+required = false
+type = "number"
+min = 0.5
+max = 30.0
+
+# Stage activations owed after the deorbit cutoff (each stageSettleSeconds after
+# the last). The Kerbal X needs 3 to reenter as pod + heat shield: drop the core,
+# the Poodle ignition stage (at zero throttle), drop the Poodle stack. One drop
+# left the Poodle stack on the pod and it fell too fast for the chute to open
+# (2026-09-24_1727). Defaults to 1 when absent.
+[params.reentryStageCount]
+required = false
+type = "int"
+min = 1
+max = 6
+
 # Bounded rails-warp hops fire only above this altitude (and only while
 # descending); below it the machine polls at 1x down to the chute altitude.
 [params.warpAboveAltMeters]

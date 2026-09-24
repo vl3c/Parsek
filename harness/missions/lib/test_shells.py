@@ -207,10 +207,11 @@ B4_PARAMS = {
     # the spec value would leave the warp hop unfired in the fake flight.
     "warpAboveAltMeters": 45000,
     "warpHopSeconds": 120,
-    "chuteDeployAltMeters": 3000,
+    "chuteDeployAltMeters": 12000,
+    "reentryStageCount": 3,
     "deorbitTimeoutSeconds": 600,
     "reentryTimeoutSeconds": 3600,
-    "descentTimeoutSeconds": 600,
+    "descentTimeoutSeconds": 900,
     "landedSituations": ["LANDED", "SPLASHED"],
 }
 
@@ -1262,14 +1263,24 @@ class B4ShellTests(unittest.TestCase):
             snap(ut=155.0, apoapsis=80002, periapsis=79000.5, altitude=79002.0,
                  situation="ORBITING", ap_error=2.0),            # settled + aligned -> throttle up
             snap(ut=170.0, apoapsis=80002, periapsis=24000, altitude=79000.0,
-                 situation="ORBITING"),                          # -> REENTRY (cut+release+stage)
+                 situation="ORBITING"),                          # -> REENTRY (cut+release; stage owed)
+            snap(ut=175.0, apoapsis=80002, periapsis=24000, altitude=78000.0,
+                 vertical_speed=-50.0, situation="SUB_ORBITAL"),  # settle elapsed: stage 1
+            snap(ut=177.0, apoapsis=80002, periapsis=24000, altitude=77000.0,
+                 vertical_speed=-50.0, situation="SUB_ORBITAL"),  # stage 2
+            snap(ut=179.0, apoapsis=80002, periapsis=24000, altitude=76000.0,
+                 vertical_speed=-50.0, situation="SUB_ORBITAL"),  # stage 3 (pod alone)
             snap(ut=180.0, apoapsis=80002, periapsis=24000, altitude=70000.0,
                  vertical_speed=-100.0, situation="SUB_ORBITAL"),  # warp hop
             snap(ut=300.0, apoapsis=80002, periapsis=24000, altitude=40000.0,
                  vertical_speed=-400.0, situation="SUB_ORBITAL"),  # below threshold: poll
             snap(ut=400.0, apoapsis=80002, periapsis=24000, altitude=2500.0,
                  vertical_speed=-150.0, situation="FLYING"),     # -> SPLASHDOWN + chute
-            snap(ut=500.0, apoapsis=80002, altitude=0.0, situation="SPLASHED"),  # terminal
+            snap(ut=450.0, apoapsis=80002, altitude=800.0, vertical_speed=-8.0,
+                 situation="FLYING",
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),   # canopy read 1
+            snap(ut=500.0, apoapsis=80002, altitude=0.0, situation="SPLASHED",
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),   # canopy read 2 + terminal
         ]
 
     def test_b4_happy_path_writes_mission_ok(self):
@@ -1290,6 +1301,11 @@ class B4ShellTests(unittest.TestCase):
                      mlib.ACTION_AP_DISENGAGE, mlib.ACTION_WARP_TO,
                      mlib.ACTION_DEPLOY_CHUTE):
             self.assertIn(kind, kinds)
+        # Launch ignition + the three owed reentry stages, all AFTER the throttle
+        # cut, never in the same batch (2026-09-24_1657).
+        stage_idx = [i for i, k in enumerate(kinds) if k == mlib.ACTION_ACTIVATE_STAGE]
+        self.assertEqual(len(stage_idx), 4)
+        self.assertGreater(stage_idx[1], kinds.index(mlib.ACTION_AP_DISENGAGE))
         # The warp hop carried an ABSOLUTE target UT = frame ut + hop seconds.
         warps = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO]
         self.assertEqual(warps, [mlib.Action(mlib.ACTION_WARP_TO, 180.0 + 120.0)])
@@ -1302,7 +1318,7 @@ class B4ShellTests(unittest.TestCase):
         """B4's survival contract: a vessel_lost snapshot during REENTRY (burned
         up) is MISSION-ASSERT-FAIL even though the ascent went perfectly -- no
         B1-style DOWN success end exists here."""
-        frames = self._happy_frames()[:7] + [snap(ut=200.0, vessel_lost=True)]
+        frames = self._happy_frames()[:10] + [snap(ut=200.0, vessel_lost=True)]
         control = FakeMissionControl(frames)
         code, result = run(b4_reentry.SPEC, B4_PARAMS, control)
         self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
@@ -1310,6 +1326,36 @@ class B4ShellTests(unittest.TestCase):
         self.assertIn("vessel-lost", result["reason"])
         self.assertIn(mlib.B4_REENTRY, result["phasesReached"])
         self.assertTrue(control.closed)
+
+
+    def test_b4_inert_chute_splashdown_is_assert_fail(self):
+        """Known-gate 7 through the shell: the deploy is commanded, the chute reads
+        Armed all the way to SPLASHED. The old commanded-latch row passed this run;
+        craftCanopyObserved must red it."""
+        frames = self._happy_frames()[:12] + [
+            snap(ut=450.0, apoapsis=80002, altitude=800.0, vertical_speed=-200.0,
+                 situation="FLYING", craft_chute_state="Armed"),
+            snap(ut=500.0, apoapsis=80002, altitude=0.0, situation="SPLASHED",
+                 craft_chute_state="Armed"),
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b4_reentry.SPEC, B4_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotEqual(code, 0)
+        rows = {a["name"]: a for a in result["assertions"]}
+        self.assertTrue(rows["landedSituation"]["met"])
+        self.assertFalse(rows["craftCanopyObserved"]["met"])
+        self.assertTrue(rows["craftCanopyObserved"]["armCommanded"])
+        self.assertEqual(rows["craftCanopyObserved"]["lastChuteState"], "Armed")
+        self.assertNotIn("chuteDeployed", rows)
+
+    def test_b4_control_opts_into_the_chute_read(self):
+        """read_chute=True is the single line that makes B4's observed-canopy row
+        real: without it every frame carries the "" unread sentinel and
+        craftCanopyObserved can never be met."""
+        control = b4_reentry.make_control()
+        self.assertTrue(control._read_chute)
+        self.assertTrue(control._use_mechjeb)   # B4's ascent half is MechJeb
 
 
 class B5ShellTests(unittest.TestCase):

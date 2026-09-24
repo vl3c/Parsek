@@ -129,9 +129,20 @@ namespace Parsek.TestCommands
             string facility = ArgOrNull(cmd, "facility");
             string kerbal = ArgOrNull(cmd, "kerbal");
             string building = ArgOrNull(cmd, "building");
+            string strategy = ArgOrNull(cmd, "strategy");
+            string factor = ArgOrNull(cmd, "factor");
 
-            TestCommandKscAction.KscActionExecOutcome outcome =
-                TestCommandKscAction.Execute(action, node, facility, kerbal, building);
+            TestCommandKscAction.KscActionExecOutcome outcome;
+            try
+            {
+                outcome = TestCommandKscAction.Execute(
+                    action, node, facility, kerbal, building, strategy, factor);
+            }
+            finally
+            {
+                // The hidden Administration screen lives for exactly one command.
+                ReleaseHiddenAdministrationScreen("kscaction-complete");
+            }
             SetExecResult(outcome.Verdict, outcome.Payload, outcome.Msg);
         }
 

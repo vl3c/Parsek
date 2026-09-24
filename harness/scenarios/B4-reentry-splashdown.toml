@@ -3,9 +3,9 @@ id = "B4-reentry-splashdown"
 # nightly: fixture committed (shares b2-lko-craft with B2) and flown missions
 # are too long for daily. LIVE-PROVEN 2026-07-20: the full cycle PASSed (ascent,
 # ~350s retrograde flip, aligned deorbit burn, stage drop, exo warp hops, chute
-# at 2950m, splashdown; flakedThenPassed).
+# at 2950m (pre-2026-09-24 profile), splashdown; flakedThenPassed).
 tier = "nightly"
-description = "Full flight cycle: MechJeb ascent to LKO, retrograde deorbit burn, staged reentry, chute splashdown INTACT; assert orbit reached + landed situation + chute."
+description = "Full flight cycle: MechJeb ascent to LKO, retrograde deorbit burn, staged reentry, chute splashdown INTACT; assert orbit reached + landed situation + the OBSERVED canopy (craftCanopyObserved reads the live ParachuteState, never the deploy command)."
 instanceProfile = "stock-minimal"
 tags = ["B4", "flown", "mechjeb", "reentry"]
 
@@ -24,15 +24,17 @@ mission = "b4_reentry"
 # [driver.missionParams] header (a key after the sub-table header would be scoped
 # to driver.missionParams.steps and the spec would validate as having zero steps).
 # Budget arithmetic (design invariant, re-sized to the LIVE-MEASURED flight):
-# missionBudget 1600 (WALL) >= 30 connect + ascent ~250 + circularize ~100 +
+# missionBudget 1900 (WALL) >= 30 connect + ascent ~250 + circularize ~100 +
 # deorbit ~350 flip + burn (the pod reaction wheel turns the fuel-heavy orbiter
 # at ~0.5 deg/s, measured 2026-07-20) + reentry (exo-only rails hops above 70km;
-# real-time below) + chute descent ~375 + margin. Phase budgets in missionParams
-# are GAME time (deorbit 600); runtime 1900 >= 240 LoadGame + 1600 mission + margin.
+# real-time below; ~1,040 s of mission wall to the 3 km mark, measured
+# 2026-09-24_1727) + the chute descent from the 12 km arm altitude + margin.
+# Phase budgets in missionParams are GAME time (deorbit 600); runtime 2300 >= 240
+# LoadGame + 1900 mission + margin.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 1600 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 1900 },
   { cmd = "CommitTree",                                          expect = "OK" },
   { cmd = "FlushAndQuit",                                        expect = "OK" },
 ]
@@ -52,13 +54,26 @@ deorbitPeriapsisMeters    = 25000
 retroSettleSeconds        = 10
 warpAboveAltMeters        = 70000
 warpHopSeconds            = 120
-chuteDeployAltMeters      = 3000
+# 12000, not 3000 (2026-09-24). This is the ARM altitude, and the fixture's
+# parachuteLarge persists `automateSafeDeploy = 0` (open only while SAFE), so an
+# armed chute simply WAITS until the descent is slow enough and then semi-deploys by
+# itself; the full canopy follows at the module's own deployAltitude (1000 m).
+# Arming at 3000 m was B1's inert-chute trap: run 2026-09-24_1727 armed at 2,951 m
+# at -368 m/s and the chute read Armed all the way to impact. The craftCanopyObserved
+# assertion reads the OBSERVED ParachuteState, so a chute that never opens reds.
+chuteDeployAltMeters      = 12000
+# Drop the Mainsail core, fire the Poodle stage at zero throttle, drop the Poodle
+# stack: the pod reenters alone with its heat shield. Each activation waits
+# stageSettleSeconds (default 2) after the throttle cut / the previous one.
+reentryStageCount         = 3
 # 600, not 300: the pod reaction wheel flips the whole fuel-heavy orbiter
 # at ~0.5 deg/s (live 2026-07-20: 175 deg to go = ~340s of game time before
 # the attitude gate opens), plus the burn itself.
 deorbitTimeoutSeconds     = 600
 reentryTimeoutSeconds     = 3600
-descentTimeoutSeconds     = 600
+# 900, not 600: the chute now arms at 12 km and the descent under canopy runs at
+# 1x (no warp below 70 km).
+descentTimeoutSeconds     = 900
 landedSituations          = ["LANDED", "SPLASHED"]
 
 # Coverage: the registry (harness/coverage/registry.toml) has no dedicated
@@ -104,18 +119,23 @@ allowedAnomalies = []
 #
 # MIN 1 -> 8 (autotest-roadmap R1, raised from 7 on review). B4 drives
 # `mlib.b4_decide`, which does NOT reach `_b5_flameout_stage` - but the flameout
-# watchdog is not the only thing that drops a recorded stage. `b4_decide` issues
-# TWO `ACTION_ACTIVATE_STAGE`s: one at launch ignition, and one as part of the
-# SOLE transition out of B4_DEORBIT into B4_REENTRY, whose own comment reads
-# "the service stage becomes recorded debris". There is no other path into
-# B4_REENTRY; every other branch is stay-or-flake. And `run.py` evaluates
-# expectations only for a driver-valid, non-short-circuited run
-# (`if driver_valid and not short_circuited`), so a run that never reached
-# REENTRY has its count SKIPPED rather than judged. Every run this window ever
-# judges has therefore staged, making the judged population
-# 1 root + 6 boosters + 1 service stage = 8.
-# The service stage is a Kerbal X orbital stage, comfortably past
-# `ShouldRecordDebris` (>= 3 parts OR >= 0.5 t), so it records.
+# watchdog is not the only thing that drops a recorded stage. `b4_decide` has
+# TWO `ACTION_ACTIVATE_STAGE` sites: launch ignition, and the reentryStageCount
+# (3) activations the SOLE transition out of B4_DEORBIT leaves OWED
+# (`stages_owed`) and REENTRY pays stageSettleSeconds apart: drop the Mainsail
+# core, fire the Poodle stage at zero throttle, drop the Poodle stack. REENTRY
+# runs nothing else while one is owed, so no path reaches SPLASHDOWN without all
+# three. And `run.py` evaluates expectations only for a driver-valid,
+# non-short-circuited run (`if driver_valid and not short_circuited`), and a
+# driver-valid B4 run ends in SPLASHDOWN. Every run this window ever judges has
+# therefore dropped both stacks, making the judged population
+# 1 root + 6 boosters + the core + the Poodle stack = 9.
+# MIN 8 -> 9 (2026-09-24), MEASURED: run 2026-09-24_1820_B4-reentry-splashdown
+# (verdict PASS) carries
+# `verifiers.expectations.observed.recordings.count = 9`. Until 2026-09-24 the
+# flight dropped only the core (population 8) and reentered with the Poodle stack
+# still on the pod, which is why its chute could not open (known-gate 7). Both
+# dropped stacks are well past `ShouldRecordDebris` (>= 3 parts OR >= 0.5 t).
 # The first cut floored this at 7 on the grounds that the service stage is
 # "additional, not part of the floor". That was wrong in the direction this whole
 # change exists to close: it left the exact one-below-population value B11/B12
@@ -139,7 +159,7 @@ allowedAnomalies = []
 # this floor and lowering it would re-open the exact one-below-population hole
 # B11/B12 reject.
 # Never widen back toward 1.
-count = { min = 8, max = 9 }
+count = { min = 9, max = 10 }
 
 [expectations.logContracts]
 # POPULATION gate: the count window cannot be one (it is COMMIT-BLIND, and a
@@ -181,15 +201,32 @@ count = { min = 8, max = 9 }
 # a future profile genuinely backgrounds the parent before the split, THIS token
 # reds and the red is the finding: re-derive it against a log, do not widen it
 # back to an alternation on the assumption that the red is spurious.
-# Both sites are ParsekLog.Info, so no verboseLogging pin is needed and this spec
-# deliberately adds no SetSetting step for one.
+# Both debris sites are ParsekLog.Info.
+#
+# THE TWO PART-EVENT TOKENS ARE THE PARSEK-SIDE PROOF OF THE CANOPY (known-gate 7,
+# armed 2026-09-24). The mission's craftCanopyObserved row proves KSP opened the
+# chute (observed ParachuteState, never the deploy command); these prove PARSEK
+# RECORDED it as the two-phase ParachuteSemiDeployed -> ParachuteDeployed pair on
+# the pod's parachuteLarge. Measured on reading run 2026-09-24_1820: SemiDeployed
+# at about 11 km, Deployed at the module's 1000 m deployAltitude, splashdown at
+# -8.4 m/s; ARMED on run 2026-09-24_1842 (PASS attempt 1, both tokens matched,
+# count 9). They are emitted at Verbose. Unlike B1 this spec does NOT pin
+# verboseLogging with a SetSetting step: DebrisPopulationGateTests forbids one on
+# the debris-gated specs so the Info-level debris token can never come to depend on
+# it. ParsekSettings defaults verboseLogging true (the reading run logged both lines
+# with no step), and if the setting ever drifted off these two tokens would RED - a
+# fail-closed direction, never a silent pass. The part-name prefix stops before the
+# closing quote like B1's. Both would have FAILED every B4 flight on the old profile
+# (2026-09-24_1727 + _a2: the chute read Armed to impact).
 required  = ["Recording started",
              "ProcessBreakupEvent: debris child created",
+             "Part event: ParachuteSemiDeployed 'parachuteLarge",
+             "Part event: ParachuteDeployed 'parachuteLarge",
              "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
-budgetSeconds = 1900
+budgetSeconds = 2300
 
 [retry]
 policy = "once"
