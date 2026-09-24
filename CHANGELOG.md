@@ -10,6 +10,7 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the GUI mirror's rail lists current states only.** A capture drawn while its window still had a tab it no longer has is marked `outdated` (old layout) and treated like a superseded or retired capture; the rail no longer lists any of those, nor never-captured states, and the "show N hidden" link is gone. Old captures stay available as Compare's BEFORE pictures (`harness/tools/gui_mirror.py`).
 - **Dev: the GUI mirror stops drawing removed tabs on new captures.** A capture records only the selected tab's name, so each tab bar is assembled from every tab its window ever showed; after the Career window dropped its Facilities and Milestones tabs, the new two-tab captures were drawn with all four. A tab whose every capture is superseded or retired is now dropped from the tab bars of captures taken after its last capture; older captures keep it (`prune_removed_tabs`, `harness/tools/gui_mirror.py`).
 - **Automated testing: a lane undocks a recorded pair and docks it back together.**
   `SD-1-same-tree-redock` loads the second-dock save on its docked pair, undocks it, backs

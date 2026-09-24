@@ -2439,6 +2439,17 @@ class RemovedTabTests(unittest.TestCase):
         self.assertEqual(len(old_fac["tabNames"]), 4)
         self.assertEqual(len(old_con["tabNames"]), 4)
 
+    def test_a_capture_drawn_before_the_removal_is_outdated_and_stale(self):
+        fac = self.cap("2026-09-23T10:00:00Z", "facilities",
+                       retired={"spec": "GUI-5", "since": "x"})
+        sandbox = self.cap("2026-09-21T10:00:00Z", "contracts")
+        fresh = self.cap("2026-09-24T10:00:00Z", "contracts")
+        gmi.prune_removed_tabs([fac, sandbox, fresh])
+        self.assertEqual(sandbox["outdated"]["tabs"], ["facilities"])
+        self.assertTrue(gmi.is_stale(sandbox))
+        self.assertNotIn("outdated", fresh)
+        self.assertFalse(gmi.is_stale(fresh))
+
     def test_a_tab_with_a_live_capture_stays(self):
         fac = self.cap("2026-09-23T10:00:00Z", "facilities")
         new_con = self.cap("2026-09-24T10:00:00Z", "contracts")
@@ -2632,12 +2643,12 @@ class RetiredEndToEndTests(unittest.TestCase):
         body = body[:body.index("\n/* ---- rendering")]
         self.assertIn("return !c.supersededBy && !c.retired;", body)
         self.assertIn("function isStale(c){ return !!(c.hoverEmpty || c.supersededBy "
-                      "|| c.retired); }", html)
+                      "|| c.retired || c.outdated); }", html)
         self.assertIn("text: 'no longer captured by ' + cap.retired.spec", html)
         self.assertIn("+ ' since ' + cap.retired.since, short: 'retired',", html)
         rail = html[html.index("function buildRail(){"):]
         rail = rail[:rail.index("\nfunction showView(){")]
-        self.assertIn("if (isStale(c)) fold(sr, c.id === S.capture);", rail)
+        self.assertIn("if (isStale(c)) return;", rail)
 
 
 class RailOrderTests(unittest.TestCase):
@@ -2893,7 +2904,7 @@ class HoverFromTheLogTests(unittest.TestCase):
         self.assertIn("if (cap.hoverEmpty) return;", html)
         self.assertIn("(isStale(c) ? ' stale' : '')", html)
         self.assertIn("function isStale(c){ return !!(c.hoverEmpty || c.supersededBy "
-                      "|| c.retired); }", html)
+                      "|| c.retired || c.outdated); }", html)
 
 
 class LabelVersusLogTests(unittest.TestCase):
@@ -3392,13 +3403,14 @@ class SimplifiedChromeTests(unittest.TestCase):
         # the dataset moved into the row's tooltip
         self.assertIn("sr.title = 'dataset ' + c.fixture", rail)
 
-    def test_stale_rows_fold_behind_one_link_per_window(self):
+    def test_the_rail_lists_current_states_only(self):
+        # Owner ruling 2026-09-24: no stale rows, no "show N hidden" link, no
+        # never-captured rows - the rail shows the window as it is today.
         rail = self._fn("function buildRail(){")
-        self.assertIn("if (isStale(c)) fold(sr, c.id === S.capture);", rail)
-        self.assertIn("fold(sr, false);", rail)
-        self.assertIn("'show ' + folded + ' hidden'", rail)
-        self.assertIn("if (!showAll && !isSel){ sr.classList.add('hidden'); folded++; }",
-                      rail)
+        self.assertIn("if (isStale(c)) return;", rail)
+        self.assertNotIn("' hidden'", rail)
+        self.assertNotIn("S.showHidden", rail)
+        self.assertNotIn("(no capture)", rail)
 
     def test_a_noted_state_is_marked_in_the_rail(self):
         rail = self._fn("function buildRail(){")
