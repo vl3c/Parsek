@@ -75,7 +75,13 @@ so a cell there can go vacuous with nothing noticing:
   literal-shaped forbidden token (`\[Parsek\]\[ERROR\]`) could be injected directly.
 
 Also open from the first sweep: the 723 triage survivors (96 lanes) listed by group in known-gate 17
-(spec tightening; each group is a spec change or a recorded ruling).
+(spec tightening; each group is a spec change or a recorded ruling). FIRST PASS DONE
+2026-09-24 (branch `tighten-survivors`): 26 specs tightened, 723 -> 700, of which 391 are
+recorded as intended and 309 remain (known-gate 17 lists them). Still owed from the pass:
+the teardown `Recording stopped` fix on the 25 lanes it could not verify offline - B4
+now that #1806 (`b4-chute`) has landed, and the 24 whose archives are missing or no longer replay
+green (re-run `mutation_check.py` after their next tier, then apply the same per-lane
+anchor).
 
 ## GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`]
 
@@ -4914,7 +4920,7 @@ its tab chips fall back to the seam token (`rewindff` rather than `Rewind / FF`)
 Clicking them works - the text match finds them - only the chip label is the
 automation name. Fixable by deriving the name from whichever control token-matched.
 
-## GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH: the Missions and Logistics windows are laid out wider than the harness profile's screen, so their census captures leave their right-hand columns off screen
+## ~~GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH: the Missions and Logistics windows are laid out wider than the harness profile's screen, so their census captures leave their right-hand columns off screen~~ [CLOSED 2026-09-24 on branch `census-screen-1080` by option (1), scoped to the census: a spec key `[runtime] screenResolution` sets the KSP window for that run only (the instance settings.cfg's three screen values, restored at teardown and healed at the next stage), and every `gui-census` lane declares `1920x1080` while every other lane stays at 1280x720. Proven on one lane per affected window, all PASS on attempt 1: `GUI-4-census-missions-docked` `2026-09-24_1902` (Missions, 7 of 16 captures clipped before, 0 after), `GUI-3-census-logistics-routes` `2026-09-24_1905` (Logistics + Missions, 9 of 14 -> 0) and `GUI-14-census-settings-and-facility` `2026-09-24_1907` (the 718 px Settings window, 4 of 7 -> 0). The other census lanes' existing captures stay 1280x720 until each is next flown; that is a re-capture, not a defect]
 
 MEASURED 2026-09-10 off the window sources rather than off an image (the lanes have never
 flown). `RecordingsTableUI` is laid out for 1355 px - the width its `TooltipEchoBox`

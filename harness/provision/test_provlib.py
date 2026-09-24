@@ -1614,6 +1614,58 @@ class SettingsHashRoundTripTests(unittest.TestCase):
                              "recorded settingsFinalSha256 must equal the on-disk byte hash")
 
 
+class ScreenRestoreMarkerProvisionTests(unittest.TestCase):
+    """SETTINGS rewrites the instance settings.cfg, so a harness screen restore
+    marker left by a killed run describes a file that no longer exists: keeping it
+    would make the next run restore stale values over the profile's. SETTINGS
+    deletes it, which also makes re-provisioning the way to drop a leaked one."""
+
+    def _ctx(self, umbrella, dry_run=False):
+        import provision
+        dev = os.path.join(umbrella, "Kerbal Space Program")
+        os.makedirs(dev, exist_ok=True)
+        with open(os.path.join(dev, "settings.cfg"), "wb") as fh:
+            fh.write(b"SCREEN_RESOLUTION_WIDTH = 1280\r\nSCREEN_RESOLUTION_HEIGHT = 720\r\n")
+        profile = {"baseInstall": "Kerbal Space Program", "instanceDir": "automation/x",
+                   "settings": {"SCREEN_RESOLUTION_WIDTH": "1280"}}
+        return provision.ProvisionContext(
+            profile_name="x", pins={}, profile=profile, umbrella_root=umbrella,
+            dry_run=dry_run, repair=False, parsek_dll_override=None)
+
+    def _plant_marker(self, ctx):
+        os.makedirs(ctx.instance_dir, exist_ok=True)
+        marker = os.path.join(ctx.instance_dir, provlib.KSP_SCREEN_RESTORE_MARKER)
+        with open(marker, "w", encoding="utf-8") as fh:
+            fh.write("SCREEN_RESOLUTION_WIDTH = 1024\n")
+        return marker
+
+    def test_settings_deletes_a_leftover_marker(self):
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as umbrella:
+            ctx = self._ctx(umbrella)
+            marker = self._plant_marker(ctx)
+            provision.phase_settings(ctx)
+            self.assertTrue(os.path.isfile(os.path.join(ctx.instance_dir, "settings.cfg")))
+            self.assertFalse(os.path.exists(marker))
+
+    def test_a_dry_run_leaves_the_marker(self):
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as umbrella:
+            ctx = self._ctx(umbrella, dry_run=True)
+            marker = self._plant_marker(ctx)
+            provision.phase_settings(ctx)
+            self.assertTrue(os.path.exists(marker))
+
+    def test_the_harness_reads_the_same_marker_name(self):
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "lib"))
+        import hlib
+        self.assertEqual(provlib.KSP_SCREEN_RESTORE_MARKER, hlib.KSP_SCREEN_RESTORE_MARKER)
+
+
 class LockTests(unittest.TestCase):
     """Design: acquire_lock -- guards EC-10. A live lock must not be stolen; a
     stale (dead-pid) lock must be reclaimed."""

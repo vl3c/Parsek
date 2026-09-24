@@ -462,6 +462,9 @@ forbidden = []
 # in-game batch; GUI-1 measured 22 captures plus 22 dumps at 96 s. 1200 s is roughly ten
 # times a generous sum of the two, and stays generous because the PRODUCT is the images.
 budgetSeconds = 1200
+# The census frame (`screenResolution`, harness README): 1280x720 cropped every
+# Parsek window wider or taller than it, so the census lanes capture at 1920x1080.
+screenResolution = "1920x1080"
 
 [retry]
 policy = "once"

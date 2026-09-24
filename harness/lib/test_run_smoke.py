@@ -6056,3 +6056,183 @@ class RuntimeHandleSmokeTests(unittest.TestCase):
                          "an unresolved param must stop the spawn, not fly a mission "
                          "with a literal ${} in its params")
         self.assertFalse(result["kspExit"]["killed"])
+
+
+class ScreenResolutionStagingSmokeTests(unittest.TestCase):
+    """`[runtime] screenResolution` end to end through run_attempt: the lane that
+    declares it boots KSP with the size in settings.cfg, the file is byte-identical
+    afterwards, a lane that declares nothing never sees it, and a restore marker a
+    killed run left behind is healed by whichever run stages next."""
+
+    CFG = (b"VERSION = 1.12.5\r\n"
+           b"SCREEN_RESOLUTION_WIDTH = 1280\r\n"
+           b"SCREEN_RESOLUTION_HEIGHT = 720\r\n"
+           b"FULLSCREEN = False\r\n"
+           b"UI_SCALE = 1\r\n")
+
+    class _Runtime(FakeRuntime):
+        """Records what settings.cfg held at the moment KSP was launched, and
+        answers the desktop probe with a fixed value instead of the real desktop."""
+
+        def __init__(self, mode, work=None):
+            super().__init__(mode)
+            self.work = work
+            self.settings_at_launch = None
+            self.marker_at_launch = None
+
+        def desktop_work_area(self):
+            return self.work
+
+        def launch(self, exe, args, env, cwd):
+            path = os.path.join(cwd, "settings.cfg")
+            if os.path.isfile(path):
+                with open(path, "rb") as fh:
+                    self.settings_at_launch = fh.read()
+            self.marker_at_launch = os.path.isfile(
+                os.path.join(cwd, hlib.KSP_SCREEN_RESTORE_MARKER))
+            return super().launch(exe, args, env, cwd)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-screen-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self.settings = os.path.join(self.instance, "settings.cfg")
+        self.marker = os.path.join(self.instance, hlib.KSP_SCREEN_RESTORE_MARKER)
+        with open(self.settings, "wb") as fh:
+            fh.write(self.CFG)
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "screen_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, screen=None, work=None):
+        spec = _make_spec(self.template, 30, 600)
+        if screen:
+            spec["runtime"]["screenResolution"] = screen
+        rt = self._Runtime("pass", work=work)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def _settings_bytes(self):
+        with open(self.settings, "rb") as fh:
+            return fh.read()
+
+    def _log(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_declaring_run_boots_at_1080_and_leaves_the_file_byte_identical(self):
+        result, rt = self._run("1920x1080", work=((2560, 1392), (16, 39)))
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertIn(b"SCREEN_RESOLUTION_WIDTH = 1920\r\n", rt.settings_at_launch)
+        self.assertIn(b"SCREEN_RESOLUTION_HEIGHT = 1080\r\n", rt.settings_at_launch)
+        self.assertIn(b"FULLSCREEN = False\r\n", rt.settings_at_launch)
+        self.assertTrue(rt.marker_at_launch, "the marker must exist while KSP runs")
+        self.assertEqual(self.CFG, self._settings_bytes())
+        self.assertFalse(os.path.exists(self.marker))
+        self.assertIn("screen-resolution applied 1920x1080 windowed", self._log())
+
+    def test_a_run_that_declares_nothing_never_touches_the_file(self):
+        result, rt = self._run()
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertEqual(self.CFG, rt.settings_at_launch)
+        self.assertFalse(rt.marker_at_launch)
+        self.assertEqual(self.CFG, self._settings_bytes())
+        self.assertNotIn("screen-resolution", self._log())
+
+    def test_a_marker_left_by_a_killed_run_is_healed_by_the_next_stage(self):
+        # The state a harness process killed mid-flight leaves: patched file plus
+        # the marker holding the original values.
+        with open(self.settings, "wb") as fh:
+            fh.write(self.CFG.replace(b"1280", b"1920").replace(b"720", b"1080"))
+        with open(self.marker, "w", encoding="utf-8") as fh:
+            fh.write(hlib.render_screen_restore_marker(
+                hlib.read_ksp_settings_values(self.CFG.decode("ascii"))))
+        result, rt = self._run()  # a lane that declares nothing
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertEqual(self.CFG, rt.settings_at_launch,
+                         "a non-census lane must not fly at the leaked census size")
+        self.assertEqual(self.CFG, self._settings_bytes())
+        self.assertFalse(os.path.exists(self.marker))
+        self.assertIn("screen-resolution restored phase=stage", self._log())
+
+    def test_a_small_desktop_clamps_and_warns(self):
+        result, rt = self._run("1920x1080", work=((1920, 1040), (16, 39)))
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertIn(b"SCREEN_RESOLUTION_WIDTH = 1904\r\n", rt.settings_at_launch)
+        self.assertIn(b"SCREEN_RESOLUTION_HEIGHT = 1001\r\n", rt.settings_at_launch)
+        self.assertIn("does not fit the desktop work area", self._log())
+        self.assertEqual(self.CFG, self._settings_bytes())
+
+    def _leave_killed_run_state(self):
+        # Patched file plus the marker holding the original values: what a run
+        # killed before teardown leaves.
+        with open(self.settings, "wb") as fh:
+            fh.write(self.CFG.replace(b"1280", b"1920").replace(b"720", b"1080"))
+        with open(self.marker, "w", encoding="utf-8") as fh:
+            fh.write(hlib.render_screen_restore_marker(
+                hlib.read_ksp_settings_values(self.CFG.decode("ascii"))))
+
+    def test_a_failed_stage_restore_never_loses_the_original_values(self):
+        """The forced-failure sequence: a killed run's marker, then a CENSUS run
+        whose stage restore cannot write settings.cfg. The apply must not read the
+        still-patched file as "original" and overwrite the marker - that would make
+        teardown restore the census size and delete the only record of the real
+        one, leaving the shared instance at 1080p for every later lane."""
+        self._leave_killed_run_state()
+        real_write = run._write_text_atomic
+        failures = []
+
+        def flaky_write(path, text):
+            if path == self.settings and not failures:
+                failures.append(path)
+                raise OSError("forced write failure")
+            return real_write(path, text)
+
+        run._write_text_atomic = flaky_write
+        try:
+            result, rt = self._run("1920x1080", work=((2560, 1392), (16, 39)))
+        finally:
+            run._write_text_atomic = real_write
+        self.assertEqual([self.settings], failures, "the forced failure did not fire")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertTrue(rt.marker_at_launch, "the marker must survive the failed restore")
+        log = self._log()
+        self.assertIn("screen-resolution restore FAILED phase=stage", log)
+        self.assertIn("screen-resolution apply SKIPPED", log)
+        # Teardown restored the REAL original, not the census size.
+        self.assertEqual(self.CFG, self._settings_bytes())
+        self.assertFalse(os.path.exists(self.marker))
+
+    def test_apply_refuses_to_overwrite_an_existing_marker(self):
+        self._leave_killed_run_state()
+        with open(self.marker, "rb") as fh:
+            marker_before = fh.read()
+        patched = self._settings_bytes()
+        spec = {"runtime": {"budgetSeconds": 60, "screenResolution": "1920x1080"}}
+        size = run.apply_ksp_screen_settings(spec, self.instance,
+                                             self._Runtime("pass"), self.logger)
+        self.assertIsNone(size)
+        with open(self.marker, "rb") as fh:
+            self.assertEqual(marker_before, fh.read())
+        self.assertEqual(patched, self._settings_bytes())
+        self.assertIn("apply SKIPPED: a restore marker is still present", self._log())
+
+    def test_a_missing_settings_file_degrades_to_a_warning(self):
+        os.remove(self.settings)
+        result, rt = self._run("1920x1080")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        self.assertIsNone(rt.settings_at_launch)
+        self.assertFalse(os.path.exists(self.settings), "the harness must not invent one")
+        self.assertFalse(os.path.exists(self.marker))
+        self.assertIn("screen-resolution apply FAILED", self._log())

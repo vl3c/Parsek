@@ -321,6 +321,9 @@ forbidden = []
 # measured four captures plus four dumps at 73 s. 900 s is the budget every census lane
 # uses and stays generous because the PRODUCT is the images.
 budgetSeconds = 900
+# The census frame (`screenResolution`, harness README): 1280x720 cropped every
+# Parsek window wider or taller than it, so the census lanes capture at 1920x1080.
+screenResolution = "1920x1080"
 
 [retry]
 policy = "once"

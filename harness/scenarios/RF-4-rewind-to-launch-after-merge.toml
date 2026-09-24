@@ -270,7 +270,11 @@ required = [
   # THE TWO SUBJECT TOKENS. `skippedImmutable=[1-9]` is pinned inside the summary rather
   # than left loose: the line fires whenever ANY counter is nonzero, so without the
   # conjunct a rollback that dropped everything and preserved nothing would still match.
-  "Rewind supersede rollback: .*skippedImmutable=[1-9]",
+  # The other counters pinned too (known-gate 17): `dropped=0` IS the safety property
+  # (nothing the player sealed was taken), and on this one-relation fixture nothing is
+  # retired, restored or skipped as a non-Immutable old side; both archived green runs
+  # read exactly this prefix. A demoted fork is the documented spec-side re-pin above.
+  "Rewind supersede rollback: dropped=0 retiredForks=0 retiredOldSides=0 skippedNonImmutableOldSides=0 restored=0 skippedImmutable=[1-9]",
   "Preserved canon fork across parent rewind: rec=\\S+ mergeState=Immutable",
   # The verb's own completion. `InvokeRewindToLaunch` ends in SPACECENTER by contract,
   # which is what makes the OnLoad that runs the rollback happen at all.

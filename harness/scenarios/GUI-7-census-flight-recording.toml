@@ -355,6 +355,9 @@ forbidden = []
 # against GUI-1's measured 96 s for nearly three times the captures, and stays generous
 # because the PRODUCT is the images and a KILLED run leaves none.
 budgetSeconds = 900
+# The census frame (`screenResolution`, harness README): 1280x720 cropped every
+# Parsek window wider or taller than it, so the census lanes capture at 1920x1080.
+screenResolution = "1920x1080"
 
 [retry]
 policy = "once"

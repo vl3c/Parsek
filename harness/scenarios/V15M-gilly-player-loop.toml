@@ -892,7 +892,10 @@ required  = [
   "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no",
   "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
   "phase=body-orbit surface=ProtoOrbitLine .*body=Gilly",
-  "Split summary: rec=\\w+ .*exoCoastBodyChangeKept=1",
+  # `seamSkipped=0` pinned (known-gate 17): a producer seam short-circuiting this
+  # boundary would mean the coast was not kept by the exo-coast rule; every archived
+  # green log reads 0. The graze counters stay inside `.*` (a later pass).
+  "Split summary: rec=\\w+ .*seamSkipped=0 exoCoastBodyChangeKept=1",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=[1-9]\\d* outsideSoi=0",
 ]

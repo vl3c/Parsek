@@ -10,6 +10,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the GUI census photographs at 1920x1080.** A scenario can now ask
+  for a larger game window (`screenResolution` under `[runtime]`), and every GUI census
+  lane does, so the Missions, Logistics and taller Settings windows are no longer cut off
+  at the old 1280x720 edge. The size is set for that run only and put back afterwards;
+  every other lane keeps 1280x720.
 - **Dev: the GUI mirror draws a label-styled button as plain text.** The Career row names (links to the Timeline) are label-styled buttons that KSP draws with no outline or bevel; the mirror drew them boxed (`harness/tools/gui_mirror.py`).
 - **Automated testing: the test seam can activate and cancel a stock strategy, and the
   GUI census photographs a Strategies tab with a row in it.** `KscAction` gains
@@ -1250,6 +1255,31 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Timeline: the time-range presets are back on their own always-visible row.** This
+  partly reverts the `Time: <range>` button from the two-row filter area above. The filter
+  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career)
+  stretched across the full width, the view's own toggles (unchanged), and Last Day /
+  Last 7d / Last 30d / This Year / All / Custom. Exactly one of those six is lit, so the
+  range in force is always on screen (All by default). Custom shows the From / To sliders;
+  dragging a slider lights Custom, picking a preset turns Custom off and hides the sliders,
+  and turning Custom off returns to All. Turning Custom on over a preset keeps that range
+  as a custom one, and a preset and Custom are never lit together any more. The range
+  still applies in every view, the Career categories included. The window's minimum width
+  drops from 720 to 610 px, the width the six-button rows need. For the GUI census,
+  `op=state key=customRange` again means Custom selected (the sliders shown) rather than
+  the Time fold open; `GUI-24-census-timeline-filters` photographs the new rows.
+
+- **Automated testing: 26 lane checks the mutation checker found weak are tightened.**
+  Fourteen lanes required only `Recording stopped`, which the recorder also prints when the
+  game quits, so the check could pass without the flight ever stopping its recording; each
+  now requires the stop its own step causes (the commit, the StopRecording command, the
+  recovery scene exit or the crash split). `S4.1` now fails on any exception thrown from
+  Parsek code, not only when the exception count passes 3. `GUI-16` no longer accepts a
+  Gloops recording committed with zero points, and ten rewind and player-loop lanes now
+  require the zero their counters read on every archived passing run (nothing dropped by a
+  rollback, no stale rewind point, no seam skipped at the transfer boundary, no seam check
+  outside the target's sphere of influence). Each change was proven against the archived
+  logs: the lane still passes, and the break it now watches for fails it.
 - **A Rewind-to-Launch taken in the middle of a Re-Fly now ends that Re-Fly on the spot.**
   Rewinding is refused while the Re-Fly recording is live, but after the re-flown vessel is
   destroyed while another part of the flight is still flying, and focus moves on, the Rewind
