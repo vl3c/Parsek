@@ -10,6 +10,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the GUI census photographs at 1920x1080.** A scenario can now ask
+  for a larger game window (`screenResolution` under `[runtime]`), and every GUI census
+  lane does, so the Missions, Logistics and taller Settings windows are no longer cut off
+  at the old 1280x720 edge. The size is set for that run only and put back afterwards;
+  every other lane keeps 1280x720.
 - **Automated testing: a report-only mutation checker asks whether each lane's checks
   would catch a real break.** `harness/tools/mutation_check.py` replays the harness's own
   pass/fail checks over runs already archived on the machine: first unchanged (the run

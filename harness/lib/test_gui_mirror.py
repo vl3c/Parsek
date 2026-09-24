@@ -63,14 +63,14 @@ def node(kind, rect, text=None, style=None, tooltip=None, children=None,
 
 
 def dump(label, window_title, kids, grid_value=None,
-         utc="2026-09-11T05:49:25Z", mock=None):
+         utc="2026-09-11T05:49:25Z", mock=None, screen=(1280, 720)):
     roots = [node("window", [270, 8, 700, 400], window_title, style="window",
                   children=([node("buttongrid", [280, 43, 680, 21], None,
                                   style="button", text_value=grid_value)]
                             if grid_value else []) + kids)]
     out = {"schema": gmi.TREE_SCHEMA, "label": label,
            "capturedUtc": utc,
-           "frame": 1, "screen": {"width": 1280, "height": 720},
+           "frame": 1, "screen": {"width": screen[0], "height": screen[1]},
            "screenshotHint": label + ".png",
            "guiMatrix": {"identity": True}, "counts": {}, "funnels": [],
            "roots": roots}
@@ -1797,6 +1797,38 @@ class DialogCaptureTests(unittest.TestCase):
         html = gmi.render_html(self.build())
         self.assertIn(".stage.overlay .dlg .dt,.stage.overlay .dlg .db,"
                       ".stage.overlay .dlg .dcap{display:none}", html)
+
+
+class CensusFrameSizeTests(unittest.TestCase):
+    """The census lanes capture at 1920x1080 (`[runtime] screenResolution`) while
+    older corpora are 1280x720, and one mirror is built over both. Each capture
+    must carry the frame its own dump was taken at - never a global 1280x720 -
+    and a 1080p PNG that matches its dump must be sampled, not refused as a
+    superSize mismatch."""
+
+    def _write(self, path, label, screen):
+        d = dump(label, "Parsek - Widgets", [
+            node("label", [1500, 900, 190, 21], "far row"),
+        ], grid_value="Zynthia", screen=screen)
+        with open(os.path.join(path, label + ".gui.json"), "w", encoding="utf-8") as fh:
+            json.dump(d, fh)
+        tiny_png(os.path.join(path, label + ".png"), screen[0], screen[1],
+                 bands=((300, 48, 380, 60),))
+
+    def test_each_capture_keeps_its_own_frame_size(self):
+        root = tempfile.mkdtemp()
+        try:
+            shots = make_shots(root)
+            self._write(shots, "syn-widgets-zynthia-basic", (1920, 1080))
+            model = gmi.build_model([shots], make_scenarios(root))
+            by_label = {c["label"]: c for c in model["captures"]}
+            self.assertEqual([1920, 1080], by_label["syn-widgets-zynthia-basic"]["screen"])
+            self.assertEqual([1280, 720], by_label["syn-widgets-qorvex-advanced"]["screen"])
+            big = by_label["syn-widgets-zynthia-basic"]
+            self.assertTrue(big["roots"][0].get("bg"),
+                            "a 1920x1080 frame matching its dump was not sampled")
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
 
 
 class SuperSizeGuardTests(unittest.TestCase):

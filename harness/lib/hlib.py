@@ -6176,6 +6176,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     budget_seconds = runtime.get("budgetSeconds")
     if not isinstance(budget_seconds, (int, float)) or budget_seconds <= 0:
         errors.append("runtime.budgetSeconds: %r must be > 0" % (budget_seconds,))
+    # Optional per-run window size (`screenResolution`) plus the known-key check
+    # that keeps a misspelled opt-in from silently reading as "not declared".
+    errors.extend(validate_screen_resolution(runtime))
 
     retry = spec.get("retry", {}) or {}
     if retry.get("policy") not in RETRY_POLICIES:
@@ -6433,6 +6436,194 @@ def settings_sidecar_tracers_on(text: Optional[str]) -> List[str]:
     values = parse_settings_sidecar(text)
     return [k for k in TRACER_SETTING_KEYS
             if values.get(k, "").strip().lower() == "true"]
+
+
+# ---------------------------------------------------------------------------
+# Per-run KSP window resolution (`[runtime] screenResolution`). Pure.
+#
+# WHY A SPEC KEY. The provisioned instance's `settings.cfg` pins the window at
+# 1280x720 (profiles/stock-minimal.toml), and every lane inherits it. The GUI
+# census photographs Parsek windows wider or taller than that (Missions floors at
+# 1355 px, Logistics at 1410 px, several Settings states run past 720 px), so
+# those frames are cropped. A census lane opts in to a larger window; no other
+# lane changes, because the render-composition and map lanes may depend on pixel
+# sizes.
+#
+# WHY settings.cfg AND NOT UNITY LAUNCH ARGS. KSP overrides the window size from
+# its own settings: `GameSettings.ApplyEngineSettings` starts
+# `WaitAndSetResolution`, which calls `Screen.SetResolution(SCREEN_RESOLUTION_WIDTH,
+# SCREEN_RESOLUTION_HEIGHT, FULLSCREEN)` ten frames after boot (decompiled, KSP
+# 1.12.5). A `-screen-width` / `-screen-height` argument only sizes those first
+# ten frames. So the run patches the three keys in the instance settings.cfg at
+# STAGE and puts the original values back at TEARDOWN.
+#
+# CRASH SAFETY. Before the patch the shell writes a restore marker next to
+# settings.cfg holding the ORIGINAL values of the three keys (marker first, patch
+# second, so a crash between the two leaves a marker whose restore is a no-op).
+# Every run's STAGE restores from a marker it finds before doing anything else,
+# so a run whose teardown never executed (the harness process itself killed) is
+# healed by the next run on the instance, whatever that run declares. Only the
+# three key values are rewritten, never the whole file, so the restore cannot
+# roll back anything provisioning or KSP wrote in between.
+# ---------------------------------------------------------------------------
+
+SCREEN_RESOLUTION_SPEC_KEY = "screenResolution"
+
+# The [runtime] keys validate_spec accepts. A misspelled `screenResolution`
+# would otherwise read as "no opt-in" and silently capture at 1280x720.
+RUNTIME_SPEC_KEYS: Tuple[str, ...] = ("budgetSeconds", SCREEN_RESOLUTION_SPEC_KEY)
+
+# The sizes a spec may ask for. 1280x720 is the provisioned default (declaring it
+# is a no-op); 1920x1080 is the GUI census frame. A closed set, so a lane cannot
+# ask for a window size nobody reviewed.
+ALLOWED_SCREEN_RESOLUTIONS: Tuple[str, ...] = ("1280x720", "1920x1080")
+
+# The KSP settings.cfg keys a screen override touches, in write order.
+KSP_SCREEN_SETTING_KEYS: Tuple[str, ...] = (
+    "SCREEN_RESOLUTION_WIDTH", "SCREEN_RESOLUTION_HEIGHT", "FULLSCREEN")
+
+# The restore marker, next to the instance-root settings.cfg.
+KSP_SCREEN_RESTORE_MARKER = "settings.cfg.harness-screen-restore"
+
+_SCREEN_RES_RE = re.compile(r"^([1-9][0-9]{2,4})x([1-9][0-9]{2,4})$")
+
+
+def parse_screen_resolution(value: Any) -> Optional[Tuple[int, int]]:
+    """`"1920x1080"` -> (1920, 1080); anything else -> None."""
+    if not isinstance(value, str):
+        return None
+    m = _SCREEN_RES_RE.match(value.strip())
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
+def validate_screen_resolution(runtime: Dict) -> List[str]:
+    """Spec errors for the `[runtime]` table: unknown keys, and a
+    `screenResolution` outside ALLOWED_SCREEN_RESOLUTIONS."""
+    errors: List[str] = []
+    runtime = runtime or {}
+    for key in sorted(runtime):
+        if key not in RUNTIME_SPEC_KEYS:
+            errors.append("runtime.%s: unknown key (known: %s)"
+                          % (key, ", ".join(RUNTIME_SPEC_KEYS)))
+    if SCREEN_RESOLUTION_SPEC_KEY in runtime:
+        value = runtime[SCREEN_RESOLUTION_SPEC_KEY]
+        if not isinstance(value, str) or value not in ALLOWED_SCREEN_RESOLUTIONS:
+            errors.append("runtime.%s: %r not in %s"
+                          % (SCREEN_RESOLUTION_SPEC_KEY, value,
+                             list(ALLOWED_SCREEN_RESOLUTIONS)))
+    return errors
+
+
+def spec_screen_resolution(spec: Dict) -> Optional[Tuple[int, int]]:
+    """The window size a spec asks for, or None when it declares none (the
+    instance's own settings.cfg then governs, unchanged)."""
+    runtime = (spec or {}).get("runtime") or {}
+    value = runtime.get(SCREEN_RESOLUTION_SPEC_KEY)
+    if not isinstance(value, str) or value not in ALLOWED_SCREEN_RESOLUTIONS:
+        return None
+    return parse_screen_resolution(value)
+
+
+def fit_screen_resolution(requested: Tuple[int, int],
+                          work_area: Optional[Tuple[int, int]],
+                          chrome: Tuple[int, int] = (0, 0)
+                          ) -> Tuple[Tuple[int, int], bool]:
+    """Clamp a requested windowed client size to what the desktop work area can
+    host once the window frame (`chrome` = extra width, extra height) is added.
+
+    Returns ((width, height), clamped). An unknown work area (None, a non-Windows
+    host, a failed probe) leaves the request unchanged: the clamp is a courtesy,
+    and a window a little larger than the work area still renders. Each axis is
+    clamped on its own (1920x1080 on a 1080p desktop becomes about 1920x1017),
+    never scaled by aspect, because the census wants the widest frame it can get.
+    """
+    w, h = int(requested[0]), int(requested[1])
+    if not work_area:
+        return (w, h), False
+    max_w = int(work_area[0]) - int(chrome[0])
+    max_h = int(work_area[1]) - int(chrome[1])
+    if max_w <= 0 or max_h <= 0:
+        return (w, h), False
+    fw, fh = min(w, max_w), min(h, max_h)
+    return (fw, fh), (fw, fh) != (w, h)
+
+
+_KSP_SETTING_LINE_RE = re.compile(r"^([ \t]*)([A-Za-z0-9_]+)([ \t]*=[ \t]*)(.*?)(\r?)$")
+
+
+def _ksp_settings_top_level_lines(lines: Sequence[str]):
+    """Yield (index, match) for every top-level `KEY = value` line. Lines inside
+    a `{ }` block (the key-binding nodes) are not top-level."""
+    depth = 0
+    for i, raw in enumerate(lines):
+        stripped = raw.strip()
+        if stripped.startswith("{"):
+            depth += 1
+            continue
+        if stripped.startswith("}"):
+            depth = max(0, depth - 1)
+            continue
+        if depth:
+            continue
+        m = _KSP_SETTING_LINE_RE.match(raw)
+        if m:
+            yield i, m
+
+
+def read_ksp_settings_values(text: Optional[str],
+                             keys: Sequence[str] = KSP_SCREEN_SETTING_KEYS
+                             ) -> Dict[str, str]:
+    """The top-level values of `keys` in a KSP settings.cfg body (or in a
+    restore marker, which uses the same `KEY = value` shape). A duplicate key
+    keeps its first occurrence, which is the one the rewrite below touches."""
+    wanted = set(keys)
+    out: Dict[str, str] = {}
+    for _, m in _ksp_settings_top_level_lines((text or "").split("\n")):
+        if m.group(2) in wanted and m.group(2) not in out:
+            out[m.group(2)] = m.group(4).strip()
+    return out
+
+
+def rewrite_ksp_settings_values(text: str, values: Dict[str, str]) -> str:
+    """Return `text` with the first top-level line of each key in `values` set to
+    the new value. Everything else - other keys, indentation, the spacing around
+    `=`, CRLF vs LF line endings - is preserved byte for byte, so restoring the
+    original values yields the original file. A key with no line is appended at
+    the end, in the file's own newline convention."""
+    lines = text.split("\n")
+    done: Set[str] = set()
+    for i, m in list(_ksp_settings_top_level_lines(lines)):
+        key = m.group(2)
+        if key in values and key not in done:
+            lines[i] = "%s%s%s%s%s" % (m.group(1), key, m.group(3),
+                                       values[key], m.group(5))
+            done.add(key)
+    out = "\n".join(lines)
+    missing = [k for k in values if k not in done]
+    if not missing:
+        return out
+    nl = "\r\n" if "\r\n" in text else "\n"
+    if out and not out.endswith("\n"):
+        out += nl
+    return out + "".join("%s = %s%s" % (k, values[k], nl) for k in missing)
+
+
+def screen_setting_values(size: Tuple[int, int]) -> Dict[str, str]:
+    """The settings.cfg values that put KSP in a windowed `size` window.
+    `FULLSCREEN` is written as KSP writes a bool (`bool.ToString()`)."""
+    return {"SCREEN_RESOLUTION_WIDTH": str(int(size[0])),
+            "SCREEN_RESOLUTION_HEIGHT": str(int(size[1])),
+            "FULLSCREEN": "False"}
+
+
+def render_screen_restore_marker(original: Dict[str, str]) -> str:
+    """The restore marker body: the ORIGINAL values of the screen keys the run is
+    about to overwrite, in `KEY = value` form. A key the file did not carry is
+    left out, so the restore never invents one."""
+    return "".join("%s = %s\n" % (k, original[k])
+                   for k in KSP_SCREEN_SETTING_KEYS if k in original)
 
 
 # ---------------------------------------------------------------------------

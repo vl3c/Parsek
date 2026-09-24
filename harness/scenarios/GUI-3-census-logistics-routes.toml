@@ -396,6 +396,9 @@ forbidden = []
 # It stays generous rather than tight because the PRODUCT is the images and a KILLED run
 # leaves none of them.
 budgetSeconds = 1200
+# The census frame (`screenResolution`, harness README): 1280x720 cropped every
+# Parsek window wider or taller than it, so the census lanes capture at 1920x1080.
+screenResolution = "1920x1080"
 
 [retry]
 policy = "once"

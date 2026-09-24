@@ -288,6 +288,9 @@ gating = false
 # should be KILLED and read rather than left running, and one 42 MB cold load is the only
 # part of it that can vary.
 budgetSeconds = 1000
+# The census frame (`screenResolution`, harness README): 1280x720 cropped every
+# Parsek window wider or taller than it, so the census lanes capture at 1920x1080.
+screenResolution = "1920x1080"
 
 [retry]
 policy = "once"

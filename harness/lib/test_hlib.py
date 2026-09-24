@@ -22928,3 +22928,136 @@ class ListHandlesSourceSyncTests(unittest.TestCase):
             r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', code))
         self.assertEqual({"AKindToken": "a"}, consts)
         self.assertEqual(["AKindToken"], re.findall(r"\bcase\s+(\w+)\s*:", code))
+
+
+class ScreenResolutionSpecTests(unittest.TestCase):
+    """`[runtime] screenResolution`: the per-run KSP window size a GUI census lane
+    opts in to. KSP resets its window from settings.cfg ten frames after boot, so
+    the size is a settings.cfg patch restored at teardown, not a launch argument."""
+
+    CFG = ("VERSION = 1.12.5\r\n"
+           "SCREEN_RESOLUTION_WIDTH = 1280\r\n"
+           "SCREEN_RESOLUTION_HEIGHT = 720\r\n"
+           "FULLSCREEN = False\r\n"
+           "UI_SCALE = 1\r\n"
+           "AXIS_MOUSEWHEEL\r\n"
+           "{\r\n"
+           "\tFULLSCREEN = True\r\n"
+           "}\r\n")
+
+    def test_parse(self):
+        self.assertEqual((1920, 1080), hlib.parse_screen_resolution("1920x1080"))
+        for bad in ("1920X1080", "1920 x 1080", "1920", "", None, 1920, "0x0", "x1080"):
+            self.assertIsNone(hlib.parse_screen_resolution(bad), bad)
+
+    def test_every_allowed_size_parses(self):
+        for value in hlib.ALLOWED_SCREEN_RESOLUTIONS:
+            self.assertIsNotNone(hlib.parse_screen_resolution(value), value)
+
+    def test_validation_accepts_the_allowed_sizes_and_absence(self):
+        self.assertEqual([], hlib.validate_screen_resolution({"budgetSeconds": 60}))
+        self.assertEqual([], hlib.validate_screen_resolution({}))
+        self.assertEqual([], hlib.validate_screen_resolution(None))
+        for value in hlib.ALLOWED_SCREEN_RESOLUTIONS:
+            self.assertEqual([], hlib.validate_screen_resolution(
+                {"budgetSeconds": 60, "screenResolution": value}))
+
+    def test_validation_rejects_an_unlisted_size(self):
+        for bad in ("2560x1440", "1920X1080", 1920, ["1920", "1080"]):
+            errs = hlib.validate_screen_resolution({"screenResolution": bad})
+            self.assertEqual(1, len(errs), bad)
+            self.assertIn("runtime.screenResolution", errs[0])
+
+    def test_validation_rejects_an_unknown_runtime_key(self):
+        # The misspelling would otherwise read as "no opt-in" and capture at 720p.
+        errs = hlib.validate_screen_resolution({"budgetSeconds": 60,
+                                                "screenResolutoin": "1920x1080"})
+        self.assertEqual(1, len(errs))
+        self.assertIn("runtime.screenResolutoin: unknown key", errs[0])
+
+    def test_validate_spec_carries_the_runtime_errors(self):
+        spec = load_spec("GUI-14-census-settings-and-facility.toml")
+        spec = copy.deepcopy(spec)
+        spec["runtime"]["screenResolution"] = "2560x1440"
+        res = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(any("runtime.screenResolution" in e for e in res.errors),
+                        res.errors)
+
+    def test_spec_screen_resolution(self):
+        self.assertIsNone(hlib.spec_screen_resolution({}))
+        self.assertIsNone(hlib.spec_screen_resolution({"runtime": {"budgetSeconds": 5}}))
+        self.assertIsNone(hlib.spec_screen_resolution(
+            {"runtime": {"screenResolution": "2560x1440"}}))
+        self.assertEqual((1920, 1080), hlib.spec_screen_resolution(
+            {"runtime": {"screenResolution": "1920x1080"}}))
+
+    def test_fit_leaves_a_fitting_request_alone(self):
+        # The measured dev desktop: 2560x1392 work area, 16x39 window frame.
+        self.assertEqual(((1920, 1080), False),
+                         hlib.fit_screen_resolution((1920, 1080), (2560, 1392), (16, 39)))
+
+    def test_fit_clamps_each_axis_on_a_small_desktop(self):
+        # A 1080p desktop with a 40 px taskbar cannot host a 1080-tall client.
+        self.assertEqual(((1904, 1001), True),
+                         hlib.fit_screen_resolution((1920, 1080), (1920, 1040), (16, 39)))
+        self.assertEqual(((1920, 1017), True),
+                         hlib.fit_screen_resolution((1920, 1080), (1920, 1017)))
+
+    def test_fit_without_a_probe_keeps_the_request(self):
+        self.assertEqual(((1920, 1080), False),
+                         hlib.fit_screen_resolution((1920, 1080), None, (16, 39)))
+        self.assertEqual(((1920, 1080), False),
+                         hlib.fit_screen_resolution((1920, 1080), (0, 0), (16, 39)))
+
+    def test_read_ignores_keys_inside_a_block(self):
+        self.assertEqual({"SCREEN_RESOLUTION_WIDTH": "1280",
+                          "SCREEN_RESOLUTION_HEIGHT": "720",
+                          "FULLSCREEN": "False"},
+                         hlib.read_ksp_settings_values(self.CFG))
+
+    def test_rewrite_touches_only_the_three_values_and_keeps_crlf(self):
+        out = hlib.rewrite_ksp_settings_values(
+            self.CFG, hlib.screen_setting_values((1920, 1080)))
+        self.assertEqual(self.CFG.replace("WIDTH = 1280", "WIDTH = 1920")
+                         .replace("HEIGHT = 720", "HEIGHT = 1080"), out)
+        self.assertIn("\tFULLSCREEN = True\r\n", out)
+
+    def test_restoring_the_marker_values_is_byte_identical(self):
+        original = hlib.read_ksp_settings_values(self.CFG)
+        marker = hlib.render_screen_restore_marker(original)
+        patched = hlib.rewrite_ksp_settings_values(
+            self.CFG.replace("FULLSCREEN = False", "FULLSCREEN = True", 1),
+            hlib.screen_setting_values((1920, 1080)))
+        self.assertIn("FULLSCREEN = False\r\n", patched)
+        restored = hlib.rewrite_ksp_settings_values(
+            patched, hlib.read_ksp_settings_values(marker))
+        self.assertEqual(self.CFG, restored)
+
+    def test_a_missing_key_is_appended_in_the_files_newline(self):
+        out = hlib.rewrite_ksp_settings_values("A = 1\r\nB = 2",
+                                               {"FULLSCREEN": "False"})
+        self.assertEqual("A = 1\r\nB = 2\r\nFULLSCREEN = False\r\n", out)
+        self.assertEqual("A = 1\nFULLSCREEN = False\n",
+                         hlib.rewrite_ksp_settings_values("A = 1\n", {"FULLSCREEN": "False"}))
+
+    def test_the_marker_never_invents_a_key(self):
+        self.assertEqual("SCREEN_RESOLUTION_WIDTH = 1280\n",
+                         hlib.render_screen_restore_marker({"SCREEN_RESOLUTION_WIDTH": "1280"}))
+
+    def test_exactly_the_gui_census_lanes_opt_in(self):
+        """Every GUI census lane captures at 1920x1080 and NO other lane changes
+        size: the render-composition and map lanes may depend on pixel sizes."""
+        declared, census = set(), set()
+        for path in sorted(glob.glob(os.path.join(SCENARIOS_DIR, "*.toml"))):
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            sid = spec.get("id")
+            runtime = spec.get("runtime") or {}
+            self.assertEqual([], hlib.validate_screen_resolution(runtime), sid)
+            if "screenResolution" in runtime:
+                declared.add(sid)
+                self.assertEqual("1920x1080", runtime["screenResolution"], sid)
+            if "gui-census" in (spec.get("tags") or []):
+                census.add(sid)
+        self.assertTrue(census)
+        self.assertEqual(census, declared)
