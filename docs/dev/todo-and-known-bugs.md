@@ -15,6 +15,27 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`]
+
+Ghostlife v2 is built with no flight: the engine writes a tracing-gated
+`MeshDestroyed reason=overlap expired` (also `overlap cleared` / `engine teardown`) when an
+overlap copy that wrote its own MeshSpawned vanishes, and `LoopCycle cycle=N prev=M
+mode=reuse|overlap-demote|unit` when a live ghost's cycle advances; `harness/lib/ghostlife.py`
+reads `destroyedReasons.required`, per-vessel `vessels` windows and the `cycleLines` census.
+Offline, every archived GS-4 / GS-9 log replays through v2 with status, mismatches and all v1
+facets identical, and each reads `Kerbal X Debris` spawned 6 (the floor a `vessels` window
+would pin). Open:
+
+- No committed spec declares a v2 key. The first live reading is Tier C item 12 (loop the
+  GS-4 subject), which also needs a lane whose period is below span/20 to see
+  `overlap expired` and `auto-adjusted (cap reached)` (see the D6 `overlap-expiry-soft-caps`
+  cell).
+- The `unit` LoopCycle mode fires only when a mission-unit member's ghost object survives the
+  cycle boundary; if a live reading on V6M shows zero `unit` lines, the member is destroyed and
+  respawned per cycle and the census there reads spawn lines instead.
+- Adding `vessels = { "Kerbal X Debris" = { spawned = { min = 6 } } }` to GS-4's armed block is
+  an arming change and wants its own reading run.
+
 ## ~~TARGET-SIDE-DOCK-DROPS-SAME-TREE-PARENT: re-docking two vessels of one recorded flight kept only one of them as the dock's parent when the vessel being flown was the one that survived the dock~~ [FILED 2026-09-24 off SD-1's reading run `2026-09-23_2140`. FIXED 2026-09-24 on branch `d5-samedock`]
 
 **What the player saw.** Undock a docked pair that Parsek is recording, then dock the two

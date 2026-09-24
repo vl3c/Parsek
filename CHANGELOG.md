@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: loop playback now logs when an overlapping ghost copy disappears
+  and when a ghost starts a new loop cycle.** With ghost render tracing on, a looped
+  flight's older overlapping copy writes a destroyed line (`overlap expired`) when its
+  flight ends, and each cycle advance writes a `LoopCycle` line. The ghost-lifecycle
+  check can now require a destroy reason, set a floor per vessel name (for example six
+  `Kerbal X Debris` ghosts), and count loop cycles. Nothing changes with tracing off.
 - **Automated testing: a lane undocks a recorded pair and docks it back together.**
   `SD-1-same-tree-redock` loads the second-dock save on its docked pair, undocks it, backs
   off and re-docks the halves with the MechJeb docking autopilot (the new `d5_redock`

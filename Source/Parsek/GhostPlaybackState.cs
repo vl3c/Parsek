@@ -28,6 +28,11 @@ namespace Parsek
         public int kscPlaybackFrameSourceKey;
         public int partEventIndex;
         public long loopCycleIndex = -1;
+        // True once this state's MeshSpawned trace line was written. An overlap copy writes its
+        // MeshDestroyed line only when this is set, so a boundary-overlap secondary or a primary
+        // demoted before its build finished (neither ever wrote MeshSpawned) cannot unbalance the
+        // ghostlife pairing. Never persisted.
+        public bool meshSpawnTraced;
         // BOUNDARY-OVERLAP launch render (docs/dev/plan-launch-boundary-overlap.md): true ONLY for the
         // secondary ghost the engine spawns during the borrow window of a zero-slack re-aim launch loop -
         // the early-launching NEXT instance (N+1) that renders concurrently with the still-live previous

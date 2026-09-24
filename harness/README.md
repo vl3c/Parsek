@@ -32,8 +32,10 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   behind the `ghostLifecycle` verifier row (`[expectations.ghostLifecycle]`:
   GhostRenderTrace MeshSpawned/MeshDestroyed per-recId spawn/destroy balance,
   spawn-census window, `spawnLines` / `destroyLines` line-count windows (the
-  repeat-replay leak the set-based balance cannot see; non-looping lanes only),
-  zero-spawn vacuity floor; REPORT-ONLY unless armed via
+  repeat-replay leak the set-based balance cannot see; on a looping lane only
+  with the v2 producer's overlap destroy lines), zero-spawn vacuity floor, and
+  (v2) `destroyedReasons.required`, per-vessel-name `vessels` windows and the
+  `phase=LoopCycle` census (`cycleLines`); REPORT-ONLY unless armed via
   `GHOSTLIFE_ARMED_SPECS` - empty as shipped),
   `provision/` (`provlib.py` pure, `provision.py`
   shell), `missions/` (M-B1: mission shells + `lib/mlib.py` pure mission

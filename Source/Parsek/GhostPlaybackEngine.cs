@@ -2782,6 +2782,8 @@ namespace Parsek
 
             // (6) Render THIS member at the shared loopUT via the normal in-range path. Override the
             // frame UT for positioning (same technique as TryUpdateLoopSyncedDebris).
+            GhostPlaybackState stateBeforeRender = state;
+            long cycleBeforeRender = state != null ? state.loopCycleIndex : -1;
             var syncCtx = ctx;
             syncCtx.currentUT = spanLoopUT;
             if (RenderInRangeGhost(i, traj, f, syncCtx, suppressVisualFx,
@@ -2791,6 +2793,9 @@ namespace Parsek
             {
                 if (state != null)
                 {
+                    if (ReferenceEquals(state, stateBeforeRender) && cycleBeforeRender >= 0
+                        && cycleBeforeRender != unitCycle)
+                        EmitLoopCycleTrace(i, traj, state, cycleBeforeRender, unitCycle, "unit");
                     state.loopCycleIndex = unitCycle;
                     // A ghost spawned THIS frame got positioned before the stash above could reach
                     // its fresh state object; stamp it now so the next frame derotates.
@@ -4571,6 +4576,8 @@ namespace Parsek
                         if (primaryState.ghost != null)
                             GhostPlaybackLogic.MuteAllAudio(primaryState); // overlap ghosts get no audio
                         overlaps.Add(primaryState);
+                        EmitLoopCycleTrace(index, traj, primaryState,
+                            primaryState.loopCycleIndex, lastCycle, "overlap-demote");
                         ParsekLog.VerboseRateLimited("Engine", "overlap-move",
                             $"Ghost #{index} cycle={primaryState.loopCycleIndex} moved to overlap list (audio muted)");
                     }
@@ -4816,7 +4823,7 @@ namespace Parsek
 
                     ParsekLog.VerboseRateLimited("Engine", "overlap-expired",
                         $"Ghost EXITED range: #{index} \"{traj.VesselName}\" cycle={cycle} (overlap expired)");
-                    DestroyOverlapGhostState(ovState);
+                    DestroyOverlapGhostState(ovState, index, traj, "overlap expired");
                     overlaps.RemoveAt(i);
                     continue;
                 }
@@ -7010,6 +7017,7 @@ namespace Parsek
             }
 
             long previousCycle = state.loopCycleIndex;
+            EmitLoopCycleTrace(index, traj, state, previousCycle, newCycleIndex, "reuse");
 
             // Step 0: parity with SpawnGhost + DestroyGhost dedupe hygiene —
             // the prior-cycle end may have fired a trajectory completion event
@@ -7248,25 +7256,64 @@ namespace Parsek
         // its prefix already carries rec=/recId=, so no recId threading). important=true => always emitted
         // when enabled, routed to Info. Gated by GhostRenderTrace.IsEnabled so the Planetarium read + format
         // never run in normal play (read-only observability).
-        private static void EmitMeshLifecycleTrace(
+        private static bool EmitMeshLifecycleTrace(
             string phase, int index, IPlaybackTrajectory traj, GhostPlaybackState state, string reason)
         {
             string recId = traj?.RecordingId;
             if (string.IsNullOrEmpty(recId))
                 recId = state?.recordingId;
             if (string.IsNullOrEmpty(recId))
-                return;
+                return false;
             // Enabled-gate via ShouldEmitPhase (GhostRenderTrace.IsEnabled is private): with important=true it
             // returns the tracer's enabled state, so the Planetarium read + format below never run in normal
             // (tracing-off) play. EmitPhase re-checks the same gate internally.
             if (!GhostRenderTrace.ShouldEmitPhase(recId, 0.0, important: true))
-                return;
-            double ut = Planetarium.GetUniversalTime();
+                return false;
+            double ut = ReadMeshTraceUT();
             GhostRenderTrace.EmitPhase(
                 recId, index, ut, ut, phase,
                 FormattableString.Invariant(
                     $"vessel={traj?.VesselName ?? state?.vesselName ?? "Unknown"} reason={reason ?? "lifecycle"}"),
                 important: true);
+            return true;
+        }
+
+        /// <summary>
+        /// Loop-cycle advance EVENT for the ghostlife per-cycle census: one tracing-gated Info line when a
+        /// ghost's cycle index moves while its object lives on (reused across the boundary, demoted to the
+        /// overlap list, or a mission-unit member rolling over). The vessel rides LAST because it is free
+        /// text that may contain spaces.
+        /// </summary>
+        internal static void EmitLoopCycleTrace(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state,
+            long previousCycle, long newCycle, string mode)
+        {
+            string recId = traj?.RecordingId;
+            if (string.IsNullOrEmpty(recId))
+                recId = state?.recordingId;
+            if (string.IsNullOrEmpty(recId)
+                || !GhostRenderTrace.ShouldEmitPhase(recId, 0.0, important: true))
+                return;
+            double ut = ReadMeshTraceUT();
+            GhostRenderTrace.EmitPhase(
+                recId, index, ut, ut, "LoopCycle",
+                FormattableString.Invariant(
+                    $"cycle={newCycle} prev={previousCycle} mode={mode} vessel={traj?.VesselName ?? state?.vesselName ?? "Unknown"}"),
+                important: true);
+        }
+
+        internal static Func<double> MeshTraceUTOverrideForTesting;
+
+        private static double ReadMeshTraceUT()
+        {
+            Func<double> ovr = MeshTraceUTOverrideForTesting;
+            return ovr != null ? ovr() : ReadPlanetariumUT();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadPlanetariumUT()
+        {
+            return Planetarium.GetUniversalTime();
         }
 
         /// <summary>
@@ -7306,7 +7353,8 @@ namespace Parsek
             // Mesh APPEAR EVENT - emitted at the create funnel BEFORE the no-subscriber early-return so it
             // fires regardless of whether a policy is attached (deferred vs immediate Invoke is only about
             // WHEN the policy is notified, not when the ghost entered the scene).
-            EmitMeshLifecycleTrace("MeshSpawned", index, traj, state, "ghost-created");
+            if (EmitMeshLifecycleTrace("MeshSpawned", index, traj, state, "ghost-created") && state != null)
+                state.meshSpawnTraced = true;
 
             if (OnGhostCreated == null)
                 return;
@@ -8896,11 +8944,17 @@ namespace Parsek
         /// <summary>
         /// Destroys a single overlap ghost's resources. Does NOT remove from any collection.
         /// </summary>
-        internal void DestroyOverlapGhostState(GhostPlaybackState state)
+        internal void DestroyOverlapGhostState(GhostPlaybackState state,
+            int index = -1, IPlaybackTrajectory traj = null, string reason = "overlap expired")
         {
             if (state == null) return;
             ParsekLog.VerboseRateLimited("Engine", "destroy-overlap",
                 $"Destroying overlap ghost cycle={state.loopCycleIndex}", 2.0);
+            // Mesh DISAPPEAR EVENT for an overlap copy, paired only with a MeshSpawned this same
+            // state wrote (see GhostPlaybackState.meshSpawnTraced). Tracing-gated like every emit.
+            if (state.meshSpawnTraced
+                && EmitMeshLifecycleTrace("MeshDestroyed", index, traj, state, reason))
+                state.meshSpawnTraced = false;
             DestroyGhostResourcesWithMetrics(state);
         }
 
@@ -8935,7 +8989,7 @@ namespace Parsek
                     $"Destroying all {list.Count} overlap ghost(s) for recording #{recIdx}");
 
             for (int i = 0; i < list.Count; i++)
-                DestroyOverlapGhostState(list[i]);
+                DestroyOverlapGhostState(list[i], recIdx, null, "overlap cleared");
             list.Clear();
 
             // Return true so the caller (ParsekFlight) can reset watch mode camera state
@@ -9097,14 +9151,13 @@ namespace Parsek
                 }
             }
 
-            // Destroy all overlap ghost GOs. NO lifecycle emit here: an overlap shell is a
-            // loop-cycle copy of a primary ghost, not its own MeshSpawned/MeshDestroyed
-            // pair, so emitting would unbalance the per-recording pairing rather than close
-            // it.
+            // Destroy all overlap ghost GOs. An overlap copy that was once a primary wrote its
+            // own MeshSpawned, so it closes that pair here; one that never wrote it (a
+            // boundary-overlap secondary, a primary demoted mid-build) stays silent.
             foreach (var kvp in overlapGhosts)
             {
                 for (int i = 0; i < kvp.Value.Count; i++)
-                    DestroyOverlapGhostState(kvp.Value[i]);
+                    DestroyOverlapGhostState(kvp.Value[i], kvp.Key, null, "engine teardown");
             }
 
             // Clear all engine state

@@ -4390,7 +4390,12 @@ first spawn frame (hold-then-retry, never a single eager ask).
 
 ### Tier C - machinery that raises the ceiling (build before the lanes that need it)
 
-10. **ghostlife v2.** Three additive surfaces, each motivated by a documented
+10. **ghostlife v2.** BUILT 2026-09-24 on `ghostlife-v2`, no flight: the producer
+    writes a tracing-gated `MeshDestroyed reason=overlap expired` when an overlap copy
+    vanishes and a `LoopCycle cycle=N` line when a live ghost's cycle advances, and
+    `ghostlife.py` reads `destroyedReasons.required`, `vessels` windows and the
+    `cycleLines` census; GS-4 / GS-9 archived logs replay identically to v1. Item 12
+    is unblocked. Three additive surfaces, each motivated by a documented
     gap: PER-CYCLE balance for loop playback (the loop demote path emits no
     destroy by design - the evaluator's census caveat says spawnLines vs
     destroyLines must not be read as a leak on a looping lane, which today
