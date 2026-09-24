@@ -67,6 +67,15 @@ these lines MUST drive ``SetSetting ghostRenderTracing=true``; there is no other
 route, since the sidecar wins over whatever the fixture save carries. That is
 why a declared block measuring ZERO ``MeshSpawned`` lines is a MISMATCH and not
 a silent pass - see ``evaluate_ghost_lifecycle``.
+
+v2 (ghost-replay Tier C, 2026-09-24) adds three surfaces, all additive: a
+``destroyedReasons.required`` list, per-vessel-name windows (``vessels``), and a
+per-cycle census read off the producer's new ``phase=LoopCycle`` line (window
+key ``cycleLines``). The producer also started writing ``MeshDestroyed
+reason=overlap expired`` (and ``overlap cleared`` / ``engine teardown``) for an
+overlap copy that wrote a ``MeshSpawned``. On a log with no LoopCycle line and no
+overlap copy - every non-looping lane - every v1 facet, mismatch and status is
+unchanged.
 """
 
 from __future__ import annotations
@@ -93,10 +102,29 @@ PHASE_SPAWNED = "MeshSpawned"
 PHASE_DESTROYED = "MeshDestroyed"
 LIFECYCLE_PHASES: Tuple[str, ...] = (PHASE_SPAWNED, PHASE_DESTROYED)
 
+# v2 (ghost-replay Tier C): the loop-cycle advance line, emitted by
+# GhostPlaybackEngine.EmitLoopCycleTrace when a ghost's cycle index moves while
+# its object lives on. Its tail is `cycle=<N> prev=<M> mode=<mode> vessel=<name>`,
+# vessel LAST because it is free text. It is NOT a mesh lifecycle line: it never
+# enters `lines`, the balance ledger or the spawn/destroy counts, so a v1 lane's
+# facets are unchanged by it.
+PHASE_LOOP_CYCLE = "LoopCycle"
+# The three modes the producer passes, one per emit site: a primary ghost reused
+# across the boundary, a primary demoted to the overlap list (a new primary
+# spawns beside it), and a mission loop-unit member whose cycle rolls over.
+LOOP_CYCLE_MODES: Tuple[str, ...] = ("reuse", "overlap-demote", "unit")
+
 # The spawn reason is a single fixed token at the one call site
 # (QueueOrEmitGhostCreated). Named so the census has something to be checked
 # against rather than only counted.
 SPAWN_REASON = "ghost-created"
+
+# v2: the destroy reason an overlap copy writes when its own flight ends
+# (GhostPlaybackEngine.UpdateExpireAndPositionOverlaps -> DestroyOverlapGhostState).
+# The other overlap-copy reasons are "overlap cleared" (DestroyAllOverlapGhosts)
+# and "engine teardown" (DestroyAllGhosts). An overlap copy writes a destroy line
+# only if the same object wrote a MeshSpawned first.
+OVERLAP_EXPIRED_REASON = "overlap expired"
 
 # The prefix, field for field, in BuildPrefix's emit order. Pinned in the test
 # suite against the C# source (deliberately, by extracting that ONE return
@@ -118,6 +146,21 @@ _LINE_RE = re.compile(
     r"\s+currentUT=(?P<current_ut>\S+)"
     r"\s+playbackUT=(?P<playback_ut>\S+)"
     r"\s+vessel=(?P<tail>.*)$")
+
+# The LoopCycle line: the same prefix, then three single-token fields, then the
+# vessel to end of line (no cut needed - nothing follows it).
+_CYCLE_RE = re.compile(
+    r"phase=LoopCycle"
+    r"\s+rec=(?P<rec>\S+)"
+    r"\s+recId=(?P<rec_id>\S+)"
+    r"\s+ghostIndex=(?P<ghost_index>-?\d+)"
+    r"\s+frame=(?P<frame>-?\d+)"
+    r"\s+currentUT=(?P<current_ut>\S+)"
+    r"\s+playbackUT=(?P<playback_ut>\S+)"
+    r"\s+cycle=(?P<cycle>-?\d+)"
+    r"\s+prev=(?P<prev>-?\d+)"
+    r"\s+mode=(?P<mode>\S+)"
+    r"\s+vessel=(?P<vessel>.*)$")
 
 _REASON_SEP = " reason="
 
@@ -149,6 +192,23 @@ class MeshLifecycleLine:
 
 
 @dataclass(frozen=True)
+class LoopCycleLine:
+    """One parsed ``LoopCycle`` line (v2): ``cycle`` is the index the ghost
+    advanced INTO, ``prev`` the one it left."""
+
+    rec: str
+    rec_id: str
+    ghost_index: int
+    frame: int
+    current_ut: str
+    playback_ut: str
+    cycle: int
+    prev: int
+    mode: str
+    vessel: str
+
+
+@dataclass(frozen=True)
 class GhostLifecycleSnapshot:
     """Every lifecycle line found in one log, plus the parse's own health.
 
@@ -167,6 +227,9 @@ class GhostLifecycleSnapshot:
     malformed: int = 0
     parsed: bool = True
     error: str = ""
+    # v2 LoopCycle lines, kept apart from the mesh `lines` so nothing v1
+    # computes from `lines` can see them.
+    cycles: Tuple[LoopCycleLine, ...] = ()
 
     @property
     def spawns(self) -> Tuple[MeshLifecycleLine, ...]:
@@ -187,6 +250,7 @@ def parse_ghost_lifecycle(log_text: Optional[str]) -> GhostLifecycleSnapshot:
     if log_text is None:
         return GhostLifecycleSnapshot(parsed=False, error="log text unavailable")
     out: List[MeshLifecycleLine] = []
+    cycles: List[LoopCycleLine] = []
     malformed = 0
     for raw in log_text.splitlines():
         if TRACE_SUBSYSTEM_TAG not in raw:
@@ -197,6 +261,22 @@ def parse_ghost_lifecycle(log_text: Optional[str]) -> GhostLifecycleSnapshot:
                 head = phase
                 break
         if head is None:
+            if ("phase=" + PHASE_LOOP_CYCLE) in raw:
+                cm = _CYCLE_RE.search(raw)
+                if cm is None:
+                    malformed += 1
+                    continue
+                cycles.append(LoopCycleLine(
+                    rec=cm.group("rec"),
+                    rec_id=cm.group("rec_id"),
+                    ghost_index=int(cm.group("ghost_index")),
+                    frame=int(cm.group("frame")),
+                    current_ut=cm.group("current_ut"),
+                    playback_ut=cm.group("playback_ut"),
+                    cycle=int(cm.group("cycle")),
+                    prev=int(cm.group("prev")),
+                    mode=cm.group("mode"),
+                    vessel=cm.group("vessel")))
             continue
         m = _LINE_RE.search(raw)
         if m is None:
@@ -225,7 +305,8 @@ def parse_ghost_lifecycle(log_text: Optional[str]) -> GhostLifecycleSnapshot:
             playback_ut=m.group("playback_ut"),
             vessel=tail[:cut],
             reason=tail[cut + len(_REASON_SEP):]))
-    return GhostLifecycleSnapshot(lines=tuple(out), malformed=malformed)
+    return GhostLifecycleSnapshot(lines=tuple(out), malformed=malformed,
+                                  cycles=tuple(cycles))
 
 
 # ---------------------------------------------------------------------------
@@ -252,30 +333,48 @@ SPAWNED_KEY = "spawned"
 # destroyed once, and the distinct count does not move. A window over the line
 # counts is the only surface that states "both replays rendered AND derendered
 # every ghost" - the repeat-rewind lane (GS-9, ghost-replay Tier B item 8) is
-# the motivating declarer. HONEST ONLY ON A NON-LOOPING LANE: under loop
-# playback a cycle advance demotes the live primary to an overlap shell with no
-# destroy emit (see the facet comment in `observed_ghost_lifecycle_facets`), so
-# destroyLines lags spawnLines by design there and a window over either would
-# be a statement about the loop engine's bookkeeping, not about a leak.
+# the motivating declarer. ON A LOOPING LANE, ONLY WITH THE v2 PRODUCER: a
+# cycle advance demotes the live primary to an overlap copy, and before v2 that
+# copy vanished with no destroy line, so destroyLines lagged spawnLines by
+# design. From v2 an overlap copy that wrote a MeshSpawned writes its own
+# MeshDestroyed when it expires (`overlap expired`), is cleared (`overlap
+# cleared`) or is torn down (`engine teardown`), so the two counts close again.
+# A log from an older DLL still carries the lag. EVEN WITH v2 the counts are
+# not honest when copies are still alive at log end (a killed run, no clean
+# teardown, so no `engine teardown` lines) or when ghostRenderTracing was
+# turned on mid-run (copies spawned before it wrote no MeshSpawned, and a
+# primary spawned before it still writes MeshDestroyed).
 SPAWN_LINES_KEY = "spawnLines"
 DESTROY_LINES_KEY = "destroyLines"
+# v2: the count of LoopCycle lines (cycle advances observed on live objects).
+CYCLE_LINES_KEY = "cycleLines"
 REQUIRE_BALANCED_KEY = "requireBalanced"
 DESTROYED_REASONS_KEY = "destroyedReasons"
 FORBIDDEN_KEY = "forbidden"
+# v2: every pattern must match at least one MeshDestroyed reason.
+REQUIRED_KEY = "required"
+# v2: per-vessel-name windows, `vessels = { "Kerbal X Debris" = { spawned =
+# { min = 6 } } }`. The name is matched EXACTLY against the lines' `vessel=`
+# text, and each vessel carries the same three mesh windows as the block.
+VESSELS_KEY = "vessels"
 
 # Every window key must also be an unconditional key of
 # `observed_ghost_lifecycle_facets` (pinned by a unit cell), because a window
 # over a facet the module does not measure could only ever be answered by a
 # default - the vacuity `_check_windows_against_facets` refuses to invent.
 GHOST_LIFECYCLE_WINDOW_KEYS: Tuple[str, ...] = (
+    SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY, CYCLE_LINES_KEY)
+# The windows a `vessels` entry may carry (each an unconditional key of every
+# `perVessel` facet row).
+VESSEL_WINDOW_KEYS: Tuple[str, ...] = (
     SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY)
 GHOST_LIFECYCLE_ASSERTION_KEYS: Tuple[str, ...] = (
-    SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY, REQUIRE_BALANCED_KEY,
-    DESTROYED_REASONS_KEY)
+    SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY, CYCLE_LINES_KEY,
+    REQUIRE_BALANCED_KEY, DESTROYED_REASONS_KEY, VESSELS_KEY)
 GHOST_LIFECYCLE_BLOCK_KEYS: Tuple[str, ...] = (
     (GATING_KEY,) + GHOST_LIFECYCLE_ASSERTION_KEYS)
 
-DESTROYED_REASONS_BLOCK_KEYS: Tuple[str, ...] = (FORBIDDEN_KEY,)
+DESTROYED_REASONS_BLOCK_KEYS: Tuple[str, ...] = (FORBIDDEN_KEY, REQUIRED_KEY)
 
 # `requireBalanced` DEFAULTS ON when the block is present. Every ghost that
 # entered the scene must eventually leave it; a spawn with no matching destroy is
@@ -342,7 +441,8 @@ def _validate_armed_unreddable(prefix: str, block: Dict,
 
 
 def _validate_destroyed_reasons(prefix: str, val: Any) -> List[str]:
-    """``destroyedReasons = { forbidden = ["re", ...] }``.
+    """``destroyedReasons = { forbidden = ["re", ...], required = ["re", ...] }``,
+    at least one of the two lists.
 
     The patterns are COMPILE-VALIDATED here, exactly like
     ``logContracts.required`` / ``forbidden``: a broken regex discovered
@@ -357,25 +457,62 @@ def _validate_destroyed_reasons(prefix: str, val: Any) -> List[str]:
     if unknown:
         errs.append("%s: unknown key(s) %s (accepted: %s)"
                     % (prefix, unknown, list(DESTROYED_REASONS_BLOCK_KEYS)))
-    if FORBIDDEN_KEY not in val:
-        errs.append("%s: declared with no `%s` list - it asserts nothing"
-                    % (prefix, FORBIDDEN_KEY))
+    if not any(k in val for k in DESTROYED_REASONS_BLOCK_KEYS):
+        errs.append("%s: declared with no `%s` or `%s` list - it asserts nothing"
+                    % (prefix, FORBIDDEN_KEY, REQUIRED_KEY))
         return errs
-    pats = val.get(FORBIDDEN_KEY)
-    label = "%s.%s" % (prefix, FORBIDDEN_KEY)
-    if not isinstance(pats, (list, tuple)):
-        return errs + ["%s: %r must be a list of regex strings" % (label, pats)]
-    if not pats:
-        errs.append("%s: an empty list asserts nothing - name at least one "
-                    "pattern, or drop the key" % label)
-    for pat in pats:
-        if not isinstance(pat, str):
-            errs.append("%s: %r must be a string" % (label, pat))
+    for key in DESTROYED_REASONS_BLOCK_KEYS:
+        if key not in val:
             continue
-        try:
-            re.compile(pat)
-        except re.error as exc:
-            errs.append("%s: %r is not a valid regex (%s)" % (label, pat, exc))
+        pats = val.get(key)
+        label = "%s.%s" % (prefix, key)
+        if not isinstance(pats, (list, tuple)):
+            errs.append("%s: %r must be a list of regex strings" % (label, pats))
+            continue
+        if not pats:
+            errs.append("%s: an empty list asserts nothing - name at least one "
+                        "pattern, or drop the key" % label)
+        for pat in pats:
+            if not isinstance(pat, str):
+                errs.append("%s: %r must be a string" % (label, pat))
+                continue
+            try:
+                re.compile(pat)
+            except re.error as exc:
+                errs.append("%s: %r is not a valid regex (%s)" % (label, pat, exc))
+    return errs
+
+
+def _validate_vessels(prefix: str, val: Any, armed: bool) -> List[str]:
+    """``vessels = { "<exact vessel name>" = { spawned = ..., spawnLines = ...,
+    destroyLines = ... } }``. Each entry runs the block's own window grammar and
+    armed-unreddable notch; an entry with no window asserts nothing."""
+    if not isinstance(val, dict):
+        return ["%s: %r must be a table of vessel name -> windows" % (prefix, val)]
+    if not val:
+        return ["%s: an empty table asserts nothing - name at least one vessel, "
+                "or drop the key" % prefix]
+    errs: List[str] = []
+    for name, windows in val.items():
+        label = "%s.%r" % (prefix, name)
+        if not isinstance(name, str) or not name.strip():
+            errs.append("%s: a vessel name must be a non-empty string" % label)
+            continue
+        if not isinstance(windows, dict):
+            errs.append("%s: %r must be a table of windows" % (label, windows))
+            continue
+        unknown = sorted(k for k in windows if k not in VESSEL_WINDOW_KEYS)
+        if unknown:
+            errs.append("%s: unknown key(s) %s (accepted: %s)"
+                        % (label, unknown, list(VESSEL_WINDOW_KEYS)))
+        if not any(k in windows for k in VESSEL_WINDOW_KEYS):
+            errs.append("%s: no window declared - it asserts nothing" % label)
+        for key in VESSEL_WINDOW_KEYS:
+            if key in windows:
+                errs.extend(_validate_window("%s.%s" % (label, key), windows[key]))
+        if armed:
+            errs.extend(_validate_armed_unreddable(
+                label, dict(windows, **{GATING_KEY: True}), VESSEL_WINDOW_KEYS))
     return errs
 
 
@@ -417,6 +554,10 @@ def validate_ghost_lifecycle_expectations(block: Any) -> List[str]:
         errs.extend(_validate_destroyed_reasons(
             "%s.%s" % (prefix, DESTROYED_REASONS_KEY),
             block[DESTROYED_REASONS_KEY]))
+    if VESSELS_KEY in block:
+        errs.extend(_validate_vessels(
+            "%s.%s" % (prefix, VESSELS_KEY), block[VESSELS_KEY],
+            block.get(GATING_KEY) is True))
     return errs
 
 
@@ -588,14 +729,19 @@ def observed_ghost_lifecycle_facets(snapshot: Optional[GhostLifecycleSnapshot]
             # count LINES, and the two differ whenever a ghost respawns (loop
             # playback, overlap retarget, a zone transition). Reported
             # separately so a reader can tell one ghost seen five times from
-            # five ghosts seen once. DO NOT read spawnLines vs destroyLines as
-            # a leak signal on a LOOPING lane: a loop-cycle advance DEMOTES the
-            # live primary to an overlap shell (GhostPlaybackEngine ~:4302,
-            # `ghostStates.Remove` with no destroy emit) while the replacement
-            # primary emits a fresh MeshSpawned, so under loop playback
-            # spawnLines grows per cycle and destroyLines does not. The
-            # per-recording balance ledger (`unbalanced`) is the honest leak
-            # signal on a looping lane. On a NON-looping lane that replays the
+            # five ghosts seen once. On a LOOPING lane read spawnLines vs
+            # destroyLines as a leak signal ONLY on a log from the v2 producer:
+            # a loop-cycle advance DEMOTES the live primary to an overlap copy
+            # while the replacement primary emits a fresh MeshSpawned, and
+            # before v2 the demoted copy vanished with no destroy line, so
+            # spawnLines grew per cycle and destroyLines did not. From v2 the
+            # copy writes its own MeshDestroyed (`overlap expired` / `overlap
+            # cleared` / `engine teardown`). The per-recording balance ledger
+            # (`unbalanced`) is the leak signal that holds on both producers.
+            # Neither the line counts nor the ledger are honest when copies
+            # are alive at log end (killed run, no teardown) or when tracing
+            # was enabled mid-run (spawns before it are missing).
+            # On a NON-looping lane that replays the
             # same recordings more than once (repeat rewind) the ledger is blind
             # to a second-replay leak, and these two are what a window reads
             # (see SPAWN_LINES_KEY). Written unconditionally: both are window
@@ -614,8 +760,42 @@ def observed_ghost_lifecycle_facets(snapshot: Optional[GhostLifecycleSnapshot]
             "vessels": sorted({l.vessel for l in snapshot.lines if l.vessel}),
             # Producer-shape triage (see GhostLifecycleSnapshot.malformed).
             "malformed": snapshot.malformed,
+            # ---- v2 facets (additive; a v1 key above never changes) ----
+            # Per-vessel-name counts, the facet a `vessels` window reads. Every
+            # vessel seen on a mesh line gets a row carrying all three window
+            # keys; a vessel never seen has no row and reads as zero.
+            "perVessel": _per_vessel_facets(snapshot),
+            # The per-cycle census off the LoopCycle lines: how many advances
+            # landed in each cycle index (keys are the index as a string, in
+            # numeric order), and by which mode.
+            CYCLE_LINES_KEY: len(snapshot.cycles),
+            "cycleCensus": _cycle_census(snapshot.cycles),
+            "cycleModes": _census([c.mode for c in snapshot.cycles]),
+            "cycleRecordings": len({c.rec_id for c in snapshot.cycles}),
         },
     }
+
+
+def _per_vessel_facets(snapshot: GhostLifecycleSnapshot) -> Dict[str, Dict[str, int]]:
+    rows: Dict[str, Dict[str, Any]] = {}
+    for l in snapshot.lines:
+        row = rows.setdefault(l.vessel, {"ids": set(), SPAWN_LINES_KEY: 0,
+                                         DESTROY_LINES_KEY: 0})
+        if l.phase == PHASE_SPAWNED:
+            row["ids"].add(l.rec_id)
+            row[SPAWN_LINES_KEY] += 1
+        else:
+            row[DESTROY_LINES_KEY] += 1
+    return {name: {SPAWNED_KEY: len(r["ids"]), SPAWN_LINES_KEY: r[SPAWN_LINES_KEY],
+                   DESTROY_LINES_KEY: r[DESTROY_LINES_KEY]}
+            for name, r in sorted(rows.items())}
+
+
+def _cycle_census(cycles: Sequence[LoopCycleLine]) -> Dict[str, int]:
+    counts: Dict[int, int] = {}
+    for c in cycles:
+        counts[c.cycle] = counts.get(c.cycle, 0) + 1
+    return {str(k): counts[k] for k in sorted(counts)}
 
 
 # ---------------------------------------------------------------------------
@@ -727,6 +907,58 @@ def _check_forbidden_reasons(block: Dict[str, Any],
                pat, len(hits), first.rec, first.vessel, first.reason))
 
 
+def _check_required_reasons(block: Dict[str, Any],
+                            snapshot: GhostLifecycleSnapshot,
+                            facets: Dict[str, Any],
+                            mismatches: List[str]) -> None:
+    """``destroyedReasons.required`` (v2): every pattern must MATCH (re.search)
+    at least one MeshDestroyed reason. The mismatch carries the measured reason
+    census, so the reader sees what DID destroy the ghosts. Same drifted-spec
+    tolerance as the forbidden clause."""
+    reasons = block.get(DESTROYED_REASONS_KEY)
+    if not isinstance(reasons, dict):
+        return
+    pats = reasons.get(REQUIRED_KEY)
+    if not isinstance(pats, (list, tuple)):
+        return
+    for pat in pats:
+        if not isinstance(pat, str):
+            continue
+        try:
+            rx = re.compile(pat)
+        except re.error:
+            continue
+        if any(rx.search(l.reason) for l in snapshot.destroys):
+            continue
+        mismatches.append(
+            "%s.%s.%s: required destroy reason %r matched no MeshDestroyed line; "
+            "measured reasons %r"
+            % (GHOST_LIFECYCLE_BLOCK, DESTROYED_REASONS_KEY, REQUIRED_KEY,
+               pat, facets.get("destroyedReasons", {})))
+
+
+def _check_vessel_windows(block: Dict[str, Any], facets: Dict[str, Any],
+                          mismatches: List[str]) -> None:
+    """``vessels`` (v2): each named vessel's windows against its ``perVessel``
+    row. A vessel with no row was never seen on a mesh line in a log that WAS
+    read, so it measures zero - a real observation, unlike the unmeasured-facet
+    case `_check_windows_against_facets` refuses to default."""
+    vessels = block.get(VESSELS_KEY)
+    if not isinstance(vessels, dict):
+        return
+    per_vessel = facets.get("perVessel", {}) or {}
+    for name, windows in vessels.items():
+        if not isinstance(name, str) or not isinstance(windows, dict):
+            continue
+        row = per_vessel.get(name, {})
+        for key in VESSEL_WINDOW_KEYS:
+            if key not in windows:
+                continue
+            _check_window("%s.%s[%r].%s" % (GHOST_LIFECYCLE_BLOCK, VESSELS_KEY,
+                                             name, key),
+                          windows[key], int(row.get(key) or 0), mismatches)
+
+
 def evaluate_ghost_lifecycle(expectations: Optional[Dict],
                              snapshot: Optional[GhostLifecycleSnapshot]
                              ) -> GhostLifecycleResult:
@@ -791,6 +1023,8 @@ def evaluate_ghost_lifecycle(expectations: Optional[Dict],
                         % (GHOST_LIFECYCLE_BLOCK, REQUIRE_BALANCED_KEY,
                            row["rec"], row["vessel"]))
             _check_forbidden_reasons(block, snapshot, mismatches)
+            _check_required_reasons(block, snapshot, facets, mismatches)
+            _check_vessel_windows(block, facets, mismatches)
 
     mismatches_t = tuple(dict.fromkeys(mismatches))
     armed_mismatches = mismatches_t if armed else ()

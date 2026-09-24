@@ -15,6 +15,27 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`]
+
+Ghostlife v2 is built with no flight: the engine writes a tracing-gated
+`MeshDestroyed reason=overlap expired` (also `overlap cleared` / `engine teardown`) when an
+overlap copy that wrote its own MeshSpawned vanishes, and `LoopCycle cycle=N prev=M
+mode=reuse|overlap-demote|unit` when a live ghost's cycle advances; `harness/lib/ghostlife.py`
+reads `destroyedReasons.required`, per-vessel `vessels` windows and the `cycleLines` census.
+Offline, every archived GS-4 / GS-9 log replays through v2 with status, mismatches and all v1
+facets identical, and each reads `Kerbal X Debris` spawned 6 (the floor a `vessels` window
+would pin). Open:
+
+- No committed spec declares a v2 key. The first live reading is Tier C item 12 (loop the
+  GS-4 subject), which also needs a lane whose period is below span/20 to see
+  `overlap expired` and `auto-adjusted (cap reached)` (see the D6 `overlap-expiry-soft-caps`
+  cell).
+- The `unit` LoopCycle mode fires only when a mission-unit member's ghost object survives the
+  cycle boundary; if a live reading on V6M shows zero `unit` lines, the member is destroyed and
+  respawned per cycle and the census there reads spawn lines instead.
+- Adding `vessels = { "Kerbal X Debris" = { spawned = { min = 6 } } }` to GS-4's armed block is
+  an arming change and wants its own reading run.
+
 ## TIERC-LOOP-PERIOD-AUTO-MODE-HOST: no lane flies a loop on the global Auto period, and no lane has overlap copies expiring or the 20-copy cap stretching a cadence [FILED 2026-09-24, ghost-replay Tier C PR 1, branch `tierc-claims`]
 
 The operator redefined two D6 registry cells on 2026-09-24 to match the code
