@@ -308,6 +308,44 @@ class Runtime:
     def resolve_exe(self, instance_dir: str) -> str:
         return os.path.join(instance_dir, "KSP_x64.exe")
 
+    def desktop_work_area(self) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
+        """((work width, work height), (frame width, frame height)) of the primary
+        desktop in PHYSICAL pixels, or None when it cannot be probed (non-Windows,
+        a ctypes failure). The frame is what a sizable captioned window adds
+        around its client area (the KSP window is one). Read with the thread
+        per-monitor DPI aware, because the Unity player is DPI aware and sizes
+        its client area in physical pixels; a DPI-unaware read would report the
+        scaled work area and clamp a window that actually fits."""
+        if os.name != "nt":
+            return None
+        try:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            prev = None
+            try:
+                user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+                user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+                prev = user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+            except (AttributeError, OSError):
+                prev = None
+            try:
+                rect = wintypes.RECT()
+                # SPI_GETWORKAREA = 0x0030: the primary monitor minus the taskbar.
+                if not user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
+                    return None
+                work = (int(rect.right - rect.left), int(rect.bottom - rect.top))
+                gsm = user32.GetSystemMetrics
+                # SM_CXFRAME 32, SM_CYFRAME 33, SM_CXPADDEDBORDER 92, SM_CYCAPTION 4
+                pad = int(gsm(92))
+                frame = (2 * (int(gsm(32)) + pad), int(gsm(4)) + 2 * (int(gsm(33)) + pad))
+                return work, frame
+            finally:
+                if prev:
+                    user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(prev))
+        except Exception:  # noqa: BLE001 - a probe failure only skips the clamp
+            return None
+
     def launch(self, exe: str, args: Sequence[str], env: Dict[str, str], cwd: str):
         return subprocess.Popen([exe] + list(args), env=env, cwd=cwd,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -830,6 +868,121 @@ def reset_settings_sidecar(instance_dir: str, logger: HarnessLogger, phase: str)
     return True
 
 
+def ksp_settings_path(instance_dir: str) -> str:
+    """The instance-root KSP settings.cfg (NOT Parsek's PluginData sidecar)."""
+    return os.path.join(instance_dir, "settings.cfg")
+
+
+def ksp_screen_restore_marker_path(instance_dir: str) -> str:
+    return os.path.join(instance_dir, hlib.KSP_SCREEN_RESTORE_MARKER)
+
+
+def _write_text_atomic(path: str, text: str) -> None:
+    tmp = path + ".harness-tmp"
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+
+def restore_ksp_screen_settings(instance_dir: str, logger: HarnessLogger, phase: str) -> bool:
+    """Put back the screen keys a `[runtime] screenResolution` run overwrote, from
+    the restore marker, and delete the marker. A no-op (True) when there is no
+    marker. Called at STAGE of EVERY run (heals a run whose teardown never ran)
+    and at TEARDOWN in the per-attempt finally. See hlib's section comment.
+
+    Never raises, for the same reason reset_settings_sidecar never does: the
+    teardown call runs inside run_attempt's finally. A failed restore keeps the
+    marker, so the next run's stage retries it (and refuses to apply a size over
+    it). The file is byte-identical to before the run when it carried all three
+    keys, as a provisioned settings.cfg does; a key the file lacked was appended
+    by the apply and stays, at the value that run wrote.
+    """
+    marker = ksp_screen_restore_marker_path(instance_dir)
+    if not os.path.isfile(marker):
+        return True
+    settings = ksp_settings_path(instance_dir)
+    try:
+        with open(marker, "r", encoding="utf-8", newline="") as fh:
+            original = hlib.read_ksp_settings_values(fh.read())
+        if original and os.path.isfile(settings):
+            with open(settings, "r", encoding="utf-8", newline="") as fh:
+                current = fh.read()
+            before = hlib.read_ksp_settings_values(current)
+            _write_text_atomic(settings, hlib.rewrite_ksp_settings_values(current, original))
+        else:
+            before = {}
+        os.remove(marker)
+    except Exception as exc:  # noqa: BLE001 - housekeeping never replaces a verdict
+        logger.warn("Settings", "screen-resolution restore FAILED phase=%s path=%s (%s: %s); "
+                                "the marker is kept and the next run's stage retries it"
+                    % (phase, settings, type(exc).__name__, exc))
+        return False
+    logger.info("Settings", "screen-resolution restored phase=%s %s (was %s)"
+                % (phase, _fmt_screen(original), _fmt_screen(before)))
+    return True
+
+
+def _fmt_screen(values: Dict[str, str]) -> str:
+    if not values:
+        return "n/a"
+    return "%sx%s fullscreen=%s" % (values.get("SCREEN_RESOLUTION_WIDTH", "?"),
+                                    values.get("SCREEN_RESOLUTION_HEIGHT", "?"),
+                                    values.get("FULLSCREEN", "?"))
+
+
+def apply_ksp_screen_settings(spec: Dict, instance_dir: str, runtime: Runtime,
+                              logger: HarnessLogger) -> Optional[Tuple[int, int]]:
+    """Patch the instance settings.cfg to the spec's `[runtime] screenResolution`
+    (windowed) for this run. Returns the size written, or None when the spec
+    declares none or the patch could not be made (a WARNED degradation: the run
+    still flies, at the instance's own size, and every GUI dump records the
+    screen it was taken at). The marker is written BEFORE the patch; the matching
+    restore is restore_ksp_screen_settings at teardown.
+
+    An EXISTING marker refuses the apply. It holds the only record of the
+    instance's real values (a restore that failed keeps it), and the file it
+    describes is still patched, so reading "original" values from that file and
+    writing a new marker would record the patched size as the original: teardown
+    would then restore the census size and delete the marker, leaving the shared
+    instance at that size for every later lane."""
+    requested = hlib.spec_screen_resolution(spec)
+    if requested is None:
+        return None
+    marker = ksp_screen_restore_marker_path(instance_dir)
+    if os.path.exists(marker):
+        logger.warn("Settings", "screen-resolution apply SKIPPED: a restore marker is still "
+                                "present at %s (a restore failed); this run keeps the current "
+                                "window size and the marker is left for teardown to restore"
+                    % marker)
+        return None
+    probe = runtime.desktop_work_area()
+    work, frame = probe if probe else (None, (0, 0))
+    size, clamped = hlib.fit_screen_resolution(requested, work, frame)
+    if clamped:
+        logger.warn("Settings", "screen-resolution requested=%dx%d does not fit the desktop "
+                                "work area %dx%d with a %dx%d window frame; using %dx%d"
+                    % (requested[0], requested[1], work[0], work[1], frame[0], frame[1],
+                       size[0], size[1]))
+    settings = ksp_settings_path(instance_dir)
+    try:
+        with open(settings, "r", encoding="utf-8", newline="") as fh:
+            current = fh.read()
+        original = hlib.read_ksp_settings_values(current)
+        _write_text_atomic(marker, hlib.render_screen_restore_marker(original))
+        _write_text_atomic(settings, hlib.rewrite_ksp_settings_values(
+            current, hlib.screen_setting_values(size)))
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        logger.warn("Settings", "screen-resolution apply FAILED path=%s (%s: %s); "
+                                "this run keeps the instance's own window size"
+                    % (settings, type(exc).__name__, exc))
+        return None
+    logger.info("Settings", "screen-resolution applied %dx%d windowed (requested=%dx%d "
+                            "workArea=%s prior=%s)"
+                % (size[0], size[1], requested[0], requested[1],
+                   ("%dx%d" % tuple(work)) if work else "unknown", _fmt_screen(original)))
+    return size
+
+
 def _is_strictly_inside(child_path: str, parent_path: str) -> bool:
     """True iff realpath(child) is strictly BELOW realpath(parent) (never equal,
     never a sibling/escape). Case-normalized for Windows; a cross-drive pair (which
@@ -1124,6 +1277,16 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # inheriting whichever SetSetting a previous scenario persisted. The matching
     # teardown write lives in run_attempt's finally.
     reset_settings_sidecar(instance_dir, logger, "stage")
+
+    # (7) the KSP window size. First heal any restore marker a previous run left
+    # (its teardown never ran), whatever THIS spec declares, then apply this
+    # spec's `[runtime] screenResolution` if it has one. The matching teardown
+    # restore lives in run_attempt's finally.
+    if restore_ksp_screen_settings(instance_dir, logger, "stage"):
+        apply_ksp_screen_settings(spec, instance_dir, runtime, logger)
+    elif hlib.spec_screen_resolution(spec) is not None:
+        logger.warn("Settings", "screen-resolution apply SKIPPED: the stage restore failed, "
+                                "so this run keeps the current window size")
 
     logger.info("Stage", "stage save=%s template=%s inject=%s craft=%d "
                          "results-rotated=%s manifest-rotated=%s"
@@ -3567,6 +3730,9 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # instance-wide and every later flight silently pays the per-frame tracer
         # cost and gets gated by an anomaly sweep it never declared.
         reset_settings_sidecar(instance_dir, logger, "teardown")
+        # And put the KSP window size back, so a `screenResolution` lane never
+        # changes the frame of the next lane on this instance.
+        restore_ksp_screen_settings(instance_dir, logger, "teardown")
 
 
 def _terminal_result(spec, profile, attempt, started, start_wall, runtime, verdict,
