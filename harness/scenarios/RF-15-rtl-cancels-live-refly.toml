@@ -139,7 +139,7 @@ required = [
   "invokerewindtolaunch target resolved tree=\\S+ resolvedBy=LatestKeyword ",
   # THE SUBJECT: the rewind ended the live session itself, before its load, and handed
   # the live session tree to the scene exit to drop.
-  "\\[ReFlySession\\] End reason=discardReFlyForRewind sess=sess_[0-9a-f]{32} rewind=Rewind [^\\r\\n]*attemptIds=[1-9][0-9]* removedCommitted=[0-9]+ [^\\r\\n]*restoredCommittedTree=True treeWasPending=False liveTreeDropped=True",
+  "\\[ReFlySession\\] End reason=discardReFlyForRewind sess=sess_[0-9a-f]{32} rewind=Rewind [^\\r\\n]*attemptIds=1 removedCommitted=1 deletedFiles=[0-9]+ rpPromoted=False discardedSessionRps=0 restoredCommittedTree=False treeWasPending=False liveTreeDropped=True",
   "Origin RP promoted to persistent rp=\\S+ sess=\\S+ reason=discardReFlyForRewind|Origin RP session metadata cleared rp=\\S+ sess=\\S+ reason=discardReFlyForRewind|Origin RP already persistent rp=\\S+ sess=\\S+ reason=discardReFlyForRewind",
   # The session end precedes the rewind's own start line.
   "End reason=discardReFlyForRewind [\\s\\S]*?Rewind-to-Launch initiated to UT",

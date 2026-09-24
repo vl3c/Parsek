@@ -257,6 +257,56 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommittedOriginalPlusLiveClone_PrunesTheCloneAndDropsIt_LeavesTheOriginalCommitted()
+        {
+            // The measured live shape (RF-15 reading run 2026-09-24_1718): after the invoke's
+            // load the reconciliation bundle restores the pre-re-fly committed tree, so the
+            // session id names TWO instances - the committed original (no attempt in it) and
+            // the live clone the RP save loaded (the attempt lives only there). The cancel must
+            // work on the clone, not on the committed original FindTreeForReFlyFork answers.
+            var s = BuildLiveSession();
+            var committedOrigin = MakeRecording(OriginId, 100.0, 200.0);
+            committedOrigin.MergeState = MergeState.CommittedProvisional;
+            committedOrigin.TerminalStateValue = TerminalState.Destroyed;
+            committedOrigin.ParentBranchPointId = "bp-rtl-origin";
+            var committedOriginal = new RecordingTree
+            {
+                Id = TreeId,
+                TreeName = "Tree-" + TreeId,
+                RootRecordingId = OriginId,
+                ActiveRecordingId = OriginId,
+            };
+            committedOriginal.Recordings[OriginId] = committedOrigin;
+            RecordingStore.AddCommittedTreeForTesting(committedOriginal);
+            RecordingStore.AddCommittedInternal(committedOrigin);
+
+            bool ended = MergeDialog.TryDiscardLiveReFlySessionForRewind(
+                s.Tree, "Rewind", out string droppedLiveTreeId, out bool restored);
+
+            Assert.True(ended);
+            Assert.Null(s.Scenario.ActiveReFlySessionMarker);
+            // The attempt is collected from the live clone (the original does not hold it); the
+            // clone itself is dropped whole at the scene exit, as the merge-dialog Discard pops
+            // its pending clone.
+            Assert.False(CommittedHas(ProvisionalId));
+            Assert.Contains(logLines, l => l.Contains("End reason=discardReFlyForRewind")
+                && l.Contains("attemptIds=1 removedCommitted=1 "));
+            // The committed original is untouched and is the only committed copy.
+            int copies = 0;
+            foreach (var t in RecordingStore.CommittedTrees)
+                if (t != null && t.Id == TreeId) copies++;
+            Assert.Equal(1, copies);
+            Assert.Contains(RecordingStore.CommittedTrees, t => object.ReferenceEquals(t, committedOriginal));
+            Assert.DoesNotContain(RecordingStore.CommittedTrees, t => object.ReferenceEquals(t, s.Tree));
+            // The clone is dropped at the scene exit; nothing was put back.
+            Assert.True(RecordingStore.IsNextTreeSceneExitCommitSuppressionArmed);
+            Assert.Equal(TreeId, droppedLiveTreeId);
+            Assert.False(restored);
+            Assert.Contains(logLines, l => l.Contains("End reason=discardReFlyForRewind")
+                && l.Contains("restoredCommittedTree=False treeWasPending=False liveTreeDropped=True"));
+        }
+
+        [Fact]
         public void SessionTreeInPendingSlot_OtherLiveTree_EndsSessionWithoutDroppingTheLiveTree()
         {
             var s = BuildLiveSession(treeInPendingSlot: true);

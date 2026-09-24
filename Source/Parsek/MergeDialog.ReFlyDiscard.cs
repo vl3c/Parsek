@@ -415,8 +415,10 @@ namespace Parsek
         /// FLIGHT scene exit would otherwise stash the live session tree or, through
         /// <c>SceneExitInterceptor</c>'s LoadScene prefix, raise the Re-Fly merge dialog after
         /// the rewind game is already swapped in. When the live flight tree IS the session tree,
-        /// the sanitized tree is back in the committed store, so the scene exit is told to drop
-        /// the live reference without a stash (the prefix bypasses on the same flag). No durable
+        /// the committed store already holds that tree without the attempt (the committed
+        /// original the reconciliation bundle restored, or, when no copy was committed, the
+        /// sanitized live tree put back here), so the scene exit is told to drop the live
+        /// reference without a stash (the prefix bypasses on the same flag). No durable
         /// save here: the rewind's own load replaces the game, and a marker the plain-rewind
         /// OnLoad reads back off persistent.sfs is cleared there as before.</para>
         ///
@@ -453,14 +455,17 @@ namespace Parsek
                 return false;
             }
 
-            // FindTreeForReFlyFork already ends on the flight scene's live tree; the explicit
-            // fallback keeps the lookup honest when the caller passes that tree directly.
-            var tree = RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
-            if (tree == null && liveActiveTree != null
-                && string.Equals(liveActiveTree.Id, marker.TreeId, System.StringComparison.Ordinal))
-            {
-                tree = liveActiveTree;
-            }
+            // The flight scene's live tree comes FIRST when it carries the session's tree id.
+            // After the invoke's load the reconciliation bundle puts the pre-re-fly committed
+            // tree back, so a live re-fly usually has two instances under one id: the untouched
+            // committed original and the live clone the RP save loaded, which alone holds the
+            // attempt (fork, sidecars, session branch points). FindTreeForReFlyFork answers the
+            // committed original first; pruning that would leave the attempt in the clone, which
+            // the scene exit would then stash and the next load's sweep discard as a zombie.
+            RecordingTree tree = liveActiveTree != null
+                && string.Equals(liveActiveTree.Id, marker.TreeId, System.StringComparison.Ordinal)
+                    ? liveActiveTree
+                    : RewindInvoker.FindTreeForReFlyFork(marker.TreeId);
             bool treeWasPending = tree != null
                 && object.ReferenceEquals(tree, RecordingStore.PendingTree);
             bool dropLiveTree = ShouldDropLiveTreeOnRewindSceneExit(tree, liveActiveTree);
