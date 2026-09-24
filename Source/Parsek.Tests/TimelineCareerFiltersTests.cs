@@ -405,6 +405,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResetTimeRangeSliders_TurnsCustomOff()
+        {
+            var window = new TimelineWindowUI(null);
+            window.SetCustomRangeSelected(new TimeRangeFilterState(), true);
+            Assert.True(window.IsCustomRangeSelectedForTesting);
+            window.ResetTimeRangeSliders();
+            Assert.False(window.IsCustomRangeSelectedForTesting);
+        }
+
+        [Fact]
         public void TimeRangeRow_DefaultsToAll_WithCustomOff()
         {
             var window = new TimelineWindowUI(null);
@@ -516,7 +526,7 @@ namespace Parsek.Tests
             // itself decides.
             var window = new TimelineWindowUI(null);
             Assert.False(window.ShowCustomRangeForTesting);
-            window.ShowCustomRangeForTesting = true;
+            window.SetCustomRangeSelected(new TimeRangeFilterState(), true);
             Assert.True(window.ShowCustomRangeForTesting);
             window.ShowCustomRangeForTesting = false;
             Assert.False(window.ShowCustomRangeForTesting);
@@ -536,7 +546,7 @@ namespace Parsek.Tests
 
             // Custom over the preset: the preset read-back goes null (no preset is lit), so a
             // later `preset=All` reads as a change even though the filter keeps its range.
-            window.ShowCustomRangeForTesting = true;
+            window.SetCustomRangeSelected(new TimeRangeFilterState(), true);
             Assert.True(window.ShowCustomRangeForTesting);
             Assert.Null(window.ActiveTimeRangePresetForTesting);
             Assert.True(ui.TimeRangeFilter.IsActive);

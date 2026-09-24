@@ -612,6 +612,9 @@ namespace Parsek
         {
             sliderMin = sliderBoundMin;
             sliderMax = sliderBoundMax;
+            // A cleared filter is "All" (the Recordings window's Clear calls this after
+            // clearing the shared filter), so Custom goes off and its sliders hide.
+            customRangeSelected = false;
         }
 
         /// <summary>

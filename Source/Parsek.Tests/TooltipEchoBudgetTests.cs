@@ -126,9 +126,9 @@ namespace Parsek.Tests
             // this row immediately - lower the floor in the same commit.
             // RESTORED 2026-09-11 alongside the main-window row above (same accidental
             // deletion in 454b4df7e).
-            // Floor 20 as of the two-row filter area: the Custom button's tooltip went into
-            // the Time fold button's, and the Career cell plus the five category buttons
-            // added six more, so the file carries exactly 20 literal tooltips.
+            // Floor 20: the Career view button and the five category buttons added six
+            // tooltips; the Custom preset button keeps its own (the short-lived Time fold
+            // button and its tooltip are gone), so the file carries exactly 20.
             yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 20, TooltipEchoBox.SingleLine };
             // Recordings: DefaultCollapsedWindowWidth = 1205 + ColW_Rewind(60) + ColW_ReFly(90).
             // Single-line strip: the window's whole help corpus was trimmed to fit one
