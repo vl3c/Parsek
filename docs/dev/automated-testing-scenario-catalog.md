@@ -40,7 +40,7 @@ report; headline values only here.
   (same tree), cross-tree foreign dock, chain continuation across switch,
   crash coalescing, BG recording, BG on-rails (NO TrackSections - modeled).
 - **D6 Playback / ghost engine**: basic playback, loop period modes (one
-  ghost reused per cycle when period >= span, overlapping copies when
+  copy at a time when period >= span, overlapping copies when
   period < span, the global Auto period; Sec/Min/Hour are display units),
   self-overlap, overlap expiry and the 20-copy relaunch cap (old copies
   vanish when their flight ends; the cap auto-adjusts the cadence; the

@@ -120,8 +120,8 @@ these rather than editing them by memory; both numbers have moved many times.
 RE-DERIVED 2026-09-24 on `tierc-claims` (ghost-replay Tier C PR 1, no flight): the one-liner
 below prints `300 specs 204 of 250`. `V8F-eve-loop-faithful` claims D6 `self-overlap` off the
 engine's `Loop cadence #N ... (cycles=20) no adjustment` line and `V6M-mun-player-loop` claims D6
-`loop-period-modes`, scoped to mode (1) of the 2026-09-24 redefinition (one ghost per cycle,
-period >= span). The denominator does not move: the operator REDEFINED `loop-period-modes` and
+`loop-period-modes`, scoped to mode (1) of the 2026-09-24 redefinition (one copy at a
+time, period >= span; object reuse is not witnessed). The denominator does not move: the operator REDEFINED `loop-period-modes` and
 `overlap-expiry-soft-caps` in place (registry comment). D6 is 15 of 18;
 `overlap-expiry-soft-caps`, `attitude-preservation` and `commnet-relay` are left.
 

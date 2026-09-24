@@ -138,7 +138,8 @@ steps = [
 # `(cycles=20) no adjustment`: the period is exactly span/20, so the cap is met, not
 # exceeded, and the cadence is not stretched. That makes this a self-overlap witness and
 # NOT an overlap-expiry-soft-caps one (no `auto-adjusted (cap reached)`, and no copy is
-# observed expiring). The index is regexed; the numbers are literal.
+# observed expiring). The index and the decimals are regexed; the witness is
+# `cap=20 ... (cycles=20) no adjustment`.
 [dimensionsCovered]
 D6  = ["self-overlap"]
 D11 = ["self-overlap"]
@@ -184,7 +185,7 @@ required  = [
   "reason=seam-endpoint-outside-soi fromBody=Sun toBody=Eve seamUT=322253",
   "reason=seam-endpoint-outside-soi fromBody=Sun toBody=Eve seamUT=345899",
   "reason=seam-endpoint-outside-soi fromBody=Kerbin toBody=Mun",
-  "Loop cadence #\\d+ \"Kerbal X\": requested=788199\\.81s duration=15763843\\.83s cap=20 effective=788199\\.81s \\(cycles=20\\) no adjustment",
+  "Loop cadence #\\d+ \"Kerbal X\": requested=788199\\.\\d+s duration=15763843\\.\\d+s cap=20 effective=788199\\.\\d+s \\(cycles=20\\) no adjustment",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

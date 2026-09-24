@@ -21,7 +21,7 @@ The operator redefined two D6 registry cells on 2026-09-24 to match the code
 (`harness/coverage/registry.toml`, D6 comment). Tier C PR 1 claimed what the archived logs
 already carry, with no flight: D6 `self-overlap` on V8F (the engine's
 `Loop cadence #N "Kerbal X": ... (cycles=20) no adjustment` line) and D6
-`loop-period-modes` on V6M, SCOPED TO MODE (1) - one ghost reused each cycle, period >= span
+`loop-period-modes` on V6M, SCOPED TO MODE (1) - one copy at a time, period >= span; object reuse across cycles is not witnessed
 (`overlaps=no` unit summary under the armed `cycles >= 2` render-composition floor). Coverage
 204 of 250. What is still open:
 
