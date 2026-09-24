@@ -2672,8 +2672,10 @@ button.ui.on{background:#3a5a7a;border-color:#6e9fd0;color:#fff}
 .gn.k-button,.gn.k-repeatbutton{background:var(--btn);border:1px solid #141414;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.17);
   border-radius:3px;justify-content:center;color:var(--ink);cursor:pointer}
-.gn.k-button.s-label,.gn.k-button.s-{background:none;border:0;justify-content:flex-start;
-  padding-left:0}
+/* A LABEL-styled button (a clickable table cell, e.g. the Career row name that
+   opens the Timeline) is drawn by KSP as plain text: no outline, no bevel. */
+.gn.k-button.s-label,.gn.k-button.s-{background:none;border:0;box-shadow:none;
+  justify-content:flex-start;padding-left:0}
 .gn.k-buttongrid{background:var(--btn);border:1px solid #141414;border-radius:3px}
 .gn.k-buttongrid.grid{background:none;border:0}
 /* A BOX-styled button is a table header cell, not a raised button: KSP draws it
