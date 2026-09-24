@@ -950,6 +950,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A ghost passing through your vessel can no longer damage it.** Each ghost in orbit has a
+  small invisible placeholder vessel that puts it on the map. When a ghost's path ran through
+  a real vessel within a couple of kilometres of you, that placeholder could collide with it
+  as the scene loaded, exploding the placeholder or breaking the real vessel into debris. The
+  placeholder is now made fully non-physical as soon as the game loads it.
 - **A Rewind to Launch no longer loses (or brings back) the re-fly points of the flight.**
   A split that leaves an unfinished sibling keeps a rewind point, shown as the Fly button in
   Unfinished Flights. Whether it survived a Rewind to Launch used to depend on which scenes

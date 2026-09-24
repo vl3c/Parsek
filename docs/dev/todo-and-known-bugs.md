@@ -373,7 +373,28 @@ held-ghost keep line of the stale-cleanup fix, `Held ghost timed out ... held=5.
 `destroyed (held-spawn-timeout)`. That lane would also be the live witness of
 D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME again.
 
-## GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE: a ghost's map-presence ProtoVessel, placed inside a loaded real vessel, collides with it when they unpack [FILED 2026-09-24 off EX-2's reading runs. OPEN]
+## ~~GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE: a ghost's map-presence ProtoVessel, placed inside a loaded real vessel, collides with it when they unpack~~ [FILED 2026-09-24 off EX-2's reading runs. FIXED 2026-09-24]
+
+**Root cause.** `BuildAndLoadGhostProtoVesselCore` runs `HardenGhostVesselPartPhysics` right
+after `ProtoVessel.Load`, while the marker is still UNLOADED, so it hardens zero parts (both
+readings log `Ghost vessel parts hardened: ... parts=0`). KSP loads the marker later, when it
+enters physics range: `Vessel.Load` runs `protoVessel.LoadObjects()` and builds the
+`sensorBarometer` placeholder with stock tolerances and live colliders. `GhostVesselLoadPatch`
+keeps it packed, but a packed part still collides.
+
+**Fix.** New Harmony postfix `GhostVesselLoadedInertPatch` on `Vessel.Load`: for a ghost map
+pid it calls `GhostMapPresence.MakeLoadedGhostVesselPhysicsInert`, which hardens the now-real
+parts and disables every collider under them, then logs `Ghost vessel made physics-inert on
+load: vessel=... pid=... parts=N collidersDisabled=M`. Unit cells: the gate (ghost pids only)
+and the log line (`GhostVesselLoadPatchTests`). LIVE PROOF `2026-09-24_1454` (DLL sha256
+`956e6595...`, branch `ghost-map-collision`): EX-2 flown once with a TEMPORARY, uncommitted
+lead of 0, so the ghost sat exactly on the probe (spawn overlap `at 0m`). The marker logged
+`made physics-inert on load ... parts=1 collidersDisabled=1` 1.1 s before `Unpacking Kerbal X
+Probe`; no `Exploded`, no collision line, 0 `Kerbal X Probe Debris` in the produced save, and
+the lane PASSed on every token. EX-2 keeps its 70 m lead, so no committed lane re-flies the
+parked shape; the collider disabling itself is proven only by that flight.
+
+**Original filing.**
 
 **Observed.** EX-2's first two readings parked a committed ghost's orbit exactly on the
 non-focused `Kerbal X Probe` of `eva2-lko-crewed`, about 16 m from the focused ship. In FLIGHT

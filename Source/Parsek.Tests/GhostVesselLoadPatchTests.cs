@@ -94,5 +94,37 @@ namespace Parsek.Tests
             }
             Assert.Equal(0, respam);
         }
+
+        /// <summary>
+        /// The Vessel.Load postfix acts on ghost map vessels only: a real vessel that
+        /// loads must keep its colliders and stock tolerances.
+        /// </summary>
+        [Fact]
+        public void LoadedInertGate_OnlyGhostMapPids()
+        {
+            const uint ghostPid = 3236074800u;
+            const uint realPid = 2614652043u;
+            GhostMapPresence.ghostMapVesselPids.Add(ghostPid);
+            try
+            {
+                Assert.True(GhostVesselLoadedInertPatch.ShouldMakeInert(ghostPid));
+                Assert.False(GhostVesselLoadedInertPatch.ShouldMakeInert(realPid));
+            }
+            finally
+            {
+                GhostMapPresence.ghostMapVesselPids.Remove(ghostPid);
+            }
+            Assert.False(GhostVesselLoadedInertPatch.ShouldMakeInert(ghostPid));
+        }
+
+        [Fact]
+        public void LogGhostVesselMadeInert_NamesVesselPidAndCounts()
+        {
+            GhostMapPresence.LogGhostVesselMadeInert(
+                3236074800u, "Ghost: Single Point Holder", 1, 2, "Vessel.Load");
+
+            Assert.Contains(logLines, l => l.Contains("[GhostMap]")
+                && l.Contains("Ghost vessel made physics-inert on load: vessel='Ghost: Single Point Holder' pid=3236074800 parts=1 collidersDisabled=2 for Vessel.Load"));
+        }
     }
 }

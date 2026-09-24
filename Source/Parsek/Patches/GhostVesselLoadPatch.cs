@@ -441,6 +441,31 @@ namespace Parsek.Patches
     }
 
     /// <summary>
+    /// Makes a ghost map ProtoVessel physics-inert the moment KSP instantiates its parts.
+    /// The marker is created unloaded (its creation-time hardening sees zero parts), and
+    /// KSP loads it later when it enters physics range: <c>Vessel.Load</c> runs
+    /// <c>protoVessel.LoadObjects()</c>, which builds the placeholder part with stock
+    /// tolerances and live colliders. <see cref="GhostVesselLoadPatch"/> keeps it packed,
+    /// but a packed part still collides, so a real vessel unpacking into the marker's
+    /// position was damaged (EX-2 reading 2026-09-23_2103: a probe broke into 7 debris).
+    /// </summary>
+    [HarmonyPatch(typeof(Vessel), nameof(Vessel.Load))]
+    internal static class GhostVesselLoadedInertPatch
+    {
+        static void Postfix(Vessel __instance)
+        {
+            if (__instance == null || !ShouldMakeInert(__instance.persistentId))
+                return;
+            GhostMapPresence.MakeLoadedGhostVesselPhysicsInert(__instance, "Vessel.Load");
+        }
+
+        internal static bool ShouldMakeInert(uint persistentId)
+        {
+            return GhostMapPresence.IsGhostMapVessel(persistentId);
+        }
+    }
+
+    /// <summary>
     /// Prevents ghost map ProtoVessels from registering their own CommNet node.
     /// Ghost CommNet relay is handled separately by GhostCommNetRelay using the
     /// CommNet API directly with proper antenna specs from the recording.
