@@ -852,7 +852,10 @@ required  = [
   "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no",
   "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
   "phase=body-orbit surface=ProtoOrbitLine .*body=Ike",
-  "Split summary: rec=\\w+ .*exoCoastBodyChangeKept=1",
+  # `seamSkipped=0` pinned (known-gate 17): a producer seam short-circuiting this
+  # boundary would mean the coast was not kept by the exo-coast rule; every archived
+  # green log reads 0. The graze counters stay inside `.*` (a later pass).
+  "Split summary: rec=\\w+ .*seamSkipped=0 exoCoastBodyChangeKept=1",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=[1-9]\\d* outsideSoi=\\d+",
 ]
@@ -874,6 +877,12 @@ forbidden = [
   # The S1.6/S1.7 parity pin verbatim: any faithful-parity sample OVER tolerance is a
   # rendered-vs-recorded drift. Measured `sampled=1 overTolerance=0`.
   "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+  # The seam-endpoint census verdict (V15M / V16M carry it as a strict required pin):
+  # a destination-approach check OVER the SOI tolerance on a player-loop lane is a
+  # finding at any count. Every archived green log of this lane reads outsideSoi=0
+  # (mutation check, known-gate 17). TS-arrival lanes keep the presence form: their
+  # creation-frame lens artifact reads 1 by design (V16T).
+  "seam-endpoint summary evaluated=\\d+ outsideSoi=[1-9][0-9]*",
 ]
 
 [expectations.rewind]

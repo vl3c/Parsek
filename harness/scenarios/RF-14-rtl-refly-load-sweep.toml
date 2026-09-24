@@ -233,7 +233,10 @@ required = [
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
   "CommitTree promoted rec=\\S+ vessel='Kerbal X Probe' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
   "Rewind-to-Launch initiated to UT",
-  "RewindPoints carried across rewind: installed=1 ",
+  # Whole counter tuple pinned (known-gate 17): the launch save predates the RP
+  # (loadedFromSave=0), the one carried RP is restored, and none is dropped as stale;
+  # all four archived runs read exactly this.
+  "RewindPoints carried across rewind: installed=1 loadedFromSave=0 restored=1 staleDropped=0 ",
   "invokerewindtolaunch complete rec=",
   "listhandles kind=rewindpoints count=1 truncated=false",
   "RewindPoints carried across rewind: installed=1 [^\\r\\n]*\\[(rp_[0-9a-f]{32})@[\\s\\S]*?Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=\\1 slot=1[\\s\\S]*?Marker valid sess=\\S+ tree=\\S+ active=\\S+ origin=\\S+ rp=\\1 ",

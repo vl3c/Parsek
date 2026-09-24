@@ -262,7 +262,10 @@ count = { min = 1, max = 1 }
 required  = ["Recording started",
              "Part event: ParachuteSemiDeployed 'parachuteSingle",
              "Part event: ParachuteDeployed 'parachuteSingle",
-             "Recording stopped"]
+             # In-run stop, not the quit flush: the stop the CommitTree seam step causes.
+             # OnDestroy's ForceStop at quit prints the same `Recording stopped.` line, so
+             # the bare token could pass on the quit alone (mutation check, known-gate 17).
+             "CommitTreeFlight: starting tree commit at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. "]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

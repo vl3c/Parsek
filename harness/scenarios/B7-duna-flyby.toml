@@ -283,7 +283,10 @@ count = { min = 8, max = 8 }
 # deliberately adds no SetSetting step for one.
 required  = ["Recording started",
              "ProcessBreakupEvent: debris child created",
-             "Recording stopped"]
+             # In-run stop, not the quit flush: the stop the CommitTree seam step causes.
+             # OnDestroy's ForceStop at quit prints the same `Recording stopped.` line, so
+             # the bare token could pass on the quit alone (mutation check, known-gate 17).
+             "CommitTreeFlight: starting tree commit at UT=[0-9.]+[\\s\\S]{0,8000}?Recording stopped\\. "]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

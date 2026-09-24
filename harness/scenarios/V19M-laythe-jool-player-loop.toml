@@ -1138,7 +1138,10 @@ required  = [
   "startloopplayback initiated:",
   "FastForwardToEventUT: jumping to UT=",
   "phase=body-orbit surface=ProtoOrbitLine .*body=Jool",
-  "Split summary: .*exoCoastBodyChangeKept=1 splittableButRejected=0",
+  # `seamSkipped=0` pinned (known-gate 17): a producer seam short-circuiting this
+  # boundary would mean the coast was not kept by the exo-coast rule; every archived
+  # green log reads 0. The graze counters stay inside `.*` (a later pass).
+  "Split summary: .*seamSkipped=0 exoCoastBodyChangeKept=1 splittableButRejected=0",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
 ]
