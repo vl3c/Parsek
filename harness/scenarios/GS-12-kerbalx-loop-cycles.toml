@@ -47,9 +47,25 @@ id = "GS-12-kerbalx-loop-cycles"
 # and its Re-Fly becomes enabled once the clock passes the RP UT; supersedeRows and
 # tombstones stay pinned at 0.
 #
-# STATUS: AUTHORED 2026-09-24, NEVER FLOWN. Every loop token below is INTERIM,
-# written from source before the reading flight; every expectation block is
-# REPORT-ONLY until the reading run measures it.
+# STATUS (automation DLL sha256 2b7214fd, branch `gs12-loop`):
+#   READING `2026-09-24_1911`: MISSION-OK (all 37 phases, 9/9 rows, every stage armed,
+#   watched and walked at 10x), PARSEK-FAIL(expectations) on exactly ONE interim token,
+#   the cap witness, which had assumed span/20 = 5.455 would come back verbatim. It
+#   came back 10: the unconstrained phase lock (P = 5 s) rounds every cadence up to a
+#   multiple of 5 s (span-clock 109.1 -> 110, cap 5.455 -> 10). Every loop token and
+#   window below is re-cut from that run, and the blocks are armed off it.
+#   The watch camera stayed on the looping ghost across both stage-1 seams and exited
+#   only when the next stage's MissionConfig re-anchored the loop (report-only in v1).
+#   ARMED `2026-09-24_1924`: PARSEK-FAIL on one token only, a SPAN over-pin (the
+#   flown span moved 109.10 -> 109.46 s); the span-derived fields were loosened (see
+#   the logContracts comment). ARMED RE-FLIGHT `2026-09-24_1934`: PASS attempt 1,
+#   ghostLifecycle / saveParse / unityExceptions gating PASS (57/57 lines, 27
+#   `overlap expired`, cycleLines 40, unity total 3 / parsekFrames 0).
+#   NEGATIVE CONTROLS, OFFLINE (the BDOCK-1 / GS-4 precedent), over `_1911` and
+#   `_1924`: the no-cap mutation `overlapCadenceSeconds=5` reds on exactly that token,
+#   a mutated `destroyedReasons.required` reds on exactly that clause, and this spec
+#   over GS-4's non-loop log `2026-09-23_2012` reds on every loop token plus
+#   `cycleLines 0 < min 10` and the missing `overlap expired`.
 # =====================================================================================
 tier = "operator"
 description = "Ghost-replay Tier C item 12: GS-4's Kerbal X rewind-and-watch flight, then the committed mission looped in three stages (one copy at a time, the global Auto period, and a 5 s period the 20-copy cap stretches) under 10x rails warp, read through ghostlife v2 (LoopCycle, overlap expired) and the MissionConfig loop-mode reply."
@@ -91,9 +107,37 @@ loopStages = [
 loopWarpIndex = 2
 
 [dimensionsCovered]
-# NONE CLAIMED YET: the loop claims (D6 `loop-period-modes` modes 2 and 3,
-# `overlap-expiry-soft-caps`) are taken on the armed run, each backed by a required
-# token re-cut from the reading flight.
+# CLAIM-IS-NOT-GATE: every value is backed by a REQUIRED token below, each re-cut from
+# the reading run `2026-09-24_1911`.
+# `auto-record-launch` <- "Auto-record started (...", GS-4's trigger line.
+D1 = ["auto-record-launch"]
+# `basic-playback` / `mesh-lifecycle-derender` <- the first run's MeshSpawned /
+#   MeshDestroyed tokens (GS-4's populations) and the armed ghostLifecycle balance.
+# `loop-period-modes`, ALL THREE MODES of the 2026-09-24 definition:
+#   (1) one copy at a time  <- "MissionLoopUnit: ... unit=Sec cadence=150
+#       overlapCadence=150 overlaps=no" (period 150 >= the 109.1 s span);
+#   (2) overlapping copies  <- "unit=Sec cadence=<span up to P> overlapCadence=10 overlaps=yes"
+#       and the engine's `Loop cadence ... (cycles=11)`;
+#   (3) the global Auto period <- the MissionConfig reply `unit=auto
+#       overlapCadenceSeconds=X autoLoopIntervalSeconds=X` (the SAME number, by
+#       backreference: Auto's overlap cadence IS the global interval) and
+#       "unit=Auto ... overlapCadence=30 overlaps=yes".
+# `self-overlap` <- mode (2)'s tokens (the whole mission relaunching over itself).
+# `overlap-expiry-soft-caps` <- BOTH halves: `MeshDestroyed ... vessel=Kerbal X
+#   reason=overlap expired` (copies vanish when their own flight ends) and the cap:
+#   the requested `intervalSeconds=5` comes back `overlapCadenceSeconds=10`. The
+#   attribution is exact: the phase lock (`PhaseLock APPLIED ... P=5 method=
+#   unconstrained`, required below) only quantizes to multiples of 5 s, and 5 already
+#   is one, so the raise is the 20-instance cap (109.1 / 20 = 5.455 s) rounded up to
+#   the next P. A mission loop applies the cap in MissionLoopUnitBuilder, so the
+#   engine's own `Loop cadence` line reads `no adjustment` by construction (see the
+#   header); the MissionConfig reply is the witness.
+D6 = ["basic-playback", "mesh-lifecycle-derender", "loop-period-modes", "self-overlap",
+      "overlap-expiry-soft-caps"]
+# `rewind-to-launch` <- "Rewind-to-Launch initiated to UT" + the seam terminal.
+D9 = ["rewind-to-launch"]
+# `scene-ksc` <- "invokerewindtolaunch complete" (emitted only back in SPACECENTER).
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 
 [expectations]
 allowedAnomalies = []
@@ -102,58 +146,92 @@ allowedAnomalies = []
 count = { min = 8, max = 8 }
 
 [expectations.logContracts]
-# GS-4's first-run tokens (the measured ones), then the loop half [INTERIM].
+# GS-4's first-run tokens, then the loop half. Every loop token was measured on the
+# reading run `2026-09-24_1911`:
 #   "missionconfig applied: ..."   ParsekTestCommandAddon.MissionConfig.cs (Info), one
-#       per stage; `loop=` and `unitBuilt=` are C# bools ("True").
-#   "MissionLoopUnit: ... overlaps=" MissionLoopUnitBuilder (VERBOSE; verboseLogging
-#       is on) - the mode of each stage's unit.
-#   "reason=overlap expired"       ghostlife v2 (GhostPlaybackEngine, tracing-gated).
+#       per stage; `loop=` / `unitBuilt=` are C# bools.
+#   "MissionLoopUnit: ..."         MissionLoopUnitBuilder (VERBOSE; verboseLogging is
+#       on): span=[30.36,139.46] spanDur=109.1, members=2 (the pod stack and the
+#       probe core; booster debris is not a member).
+#   "PhaseLock APPLIED ... P=5 method=unconstrained" - the unconstrained phase lock
+#       snaps the anchor and every cadence to a multiple of 5 s (span-clock cadence
+#       109.1 -> 110), which is why the numbers read 110 / 30 / 10.
+#   "Loop cadence #N ..."          GhostPlaybackEngine (Info), one per cadence change.
+#   THE SPAN IS NOT A PIN: it is the flown recording's length and moved between flights
+#   (109.10 s on `_1911`, 109.46 s on `_1924`), so every token that would restate it -
+#   the span-clock cadence (the span rounded up to P), the engine's `duration=` and
+#   `cycles=` - is a character class. The numbers that ARE pinned hold for any span in
+#   (100, 150): 150 (stage 1's own period), 30 (the global Auto interval, a multiple of
+#   P) and 10 (span/20 rounded up to P).
+#   "reason=overlap expired"       ghostlife v2 (tracing-gated).
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
              "Rewind-to-Launch initiated to UT",
+             "RewindPoints carried across rewind: installed=1 ",
              "invokerewindtolaunch complete rec=",
              "enterwatchmode complete: index=",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris",
+             "missionconfig seeded 1 default mission\\(s\\) before resolving tree=",
              "missionconfig applied: [^\\r\\n]*loop=True intervalSeconds=150 [^\\r\\n]*unitBuilt=True [^\\r\\n]*unit=sec overlapCadenceSeconds=150 ",
-             "missionconfig applied: [^\\r\\n]*loop=True [^\\r\\n]*unitBuilt=True [^\\r\\n]*unit=auto overlapCadenceSeconds=[0-9.]+ autoLoopIntervalSeconds=[0-9.]+",
-             "missionconfig applied: [^\\r\\n]*loop=True intervalSeconds=5 [^\\r\\n]*unitBuilt=True [^\\r\\n]*unit=sec overlapCadenceSeconds=5\\.[0-9]+ ",
-             "MissionLoopUnit: [^\\r\\n]*unit=Sec [^\\r\\n]*overlaps=no",
-             "MissionLoopUnit: [^\\r\\n]*unit=Auto [^\\r\\n]*overlaps=yes",
+             "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Sec cadence=150 overlapCadence=150 overlaps=no",
+             "missionconfig applied: [^\\r\\n]*loop=True [^\\r\\n]*unitBuilt=True [^\\r\\n]*unit=auto overlapCadenceSeconds=([0-9]+(?:\\.[0-9]+)?) autoLoopIntervalSeconds=\\1\\b",
+             "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Auto cadence=[0-9]+ overlapCadence=30 overlaps=yes",
+             "missionconfig applied: [^\\r\\n]*loop=True intervalSeconds=5 [^\\r\\n]*unitBuilt=True [^\\r\\n]*unit=sec overlapCadenceSeconds=10 ",
+             "PhaseLock APPLIED: [^\\r\\n]*P=5 method=unconstrained",
+             "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Sec cadence=[0-9]+ overlapCadence=10 overlaps=yes",
+             "Loop cadence #[0-9]+ \"Kerbal X\": requested=10\\.00s duration=[0-9.]+s cap=20 effective=10\\.00s \\(cycles=[0-9]+\\) no adjustment",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=overlap expired"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
-# REPORT-ONLY (the reading run measures it). v2 keys declared so the first reading
-# evaluates them: the first run's booster census, and at least one expired copy.
+# ARMED off the reading run `2026-09-24_1911` (spawned 8, spawnLines 57 = destroyLines
+# 57, unbalanced 0; destroyedReasons included `overlap expired` x27 - 14 Kerbal X, 13
+# Kerbal X Probe - and `engine teardown` x13 for copies alive at quit; cycleLines 40,
+# every one `mode=overlap-demote`; perVessel Kerbal X Debris spawned 6). The line
+# counts ride warp sampling, so they are floors, not pins; the per-recording balance
+# ledger is the leak check.
 [expectations.ghostLifecycle]
+gating = true
 spawned = { min = 8 }
+cycleLines = { min = 10 }
 requireBalanced = true
 destroyedReasons = { required = ["overlap expired"] }
 vessels = { "Kerbal X Debris" = { spawned = { min = 6 } } }
 
-# REPORT-ONLY. GS-4's armed shape: the one core-discard RP survives the rewind and no
-# Re-Fly machinery runs, even though the loop walks the clock past the RP UT.
+# ARMED (read 1 / 0 / 0 on `_1911`): the one core-discard RP survives the rewind and
+# no Re-Fly machinery runs, although the loop walks the clock past the RP UT.
 [expectations.rewind]
+gating        = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
-# REPORT-ONLY. GS-4's measured topology; the real-vessel census after the first run is
-# what the reading flight pins (operator ruling: exactly one real vessel).
+# ARMED. EXACTLY ONE REAL VESSEL after the rewind (operator ruling), measured: the
+# Jumping Flea. Both Kerbal X terminals are SubOrbital, which the spawn gate refuses
+# (`Spawn suppressed: ... terminal state SubOrbital`), so nothing materializes at the
+# first run's end, and neither loop risk the scoping named can arise here: no real
+# same-pid vessel exists to trigger the external-vessel skip
+# (`externalVesselSuppressed=0` on every engine frame line) and no suborbital pod is
+# ever put on rails to be deleted.
 [expectations.recordings.structure]
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 8 }
+recordings     = { min = 8, max = 8 }
+spawnedVessels = { max = 0 }
 branchPoints   = { JointBreak = { min = 4 } }
-terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
+terminalStates = { SubOrbital = { min = 2, max = 2 }, Destroyed = { min = 4 } }
+vesselNames    = { "Jumping Flea" = { min = 1, max = 1 }, "Kerbal X" = { max = 0 }, "Kerbal X Probe" = { max = 0 } }
 
-# [expectations.unityExceptions] deliberately NOT declared yet: declaring it arms it
-# (GS-4's maxTotal 6 / maxParsekFrames 0 is the target once the reading run measures
-# this lane's own total; the facet is recorded either way).
+# GS-4's ceilings (the same subject and teardown; `_1911` read total 0, parsekFrames 0).
+[expectations.unityExceptions]
+maxTotal = 6
+maxParsekFrames = 0
 
 [runtime]
-# GS-4's 2400 plus the loop block: three stages of ~20-33 s real at 10x, three
-# MissionConfig / EnterWatchMode round trips and the watch retries.
+# GS-4's 2400 plus the loop block (the reading run's whole wall was ~450 s).
 budgetSeconds = 2800
 
 [retry]

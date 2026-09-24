@@ -8393,6 +8393,9 @@ class UnityExceptionScanTests(unittest.TestCase):
             # todo UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES), never by a lower ceiling.
             # Only an opportunistic LIVE control stays open (todo
             # GS4-UNITY-CEILING-NEGCTL-VACUOUS).
+            # GS-12 (2026-09-24): GS-4's ceiling on GS-4's subject and teardown; its
+            # reading run `2026-09-24_1911` read total 0.
+            "GS-12-kerbalx-loop-cycles.toml": 6,
             "GS-4-kerbalx-rewind-watch.toml": 6,
         }
         armed = {}
@@ -8448,6 +8451,9 @@ class UnityExceptionScanTests(unittest.TestCase):
         # 7 archived logs, parsekFrames 0 in each (`2026-08-28_0051`, `_1855`,
         # `2026-09-10_1924`, `_1930`, `2026-09-11_0049`, `_0056`, `_0102`); control host
         # `_0049` (total 4, the highest).
+        # GS-12: reading run `2026-09-24_1911` parsekFrames 0 (total 0); armed with the
+        # lane's other blocks off that run, GS-4's value on GS-4's subject.
+        "GS-12-kerbalx-loop-cycles.toml": 0,
         "GS-4-kerbalx-rewind-watch.toml": 0,
         # 4 collected logs, parsekFrames 0 in each: the two INVALID reading attempts
         # `2026-08-28_1859` / `_1902` and the two driver-valid PASS readings
@@ -10645,6 +10651,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # `2026-09-23_2012` PASS (rewindPoints 1); negative control
                        # `2026-09-23_2021` on the pre-fix DLL red on exactly
                        # `rewind.rewindPoints 0 < min 1` plus the carry-over token.
+                       # GS-12: `rewind` + `recordings.structure` armed 2026-09-24 off its
+                       # reading run `2026-09-24_1911` (rewindPoints 1, no supersede / no
+                       # tombstone; spawnedVessels 0 and vesselNames {Jumping Flea: 1}, the
+                       # exactly-one-real-vessel ruling measured).
+                       "GS-12-kerbalx-loop-cycles.toml",
                        "GS-4-kerbalx-rewind-watch.toml",
                        # RF-14: `rewind` armed 2026-09-24 off its reading run
                        # `2026-09-23_2147` (rewindPoints 1, supersedeRows 1, tombstones 0):
@@ -12636,6 +12647,12 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # unbalanced []); NEGATIVE CONTROL `2026-09-11_0119` (`destroyLines` to 17,
         # uncommitted, reverted) red PARSEK-FAIL(ghost-lifecycle) attempt 1 on exactly
         # `destroyLines 16 < min 17` with every other verifier green.
+        # ARMED 2026-09-24 off the reading run `2026-09-24_1911_GS-12-kerbalx-loop-cycles`
+        # (MISSION-OK; ghostLifecycle spawned=8 spawnLines=57 destroyLines=57
+        # unbalanced=0, `overlap expired` x27, cycleLines 40 all overlap-demote, Kerbal X
+        # Debris spawned 6). The first ARMED looping lane and the first armed v2 keys
+        # (`destroyedReasons.required`, `vessels`, `cycleLines`).
+        "GS-12-kerbalx-loop-cycles.toml",
         "GS-9-kerbalx-repeat-rewind.toml",
         # ARMED 2026-09-08 off two readings of the identical census: reading run 1
         # `2026-09-08_1119_GS-8-kerbalx-zone-round-trip` (PARSEK-FAIL on the late

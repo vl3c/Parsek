@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`]
+## ~~GHOSTLIFE-V2-FIRST-LIVE-READING: the v2 ghost-lifecycle surfaces have never read a live log~~ [FILED 2026-09-24, ghost-replay Tier C item 10, branch `ghostlife-v2`. **DISCHARGED 2026-09-24 by GS-12** (branch `gs12-loop`): the first live reading `2026-09-24_1911` read `MeshDestroyed reason=overlap expired` x27 (Kerbal X 14, Kerbal X Probe 13), `overlap cleared` x2, `engine teardown` x13 at quit, `LoopCycle` x40 - every one `mode=overlap-demote`, ZERO `unit` and ZERO `reuse` - and spawnLines = destroyLines = 57 with unbalanced 0, so the two line counts close on a looping lane as designed. The `unit` mode did not fire because the one-copy-at-a-time stage runs with an inter-cycle tail (period 150 s > span 109 s): the member is destroyed at its window end (`chain-loop unit member outside its window` / `chain-loop unit cycle change`) and respawned, never carried across the boundary. GS-12 ARMS `destroyedReasons.required`, `vessels` (`Kerbal X Debris` spawned >= 6) and `cycleLines` (>= 10); armed re-flight `_1934` PASS. Adding the `vessels` window to GS-4 stays open as its own arming change.]
 
 Ghostlife v2 is built with no flight: the engine writes a tracing-gated
 `MeshDestroyed reason=overlap expired` (also `overlap cleared` / `engine teardown`) when an
@@ -36,7 +36,7 @@ would pin). Open:
 - Adding `vessels = { "Kerbal X Debris" = { spawned = { min = 6 } } }` to GS-4's armed block is
   an arming change and wants its own reading run.
 
-## TIERC-LOOP-PERIOD-AUTO-MODE-HOST: no lane flies a loop on the global Auto period, and no lane has overlap copies expiring or the 20-copy cap stretching a cadence [FILED 2026-09-24, ghost-replay Tier C PR 1, branch `tierc-claims`]
+## ~~TIERC-LOOP-PERIOD-AUTO-MODE-HOST: no lane flies a loop on the global Auto period, and no lane has overlap copies expiring or the 20-copy cap stretching a cadence~~ [FILED 2026-09-24, ghost-replay Tier C PR 1, branch `tierc-claims`. **CLOSED 2026-09-24 by GS-12** (branch `gs12-loop`): `MissionConfig unit=auto` reaches `LoopTimeUnit.Auto` on a MISSION loop (whose overlap cadence IS the global auto interval, so no per-recording host was needed), and a 5 s period on the 109 s Kerbal X span comes back `overlapCadenceSeconds=10` with copies expiring. FINDING, report-only: for a mission loop `MissionLoopUnitBuilder` applies the 20-instance cap before the engine sees the period, so the engine's `Loop cadence ... auto-adjusted (cap reached)` verdict can NEVER print for a mission member (it reads `no adjustment`); the cap's only witness there is the MissionConfig reply's `overlapCadenceSeconds` beside the requested interval (the registry comment now says so). The unconstrained phase lock (`P=5`) also rounds every mission cadence up to a multiple of 5 s, so the cap's 5.455 s reads 10. D6 `loop-period-modes` (all three modes) and `overlap-expiry-soft-caps` are claimed on GS-12.]
 
 The operator redefined two D6 registry cells on 2026-09-24 to match the code
 (`harness/coverage/registry.toml`, D6 comment). Tier C PR 1 claimed what the archived logs
@@ -967,7 +967,7 @@ spawns once, later replays ghost-only), or is a chain with any looped phase a pu
 A mission loop over a chain-split tree is NOT affected: mission loops set no per-recording
 toggle, so its tip takes the first-run spawn like a standalone recording.
 
-## MISSIONCONFIG-UNKNOWN-TREE-AFTER-MID-SESSION-COMMIT: the seam's MissionConfig refuses a tree committed earlier in the same game session until the Missions window has drawn once [FILED 2026-09-23 from LF-1's first two readings. OPEN; seam ergonomics, low priority]
+## ~~MISSIONCONFIG-UNKNOWN-TREE-AFTER-MID-SESSION-COMMIT: the seam's MissionConfig refuses a tree committed earlier in the same game session until the Missions window has drawn once~~ [FILED 2026-09-23 from LF-1's first two readings. **FIXED 2026-09-24** (branch `gs12-loop`): `MissionConfigImpl` calls the idempotent `MissionStore.EnsureDefaultsForTrees` before resolving `tree=` and logs `missionconfig seeded N default mission(s)` when it created any. Live-proven on GS-12 (commit in-run, Rewind-to-Launch, then MissionConfig with no Missions window): `missionconfig seeded 1 default mission(s)` on all three flights, now a required token there. `StartLoopPlayback` is unchanged (it refuses `loop-not-armed` before it could need a mission, and MissionConfig always runs first).]
 
 `LF-1-loop-first-run-real` commits a tree in-run (`CommitTree`), later reloads a save through
 `LoadGame`, and then calls `MissionConfig tree=<that tree>`. Both first readings
