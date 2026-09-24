@@ -1918,6 +1918,39 @@ def run_sort_key(run_id):
     return (m.group(1), int(m.group(2) or 1), int(m.group(3) or 1))
 
 
+def prune_removed_tabs(captures):
+    """Drop a tab from the tab bars of captures taken after that tab stopped existing.
+
+    A selection grid records only the SELECTED item's text, so a capture's tab bar
+    is assembled from every tab token its window has shown in any capture. When the
+    product removes a tab (the Career window's Facilities and Milestones tabs,
+    2026-09-24), the old captures keep it, and without this pass every NEW capture
+    of that window drew the removed tabs too - over a frame that shows two.
+
+    A tab counts as removed when none of its captures is live (each one is
+    superseded or retired). It is then dropped from every capture of the same
+    window taken AFTER the tab's last capture; older captures keep it, because they
+    were drawn when it still existed. Returns {window: [removed tokens]}.
+    """
+    by_window = defaultdict(lambda: defaultdict(list))
+    for cap in captures:
+        if cap.get("tab"):
+            by_window[cap["window"]][cap["tab"]].append(cap)
+    removed = {}
+    for window, tabs in by_window.items():
+        for tok, caps in tabs.items():
+            if any(not c.get("supersededBy") and not c.get("retired") for c in caps):
+                continue
+            last = max(c["capturedUtc"] for c in caps)
+            removed.setdefault(window, []).append(tok)
+            for cap in captures:
+                if cap["window"] != window or cap["capturedUtc"] <= last:
+                    continue
+                names = cap.get("tabNames") or []
+                cap["tabNames"] = [t for t in names if t.get("token") != tok]
+    return removed
+
+
 def mark_retired(captures, runs):
     """Mark every capture its own lane no longer produces.
 
@@ -2377,6 +2410,7 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
     # round-2 rebuild) stayed current forever. See `mark_retired`.
     mark_retired(captures, [{"specId": s["specId"], "runId": s["runId"],
                              "complete": s.get("complete")} for s in scans])
+    prune_removed_tabs(captures)
     for k, info in keys.items():
         after = next(c for c in by_key[k] if c["id"] == info["after"])
         if after.get("retired"):
