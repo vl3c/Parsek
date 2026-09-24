@@ -969,6 +969,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Timeline strategy rows show the strategy's real name.** The Timeline named strategies
+  from a hand-written table whose ids never matched stock's (`AppreciationCamp` against
+  stock's `AppreciationCampaignCfg`), so every stock strategy read as its split config
+  name, e.g. "Activate: Outsourced Research Cfg". The Timeline and the Career window's
+  Strategies tab now share one lookup: stock's own title ("Outsourced R&D") when the
+  game can answer, else the config name without its `Cfg` suffix ("Outsourced Research").
+  The Career window had shown the raw config name in that fallback case.
+
 - **A ghost passing through your vessel can no longer damage it.** Each ghost in orbit has a
   small invisible placeholder vessel that puts it on the map. When a ghost's path ran through
   a real vessel within a couple of kilometres of you, that placeholder could collide with it

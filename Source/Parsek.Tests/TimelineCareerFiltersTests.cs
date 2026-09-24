@@ -102,7 +102,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(displayType, TimelineEntryDisplay.MapGameActionType(type));
             var leg = Action(type);
-            leg.StrategyId = "UnpaidInterns";
+            leg.StrategyId = "UnpaidResearchProgramCfg";
             Assert.Equal(TimelineCareerCategory.None, TimelineCareerCategories.Classify(leg));
         }
 
@@ -170,7 +170,7 @@ namespace Parsek.Tests
             tech.NodeId = "basicRocketry";
             tech.Cost = 5;
             var debit = Action(GameActionType.StrategyScienceDebit, 120);
-            debit.StrategyId = "UnpaidInterns";
+            debit.StrategyId = "UnpaidResearchProgramCfg";
             var funds = Action(GameActionType.FundsEarning, 130);
             funds.FundsAwarded = 100;
 
