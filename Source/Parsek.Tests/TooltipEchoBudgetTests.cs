@@ -110,8 +110,13 @@ namespace Parsek.Tests
             // the row cross-link), so a removal still reds this row.
             yield return new object[] { "UI/KerbalsWindowUI.cs", 760f, 5, TooltipEchoBox.DoubleLine };
             // Career State: DefaultWindowWidth = 820. Single-line strip: longest help
-            // text is 76 chars against a 112-char one-line budget.
-            yield return new object[] { "UI/CareerStateWindowUI.cs", 820f, 14, TooltipEchoBox.SingleLine };
+            // text is 76 chars against a 112-char one-line budget. Floor lowered 14 -> 8
+            // with the 2026-09-24 rework that removed the Facilities and Milestones tabs:
+            // the file carries 9 literal tooltips (two tab labels, six column headers, the
+            // pending fold). The two row cross-link tooltips are named consts behind a
+            // conditional, so the scan does not count them; their length is pinned by
+            // CareerStateWindowUITests.TheLinkTooltipsFitTheHelpStrip instead.
+            yield return new object[] { "UI/CareerStateWindowUI.cs", 820f, 8, TooltipEchoBox.SingleLine };
             // Timeline: DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth (820).
             // Single-line strip: longest literal is 93 chars; watch-button tooltips cap
             // at 77 ("No active ghost - recording is in the past/future ...").

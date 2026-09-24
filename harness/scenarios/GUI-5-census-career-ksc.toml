@@ -29,8 +29,14 @@ tier = "operator"
 # the closed form. Every count in the FLOWN block below is the 2026-09-11 reading, i.e.
 # BEFORE those three steps; the re-flight's own reading is recorded under it.
 #
-# WHAT IT PHOTOGRAPHS (18 PNGs, each with a `<label>.gui.json` dump beside it): all four
-# Career State tabs, both Kerbals tabs, all four Timeline filter modes, the Missions tab
+# 2026-09-24: the Career window became the STATE view of contracts and strategies (its
+# Facilities and Milestones tabs removed; the Timeline's Career view owns dated career
+# history), so the two Career captures of those tabs were dropped and the Timeline block
+# gained its Milestones view (`cek-timeline-milestones-advanced`), which is where this
+# host's five milestone credits now read.
+#
+# WHAT IT PHOTOGRAPHS (17 PNGs, each with a `<label>.gui.json` dump beside it): both
+# Career State tabs, both Kerbals tabs, five Timeline views, the Missions tab
 # collapsed and expanded, the Recordings tab, one ATTEMPTED populated tooltip echo strip
 # (measured: the cursor lands, the hover does not paint - see the FLOWN block below), and
 # the Basic forms of the main and Timeline windows - every one of them over a career with
@@ -46,7 +52,7 @@ tier = "operator"
 #
 # THE `Career` LAUNCHER IS THE HOVER TARGET rather than a Career-window control, and that
 # is deliberate: the main window's echo strip is one of the two-line variants (inventory
-# section 7), the launcher's tooltip ("Contracts, strategies and buildings along the
+# section 7), the launcher's tooltip ("Contracts and strategies you hold along the
 # timeline.") is a fixed literal, and the control exists in Advanced on every host - so the
 # capture is about the STRIP's layout and not about whatever row a save happened to put
 # under the cursor.
@@ -121,7 +127,7 @@ tier = "operator"
 # reads `Jebediah Kerman [Pilot] - 2 flights: 1 recovered, 1 aboard` over two dated rows.
 # Header-vs-cell delta ZERO on both tabs. An earlier round (`2026-09-15_1557`, also PASS)
 # measured the date clipping that moved the two date columns to 130 px.
-description = "GUI census wave 2, the populated career host: photograph all four Career State tabs, both Kerbals tabs, all four Timeline filter modes and the Missions and Recordings tabs over a committed EARNED career with fifteen ledger actions, real milestone rewards, non-round pools and nine OFFERED (not accepted) contracts, plus one attempt at a populated tooltip echo strip."
+description = "GUI census wave 2, the populated career host: photograph both Career State tabs, both Kerbals tabs, five Timeline views (the four filter modes plus the Milestones career view) and the Missions and Recordings tabs over a committed EARNED career with fifteen ledger actions, real milestone rewards, non-round pools and nine OFFERED (not accepted) contracts, plus one attempt at a populated tooltip echo strip."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "career", "GUI-5", "pending-operator"]
 
@@ -155,7 +161,8 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "cek-main-tooltip-career-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
 
-  # --- Career State, all four tabs, over an EARNED career ---
+  # --- Career State, both tabs, over an EARNED career. Both read the one-line empty
+  # state: the nine CONTRACT nodes are all Offered and no strategy is active. ---
   { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
@@ -167,16 +174,6 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "cek-career-strategies-empty-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "cek-career-strategies-empty-advanced" }, expect = "OK" },
-  # The all-level-0 Facilities form, likewise named rather than claimed as upgraded.
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "cek-career-facilities-level0-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "cek-career-facilities-level0-advanced" }, expect = "OK" },
-  # THE ONE WITH A MEASURED LAYOUT DEFECT UNDER IT. `ColW_Rewards` is pinned at 180 px and
-  # the inventory's section 7 measures it as demonstrably overflowing; this fixture's
-  # `milestones.pgsm` carries the funds / rep / sci reward triples that make it do so.
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "cek-career-milestones-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "cek-career-milestones-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
 
   # --- Kerbals, both tabs, on a career with a real roster ---
@@ -217,6 +214,11 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "refly" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "cek-timeline-refly-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "cek-timeline-refly-advanced" }, expect = "OK" },
+  # The Timeline's Milestones career view: where the milestone credits the Career window's
+  # old Milestones tab listed now read, dated, over this host's earned career.
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "milestones" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-timeline-milestones-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-timeline-milestones-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
 
   # --- the Missions window over a two-recording career corpus ---
@@ -298,8 +300,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-main-tooltip-career-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-contracts-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-strategies-empty-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-facilities-level0-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-milestones-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-roster-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-roster-expanded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-outcomes-advanced .*patched=17/17",
@@ -307,6 +307,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-details-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-rewindff-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-refly-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-milestones-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-missions-missions-collapsed-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-missions-missions-expanded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-missions-recordings-expanded-advanced .*patched=17/17",

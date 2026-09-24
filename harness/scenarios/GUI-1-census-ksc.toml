@@ -77,20 +77,20 @@ tier = "operator"
 # the count is the seam's whole TABLE, not the scene's drawn set.
 # The two flight-only windows - spawncontrol and gloops - belong to GUI-2; asking for
 # either here is a REJECTED (`window-not-in-scene`) by design rather than a capture of a
-# scene without them. Eighteen of the captures are TABS: missions x8 (its two tabs, each
+# scene without them. Sixteen of the captures are TABS: missions x8 (its two tabs, each
 # in the restored, the collapsed and the fully expanded state, plus one deep fold
-# apiece), timeline x4 (its filter modes), kerbals x2, career x4. Settings has six SECTIONS rather than tabs (they
+# apiece), timeline x4 (its filter modes), kerbals x2, career x2 (Contracts and Strategies; its Facilities and Milestones tabs were removed 2026-09-24 and their two captures with them). Settings has six SECTIONS rather than tabs (they
 # all draw in one pass, and three are hidden in Basic), so the Advanced/Basic pair IS its
 # section coverage; Logistics' bubbles are expand-collapse, not a selector.
 #
-# 29 PNGs (24 Advanced + 5 Basic) and 29 dumps beside them: 58 files, plus ONE more the
+# 27 PNGs (22 Advanced + 5 Basic) and 27 dumps beside them: 54 files, plus ONE more the
 # `GuiTree` batch below writes itself (`parsek-guitree-probe.gui.json`, its probe
-# window's own capture) = 59, against the harvest's file-count cap
+# window's own capture) = 55, against the harvest's file-count cap
 # (hlib.ARTIFACT_MAX_SCREENSHOTS). That cap was 64 when this lane was written, which is
 # why the dump steps did not need it raised; it is 1024 since the GUI state gallery's P1b
 # (a capture PAIR is two files, so 64 harvested at most 32 STATES and silently dropped the
 # rest), so this arithmetic has three hundred-odd captures of headroom now. Re-check it
-# anyway before adding a 30th capture: the BYTE cap is the one that binds at scale.
+# anyway before adding a 28th capture: the BYTE cap is the one that binds at scale.
 #
 # THE SIX FOLD CAPTURES (24th-29th) WERE ADDED 2026-09-22, and the gap they close is one
 # a reader of the GUI mirror hits immediately: the Missions window's two tabs were each
@@ -127,7 +127,9 @@ tier = "operator"
 #     the old label, so the re-fly is the whole fix. The Basic capture ALSO changed rect
 #     (see its step) so that it shows the height a player gets.
 #   - `ksc-career-milestones-advanced` photographed the Rewards column at 180 px with
-#     cells wrapping; HEAD sets `ColW_Rewards = 320f`, widened BECAUSE of that dump.
+#     cells wrapping; `ColW_Rewards` was widened to 320 BECAUSE of that dump. The tab and
+#     the capture were both removed 2026-09-24 (the Timeline's Career view owns milestone
+#     history now).
 # And `ksc-kerbals-roster-advanced` / `ksc-kerbals-outcomes-advanced` photographed the
 # PRE-REDESIGN single-line Kerbals shape, which HEAD replaced with four-column tables.
 # They are KEPT rather than dropped, which is a correction to the audit's own
@@ -330,7 +332,7 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "ksc-kerbals-outcomes-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
 
-  # career state (Advanced only, four tabs)
+  # career state (Advanced only, two tabs)
   { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
@@ -340,12 +342,6 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-career-strategies-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-career-strategies-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "ksc-career-facilities-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "ksc-career-facilities-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "ksc-career-milestones-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "ksc-career-milestones-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
 
   # logistics - ONE OF THE TWO WINDOWS THAT DOES NOT FIT THE INSTANCE. Its own
@@ -505,18 +501,18 @@ allowedAnomalies = []
 # whole census ran where it said (GUI-2's twin pins `scene=FLIGHT`), and `complexity=`
 # separates the two passes.
 #
-# ONE CAPTURE LINE is pinned, not twenty-nine: `capturescreenshot ok` is emitted only after
+# ONE CAPTURE LINE is pinned, not twenty-seven: `capturescreenshot ok` is emitted only after
 # the file settled at a stable non-zero size, so one is proof the write-and-poll path
-# works end to end, and the other twenty-eight are the PRODUCT - a reviewer counts them in
+# works end to end, and the other twenty-six are the PRODUCT - a reviewer counts them in
 # the contact sheet. `bytes=` is deliberately not pinned; it is a real file size and would
 # pin a machine.
 #
-# ALL TWENTY-NINE DUMP LINES ARE PINNED, and the asymmetry with the captures above is
+# ALL TWENTY-SEVEN DUMP LINES ARE PINNED, and the asymmetry with the captures above is
 # deliberate rather than untidy. `patched=<ok>/<of>` is the recorder's ARM-TIME
 # Harmony.GetPatchInfo reading, taken FRESH on every arm - the patches are applied at arm
 # and removed again when each capture flushes - so it is a per-dump measurement and not a
 # property of the build. `patched=17/17` therefore asserts that all seventeen
-# interceptions were installed for THAT frame, twenty-nine times over, and one funnel
+# interceptions were installed for THAT frame, twenty-seven times over, and one funnel
 # whose signature drifted out from under the patch reds the lane at the dump where it
 # happened. It is also the pinning that MADE this lane's first flight a measurement of the
 # interception layer, which had never run inside KSP: all 22 read `patched=17/17` on both
@@ -525,7 +521,7 @@ allowedAnomalies = []
 # (`design-gui-tree-dump.md` -> "What the first flight measured") and these lines stay
 # pinned as the regression check they now are. `hits=` is deliberately left UNPINNED: it counts funnel body runs in a real
 # frame, so any literal would pin the row count of whatever the window happened to
-# contain; a reader compares it across the 29 dumps instead. `windows=` / `nodes=` are
+# contain; a reader compares it across the 27 dumps instead. `windows=` / `nodes=` are
 # unpinned for the same reason.
 #
 # THE BATCH LINE IS A WHOLE PIN SINCE THE READING RUN, and it was an INTERIM one until
@@ -606,8 +602,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-kerbals-outcomes-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-contracts-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-strategies-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-facilities-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-milestones-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-nearmiss-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-structure-advanced .*patched=17/17",
@@ -657,11 +651,11 @@ forbidden = []
 gating = false
 
 [runtime]
-# 29 captures and 29 dumps, each holding the FIFO head for a couple of frames, plus a
+# 27 captures and 27 dumps, each holding the FIFO head for a couple of frames, plus a
 # 300 s cold load of a 42 MB career, ~60 single-phase UI ops and one one-cell in-game
 # batch. 1500 s is generous on purpose: the product is the images and the trees, and a
 # KILLED run leaves neither. The 300 s added over the pre-dump 1200 s was never a measured
-# cost - it is head-room for 29 more two-phase steps whose flush assembles, serialises and
+# cost - it is head-room for 27 more two-phase steps whose flush assembles, serialises and
 # writes a file inside ONE LateUpdate, which is a visible hitch on a big window by design.
 # THE MEASURED WALL IS 96 s (reading run `2026-09-11_0548`, PASS attempt 1; the two
 # 2026-09-10 INVALID attempts read 79 / 80 s), so the budget is 15x the measurement and

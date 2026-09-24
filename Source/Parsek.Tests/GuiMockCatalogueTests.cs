@@ -18,7 +18,7 @@ namespace Parsek.Tests
     /// strings.</b> A builder that typed its own cell text would pass any string
     /// assertion and teach the owner about a picture the product cannot produce. So these
     /// cells assert the SHAPE the draw method needs (a roster row exists, its status is
-    /// the classified one, a facility row carries the level the ledger walk projected) and
+    /// the classified one, a slot heading carries the limit the ledger walk projected) and
     /// leave the rendering to the real pure helpers - which is exactly what makes the
     /// derived witness set (<see cref="GuiMockWitness"/>) a meaningful read-back.</para>
     /// </summary>
@@ -61,8 +61,10 @@ namespace Parsek.Tests
             // A count FLOOR rather than an exact number: states are added by later
             // phases and a pinned total would be a merge conflict on every one. The
             // floor is what stops the loop below going vacuous.
-            Assert.True(GuiMockCatalogue.All.Count >= 40,
-                "the P1 catalogue is ~45 states across three windows; found "
+            // 36 as of the 2026-09-24 Career rework, which removed the seven Facilities /
+            // Milestones states with the two tabs they drew.
+            Assert.True(GuiMockCatalogue.All.Count >= 34,
+                "the P1 catalogue is ~36 states across three windows; found "
                 + GuiMockCatalogue.All.Count);
 
             Assert.Equal(
@@ -284,8 +286,8 @@ namespace Parsek.Tests
                 }
                 if (a.Career.HasValue)
                 {
-                    Assert.NotSame(a.Career.Value.Facilities.Rows,
-                                   b.Career.Value.Facilities.Rows);
+                    Assert.NotSame(a.Career.Value.Contracts.CurrentRows,
+                                   b.Career.Value.Contracts.CurrentRows);
                 }
             }
         }
@@ -477,38 +479,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TheFacilityStatesReachEveryLevelAndStatusForm()
+        public void TheSlotStatesDrawARaisedLimitAndTheDivergentOneAPendingFold()
         {
-            CareerStateWindowUI.FacilitiesTabVM upgraded =
-                GuiMockCatalogue.ById("career.facilities.level-above-one")
-                    .Build().Career.Value.Facilities;
-            Assert.Contains(upgraded.Rows, r => r.CurrentLevel > 1);
+            // The two FacilityUpgrade states exist for the slot limit the upgrade raises,
+            // which the window prints only in the heading line - so that is what they must
+            // produce, from the real walk and the real formatter.
+            CareerStateWindowUI.ContractsTabVM full =
+                GuiMockCatalogue.ById("career.contracts.slots-full")
+                    .Build().Career.Value.Contracts;
+            Assert.True(full.MissionControlLevel > 1);
+            Assert.True(full.CurrentMaxSlots > LedgerOrchestrator.GetContractSlots(1));
+            Assert.Equal(full.CurrentMaxSlots, full.CurrentActive);
+            Assert.Equal(CareerStateWindowUI.FormatActiveHeading(
+                    full.CurrentActive, full.CurrentMaxSlots),
+                full.GroupHeadingText);
 
-            CareerStateWindowUI.FacilitiesTabVM upcoming =
-                GuiMockCatalogue.ById("career.facilities.upcoming-upgrade")
-                    .Build().Career.Value.Facilities;
-            CareerStateWindowUI.FacilityRow pending =
-                upcoming.Rows.First(r => r.HasUpcomingChange
-                                         && r.CurrentLevel != r.ProjectedLevel);
-            Assert.StartsWith("upgrades to L",
-                CareerStateWindowUI.FormatFacilityRow_TimelineEnd(pending, true, ut => "D"),
-                StringComparison.Ordinal);
+            CareerStateWindowUI.StrategiesTabVM admin =
+                GuiMockCatalogue.ById("career.strategies.admin-above-one")
+                    .Build().Career.Value.Strategies;
+            Assert.True(admin.AdminLevel > 1);
+            Assert.StartsWith("Active now: ", admin.GroupHeadingText, StringComparison.Ordinal);
 
-            CareerStateWindowUI.FacilitiesTabVM destroyed =
-                GuiMockCatalogue.ById("career.facilities.destroyed")
-                    .Build().Career.Value.Facilities;
-            Assert.Contains(destroyed.Rows,
-                r => CareerStateWindowUI.FormatFacilityRow_Level(r).EndsWith(
-                         "(destroyed)", StringComparison.Ordinal)
-                     && r.ProjectedDestroyed);
+            CareerStateWindowUI.ContractsTabVM divergent =
+                GuiMockCatalogue.ById("career.banner.divergent")
+                    .Build().Career.Value.Contracts;
+            Assert.NotEmpty(divergent.PendingRows);
+            Assert.StartsWith("Pending in timeline (" + divergent.PendingRows.Count + ") - ",
+                divergent.PendingFoldText, StringComparison.Ordinal);
+        }
 
-            CareerStateWindowUI.FacilitiesTabVM inTimeline =
-                GuiMockCatalogue.ById("career.facilities.destroyed-in-timeline")
-                    .Build().Career.Value.Facilities;
-            Assert.Contains(inTimeline.Rows,
-                r => !r.CurrentDestroyed
-                     && CareerStateWindowUI.FormatFacilityRow_TimelineEnd(r, true, ut => "D")
-                        .StartsWith("destroyed", StringComparison.Ordinal));
+        [Fact]
+        public void EveryCareerStateFitsItsOwnSlotLimits()
+        {
+            // catches: a synthetic ledger holding more contracts or strategies than its
+            // Mission Control / Administration level allows. The heading then read
+            // "Active now: 3 of 2 slots" in the first census capture of the mocked fold -
+            // a picture no career can produce.
+            foreach (GuiMockState state in GuiMockCatalogue.ForWindow(GuiMockSession.CareerWindow))
+            {
+                CareerStateWindowUI.CareerStateViewModel vm = state.Build().Career.Value;
+                Assert.True(vm.Contracts.CurrentActive <= vm.Contracts.CurrentMaxSlots
+                            && vm.Contracts.ProjectedActive <= vm.Contracts.ProjectedMaxSlots,
+                    state.Id + ": " + vm.Contracts.GroupHeadingText + " / " + vm.Contracts.PendingFoldText);
+                Assert.True(vm.Strategies.CurrentActive <= vm.Strategies.CurrentMaxSlots
+                            && vm.Strategies.ProjectedActive <= vm.Strategies.ProjectedMaxSlots,
+                    state.Id + ": " + vm.Strategies.GroupHeadingText + " / " + vm.Strategies.PendingFoldText);
+            }
         }
 
         [Fact]

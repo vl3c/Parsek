@@ -4,9 +4,9 @@ using System.Collections.Generic;
 namespace Parsek
 {
     /// <summary>
-    /// The one place a ledger facility id becomes the name the player reads. Shared by the
-    /// Career State window's Facilities tab and the Timeline's facility rows, so both windows
-    /// name the same building the same way.
+    /// The one place a ledger facility id becomes the name the player reads: the Timeline's
+    /// facility rows, and the facility id the Career State window reads slot-limit levels
+    /// by.
     ///
     /// A ledger facility id comes in three shapes: an upgrade carries the facility's own id
     /// (<c>SpaceCenter/LaunchPad</c>), a destruction or repair the id of ONE of its

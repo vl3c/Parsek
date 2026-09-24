@@ -5,7 +5,7 @@ tier = "operator"
 #
 # WHY THIS LANE EXISTS. Every Career State capture the census has taken - across three
 # fixtures including the operator's own dense career - reads `Active (0)` and then
-# `(no active contracts)`. So tab 1 of 4 of this window has only ever been photographed
+# `(no active contracts)`. So tab 1 of this window has only ever been photographed
 # EMPTY, and the populated row layout (Title, Deadline, Rewards, Penalties, Status) has
 # no picture at all. That is not a host accident either: the tab reads Parsek's own
 # EFFECTIVE LEDGER (`EffectiveState.ComputeELS()`), not stock's `CONTRACTS` node, so a
@@ -39,20 +39,26 @@ tier = "operator"
 # branch and boots into FLIGHT, where `ParsekKSC` draws nothing. R12's additive `scene=`
 # arg forces the NoVesselSpaceCenter route.
 #
+# THE 2026-09-24 STATE-VIEW REWORK (Career keeps Contracts and Strategies only; the
+# Timeline's Career view owns dated history) reshaped every capture here: no title bar,
+# ONE heading line `Active now: N of M slots` (its hover names the Mission Control
+# level), ONE column header, and the pending group as a fold row INSIDE the same table.
+# The old `cc-career-milestones-advanced` capture went with the Milestones tab.
+#
+# THE PENDING FOLD, BY MOCK. The fold only draws when the recorded timeline accepts a
+# contract after now, which needs a rewound host no committed fixture is (filed as
+# GUI-CENSUS-CAREER-DIVERGENCE-NEEDS-A-REWOUND-HOST). So one capture hands the window the
+# gallery's `career.banner.divergent` view model (`op=mock`): the real walk over a
+# synthetic ledger with two contracts accepted after live UT, drawn by the real IMGUI
+# code - only DATA is mocked. The mock is cleared (`mockState=none`) before the window
+# closes, and nothing after it saves.
+#
 # NOT PHOTOGRAPHED HERE, and each is a measurement rather than a gap:
-#   - the DIVERGENCE banner `(timeline ends at UT N)` and the split
-#     `Active now (N)` + `Pending in timeline (K)` layout. Both need committed actions to
-#     sit in the FUTURE of the live clock, which means a rewind, and the two
-#     `Pending in timeline` folds need one too. The SEAM half of that is now shipped -
-#     wave 6 added a `career` row with a `pending:` prefix, so `op=expand
-#     window=career key=pending:contracts` exists - but both folds only DRAW under the
-#     divergence layout, so on this host the op would answer OK over a fold nothing is
-#     drawing. What is left is purely a FIXTURE question. Filed as
-#     GUI-CENSUS-CAREER-DIVERGENCE-NEEDS-A-REWOUND-HOST.
-#   - the eleven hover strings (four tab labels, six column headers, two pending
-#     toggles). Blocked by GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT, which is
-#     refuted at the strongest available setting rather than untried.
-description = "GUI census: the Career State window's Contracts tab with real rows, on the one fixture whose ledger sidecar carries two contract accepts and no terminal row - the populated form of a tab every previous capture photographed empty - plus the same tab at the window's own 520x320 drag floor."
+#   - the DIVERGENCE layout on a REAL host (the mock above is the only picture of it).
+#   - the hover strings (two tab labels, six column headers, the heading, the pending
+#     fold, the row cross-links). Blocked by GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT,
+#     which is refuted at the strongest available setting rather than untried.
+description = "GUI census: the Career State window's Contracts tab with real rows, on the one fixture whose ledger sidecar carries two contract accepts and no terminal row - the populated form of a tab every previous capture photographed empty - plus the same tab at the window's own 520x320 drag floor, the Strategies tab, and the in-table Pending-in-timeline fold drawn over the gallery's divergent view model."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "career", "GUI-15", "pending-operator"]
 
@@ -91,16 +97,20 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "cc-career-contracts-minsize-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "cc-career-contracts-minsize-advanced" }, expect = "OK" },
 
-  # --- back to the generous rect, and the other three tabs on a CAREER host that has a
-  # ledger. Cheap, and it makes the four-tab set comparable within one contact sheet page
-  # instead of across three fixtures.
+  # --- back to the generous rect, and the other tab on a CAREER host that has a ledger.
+  # It reads the one-line empty state (`No active strategies.`), no heading.
   { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "cc-career-strategies-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "cc-career-strategies-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "cc-career-milestones-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "cc-career-milestones-advanced" }, expect = "OK" },
+
+  # --- THE PENDING FOLD, over the gallery's divergent view model (see the header). The
+  # mock selects its own tab (Contracts) and the applier answers OK only once the frame
+  # drew the mocked rows (its witness read-back), so a green step is a drawn fold.
+  { cmd = "UiAction", args = { op = "mock", window = "career", mockState = "career.banner.divergent" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cc-career-contracts-pendingfold-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cc-career-contracts-pendingfold-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "mock", window = "career", mockState = "none" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
 
   { cmd = "FlushAndQuit", expect = "OK" },
@@ -143,12 +153,12 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-contracts-active-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-contracts-minsize-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-strategies-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-milestones-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-contracts-pendingfold-advanced .*patched=17/17",
 ]
 forbidden = []
 
 [runtime]
-# Five captures and five dumps, a 300 s cold-load allowance and ~20 single-phase UI ops
+# Five captures and five dumps (the milestones capture was replaced by the mocked fold), a 300 s cold-load allowance and ~20 single-phase UI ops
 # on a one-vessel career with a two-row ledger sidecar. GUI-12 measured seven captures
 # plus seven dumps at 89 s on a comparable host. 900 s is an order of magnitude over
 # that and stays generous because the PRODUCT is the images and the trees, and a KILLED

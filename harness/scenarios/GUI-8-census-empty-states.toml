@@ -21,10 +21,18 @@ tier = "operator"
 # boot works; that lane drives a tech-node purchase and asserts on the ledger, and never
 # opens a window.
 #
-# WHAT IT PHOTOGRAPHS (12 PNGs, each with a `<label>.gui.json` dump beside it): the main
+# WHAT IT PHOTOGRAPHS (8 PNGs, each with a `<label>.gui.json` dump beside it): the main
 # window in both modes, the Missions and Recordings tabs empty, the Timeline empty, both
-# Kerbals tabs on a roster with no flights behind it, all four Career State tabs under the
-# SCIENCE-mode banner, and the Logistics window with no routes and no candidates.
+# Kerbals tabs on a roster with no flights behind it, and the Logistics window with no
+# routes and no candidates.
+#
+# 2026-09-24: THE CAREER WINDOW IS NO LONGER PHOTOGRAPHED HERE. It became the state view of
+# contracts and strategies, and its launcher is now Career-mode only, so no Science-mode
+# player can open it; the lane's old `fs-career-milestones-science-advanced` capture was a
+# picture of an unreachable window and was dropped. What changes on screen instead is the
+# main window itself: `fs-main-advanced` now reads WITHOUT a `Career` launcher, which is
+# the Science-mode half of that gate. Science mode's dated career history (milestones,
+# facilities, tech) is the Timeline's Career view, photographed by GUI-24.
 #
 # A PARSEK-FOOTPRINT NOTE, recorded because it is a real property of this host rather than
 # an aside: `fresh-science` carries NO `SCENARIO{name=ParsekScenario}` node (it is one of
@@ -107,7 +115,7 @@ tier = "operator"
 # WHAT THE WAVE GOT OUT OF IT, beyond the sentences: this lane is the EMPTY half of nine
 # empty-vs-populated pairs the census now holds (`design-gui-inventory.md` section 2), which
 # wave 1 could not hold at all because it flew one host.
-description = "GUI census wave 2, the empty states: photograph the Missions and Recordings tabs, the Timeline, both Kerbals tabs, all four Career State tabs and the Logistics window with nothing in any of them, on the suite's only committed SCIENCE-mode save, so the empty-state wording and the science-mode banners have a picture."
+description = "GUI census wave 2, the empty states: photograph the Missions and Recordings tabs, the Timeline, both Kerbals tabs, and the Logistics window with nothing in any of them, plus the Science-mode main window without its Career launcher, on the suite's only committed SCIENCE-mode save, so the empty-state wording has a picture."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "empty-state", "GUI-8", "pending-operator"]
 
@@ -169,18 +177,6 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "fs-kerbals-outcomes-empty-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
 
-  # --- Career State under the SCIENCE-mode banner ---
-  # Science mode draws only the tabs that carry data: Milestones, plus Facilities while a
-  # building is destroyed (none is on this fresh save). So the window shows Milestones
-  # with no tab bar, under `Science mode - no contracts, strategies or building levels`.
-  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "fs-career-milestones-science-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fs-career-milestones-science-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
-
   # --- Logistics with no routes and no candidates ---
   # Commanded at its own 1410 px floor, which is wider than the 1280 px instance, so the
   # capture is honestly clipped at the client edge (residue
@@ -232,7 +228,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,kerbals",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,logistics",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=1 openWindows=main",
   # --- the negative dialog assertion (see the header) ---
@@ -246,7 +241,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-timeline-overview-empty-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-kerbals-roster-fresh-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-kerbals-outcomes-empty-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-career-milestones-science-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-logistics-empty-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-main-basic .*patched=17/17",
 ]
@@ -257,7 +251,7 @@ required = [
 forbidden = []
 
 [runtime]
-# 12 captures and 12 dumps and about 40 single-phase UI ops, on the smallest save in the
+# 8 captures and 8 dumps (12 when first written) and about 40 single-phase UI ops, on the smallest save in the
 # suite. Sized off GUI-1's MEASURED 96 s for 22 captures plus 22 dumps plus an in-game
 # batch on a 42 MB career; this lane is smaller on every axis and its cold load is trivial.
 # Generous rather than tight because the PRODUCT is the images and a KILLED run leaves none.

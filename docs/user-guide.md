@@ -237,18 +237,18 @@ The window is draggable and resizable. Fold state is transient: it survives clos
 
 ### Career State Window
 
-Click the "Career" button in the main Parsek window (Advanced mode) to open the Career State window. It shows the career state that has no stock screen of its own: what is true now, and what the recorded timeline still does to it. Every date is the compact KSP date the Kerbals and Timeline windows use (`Y1, D40, 05:17`).
+Click the "Career" button in the main Parsek window (Advanced mode, Career games only) to open the Career State window. It shows the two slot-limited parts of a career that have no stock screen of their own: which contracts and strategies hold a slot now, and what the recorded timeline still does to them. Every date is the compact KSP date the Kerbals and Timeline windows use (`Y1, D40, 05:17`). Dated career history - every contract and strategy event, facility upgrades and damage, milestones and tech unlocks - is in the Timeline's **Career** view.
 
-- **Contracts** - active contracts with their accept date and deadline, plus Mission Control slot usage (`slots 1/2 now, 2/2 at timeline end`). A deadline also says how far away it is, `(in 12d)`, or `(overdue 3d)` in amber once it has passed.
-- **Strategies** - active Administration strategies with their activation date and resource flow, plus Administration slot usage.
-- **Facilities** - the level of each of the nine KSC buildings, with `(destroyed)` while stock reports one down.
-- **Milestones** - every credited milestone with its date and reward (`Kerbin - Science`, `+ 1600 funds`).
+- **Contracts** - active contracts with their accept date and deadline. A deadline also says how far away it is, `(in 12d)`, or `(overdue 3d)` in amber once it has passed.
+- **Strategies** - active Administration strategies with their activation date and resource flow.
 
-When the recorded timeline changes a row after the live moment, a **Timeline end** column appears and says what it does: `completes Y1, D40`, `FAILS Y1, D40` (amber: a failure costs funds and reputation), `cancelled`, `deactivates`, `upgrades to L2`, `destroyed` (a committed flight that wrecks a building). Rows the timeline adds later (a contract accepted, a strategy activated or a milestone credited in a committed recording that has not played yet) sit in a foldable **Pending in timeline** group under the rows that are true now. The mode banner reads `Career mode - <date>` and adds `(timeline ends <date>)` when the timeline reaches past the live moment.
+Each tab opens with one heading line, `Active now: 2 of 2 slots`; hover it to see the Mission Control (contracts) or Administration (strategies) level the slot limit comes from, and the level at the timeline end when a recorded upgrade raises it. One column header follows, then the rows. When the recorded timeline changes a row after the live moment, a **Timeline end** column appears and says what it does: `completes Y1, D40`, `FAILS Y1, D40` (amber: a failure costs funds and reputation), `cancelled`, `deactivates`. Contracts and strategies the timeline adds later (accepted or activated in a committed recording that has not played yet) sit under a fold row inside the same table, `Pending in timeline (1) - 3 of 3 slots at timeline end`. A tab with nothing active and nothing pending shows one grey line, such as `No active contracts.`. The mode banner reads `Career mode - <date>` and adds `(timeline ends <date>)` when the timeline reaches past the live moment.
 
-The window only draws the tabs a game mode has. In Science mode there are no contracts, strategies or building levels (stock treats every building as fully upgraded), so the window shows Milestones, plus a Facilities tab that appears only while a building is destroyed or a committed flight will destroy one; buildings can be destroyed in Science mode unless the difficulty option Indestructible Facilities is on. Whether a building is down now is read from the game itself (re-read about once a game minute while the window is open), so a building repaired at the KSC reads intact. In Sandbox nothing career-shaped is tracked and the Career button is hidden.
+Click a contract or strategy name to open the Timeline on that category (Contracts or Strategies), scrolled to its first row - for a contract, its accept row, with how it ends beneath.
 
-The window is draggable and resizable down to 520 x 320, and the tab bar uses the same styling as the rest of Parsek. It keeps its tab when you close and reopen it.
+In Science and Sandbox games the Career button is hidden: there are no contracts or strategies there. Science games still record milestones, facility changes and tech unlocks, which the Timeline's Career view shows.
+
+The window is draggable and resizable down to 520 x 320, and the tab bar uses the same styling as the rest of Parsek. It keeps its tab and its folds when you close and reopen it.
 
 ### Settings
 

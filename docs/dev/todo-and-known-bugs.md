@@ -872,6 +872,39 @@ sequence), which is also what a player does. Fix direction if it matters: have `
 tree, exactly as `MissionsWindowUI`'s GoTo path already does ("Calling the same idempotent static
 the draw and ParsekScenario.OnLoad both call is not a second seam").
 
+## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is OPEN]
+
+Done: tabs Contracts and Strategies only (Facilities and Milestones removed with their VM,
+draw code, gallery states and tests; the Timeline's Career view owns that history); ONE
+heading line `Active now: N of M slots` (hover: the Mission Control / Administration level),
+ONE column header, and the pending group as an in-table fold row
+`Pending in timeline (n) - N of M slots at timeline end`; a one-line grey empty state; the
+row name cell opens the Timeline on Contracts / Strategies scrolled to that subject
+(`ScrollToCareerSubject`, subject id = ledger ContractId / StrategyId, the same key the
+Timeline stamps); the launcher is Career-mode only. Seam: `op=tab window=career` is
+`contracts` / `strategies`, `op=expand key=pending:` the same two. Re-flown PASS: GUI-15
+`2026-09-24_1528`, GUI-5 `_1523`, GUI-8 `_1524`, GUI-14 `_1525`, GUI-1 `_1526` (rows in
+autotest-status). Found on the way and fixed: five gallery career states held more
+contracts or strategies than their own slot limit (the heading read `3 of 2 slots`); they
+now carry the Mission Control / Administration upgrade that allows it, pinned by
+`GuiMockCatalogueTests.EveryCareerStateFitsItsOwnSlotLimits`.
+
+Open residue:
+1. No REAL host has pending contracts or strategies, so the fold's only picture is the
+   gallery mock in GUI-15 (same need as GUI-CENSUS-CAREER-DIVERGENCE-NEEDS-A-REWOUND-HOST).
+2. The cross-link click itself is not driven by any lane (hover does not paint, and no seam
+   op clicks a row cell); the pure half is unit-tested (`OnRowNameClicked`, the subject-id
+   agreement test). A Timeline scroll after a click is unverified in-game.
+3. KSCACTION-FACILITY-UPGRADE-LEDGER-COST-ZERO: GUI-14's `KscAction upgrade-facility` wrote a
+   `FacilityUpgrade` ledger row with cost 0 (`[Funds] FacilityUpgrade: -0 ...
+   runningBalance=500000` in `2026-09-24_1525`'s KSP.log), so the Timeline row reads
+   `Upgrade Tracking Station -> Lv.2 -0`. L1-upgrade-facility-career recorded the -150,000
+   debit on the same fixture, so the question is whether the cost reaches the ledger row on
+   the seam path only or on a player click too. Not traced.
+4. The gallery's `op=mock` refuses by COMPLEXITY mode only; it does not know the launcher is
+   now Career-mode only, so a mock applied in a Science save would draw a window no Science
+   player can open. No lane does that today.
+
 ## CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is OPEN]
 
 Done on the branch (owner-approved review items 1-8): house dates with a relative deadline
@@ -900,13 +933,14 @@ destroyed in a default Science game; the committed `fresh-science` fixture carri
 `IndestructibleFacilities = False`.
 
 Open residue:
-1. No census picture of a destroyed facility, a recorded contract failure, populated
-   strategies, the split layout with pending rows, or Science mode with a destroyed
-   building. The gallery catalogue covers each as a synthetic state; a real one needs a
+1. No census picture of a recorded contract failure, populated strategies, or the split
+   layout with pending rows on a real host (2026-09-24: the destroyed-facility and
+   Science-mode items are moot - both tabs are gone; the pending fold has a mocked picture,
+   see CAREER-STATE-VIEW-2026-09-24). The gallery catalogue covers each as a synthetic state; a real one needs a
    rewound career fixture (same need as item 4 of GUI-CENSUS-WAVE6-RESIDUE-2026-09-22).
-2. The Career launcher's tooltip still reads "Contracts, strategies and buildings along
-   the timeline." in Science mode, where the window has neither contracts nor strategies.
-   Left as is: a mode-dependent tooltip is a second copy for one sentence.
+2. ~~The Career launcher's tooltip still reads "Contracts, strategies and buildings along
+   the timeline." in Science mode.~~ Done 2026-09-24: the launcher is Career-mode only and
+   reads "Contracts and strategies you hold along the timeline."
 3. Items 9-11 of the review were not approved (merge Strategies into Contracts, a Tech
    tab, re-fly change history) and are not filed as work.
 4. GUI-6 still opens the Career window through the seam in its Sandbox flight
@@ -1074,7 +1108,7 @@ tombstoned destruction therefore schedules no intact default for its building. T
 seed, the poll and the event handlers share one intact test (`TryReadSettledIntact`: a
 building between states has no value and is neither seeded nor compared). Career window: its live "now" read is unchanged; its
 walk already projected a future `FacilityRepair`, which a rewound career can now hold (new
-gallery state `career.facilities.repaired-in-timeline`). The Timeline folds a facility's
+gallery state `career.facilities.repaired-in-timeline`, removed 2026-09-24 with the Facilities tab). The Timeline folds a facility's
 per-building rows of one event into one row with the summed cost
 (`TimelineBuilder.CompactFacilityBuildingActions`; a Runway repair is up to ten rows). The
 flight warp-start facility patch (`ParsekFlight.OnTimeWarpRateChanged`) now runs inside

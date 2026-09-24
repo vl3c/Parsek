@@ -194,18 +194,17 @@ namespace Parsek.TestCommands
 
         // The Career window's fold set is INVERTED like the Missions window's collapsedLegs
         // (membership means FOLDED), and the op always speaks "expanded", so the applier
-        // owns the flip. Its three keys are the only foldable state in that window - the
-        // Facilities tab has none - and all three live under the split layout, which only
-        // appears on a career whose recorded timeline adds rows after now.
+        // owns the flip. Its two keys are the only foldable state in that window, and both
+        // folds only draw on a career whose recorded timeline adds rows after now.
         private static readonly string[] CareerExpandPrefixes = new[] { PendingKeyPrefix };
 
-        /// <summary>The three wire values <c>pending:</c> takes: the TAB whose pending fold to
+        /// <summary>The two wire values <c>pending:</c> takes: the TAB whose pending fold to
         /// drive. Kept beside the prefix rather than derived from the window's own dotted
         /// keys because the mapping is the point - see
         /// <see cref="CareerFoldKeyFor"/>.</summary>
         internal static readonly string[] CareerPendingFoldValues = new[]
         {
-            "contracts", "strategies", "milestones",
+            "contracts", "strategies",
         };
 
         /// <summary>
@@ -224,8 +223,6 @@ namespace Parsek.TestCommands
                 return CareerStateWindowUI.GroupKey_ContractsPending;
             if (value == "strategies")
                 return CareerStateWindowUI.GroupKey_StrategiesPending;
-            if (value == "milestones")
-                return CareerStateWindowUI.GroupKey_MilestonesPending;
             return null;
         }
 

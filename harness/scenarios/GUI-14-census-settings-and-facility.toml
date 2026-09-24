@@ -2,8 +2,19 @@ schema = 1
 id = "GUI-14-census-settings-and-facility"
 tier = "operator"
 # THE GUI CENSUS: THE SETTINGS WINDOW'S GREYED HALF, ITS THREE DENSITY STATES AND ITS
-# DIAGNOSTICS SECTION ARMED - then a REAL facility upgrade so the Career State window's
-# Facilities tab finally has a row above level 1.
+# DIAGNOSTICS SECTION ARMED - then a REAL facility upgrade, photographed in the Timeline's
+# Facilities view before and after.
+#
+# 2026-09-24: THE CAREER HALF MOVED TO THE TIMELINE. The Career State window became the
+# state view of contracts and strategies and lost its Facilities and Milestones tabs; a
+# facility's level now is on the Space Center itself, and the dated upgrade is a row in
+# the Timeline's Career view (`tab=facilities`). So the before / after pair below is the
+# Timeline's Facilities view (`fc-timeline-facilities-*`), the post-upgrade Milestones
+# capture is dropped (the reading it recorded - an upgrade is not a milestone - holds in
+# the Timeline too, where the two are separate categories), and so is the Career
+# min-size capture (GUI-15 takes the window's drag floor on its populated Contracts tab).
+# The paragraphs below that describe the Career captures are the record of the flights
+# that took them.
 #
 # WHY THIS HOST. `fresh-career` is the empty-career fixture, and empty is exactly what
 # two of this window's controls need in order to be GREY: `Wipe All Recordings` is
@@ -84,7 +95,7 @@ tier = "operator"
 # `FacilityUpgrade` is NOT a Milestones row - that tab still read
 # `(no milestones credited)` under a label saying `credited`, which is the failed capture
 # the relabel and the moved min-size step below fix.
-description = "GUI census: the Settings window with both Wipe buttons greyed on an empty career, its Low and High sample-density states and its five Diagnostics toggles armed, then a real Tracking Station upgrade so the Career State window's Facilities tab has a row above level 1 - which also answers whether that tab can see upgrades at all - and the populated Facilities tab again at the window's own 520x200 drag floor."
+description = "GUI census: the Settings window with both Wipe buttons greyed on an empty career, its Low and High sample-density states and its five Diagnostics toggles armed, then a real Tracking Station upgrade photographed in the Timeline's Facilities career view before (empty) and after (one dated upgrade row)."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "settings", "career", "GUI-14", "pending-operator"]
 
@@ -156,16 +167,15 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "fc-settings-diagnosticson-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },
 
-  # ============ THE CAREER WINDOW BEFORE AND AFTER A REAL FACILITY UPGRADE ============
-  # BEFORE: nine facilities at L1, which is what every existing capture shows. Retaken
-  # here so the pair is the diff rather than a comparison across two fixtures.
-  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  # ======= THE TIMELINE'S FACILITIES VIEW BEFORE AND AFTER A REAL FACILITY UPGRADE =======
+  # BEFORE: an empty career has no facility row at all in the Timeline's Facilities view.
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "fc-career-facilities-preupgrade-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fc-career-facilities-preupgrade-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "facilities" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-timeline-facilities-preupgrade-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-timeline-facilities-preupgrade-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
 
   # THE UPGRADE. L1-upgrade-facility-career's step verbatim, including the facility: a
   # NON-R&D building, pinned in that fixture's README, whose funds debit lives in the
@@ -173,41 +183,16 @@ steps = [
   { cmd = "KscAction", args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" }, expect = "OK", budget = 60 },
   { cmd = "RecordingState", expect = "OK" },
 
-  # AFTER: the same tab, with one row now reading a level above 1 and its Status cell
-  # populated - and the Milestones tab with a credited row, which on an empty career is
-  # its first one. `op=open` rather than a reopen shortcut so the describe echo below
-  # says the window really came back.
-  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  # AFTER: the same view, now with the dated Tracking Station upgrade row. `op=open`
+  # rather than a reopen shortcut so the describe echo below says the window really came
+  # back; `op=tab` again because the view is a persistent field of the window.
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "fc-career-facilities-upgraded-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fc-career-facilities-upgraded-advanced" }, expect = "OK" },
-  # THE MILESTONES TAB AFTER THE UPGRADE, AND ITS LABEL NOW SAYS WHAT IT ACTUALLY SHOWS.
-  # The first flight (`2026-09-21_2033`, PASS) photographed this tab under the label
-  # `...-credited-...` and the dump read `  (no milestones credited)`, so the picture
-  # contradicted its own label - a failed capture however green the run. THE READING
-  # BEHIND IT IS WORTH KEEPING: a `FacilityUpgrade` ledger action is NOT a Milestones
-  # row. Both tabs read the same effective ledger and select different action families,
-  # so an upgrade populates Facilities and leaves Milestones empty. Relabelled rather
-  # than dropped, because the PAIR - Facilities populated and Milestones still empty, on
-  # one ledger in one frame - is what makes that fact visible.
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "fc-career-milestones-postupgrade-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fc-career-milestones-postupgrade-advanced" }, expect = "OK" },
-
-  # AND AT THE WINDOW'S OWN DRAG FLOOR, ON THE POPULATED TAB. 520x320 is the declared
-  # minimum and IMGUI does not reflow, so the point of this capture is a table whose
-  # fixed columns cannot fit it. FACILITIES, not Milestones: the first flight took it on
-  # Milestones, which on this host is one empty-state label - it clips nothing and the
-  # picture proved nothing. Facilities draws nine rows over four fixed columns here. Both
-  # size axes are floors in the read-back, so a window that refuses to shrink reports the
-  # size it kept rather than erroring.
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "520", h = "320" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "fc-career-facilities-minsize-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fc-career-facilities-minsize-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "facilities" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-timeline-facilities-upgraded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-timeline-facilities-upgraded-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
 
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
@@ -238,7 +223,7 @@ count = { min = 0, max = 0 }
 required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,settings",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
   # --- the upgrade itself, the two lines L1 pins ---
   "kscaction action=upgrade-facility .* applied=true",
   "Game state: FacilityUpgraded",
@@ -250,15 +235,13 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-densitylow-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-densityhigh-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-diagnosticson-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-facilities-preupgrade-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-facilities-upgraded-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-milestones-postupgrade-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-career-facilities-minsize-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-timeline-facilities-preupgrade-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-timeline-facilities-upgraded-advanced .*patched=17/17",
 ]
 forbidden = []
 
 [runtime]
-# Ten captures and ten dumps, a 300 s cold-load allowance, one driven KSC action and ~30
+# Seven captures and seven dumps (ten until the 2026-09-24 Career rework), a 300 s cold-load allowance, one driven KSC action and ~30
 # single-phase UI ops on the smallest committed career. GUI-12 measured seven captures
 # plus seven dumps at 89 s on a comparable host; L1-upgrade-facility-career's whole chain
 # is a handful of steps. 900 s is an order of magnitude over the sum and stays generous

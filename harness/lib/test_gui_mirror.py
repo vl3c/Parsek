@@ -225,7 +225,7 @@ class LabelGrammarTests(unittest.TestCase):
                "structure", "settings", "spawncontrol", "gloops", "testrunner"}
     TABS = {"missions": {"missions", "recordings"},
             "kerbals": {"roster", "outcomes"},
-            "career": {"contracts", "strategies", "facilities", "milestones"},
+            "career": {"contracts", "strategies"},
             "timeline": {"overview", "details", "rewindff", "refly",
                          "contracts", "strategies", "facilities", "milestones", "tech"}}
 
