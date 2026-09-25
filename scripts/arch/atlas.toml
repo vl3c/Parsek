@@ -109,6 +109,9 @@ meaning = "The logger. Every subsystem writes through it; the KSP.log is the pri
 [glossary.Recording]
 meaning = "One recorded flight segment: metadata, trajectory points, track sections, part events, terminal state."
 
+[glossary.LedgerOrchestrator]
+meaning = "The ledger's entry point: captures KSC and flight game actions, runs the recalculation walk, patches stock career state from it, and tells every reader when the committed timeline changed."
+
 [glossary.RecordingStore]
 meaning = "The static store of committed recordings that survives scene changes; also the index-keyed live state contract."
 

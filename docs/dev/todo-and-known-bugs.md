@@ -15,6 +15,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect]
+
+**What the map shows** (`python scripts/arch/archview.py --check`, canaries in
+`scripts/arch/test_archview.py`):
+- The kernel knot went 293 -> 301 once the new root files were classified. Joined:
+  `CommittedFutureIndex`, `CommittedFutureIndexCache`, `ReservationExplanation`,
+  `StrategyReservationPredicates`, `StrategyStatePatcher`, `LedgerStrategySnapshot` (this
+  program), plus `FacilityRepairCapture` and `RefusedResumedCopyTail` (earlier work, also
+  unclassified until now). The 2026-09-22 pin of 286 was already stale on main at 293.
+- A new 7-type knot: `StockUiOverlayController`, `StockUiRnDDecoration`,
+  `StockUiAstronautDecoration`, `StockUiFacilityDecoration`, `StockUiLiveSnapshot`,
+  `KerbalDismissalPatch`, `FacilityMenuUpgradeBlockPatch` (UI 5, Patches 2).
+- The greedy cut sequence now starts with `GameAction` (its one in-knot reference, `Ledger`,
+  splits off 28 types), then `RecordingStore`.
+
+**Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
+explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
+`LedgerOrchestrator` references the index cache and the strategy state patcher back (cache
+invalidation, the patch step), which closes the loop. The 7-type knot is the controller
+calling the per-screen decoration helpers while those helpers (and two patches) call the
+controller's refresh / snapshot back.
+
+**Fix direction (design, not urgent).** Invert the back-references: have
+`LedgerOrchestrator` raise its existing `OnTimelineDataChanged` event and let the index cache
+and the strategy patch subscribe instead of being called by name; pass the snapshot into the
+decoration helpers instead of letting them reach the controller. Re-pin the canaries in the
+same commit as whatever moves them.
+
+---
+
 ## STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing [FILED 2026-09-25 from the stock-UI reservation analysis. OPEN; owner rulings taken 2026-09-25 (D1, D2, D4, D5, D7, S1 ruled; D3, D6 out of scope); section 12 claims verified by unit cells]
 
 **Reference:** `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` is the single
@@ -124,11 +154,21 @@ pairing rule):
   SPACECENTER cell would have to buy a part); the `textGreyoutMessage` placement in the
   purchase state is read from the decompile (stock enables it with an empty text there), not
   seen. (2) Stock's purchase-all caption still totals the skipped parts' entry costs.
-  (3) Capture bug found on the way: a purchase in the editor or R&D also buys the part's
+  (3) ~~Capture bug found on the way: a purchase in the editor or R&D also buys the part's
   `identicalParts` (same tech) with `costsFunds = false`, so stock charges nothing for them
   (`Funding.onPartPurchased` checks the flag), but
   `GameStateRecorder.OnPartPurchased` records `cost = entryCost` for each, so the ledger
-  over-charges. Not changed here (it changes what a row says); needs its own fix.
+  over-charges.~~ Fixed at capture (branch `part-purchase-identical`): the handler reads
+  `AvailablePart.costsFunds` while stock still has it cleared (both
+  `PartListTooltipController.onPurchaseProceed` and `RDTech.HandlePurchase` clear it around
+  the fire, decompiled) and records `cost=0` for the identical part through
+  `GameStateRecorder.ComputePartPurchaseChargedCost`, the same zero-cost shape as a bypass
+  purchase. The row is kept, not dropped: `PatchPurchasedParts` re-applies it after a
+  rewind. The block now counts zero-cost rows too (`CommittedPartPurchaseAfter` no longer
+  filters `FundsSpent > 0`), so an identical part the timeline gets free later cannot be
+  bought now; with bypass on the block stays inert. The window's rows now sum to the one
+  `FundsChanged(RnDPartPurchase)` debit stock makes (the KSC reconciler used to read 2x).
+  Rows captured before the fix keep their recorded amount (no migration).
 
 **Ledger / flight defects with no stock control to mark:**
 - Contract fail / cancel penalties are charged unconditionally, so an already-resolved
@@ -11865,6 +11905,20 @@ goes INTO the 1.25 m section of the stack (it is a structural section, not a
 nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
 is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
 
+## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. OPERATOR CONFIRMATION PENDING on the supervisor's ruling]
+
+The registry names the road (roadmap routing roads: a rendezvous mission relaunched against
+the station's live orbit). V18T is the only lane whose extraction emits a `VesselOrbital`
+constraint (`ExtractConstraints: ... VesselOrbital(3620499050@Kerbin) P=2433.78... off=15853.66`,
+the Depot's own park orbit), and the solver consumes it (`PhaseLock APPLIED ...
+method=joint-best-fit ... zeroDrift=yes`: the zero-drift per-window reschedule exists only
+because that constraint is incommensurate with `Rotation(Kerbin)`). Both lines are required
+and read on 13 of the 14 archived logs plus the armed re-flight `2026-09-25_1947`. The mission
+is `Route: Kerbin -> Kerbin`, the route's backing mission, so a player-armed rendezvous loop
+(MissionConfig on a tree that docks with a station) is not what this gates. If the operator
+rules the cell needs the player-armed road, the claim moves to a lane that arms such a loop and
+V18T keeps the tokens as a route-side witness.
+
 ## GS6-CHUTE-TWO-PHASE-NEEDS-A-DESCENT-VARIANT: the sweep craft carries parachutes and the harness has arm/deploy/cut verbs, but `kx_rewind_watch` commits at the top of a sub-orbital coast and never re-enters, so D7 `chute-two-phase` and `chute-cut` stay unreachable [FOUND BY READING 2026-09-02 while preparing the GS-6 revision-2 craft. MISSION-SHAPE NOTE, REPORT-ONLY - not a defect in the product, the craft or the driver]
 
 WHAT IS ALREADY IN PLACE: `Parachute.arm()` / `.deploy()` / `.cut()` are all on the
@@ -11912,6 +11966,14 @@ LANDING, so the variant also inherits GS-1's touchdown-survival arithmetic (cras
 tolerances, descent mass under canopy count) - and if it does not survive, the
 terminal state changes from SubOrbital to Destroyed and the lane's own
 `[expectations.recordings.structure]` moves with it.
+
+UPDATE 2026-09-25 (coverage wave 1b): D7 `chute-cut` is CLAIMED on `B4-reentry-splashdown`, not on
+a GS-6 descent variant. B4 already lands under the pod's `parachuteLarge`, and stock
+`ModuleParachute` cuts a deployed canopy itself once the vessel is LandedOrSplashed
+(decompiled), about 0.3 s after splashdown; the recorder logs the Deployed -> Cut transition
+(`Part event: ParachuteCut 'parachuteLarge' pid=`), now required on B4 (armed re-flight
+`2026-09-25_1959`). `chute-two-phase` was already claimed. What stays open here is only the
+GS-6 sweep's own chute trio, which no cell needs any more.
 
 ## GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER: five part-event families cannot be fired from a scripted timeline at all, so no sweep craft will ever reach them [FOUND BY READING 2026-09-02 against the installed kRPC 0.5.4 client surface. SCOPE NOTE, REPORT-ONLY - not a defect in anything]
 

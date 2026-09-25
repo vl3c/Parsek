@@ -100,6 +100,17 @@ D1  = ["auto-record-launch"]
 # the analyzer's INV rules own malformation, this owns absence.
 D3  = ["orbital-checkpoint", "parent-anchored-debris"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic"]
+# D7 chute-cut: gated by the `Part event: ParachuteCut 'parachuteLarge` token below
+# (FlightRecorder.CheckParachuteTransition, classified Deployed -> Cut by
+# ClassifyParachuteTransitionEvent). The mission never cuts the chute: stock
+# ModuleParachute cuts the canopy itself about 0.3 s after splashdown, and the recorder
+# logs the Deployed -> Cut transition on the pod's own parachuteLarge (reading runs
+# 2026-09-24_1820 / _1842, one line each, after the Splashdown progress node). A first
+# observation of an already-cut chute (Stowed -> Cut) is deliberately NOT an event, so
+# this token needs the preceding Deployed state the two tokens above already gate.
+# ARMED RE-FLIGHT `2026-09-25_1959` PASS attempt 1 (automation DLL `f506f059...`, origin/main `7c90492bd`);
+# negative control offline (hlib.evaluate_expectations over that log, the cut rewritten to ParachuteRepacked reds exactly this token).
+D7  = ["chute-cut"]
 D14 = ["kerbin", "warp-rails"]
 
 [expectations]
@@ -218,10 +229,14 @@ count = { min = 9, max = 10 }
 # fail-closed direction, never a silent pass. The part-name prefix stops before the
 # closing quote like B1's. Both would have FAILED every B4 flight on the old profile
 # (2026-09-24_1727 + _a2: the chute read Armed to impact).
+# THE THIRD PART-EVENT TOKEN (2026-09-25, D7 chute-cut): `ParachuteCut 'parachuteLarge`,
+# the stock auto-cut about 0.3 s after splashdown, printed once on both reading runs
+# (_1820 / _1842). Same Verbose level and fail-closed direction as the pair above.
 required  = ["Recording started",
              "ProcessBreakupEvent: debris child created",
              "Part event: ParachuteSemiDeployed 'parachuteLarge",
              "Part event: ParachuteDeployed 'parachuteLarge",
+             "Part event: ParachuteCut 'parachuteLarge",
              "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
