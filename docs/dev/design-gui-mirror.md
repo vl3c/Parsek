@@ -332,7 +332,10 @@ link, note and lookup, and the row tooltips carry it.
   would read the same carry their tokens. Only seam windows are named.
 * **A tab** reads by its selection grid's text, else - for a tab row made of
   toggles (the Timeline's views) - by the toggle that tab alone lights
-  (`toggle_tab_names`); a grouping toggle lit under several tabs names none.
+  (`toggle_tab_names`); a grouping toggle lit under several tabs names none. The
+  current captures are asked first and every capture second, so a tab whose
+  current captures all share a lit preset, or that a re-layout left with no
+  current capture, is still named.
 * **A state** reads by the control its step changed where the capture's own tree
   shows it (`state_display_names`): among the current captures of its window,
   tab and mode, the one toggle it lights (or unlights, read "off") or the one

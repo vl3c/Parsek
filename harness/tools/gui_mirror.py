@@ -1837,16 +1837,32 @@ def toggle_tab_names(captures, window_titles):
     selection grid, keyed `{window: {tab: name}}`.
 
     A grid reports its selected item's text, which is how most tabs get their
-    names (`_first_grid_value`); a toggle row reports none. Among the CURRENT
-    captures, a tab's toggle is the one lit in every capture of that tab and
-    unlit in every capture of another tab that draws it - a grouping toggle lit
-    under several tabs names none of them. Captures that name no tab are left
-    out of both sides. A tab with no such toggle, or with more than one, keeps
-    its token.
+    names (`_first_grid_value`); a toggle row reports none. A tab's toggle is
+    the one lit in every capture of that tab and unlit in every capture of
+    another tab that draws it - a grouping toggle lit under several tabs names
+    none of them. Captures that name no tab are left out of both sides. The
+    CURRENT captures are asked first; where they leave a tab unnamed or
+    ambiguous (every current capture of it happens to share a lit preset, or a
+    re-layout left it no current capture at all), every capture of the window
+    is asked, which only adds captures to both sides. A tab with no such
+    toggle, or with more than one, keeps its token.
     """
+    current = _toggle_tab_names([c for c in captures if not is_stale(c)],
+                                window_titles)
+    everything = _toggle_tab_names(captures, window_titles)
+    out = {}
+    for win in set(current) | set(everything):
+        merged = dict(everything.get(win, {}))
+        merged.update(current.get(win, {}))
+        out[win] = merged
+    return out
+
+
+def _toggle_tab_names(captures, window_titles):
+    """One pass of `toggle_tab_names` over the captures it is given."""
     by_window = defaultdict(lambda: defaultdict(list))
     for cap in captures:
-        if is_stale(cap) or cap.get("mocked") or not cap.get("tab"):
+        if cap.get("mocked") or not cap.get("tab"):
             continue
         by_window[cap["window"]][cap["tab"]].append(cap)
     out = {}

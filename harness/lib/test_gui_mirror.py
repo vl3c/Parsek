@@ -1532,6 +1532,22 @@ class ToggleTabNameTests(unittest.TestCase):
         self.assertEqual(gmi.toggle_tab_names(caps, {self.W: [self.T]})[self.W]["plume"],
                          "Plume")
 
+    def test_an_older_capture_settles_a_tab_its_current_captures_leave_ambiguous(self):
+        # Every CURRENT capture of `glim` also has the `Wisp` preset lit, so the
+        # current pass cannot tell the tab's toggle from the preset; a superseded
+        # capture of the same tab with the preset unlit can.
+        texts = ["Plume", "Tock", "Glim", "Wisp"]
+
+        def cap(tab, lit, **kw):
+            return _cap(self.W, "", tab=tab, title=self.T,
+                        controls=[("toggle", t, t in lit) for t in texts], **kw)
+        current = [cap("plume", {"Plume"}), cap("glim", {"Glim", "Wisp"})]
+        self.assertNotIn("glim", gmi.toggle_tab_names(current, {self.W: [self.T]})[self.W])
+        older = cap("glim", {"Glim"}, supersededBy="later")
+        names = gmi.toggle_tab_names(current + [older], {self.W: [self.T]})[self.W]
+        self.assertEqual(names["glim"], "Glim")
+        self.assertEqual(names["plume"], "Plume")
+
 
 class RailDisclosureTests(unittest.TestCase):
     """The rail's window headers are a real disclosure widget, not a list of
