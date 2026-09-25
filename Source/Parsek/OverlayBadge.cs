@@ -134,10 +134,14 @@ namespace Parsek
                 };
             }
 
+            // The reservation explanation is three sentences, so the box grows to fit it
+            // instead of clipping at the one-line minimum.
+            float height = Mathf.Max(TooltipHeight,
+                tooltipStyle.CalcHeight(new GUIContent(tooltip), TooltipWidth));
             Vector3 mouse = Input.mousePosition;
             float x = Mathf.Min(mouse.x + 16f, Screen.width - TooltipWidth - 8f);
-            float y = Mathf.Min(Screen.height - mouse.y + 16f, Screen.height - TooltipHeight - 8f);
-            GUI.Box(new Rect(x, y, TooltipWidth, TooltipHeight), tooltip, tooltipStyle);
+            float y = Mathf.Min(Screen.height - mouse.y + 16f, Screen.height - height - 8f);
+            GUI.Box(new Rect(x, y, TooltipWidth, height), tooltip, tooltipStyle);
         }
     }
 }

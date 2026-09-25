@@ -444,10 +444,13 @@ NO PICTURE THIS ROUND: `On EVA` (ruling 16) is photographed only by GUI-6's
 re-provisioned the automation instance (deployed hash `689f4033...`) between this round's
 flights, and re-provisioning over it would have replaced the DLL under that session. The
 swap screen message, the dismissal dialog and the Astronaut Complex badge tooltips (rulings
-18, 19) are drawn by no census lane; their wording is pinned by `KerbalCrewNoticeTests` and
-`StockUiOverlayControllerTests`. The overlay's `Lost on a committed flight (Parsek)` badge
+18, 19) are drawn by no census lane; their wording is pinned by `KerbalCrewNoticeTests`,
+`ReservationExplanationTests` and `StockUiDecorationQueryTests`. The overlay's Lost badge
 landed after these flights (a `StockUiOverlayController`-only change), so the flown DLL
-lacks it; no lane draws that surface either way.
+lacks it; no lane draws that surface either way. Since the stock-UI reservation PR 1 the
+Astronaut Complex badges read the shared reservation explanation
+(`ReservationExplanation.KerbalOnFlight` / `KerbalLost`), which reuses this window's
+`Reserved until <date>` / `Reserved for <owner>` / `Lost` statuses and its Lost remedy.
 
 Header-vs-cell delta measured off the 2026-09-15 dumps: **0 px on both tabs**, in both scenes. Roster
 header cells at x=284 / 478 / 702 / 836 against body cells at the same four, widths

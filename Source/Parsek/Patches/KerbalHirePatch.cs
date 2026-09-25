@@ -8,8 +8,8 @@ using KSP.UI.Screens;
 namespace Parsek.Patches
 {
     /// <summary>
-    /// Harmony prefix on KerbalRoster.HireApplicant to block hiring kerbals
-    /// that are already committed in unreplayed milestones.
+    /// Harmony prefix on KerbalRoster.HireApplicant to block hiring a kerbal a
+    /// committed future row hires (<see cref="CommittedFutureIndex"/>).
     /// </summary>
     [HarmonyPatch]
     internal static class KerbalHirePatch
@@ -23,7 +23,7 @@ namespace Parsek.Patches
 
             if (method == null)
                 ParsekLog.Warn("KerbalHirePatch",
-                    "KerbalRoster.HireApplicant(ProtoCrewMember) not found — kerbal hire click-block will not apply. " +
+                    "KerbalRoster.HireApplicant(ProtoCrewMember) not found - kerbal hire click-block will not apply. " +
                     "Harmony will skip this patch (caught by ParsekHarmony try/catch).");
 
             return method;
@@ -42,28 +42,27 @@ namespace Parsek.Patches
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("KerbalHirePatch",
-                    "bypass — replay in progress");
+                    "bypass - replay in progress");
                 return true;
             }
 
-            var committedHires = MilestoneStore.GetCommittedKerbalHireNames();
-            if (!committedHires.Contains(kerbalName))
+            var index = CommittedFutureIndexCache.Current;
+            double nowUT = CommittedFutureIndexCache.CurrentUT();
+            if (!StockUiReservationPredicates.IsKerbalHireBlocked(index, kerbalName, nowUT))
                 return true;
 
-            var ev = MilestoneStore.FindCommittedEvent(
-                GameStateEventType.CrewHired, kerbalName);
-
-            string utValue = ev.HasValue
-                ? ev.Value.ut.ToString("F0", CultureInfo.InvariantCulture)
-                : "unknown";
-            string utStr = ev.HasValue ? " at UT " + utValue : "";
-
+            var entry = index.FirstFuture(CommittedFutureKind.KerbalHire, kerbalName, nowUT);
             ParsekLog.Info("KerbalHirePatch",
-                $"blocking hire for name={kerbalName} — committed at UT {utValue}");
+                $"blocking hire for name={kerbalName} - committed future hire " +
+                $"ut={entry.UT.ToString("F0", CultureInfo.InvariantCulture)} " +
+                $"nowUT={nowUT.ToString("F0", CultureInfo.InvariantCulture)} " +
+                $"recording={entry.RecordingId ?? "(ksc)"}");
 
+            var text = StockUiReservationPredicates.ExplainKerbalHire(
+                index, kerbalName, nowUT, ReservationExplanation.DefaultDateFormatter);
             CommittedActionDialog.ShowBlocked(
                 "Cannot hire \"" + kerbalName + "\"",
-                "This kerbal is already committed on your timeline" + utStr + ".",
+                text.Body,
                 "");
 
             return false;

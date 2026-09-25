@@ -7,8 +7,8 @@ using KSP.UI.Screens;
 namespace Parsek.Patches
 {
     /// <summary>
-    /// Harmony prefix on Contracts.Contract.Accept to block accepting contracts
-    /// that are already committed in unreplayed milestones.
+    /// Harmony prefix on Contracts.Contract.Accept to block accepting a contract a
+    /// committed future row accepts (<see cref="CommittedFutureIndex"/>).
     /// </summary>
     [HarmonyPatch]
     internal static class ContractAcceptPatch
@@ -22,7 +22,7 @@ namespace Parsek.Patches
 
             if (method == null)
                 ParsekLog.Warn("ContractAcceptPatch",
-                    "Contracts.Contract.Accept() not found — contract accept click-block will not apply. " +
+                    "Contracts.Contract.Accept() not found - contract accept click-block will not apply. " +
                     "Harmony will skip this patch (caught by ParsekHarmony try/catch).");
 
             return method;
@@ -44,28 +44,32 @@ namespace Parsek.Patches
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("ContractAcceptPatch",
-                    "bypass — replay in progress");
+                    "bypass - replay in progress");
                 return true;
             }
 
-            var committedContracts = MilestoneStore.GetCommittedContractAcceptIds();
-            if (!committedContracts.Contains(keyString))
+            var index = CommittedFutureIndexCache.Current;
+            double nowUT = CommittedFutureIndexCache.CurrentUT();
+            if (!StockUiReservationPredicates.IsContractAcceptBlocked(index, keyString, nowUT))
+            {
+                ParsekLog.Verbose("ContractAcceptPatch",
+                    $"allowing accept for guid={keyString} - no committed future accept " +
+                    $"(nowUT={nowUT.ToString("F0", CultureInfo.InvariantCulture)})");
                 return true;
+            }
 
-            var ev = MilestoneStore.FindCommittedEvent(
-                GameStateEventType.ContractAccepted, keyString);
-
-            string utValue = ev.HasValue
-                ? ev.Value.ut.ToString("F0", CultureInfo.InvariantCulture)
-                : "unknown";
-            string utStr = ev.HasValue ? " at UT " + utValue : "";
-
+            var entry = index.FirstFuture(CommittedFutureKind.ContractAccept, keyString, nowUT);
             ParsekLog.Info("ContractAcceptPatch",
-                $"blocking accept for guid={keyString} — committed at UT {utValue}");
+                $"blocking accept for guid={keyString} - committed future accept " +
+                $"ut={entry.UT.ToString("F0", CultureInfo.InvariantCulture)} " +
+                $"nowUT={nowUT.ToString("F0", CultureInfo.InvariantCulture)} " +
+                $"recording={entry.RecordingId ?? "(ksc)"}");
 
+            var text = StockUiReservationPredicates.ExplainContractAccept(
+                index, keyString, nowUT, ReservationExplanation.DefaultDateFormatter);
             CommittedActionDialog.ShowBlocked(
                 "Cannot accept \"" + (string.IsNullOrEmpty(title) ? keyString : title) + "\"",
-                "This contract is already committed on your timeline" + utStr + ".",
+                text.Body,
                 "");
 
             return false;

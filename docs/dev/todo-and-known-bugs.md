@@ -58,11 +58,23 @@ pairing rule):
 - Contract Configurator disables the Mission Control overlay and bypasses the Accept
   pre-block (read from source).
 - The Astronaut Complex opened from the editor is undecorated.
-- Marks and blocks go stale after a rewind: the `MilestoneStore` unreplayed slice
+- ~~Marks and blocks go stale after a rewind: the `MilestoneStore` unreplayed slice
   never advances. F1 verified: after a rewind the committed facility upgrade blocks
   every later upgrade of that facility for good, because the predicate keys on the facility id
-  only.
-- The tooltips use raw UT and em dashes.
+  only.~~ Fixed by PR 1 (branch `stock-ui-predicates`): every mark and click-block reads one
+  UT-keyed `CommittedFutureIndex` over the effective ledger (`CommittedFutureIndex.cs`); a
+  row blocks only while it is committed and `UT > now`. The F1 cell flipped to
+  `F1_CommittedOneToTwoUpgrade_AfterRewind_BlocksOnlyUntilItsUT_Fixed`. The
+  `MilestoneStore.GetCommitted*` / `FindCommittedEvent` queries are deleted.
+- ~~The tooltips use raw UT and em dashes.~~ Fixed by PR 1: one pure
+  `ReservationExplanation` builder per kind (fact + rule + when it frees up, calendar dates)
+  feeds the badge hovers and the `CommittedActionDialog` refusals; the facility dialog names
+  the building (`FacilityDisplayNames`).
+- A committed kerbal DISMISSAL (`CrewRemoved`) has no ledger row (the converter drops the
+  event), so its Astronaut Complex mark still reads committed milestone events, through a
+  narrow, UT-keyed fallback (`CommittedFutureIndexCache.CollectRetireFallbackEntries`). No
+  click-block reads it. Fold it into the index properly if a dismissal ever becomes a
+  ledger action.
 
 **Verification (2026-09-25):** reference section 12, cells in
 `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`:

@@ -36,18 +36,41 @@ namespace Parsek.Patches
             if (kerbals?.ShouldBlockDismissal(crew.name) ?? false)
             {
                 ParsekLog.Info("KerbalDismissal",
-                    $"Blocked dismissal of '{crew.name}' — managed by Parsek or named by a committed flight");
+                    $"Blocked dismissal of '{crew.name}' - managed by Parsek or named by a committed flight");
                 // The same Action Blocked dialog its four sibling blocks (hire, contract
                 // accept, facility upgrade, tech research) raise, so a refused dismissal
-                // stops being the one silent refusal.
+                // stops being the one silent refusal. A kerbal a committed flight holds
+                // gets the same explanation the Astronaut Complex hover shows.
+                string heldReason = DescribeHeldKerbal(kerbals, crew.name);
                 CommittedActionDialog.ShowBlocked(
                     "Cannot dismiss \"" + crew.name + "\"",
-                    DescribeDismissalBlock(kerbals.GetReservationKind(crew.name),
+                    heldReason ?? DescribeDismissalBlock(kerbals.GetReservationKind(crew.name),
                         kerbals.IsNamedByCommittedFlight(crew.name)),
                     "");
                 return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// The reservation explanation (<see cref="ReservationExplanation.KerbalOnFlight"/>
+        /// or <see cref="ReservationExplanation.KerbalLost"/>) for a kerbal a committed
+        /// flight holds, or null for every other managed kind.
+        /// </summary>
+        internal static string DescribeHeldKerbal(KerbalsModule kerbals, string kerbalName)
+        {
+            if (kerbals == null || string.IsNullOrEmpty(kerbalName)) return null;
+            if (kerbals.GetReservationKind(kerbalName) != KerbalReservationKind.ReservedActive)
+                return null;
+            var context = StockUiOverlayController.BuildLiveAstronautContext(null);
+            var text = StockUiReservationPredicates.ExplainKerbalReservation(
+                CommittedFutureIndexCache.Current,
+                kerbalName,
+                context.Reservation(kerbalName),
+                context.SlotOwner(kerbalName),
+                context.IsLoopingRecording,
+                ReservationExplanation.DefaultDateFormatter);
+            return text.Body;
         }
 
         /// <summary>

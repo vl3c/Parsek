@@ -21345,29 +21345,22 @@ namespace Parsek.InGameTests
                 recordingId = recordingId,
                 epoch = 0u
             };
-            var milestone = new Milestone
-            {
-                MilestoneId = "phase5-overlay-" + System.Guid.NewGuid().ToString("N"),
-                StartUT = evt.ut,
-                EndUT = evt.ut,
-                RecordingId = recordingId,
-                Epoch = 0u,
-                Committed = true,
-                LastReplayedEventIndex = -1,
-                Events = new List<GameStateEvent> { evt }
-            };
-            MilestoneStore.AddMilestoneForTesting(milestone);
+            // The overlays and click-blocks read the committed-future index over the
+            // effective ledger, so the fixture is a ledger row of the committed recording,
+            // converted the way a commit converts a captured event.
+            GameAction action = GameStateEventConverter.ConvertEvent(evt, recordingId);
+            if (action != null)
+                Ledger.AddAction(action);
+            else
+                ParsekLog.Warn("TestRunner",
+                    $"Phase 5 overlay fixture: event type {eventType} produced no ledger row");
             return recording;
         }
 
         private static void RemoveCommittedOverlayFixture(string recordingId, Recording recording)
         {
             if (!string.IsNullOrEmpty(recordingId))
-            {
-                MilestoneStore.PurgeTaggedEvents(
-                    new HashSet<string> { recordingId },
-                    "phase5-stock-ui-overlay-test");
-            }
+                Ledger.RemoveActionsForRecording(recordingId);
             if (recording != null)
                 RecordingStore.RemoveCommittedInternal(recording);
         }

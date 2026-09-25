@@ -16,7 +16,7 @@ namespace Parsek.Patches
     {
         static bool Prefix(RDTech __instance)
         {
-            // includeAffordability:false — UnlockTech is post-deduction; only the
+            // includeAffordability:false - UnlockTech is post-deduction; only the
             // deduction-independent committed-tech block is safe here.
             return !TryBlockTechResearch(__instance, includeAffordability: false);
         }
@@ -37,36 +37,32 @@ namespace Parsek.Patches
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("TechResearchPatch",
-                    $"Bypassing block for '{techId}' — action replay in progress");
+                    $"Bypassing block for '{techId}' - action replay in progress");
                 return false;
             }
 
-            var committedTechs = MilestoneStore.GetCommittedTechIds();
-            if (committedTechs.Contains(techId))
+            var index = CommittedFutureIndexCache.Current;
+            double nowUT = CommittedFutureIndexCache.CurrentUT();
+            if (StockUiReservationPredicates.IsTechResearchBlocked(index, techId, nowUT))
             {
-                var ev = MilestoneStore.FindCommittedEvent(
-                    GameStateEventType.TechResearched, techId);
+                var entry = index.FirstFuture(CommittedFutureKind.TechResearch, techId, nowUT);
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
 
                 string sciCost = "";
-                if (ev.HasValue)
-                {
-                    double cost = ResourceBudget.ParseCostFromDetail(ev.Value.detail);
-                    if (cost > 0)
-                        sciCost = cost.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
-                            + " science reserved for this action";
-                }
-
-                string utStr = ev.HasValue
-                    ? " at UT " + ev.Value.ut.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)
-                    : "";
+                if (entry != null && entry.Amount > 0f)
+                    sciCost = entry.Amount.ToString("F1", ic) + " science reserved for this action";
 
                 ParsekLog.Info("TechResearchPatch",
-                    $"Blocking tech research: '{techId}' ({tech.title ?? techId}) — already committed{utStr}" +
+                    $"Blocking tech research: '{techId}' ({tech.title ?? techId}) - committed future row " +
+                    $"ut={(entry != null ? entry.UT.ToString("F0", ic) : "?")} nowUT={nowUT.ToString("F0", ic)} " +
+                    $"recording={entry?.RecordingId ?? "(ksc)"}" +
                     (!string.IsNullOrEmpty(sciCost) ? $", {sciCost}" : ""));
 
+                var text = StockUiReservationPredicates.ExplainTech(
+                    index, techId, nowUT, ReservationExplanation.DefaultDateFormatter);
                 CommittedActionDialog.ShowBlocked(
                     "Cannot research \"" + (tech.title ?? techId) + "\"",
-                    "This technology is already committed on your timeline" + utStr + ".",
+                    text.Body,
                     sciCost);
 
                 return true;
@@ -81,7 +77,7 @@ namespace Parsek.Patches
                 if (sciCostCheck > 0 && !LedgerOrchestrator.CanAffordScienceSpending(sciCostCheck))
                 {
                     ParsekLog.Info("TechResearchPatch",
-                        $"Blocking tech research: '{techId}' ({tech.title ?? techId}) — " +
+                        $"Blocking tech research: '{techId}' ({tech.title ?? techId}) - " +
                         $"insufficient science (cost={sciCostCheck:F1})");
 
                     CommittedActionDialog.ShowBlocked(
@@ -95,7 +91,8 @@ namespace Parsek.Patches
             }
 
             ParsekLog.Verbose("TechResearchPatch",
-                $"Allowing tech research: '{techId}' ({tech.title ?? techId}) — not in committed set ({committedTechs.Count} committed)");
+                $"Allowing tech research: '{techId}' ({tech.title ?? techId}) - no committed future row " +
+                $"(nowUT={nowUT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)})");
             return false;
         }
     }
