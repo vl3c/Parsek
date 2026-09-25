@@ -231,6 +231,14 @@ namespace Parsek
             return everActivated.Contains(strategyId ?? "");
         }
 
+        /// <summary>Every id <see cref="IsManagedStrategy"/> answers true for, sorted ordinally.</summary>
+        internal List<string> GetManagedStrategyIds()
+        {
+            var ids = new List<string>(everActivated);
+            ids.Sort(System.StringComparer.Ordinal);
+            return ids;
+        }
+
         /// <summary>
         /// Returns whether the given strategy is currently active on the timeline.
         /// </summary>

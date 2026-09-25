@@ -48,7 +48,11 @@ pairing rule):
   KSPCF auto-expiry still runs and is captured as a StrategyDeactivate row.
   `KspStatePatcher.PatchStrategies` (`StrategyStatePatcher.cs`) writes the ledger's active
   set into `StrategySystem` via `Strategy.Load` / `Unregister` (no charge, no refund, no
-  capture), leaving strategies the ledger never activated alone; a ledger state stock's
+  capture), leaving strategies the ledger never activated alone. Stock fills its strategy
+  list a frame after `StrategySystem.OnLoad` (a coroutine), after the ksp-load recalc, so a
+  patch that finds no loaded list waits and a `StrategySystem.LoadStrategies` postfix runs it
+  once the list exists (Career only; dropped by a newer recalc, a scene change or another
+  save). A ledger state stock's
   conflict rule would not allow is applied as the ledger has it and warned once, never
   resolved by switching one off. The setup-cost double
   charge is prevented by the activation block, not by a walk change: the walk still

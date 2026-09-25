@@ -2130,6 +2130,8 @@ After every ledger recalculation that patches KSP state, `KspStatePatcher.PatchS
 - A stock-active strategy the ledger has inactive is switched off through `Unregister()` plus the private `isActive` flag: no refund, and no `Deactivate()` call (which KSPCF's minimum-duration gate could refuse).
 - A strategy the ledger never activated (active before the save had a ledger) is left alone.
 - An activation dated after now, or a strategy whose next committed row is a deactivation, is left as is: a recalculation without a current-UT cutoff walks past now, and those rows apply when the clock reaches them.
+- Stock fills its strategy list one frame after `StrategySystem.OnLoad` (a coroutine), after the synchronous ksp-load recalculation. A patch that finds the list not loaded waits, and a postfix on the private `StrategySystem.LoadStrategies` runs it with the requesting walk's snapshot once the list exists (Career only; dropped by a newer recalculation, a scene change or another save).
+- A strategy switched on after its `ActivateUT + LongestDuration` expires on stock's next tick (KSPCF) and records a real StrategyDeactivate row at now: benign and one-shot.
 
 Conflict checking (group tags) is KSP-native, and the activation block mirrors it against committed activations. `Strategy.Load` bypasses it, so a ledger state stock's rule would not allow is applied as the ledger has it and warned once, never resolved by switching a strategy off.
 

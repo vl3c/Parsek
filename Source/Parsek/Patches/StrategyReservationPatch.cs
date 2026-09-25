@@ -232,6 +232,48 @@ namespace Parsek.Patches
     }
 
     /// <summary>
+    /// Postfix on the private <c>Strategies.StrategySystem.LoadStrategies(List&lt;ConfigNode&gt;)</c>,
+    /// the method <c>StrategySystem.OnLoadRoutine</c> calls one frame after <c>OnLoad</c> to
+    /// fill the strategy list. Runs a strategy state patch that found the list not yet
+    /// loaded (<see cref="StrategyStatePatcher.OnStockStrategiesLoaded"/>); does nothing
+    /// when none is waiting.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class StrategySystemLoadStrategiesPatch
+    {
+        static MethodBase TargetMethod()
+        {
+            var method = ResolveTargetMethodForTesting();
+            if (method == null)
+                ParsekLog.Warn("StrategyReservation",
+                    "StrategySystem.LoadStrategies(List<ConfigNode>) not found - a strategy patch requested at load waits for the next recalculation");
+            return method;
+        }
+
+        internal static MethodBase ResolveTargetMethodForTesting()
+        {
+            return typeof(Strategies.StrategySystem).GetMethod(
+                "LoadStrategies",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
+                null,
+                new[] { typeof(List<ConfigNode>) },
+                null);
+        }
+
+        static void Postfix(Strategies.StrategySystem __instance)
+        {
+            try
+            {
+                StrategyStatePatcher.OnStockStrategiesLoaded(__instance);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("StrategyReservation", "LoadStrategies postfix threw: " + ex.Message);
+            }
+        }
+    }
+
+    /// <summary>
     /// Postfix on <c>Strategies.Strategy.CanBeActivated(out string reason)</c>: when the
     /// committed timeline refuses the activation, returns false with the explanation as
     /// the reason. Stock Administration then greys the list row (state "na") and prints

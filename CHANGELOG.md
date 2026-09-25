@@ -1056,8 +1056,10 @@ _(unreleased — entries accumulate here per commit)_
 - **Space Center: committed strategy activations and deactivations now take effect in the
   stock game.** After a rewind, a strategy your committed timeline activated was charged its
   setup cost but never switched on, and one it deactivated stayed on. The stock strategy list
-  now follows the committed timeline at each ledger recalculation, without charging or
-  refunding anything again. Strategies activated before the save used Parsek are left alone.
+  now follows the committed timeline at each ledger recalculation, including the one when a
+  save loads (applied as soon as the game has loaded its strategy list, a frame later),
+  without charging or refunding anything again. Strategies activated before the save used
+  Parsek are left alone.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as

@@ -41,6 +41,58 @@ namespace Parsek
     }
 
     /// <summary>
+    /// The ledger side of one strategy patch, copied out of the walk's
+    /// <see cref="StrategiesModule"/> so a patch that has to wait for stock's strategy list
+    /// applies the state of the walk that requested it, not whatever a later (possibly
+    /// deferred) walk left in the shared module.
+    /// </summary>
+    internal sealed class LedgerStrategySnapshot
+    {
+        internal readonly Dictionary<string, double> ActivateUT = new Dictionary<string, double>(StringComparer.Ordinal);
+        internal readonly Dictionary<string, float> Factor = new Dictionary<string, float>(StringComparer.Ordinal);
+        internal readonly HashSet<string> Managed = new HashSet<string>(StringComparer.Ordinal);
+
+        internal static LedgerStrategySnapshot From(StrategiesModule strategies)
+        {
+            var snapshot = new LedgerStrategySnapshot();
+            if (strategies == null) return snapshot;
+            var ids = strategies.GetActiveStrategyIds();
+            for (int i = 0; i < ids.Count; i++)
+            {
+                StrategiesModule.StrategyState state;
+                if (!strategies.TryGetActiveStrategy(ids[i], out state)) continue;
+                snapshot.ActivateUT[ids[i]] = state.ActivateUT;
+                snapshot.Factor[ids[i]] = state.Commitment;
+            }
+            snapshot.Managed.UnionWith(strategies.GetManagedStrategyIds());
+            return snapshot;
+        }
+    }
+
+    /// <summary>What stock's strategy list looks like when the patch runs.</summary>
+    internal enum StockStrategyListState
+    {
+        /// <summary><c>StrategySystem.Instance</c> is null.</summary>
+        NoSystem,
+        /// <summary>The instance exists but its list is still empty: <c>StrategySystem.OnLoad</c>
+        /// fills it from a coroutine one frame later.</summary>
+        NotLoaded,
+        Loaded
+    }
+
+    /// <summary>What the stock-load postfix does with a pending strategy patch.</summary>
+    internal enum DeferredStrategyPatchDecision
+    {
+        NoPending,
+        /// <summary>The request was made for another <c>StrategySystem</c> instance (a scene
+        /// change replaced it) or another save: dropped.</summary>
+        Stale,
+        /// <summary>Stock finished loading an empty list (no strategy configs): dropped.</summary>
+        StillEmpty,
+        Run
+    }
+
+    /// <summary>
     /// Makes stock <c>StrategySystem</c> match the ledger's active strategy set after a
     /// recalculation (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md,
     /// section 10 step 5). Without it a committed activation is charged by the walk but
@@ -63,6 +115,27 @@ namespace Parsek
     /// here, so there is no re-activate / expire loop. The one window where the ledger lags
     /// is a flight's own tagged expiry before the tree commits, and the patch is deferred
     /// while a live or pending tree exists (<c>GetKspPatchDeferralReason</c>).</para>
+    ///
+    /// <para><b>A late activation expires at once, harmlessly.</b> A patch that switches a
+    /// strategy on after its <c>ActivateUT + LongestDuration</c> (for example a recalculation
+    /// long after a committed activation) hands KSPCF a strategy already past its duration;
+    /// stock's next <c>Update</c> tick expires it, and that is recorded as a real
+    /// StrategyDeactivate row at now. One-shot: the next walk has it inactive.</para>
+    ///
+    /// <para><b>Stock loads its list a frame late.</b> <c>StrategySystem.OnLoad</c> only
+    /// starts <c>OnLoadRoutine</c>, which yields one frame and then clears the list and
+    /// fills it in the private <c>LoadStrategies(List&lt;ConfigNode&gt;)</c> (KSP 1.12.5).
+    /// The ksp-load recalculation runs synchronously inside <c>ParsekScenario.OnLoad</c>,
+    /// before that, and may even run before stock's module is added (then
+    /// <c>StrategySystem.Instance</c> is null). A patch that finds no loaded list therefore
+    /// applies nothing and leaves a one-shot request with a snapshot of the walk's state;
+    /// <c>StrategySystemLoadStrategiesPatch</c>, a postfix on <c>LoadStrategies</c>, runs it
+    /// the moment the list exists (<see cref="OnStockStrategiesLoaded"/>). A postfix on the
+    /// method that fills the list fires exactly once per stock load, at the right moment,
+    /// with no polling and no frame budget, and never in a mode without a
+    /// <c>StrategySystem</c>. The request is dropped when a newer recalculation starts,
+    /// when it was made for another <c>StrategySystem</c> instance (a scene change) or
+    /// another save, and it is only made in a Career game.</para>
     /// </summary>
     internal static class StrategyStatePatcher
     {
@@ -210,6 +283,134 @@ namespace Parsek
                    + ",+" + (ids.Count - IdSampleCap).ToString(IC);
         }
 
+        private static LedgerStrategySnapshot pendingSnapshot;
+        private static object pendingSystem;
+        private static string pendingSaveFolder;
+
+        /// <summary>True while a strategy patch waits for stock's strategy list.</summary>
+        internal static bool HasPendingPatch => pendingSnapshot != null;
+
+        /// <summary>Pure: the state of stock's strategy list.</summary>
+        internal static StockStrategyListState ClassifyStockList(bool systemPresent, int strategyCount)
+        {
+            if (!systemPresent) return StockStrategyListState.NoSystem;
+            return strategyCount > 0 ? StockStrategyListState.Loaded : StockStrategyListState.NotLoaded;
+        }
+
+        /// <summary>
+        /// Pure: whether a patch that found no loaded list should wait for stock's load.
+        /// Only in a Career game (the one mode with a <c>StrategySystem</c>).
+        /// </summary>
+        internal static bool ShouldDeferUntilStockLoad(StockStrategyListState state, bool isCareer)
+        {
+            return state != StockStrategyListState.Loaded && isCareer;
+        }
+
+        /// <summary>
+        /// Pure: what the stock-load postfix does. <paramref name="requestedInstance"/> is
+        /// null when the request was made before stock's module existed (any instance of
+        /// this save then qualifies).
+        /// </summary>
+        internal static DeferredStrategyPatchDecision DecideDeferredPatch(
+            bool hasPending, object requestedInstance, object loadedInstance,
+            string requestedSave, string currentSave, int strategyCount)
+        {
+            if (!hasPending) return DeferredStrategyPatchDecision.NoPending;
+            if (requestedInstance != null && !ReferenceEquals(requestedInstance, loadedInstance))
+                return DeferredStrategyPatchDecision.Stale;
+            if (!string.Equals(requestedSave ?? "", currentSave ?? "", StringComparison.Ordinal))
+                return DeferredStrategyPatchDecision.Stale;
+            if (strategyCount <= 0) return DeferredStrategyPatchDecision.StillEmpty;
+            return DeferredStrategyPatchDecision.Run;
+        }
+
+        /// <summary>Drops a waiting strategy patch. Logged when one was waiting.</summary>
+        internal static void CancelPendingPatch(string reason)
+        {
+            if (pendingSnapshot == null) return;
+            pendingSnapshot = null;
+            pendingSystem = null;
+            pendingSaveFolder = null;
+            ParsekLog.Verbose(Tag, "PatchStrategies: pending patch dropped (" + (reason ?? "?") + ")");
+        }
+
+        internal static void SetPendingPatchForTesting(LedgerStrategySnapshot snapshot, object system, string saveFolder)
+        {
+            pendingSnapshot = snapshot;
+            pendingSystem = system;
+            pendingSaveFolder = saveFolder;
+        }
+
+        /// <summary>
+        /// Called by the <c>StrategySystem.LoadStrategies</c> postfix once stock's list exists:
+        /// runs a waiting patch against it, once.
+        /// </summary>
+        internal static void OnStockStrategiesLoaded(Strategies.StrategySystem system)
+        {
+            if (pendingSnapshot == null) return;
+            string save = CurrentSaveFolder();
+            int count = system != null && system.Strategies != null ? system.Strategies.Count : 0;
+            var decision = DecideDeferredPatch(pendingSnapshot != null, pendingSystem, system,
+                pendingSaveFolder, save, count);
+            if (decision == DeferredStrategyPatchDecision.NoPending) return;
+
+            var snapshot = pendingSnapshot;
+            pendingSnapshot = null;
+            pendingSystem = null;
+            pendingSaveFolder = null;
+            if (decision != DeferredStrategyPatchDecision.Run)
+            {
+                ParsekLog.Verbose(Tag, "PatchStrategies: pending patch dropped at stock load (" + decision
+                                       + ", strategies=" + count.ToString(IC) + ")");
+                return;
+            }
+
+            ParsekLog.Info(Tag, "PatchStrategies: stock strategy list loaded (" + count.ToString(IC)
+                                + " strategies), running the deferred patch");
+            try
+            {
+                using (SuppressionGuard.ResourcesAndReplay())
+                    ApplyToLoadedSystem(system, snapshot);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, "PatchStrategies: deferred patch threw, stock strategy state left as is: " + ex);
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string CurrentSaveFolder()
+        {
+            try
+            {
+                return HighLogic.SaveFolder ?? "";
+            }
+            catch (Exception)
+            {
+                return "";
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool IsCareerGame()
+        {
+            try
+            {
+                return HighLogic.CurrentGame != null && HighLogic.CurrentGame.Mode == Game.Modes.CAREER;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        internal static void ResetPendingForTesting()
+        {
+            pendingSnapshot = null;
+            pendingSystem = null;
+            pendingSaveFolder = null;
+        }
+
         /// <summary>
         /// Writes the ledger's active strategy set into stock. Idempotent: a second call
         /// with no ledger change finds nothing to do.
@@ -240,14 +441,36 @@ namespace Parsek
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void PatchStrategiesCore(StrategiesModule strategies)
         {
+            var snapshot = LedgerStrategySnapshot.From(strategies);
             var system = Strategies.StrategySystem.Instance;
-            if (system == null || system.Strategies == null)
+            int count = system != null && system.Strategies != null ? system.Strategies.Count : 0;
+            var state = ClassifyStockList(system != null, count);
+            if (state != StockStrategyListState.Loaded)
             {
-                ParsekLog.VerboseOnChange(Tag, "patch-skip|strategies|system", "null",
-                    "PatchStrategies: StrategySystem.Instance is null - skipping");
+                if (ShouldDeferUntilStockLoad(state, IsCareerGame()))
+                {
+                    pendingSnapshot = snapshot;
+                    pendingSystem = system;
+                    pendingSaveFolder = CurrentSaveFolder();
+                    ParsekLog.Verbose(Tag, "PatchStrategies: stock strategy list " + state
+                        + ", deferring until stock loads it (ledgerActive="
+                        + snapshot.ActivateUT.Count.ToString(IC) + ")");
+                }
+                else
+                {
+                    ParsekLog.VerboseOnChange(Tag, "patch-skip|strategies|system", state.ToString(),
+                        "PatchStrategies: stock strategy list " + state + ", not a Career game - skipping");
+                }
                 return;
             }
 
+            // A patch against a loaded list supersedes any request still waiting.
+            CancelPendingPatch("patched-on-loaded-list");
+            ApplyToLoadedSystem(system, snapshot);
+        }
+
+        private static void ApplyToLoadedSystem(Strategies.StrategySystem system, LedgerStrategySnapshot snapshot)
+        {
             var byId = new Dictionary<string, Strategies.Strategy>(StringComparer.Ordinal);
             var stockActive = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < system.Strategies.Count; i++)
@@ -259,15 +482,6 @@ namespace Parsek
                 if (s.IsActive) stockActive.Add(id);
             }
 
-            var ledgerActive = new Dictionary<string, double>(StringComparer.Ordinal);
-            var ledgerIds = strategies.GetActiveStrategyIds();
-            for (int i = 0; i < ledgerIds.Count; i++)
-            {
-                StrategiesModule.StrategyState state;
-                if (strategies.TryGetActiveStrategy(ledgerIds[i], out state))
-                    ledgerActive[ledgerIds[i]] = state.ActivateUT;
-            }
-
             double now = Planetarium.GetUniversalTime();
             var index = CommittedFutureIndexCache.Current;
             var ordered = new List<StrategyTagInfo>(system.Strategies.Count);
@@ -276,7 +490,7 @@ namespace Parsek
                 var s = system.Strategies[i];
                 ordered.Add(new StrategyTagInfo(s?.Config?.Name, s?.Config != null ? s.GroupTags : null));
             }
-            var plan = ComputePlan(ledgerActive, strategies.IsManagedStrategy, stockActive, byId.Keys, now,
+            var plan = ComputePlan(snapshot.ActivateUT, snapshot.Managed.Contains, stockActive, byId.Keys, now,
                 id =>
                 {
                     var next = StrategyReservationPredicates.FirstFutureRow(index, id, now);
@@ -308,11 +522,12 @@ namespace Parsek
             for (int i = 0; i < plan.ToActivate.Count; i++)
             {
                 string id = plan.ToActivate[i];
-                StrategiesModule.StrategyState state;
-                strategies.TryGetActiveStrategy(id, out state);
                 var s = byId[id];
-                s.Load(BuildActivationNode(id, state != null ? state.ActivateUT : now,
-                    state != null ? state.Commitment : s.Factor));
+                double activateUT;
+                float factor;
+                if (!snapshot.ActivateUT.TryGetValue(id, out activateUT)) activateUT = now;
+                if (!snapshot.Factor.TryGetValue(id, out factor)) factor = s.Factor;
+                s.Load(BuildActivationNode(id, activateUT, factor));
                 if (s.IsActive) activated++;
                 else failed++;
             }
@@ -360,6 +575,7 @@ namespace Parsek
         {
             isActiveFieldWarned = false;
             lastConflictReportKey = "";
+            ResetPendingForTesting();
         }
     }
 }

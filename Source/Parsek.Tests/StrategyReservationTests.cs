@@ -730,6 +730,114 @@ namespace Parsek.Tests
                 new HashSet<string> { "A", "B", "C" }, now);
         }
 
+        // ================================================================
+        // State patch: stock loads its strategy list a frame late
+        // ================================================================
+
+        [Fact]
+        public void StockList_EmptyInstanceIsNotLoaded_NullIsNoSystem()
+        {
+            Assert.Equal(StockStrategyListState.NoSystem, StrategyStatePatcher.ClassifyStockList(false, 0));
+            Assert.Equal(StockStrategyListState.NotLoaded, StrategyStatePatcher.ClassifyStockList(true, 0));
+            Assert.Equal(StockStrategyListState.Loaded, StrategyStatePatcher.ClassifyStockList(true, 11));
+        }
+
+        [Fact]
+        public void StockList_NotLoaded_DefersOnlyInCareer()
+        {
+            Assert.True(StrategyStatePatcher.ShouldDeferUntilStockLoad(StockStrategyListState.NotLoaded, true));
+            // Stock's module can load after Parsek's in the same pass: Instance is null then.
+            Assert.True(StrategyStatePatcher.ShouldDeferUntilStockLoad(StockStrategyListState.NoSystem, true));
+            Assert.False(StrategyStatePatcher.ShouldDeferUntilStockLoad(StockStrategyListState.NotLoaded, false));
+            Assert.False(StrategyStatePatcher.ShouldDeferUntilStockLoad(StockStrategyListState.NoSystem, false));
+            Assert.False(StrategyStatePatcher.ShouldDeferUntilStockLoad(StockStrategyListState.Loaded, true));
+        }
+
+        [Fact]
+        public void DeferredPatch_TriggerDecision()
+        {
+            object requested = new object();
+            object other = new object();
+            Assert.Equal(DeferredStrategyPatchDecision.NoPending,
+                StrategyStatePatcher.DecideDeferredPatch(false, null, requested, "s", "s", 11));
+            Assert.Equal(DeferredStrategyPatchDecision.Run,
+                StrategyStatePatcher.DecideDeferredPatch(true, requested, requested, "s", "s", 11));
+            // Requested before stock's module existed: the first instance of this save runs it.
+            Assert.Equal(DeferredStrategyPatchDecision.Run,
+                StrategyStatePatcher.DecideDeferredPatch(true, null, other, "s", "s", 11));
+            // A scene change replaced the instance, or another save loaded.
+            Assert.Equal(DeferredStrategyPatchDecision.Stale,
+                StrategyStatePatcher.DecideDeferredPatch(true, requested, other, "s", "s", 11));
+            Assert.Equal(DeferredStrategyPatchDecision.Stale,
+                StrategyStatePatcher.DecideDeferredPatch(true, null, other, "s", "t", 11));
+            Assert.Equal(DeferredStrategyPatchDecision.StillEmpty,
+                StrategyStatePatcher.DecideDeferredPatch(true, requested, requested, "s", "s", 0));
+        }
+
+        [Fact]
+        public void DeferredPatch_StockLoadWithNothingPending_IsANoOp()
+        {
+            StrategyStatePatcher.OnStockStrategiesLoaded(null);
+            Assert.False(StrategyStatePatcher.HasPendingPatch);
+            Assert.DoesNotContain(logLines, l => l.Contains("PatchStrategies"));
+        }
+
+        [Fact]
+        public void DeferredPatch_ANewRecalculationDropsTheWaitingRequest()
+        {
+            StrategyStatePatcher.SetPendingPatchForTesting(new LedgerStrategySnapshot(), null, "save");
+            Assert.True(StrategyStatePatcher.HasPendingPatch);
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            // The headless recalc finds no StrategySystem and no Career game, so it does
+            // not re-request one.
+            Assert.False(StrategyStatePatcher.HasPendingPatch);
+            Assert.Contains(logLines, l => l.Contains("[KspStatePatcher]")
+                && l.Contains("pending patch dropped (new-recalc)"));
+        }
+
+        [Fact]
+        public void DeferredPatch_CancelIsLoggedOnlyWhenSomethingWasWaiting()
+        {
+            StrategyStatePatcher.CancelPendingPatch("idle");
+            Assert.DoesNotContain(logLines, l => l.Contains("pending patch dropped"));
+            StrategyStatePatcher.SetPendingPatchForTesting(new LedgerStrategySnapshot(), null, "save");
+            StrategyStatePatcher.CancelPendingPatch("scene");
+            Assert.False(StrategyStatePatcher.HasPendingPatch);
+            Assert.Contains(logLines, l => l.Contains("pending patch dropped (scene)"));
+        }
+
+        [Fact]
+        public void DeferredPatch_SnapshotCopiesTheWalkState()
+        {
+            var strategies = new StrategiesModule();
+            RecalculationEngine.RegisterModule(strategies, RecalculationEngine.ModuleTier.Strategy);
+            RecalculationEngine.Recalculate(new List<GameAction>
+            {
+                On(10.0, "A", commitment: 0.5f), On(20.0, "B"), Off(30.0, "B")
+            }, 100.0);
+
+            var snapshot = LedgerStrategySnapshot.From(strategies);
+            RecalculationEngine.Recalculate(new List<GameAction>(), 100.0);
+
+            Assert.Equal(new[] { "A" }, snapshot.ActivateUT.Keys.ToArray());
+            Assert.Equal(10.0, snapshot.ActivateUT["A"]);
+            Assert.Equal(0.5f, snapshot.Factor["A"]);
+            Assert.True(snapshot.Managed.SetEquals(new[] { "A", "B" }));
+            Assert.Empty(strategies.GetActiveStrategyIds());
+        }
+
+        [Fact]
+        public void Target_StockLoadStrategies_IsThePrivateListFiller()
+        {
+            var m = StrategySystemLoadStrategiesPatch.ResolveTargetMethodForTesting();
+            Assert.NotNull(m);
+            Assert.Equal(typeof(Strategies.StrategySystem), m.DeclaringType);
+            Assert.True(m.IsPrivate);
+            Assert.Equal(typeof(List<ConfigNode>), m.GetParameters().Single().ParameterType);
+        }
+
         [Fact]
         public void ActivationNode_IsInvariantUnderACommaCulture()
         {
