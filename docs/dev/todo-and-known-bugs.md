@@ -24,7 +24,9 @@ row fell to the defaults: a `LegacyEvent`-typed Timeline row whose text was `Ker
 build (22 such WARN lines across the existing harness results logs; `career-earned-pad`'s ledger
 carries one such row). The eight supply-route types had the same fallback. Found by the new D15
 `timeline-projection` in-game cell (`TimelineProjectionTests`), whose first flight on the pre-fix DLL
-is the natural negative control.
+is the natural negative control: ST-1 run `2026-09-25_2039` (pre-fix DLL `69e5403b...`) failed the
+cell on exactly `KerbalExperience@348.08 as LegacyEvent 'KerbalExperience'`; the fix DLL (`ea2d667b...`)
+reads `unhumanizedRows=0` with no WARN (armed `2026-09-25_2049` PASS).
 
 **Rule (timeline design section 3.3, now written out there).** Every non-route `GameActionType`
 renders as its own Timeline row with its own display text; only the route action types have no

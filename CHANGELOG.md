@@ -10,13 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
-- **Automated testing: one lane checks the Timeline against the ledger and three storage formats on
-  a live save.** `ST-1-storage-timeline-ingame` boots the earned career, splits a kerbal off the pad
-  pod (which writes a rewind-point quicksave) and runs two new in-game categories. `Timeline` checks
-  that every effective-ledger action is exactly one Timeline row or a design exclusion, in time order,
-  with its own display text. `Storage` checks recording-id path validation on the save's real ids, that
-  the readable `.prec.txt` mirrors are removed with the setting off and rewritten faithfully with it on,
-  and that the rewind point's quicksave is on disk under `Parsek/RewindPoints/` and loads.
+- **Automated testing: two lanes check the Timeline against the ledger and three storage formats
+  on live saves.** `ST-1-storage-timeline-ingame` boots the earned career and runs two new in-game
+  categories: `Timeline` checks that every effective-ledger action is exactly one Timeline row with
+  its own display text (or a route row, which the design leaves out), in time order; `Storage` checks
+  recording-id path validation on the save's real ids and that the readable `.prec.txt` mirrors are
+  removed with the setting off and rewritten faithfully with it on. `ST-2-rewind-point-quicksave`
+  splits a kerbal off an orbiting ship, which writes a rewind-point quicksave, and checks the file is
+  on disk under `Parsek/RewindPoints/`, loads as a save at the rewind point's time, and left no
+  temporary file behind.
 - **Automated testing: nine more behaviours are gated by lanes that already show them, and three registry cells that named nothing are retired.**
   Existing lanes now require the log lines that prove the in-flight crew swap (GS-4), freeing a crewed
   recording's reservation when its end passed without a spawn (L4), the tracking-station duplicate-spawn
