@@ -1543,6 +1543,63 @@ namespace Parsek.Tests
                 l.Contains("delta mismatch"));
         }
 
+        // An editor / R&D purchase also buys the part's identical parts: stock fires
+        // OnPartPurchased for each with costsFunds false, and Funding.onPartPurchased
+        // debits only the paid part, so the window holds ONE RnDPartPurchase debit of the
+        // paid entry cost. The rows come from the recorder's own builder (not hand-set
+        // amounts), so a capture that charged the identical part again would sum to
+        // 2 x 1600 here and red.
+        private static List<GameAction> IdenticalPairFromCapture(bool identicalCostsFunds)
+        {
+            var paid = GameStateRecorder.CreatePartPurchasedEvent(
+                "mk1pod.v2", 1600f, false, 1500, currentFunds: 48400);
+            var identical = GameStateRecorder.CreatePartPurchasedEvent(
+                "mk1pod", 1600f, false, 1500, currentFunds: 48400, costsFunds: identicalCostsFunds);
+            return new List<GameAction>
+            {
+                GameStateEventConverter.ConvertEvent(paid, null),
+                GameStateEventConverter.ConvertEvent(identical, null)
+            };
+        }
+
+        [Fact]
+        public void ReconcileKsc_IdenticalPartBoughtFree_SumsToTheOneStockDebit_NoWarn()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(1500, 50000, 48400, "RnDPartPurchase")  // -1600, once
+            };
+            var ledger = IdenticalPairFromCapture(identicalCostsFunds: false);
+
+            Assert.Equal(1600f, ledger[0].FundsSpent);
+            Assert.Equal(0f, ledger[1].FundsSpent);
+            ReconcileKsc(events, ledger, ledger[0], 1500);
+            ReconcileKsc(events, ledger, ledger[1], 1500);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("KSC reconciliation (funds)"));
+        }
+
+        // The mirror: the pre-fix capture charged the identical part its full entry cost,
+        // so the window's rows sum to twice the one debit stock made.
+        [Fact]
+        public void ReconcileKsc_IdenticalPartChargedAgain_WarnsAgainstTheOneStockDebit()
+        {
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(1500, 50000, 48400, "RnDPartPurchase")  // -1600, once
+            };
+            var ledger = IdenticalPairFromCapture(identicalCostsFunds: true);
+
+            ReconcileKsc(events, ledger, ledger[0], 1500);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("KSC reconciliation (funds)") &&
+                l.Contains("RnDPartPurchase"));
+        }
+
         #region #440 post-walk tests
 
         // ================================================================

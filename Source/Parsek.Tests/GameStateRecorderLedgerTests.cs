@@ -658,6 +658,36 @@ namespace Parsek.Tests
             }
         }
 
+        // Stock's Funding.onPartPurchased (decompiled, KSP 1.12.5) returns without a debit
+        // when BypassEntryPurchaseAfterResearch is on OR the fired part's costsFunds is
+        // false; the editor and R&D purchase paths fire every identical part with
+        // costsFunds cleared. The capture must charge exactly that.
+        [Theory]
+        [InlineData(true, false, 800f)]
+        [InlineData(false, false, 0f)]
+        [InlineData(true, true, 0f)]
+        [InlineData(false, true, 0f)]
+        public void ComputePartPurchaseChargedCost_MatchesWhatStockDeducts(
+            bool costsFunds, bool bypass, float expected)
+        {
+            Assert.Equal(expected, GameStateRecorder.ComputePartPurchaseChargedCost(800f, costsFunds, bypass));
+        }
+
+        [Fact]
+        public void ComputePartPurchaseFundsSpent_IdenticalPartBoughtFree_ReturnsZero_WithBypassOff()
+        {
+            try
+            {
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+                Assert.Equal(0f, GameStateRecorder.ComputePartPurchaseFundsSpent(800f, costsFunds: false));
+                Assert.Equal(800f, GameStateRecorder.ComputePartPurchaseFundsSpent(800f, costsFunds: true));
+            }
+            finally
+            {
+                GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            }
+        }
+
         [Fact]
         public void ComputePartPurchaseFundsSpent_BypassOff_ReturnsEntryCost()
         {

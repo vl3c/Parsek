@@ -15,6 +15,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect]
+
+**What the map shows** (`python scripts/arch/archview.py --check`, canaries in
+`scripts/arch/test_archview.py`):
+- The kernel knot went 293 -> 301 once the new root files were classified. Joined:
+  `CommittedFutureIndex`, `CommittedFutureIndexCache`, `ReservationExplanation`,
+  `StrategyReservationPredicates`, `StrategyStatePatcher`, `LedgerStrategySnapshot` (this
+  program), plus `FacilityRepairCapture` and `RefusedResumedCopyTail` (earlier work, also
+  unclassified until now). The 2026-09-22 pin of 286 was already stale on main at 293.
+- A new 7-type knot: `StockUiOverlayController`, `StockUiRnDDecoration`,
+  `StockUiAstronautDecoration`, `StockUiFacilityDecoration`, `StockUiLiveSnapshot`,
+  `KerbalDismissalPatch`, `FacilityMenuUpgradeBlockPatch` (UI 5, Patches 2).
+- The greedy cut sequence now starts with `GameAction` (its one in-knot reference, `Ledger`,
+  splits off 28 types), then `RecordingStore`.
+
+**Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
+explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
+`LedgerOrchestrator` references the index cache and the strategy state patcher back (cache
+invalidation, the patch step), which closes the loop. The 7-type knot is the controller
+calling the per-screen decoration helpers while those helpers (and two patches) call the
+controller's refresh / snapshot back.
+
+**Fix direction (design, not urgent).** Invert the back-references: have
+`LedgerOrchestrator` raise its existing `OnTimelineDataChanged` event and let the index cache
+and the strategy patch subscribe instead of being called by name; pass the snapshot into the
+decoration helpers instead of letting them reach the controller. Re-pin the canaries in the
+same commit as whatever moves them.
+
+---
+
 ## STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing [FILED 2026-09-25 from the stock-UI reservation analysis. OPEN; owner rulings taken 2026-09-25 (D1, D2, D4, D5, D7, S1 ruled; D3, D6 out of scope); section 12 claims verified by unit cells]
 
 **Reference:** `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` is the single
@@ -124,11 +154,21 @@ pairing rule):
   SPACECENTER cell would have to buy a part); the `textGreyoutMessage` placement in the
   purchase state is read from the decompile (stock enables it with an empty text there), not
   seen. (2) Stock's purchase-all caption still totals the skipped parts' entry costs.
-  (3) Capture bug found on the way: a purchase in the editor or R&D also buys the part's
+  (3) ~~Capture bug found on the way: a purchase in the editor or R&D also buys the part's
   `identicalParts` (same tech) with `costsFunds = false`, so stock charges nothing for them
   (`Funding.onPartPurchased` checks the flag), but
   `GameStateRecorder.OnPartPurchased` records `cost = entryCost` for each, so the ledger
-  over-charges. Not changed here (it changes what a row says); needs its own fix.
+  over-charges.~~ Fixed at capture (branch `part-purchase-identical`): the handler reads
+  `AvailablePart.costsFunds` while stock still has it cleared (both
+  `PartListTooltipController.onPurchaseProceed` and `RDTech.HandlePurchase` clear it around
+  the fire, decompiled) and records `cost=0` for the identical part through
+  `GameStateRecorder.ComputePartPurchaseChargedCost`, the same zero-cost shape as a bypass
+  purchase. The row is kept, not dropped: `PatchPurchasedParts` re-applies it after a
+  rewind. The block now counts zero-cost rows too (`CommittedPartPurchaseAfter` no longer
+  filters `FundsSpent > 0`), so an identical part the timeline gets free later cannot be
+  bought now; with bypass on the block stays inert. The window's rows now sum to the one
+  `FundsChanged(RnDPartPurchase)` debit stock makes (the KSC reconciler used to read 2x).
+  Rows captured before the fix keep their recorded amount (no migration).
 
 **Ledger / flight defects with no stock control to mark:**
 - ~~A committed tech unlock (a `ScienceSpending` row with a `NodeId`) at the LAST committed
