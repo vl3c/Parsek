@@ -20945,7 +20945,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
-            Description = "Stock-UI overlays PR 3 (C4): an Active contract the committed timeline completes later carries 'completes on <date> on your committed timeline' on its own stock row label (surviving a tab switch), selecting it greys out Cancel and appends the why, and Contract.Cancel is refused with the same text; removing the committed completion lifts all three. Uses a live Active contract, or accepts an Offered one through stock Contract.Accept (the batch baseline restore reverts it).")]
+            Description = "Stock-UI overlays PR 3 (C4): an Active contract the committed timeline completes later carries 'completes on <date> on your committed timeline' on its own stock row label (surviving a tab switch), selecting it greys out Cancel and appends the why, and Contract.Cancel is refused with the same text; removing the committed completion lifts all three. Needs a career host with an Active contract and skips without one: it changes no stock contract state (the only mutation is a committed ledger fixture row it removes again), because a SPACECENTER batch restores persistent.sfs on disk only.")]
         public IEnumerator MissionControlActiveRowLabelAndCancelBlockedWithReason()
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
@@ -20980,26 +20980,12 @@ namespace Parsek.InGameTests
                 Contract active = FindActiveContractForOverlayTest();
                 if (active == null)
                 {
-                    // No Active contract on this host: accept an Offered one the way the
-                    // player's Accept button does. No committed row names it yet, so the
-                    // Accept block lets it through.
-                    var offeredPick = new MissionControlContractRowPick();
-                    yield return WaitForMissionControlOfferedContractRow(offeredPick, 8f);
-                    if (!offeredPick.Found)
-                    {
-                        InGameAssert.Skip("No Active contract and no Offered contract to accept: " + offeredPick.SkipReason);
-                        yield break;
-                    }
-                    bool accepted = offeredPick.Contract.Accept();
-                    ParsekLog.Info("TestRunner", $"Cancel-block test accepted offered contract guid={offeredPick.ContractKey} " +
-                        $"to get an Active contract (accepted={accepted} state={offeredPick.Contract.ContractState})");
-                    if (!accepted || offeredPick.Contract.ContractState != Contract.State.Active)
-                    {
-                        InGameAssert.Skip($"stock Contract.Accept did not make '{offeredPick.ContractTitle}' Active " +
-                            $"(accepted={accepted} state={offeredPick.Contract.ContractState})");
-                        yield break;
-                    }
-                    active = offeredPick.Contract;
+                    // Deliberately no fallback that accepts an Offered contract: a SPACECENTER
+                    // batch runs under DiskOnly isolation (persistent.sfs restored on disk, no
+                    // in-memory reload), so an Accept() would leak into the live career.
+                    InGameAssert.Skip("needs a career host with an Active contract (a non-empty title) in ContractSystem; " +
+                        "this host has none (" + DescribeContractStatesForOverlayTest() + ")");
+                    yield break;
                 }
 
                 string key = active.ContractGuid.ToString();
@@ -21052,6 +21038,17 @@ namespace Parsek.InGameTests
                     dialogCount++;
                     dialogReason = reason;
                 };
+                // Guard the one call that could mutate stock state: without the Parsek prefix
+                // (or with the block gone) a real Cancel would charge the penalty and end the
+                // contract in the live career, which DiskOnly isolation does not undo.
+                MethodBase cancelTarget = Patches.ContractCancelPatch.ResolveTargetMethodForTesting();
+                HarmonyLib.Patches cancelPatches = cancelTarget != null ? Harmony.GetPatchInfo(cancelTarget) : null;
+                bool prefixInstalled = cancelPatches != null && cancelPatches.Prefixes.Any(pp =>
+                    pp.PatchMethod != null && pp.PatchMethod.DeclaringType == typeof(Patches.ContractCancelPatch));
+                InGameAssert.IsTrue(prefixInstalled,
+                    "ContractCancelPatch must be installed on Contract.Cancel() before the backstop is exercised");
+                InGameAssert.IsTrue(MissionControlStockUi.DecideNow(contract).Blocked,
+                    "the contract must still be Cancel-blocked before Contract.Cancel() is called");
                 bool cancelled = contract.Cancel();
                 InGameAssert.IsFalse(cancelled, "Contract.Cancel should be refused for a contract the committed timeline completes");
                 InGameAssert.AreEqual(Contract.State.Active, contract.ContractState,
@@ -22117,6 +22114,23 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(text.Contains(why), $"the detail text should carry the why {when}");
             int headings = text.Split(new[] { MissionControlStockAnnotation.DetailHeading }, System.StringSplitOptions.None).Length - 1;
             InGameAssert.AreEqual(1, headings, $"the why should be appended exactly once {when}");
+        }
+
+        private static string DescribeContractStatesForOverlayTest()
+        {
+            ContractSystem system = ContractSystem.Instance;
+            if (system == null || system.Contracts == null)
+                return "ContractSystem not available";
+            int offered = 0, active = 0, other = 0;
+            for (int i = 0; i < system.Contracts.Count; i++)
+            {
+                Contract c = system.Contracts[i];
+                if (c == null) continue;
+                if (c.ContractState == Contract.State.Offered) offered++;
+                else if (c.ContractState == Contract.State.Active) active++;
+                else other++;
+            }
+            return $"contracts={system.Contracts.Count} offered={offered} active={active} other={other}";
         }
 
         private static Contract FindActiveContractForOverlayTest()
