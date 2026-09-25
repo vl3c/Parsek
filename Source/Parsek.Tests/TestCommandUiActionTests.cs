@@ -114,9 +114,12 @@ namespace Parsek.Tests
                                             // synthetic view model from the compiled
                                             // catalogue while the real IMGUI draw code
                                             // computes every rect and string.
-                                            "mock" })
+                                            "mock",
+                                            // Coverage wave 6: the Missions tab's Clone
+                                            // button (MissionStore.Clone).
+                                            "clone" })
                 Assert.Contains(token, listed.Split(','));
-            Assert.Equal(21, listed.Split(',').Length);
+            Assert.Equal(22, listed.Split(',').Length);
         }
 
         [Theory]
@@ -135,6 +138,7 @@ namespace Parsek.Tests
         [InlineData(13, false)]  // playback - drives a field on the Recording, not a window
         [InlineData(14, false)]  // raise - a uGUI popup; it takes popup=, not window=
         [InlineData(15, false)]  // dismiss - the same
+        [InlineData(22, true)]   // clone - the Missions tab's Clone button
         public void OpNeedsWindow_MatchesTheOpsThatNameOne(int op, bool needs)
         {
             Assert.Equal(needs, TestCommandUiAction.OpNeedsWindow((UiActionOp)op));

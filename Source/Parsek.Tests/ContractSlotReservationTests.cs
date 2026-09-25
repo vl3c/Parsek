@@ -552,6 +552,60 @@ namespace Parsek.Tests
         // ---------------------------------------------------------------- texts
 
         [Fact]
+        public void SlotText_NamesTheAgent_SoOffersSharingATitleAreTellable()
+        {
+            // First in-game census (2026-09-25): three Offered rows read "Conduct a focused
+            // observational survey of Kerbin."; the agent is what Mission Control shows beside each.
+            var withAgent = ReservationExplanation.ContractSlot(
+                new CommittedFutureEntry(CommittedFutureKind.ContractAccept, "k", 11400, null, null,
+                    title: "Conduct a focused observational survey of Kerbin.", agentTitle: "Zaltonic Electronics"), Fmt);
+            var agentNoTitle = ReservationExplanation.ContractSlot(
+                new CommittedFutureEntry(CommittedFutureKind.ContractAccept, "k", 11400, "rec", "Mun Lander 3",
+                    agentTitle: "Zaltonic Electronics"), Fmt);
+
+            Assert.Equal("Your committed timeline accepts the contract 'Conduct a focused observational survey of Kerbin.'"
+                + " from Zaltonic Electronics on D114 and needs this slot. " + Rule + " " + WayOut, withAgent.Body);
+            Assert.Equal("The committed flight 'Mun Lander 3' accepts a contract from Zaltonic Electronics on D114"
+                + " and needs this slot. " + Rule + " " + WayOut, agentNoTitle.Body);
+            Assert.Equal("Slot needed on D114", withAgent.Title);
+        }
+
+        [Fact]
+        public void AgentTitle_IsReadForAcceptRowsOnly()
+        {
+            var index = CommittedFutureIndex.Build(
+                new[] { Accept(500, "c"), Complete(600, "c") }, null, null, null, null,
+                id => id == "c" ? "Zaltonic Electronics" : null);
+
+            Assert.Equal("Zaltonic Electronics", index.FirstFuture(CommittedFutureKind.ContractAccept, "c", 100).AgentTitle);
+            Assert.Null(index.FirstFuture(CommittedFutureKind.ContractComplete, "c", 100).AgentTitle);
+            Assert.Null(CommittedFutureIndex.Build(new[] { Accept(500, "c") }, null, null, null)
+                .FirstFuture(CommittedFutureKind.ContractAccept, "c", 100).AgentTitle);
+        }
+
+        [Fact]
+        public void AgentTitle_ComesFromTheAcceptSnapshot_AndReachesTheSlotReason()
+        {
+            var node = new ConfigNode("CONTRACT");
+            node.AddValue("agent", "Zaltonic Electronics");
+            node.AddValue("agentName", "Zaltonic Electronics");
+            GameStateStore.AddContractSnapshot("c-agent", node, 50);
+            Ledger.AddAction(Accept(500, "c-agent", null, "Conduct a focused observational survey of Kerbin."));
+
+            var index = CommittedFutureIndexCache.Current;
+            var slots = Forecast(index, 2, "a");
+            var d = MissionControlStockAnnotation.Decide(index, 100, "free", Contract.State.Offered, Fmt, slots);
+
+            Assert.Equal("Zaltonic Electronics", CommittedFutureIndexCache.AgentTitleOfSnapshotNode(node));
+            Assert.Null(CommittedFutureIndexCache.AgentTitleOfSnapshotNode(new ConfigNode("CONTRACT")));
+            Assert.Null(CommittedFutureIndexCache.AgentTitleOfSnapshotNode(null));
+            Assert.Equal("Zaltonic Electronics",
+                index.FirstFuture(CommittedFutureKind.ContractAccept, "c-agent", 100).AgentTitle);
+            Assert.True(MissionControlStockAnnotation.BlocksAcceptForSlot(d));
+            Assert.Contains("'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics on D5", d.Why);
+        }
+
+        [Fact]
         public void SlotText_NamesTheFlightAndTheContractWhenKnown_AndIsPlainAscii()
         {
             var named = ReservationExplanation.ContractSlot(

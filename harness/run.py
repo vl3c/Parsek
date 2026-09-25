@@ -139,6 +139,8 @@ RP_SIDECAR_BY_PRESET = {
     "relative-loop": None,
     # EX-2's single-point hold: one committed one-point recording, no RP.
     "single-point-hold": None,
+    # SS-1's spawn-safety pair: two committed single-recording trees, no RP.
+    "spawn-safety": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 
