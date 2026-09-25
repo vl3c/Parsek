@@ -1,0 +1,107 @@
+schema = 1
+id = "AP-1-minmus-attitude-residual"
+# -------------------------------------------------------------------------------------
+# D6 `attitude-preservation`: a replayed ghost keeps the attitude its recording implies.
+# Roadmap Tier C item 11 named the instrument ("the honest home for D6
+# attitude-preservation ... if rotation residuals join the line"); this lane is its host.
+#
+# THE INSTRUMENT. `GhostRenderTrace.EmitPostUpdate`'s `AfterUpdate` line now ends
+# `dRotDeg=<F3|NaN> rotRef=<token>`: the angle between the ghost's RENDERED world rotation
+# and the rotation the recording implies at that playback UT, resolved independently of
+# the positioner's per-ghost state by `ParsekFlight.TryResolveRecordedAttitudeForTrace`
+# through the positioner's own frame conventions (checkpoint / orbit segment:
+# `ComputeOrbitalRotation` over a freshly built Orbit, radial from the orbit's own
+# position; Absolute points: `body.bodyTransform.rotation * srfRel`; recorded-anchor
+# RELATIVE: the recorded anchor pose). Tracing-only: nothing is computed with
+# `ghostRenderTracing` off. `ghostlife.py` v3 reads it into the `attitude` facet.
+#
+# THE HOST. The committed Minmus loop subject V7M flies (fixture `minmus-orbit-recorded`,
+# tree aa4357...), cycle 1 only. The two `WarpToUT` spans are what make the tracer write
+# lines continuously (V7M's TimeJump-only shape wrote 63 initial-window lines in all;
+# wave 5's V7W measured ~1,150 lines per warped span on the same subject): the first
+# crosses the Kerbin->Minmus SOI seam, where V7W's rendered attitude swept ~141 deg in
+# 75 s of playback, the second is a 600 s rails warp WATCHING the ghost in its Minmus
+# park, where an orbital-frame hold turns the ghost in world space as it orbits. Both
+# spans replay OrbitalCheckpoint sections, so the orbital-frame decode is what is
+# measured - the on-rails attitude preservation the cell's name comes from.
+#
+# WHAT A PASS MEANS. The residual stays under the ceiling on every resolved line
+# while the rendered attitude sweeps past the floor (a bounded residual on a ghost that
+# never turns would prove nothing). Conventions are SHARED with the positioner by
+# design - the H9 frame probes guard them against a live vessel - so the residual
+# measures data selection (section, checkpoint, bracket) and everything that happens to
+# the transform after the decode. On checkpoint frames it also carries the chord error
+# of the positioner's lerped position against the Kepler position (a few tenths of a
+# degree at most on this subject), which is why the ceiling is not zero.
+#
+# STATUS: AUTHORED 2026-09-26, windows from the reading run (see below).
+# -------------------------------------------------------------------------------------
+tier = "nightly"
+description = "D6 attitude-preservation: replay the committed Minmus loop subject (cycle 1) with the flight render tracer on, warp across the Kerbin->Minmus seam and then 600 s while watching the ghost in its Minmus park, and gate the AfterUpdate attitude residual (dRotDeg, rendered vs recording-implied rotation through the positioner's own frame conventions): bounded on every resolved line while the rendered attitude sweeps far enough to make the bound meaningful."
+instanceProfile = "stock-minimal"
+tags = ["AP-1", "attitude-preservation", "render-trace", "watch-mode", "loop-playback", "minmus", "moon", "orbital-checkpoint"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/minmus-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# V7M's prelude and cycle-1 epochs verbatim; `verboseLogging=true` carries the VERBOSE
+# AfterUpdate lines (the gate's non-important emits), `ghostRenderTracing=true` the
+# tracer itself.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "aa435745816e46b381cadb4fdcef7038", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "aa435745816e46b381cadb4fdcef7038" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "1345035" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "1345155" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "1345235", maxRate = "10" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "1345355" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "1354406" }, expect = "OK", budget = 300 },
+  { cmd = "EnterWatchMode",                                                  expect = "OK" },
+  { cmd = "WarpToUT", args = { ut = "1355006", maxRate = "50" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["minmus", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+required = [
+  "missionconfig applied:",
+  "startloopplayback initiated:",
+  "PhaseLock APPLIED: mission=",
+  "enterwatchmode complete: index=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+]
+
+# REPORT-ONLY for the reading run: the attitude facet and the lifecycle census are
+# recorded unconditionally; windows are re-cut to the measured numbers before arming.
+[expectations.ghostLifecycle]
+requireBalanced = false
+attitude = { maxRotDeg = 1.0, minSweepDeg = 30.0, resolvedLines = { min = 100 } }
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

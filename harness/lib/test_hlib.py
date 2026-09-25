@@ -12883,6 +12883,13 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     # the block up (or dropping it) is always a deliberate, reviewed edit - the
     # RENDERCOMPOSE_DECLARER_SPECS convention exactly.
     GHOSTLIFE_DECLARER_SPECS = {
+        # [D] THE ATTITUDE-RESIDUAL HOST (coverage wave 9, 2026-09-26, D6
+        #     `attitude-preservation`): the first declarer of the v3 `attitude`
+        #     sub-table, on the committed Minmus loop subject (V7M cycle 1) with two
+        #     WarpToUT spans over OrbitalCheckpoint playback. `requireBalanced = false`
+        #     because the lane quits mid-playback by design; the block exists for the
+        #     AfterUpdate dRotDeg residual.
+        "AP-1-minmus-attitude-residual.toml",
         # [D] THE FIRST DECLARER, and the lane the evaluator was built FOR: the
         #     full player-workflow derender tripwire (staged Kerbal X ascent ->
         #     commit -> Rewind-to-Launch -> Jumping Flea watch anchor -> map view

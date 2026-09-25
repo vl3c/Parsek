@@ -37,7 +37,10 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   alive at log end - killed run, no teardown - or when tracing was enabled
   mid-run), zero-spawn vacuity floor, and
   (v2) `destroyedReasons.required`, per-vessel-name `vessels` windows and the
-  `phase=LoopCycle` census (`cycleLines`); REPORT-ONLY unless armed via
+  `phase=LoopCycle` census (`cycleLines`), and (v3) the `attitude` sub-table
+  over the `AfterUpdate` lines' `dRotDeg=` attitude residual (`maxRotDeg`
+  ceiling, `minSweepDeg` rendered-rotation floor, `resolvedLines` window, per
+  `rotRef` `refs`); REPORT-ONLY unless armed via
   `GHOSTLIFE_ARMED_SPECS` - empty as shipped),
   `provision/` (`provlib.py` pure, `provision.py`
   shell), `missions/` (M-B1: mission shells + `lib/mlib.py` pure mission
