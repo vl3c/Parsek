@@ -58,8 +58,15 @@ namespace Parsek.Tests
                 StringComparison.Ordinal);
             Assert.True(helper >= 0, "StampSelectionEdit no longer assigns the generation stamp");
 
+            // The interval checkbox's body lives in ApplyIntervalInclusion, which the checkbox
+            // and the automation-only `UiAction op=select key=leg:` both call; the gate pins
+            // the call site AND the write + stamp inside the helper.
+            Assert.True(src.IndexOf(
+                "ApplyIntervalInclusion(mission, node.HeadLegId, toggled);",
+                StringComparison.Ordinal) >= 0,
+                "the interval checkbox no longer routes through ApplyIntervalInclusion");
             int mutation = src.IndexOf(
-                "mission.ExcludedIntervalKeys.Add(node.HeadLegId);", StringComparison.Ordinal);
+                "mission.ExcludedIntervalKeys.Add(headLegId);", StringComparison.Ordinal);
             Assert.True(mutation >= 0, "interval-exclusion mutation site not found");
 
             int stamp = src.IndexOf("StampSelectionEdit(mission);", mutation,
