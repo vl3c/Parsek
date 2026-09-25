@@ -223,7 +223,7 @@ attribute itself.
 A **knot** is a strongly connected component of the type graph with more than
 one member: a group of types that reach one another in a cycle, directly or
 through other members. Longest-path levelling condenses a cycle to one level,
-so the kernel's 286-type knot collapses into level 10 and only the types above
+so the kernel's 301-type knot collapses into level 10 and only the types above
 it (levels 11 to 13 here, mostly patches and entry points) rise above. A knot
 is why that level is flat: the levelling cannot order types that depend on each
 other.
@@ -231,21 +231,23 @@ other.
 `types.json` records this per type: `knot` is the 1-based index of the type's
 component in largest-first order, or null outside a knot, and `sublevel` is
 the type's level inside its knot after the cut edges are removed (again null
-outside). On the current tree the knots are one of 286, then of 4, 2 and 2
-(re-derived 2026-09-22; it was 391, 4 and 2 before the 2026-09-14 pass made
+outside). On the current tree the knots are one of 301, then of 7, 4, 2 and 2
+(re-derived 2026-09-25, when the stock-UI reservation layer was classified: it
+added eight types to the kernel and the 7-type stock-screen decoration knot; it
+was 286, 4, 2 and 2 on 2026-09-22; it was 391, 4 and 2 before the 2026-09-14 pass made
 `ParsekLog` and `Recording` leaves).
 
-`--check` first lists the first 10 knots (all four on the current tree) with
+`--check` first lists the first 10 knots (all five on the current tree) with
 their size and module breakdown, then for the largest knot it shows the hubs
 (the members other members reference most, with their in-knot references) and a
 **greedy cut sequence**: each step picks, among the highest-fan-in members, the
 sink whose outgoing references, when removed, break the knot the most, and
-reports the references that were dropped. `259 -> cut GameAction -> 234` means
+reports the references that were dropped. `301 -> cut GameAction -> 273` means
 removing `GameAction`'s single reference inside the knot (`Ledger`) splits off
-25 members. Some cuts are cheap inversions like that one - one or two
+28 members. Some cuts are cheap inversions like that one - one or two
 references between hubs holding a whole region together, and those are the
 references a refactor should look at first - while the rest touch many small
-references at once (the first cut, `RecordingStore`, drops 25), and the named
+references at once (the second cut, `RecordingStore`, drops 25), and the named
 sink there often needs a new abstraction (an interface, a data boundary) rather
 than moved edges. The table is a research list, not a verdict - the tool never says a
 reference is wrong, only that it holds a cycle together. Nothing in this phase

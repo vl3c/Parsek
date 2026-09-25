@@ -15,6 +15,101 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TIMELINE-KERBAL-EXPERIENCE-RAW-ROW: a kerbal's career-log (XP) ledger row rendered in the Timeline as the raw word "KerbalExperience" and warned on every rebuild~~ [FILED and FIXED 2026-09-25, coverage wave 4, branch `cov-ingame`]
+
+**Symptom.** `KerbalExperience` (type 31, written by a crewed recovery's career-log correlation) had no
+arm in `TimelineEntryDisplay.MapGameActionType` or `GameActionDisplay.GetDescription`, so every such
+row fell to the defaults: a `LegacyEvent`-typed Timeline row whose text was `KerbalExperience`, plus
+`[Timeline] Unknown GameActionType 'KerbalExperience' - mapping to LegacyEvent` on every Timeline
+build (22 such WARN lines across the existing harness results logs; `career-earned-pad`'s ledger
+carries one such row). The eight supply-route types had the same fallback. Found by the new D15
+`timeline-projection` in-game cell (`TimelineProjectionTests`), whose first flight on the pre-fix DLL
+is the natural negative control: ST-1 run `2026-09-25_2039` (pre-fix DLL `69e5403b...`) failed the
+cell on exactly `KerbalExperience@348.08 as LegacyEvent 'KerbalExperience'`; the fix DLL (`ea2d667b...`)
+reads `unhumanizedRows=0` with no WARN (armed `2026-09-25_2049` PASS).
+
+**Rule (timeline design section 3.3, now written out there).** Every non-route `GameActionType`
+renders as its own Timeline row with its own display text; only the route action types have no
+Timeline entry ("the route action types have no timeline entry"), and the builder skips them with
+one counted Verbose summary. `KerbalExperience` is non-route and is NOT excluded by the design or any
+ruling, so it renders.
+
+**Fix.** `KerbalExperience` maps to the `KerbalAssignment` bucket (the same bucket as
+`KerbalRecovered`'s `Recovered: <name>`) and reads `XP: <name> (<entries>)` from its encoded
+career-log entries (`GameActionDisplay.GetKerbalExperienceDescription`), e.g.
+`XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin, Recovered)`; the ledger stores the entries, not
+an XP amount, so the row names what was logged. `TimelineBuilder.IsRouteOnlyActionType` skips route
+rows. The in-game cell encodes the same rule: its exclusion set is route types only, and it fails any
+action row typed `LegacyEvent` or whose text is the raw enum name. Unit cells in
+`TimelineBuilderTests`.
+
+## SAFE-WRITE-CRASH-AFTER-TEMP-HAS-NO-LANE: D16 `safe-write` needs a crash hook between the temp write and the swap [FILED 2026-09-25, coverage wave 4, branch `cov-ingame`; OPEN, harness + small C#]
+
+Catalog item F5 asks for a driven witness that a crash after `FileIOUtils.SafeWriteConfigNode` wrote
+`<path>.tmp` but before `ReplaceDestination` swapped it leaves the previous file intact and the next
+load recovers. The brief modelled it on the `CrashAfterJournalPhase` seam verb, but that verb is
+RESERVED (recognized, `not-implemented-v1`) in `TestCommandVerbs.ReservedVerbs`, so there is no crash
+hook to copy. The work is: a one-shot test hook in `FileIOUtils` that throws (or `Application.Quit`s
+hard) after the temp write for one named path, a seam verb to arm it, a lane that runs two boots of
+one save (the harness has no relaunch-after-kill step today) and a next-load check that the
+destination still parses and the orphan `.tmp` is swept (`RecordingStore.OrphanCleanup` sweeps sidecar
+`.tmp` files; other callers do not). Estimated well over the 150-line budget the wave allowed, so
+skipped. The pure ordering contract (`ReplaceDestination` never loses the previous file) is covered
+headlessly by the FileIOUtils xUnit cells.
+
+## COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave [FILED 2026-09-25, branch `cov-wave1`. OPEN]
+
+**Pending operator confirmation (supervisor rulings 2026-09-25, applied in the registry):**
+retire D13 `proximity-offset` (code removed, VesselSpawner.cs:19), D12 `reservation-auto-hire`
+(never produced; stand-ins replaced it) and D14 `situation` (an axis, not a behaviour); define
+D14 `atmosphere` ("a recording replays correctly around a non-Kerbin atmospheric body", claimed
+on V16M) and `warp-1x` ("ghosts replayed at 1x, seen in the render warp histogram", claimed on
+V14M); count EX-1's pad retirement as D13 `ksc-exclusion`; D13 `pid-dedup` is a separate cell
+from D6 `spawn-at-end-pid-dedup`. If any is overruled, revert that registry entry and the
+matching `[dimensionsCovered]` line.
+
+**Left uncovered on purpose:**
+- D16 `alias-mode` was proposed for retirement on the premise that the feature does not exist;
+  it does (`GhostSnapshotMode.AliasVessel`, Recording.cs:7; RecordingStore.cs:270), so it stays.
+  Its witness is `SaveRecordingFiles: ... ghostSnapshotMode=AliasVessel ... wroteGhost=False`
+  (RecordingSidecarStore.cs:1231), printed only by operator-local GUI census logs; a claim wants a
+  committed-fixture lane that prints it plus a save-parse check that no `_ghost.craft` exists.
+- D16 `deflate-snapshots`: every snapshot write is DeflateV1 (`SnapshotSidecarCodec.Write`), but
+  the log label is a constant and a successful load logs no encoding, and no archived lane writes
+  a snapshot and re-loads the same id. A load-side encoding line (or a save-parse magic check of
+  a written sidecar) would make it claimable.
+- D14 `atmosphere` is claimed on an ORBITAL Laythe replay; a replay descending into a non-Kerbin
+  atmosphere is not gated anywhere.
+## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect]
+
+**What the map shows** (`python scripts/arch/archview.py --check`, canaries in
+`scripts/arch/test_archview.py`):
+- The kernel knot went 293 -> 301 once the new root files were classified. Joined:
+  `CommittedFutureIndex`, `CommittedFutureIndexCache`, `ReservationExplanation`,
+  `StrategyReservationPredicates`, `StrategyStatePatcher`, `LedgerStrategySnapshot` (this
+  program), plus `FacilityRepairCapture` and `RefusedResumedCopyTail` (earlier work, also
+  unclassified until now). The 2026-09-22 pin of 286 was already stale on main at 293.
+- A new 7-type knot: `StockUiOverlayController`, `StockUiRnDDecoration`,
+  `StockUiAstronautDecoration`, `StockUiFacilityDecoration`, `StockUiLiveSnapshot`,
+  `KerbalDismissalPatch`, `FacilityMenuUpgradeBlockPatch` (UI 5, Patches 2).
+- The greedy cut sequence now starts with `GameAction` (its one in-knot reference, `Ledger`,
+  splits off 28 types), then `RecordingStore`.
+
+**Why it happened (likely, to confirm with `--check`'s hub list).** The index and the
+explanation builder read `LedgerOrchestrator` / `EffectiveState` / `KerbalsModule`, and
+`LedgerOrchestrator` references the index cache and the strategy state patcher back (cache
+invalidation, the patch step), which closes the loop. The 7-type knot is the controller
+calling the per-screen decoration helpers while those helpers (and two patches) call the
+controller's refresh / snapshot back.
+
+**Fix direction (design, not urgent).** Invert the back-references: have
+`LedgerOrchestrator` raise its existing `OnTimelineDataChanged` event and let the index cache
+and the strategy patch subscribe instead of being called by name; pass the snapshot into the
+decoration helpers instead of letting them reach the controller. Re-pin the canaries in the
+same commit as whatever moves them.
+
+---
+
 ## STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing [FILED 2026-09-25 from the stock-UI reservation analysis. OPEN; owner rulings taken 2026-09-25 (D1, D2, D4, D5, D7, S1 ruled; D3, D6 out of scope); section 12 claims verified by unit cells]
 
 **Reference:** `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` is the single
@@ -60,7 +155,8 @@ pairing rule):
   (`S1_SecondActivationOfTheSameStrategy_OverwritesAndChargesSetupAgain_DocumentsHole`
   stands). The design doc's UT=0 claim is corrected. Not covered, filed separately:
   `STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW` (a KSPCF expiry that replays after a
-  rewind appends a second StrategyDeactivate row; predates PR 5).
+  rewind appends a second StrategyDeactivate row; predates PR 5; fixed 2026-09-25 by a
+  `Strategy.Update()` prefix, option c).
 - ~~C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
   accepts over a full Mission Control.~~
   Fixed by PR 4 (branch `stock-ui-slots`): `ContractSlotReservation.Forecast` (pure, next to
@@ -124,13 +220,40 @@ pairing rule):
   SPACECENTER cell would have to buy a part); the `textGreyoutMessage` placement in the
   purchase state is read from the decompile (stock enables it with an empty text there), not
   seen. (2) Stock's purchase-all caption still totals the skipped parts' entry costs.
-  (3) Capture bug found on the way: a purchase in the editor or R&D also buys the part's
+  (3) ~~Capture bug found on the way: a purchase in the editor or R&D also buys the part's
   `identicalParts` (same tech) with `costsFunds = false`, so stock charges nothing for them
   (`Funding.onPartPurchased` checks the flag), but
   `GameStateRecorder.OnPartPurchased` records `cost = entryCost` for each, so the ledger
-  over-charges. Not changed here (it changes what a row says); needs its own fix.
+  over-charges.~~ Fixed at capture (branch `part-purchase-identical`): the handler reads
+  `AvailablePart.costsFunds` while stock still has it cleared (both
+  `PartListTooltipController.onPurchaseProceed` and `RDTech.HandlePurchase` clear it around
+  the fire, decompiled) and records `cost=0` for the identical part through
+  `GameStateRecorder.ComputePartPurchaseChargedCost`, the same zero-cost shape as a bypass
+  purchase. The row is kept, not dropped: `PatchPurchasedParts` re-applies it after a
+  rewind. The block now counts zero-cost rows too (`CommittedPartPurchaseAfter` no longer
+  filters `FundsSpent > 0`), so an identical part the timeline gets free later cannot be
+  bought now; with bypass on the block stays inert. The window's rows now sum to the one
+  `FundsChanged(RnDPartPurchase)` debit stock makes (the KSC reconciler used to read 2x).
+  Rows captured before the fix keep their recorded amount (no migration).
 
 **Ledger / flight defects with no stock control to mark:**
+- ~~A committed tech unlock (a `ScienceSpending` row with a `NodeId`) at the LAST committed
+  row never reached stock when the Space Center clock passed it: the KSC ledger cursor
+  (`ParsekKSC.AdvanceCareerLedgerForKscUT`) recalculates through
+  `LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent`, which finds no row after now and
+  runs the cutoff-less `RecalculateAndPatch()`; with no tech cutoff `PatchTechTree` is skipped
+  (#559), so the walk charged the science and the node stayed locked (and, the research block
+  lifted, could be bought again). Every "no future rows" recalculation (ksp-load, reservation
+  release, post-marker-clear) had the same gap.~~ Fixed (branch `ksc-cursor-tech-unlock`): a
+  cutoff-less recalculation now runs an ADD-ONLY pass, `KspStatePatcher.PlanCommittedTechUnlocksForPatch`
+  -> `PatchCommittedTechUnlocks`, that unlocks every affordable committed `ScienceSpending` node
+  at or before the live clock (`CommittedFutureIndexCache.CurrentUT`, the clock the research
+  block reads). It never re-locks (the #559 guarantee stands; `PatchTechTree` and its
+  two-direction semantics are untouched and still own every walk with a tech cutoff), never
+  unlocks a future node, and skips while the clock is not ready or
+  `RecordingStore.RewindUTAdjustmentPending`. It runs before `PatchPurchasedParts`, so a committed
+  purchase on the node lands in the same pass. Pinned by `CommittedTechUnlockPatchTests`
+  (drives the cursor's own decisions into the real orchestrator path). Not proven in game.
 - Contract fail / cancel penalties are charged unconditionally, so an already-resolved
   contract is charged again (C4 X2/X3, C6, and a world-driven failure).
 - F3: a facility repair row charges even when nothing is destroyed.
@@ -238,7 +361,7 @@ pairing rule):
 
 ---
 
-## STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW: a stock strategy expiry that replays after a rewind appends a second StrategyDeactivate row, and every later walk warns [FILED 2026-09-25 from the stock-UI strategies PR (PR 5, branch `stock-ui-strategies`); OPEN, low; predates PR 5; KSPCommunityFixes installs only]
+## ~~STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW: a stock strategy expiry that replays after a rewind appends a second StrategyDeactivate row, and every later walk warns~~ [FILED 2026-09-25 from the stock-UI strategies PR (PR 5, branch `stock-ui-strategies`); FIXED 2026-09-25, branch `strategy-expiry-replay`, option (c) chosen by the owner the same day; predates PR 5; KSPCommunityFixes installs only]
 
 **What happens.** Stock strategy auto-expiry exists only with KSPCommunityFixes'
 `StrategyDuration` fix (installed in the dev and harness instances; in pure stock both
@@ -271,13 +394,44 @@ T_exp, but deliberately never blocks the expiry (blocking `CanBeDeactivated` wou
 the expiry and re-post its message every frame), and its state patch never undoes an
 expiry.
 
-**Fix options (not chosen):** (a) at capture, recognise a deactivation the committed
+**Fix options considered:** (a) at capture, recognise a deactivation the committed
 timeline already made (the ledger has the strategy inactive at now after its latest
 activation) and log it instead of appending a row; (b) in the walk, log a deactivation of
 an already-inactive strategy at Verbose instead of Warn; (c) have the state patch switch the
 strategy off at the committed deactivation's UT before KSPCF's `Update` does. Option (a)
 changes what the ledger records and needs an owner ruling (the D4 / D5 "no silent dedupe"
 line was about player actions; an automatic replay may differ).
+
+**Fix (option c, owner ruling 2026-09-25).** The ledger stays append-only: nothing is
+deduped at capture and the walk is unchanged; the committed deactivation happens first, so
+stock never produces the duplicate event. The state patch cannot do it alone: it runs only
+on a recalculation, and a committed expiry row's UT is the frame UT at which stock expired
+it, so stock's per-frame `Strategy.Update()` reaches the expiry before (or in the same frame
+as) any recalculation. Decompiled (KSP 1.12.5): `StrategySystem.Update` calls
+`Strategy.Update()` on each active strategy every frame, and `Update` itself checks
+`dateActivated + LongestDuration <= Planetarium.fetch.time`, posts the expiry message and
+calls `Deactivate()`. KSPCF's `StrategyDuration` patches the two duration getters
+(prefixes), `CanBeDeactivated` and `SendStateMessage` (transpilers), never `Update`, so a
+Parsek prefix on `Strategy.Update()` (`StrategyUpdateExpiryPatch`, glue
+`StrategyExpiryGate`) runs before the expiry decision. Pure decision
+`StrategyReservationPredicates.DecideStockUpdate` over the strategy's committed rows
+(`StrategyCommittedRows`, built once per strategy per committed-future index instance by
+`CommittedFutureIndex.StrategyRows`, binary-searched per frame): when the latest
+committed row at or before now is a deactivation later than stock's activation date, the
+prefix switches the strategy off through the state patch's own no-charge, no-capture path
+(`StrategyStatePatcher.SwitchOffWithoutCapture`, under `SuppressionGuard.ResourcesAndReplay`),
+logs it at Info and skips stock's `Update`; this also applies a committed player cancel on
+time. When stock's expiry is due but the committed timeline still has the strategy on and
+its next committed row is a deactivation (a replay frame landing between stock's threshold
+and the original run's expiry frame), the expiry is held until that UT, running the rest
+of `Update` (`OnUpdate` and the effects, empty in stock). Anything else (a strategy the
+committed timeline never activated, a stock activation dated at or after the committed
+deactivation, a genuine expiry the committed timeline does not have) is stock's, captured
+as before. The hold and the state patch's FutureDeactivation read one predicate
+(`StrategyCommittedRows.NextRowIsDeactivation`), so the two cannot fight. Cells:
+`StrategyExpiryReplayTests.cs`. Residual: a strategy activated before the save used Parsek
+(no committed activation row) is left to stock by the unmanaged rule, so its replayed
+expiry is still recorded twice.
 
 Cross-reference: `STOCK-UI-RESERVATION-OVERLAYS-2026-09-25` (S1).
 
@@ -1433,6 +1587,16 @@ states the ledger count without claiming stock refuses; the block itself is the 
 overlay work's planned "C2 contract slots" item, whose shared free-slot query should then
 replace `ComputeSlotUsage` here (code comment at the call site). Re-flown PASS: GUI-15
 `2026-09-25_1718` (adds the closing and strategies-fold mock captures), GUI-5 `_1722_a2`.
+
+Follow-up DONE 2026-09-25 (branch `career-forecast-archived`): the contract slot block
+landed (PR #1824, `ContractSlotReservation`), and the Contracts heading now reads it -
+`ContractSlotReservation.ForecastNow()` in the live window, and when that is null (stock's
+contract state unreadable) the pure `Forecast` over the window's own ledger rows
+(`ForecastContractSlotsFromLedger`, holders with accept UT and deadline). Stock auto-accept
+contracts hold no slot, as in stock. The Strategies heading keeps `ComputeSlotUsage`
+(Administration's refusal is per strategy, with no shared count). Same branch: the Kerbals
+and Career body cells take `ParsekUI.GetTableCellStyle()` (text under header text, was 4 px
+left), and the Timeline's Archived toggle moved to the end of filter row 1.
 
 Open residue:
 1. No REAL host has pending contracts or strategies, so the fold's only picture is the
@@ -11855,6 +12019,20 @@ goes INTO the 1.25 m section of the stack (it is a structural section, not a
 nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
 is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
 
+## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. OPERATOR CONFIRMATION PENDING on the supervisor's ruling]
+
+The registry names the road (roadmap routing roads: a rendezvous mission relaunched against
+the station's live orbit). V18T is the only lane whose extraction emits a `VesselOrbital`
+constraint (`ExtractConstraints: ... VesselOrbital(3620499050@Kerbin) P=2433.78... off=15853.66`,
+the Depot's own park orbit), and the solver consumes it (`PhaseLock APPLIED ...
+method=joint-best-fit ... zeroDrift=yes`: the zero-drift per-window reschedule exists only
+because that constraint is incommensurate with `Rotation(Kerbin)`). Both lines are required
+and read on 13 of the 14 archived logs plus the armed re-flight `2026-09-25_1947`. The mission
+is `Route: Kerbin -> Kerbin`, the route's backing mission, so a player-armed rendezvous loop
+(MissionConfig on a tree that docks with a station) is not what this gates. If the operator
+rules the cell needs the player-armed road, the claim moves to a lane that arms such a loop and
+V18T keeps the tokens as a route-side witness.
+
 ## GS6-CHUTE-TWO-PHASE-NEEDS-A-DESCENT-VARIANT: the sweep craft carries parachutes and the harness has arm/deploy/cut verbs, but `kx_rewind_watch` commits at the top of a sub-orbital coast and never re-enters, so D7 `chute-two-phase` and `chute-cut` stay unreachable [FOUND BY READING 2026-09-02 while preparing the GS-6 revision-2 craft. MISSION-SHAPE NOTE, REPORT-ONLY - not a defect in the product, the craft or the driver]
 
 WHAT IS ALREADY IN PLACE: `Parachute.arm()` / `.deploy()` / `.cut()` are all on the
@@ -11902,6 +12080,14 @@ LANDING, so the variant also inherits GS-1's touchdown-survival arithmetic (cras
 tolerances, descent mass under canopy count) - and if it does not survive, the
 terminal state changes from SubOrbital to Destroyed and the lane's own
 `[expectations.recordings.structure]` moves with it.
+
+UPDATE 2026-09-25 (coverage wave 1b): D7 `chute-cut` is CLAIMED on `B4-reentry-splashdown`, not on
+a GS-6 descent variant. B4 already lands under the pod's `parachuteLarge`, and stock
+`ModuleParachute` cuts a deployed canopy itself once the vessel is LandedOrSplashed
+(decompiled), about 0.3 s after splashdown; the recorder logs the Deployed -> Cut transition
+(`Part event: ParachuteCut 'parachuteLarge' pid=`), now required on B4 (armed re-flight
+`2026-09-25_1959`). `chute-two-phase` was already claimed. What stays open here is only the
+GS-6 sweep's own chute trio, which no cell needs any more.
 
 ## GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER: five part-event families cannot be fired from a scripted timeline at all, so no sweep craft will ever reach them [FOUND BY READING 2026-09-02 against the installed kRPC 0.5.4 client surface. SCOPE NOTE, REPORT-ONLY - not a defect in anything]
 

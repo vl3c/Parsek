@@ -376,6 +376,38 @@ namespace Parsek
             return EntriesOf(kind, key);
         }
 
+        private readonly Dictionary<string, StrategyCommittedRows> strategyRows =
+            new Dictionary<string, StrategyCommittedRows>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// One strategy's committed activation / deactivation rows as a
+        /// <see cref="StrategyCommittedRows"/>, built on first use and kept on this index
+        /// instance, so the lookup is rebuilt exactly when the index is (a ledger, recording
+        /// or supersede change). The per-frame <c>Strategy.Update()</c> prefix and the
+        /// strategy state patch read it; null for an empty id.
+        /// </summary>
+        internal StrategyCommittedRows StrategyRows(string strategyId)
+        {
+            if (string.IsNullOrEmpty(strategyId)) return null;
+            lock (strategyRows)
+            {
+                StrategyCommittedRows rows;
+                if (strategyRows.TryGetValue(strategyId, out rows)) return rows;
+                rows = new StrategyCommittedRows(
+                    UTsOf(EntriesOf(CommittedFutureKind.StrategyActivate, strategyId)),
+                    UTsOf(EntriesOf(CommittedFutureKind.StrategyDeactivate, strategyId)));
+                strategyRows[strategyId] = rows;
+                return rows;
+            }
+        }
+
+        private static List<double> UTsOf(List<CommittedFutureEntry> entries)
+        {
+            var result = new List<double>(entries.Count);
+            for (int i = 0; i < entries.Count; i++) result.Add(entries[i].UT);
+            return result;
+        }
+
         /// <summary>Every committed row of this kind still ahead of
         /// <paramref name="currentUT"/>, across all keys, UT ascending.</summary>
         internal List<CommittedFutureEntry> FutureEntriesOfKind(CommittedFutureKind kind, double currentUT)

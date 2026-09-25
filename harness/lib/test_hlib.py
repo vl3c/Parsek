@@ -7056,6 +7056,12 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "PartEventFX": 6,
             "GhostLifecycle": 17,
         }),
+        # 2026-09-25 coverage wave 4: the D15 / D16 storage-and-timeline lane,
+        # pinned whole off reading run 2026-09-25_2043.
+        "ST-1-storage-timeline-ingame": ("FLIGHT", {
+            "Timeline": 1,
+            "Storage": 3,
+        }),
     }
 
     # Members whose split has NOT been measured yet, mirroring the two sibling
@@ -10175,7 +10181,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # re-flight (twice) plus negative control. What is left on this lane is the
         # ordinary operator -> nightly PROMOTION call, a cadence decision for a
         # human and not a review debt.
-        "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED and ARMED 2026-08-25; readings 1415 (empty, root-caused), 1502 (full measurement, doctrine anomaly red) and 1616 (clean PASS re-fly, anomaly counts identical 65/2/2, every composition facet equal and the histogram within 0.5 % bucket for bucket) flown. ARMED off the matching 1502+1616 PAIR - a histogram read once is a sample - with dwells {1,32}, unevaluable {max 500000}, requireSeamKinds [rigid, flexible-soi] and the suite's FIRST warpBuckets [warp100, warp1000], the key no other subject may ever declare (their clocks are instantaneous TimeJumps, 1x-only by construction). It is the RC-WARP lane and the last M-A7 Phase-3 debt, and that debt is now DISCHARGED IN FULL - the arming closed its measurement half and the discipline closed the rest. THE DISCIPLINE IS COMPLETE ACROSS SIX FLIGHTS: armed re-flight 1722 (PASS attempt 1, gating=True, zero mismatches) plus 1811, which was flown as the control, never armed (a substring edit hit a rationale comment quoting the same key) and therefore counts as a SECOND armed re-flight (PASS attempt 1, zero mismatches); then the genuine negative control 1925, PARSEK-FAIL(render-composition) attempt 1 on the single mismatch `RC-WARP [FAIL] warpBuckets.warpHigh` with every sibling verifier row clean and the run JSON's new `declared` field recording warpBuckets ['warpHigh'] - the audit fix proving its own control - reverted in the same change. Anomaly counts 65/2/2 to the integer on all four full PASS flights (66/2/2 on the control). Promotion past operator is now an open cadence call, not debt",
+        "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED and ARMED 2026-08-25; readings 1415 (empty, root-caused), 1502 (full measurement, doctrine anomaly red) and 1616 (clean PASS re-fly, anomaly counts identical 65/2/2, every composition facet equal and the histogram within 0.5 % bucket for bucket) flown. ARMED off the matching 1502+1616 PAIR - a histogram read once is a sample - with dwells {1,32}, unevaluable {max 500000}, requireSeamKinds [rigid, flexible-soi] and the suite's FIRST warpBuckets [warp100, warp1000], the only above-1x buckets any subject may declare (the others' clocks are instantaneous TimeJumps, 1x-only by construction; V14M declares [warp1x] alone since 2026-09-25). It is the RC-WARP lane and the last M-A7 Phase-3 debt, and that debt is now DISCHARGED IN FULL - the arming closed its measurement half and the discipline closed the rest. THE DISCIPLINE IS COMPLETE ACROSS SIX FLIGHTS: armed re-flight 1722 (PASS attempt 1, gating=True, zero mismatches) plus 1811, which was flown as the control, never armed (a substring edit hit a rationale comment quoting the same key) and therefore counts as a SECOND armed re-flight (PASS attempt 1, zero mismatches); then the genuine negative control 1925, PARSEK-FAIL(render-composition) attempt 1 on the single mismatch `RC-WARP [FAIL] warpBuckets.warpHigh` with every sibling verifier row clean and the run JSON's new `declared` field recording warpBuckets ['warpHigh'] - the audit fix proving its own control - reverted in the same change. Anomaly counts 65/2/2 to the integer on all four full PASS flights (66/2/2 on the control). Promotion past operator is now an open cadence call, not debt",
         # THE TWO PHASE-4 / WAVE-B LANES, authored 2026-08-26 against the two fixtures
         # the route+park harvest landed. Both are operator-tier for the SAME
         # calibration-discipline reason V24W was and V8's iteration 1 was: a first flight
@@ -11419,9 +11425,10 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # ["rigid","flexible-soi"] (measured rigid 14 / flexible-soi 2). The two
         # floors are the anti-vacuity halves; the ceilings are runaway guards, not
         # pins, because dwell and endpoint counts move with frame timing.
-        # `warpBuckets` is NOT declared and never may be on this lane (every clock
-        # move is an instantaneous TimeJump, so the histogram is 1x-only by
-        # construction). Arming re-pinned NOTHING in the flown shape.
+        # No ABOVE-1x `warpBuckets` entry may ever be declared on this lane (every
+        # clock move is an instantaneous TimeJump, so the histogram is 1x-only by
+        # construction); `["warp1x"]` alone IS declared since 2026-09-25 for the D14
+        # `warp-1x` claim. Arming re-pinned NOTHING in the flown shape.
         # ONE PRICED-IN SHIFT: the sticky `mapRenderTracingOn` fix that landed in
         # the same pass removes this lane's spurious
         # `seam-data-unavailable-tracing-off`, so the next run reads 55 rather
@@ -12386,7 +12393,7 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         always did. See RENDERCOMPOSE_ARMED_SPECS for the cycle's run ids."""
         block = self._armed_block("V14M-ike-player-loop.toml")
         self.assertEqual({"gating", "dwells", "cycles", "unevaluable",
-                          "requireSeamKinds"}, set(block),
+                          "requireSeamKinds", "warpBuckets"}, set(block),
                          "a window was added to (or removed from) V14M's ARMED "
                          "render-composition block; every armed window needs its own "
                          "report-only reading run behind it")
@@ -12394,10 +12401,12 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         self.assertEqual({"min": 1, "max": 16}, block["cycles"])
         self.assertEqual({"max": 200}, block["unevaluable"])
         self.assertEqual(["rigid", "flexible-soi"], block["requireSeamKinds"])
-        # `warpBuckets` may NEVER be declared here: every clock move on this lane is
-        # an instantaneous TimeJump, so RC-WARP's histogram is 1x-only by
-        # construction and the key would pin the drive shape, not the product.
-        self.assertNotIn("warpBuckets", block)
+        # `warpBuckets` is EXACTLY ["warp1x"] (D14 `warp-1x`, supervisor ruling
+        # 2026-09-25): every clock move on this lane is an instantaneous TimeJump, so
+        # RC-WARP's histogram is 1x-only by construction (measured warp1x 173 / 177)
+        # and that 1x replay is the cell. No ABOVE-1x bucket may ever be named here -
+        # it would demand warped seam and hold traversals this drive cannot produce.
+        self.assertEqual(["warp1x"], block["warpBuckets"])
 
     def test_v8_declares_the_render_composition_block_armed_without_a_cycles_floor(self):
         """V8, ARMED 2026-08-25 off reading run `2026-08-25_0956`: dwells 2,
@@ -12466,13 +12475,17 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # Stated as its own assertion rather than left to the key-set pin: the list
         # above could grow this token without changing the KEY set at all.
         self.assertNotIn("warpHigh", block["warpBuckets"])
-        # And the suite property the pair of sibling pins states from the other side:
-        # exactly ONE armed block in the corpus declares warpBuckets, and it is this
-        # one. A second lane picking the key up is an arming decision of its own.
-        with_buckets = sorted(n for n in self.RENDERCOMPOSE_ARMED_SPECS
-                              if "warpBuckets" in self._armed_block(n))
+        # And the suite property the sibling pins state from the other side: exactly
+        # ONE armed block in the corpus names an ABOVE-1x warp bucket, and it is this
+        # one. (V14M declares ["warp1x"] alone since 2026-09-25, which RC-WARP reads
+        # as a 1x-only claim with no traversal clause.) A second lane naming an
+        # above-1x bucket is an arming decision of its own.
+        with_buckets = sorted(
+            n for n in self.RENDERCOMPOSE_ARMED_SPECS
+            if any(b in rendercompose.WARP_BUCKETS_ABOVE_1X
+                   for b in self._armed_block(n).get("warpBuckets", [])))
         self.assertEqual(["V24W-duna-one-warp-stair.toml"], with_buckets,
-                         "warpBuckets is armed on a lane other than the RC-WARP one; "
+                         "an above-1x warp bucket is armed on a lane other than the RC-WARP one; "
                          "every other committed subject moves the clock with "
                          "instantaneous TimeJumps, so its histogram is 1x-only BY "
                          "CONSTRUCTION and the key would pin the drive shape rather "
