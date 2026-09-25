@@ -349,7 +349,9 @@ Retiring the window before conditions 1 and 2 ship would leave Advanced players 
 | Kerbals > Roster | Keep as the full roster reference. Once the VAB crew dialog shows reserved kerbals marked, the 2026-09-22 reason for showing this window in Basic ("the only surface explaining why a reserved kerbal is missing") is gone, so consider returning it to Advanced (D3) |
 | Kerbals > Outcomes | Keep (history) |
 
-## 9. Proposed amendment to the "No new player-facing UI surfaces" rule
+## 9. Amendment to the "No new player-facing UI surfaces" rule
+
+**Adopted 2026-09-25 (D1).** The exception below is now a nested bullet under the rule in `.claude/CLAUDE.md` / `AGENTS.md`.
 
 Current text (`.claude/CLAUDE.md`, Hard rules):
 > No new player-facing UI surfaces (windows, popups, badge counters, persistent "issues" panels). When information seems to
