@@ -1047,8 +1047,12 @@ namespace Parsek
         // mission, its tree/selection/cadence, or the committed list changes, so the (allocating,
         // Verbose-logging) MissionLoopUnitBuilder.Build is gated behind a cheap signature compare.
         // SetLoopUnits still runs every frame with the cached value so the engine always sees the
-        // current set.
+        // current set. builtLoopUnits is the signature-cached build; cachedLoopUnits is the view
+        // every playback consumer reads, the build minus the units still before their first loop
+        // instance (MissionLoopUnitBuilder.ResolveLiveUnits), so a looped mission's first run plays
+        // as an ordinary recording until its anchor.
         private string lastLoopUnitSignature;
+        private GhostPlaybackLogic.LoopUnitSet builtLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
         private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
 
         /// <summary>
@@ -19655,7 +19659,7 @@ namespace Parsek
                 // cache is signature-gated, and this whole block only runs when the loop-unit
                 // signature moved, so this is a handful of calls per topology change - never per
                 // frame. A null graph (nothing committed yet) simply yields marker-free units.
-                cachedLoopUnits = MissionLoopUnitBuilder.Build(
+                builtLoopUnits = MissionLoopUnitBuilder.Build(
                     unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode,
                     forceFaithful, DockEventGraphCache.GetOrBuild());
                 lastLoopUnitSignature = signature;
@@ -19671,7 +19675,11 @@ namespace Parsek
             // RECORD itself is signature-deduped inside NotePlan, so it is appended once per builder
             // signature per host. Instant no-op when the manifest env gate is unarmed.
             Parsek.MapRender.RenderCompositionRecorder.NotePlan(
-                "Flight", signature, cachedLoopUnits, committed, unioned);
+                "Flight", signature, builtLoopUnits, committed, unioned);
+            // Publish the LIVE view: a unit before its first loop instance is left out, so its
+            // members play their first run as ordinary recordings (operator ruling 2026-09-24).
+            cachedLoopUnits = MissionLoopUnitBuilder.ResolveLiveUnits(
+                "Flight", builtLoopUnits, cachedLoopUnits, routeSelectUT);
             engine.SetLoopUnits(cachedLoopUnits);
 
             // If the player is WATCHING a member of a mission loop and the new selection just
