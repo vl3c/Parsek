@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: three new lanes for Real Spawn Control, drilled-cargo routes and Making History launch sites.**
+  `RSC-1` presses Real Spawn Control's "Warp to Spawn" on a ghost parked near the pad and requires the time jump
+  and the vessel that spawns; a new test command, `UiAction op=warp`, runs the button's own click code and
+  refuses when the button is greyed out. `HV-1` runs the Logistics tests with a synthetic drill mission present,
+  so the check that a route treats drilled cargo as its own origin runs instead of skipping. `MC-4` launches the
+  staged Kerbal X from the Making History Desert pad and requires the recording to name the site, save it, and
+  replay there. Two new injection presets supply the subjects. Coverage 210 -> 213 of 250.
 - **Automated testing: five more coverage cells claimed off logs existing lanes already print.**
   B4 now requires the parachute cut the game performs on splashdown (D7 `chute-cut`); GS-12
   requires the whole-mission loop being switched on and the watch camera reading the mission's
