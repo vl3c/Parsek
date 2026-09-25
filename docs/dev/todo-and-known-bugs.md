@@ -154,11 +154,21 @@ pairing rule):
   SPACECENTER cell would have to buy a part); the `textGreyoutMessage` placement in the
   purchase state is read from the decompile (stock enables it with an empty text there), not
   seen. (2) Stock's purchase-all caption still totals the skipped parts' entry costs.
-  (3) Capture bug found on the way: a purchase in the editor or R&D also buys the part's
+  (3) ~~Capture bug found on the way: a purchase in the editor or R&D also buys the part's
   `identicalParts` (same tech) with `costsFunds = false`, so stock charges nothing for them
   (`Funding.onPartPurchased` checks the flag), but
   `GameStateRecorder.OnPartPurchased` records `cost = entryCost` for each, so the ledger
-  over-charges. Not changed here (it changes what a row says); needs its own fix.
+  over-charges.~~ Fixed at capture (branch `part-purchase-identical`): the handler reads
+  `AvailablePart.costsFunds` while stock still has it cleared (both
+  `PartListTooltipController.onPurchaseProceed` and `RDTech.HandlePurchase` clear it around
+  the fire, decompiled) and records `cost=0` for the identical part through
+  `GameStateRecorder.ComputePartPurchaseChargedCost`, the same zero-cost shape as a bypass
+  purchase. The row is kept, not dropped: `PatchPurchasedParts` re-applies it after a
+  rewind. The block now counts zero-cost rows too (`CommittedPartPurchaseAfter` no longer
+  filters `FundsSpent > 0`), so an identical part the timeline gets free later cannot be
+  bought now; with bypass on the block stays inert. The window's rows now sum to the one
+  `FundsChanged(RnDPartPurchase)` debit stock makes (the KSC reconciler used to read 2x).
+  Rows captured before the fix keep their recorded amount (no migration).
 
 **Ledger / flight defects with no stock control to mark:**
 - Contract fail / cancel penalties are charged unconditionally, so an already-resolved
