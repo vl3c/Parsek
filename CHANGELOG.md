@@ -10,6 +10,7 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the GUI mirror shows stock KSP screens as photographs, with Parsek's decorations beside them.** A census capture labelled `stk-<screen>-<state>` (or one with no Parsek window in it) is listed under a `Stock screens` rail heading, one group per screen, and shown as the frame the census took, never redrawn; a PNG with no control-tree dump is enough. Beside it a panel lists what Parsek decorated on that screen, read from the run's `KSP.log`: the stock census lane's own `record label=` lines (per-tab summaries, items, or `screens=none`), else the nearest `decorate` pass for that screen before the capture, else a line saying none was logged. Each row shows id, tab, kind, marked, blocked and why, a second table lists the stock buttons the lane logged (`control` lines: name, state, interactable, visible), and a mark without its block (or a block without its mark) on a kind the pairing rule covers is highlighted and badged in the rail. Superseded / retired flags, notes and Compare pairs work as for Parsek's windows (`harness/tools/gui_mirror.py`; `docs/dev/design-gui-mirror.md` section 18).
 - **Automated testing: the Missions tab's leg trim and Clone button are driven by a lane.**
   Two test-seam additions reach the last two Missions-tab authoring actions no lane could: a
   `leg:` key for the include op unticks ONE interval of a vessel, through the interval
