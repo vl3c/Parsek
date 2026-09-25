@@ -45,7 +45,7 @@ pairing rule):
 - Contract Configurator disables the Mission Control overlay and bypasses the Accept
   pre-block (read from source).
 - The Astronaut Complex opened from the editor is undecorated.
-- Marks and blocks never go stale-free after a rewind: the `MilestoneStore` unreplayed slice
+- Marks and blocks go stale after a rewind: the `MilestoneStore` unreplayed slice
   never advances. A facility is probably over-blocked at the next level (inferred).
 - The tooltips use raw UT and em dashes.
 
