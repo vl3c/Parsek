@@ -148,6 +148,22 @@ D1 = ["auto-record-launch"]
 #   `no adjustment` because the builder applied the cap first (see the header).
 D6 = ["basic-playback", "mesh-lifecycle-derender", "loop-period-modes", "self-overlap",
       "overlap-expiry-soft-caps"]
+# `whole-mission-loop` (claimed 2026-09-25, coverage wave 1b) <- the WHOLE mission loops
+#   as one unit, never one recording: `SetLoopEnabled: loop ON for 'Kerbal X' (tree=...)`
+#   (MissionStore.SetLoopEnabled, the same store call the Missions tab's Loop toggle makes
+#   at MissionsWindowUI.cs:3012; the seam's MissionConfig reaches it through the tree's
+#   ORIGINAL mission), the unit lines' `members=2` above (the pod stack and the probe core
+#   share one span clock), and the playback-side witness `Watch UT resolved via Mission
+#   span clock: rec #0` (WatchModeController: a unit member carries no per-recording loop
+#   flag, so the watched ghost's UT comes off the mission's shared span clock). All three
+#   read on every archived run (`_1911`, `_1924`, `_1934`).
+#   NOT claimed here: D11 `default-mission`. This lane's only default-mission creation is
+#   the seam's own seeding (`missionconfig seeded 1 default mission(s)`, required above):
+#   the tree is committed in flight and no production path (OnLoad, the Missions tab
+#   draw) runs before MissionConfig. V15T owns that cell off the OnLoad path.
+# ARMED RE-FLIGHT `2026-09-25_1951` PASS attempt 1 (automation DLL `f506f059...`, origin/main `7c90492bd`);
+# negative control offline (hlib.evaluate_expectations over that log, loop OFF / a non-span-clock watch each red exactly one new token).
+D11 = ["whole-mission-loop"]
 # `rewind-to-launch` <- "Rewind-to-Launch initiated to UT" + the seam terminal.
 D9 = ["rewind-to-launch"]
 # `scene-ksc` <- "invokerewindtolaunch complete" (emitted only back in SPACECENTER).
@@ -200,7 +216,9 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "PhaseLock APPLIED: [^\\r\\n]*P=5 method=unconstrained",
              "MissionLoopUnit: [^\\r\\n]*members=2 [^\\r\\n]*unit=Sec cadence=[0-9]+ overlapCadence=10 overlaps=yes",
              "Loop cadence #[0-9]+ \"Kerbal X\": requested=10\\.00s duration=[0-9.]+s cap=20 effective=10\\.00s \\(cycles=1[01]\\) no adjustment",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=overlap expired"]
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=overlap expired",
+             "SetLoopEnabled: loop ON for 'Kerbal X' \\(tree=[0-9a-f]{32}\\); anchorUT=",
+             "Watch UT resolved via Mission span clock: rec #0 rawUT=[0-9.]+ loopUT="]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # ARMED off the reading run `2026-09-24_1911` (spawned 8, spawnLines 57 = destroyLines
