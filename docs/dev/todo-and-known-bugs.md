@@ -57,7 +57,22 @@ Leave the fixtures and document that Jeb reads held on them. No migration or loa
 ledgers: the recording schema policy (CLAUDE.md, "Recording schema") is one current contract, and a
 missing capture row is not something load code should synthesize.
 
-## STAND-INS-EXCEED-THE-CREW-LIMIT: a generated stand-in counts against stock's active-crew limit, so a hold can push the Astronaut Complex over its cap [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F9); OPEN, design decision needed]
+## ~~STAND-INS-EXCEED-THE-CREW-LIMIT: a generated stand-in counts against stock's active-crew limit, so a hold can push the Astronaut Complex over its cap~~ [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F9); FIXED 2026-09-26, branch `standin-crew-cap`, owner ruling 2026-09-26: option (a)]
+
+**Fix.** `Patches/ActiveCrewCountPatch.cs` postfixes `KerbalRoster.GetActiveCrewCount()` and
+subtracts one per slot whose owner and ACTIVE stand-in (`KerbalsModule.ResolveActiveChainIndex`,
+the rule behind `FindActiveStandInOwner`) are both counted by stock's own rule (type Crew, status
+Assigned / Available / Missing, mirrored in `StandInSeatCount.IsCountedByStock`). A kerbal is in at
+most one pair, the result is clamped at 0, and a displaced or retired member, a permanently-gone
+owner, a released hold and a pair either half of which stock does not count are left as stock
+counts them. Pure decision `StandInSeatCount.CollectSeatSharingPairs`; cells in
+`StandInSeatCountTests`. The count reaches the complex header and hire lock (`UpdateCrewCounts`),
+the editor auto-hire and its cost, and the int argument of `OnCrewmemberHired` / `Sacked` /
+`LeftForDead`; stock's `Funding.onCrewHired` and Parsek's recorded HireCost both price from that
+one argument (IL cell). No replay bypass: the count is a view, not a refusal. The active stand-in's
+dismiss tooltip adds one sentence (it shares the owner's seat and does not count against the
+limit) under the same predicate. Not covered by an in-game cell yet: the next GUI-28 census
+re-flight should read `Active Kerbals: 5 [Max: 5]` on `stk-ac-ksc.png`.
 
 **Evidence.** `stk-ac-ksc.png` shows `Active Kerbals: 6 [Max: 5]` at Astronaut Complex level 1. The
 roster is Jebediah, Bill, Bob, Valentina plus two stand-ins: Debwig (Jeb's, already in the base) and
