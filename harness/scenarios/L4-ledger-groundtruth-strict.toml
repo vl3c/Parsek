@@ -212,6 +212,24 @@ steps = [
 # been, which is why `contracts` was not claimed until now.
 D8 = ["science", "milestones", "funds", "contracts", "kerbals"]
 D14 = ["career", "scene-flight"]
+#
+# ---- D12 `missed-endut-auto-free`, CLAIMED 2026-09-25 (branch `cov-wave1`) ----
+# The fixture's two committed recordings both end long before the fixture's UT and
+# neither was ever spawned, so every FLIGHT-scene OnLoad runs ParsekScenario's
+# crew-auto-unreserve pass (ParsekScenario.cs:4516-4532): for each such recording it
+# calls `CrewReservationManager.UnreserveCrewInSnapshot`, nulls the snapshot, marks it
+# spawned and logs `Auto-unreserved crew for recording #N (<name>) - EndUT passed
+# without spawn`. THAT LINE ALONE IS NOT THE CLAIM: it prints once per snapshot,
+# crewless or not, and both recordings here are named "Jumping Flea". The token below
+# therefore requires the crew-release line to be IMMEDIATELY preceded by
+# `CleanUpReplacement`'s own outcome for the reserved kerbal (`Removed replacement
+# '<stand-in>' (was unused)` or `Kept replacement '<stand-in>' (status: ...)`, both
+# CrewReservation INFO) - the two lines are written back to back inside one loop
+# iteration, so the adjacency proves a CREWED snapshot had its reservation freed by
+# this path, whichever index it sits at. Measured on every archived L4 log (e.g.
+# `2026-08-20_2254`: `Removed replacement 'Debwig Kerman' (was unused)` directly
+# above `Auto-unreserved crew for recording #0 (Jumping Flea)`).
+D12 = ["missed-endut-auto-free"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING: run.py reads `expectations.allowedAnomalies`, and a
@@ -343,6 +361,10 @@ required = [
   "result: hardFailures=0 reportOnly=0 facetsCompared=11 strict=True",
   "CompareContracts: reconActive=1 saveActive=1 phantoms=0 mismatches=0 missing=0",
   "CompareKerbalCareerLogs: kerbals=1 divergent=0",
+  # D12 missed-endut-auto-free (2026-09-25): the crewed snapshot's reservation freed
+  # by the EndUT-passed pass - the stand-in cleanup line directly followed by the
+  # auto-unreserve line of the same loop iteration (see [dimensionsCovered]).
+  "\\[CrewReservation\\] (?:Removed replacement '[^']+' \\(was unused\\)|Kept replacement '[^']+' \\(status: )[^\\r\\n]*\\r?\\n[^\\r\\n]*\\[Scenario\\] Auto-unreserved crew for recording #[0-9]+ \\([^)]+\\) [^\\r\\n]*EndUT passed without spawn",
 ]
 # The cell reports every facet at Warn (report.Format()), never at Error, so a
 # Parsek ERROR line here is a genuine defect signal and not the diff talking.

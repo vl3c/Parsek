@@ -355,7 +355,8 @@ are drawn nowhere and cannot be turned off.
 
 ### Vessel Spawning
 
-- **Proximity offset** - If a vessel would spawn within 200m of any other vessel, it is automatically moved to 250m away to prevent physics collisions. This can happen when multiple recordings end near the same location or near the launchpad.
+- **Collision check** - Before a vessel spawns, Parsek checks its bounding box against every vessel already there. If they would overlap, the spawn is blocked and retried, or placed at an earlier clear point along the recorded path. This can happen when multiple recordings end near the same location.
+- **Launch pad and runway** - A flight that ends parked on the launch pad or runway does not spawn a vessel at all: the flight is retired and its crew is freed.
 - **Duplicate prevention** - Each spawned vessel is tracked by its persistent ID. If the vessel already exists (e.g. after a scene change), it won't be spawned again.
 - **Dead crew removal** - If a crew member died during the recording but the vessel survived, they are removed from the snapshot before spawning.
 

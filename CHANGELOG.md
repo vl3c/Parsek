@@ -10,6 +10,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: nine more behaviours are gated by lanes that already show them, and three registry cells that named nothing are retired.**
+  Existing lanes now require the log lines that prove the in-flight crew swap (GS-4), freeing a crewed
+  recording's reservation when its end passed without a spawn (L4), the tracking-station duplicate-spawn
+  guard and the `.pann` sidecar read and write (V22T), and Parsek's save node written and read back
+  (GS-4). EX-2's bounding-box spawn block, EX-1's launch-pad retirement and V16M's Laythe replay now
+  count for their cells, and V14M's render check requires ghosts replayed at 1x. The render check's
+  warp rule asks for seams crossed above 1x only when a lane claims an above-1x warp bucket. Retired:
+  the proximity offset (removed from the code), crew auto-hire (never built; stand-ins replaced it)
+  and the bare "situation" axis. The user guide no longer describes the proximity offset. Coverage
+  205 of 250 -> 214 of 247.
 - **Dev: the GUI mirror says when a shown capture is not current.** A superseded, retired, old-layout or no-hover capture opened from a link or as a Compare BEFORE now carries a banner naming the run that is current, with a button to show it (`harness/tools/gui_mirror.py`).
 - **Automated testing: a lane loops a recorded mission and watches its copies relaunch, overlap and expire.**
   `GS-12-kerbalx-loop-cycles` flies GS-4's Kerbal X flight, rewinds and watches the first run, then loops
