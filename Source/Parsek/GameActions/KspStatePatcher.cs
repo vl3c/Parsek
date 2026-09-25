@@ -67,7 +67,8 @@ namespace Parsek
             double? techBaselineUt = null,
             bool suppressSuspiciousDrawdownWarnings = false,
             bool authoritativeReduction = false,
-            IDictionary<string, UnaffordableUnlockDrop> unaffordableTechDrops = null)
+            IDictionary<string, UnaffordableUnlockDrop> unaffordableTechDrops = null,
+            StrategiesModule strategies = null)
         {
             using (SuppressionGuard.ResourcesAndReplay())
             {
@@ -93,6 +94,11 @@ namespace Parsek
                 PatchFacilities(facilities);
                 PatchMilestones(milestones, authoritativeRepeatableRecordState);
                 PatchContracts(contracts);
+                // After funds (the walk already charged the setup cost; this path charges
+                // nothing) and facilities (the Administration level). Null skips it, which
+                // is what callers that do not own a strategies module pass.
+                if (strategies != null)
+                    PatchStrategies(strategies);
 
                 VerboseStablePatchState("patch-all-complete", "complete", "PatchAll complete");
             }
@@ -1500,6 +1506,15 @@ namespace Parsek
         internal static void PatchFacilities(FacilitiesModule facilities)
         {
             FacilityStatePatcher.PatchFacilities(facilities);
+        }
+
+        /// <summary>
+        /// Wrapper for the strategy state patch; behavior lives in
+        /// <see cref="StrategyStatePatcher.PatchStrategies"/>.
+        /// </summary>
+        internal static void PatchStrategies(StrategiesModule strategies)
+        {
+            StrategyStatePatcher.PatchStrategies(strategies);
         }
 
         /// <summary>

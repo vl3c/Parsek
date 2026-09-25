@@ -55,7 +55,7 @@ Parsek prevents time-travel paradoxes through three complementary layers, all wo
 
 **Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against the resource cashflow. New spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) are blocked if they would create a deficit at any point on the timeline. Applies to science and funds.
 
-**Layer 3: UT=0 reservation.** Identity and slot resources are locked from the start of time. Kerbals used in any recording are reserved as a continuous block — no gaps, no reuse until all recordings resolve. Contracts and strategies consume their slots from the start until resolved. This prevents duplicate kerbals, slot overflow, and resource diversion conflicts.
+**Layer 3: UT=0 reservation.** Identity and slot resources are locked from the start of time. Kerbals used in any recording are reserved as a continuous block — no gaps, no reuse until all recordings resolve. Contracts consume their slots from the start until resolved; strategies are checked against the committed timeline at the Administration building instead (section 13.3). This prevents duplicate kerbals, slot overflow, and resource diversion conflicts.
 
 The player never sees a broken state. If something goes truly wrong, KSP load (the hard reset) is always available.
 
@@ -147,7 +147,7 @@ These principles govern every design decision in the game actions system. They a
 
 6. **Spending reservation locks resources globally.** Committed spendings (past and future) are reserved against projected cashflow. The player can only add new spendings if the projected minimum balance covers them.
 
-7. **Identity reservation locks from UT=0.** Kerbals, contract slots, and strategy slots are reserved from the start of time as continuous blocks. No gaps, no reuse until resolved.
+7. **Identity reservation locks from UT=0.** Kerbals and contract slots are reserved from the start of time as continuous blocks. No gaps, no reuse until resolved. Strategy slots are checked against the committed timeline instead (section 13.3).
 
 8. **Conservative over precise.** Where Parsek's model diverges from KSP's exact mechanics (e.g., hard cap vs diminishing returns curve for science), it errs on the side that prevents overcredit.
 
@@ -319,7 +319,7 @@ This applies to:
 - **Science**: available science is the minimum projected science balance from the current UT through future science earnings and spendings. Future science earnings cannot make more science spendable now than the current balance, but they can cover later committed tech unlocks before those unlocks happen.
 - **Funds**: available funds are the minimum projected fund balance from the current UT through future fund earnings and spendings (vessel builds, facility upgrades, hires, etc.). Future earnings cannot inflate current spendability above the current balance, but they can cover later committed fund spendings before those spendings happen.
 
-**Reputation does NOT need a spending reservation.** Reputation can go negative without blocking any player action (unlike funds or science, where negative balance prevents launching or unlocking). The only reputation spending that requires a minimum balance is strategy activation — and strategies are already gated by UT=0 reservation (section 13.3), which blocks new strategy activations entirely while existing ones are on the timeline. Contract decline and failure penalties always apply regardless of current rep level.
+**Reputation does NOT need a spending reservation.** Reputation can go negative without blocking any player action (unlike funds or science, where negative balance prevents launching or unlocking). The only reputation spending that requires a minimum balance is strategy activation, which stock gates on the live reputation itself (`Strategy.CanBeActivated`); Parsek's strategy block (section 13.3) refuses only activations that conflict with committed strategy rows, not every activation while a strategy is on the timeline. Contract decline and failure penalties always apply regardless of current rep level.
 
 The reservation pattern is analogous to the kerbal reservation system — future committed events lock resources retroactively.
 
@@ -337,9 +337,9 @@ Parsek prevents time-travel paradoxes through three complementary design layers:
 
 **Layer 2: Spending reservation.** Committed spendings — past, present, and future — are reserved against projected cashflow. The player can only add new spendings (vessel builds, tech nodes, facility upgrades, kerbal hires) if the projected balance never dips negative. This prevents the player from creating new deficits after rewinding to an earlier UT. Applies to science and funds.
 
-**Layer 3: UT=0 reservation.** Identity and slot resources are locked from the start of time when committed anywhere on the timeline. Kerbals used in a recording are reserved from UT=0 as a continuous block — no gaps, no reuse until all recordings resolve. Contracts and strategies consume their slots from UT=0 until resolved or deactivated. This prevents duplicate kerbals, slot overflow, and resource diversion conflicts that could cascade into downstream paradoxes.
+**Layer 3: UT=0 reservation.** Identity and slot resources are locked from the start of time when committed anywhere on the timeline. Kerbals used in a recording are reserved from UT=0 as a continuous block — no gaps, no reuse until all recordings resolve. Contracts consume their slots from UT=0 until resolved. Strategies are NOT reserved from UT=0: the Administration building refuses an activation the committed timeline makes later, an activation that leaves no slot for a committed activation, and a player deactivation while a committed row for that strategy is still ahead (section 13.3). This prevents duplicate kerbals, slot overflow, and resource diversion conflicts that could cascade into downstream paradoxes.
 
-**Core philosophy: conservative by design.** Every restriction exists to prevent a specific paradox. The tradeoff is reduced gameplay flexibility — kerbals can't be reused freely across rewinds, strategies can't be changed while existing ones are committed, available funds may show zero at early UTs because the budget is fully committed to future events. But the player never sees a broken timeline, never encounters an unresolvable deficit, and never needs to manually fix inconsistencies. If a situation becomes truly stuck, KSP load (the hard reset) is always available as the escape hatch.
+**Core philosophy: conservative by design.** Every restriction exists to prevent a specific paradox. The tradeoff is reduced gameplay flexibility — kerbals can't be reused freely across rewinds, a strategy can't be activated earlier or cancelled before its committed timeline changes it, available funds may show zero at early UTs because the budget is fully committed to future events. But the player never sees a broken timeline, never encounters an unresolvable deficit, and never needs to manually fix inconsistencies. If a situation becomes truly stuck, KSP load (the hard reset) is always available as the escape hatch.
 
 ### 3.11 Resource modules
 
@@ -2036,28 +2036,19 @@ StrategyDeactivate (KSC action)
 
 The setup cost is deducted from funds by the `FundsModule` when processing `StrategyActivate` actions. **Note (v0.3): KSP stock strategies always cost funds for setup. Reputation-based setup costs are not implemented.**
 
-### 11.3 Strategy reservation — UT=0 to deactivation
+### 11.3 Strategy blocks against the committed timeline
 
-Strategies follow the same UT=0 reservation pattern as kerbals and contracts. Once activated anywhere on the timeline, a strategy consumes its Administration building slot from UT=0 until deactivated. If never deactivated, the slot is consumed indefinitely.
+**Correction (2026-09-25, stock-UI overlay program PR 5).** An earlier draft specified a UT=0 reservation that blocked every new strategy activation while any strategy was on the timeline. No code ever implemented it (`StrategiesModule.GetAvailableSlots` had no caller), and it is not the rule. The shipped rule lives at the stock control (`StrategyReservationPredicates`, reference `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` section 10 step 5):
 
-**Why UT=0 reservation (not windowed):** A strategy transforms contract rewards within its active window. These transforms change the effective resource earnings — diverting funds to reputation, science to funds, etc. If a player could activate a new strategy before an existing one, the new strategy would reduce effective earnings in a different resource, potentially making existing committed spendings downstream unaffordable. Detecting this would require a trial recalculation on every strategy activation attempt. The UT=0 reservation prevents this entirely by blocking new strategies while existing ones are on the timeline.
+- **Activation of S is refused** when the committed timeline activates S later, when activating S now leaves no free slot at a committed future activation, or when, with S still active at a committed activation of another strategy, stock's own conflict rule (`StrategySystem.HasConflictingActiveStrategies`, over group tags) would refuse that activation. The slot check is a peak walk: the strategies active in stock now plus S, then the committed future activations and deactivations in UT order (deactivations first at the same UT), with the limit raised at each committed Administration upgrade; refuse when the count exceeds the limit at any committed activation.
+- **Deactivation of S by the player is refused** while a committed StrategyActivate or StrategyDeactivate row for S is still ahead. No other committed row depends on S being active: contract rewards and strategy conversions are captured after stock applied the strategy and replay as recorded (section 11.4 note).
+- **Stock auto-expiry is never refused.** Expiry exists only with KSPCommunityFixes' StrategyDuration fix; it goes through `Strategy.Deactivate()` gated on `CanBeDeactivated`, which Parsek leaves unpatched, and it is captured as a StrategyDeactivate row like any deactivation.
 
-```
-StrategyReservation (derived, per strategy)
-  strategyId:     string
-  reservedFrom:   0 (always — invariant)
-  reservedUntil:  deactivation UT, or INDEFINITE if never deactivated
-```
-
-**Slot availability:**
-
-```
-reservedSlots = count of strategies on the timeline that are active at or after current UT
-                (activated and not yet deactivated, considering UT=0 reservation)
-availableSlots(ut) = maxSlots (from Admin building level) - reservedSlots
-```
+The original rationale (a new strategy could divert earnings that committed spendings downstream rely on) does not hold for stock strategies: the walk never re-derives a committed reward from the active strategy set, so a present-day activation or deactivation cannot change a committed row's value.
 
 ### 11.4 Transforms during recalculation
+
+**Note (as shipped, #439 Phase A):** the walk does not apply this transform. Stock strategies transform a contract reward through `GameEvents.Modifiers.OnCurrencyModifierQuery` before the completion is captured, so the captured reward is already post-transform and `StrategiesModule.TransformContractReward` is a logged identity no-op; strategy currency conversions are captured as their own rows (StrategyScienceDebit / Credit, the StrategyConverter funds and reputation sources). The design below is kept for reference.
 
 During the recalculation walk, when a contract reward is processed, the walk checks which strategies are active at that UT. If a matching strategy is active (its source resource matches one of the reward types), the reward is transformed:
 
@@ -2118,28 +2109,31 @@ Rep goes UP (lost the 5 rep that was diverted). Science goes DOWN (lost the 5 sc
 Total resource value redistributed — not a paradox, just a different outcome.
 ```
 
-**Reservation blocks new strategy on rewind:**
+**A committed activation holds the slot it needs:**
 
 ```
-Admin building: 1 slot.
-Strategy A activated at UT=1000. Reserved from UT=0.
+Admin building: 1 slot. Strategy A activated at UT=1000 (committed).
 
 Player rewinds to UT=500. Wants to activate Strategy B.
-  reservedSlots = 1 (A). availableSlots = 1 - 1 = 0. BLOCKED.
+  Peak walk: {B} at 500, {B, A} at 1000 -> 2 > 1. BLOCKED:
+  "A committed activation of 'A' on <date> needs this slot."
 
-Player must fast-forward past A's deactivation to free the slot.
-Or accept that strategy A's window is part of the committed timeline.
+With a committed Admin upgrade to level 2 (3 slots) at UT=800, the same
+activation is allowed.
 ```
 
 ### 11.7 KSP state patching
 
-On warp exit / rewind, Parsek patches KSP's `StrategySystem` to match the ledger's strategy state at the current UT:
+After every ledger recalculation that patches KSP state, `KspStatePatcher.PatchStrategies` (`StrategyStatePatcher.cs`) makes `StrategySystem` match the walk's active set:
 
-- Active strategies are patched into KSP with their commitment level and activation state.
-- Deactivated strategies are patched as inactive.
-- Future strategies (activated after the current UT) are patched as inactive at the current moment but their reservation holds the slot.
+- A ledger-active, stock-inactive strategy is switched on through `Strategy.Load(ConfigNode)` with the committed activation date and commitment factor: no setup charge (the walk already charged it) and no `Activate()` call, so no capture.
+- A stock-active strategy the ledger has inactive is switched off through `Unregister()` plus the private `isActive` flag: no refund, and no `Deactivate()` call (which KSPCF's minimum-duration gate could refuse).
+- A strategy the ledger never activated (active before the save had a ledger) is left alone.
+- An activation dated after now, or a strategy whose next committed row is a deactivation, is left as is: a recalculation without a current-UT cutoff walks past now, and those rows apply when the clock reaches them.
+- Stock fills its strategy list one frame after `StrategySystem.OnLoad` (a coroutine), after the synchronous ksp-load recalculation. A patch that finds the list not loaded waits, and a postfix on the private `StrategySystem.LoadStrategies` runs it with the requesting walk's snapshot once the list exists (Career only; dropped by a newer recalculation, a scene change or another save).
+- A strategy switched on after its `ActivateUT + LongestDuration` expires on stock's next tick (KSPCF) and records a real StrategyDeactivate row at now: benign and one-shot.
 
-Conflict checking (same source resource) is KSP-native. Parsek ensures the correct strategies are active; KSP prevents conflicts in its own UI.
+Conflict checking (group tags) is KSP-native, and the activation block mirrors it against committed activations. `Strategy.Load` bypasses it, so a ledger state stock's rule would not allow is applied as the ledger has it and warned once, never resolved by switching a strategy off.
 
 ### 11.8 Open questions
 
