@@ -32,10 +32,18 @@ tier = "operator"
 # A MechJeb ascent failure from the Desert is driver-INVALID, never PARSEK-FAIL (the
 # mission-vs-Parsek orthogonality rule).
 #
-# COUNTS ARE GS-4's AS FLOORS, NOT PINS, UNTIL THE READING RUN: the same craft sheds the
-# same stages, but the Desert pad's latitude and altitude are not the KSC pad's, so the
-# destroyed/sub-orbital split may move. The report-only blocks stay report-only (a new
-# spec may not arm a saveParse block the allowlist does not name).
+# READING RUN `2026-09-25_2132`: PASS attempt 1, MISSION-OK (286 s mission), every
+# verifier PASS or REPORT. Measured: `Launching vessel from Desert_Launch_Site` for BOTH
+# the Kerbal X and the Jumping Flea (stock's own kRPC-launch line), `Start location
+# captured: body=Kerbin, biome=Deserts, situation=Prelaunch, launchSite=Desert Launch
+# Site`, `Committed tree 'Kerbal X' (8 recordings)`, the replayed Kerbal X ghost's first
+# appearance `zone=Physics dist=22m` from the watcher on the Desert pad, `enterwatchmode
+# complete: index=0 recId=e80cfb94...` (the same recording that captured the site), and
+# the produced save carrying `launchSiteName = Desert Launch Site` once (the root; later
+# segments are promotions, which ResolveLaunchSiteName deliberately leaves null). Ghost
+# lifecycle 8 spawned / 8 destroyed, balanced - GS-4's population exactly, so the count is
+# pinned at GS-4's 8. The saveParse blocks stay report-only (a new spec may not arm a
+# block ARMED_ALLOWLIST does not name, and the claim does not rest on them).
 description = "D17 making-history, the registry definition: a GS-4 clone (kx_rewind_watch) with launchSite=Desert_Launch_Site - the staged Kerbal X rolls out from the Making History Desert pad, the recorder captures the humanized site name, the tree commits, Rewind-to-Launch puts a Jumping Flea on the same Desert pad, and the replayed ghost spawns and is watched there."
 instanceProfile = "stock-minimal"
 tags = ["MC4", "making-history", "alt-launch-site", "rewind-to-launch", "watch-mode", "GS4-clone"]
@@ -67,16 +75,23 @@ launchSite       = "Desert_Launch_Site"
 watcherCraftName = "Jumping Flea"
 
 [dimensionsCovered]
+# D17 claimed on the registry's own definition: alt-site capture (humanized), persistence
+# (read off the produced save) and replay at the site (the ghost's first appearance within
+# 1 km of the Desert watcher, in the Physics zone, and watched from there).
+D17 = ["making-history"]
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 2, max = 12 }
+count = { min = 8, max = 8 }
 
 [expectations.logContracts]
 required  = ["Start location captured: body=Kerbin, [^\\r\\n]*launchSite=Desert Launch Site",
+             "Launching vessel from Desert_Launch_Site\\. Craft file: [^\\r\\n]*/Kerbal X\\.craft",
+             "Launching vessel from Desert_Launch_Site\\. Craft file: [^\\r\\n]*/Jumping Flea\\.craft",
+             "Ghost #0 \"Kerbal X\" appearance#1 reason=playback [^\\r\\n]*zone=Physics dist=[0-9]{1,3}m ",
              "Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
@@ -105,7 +120,7 @@ tombstones    = { max = 0 }
 [expectations.recordings.structure]
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 2 }
+recordings     = { min = 8 }
 
 [runtime]
 budgetSeconds = 2400

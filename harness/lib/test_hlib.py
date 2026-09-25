@@ -4722,7 +4722,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # (`drill-harvest-route` preset), so the one Logistics cell every committed host
         # skips on a missing subject - HarvestRoute_AnalyzesEligible_FromSyntheticRecording
         # - executes. Same (category, scene), so the same derivation; the split is a
-        # fixture property and is INTERIM until the reading run (see INTERIM_PIN_IDS).
+        # fixture property; measured 41 / 6 on `2026-09-25_2127` (MEASURED_SKIPPED).
         "HV-1-harvest-route-analysis": ("Logistics", 47),
         # TIER B ITEM 4, AND A DIFFERENT CATEGORY IN THE SAME SOURCE FILE. The
         # `RouteStartDockedOrigin` cells reuse the `RouteDockCapture` rig (the
@@ -5360,9 +5360,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # was REFUTED TWICE, which is what writing a prediction down is for. Both refutations
     # are recorded in its MEASURED_SKIPPED entry below and in the spec's own header.
     #
-    # HV-1 (2026-09-25): authored, NEVER FLOWN - `total=47` pinned exactly, the rest
-    # regexed until its reading run measures the split.
-    INTERIM_PIN_IDS: set = {"HV-1-harvest-route-analysis"}
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -5377,6 +5375,11 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # attributes cannot derive; what it costs is that the number is MEASURED, so it
     # must be re-measured (not re-guessed) whenever the fixture or the guards move.
     MEASURED_SKIPPED = {
+        # HV-1 (`logi-cargo-pad` + the M2 synthetic drill tree): 1 attribute-forced + 5
+        # run-time, MEASURED off `2026-09-25_2127`. H38's eight minus TWO: the harvest
+        # cell the tree exists for, and the active-as-target dock-window cell, which the
+        # tree's synthetic delivery window also satisfies.
+        "HV-1-harvest-route-analysis": 6,
         # R7a: 6 attribute-forced (the SPACECENTER-scoped six scene-skip at FLIGHT)
         # + 16 run-time, the marker-dependent family plus the two-command-pod staging
         # trio plus InvokeRPStripAndActivate. Derivation in the spec's own comment.
