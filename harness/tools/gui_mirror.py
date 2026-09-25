@@ -2443,15 +2443,19 @@ STOCK_LOG_TAG = "StockUiOverlay"
 STOCK_INFORMATIONAL_KINDS = ("KerbalRetire", "KerbalLost", "KerbalRetiredStandIn")
 STOCK_BLOCK_ONLY_KINDS = ("ContractSlot",)
 
-# One decoration line. `record` is the per-capture shape a stock census lane logs
-# next to its capture; `decorate` is the pass Parsek logs whenever it decorates.
+# One decoration line. `record` and `control` are the per-capture shapes the
+# stock census lane (GUI-28) logs after each capture - the decoration it asked
+# `StockUiDecorationQuery` for, and the state of the stock buttons on screen;
+# `decorate` is the pass Parsek logs whenever it decorates.
 _STOCK_LINE = re.compile(
     r"\[Parsek\]\[(?P<level>[A-Z]+)\]\[" + STOCK_LOG_TAG
-    + r"\]\s+(?P<verb>decorate|record)\s+(?P<tail>[^\r\n]*)")
+    + r"\]\s+(?P<verb>decorate|record|control)\s+(?P<tail>[^\r\n]*)")
 # The keys a decoration line carries. A value runs to the next known key rather
-# than to the next space, because an item id can hold spaces (a kerbal's name).
-_STOCK_KEYS = ("label", "screen", "tab", "items", "item", "id", "kind",
-               "facility", "marked", "blocked")
+# than to the next space, because an item id can hold spaces (a kerbal's name,
+# a crew row's `row:Jebediah Kerman`).
+_STOCK_KEYS = ("label", "screens", "screen", "tab", "items", "item", "id", "kind",
+               "facility", "marked", "blocked", "name", "state", "interactable",
+               "visible")
 _STOCK_KEY_AT = re.compile(r"(?:^|\s)(%s)=" % "|".join(_STOCK_KEYS))
 
 
@@ -2570,7 +2574,15 @@ def parse_stock_log(text):
     """A shots-dir KSP.log -> the stock-screen decoration record.
 
     Returns ``{"shots": {label: line}, "records": {label: [row]},
-    "passes": [pass], "screens": [screen names in first-seen order]}``. A pass is
+    "recordSummaries": {label: [summary]}, "recordNone": {label: True},
+    "controls": {label: [control]}, "passes": [pass],
+    "screens": [screen names in first-seen order]}``.
+
+    The lane's per-capture lines, keyed by their own `label=` wherever they sit:
+    `record ... items=N marked=M blocked=B` is a per-tab summary, `record ...
+    item=<id> kind=<K> marked= blocked= why="..."` one decorated item, `record
+    screens=none` says no screen was decorated at all, and `control ... name=
+    state= interactable= visible=` one stock button's own state. A pass is
     one screen's decoration refresh: its Info summary lines (one per tab), then
     the Verbose item lines that follow for the same screen. A facility-menu Info
     line is a pass of its own (the menu shows one building), and its Verbose line
@@ -2578,6 +2590,9 @@ def parse_stock_log(text):
     """
     shots = {}
     records = defaultdict(list)
+    rec_sums = defaultdict(list)
+    rec_none = {}
+    controls = defaultdict(list)
     passes = []
     current = {}
     screens = OrderedDict()
@@ -2590,12 +2605,29 @@ def parse_stock_log(text):
         if not m:
             continue
         f = parse_stock_line(m.group("tail"))
-        if m.group("verb") == "record":
+        verb = m.group("verb")
+        if verb in ("record", "control"):
             label = f.get("label") or ""
-            row = _stock_row(f, lineno)
-            if label and row is not None:
-                row["screen"] = f.get("screen") or ""
-                records[label].append(row)
+            if not label:
+                continue
+            if verb == "control":
+                controls[label].append({
+                    "screen": f.get("screen") or "", "name": f.get("name") or "",
+                    "state": f.get("state") or "",
+                    "interactable": _stock_bool(f.get("interactable")),
+                    "visible": _stock_bool(f.get("visible")), "line": lineno})
+            elif "items" in f:
+                rec_sums[label].append({
+                    "screen": f.get("screen") or "", "tab": f.get("tab") or "",
+                    "items": _count(f.get("items")), "marked": _count(f.get("marked")),
+                    "blocked": _count(f.get("blocked"))})
+            elif (f.get("screens") or "").lower() == "none":
+                rec_none[label] = True
+            else:
+                row = _stock_row(f, lineno)
+                if row is not None:
+                    row["screen"] = f.get("screen") or ""
+                    records[label].append(row)
             continue
         screen = f.get("screen") or ""
         if not screen:
@@ -2639,7 +2671,9 @@ def parse_stock_log(text):
             current[screen] = cur
         cur["open"] = False
         cur["rows"].append(row)
-    return {"shots": shots, "records": dict(records), "passes": passes,
+    return {"shots": shots, "records": dict(records),
+            "recordSummaries": dict(rec_sums), "recordNone": rec_none,
+            "controls": dict(controls), "passes": passes,
             "screens": list(screens.keys())}
 
 
@@ -2668,21 +2702,28 @@ def stock_decoration(parsed, label, screen_token):
     """What Parsek decorated on the screen a stock capture photographed.
 
     The capture's own `record label=<label>` lines win: the lane logged them at
-    capture time. Without them, the nearest `decorate` pass for the matching
-    screen that STARTED before the capture line, with the item lines it had
-    logged by then. Without either, an empty record that says so - a missing
-    line is reported, never guessed around.
+    capture time (its summaries, its items, or `screens=none`). Without them, the
+    nearest `decorate` pass for the matching screen that STARTED before the
+    capture line, with the item lines it had logged by then. Without either, an
+    empty record that says so - a missing line is reported, never guessed
+    around. The capture's `control` lines ride along whichever source won.
     """
     parsed = parsed or {}
     screens = list(parsed.get("screens") or ())
     out = {"source": None, "screen": "", "line": None, "summaries": [], "rows": [],
            "problems": 0, "logScreens": screens,
-           "matched": [s for s in screens if stock_screen_matches(screen_token, s)]}
-    recs = (parsed.get("records") or {}).get(label)
-    if recs:
+           "matched": [s for s in screens if stock_screen_matches(screen_token, s)],
+           "controls": [dict(c) for c in
+                        (parsed.get("controls") or {}).get(label) or ()],
+           "recordNone": bool((parsed.get("recordNone") or {}).get(label))}
+    recs = (parsed.get("records") or {}).get(label) or []
+    sums = (parsed.get("recordSummaries") or {}).get(label) or []
+    if recs or sums or out["recordNone"]:
         out["source"] = "record"
         out["rows"] = [dict(r) for r in recs]
-        out["screen"] = recs[0].get("screen") or ""
+        out["summaries"] = [dict(x) for x in sums]
+        named = [x.get("screen") for x in list(sums) + list(recs) if x.get("screen")]
+        out["screen"] = ", ".join(OrderedDict.fromkeys(named))
     else:
         at = (parsed.get("shots") or {}).get(label)
         best = None
@@ -2803,8 +2844,11 @@ def _stock_measure(before, after):
 
 
 def _stock_decor_sig(decor):
-    return json.dumps([(r["id"], r["kind"], r["tab"], r["marked"], r["blocked"],
-                        r.get("why"), r.get("count")) for r in (decor or {}).get("rows") or ()],
+    decor = decor or {}
+    return json.dumps([[(r["id"], r["kind"], r["tab"], r["marked"], r["blocked"],
+                         r.get("why"), r.get("count")) for r in decor.get("rows") or ()],
+                       [(c["name"], c["state"], c["interactable"], c["visible"])
+                        for c in decor.get("controls") or ()]],
                       sort_keys=True)
 
 
@@ -3694,7 +3738,7 @@ table.sum .wlink:hover{text-decoration:underline}
 .sidebyside.stk{flex-wrap:nowrap}
 .sidebyside.stk>div:first-child{flex:1 1 0;min-width:0}
 .sidebyside.stk .stagewrap{max-height:calc(100vh - 150px)}
-#decorwrap{flex:0 0 420px;max-width:420px}
+#decorwrap{flex:0 0 480px;max-width:480px}
 .stage.stk{background:#000}
 .stkphoto{display:block;max-width:none}
 .stage.stk .nophoto{padding:12px}
@@ -3712,6 +3756,11 @@ table.dec td.y{color:var(--ok);white-space:nowrap}
 table.dec td.n{color:var(--dim);white-space:nowrap}
 table.dec td.w{overflow-wrap:anywhere}
 table.dec tr.prob td{background:#3a1f1f;color:#f0c0c0}
+table.dec tr.hid td{opacity:.55}
+table.dec tr.why td,table.dec tr.why th{border-top:0;color:#a9a9a9;font-size:10.5px;
+  padding-top:0;font-weight:400}
+table.dec tr.why.prob td{color:#e0b0b0}
+.decor .dsub{margin-top:10px;font-weight:600;color:#e8e8e8}
 """
 
 # The bare-mode skin, kept apart from CSS so a test can assert that every
@@ -4629,6 +4678,7 @@ function decorPanel(cap, withFit){
   }
   d.appendChild(top);
   var rows = dec.rows || [], sums = dec.summaries || [];
+  var ctrls = dec.controls || [];
   if (!dec.source){
     d.appendChild(el('div', 'dnone', 'no decoration lines logged for this screen'));
     var ls = dec.logScreens || [];
@@ -4637,14 +4687,25 @@ function decorPanel(cap, withFit){
         + ((dec.matched || []).length ? ', none before this capture'
            : '; none of them matches "' + cap.stock.screen + '"')
       : 'this run logged no decoration line at all'));
+    if (ctrls.length) d.appendChild(controlTable(ctrls, false));
     return d;
   }
   d.appendChild(el('div', 'small', dec.source === 'record'
     ? 'logged by the lane at capture time (record label=' + cap.label + ')'
     : 'the nearest ' + dec.screen + ' decoration pass before the capture '
       + '(KSP.log line ' + dec.line + ')'));
+  /* Where a capture's lines name more than one screen (a part tooltip over the
+     R&D tree), every line says which one it is about. */
+  var scr = {};
+  sums.concat(rows).concat(ctrls).forEach(function(x){ if (x.screen) scr[x.screen] = 1; });
+  var many = Object.keys(scr).length > 1;
+  function where(x){ return (many && x.screen ? x.screen + ' / ' : '') + (x.tab || '-'); }
+  if (dec.recordNone && !sums.length && !rows.length){
+    d.appendChild(el('div', 'small', 'the lane recorded that no screen was decorated '
+      + '(record screens=none)'));
+  }
   sums.forEach(function(s){
-    d.appendChild(el('div', 'small', 'tab ' + (s.tab || '-') + ': ' + s.items
+    d.appendChild(el('div', 'small', where(s) + ': ' + s.items
       + ' items, ' + s.marked + ' marked, ' + s.blocked + ' blocked'));
   });
   if (dec.problems){
@@ -4654,31 +4715,72 @@ function decorPanel(cap, withFit){
   }
   if (!rows.length){
     var flagged = sums.some(function(s){ return s.marked || s.blocked; });
-    d.appendChild(el('div', 'small', flagged
-      ? 'the pass counted marked or blocked items but logged no item line '
-        + '(item lines are Verbose)'
-      : 'no item was marked or blocked'));
-    return d;
+    if (!dec.recordNone || sums.length){
+      d.appendChild(el('div', 'small', flagged
+        ? 'the summary counted marked or blocked items but no item line was '
+          + 'logged' + (dec.source === 'pass' ? ' (item lines are Verbose)' : '')
+        : 'no item was marked or blocked'));
+    }
+  } else {
+    var tb = el('table', 'dec');
+    var hr = el('tr');
+    /* The why is a sentence, so it takes a full-width line under its item
+       rather than a column a few words wide. */
+    ['id', 'tab', 'kind', 'marked', 'blocked', 'pairing'].forEach(function(h){
+      hr.appendChild(el('th', null, h)); });
+    tb.appendChild(hr);
+    var wh = el('tr', 'why');
+    var whc = el('th', null, 'why (under each item)');
+    whc.colSpan = 6;
+    wh.appendChild(whc);
+    tb.appendChild(wh);
+    rows.forEach(function(r){
+      var cls = r.problem ? 'prob' : '';
+      var tr = el('tr', cls || null);
+      tr.title = 'KSP.log line ' + r.line;
+      tr.appendChild(el('td', null, r.id || (r.count != null
+        ? '(' + r.count + ' rows)' : '-')));
+      tr.appendChild(el('td', null, where(r)));
+      tr.appendChild(el('td', null, r.kind || '-'));
+      tr.appendChild(el('td', r.marked ? 'y' : 'n', r.marked ? 'yes' : 'no'));
+      tr.appendChild(el('td', r.blocked ? 'y' : 'n', r.blocked ? 'yes' : 'no'));
+      tr.appendChild(el('td', null, r.pairing));
+      tb.appendChild(tr);
+      var wr = el('tr', 'why' + (cls ? ' ' + cls : ''));
+      var wc = el('td', 'w', r.why ? r.why : '(no why logged)');
+      wc.colSpan = 6;
+      wr.appendChild(wc);
+      tb.appendChild(wr);
+    });
+    d.appendChild(tb);
   }
+  if (ctrls.length) d.appendChild(controlTable(ctrls, many));
+  return d;
+}
+/* The stock buttons on screen as the lane read them off the live uGUI: the
+   button's name, the stock state it was in, and whether it was interactable
+   and visible. Reported, not judged - a blocked button stock draws without a
+   disabled look is an overlay finding the photograph shows. */
+function controlTable(ctrls, many){
+  var wrap = el('div', 'dctl');
+  wrap.appendChild(el('div', 'dsub', 'Stock controls (' + ctrls.length + ')'));
   var tb = el('table', 'dec');
   var hr = el('tr');
-  ['id', 'kind', 'marked', 'blocked', 'why', 'pairing'].forEach(function(h){
+  ['button', 'state', 'interactable', 'visible'].forEach(function(h){
     hr.appendChild(el('th', null, h)); });
   tb.appendChild(hr);
-  rows.forEach(function(r){
-    var tr = el('tr', r.problem ? 'prob' : null);
-    tr.title = (r.tab ? 'tab ' + r.tab + ', ' : '') + 'KSP.log line ' + r.line;
-    tr.appendChild(el('td', null, r.id || (r.count != null
-      ? '(' + r.count + ' rows)' : '-')));
-    tr.appendChild(el('td', null, r.kind || '-'));
-    tr.appendChild(el('td', r.marked ? 'y' : 'n', r.marked ? 'yes' : 'no'));
-    tr.appendChild(el('td', r.blocked ? 'y' : 'n', r.blocked ? 'yes' : 'no'));
-    tr.appendChild(el('td', 'w', r.why == null ? '-' : r.why));
-    tr.appendChild(el('td', null, r.pairing));
+  function yn(v){ return v == null ? '-' : (v ? 'yes' : 'no'); }
+  ctrls.forEach(function(c){
+    var tr = el('tr', c.visible === false ? 'hid' : null);
+    tr.title = (c.screen ? c.screen + ', ' : '') + 'KSP.log line ' + c.line;
+    tr.appendChild(el('td', 'w', (many && c.screen ? c.screen + ' / ' : '') + (c.name || '-')));
+    tr.appendChild(el('td', null, c.state || '-'));
+    tr.appendChild(el('td', c.interactable ? 'y' : 'n', yn(c.interactable)));
+    tr.appendChild(el('td', c.visible ? 'y' : 'n', yn(c.visible)));
     tb.appendChild(tr);
   });
-  d.appendChild(tb);
-  return d;
+  wrap.appendChild(tb);
+  return wrap;
 }
 function stockMeasuredBlock(m){
   var d = el('div', 'note');
@@ -4686,7 +4788,7 @@ function stockMeasuredBlock(m){
   d.appendChild(el('span', 'num', [
     m.photoSame ? 'frames byte-identical' : 'frames differ',
     'decoration rows ' + m.rowsBefore + ' -> ' + m.rowsAfter
-      + (m.decorSame ? ' (same)' : ''),
+      + (m.decorSame ? ' (rows and controls the same)' : ''),
     'pairing problems ' + m.problemsBefore + ' -> ' + m.problemsAfter
   ].join('   |   ')));
   return d;

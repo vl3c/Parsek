@@ -1155,9 +1155,23 @@ decorated on that screen, read from the run's `KSP.log` (`parse_stock_log`,
 `stock_decoration`). Every row is a log line; nothing is inferred from the
 picture. The lines read, all under the `[StockUiOverlay]` tag:
 
-* `record label=<label> screen=<S> tab=<T> kind=<K> id=<id> marked=<b>
-  blocked=<b> why="..."` - the stock census lane's per-capture record. When a
-  capture has any, they are its whole panel, wherever in the log they sit.
+* The stock census lane's (GUI-28) per-capture lines, logged after each
+  `capturescreenshot ok label=<label>` and keyed by their own `label=`, so their
+  position does not matter. When a capture has any `record` line, those lines are
+  its whole panel:
+  * `record label=<label> screen=<S> tab=<T> items=N marked=M blocked=B` - a
+    per-tab summary; one capture can carry several screens (a part tooltip over
+    the R&D tree records `RnD` and `PartTooltip`), and every row then says which.
+  * `record label=<label> screen=<S> tab=<T> item=<id> kind=<K> marked=<b>
+    blocked=<b> why="..."` - one decorated item (`id=` is read the same way).
+  * `record label=<label> screens=none` - the lane asked and no screen was
+    decorated (the KSC scene, the editor with no dialog open).
+  * `control label=<label> screen=<S> name=<button> state=<s> interactable=<b>
+    visible=<b>` - one stock button's own state read off the live uGUI. These go
+    in a second table under the decorations (button, state, interactable,
+    visible; invisible rows dimmed), whichever source the decorations came from.
+    The table reports, it does not judge: a blocked button that stock draws
+    without a disabled look is an overlay finding the photograph shows.
 * `decorate screen=<S> tab=<T> items=N marked=M blocked=B` (Info) - one pass's
   per-tab summary. A pass prints one per tab on ADJACENT lines; a summary that is
   not adjacent, or repeats a tab, starts the next pass.
@@ -1194,3 +1208,15 @@ block, and the BLOCK-ONLY kind (`ContractSlot` - the slot refusal has no per-row
 mark by design) may be blocked without a mark. Each exemption covers its own
 direction only. A summary that counts marked or blocked items with no item line
 beside it says so (the item lines are Verbose).
+
+**The first run** (GUI-28 2026-09-25_2055, 25 frames at 1920x1080): every capture
+has `record` lines, 23 with decorations and 2 `screens=none`; all 25 have a
+panel. The one pairing problem it shows is real, not a parse artifact: the
+Astronaut Complex records the active stand-ins (Debwig, Leoly) as `kind=None
+marked=false blocked=true` - their Dismiss is refused (with its own stock button
+caption, logged separately) while the decoration query carries no mark or why
+for them - on all five AC captures and `stk-ac-editor`. The 25 frames add about
+11.6 MB of base64 at the ladder's first step (photo payload 34.3 -> 46.0 MB, which
+needs a budget of at least 74 MB to stay on that step), so the gen23 page runs at
+`--budget-mb 80` and comes to 61.3 MB, every Parsek capture byte-identical to
+gen22's.

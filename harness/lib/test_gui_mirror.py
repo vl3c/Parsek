@@ -4147,6 +4147,85 @@ class StockDecorationParseTests(unittest.TestCase):
                              [], tok)
 
 
+# The GUI-28 lane's own line shapes, lifted from its first run
+# (2026-09-25_2055_GUI-28-census-stock-screens, KSP.log), whys shortened.
+LOG_GUI28 = chr(10).join([
+    "[LOG 23:55:44.100] [Parsek][INFO][TestCommands] capturescreenshot ok label=stk-ksc",
+    "[LOG 23:55:44.194] [Parsek][INFO][StockUiOverlay] record label=stk-ksc screens=none",
+    "[LOG 23:55:46.600] [Parsek][INFO][TestCommands] capturescreenshot ok "
+    "label=stk-part-tooltip-rnd",
+    "[LOG 23:55:46.650] [Parsek][INFO][StockUiOverlay] record label=stk-part-tooltip-rnd "
+    "screen=RnD tab=Tree items=145 marked=1 blocked=1",
+    "[LOG 23:55:46.650] [Parsek][INFO][StockUiOverlay] record label=stk-part-tooltip-rnd "
+    "screen=PartTooltip tab=RnD items=1 marked=1 blocked=1",
+    "[LOG 23:55:46.650] [Parsek][INFO][StockUiOverlay] record label=stk-part-tooltip-rnd "
+    "screen=RnD tab=Tree item=basicRocketry kind=TechResearch marked=true blocked=true "
+    "why=\"Researched on Y1, D02, 02:20 on your committed timeline.\"",
+    "[LOG 23:55:46.650] [Parsek][INFO][StockUiOverlay] record label=stk-part-tooltip-rnd "
+    "screen=PartTooltip tab=RnD item=probeCoreSphere.v2 kind=PartPurchase marked=true "
+    "blocked=true why=\"Purchased on Y1, D06, 00:33 on your committed timeline.\"",
+    "[LOG 23:55:46.656] [Parsek][INFO][StockUiOverlay] control label=stk-part-tooltip-rnd "
+    "screen=RnD name=actionButton:start state=purchase interactable=false visible=true",
+    "[LOG 23:55:46.656] [Parsek][INFO][StockUiOverlay] control label=stk-part-tooltip-rnd "
+    "screen=PartTooltip name=buttonPurchaseRed state=- interactable=false visible=false",
+    "[LOG 23:55:47.400] [Parsek][INFO][TestCommands] capturescreenshot ok label=stk-ac-ksc",
+    "[LOG 23:55:47.439] [Parsek][INFO][StockUiOverlay] record label=stk-ac-ksc "
+    "screen=AstronautComplex tab=Available items=6 marked=2 blocked=4",
+    "[LOG 23:55:47.439] [Parsek][INFO][StockUiOverlay] record label=stk-ac-ksc "
+    "screen=AstronautComplex tab=Available item=Debwig Kerman kind=None marked=false "
+    "blocked=true why=\"\"",
+    "[LOG 23:55:47.442] [Parsek][INFO][StockUiOverlay] control label=stk-ac-ksc "
+    "screen=AstronautComplex name=row:Jebediah Kerman state=X/mouseover=off "
+    "interactable=false visible=false",
+])
+
+
+class StockLaneLineShapeTests(unittest.TestCase):
+    """The per-capture `record` / `control` shapes the GUI-28 lane logs."""
+
+    def setUp(self):
+        self.parsed = gmi.parse_stock_log(LOG_GUI28)
+
+    def test_record_summaries_and_items_across_two_screens(self):
+        dec = gmi.stock_decoration(self.parsed, "stk-part-tooltip-rnd", "part")
+        self.assertEqual(dec["source"], "record")
+        self.assertEqual(dec["screen"], "RnD, PartTooltip")
+        self.assertEqual([(x["screen"], x["tab"], x["items"]) for x in dec["summaries"]],
+                         [("RnD", "Tree", 145), ("PartTooltip", "RnD", 1)])
+        self.assertEqual([(r["screen"], r["id"], r["pairing"]) for r in dec["rows"]],
+                         [("RnD", "basicRocketry", "paired"),
+                          ("PartTooltip", "probeCoreSphere.v2", "paired")])
+        self.assertEqual(dec["problems"], 0)
+
+    def test_control_lines_ride_with_the_capture(self):
+        dec = gmi.stock_decoration(self.parsed, "stk-part-tooltip-rnd", "part")
+        self.assertEqual([(c["screen"], c["name"], c["state"], c["interactable"],
+                           c["visible"]) for c in dec["controls"]],
+                         [("RnD", "actionButton:start", "purchase", False, True),
+                          ("PartTooltip", "buttonPurchaseRed", "-", False, False)])
+        ac = gmi.stock_decoration(self.parsed, "stk-ac-ksc", "ac")
+        self.assertEqual(ac["controls"][0]["name"], "row:Jebediah Kerman")
+        self.assertEqual(ac["controls"][0]["state"], "X/mouseover=off")
+
+    def test_screens_none_is_a_record_with_nothing_decorated(self):
+        dec = gmi.stock_decoration(self.parsed, "stk-ksc", "ksc")
+        self.assertEqual(dec["source"], "record")
+        self.assertTrue(dec["recordNone"])
+        self.assertEqual((dec["rows"], dec["summaries"]), ([], []))
+
+    def test_a_block_with_no_mark_on_a_real_line_is_a_problem(self):
+        dec = gmi.stock_decoration(self.parsed, "stk-ac-ksc", "ac")
+        self.assertEqual(dec["rows"][0]["id"], "Debwig Kerman")
+        self.assertEqual(dec["rows"][0]["pairing"], "blocked, not marked")
+        self.assertEqual(dec["problems"], 1)
+
+    def test_a_changed_control_changes_the_pair(self):
+        a = gmi.stock_decoration(self.parsed, "stk-part-tooltip-rnd", "part")
+        b = json.loads(json.dumps(a))
+        b["controls"][0]["interactable"] = True
+        self.assertNotEqual(gmi._stock_decor_sig(a), gmi._stock_decor_sig(b))
+
+
 class StockPairingTests(unittest.TestCase):
     def test_the_four_cases(self):
         self.assertEqual(gmi.stock_pairing("TechResearch", True, True), ("paired", False))
@@ -4304,7 +4383,10 @@ class StockScreenEndToEndTests(unittest.TestCase):
                       self.html)
         self.assertIn("if (r.info.stockMeasured) sec.appendChild(", self.html)
         self.assertIn('<div id="decorwrap" class="hidden"></div>', self.html)
-        self.assertIn("['id', 'kind', 'marked', 'blocked', 'why', 'pairing']", self.html)
+        self.assertIn("['id', 'tab', 'kind', 'marked', 'blocked', 'pairing']", self.html)
+        self.assertIn("var wc = el('td', 'w', r.why ? r.why : '(no why logged)');",
+                      self.html)
+        self.assertIn("['button', 'state', 'interactable', 'visible']", self.html)
         self.assertIn("body.bare #decorwrap{display:none}", self.html)
         self.assertEqual(self.model["stockWindows"],
                          gmi._page_model(self.model)["stockWindows"])
