@@ -24,6 +24,7 @@ $injectFilterByPreset = @{
     "relative-loop"         = "InjectRelativeLoopAnchor"
     "single-point-hold"     = "InjectSinglePointHold"
     "spawn-safety"          = "InjectSpawnSafety"
+    "background-claim"      = "InjectBackgroundClaim"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -40,6 +41,7 @@ $defaultSaveByPreset = @{
     "relative-loop"         = "relative-loop-fixture"
     "single-point-hold"     = "single-point-hold-fixture"
     "spawn-safety"          = "spawn-safety-fixture"
+    "background-claim"      = "background-claim-fixture"
 }
 
 $ErrorActionPreference = "Stop"

@@ -1,0 +1,158 @@
+# CI-5: a background-recorded vessel claimed for a ghost chain by its own part event
+# (D18 `background-event-claims`), SCOPED TO THE CHAIN-WALKER DECISION ON A BACKGROUND
+# RECORDING (a synthetic one).
+#
+# SCOPE (supervisor ruling 2026-09-25, route B, accepted by the coordinator 2026-09-26 on the
+# route-A code evidence below; pending operator confirmation): the claimed
+# recording is HAND-BUILT (the `background-claim` injected preset), not harvested from a
+# flight. What this lane proves is the chain walker's background-event decision and its
+# downstream effect in a real flight scene, on a production-shaped tree; it does NOT prove
+# that a flight can produce such a tree today.
+#
+# WHY NOT A HARVEST (route A, todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED). The honest subject
+# is a vessel a tree recorded in the background that is neither the tree's root lineage nor a
+# split product of it. The stock Switch-To click route cannot produce one: a click onto a
+# loaded vessel that another committed tree matches, while a recording is live, is pre-switch
+# Case C (`MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction`, `C-loaded-separate-
+# committed`), whose handlers commit or discard the live tree first; the consume then runs
+# `ParsekFlight.TryRouteCommittedSpawnedClone` path B, which clones the TARGET's own committed
+# tree and attaches the segment under the target's own tip (lineage). BDOCK-2's run
+# `2026-09-22_2239` measured exactly that (`route=committed-spawned-clone`, segment under the
+# Interceptor half's tip `4af6cfd7`), so answering the boot merge dialog before the click
+# changes which dialog stands, not where the segment lands.
+#
+# THE PRODUCTION SHAPE the preset copies: a PARENTLESS recording in a live tree, with no
+# branch point. `ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording` writes one when
+# the post-switch watcher fires on a vessel switched to while the tree had no active
+# recording (its Launch branch point needs `FreshStartParentRecordingId`), and
+# `StartStandaloneContinuationSegment` attaches one to a live tree. On the next switch that
+# vessel moves into `BackgroundMap` and `BackgroundRecorder.PartEventPolling` records its
+# engine transitions. `GhostChainWalker.ScanBackgroundEventClaims` claims any recording whose
+# pid is outside `GetRootLineageVesselPids` and that carries a ghosting-trigger event.
+#
+# HOST: `eva2-lko-crewed` (EX-2's and SS-1's host): the focused 28-part `Kerbal X` in LKO and,
+# about 16 m away, the loaded, non-focused `Kerbal X Probe` (persistentId 2614652043, launch
+# guid 8bd9bd8d...). The preset adds ONE committed tree `tree-bg-claim-carrier-rec`:
+#   bg-claim-carrier-rec  ROOT, `BG Claim Carrier`, two points ending UT 401.2, Destroyed
+#                         (plays and spawns nothing in the lane, claims nothing);
+#   bg-claim-probe-rec    the probe's pid and launch guid, NO parent and NO branch point, one
+#                         point on the probe's saved position at the save UT 421.19, an
+#                         EngineIgnited / EngineShutdown pair on its Mainsail at +2 s / +4 s
+#                         (the trigger), then an hour-long orbit tail to an Orbiting end
+#                         (spawn UT 4021.2). The tail leads the probe by 1.0e-3 rad (about
+#                         700 m) so the chain tip's ghost map ProtoVessel stays clear of the
+#                         Kerbal X (todo GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-
+#                         PHYSICS-RANGE).
+# The xUnit cells `SyntheticRecordingTests.BackgroundClaim_*` pin the offline half: the
+# materialized tree yields exactly this one BACKGROUND_EVENT chain, and the SAME recording
+# parented under the root through a Launch branch point yields none (the mirror).
+#
+# THE THREE WITNESSES (review ruling 2026-09-22): the fixture-literal pid and tree in the
+# walker's claim line; that pid's `Chain built:` line; and the downstream effect, the flight
+# scene's ghoster despawning the real probe (`Vessel ghosted:`), read back through
+# `ListHandles kind=chains`.
+
+schema = 1
+id = "CI-5-background-event-claim"
+tier = "nightly"
+description = "D18 background-event-claims, SCOPED TO THE CHAIN-WALKER DECISION ON A BACKGROUND RECORDING (synthetic, route B): the background-claim preset adds to eva2-lko-crewed one committed tree whose second recording is a parentless, branch-point-free background recording of the save's real Kerbal X Probe (pid 2614652043) with an engine ignite / shutdown; the walker claims the probe via BACKGROUND_EVENT, builds its chain, and the flight scene ghosts the real probe; ListHandles kind=chains reads the chain back."
+instanceProfile = "stock-minimal"
+tags = ["CI-5", "D18", "chain-interaction", "ghost-chain", "background-claim",
+        "injected-recordings", "readback", "R10", "runtime-handles", "kerbin",
+        "sandbox"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "background-claim"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  # 1x flight time past the recorded ignite (+2 s) and shutdown (+4 s). About 0.25 s per
+  # inert step.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "chains" }, label = "chains2", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+D18 = ["background-event-claims"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+# REPORT-ONLY until the reading run's facets are read.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2, max = 2 }
+terminalStates = { Destroyed = { min = 1, max = 1 }, Orbiting = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required  = [
+  # Witness 1: the fixture-literal pid and tree, via BACKGROUND_EVENT, at the recording's
+  # start UT.
+  "\\[ChainWalker\\] Vessel PID=2614652043 claimed by tree=tree-bg-claim-carrier-rec via BACKGROUND_EVENT at UT=421\\.2",
+  # Witness 2: that pid's chain, one link, tipped by the claimed recording, spawn an hour out.
+  "\\[ChainWalker\\] Chain built: vessel=2614652043 links=1 tip=bg-claim-probe-rec spawnUT=4021\\.2 terminated=False",
+  # Witness 3: the flight scene despawns the real probe for the chain.
+  "\\[Ghoster\\] Ghosting vessel: pid=2614652043 name=Kerbal X Probe ",
+  "\\[Ghoster\\] Vessel ghosted: pid=2614652043 name=Kerbal X Probe",
+  "\\[Ghoster\\] Ghost chains evaluated: 1 chain\\(s\\), 1 vessel\\(s\\) ghosted",
+  # The readback.
+  "(?m)listhandles chain index=0 pid=2614652043 links=1 trees=1 treeIds=tree-bg-claim-carrier-rec tip=bg-claim-probe-rec$",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "listhandles rejected",
+  "listhandles kind=chains .* evaluated=false",
+  "Failed to ghost vessel pid=",
+  # No other claim: the root lineage and the focused Kerbal X are never claimed.
+  "Vessel PID=(?!2614652043)[0-9]+ claimed by tree=",
+  "Ghosting vessel: pid=(?!2614652043)[0-9]+ ",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"

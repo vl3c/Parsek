@@ -7771,6 +7771,298 @@ namespace Parsek.Tests
             }
         }
 
+        // ---------------------------------------------------------------------------------
+        // background-claim preset (CI-5-background-event-claim): ONE committed two-recording
+        // tree on the same eva2-lko-crewed host EX-2 and SS-1 use. Its second recording is a
+        // BACKGROUND recording of that save's real, loaded, non-focused Kerbal X Probe: no
+        // parent, no branch point, a ghosting-trigger part event. That is the one production
+        // shape through which a tree records a vessel that is neither its root lineage nor a
+        // split product of it (todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED item 2):
+        // ParsekFlight.PrepareActiveTreeForFreshPostSwitchRecording starts a parentless
+        // recording when the switch happened while the tree had no active recording, and
+        // StartStandaloneContinuationSegment attaches a parentless segment to a live tree. On
+        // the next switch the vessel moves into BackgroundMap and BackgroundRecorder polls its
+        // engines (BackgroundRecorder.PartEventPolling CheckEngineState).
+        // ---------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The eva2-lko-crewed <c>Kerbal X Probe</c>'s own identity, verbatim from the save:
+        /// <c>persistentId</c> and the vessel-level launch guid (<c>VESSEL.pid</c>, which KSP
+        /// reads into <c>Vessel.id</c>; production stamps it with <c>ToString("N")</c>).
+        /// </summary>
+        internal const uint BackgroundClaimProbePid = 2614652043u;
+        internal const string BackgroundClaimProbeGuid = "8bd9bd8dbf48468c84cfdf2550da69d3";
+        internal const string BackgroundClaimProbeName = "Kerbal X Probe";
+        internal const string BackgroundClaimCarrierName = "BG Claim Carrier";
+        internal const string BackgroundClaimRootRecordingId = "bg-claim-carrier-rec";
+        internal const string BackgroundClaimSubjectRecordingId = "bg-claim-probe-rec";
+
+        /// <summary>
+        /// Seconds of background orbit tail after the probe recording's first point. The chain's
+        /// spawn UT is the tip's EndUT, and the ghoster acts only on a chain whose spawn UT is
+        /// still ahead, so the window must outlast the lane by a wide margin.
+        /// </summary>
+        internal const double BackgroundClaimWindowSeconds = 3600.0;
+
+        /// <summary>
+        /// Mean-anomaly lead (radians) of the recorded orbit tail over the probe's: about 700 m
+        /// along track. The chain tip is Orbiting, so <c>FilterAndGhostChains</c> creates a ghost
+        /// map ProtoVessel on that orbit; parked on the probe's own orbit it would sit 16 m from
+        /// the focused Kerbal X, the collision EX-2's reading <c>2026-09-23_2103</c> measured
+        /// (todo GHOST-MAP-PROTOVESSEL-COLLIDES-WITH-A-REAL-VESSEL-IN-PHYSICS-RANGE).
+        /// </summary>
+        internal const double BackgroundClaimMnaLead = 1.0e-3;
+
+        /// <summary>Part pids inside the probe recording's snapshot (VesselSnapshotBuilder order).</summary>
+        internal const uint BackgroundClaimCorePartPid = 100000u;
+        internal const uint BackgroundClaimEnginePartPid = 101111u;
+
+        /// <summary>
+        /// The tree's ROOT: the craft the player was flying, destroyed 20 s before the save, so it
+        /// neither plays nor spawns in the lane and adds no claim of its own (no branch point, no
+        /// trigger event). It exists so the tree has a root lineage the probe is outside of.
+        /// </summary>
+        internal static RecordingBuilder BackgroundClaimCarrier(double baseUT)
+        {
+            var b = new RecordingBuilder(BackgroundClaimCarrierName)
+                .WithRecordingId(BackgroundClaimRootRecordingId);
+            b.AddPoint(baseUT - 40.0, SinglePointHoldProbeLat, SinglePointHoldProbeLon, SinglePointHoldProbeAlt);
+            b.AddPoint(baseUT - 20.0, SinglePointHoldProbeLat, SinglePointHoldProbeLon, SinglePointHoldProbeAlt);
+            b.WithTerminalState((int)TerminalState.Destroyed);
+            b.WithVesselSnapshot(VesselSnapshotBuilder.ProbeShip(BackgroundClaimCarrierName, pid: 71000201));
+            return b;
+        }
+
+        /// <summary>
+        /// The claimed recording: the probe recorded in the BACKGROUND, parentless, with an engine
+        /// ignite / shutdown pair on its Mainsail (the trigger), then an on-rails orbit tail to an
+        /// Orbiting end an hour out. Its pid and launch guid are the live probe's, so the walker's
+        /// chain names the real vessel and the flight scene's ghoster despawns it.
+        /// </summary>
+        internal static RecordingBuilder BackgroundClaimProbe(double baseUT)
+        {
+            double t = baseUT;
+            double mna = SinglePointHoldProbeMna + BackgroundClaimMnaLead;
+            var b = new RecordingBuilder(BackgroundClaimProbeName)
+                .WithRecordingId(BackgroundClaimSubjectRecordingId)
+                .WithVesselPersistentId(BackgroundClaimProbePid)
+                .WithRecordedVesselGuid(BackgroundClaimProbeGuid);
+            b.AddPoint(t, SinglePointHoldProbeLat, SinglePointHoldProbeLon, SinglePointHoldProbeAlt);
+            b.AddPartEvent(t + 2.0, BackgroundClaimEnginePartPid, (int)PartEventType.EngineIgnited,
+                "liquidEngineMainsail.v2", value: 1f);
+            b.AddPartEvent(t + 4.0, BackgroundClaimEnginePartPid, (int)PartEventType.EngineShutdown,
+                "liquidEngineMainsail.v2");
+            b.AddOrbitSegment(t, t + BackgroundClaimWindowSeconds,
+                inc: SinglePointHoldProbeInc, ecc: SinglePointHoldProbeEcc,
+                sma: SinglePointHoldProbeSma, lan: SinglePointHoldProbeLan,
+                argPe: SinglePointHoldProbeLpe, mna: mna,
+                epoch: SinglePointHoldSaveUT);
+            b.WithTerminalState((int)TerminalState.Orbiting);
+            b.WithTerminalOrbit("Kerbin", SinglePointHoldProbeSma, SinglePointHoldProbeEcc,
+                SinglePointHoldProbeInc, SinglePointHoldProbeLan, SinglePointHoldProbeLpe,
+                mna, SinglePointHoldSaveUT);
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.ProbeShip(BackgroundClaimProbeName, pid: BackgroundClaimProbePid)
+                    .WithLaunchGuid(BackgroundClaimProbeGuid)
+                    .AddPart("liquidEngineMainsail.v2", position: "0,-2.5,0")
+                    .AsOrbiting(SinglePointHoldProbeSma, SinglePointHoldProbeEcc,
+                        SinglePointHoldProbeInc, lan: SinglePointHoldProbeLan,
+                        argPe: SinglePointHoldProbeLpe, mna: mna,
+                        epoch: SinglePointHoldSaveUT));
+            return b;
+        }
+
+        internal static RecordingBuilder[] BackgroundClaimTree(double baseUT)
+        {
+            return new[] { BackgroundClaimCarrier(baseUT), BackgroundClaimProbe(baseUT) };
+        }
+
+        private static RecordingTree MaterializeBackgroundClaimTree(RecordingBuilder[] builders)
+        {
+            RecordingTree tree = ScenarioWriter.MaterializeTree(builders);
+            for (int i = 0; i < builders.Length; i++)
+            {
+                Recording rec = tree.Recordings[builders[i].GetRecordingId()];
+                RecordingStore.DeserializeTrajectoryFrom(builders[i].BuildTrajectoryNode(), rec);
+            }
+            return tree;
+        }
+
+        [Fact]
+        public void BackgroundClaim_WalkerClaimsTheParentlessBackgroundProbe()
+        {
+            ParsekLog.ResetRateLimitsForTesting();
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            try
+            {
+                RecordingTree tree = MaterializeBackgroundClaimTree(BackgroundClaimTree(SinglePointHoldSaveUT));
+
+                Assert.Equal(BackgroundClaimRootRecordingId, tree.RootRecordingId);
+                Assert.Empty(tree.BranchPoints);
+                Recording probe = tree.Recordings[BackgroundClaimSubjectRecordingId];
+                Assert.Equal(BackgroundClaimProbePid, probe.VesselPersistentId);
+                Assert.Null(probe.ParentBranchPointId);
+                Assert.True(GhostingTriggerClassifier.HasGhostingTriggerEvents(probe));
+                Assert.DoesNotContain(BackgroundClaimProbePid, GhostChainWalker.GetRootLineageVesselPids(tree));
+
+                var chains = GhostChainWalker.ComputeAllGhostChains(
+                    new List<RecordingTree> { tree }, SinglePointHoldSaveUT);
+
+                Assert.Single(chains);
+                GhostChain chain = chains[BackgroundClaimProbePid];
+                Assert.Single(chain.Links);
+                Assert.Equal("BACKGROUND_EVENT", chain.Links[0].interactionType);
+                Assert.Equal(BackgroundClaimSubjectRecordingId, chain.Links[0].recordingId);
+                Assert.Equal(BackgroundClaimSubjectRecordingId, chain.TipRecordingId);
+                Assert.Equal(SinglePointHoldSaveUT + BackgroundClaimWindowSeconds, chain.SpawnUT);
+                Assert.False(chain.IsTerminated);
+                Assert.True(GhostChainWalker.ShouldGhostChainAtUT(chain, SinglePointHoldSaveUT));
+                Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                    && l.Contains("Vessel PID=2614652043 claimed by tree=" + tree.Id + " via BACKGROUND_EVENT at UT=421.2"));
+                Assert.Contains(logLines, l => l.Contains("[ChainWalker]")
+                    && l.Contains("Chain built: vessel=2614652043 links=1 tip=" + BackgroundClaimSubjectRecordingId));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void BackgroundClaim_ParentedUnderTheRoot_IsLineageAndNotClaimed()
+        {
+            // The mirror of the claim: the same probe recording attached under the root through
+            // the Launch branch point PrepareActiveTreeForFreshPostSwitchRecording writes when the
+            // tree DID have an active recording at the switch. The root lineage now reaches the
+            // probe's pid, so the walker makes no claim at all. Proves the preset's claim comes
+            // from the missing branch point, not from anything else in the recordings.
+            RecordingTree tree = MaterializeBackgroundClaimTree(BackgroundClaimTree(SinglePointHoldSaveUT));
+            var bp = new BranchPoint
+            {
+                Id = "bg-claim-launch-bp",
+                UT = SinglePointHoldSaveUT,
+                Type = BranchPointType.Launch,
+                ParentRecordingIds = new List<string> { BackgroundClaimRootRecordingId },
+                ChildRecordingIds = new List<string> { BackgroundClaimSubjectRecordingId },
+            };
+            tree.BranchPoints.Add(bp);
+            tree.Recordings[BackgroundClaimRootRecordingId].ChildBranchPointId = bp.Id;
+            tree.Recordings[BackgroundClaimSubjectRecordingId].ParentBranchPointId = bp.Id;
+
+            Assert.Contains(BackgroundClaimProbePid, GhostChainWalker.GetRootLineageVesselPids(tree));
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, SinglePointHoldSaveUT);
+            Assert.Empty(chains);
+        }
+
+        [Fact]
+        public void BackgroundClaim_TreeRecordCodecKeepsTheProbeIdentity()
+        {
+            // The injected save carries the tree record through the production codec; the claim
+            // and the ghoster both key on the pid, and the launch gate on the guid.
+            RecordingTree tree = MaterializeBackgroundClaimTree(BackgroundClaimTree(SinglePointHoldSaveUT));
+            Recording probe = tree.Recordings[BackgroundClaimSubjectRecordingId];
+            var recNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(recNode, probe);
+            var reloaded = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(recNode, reloaded);
+            Assert.Equal(BackgroundClaimProbePid, reloaded.VesselPersistentId);
+            Assert.Equal(BackgroundClaimProbeGuid, reloaded.RecordedVesselGuid);
+            Assert.Equal(TerminalState.Orbiting, reloaded.TerminalStateValue);
+            Assert.Equal(TerminalState.Destroyed,
+                tree.Recordings[BackgroundClaimRootRecordingId].TerminalStateValue);
+            Assert.Equal(BackgroundClaimProbePid.ToString(CultureInfo.InvariantCulture),
+                probe.VesselSnapshot.GetValue("persistentId"));
+            Assert.Equal(BackgroundClaimProbeGuid, probe.VesselSnapshot.GetValue("pid"));
+            // The derived pid is untouched for a builder that does not opt in.
+            Assert.Equal(ScenarioWriter.DeriveVesselPersistentId(BackgroundClaimRootRecordingId),
+                tree.Recordings[BackgroundClaimRootRecordingId].VesselPersistentId);
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="BackgroundClaimTree"/> (the <c>background-claim</c> preset behind
+        /// <c>CI-5-background-event-claim</c>): one committed two-recording tree, no RewindPoint
+        /// sidecar. Same env contract and guarded purge as every sibling injector. The probe
+        /// recording is authored against <c>eva2-lko-crewed</c>'s probe, so a target save at any
+        /// other UT is refused.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("background-claim-fixture")]
+        public void InjectBackgroundClaim()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "background-claim-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
+
+            double baseUT = ReadUTFromSave(targetPath);
+            Assert.True(Math.Abs(baseUT - SinglePointHoldSaveUT) < 1e-3,
+                "background-claim is authored against eva2-lko-crewed (UT="
+                + SinglePointHoldSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                + "); target save UT is "
+                + baseUT.ToString("R", CultureInfo.InvariantCulture));
+            Assert.Contains("persistentId = "
+                + BackgroundClaimProbePid.ToString(CultureInfo.InvariantCulture),
+                File.ReadAllText(targetPath));
+
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            var writer = new ScenarioWriter().WithV3Format();
+            writer.AddRecordingsAsTree(BackgroundClaimTree(baseUT));
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = " + BackgroundClaimCarrierName, content);
+                    Assert.Contains(BackgroundClaimSubjectRecordingId, content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+        }
+
         [Trait("Category", "Manual")]
         [InjectTargetFact("test career")]
         public void InjectAllRecordings()

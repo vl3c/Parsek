@@ -141,6 +141,8 @@ RP_SIDECAR_BY_PRESET = {
     "single-point-hold": None,
     # SS-1's spawn-safety pair: two committed single-recording trees, no RP.
     "spawn-safety": None,
+    # CI-5's background-claim tree: one committed two-recording tree, no RP.
+    "background-claim": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

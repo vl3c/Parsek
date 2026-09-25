@@ -193,7 +193,24 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # injector refuses a target save at
                                         # another UT. No RP. Consumer:
                                         # SS-1-spawn-safety-corrections.
-                                        "spawn-safety")
+                                        "spawn-safety",
+                                        # background-claim: ONE committed
+                                        # two-recording tree on
+                                        # eva2-lko-crewed: a root destroyed
+                                        # before the save, and a PARENTLESS
+                                        # background recording of the save's
+                                        # real Kerbal X Probe (its pid and
+                                        # launch guid) carrying an engine
+                                        # ignite / shutdown and an hour-long
+                                        # orbit tail, so the chain walker
+                                        # claims the probe via
+                                        # BACKGROUND_EVENT and the flight
+                                        # scene ghosts it. `--filter
+                                        # InjectBackgroundClaim`; the
+                                        # injector refuses a target save at
+                                        # another UT. No RP. Consumer:
+                                        # CI-5-background-event-claim.
+                                        "background-claim")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
