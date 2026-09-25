@@ -388,6 +388,44 @@ nothing in the harness requires it (H71 flew green without it). Drift-gated by
 `harness/lib/test_career_earned_ksc.py` (`--check` byte identity, shape, and the pad
 sibling's ledger extending this one by exactly its accept row).
 
+## stock-screen-census (GAME Mode = CAREER, 0 VESSELS, 3 recordings)
+
+`career-earned-ksc` plus a COMMITTED TIMELINE AFTER THE SAVE CLOCK (UT 409.56), the
+state a rewind leaves behind, so every stock-screen annotation of the reservation
+overlay program (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md) has a
+subject. Built by construction, never hand-edited: `Source/Parsek.Tests/StockScreenCensusFixture.cs`
+(write it with `PARSEK_WRITE_STOCK_SCREEN_FIXTURE=1 dotnet test --filter WriteFixture`);
+`StockScreenCensusFixtureTests` re-builds it and compares it with the committed tree,
+and reads the committed ledger through `CommittedFutureIndex` to prove each item below
+gets its mark or block. What the builder adds:
+
+- **Ledger rows** (serialized by `GameAction.SerializeInto`), KSC-origin unless noted.
+  Past: the D8 accept of the decoupler test `07c8e34d` at UT 360 (`career-earned-pad`'s
+  splice verbatim) and the activation of `AppreciationCampaignCfg` at UT 390. Future:
+  `basicRocketry` researched (30000), the Offered survey `90e4faaf` accepted (50000),
+  the applicant `Verhat Kerman` hired (70000), the Tracking Station upgraded to level 2
+  (90000), `probeCoreSphere.v2` bought for 1400 (110000), `Bill Kerman`'s assignment to
+  the flight and the decoupler test's completion (130000 / 130060, tagged to the flight),
+  `AppreciationCampaignCfg` deactivated (150000) and `OutsourcedResearchCfg` activated
+  (160000).
+- **One synthetic committed recording tree**, `Census Hopper` (`5c0c7e3a...`), a
+  Recovered pad hop from UT 130000 to 130120 crewed by Bill Kerman, written through
+  `RecordingTree.Save` and `ScenarioWriter.WriteSidecarFiles` (`.prec`, `.prec.txt`,
+  `_vessel.craft`). Its Recovered crew end state holds Bill until its end, so he is
+  reserved for the whole lane.
+- **Stock state**: the decoupler test `Active` (state + values pack, as the pad
+  sibling), a `STRATEGY` node for `AppreciationCampaignCfg` (stock's name / date /
+  factor shape), `probeCoreSphere.v2` removed from the `start` node's purchased parts,
+  `BypassEntryPurchaseAfterResearch = False` (the part block is inert with it on), and
+  `Ships/VAB/Jumping Flea.craft` copied from `gs1-two-stage-pad` for the launch-site
+  picker and the VAB.
+
+Mission Control and Administration stay at level 1 (two contract slots, one strategy),
+so the one Active contract plus the committed accept fill both slots at UT 50000 and
+every other Offered row carries the C2 slot block. The earliest committed row is
+30000 s after the clock, so a Space Center lane at 1x cannot reach it. Hosts
+`GUI-28-census-stock-screens`.
+
 ## career-same-name-pad (GAME Mode = CAREER, 1 VESSEL, 2 recordings)
 
 The recovery correlator's repro subject: a career that has already flown its pad craft

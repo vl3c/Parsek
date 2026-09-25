@@ -10,6 +10,9 @@ namespace Parsek.Tests.Generators
 
         private string name = "Vessel";
         private uint persistentId = 1000000;
+        // KSP's vessel-level launch guid (VESSEL.pid). Null keeps the historical value
+        // derived from persistentId, so every pre-existing caller is unchanged.
+        private string launchGuid;
         private string type = "Ship";
         private string sit = "LANDED";
         private double lat, lon, alt;
@@ -123,6 +126,14 @@ namespace Parsek.Tests.Generators
 
         public VesselSnapshotBuilder WithName(string n) { name = n; return this; }
         public VesselSnapshotBuilder WithPersistentId(uint pid) { persistentId = pid; return this; }
+
+        /// <summary>
+        /// Sets <c>VESSEL.pid</c>, the launch guid KSP reads into <c>Vessel.id</c>. A fixture
+        /// that also stamps <c>Recording.RecordedVesselGuid</c> passes the same value (for
+        /// example <c>ScenarioWriter.DeriveVesselLaunchGuid(recordingId)</c>) so the snapshot
+        /// and the recording agree on launch identity.
+        /// </summary>
+        public VesselSnapshotBuilder WithLaunchGuid(string guid) { launchGuid = guid; return this; }
         public VesselSnapshotBuilder WithType(string t) { type = t; return this; }
         public VesselSnapshotBuilder WithSituation(string s) { sit = s; return this; }
 
@@ -149,6 +160,20 @@ namespace Parsek.Tests.Generators
             alt = altitude;
             // KSP landed convention
             sma = 0; ecc = 1; inc = 0; lan = 0; argPe = 0; mna = 0; epoch = 0;
+            return this;
+        }
+
+        /// <summary>
+        /// A vessel resting at a surface position whose snapshot was nevertheless captured
+        /// with <c>sit = FLYING</c> (<c>landed = False</c>): the bug #169 shape, where an EVA
+        /// kerbal or a hopping lander is saved mid-hop and its recording then ends Landed.
+        /// Position and the placeholder surface orbit are exactly <see cref="AsLanded"/>'s.
+        /// </summary>
+        public VesselSnapshotBuilder AsFlyingAtSurface(double latitude, double longitude, double altitude)
+        {
+            AsLanded(latitude, longitude, altitude);
+            sit = "FLYING";
+            landed = false;
             return this;
         }
 
@@ -381,7 +406,7 @@ namespace Parsek.Tests.Generators
         public ConfigNode Build()
         {
             var v = new ConfigNode("VESSEL");
-            v.AddValue("pid", persistentId.ToString("x8").PadLeft(32, '0'));
+            v.AddValue("pid", launchGuid ?? persistentId.ToString("x8").PadLeft(32, '0'));
             v.AddValue("persistentId", persistentId.ToString(IC));
             v.AddValue("name", name);
             v.AddValue("type", type);

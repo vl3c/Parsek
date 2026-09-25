@@ -20682,6 +20682,10 @@ namespace Parsek.InGameTests
                     yield break;
                 }
 
+                MissionControl mcBefore = MissionControl.Instance ?? Object.FindObjectOfType<MissionControl>();
+                List<Color> acceptColorsBefore = SnapshotButtonColors(mcBefore != null ? mcBefore.btnAccept : null);
+                List<Color> declineColorsBefore = SnapshotButtonColors(mcBefore != null ? mcBefore.btnDecline : null);
+
                 recordingId = "stockui-mc-panel-" + System.Guid.NewGuid().ToString("N");
                 recording = AddCommittedOverlayFixture(
                     recordingId,
@@ -20746,6 +20750,10 @@ namespace Parsek.InGameTests
                         "an unblocked contract's detail text should carry no Parsek block");
                     InGameAssert.AreEqual(other.CanBeDeclined(), mc.btnDecline.interactable,
                         "an unblocked contract's Decline should be stock's own state");
+                    // The grey must not leak onto the next contract: every graphic is back
+                    // to the colour it had before any block.
+                    AssertButtonColorsRestored(mc.btnAccept, acceptColorsBefore, "Accept", "after selecting an unblocked contract");
+                    AssertButtonColorsRestored(mc.btnDecline, declineColorsBefore, "Decline", "after selecting an unblocked contract");
                     if (!MissionControlSlotFreeForTest(out string slotReason))
                     {
                         ParsekLog.Info("TestRunner",
@@ -20940,6 +20948,9 @@ namespace Parsek.InGameTests
             InGameAssert.IsFalse(mc.btnAccept.interactable, $"Accept should be disabled {when}");
             InGameAssert.AreEqual(contract.CanBeDeclined(), mc.btnDecline.interactable,
                 $"Decline should stay stock's own state for a slot refusal {when}");
+            AssertButtonLooksDisabled(mc.btnAccept, "Accept", when);
+            InGameAssert.IsFalse(StockUiGreyedButton.IsGreyedByParsek(mc.btnDecline),
+                $"a slot refusal should not grey Decline {when}");
             string text = mc.contractText != null ? mc.contractText.text : "";
             InGameAssert.IsFalse(text.Contains(MissionControlStockAnnotation.DetailHeading),
                 $"a slot refusal should not say Decline is unavailable {when}");
@@ -20949,7 +20960,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
-            Description = "Stock-UI overlays PR 3 (C4): an Active contract the committed timeline completes later carries 'completes on <date> on your committed timeline' on its own stock row label (surviving a tab switch), selecting it greys out Cancel and appends the why, and Contract.Cancel is refused with the same text; removing the committed completion lifts all three. Needs a career host with an Active contract and skips without one: it changes no stock contract state (the only mutation is a committed ledger fixture row it removes again), because a SPACECENTER batch restores persistent.sfs on disk only.")]
+            Description = "Stock-UI overlays PR 3 (C4): an Active contract the committed timeline completes later carries 'completes <date>' (date only) on its own stock row label (surviving a tab switch), selecting it greys out Cancel and appends the why, and Contract.Cancel is refused with the same text; removing the committed completion lifts all three. Needs a career host with an Active contract and skips without one: it changes no stock contract state (the only mutation is a committed ledger fixture row it removes again), because a SPACECENTER batch restores persistent.sfs on disk only.")]
         public IEnumerator MissionControlActiveRowLabelAndCancelBlockedWithReason()
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
@@ -21731,8 +21742,9 @@ namespace Parsek.InGameTests
             string label = row.title != null ? row.title.text : "";
             InGameAssert.IsTrue(label.StartsWith(MissionControlStockAnnotation.StockDefaultLabel(contractTitle), System.StringComparison.Ordinal),
                 $"the row label should keep stock's full coloured title; label=\"{label}\"");
-            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusTail),
-                $"the row label should say the accept is on the committed timeline; label=\"{label}\"");
+            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusMarker + "accepted "),
+                $"the row label should say when the committed timeline accepts it; label=\"{label}\"");
+            AssertMissionControlRowStatusIsShort(label);
         }
 
         private static int CountWronglyMarkedMissionControlRows(MissionControl mc, string contractKey)
@@ -21837,6 +21849,8 @@ namespace Parsek.InGameTests
         {
             InGameAssert.IsFalse(mc.btnAccept.interactable, $"Accept should be disabled {when}");
             InGameAssert.IsFalse(mc.btnDecline.interactable, $"Decline should be disabled {when}");
+            AssertButtonLooksDisabled(mc.btnAccept, "Accept", when);
+            AssertButtonLooksDisabled(mc.btnDecline, "Decline", when);
             string text = mc.contractText != null ? mc.contractText.text : "";
             InGameAssert.IsTrue(text.Contains(MissionControlStockAnnotation.DetailHeading),
                 $"the detail text should name the disabled buttons {when}");
@@ -21883,15 +21897,60 @@ namespace Parsek.InGameTests
             string label = row.title != null ? row.title.text : "";
             InGameAssert.IsTrue(label.StartsWith(MissionControlStockAnnotation.StockDefaultLabel(contractTitle), System.StringComparison.Ordinal),
                 $"the row label should keep stock's full coloured title; label=\"{label}\"");
-            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusMarker + "completes on "),
+            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusMarker + "completes "),
                 $"the row label should say when the committed timeline completes it; label=\"{label}\"");
-            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusTail),
-                $"the row label should say the completion is on the committed timeline; label=\"{label}\"");
+            AssertMissionControlRowStatusIsShort(label);
+        }
+
+        /// <summary>The row status is the verb and a date only: the three-line stock row
+        /// clipped the old "..., hh:mm on your committed timeline" tail.</summary>
+        private static void AssertMissionControlRowStatusIsShort(string label)
+        {
+            int at = label.IndexOf(MissionControlStockAnnotation.RowStatusMarker, System.StringComparison.Ordinal);
+            InGameAssert.IsTrue(at >= 0, $"the row label should carry a Parsek status; label=\"{label}\"");
+            string status = label.Substring(at + MissionControlStockAnnotation.RowStatusMarker.Length);
+            if (status.EndsWith("</color>", System.StringComparison.Ordinal))
+                status = status.Substring(0, status.Length - "</color>".Length);
+            InGameAssert.IsTrue(status.Length <= MissionControlStockAnnotation.RowStatusMaxLength
+                    && !status.Contains("committed timeline") && !status.Contains(":"),
+                $"the row status should be a verb and a date only; status=\"{status}\"");
+        }
+
+        /// <summary>A Parsek-disabled stock button must LOOK disabled: stock's own disabled
+        /// state when its transition draws one, else Parsek's grey.</summary>
+        private static void AssertButtonLooksDisabled(UnityEngine.UI.Button button, string name, string when)
+        {
+            InGameAssert.IsNotNull(button, $"{name} should exist {when}");
+            bool stockDraws = StockUiGreyedButton.StockDrawsDisabled(button, out string describe);
+            InGameAssert.IsTrue(stockDraws || StockUiGreyedButton.IsGreyedByParsek(button),
+                $"{name} should look disabled {when} ({describe})");
+        }
+
+        /// <summary>The colours of every graphic on a button, in hierarchy order.</summary>
+        private static List<Color> SnapshotButtonColors(UnityEngine.UI.Button button)
+        {
+            var colors = new List<Color>();
+            if (button == null) return colors;
+            foreach (var g in button.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
+                colors.Add(g.color);
+            return colors;
+        }
+
+        /// <summary>The button carries exactly the colours it had before Parsek greyed it.</summary>
+        private static void AssertButtonColorsRestored(UnityEngine.UI.Button button, List<Color> before, string name, string when)
+        {
+            InGameAssert.IsFalse(StockUiGreyedButton.IsGreyedByParsek(button), $"{name} should not be greyed {when}");
+            List<Color> now = SnapshotButtonColors(button);
+            InGameAssert.AreEqual(before.Count, now.Count, $"{name} graphic count should be unchanged {when}");
+            for (int i = 0; i < now.Count; i++)
+                InGameAssert.IsTrue(StockUiGreyedButton.SameColor(before[i], now[i]),
+                    $"{name} graphic {i} should carry its stock colour {when}: before={before[i]} now={now[i]}");
         }
 
         private static void AssertMissionControlCancelBlocked(MissionControl mc, string why, string when)
         {
             InGameAssert.IsFalse(mc.btnCancel.interactable, $"Cancel should be disabled {when}");
+            AssertButtonLooksDisabled(mc.btnCancel, "Cancel", when);
             string text = mc.contractText != null ? mc.contractText.text : "";
             InGameAssert.IsTrue(text.Contains(MissionControlStockAnnotation.CancelDetailHeading),
                 $"the detail text should name the disabled Cancel {when}");

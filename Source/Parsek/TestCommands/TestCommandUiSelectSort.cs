@@ -404,9 +404,29 @@ namespace Parsek.TestCommands
         /// (<c>ForeignDockLink.LinkId</c>).</summary>
         internal const string LinkKeyPrefix = "link";
 
+        /// <summary>
+        /// ONE composition interval of a vessel (a <c>MissionCompositionNode.HeadLegId</c>:
+        /// the vessel's head recording id for its first interval, then <c>/segN</c> and
+        /// <c>@dockM</c> suffixes). Drives the INTERVAL checkbox of the expanded vessel
+        /// detail - <c>MissionsWindowUI.ApplyIntervalInclusion</c>, the checkbox's own body -
+        /// rather than the per-vessel checkbox <c>vessel:</c> drives.
+        ///
+        /// <para>The difference is the whole point of the prefix: <c>vessel:</c> resolves a
+        /// ROW and writes ALL of that row's own interval keys, so it can only produce an
+        /// <c>All</c> or <c>None</c> vessel. <c>leg:</c> writes exactly the one key named,
+        /// so unticking a vessel's launch interval START-TRIMS the loop to the
+        /// post-separation survivor and leaves the row <c>Partial</c> - the leg-trim the
+        /// Missions tab exists to author, and the state <c>vessel:</c> cannot reach.</para>
+        ///
+        /// <para>Resolved against the SAME flattened rows <c>vessel:</c> reads (every row's
+        /// own <c>Intervals</c>, children included); a key no row carries is a
+        /// <see cref="SelectKeyUnknownReason"/> listing the live interval keys.</para>
+        /// </summary>
+        internal const string LegKeyPrefix = "leg";
+
         private static readonly string[] SelectPrefixes = new[]
         {
-            VesselKeyPrefix, LinkKeyPrefix,
+            VesselKeyPrefix, LinkKeyPrefix, LegKeyPrefix,
         };
 
         /// <summary>The select key prefixes, comma-joined for the reject message.</summary>

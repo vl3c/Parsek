@@ -95,7 +95,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
-            Description = "Stock-UI annotation: selecting a committed-future R&D node shows a non-interactable Research button with the explanation in the stock side-panel description, through a panel refresh; the button re-enables when the committed row goes.")]
+            Description = "Stock-UI annotation: selecting a committed-future R&D node shows a non-interactable, greyed Research button with the explanation in the stock side-panel description, through a panel refresh; the button re-enables with its stock colours when the committed row goes.")]
         public IEnumerator RnDResearchButtonDisabledShowsItsReason()
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
@@ -119,6 +119,8 @@ namespace Parsek.InGameTests
                     yield break;
                 }
 
+                List<Color> actionColorsBefore = SnapshotButtonColors(controller.actionButton.Button);
+
                 recordingId = "stockui-rnd-block-" + System.Guid.NewGuid().ToString("N");
                 recording = AddCommittedOverlayFixture(recordingId, GameStateEventType.TechResearched, techId,
                     "Stock-UI R&D block test");
@@ -132,6 +134,7 @@ namespace Parsek.InGameTests
                     "The selected unresearched node should show the Research state of the action button");
                 InGameAssert.IsFalse(controller.actionButton.Button.interactable,
                     $"The Research button for committed node '{techId}' should be non-interactable");
+                AssertButtonLooksDisabled(controller.actionButton.Button, "Research", "after selecting the committed node");
                 string description = RdPanelDescription(controller);
                 InGameAssert.IsTrue(description.Contains(ReservationExplanation.TimelineRule),
                     $"The side-panel description should carry the reason beside the disabled button; got '{description}'");
@@ -151,6 +154,8 @@ namespace Parsek.InGameTests
                     () => controller.actionButton.Button.interactable
                         && !RdPanelDescription(controller).Contains(ReservationExplanation.TimelineRule),
                     "The Research button should re-enable and the reason clear once the committed row is gone", 5f);
+                AssertButtonColorsRestored(controller.actionButton.Button, actionColorsBefore, "Research",
+                    "once the committed row is gone");
             }
             finally
             {
@@ -612,7 +617,9 @@ namespace Parsek.InGameTests
         private static string RowLabel(CrewListItem row)
         {
             if (row == null) return "";
-            return StockUiText.Get(StockUiText.LabelField(row, typeof(CrewListItem), "label")) ?? "";
+            // The line the player reads: an applicant row's status line is hidden by its
+            // prefab, so its status is on the trait line (GUI-28 F2).
+            return StockUiAstronautDecoration.ShownStatusText(row);
         }
 
         private static string TooltipText(CrewListItem row)

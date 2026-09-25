@@ -72,8 +72,17 @@ namespace Parsek.InGameTests
                     InGameAssert.IsTrue(state.Tooltip.enabled, "The stock tooltip on the disabled Upgrade should be enabled");
                     InGameAssert.IsFalse(state.Tooltip.RequireInteractable,
                         "The tooltip must show on a non-interactable button (RequireInteractable=false)");
-                    InGameAssert.IsTrue(state.Tooltip.textString.Contains(ReservationExplanation.TimelineRule),
-                        $"The stock tooltip should carry the explanation; got '{state.Tooltip.textString}'");
+                    string tipText = state.Tooltip.textString ?? "";
+                    InGameAssert.IsTrue(tipText.Replace('\n', ' ').Contains(ReservationExplanation.TimelineRule),
+                        $"The stock tooltip should carry the explanation; got '{tipText}'");
+                    if (state.TooltipOwned)
+                    {
+                        // The borrowed prefab has no maximum width: the text itself must wrap.
+                        string[] lines = tipText.Split('\n');
+                        for (int i = 0; i < lines.Length; i++)
+                            InGameAssert.IsTrue(lines[i].Length <= StockUiFacilityDecoration.TooltipLineChars,
+                                $"Every tooltip line should fit {StockUiFacilityDecoration.TooltipLineChars} chars; line {i} has {lines[i].Length}: '{lines[i]}'");
+                    }
                 }
                 else
                 {
@@ -237,7 +246,7 @@ namespace Parsek.InGameTests
             string text = "";
             var state = StockUiFacilityDecoration.StateOf(menu);
             if (state != null && state.Tooltip != null && state.Tooltip.enabled)
-                text += state.Tooltip.textString ?? "";
+                text += (state.Tooltip.textString ?? "").Replace('\n', ' ');
             object description = StockUiText.LabelField(menu, typeof(KSCFacilityContextMenu),
                 StockUiFacilityDecoration.DescriptionFieldName);
             return text + "\n" + (StockUiText.Get(description) ?? "");
