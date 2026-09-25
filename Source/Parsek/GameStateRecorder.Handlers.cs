@@ -381,12 +381,20 @@ namespace Parsek
             // system locale decimal separator, and ConvertPartPurchased parses with IC.
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             float entryCost = part.entryCost;
-            float chargedCost = ComputePartPurchaseFundsSpent(entryCost);
+            // Stock's purchase paths (PartListTooltipController.onPurchaseProceed in the
+            // editor, RDTech.HandlePurchase in R&D) also buy the part's identicalParts of
+            // the same tech, firing this event for each with costsFunds cleared for the
+            // duration of the fire, so Funding.onPartPurchased charges nothing for them.
+            // Read the flag here, while it is still cleared.
+            bool costsFunds = part.costsFunds;
+            float chargedCost = ComputePartPurchaseFundsSpent(entryCost, costsFunds);
 
             // #451: `cost=` stays authoritative for save/load and UI because it must
             // reflect the ACTUAL funds debit: 0 when BypassEntryPurchaseAfterResearch is
-            // on, entryCost when the harder no-bypass difficulty is active. Persist the
-            // raw stock entry price separately for diagnostics and future tooling.
+            // on or for a free identical part, entryCost otherwise. Persist the raw stock
+            // entry price separately for diagnostics and future tooling. A free row is
+            // still recorded: it is the purchase KspStatePatcher.PatchPurchasedParts
+            // re-applies after a rewind.
             var detail = "cost=" + chargedCost.ToString("R", ic) +
                          ";entryCost=" + entryCost.ToString("R", ic);
 
@@ -403,7 +411,8 @@ namespace Parsek
             };
             Emit(ref evt, "PartPurchased");
             ParsekLog.Info("GameStateRecorder",
-                $"Game state: PartPurchased '{partName}' (chargedCost={chargedCost}, entryCost={entryCost})");
+                $"Game state: PartPurchased '{partName}' (chargedCost={chargedCost}, entryCost={entryCost}, " +
+                $"costsFunds={costsFunds}{(costsFunds ? "" : " - identical part bought free with its sibling")})");
 
             // #405: route to ledger immediately when there is no recording owner.
             // Relies on the DedupKey (§F) to disambiguate part-name collisions.
@@ -418,9 +427,22 @@ namespace Parsek
         /// fires OnPartPurchased when BypassEntryPurchaseAfterResearch is enabled, but
         /// the purchase is free in that mode.
         /// </summary>
-        internal static float ComputePartPurchaseFundsSpent(float entryCost)
+        internal static float ComputePartPurchaseFundsSpent(float entryCost, bool costsFunds = true)
         {
-            return IsBypassEntryPurchaseAfterResearch() ? 0f : entryCost;
+            return ComputePartPurchaseChargedCost(entryCost, costsFunds, IsBypassEntryPurchaseAfterResearch());
+        }
+
+        /// <summary>
+        /// What stock's <c>Funding.onPartPurchased</c> deducts for one fired purchase:
+        /// nothing under bypass-entry-purchase, nothing for a part fired with
+        /// <c>costsFunds</c> false (an identical part bought alongside the one the player
+        /// paid for), otherwise the part's <c>entryCost</c>. Pure.
+        /// </summary>
+        internal static float ComputePartPurchaseChargedCost(
+            float entryCost, bool costsFunds, bool bypassEntryPurchaseAfterResearch)
+        {
+            if (bypassEntryPurchaseAfterResearch || !costsFunds) return 0f;
+            return entryCost;
         }
 
         #endregion

@@ -172,20 +172,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The committed part purchase still ahead of <paramref name="currentUT"/> that
-        /// charges an entry cost: the earliest <c>FundsSpending</c> / <c>Other</c> row for
-        /// this part (key = <c>AvailablePart.name</c>, the runtime dot-form the capture
-        /// stores) with <c>FundsSpent &gt; 0</c>, or null. A zero-cost row was captured
-        /// under bypass-entry-purchase and reserves nothing.
+        /// The committed part purchase still ahead of <paramref name="currentUT"/>: the
+        /// earliest <c>FundsSpending</c> / <c>Other</c> row for this part (key =
+        /// <c>AvailablePart.name</c>, the runtime dot-form the capture stores), or null.
+        /// A zero-cost row reserves the part too: it is an identical part stock bought
+        /// free with a paid sibling, and <c>KspStatePatcher.PatchPurchasedParts</c> marks
+        /// it purchased at its UT, so buying it now would pay for what the timeline gets
+        /// free. Under bypass-entry-purchase every row is zero-cost and
+        /// <see cref="IsPartPurchaseBlocked"/> is inert.
         /// </summary>
         internal static CommittedFutureEntry CommittedPartPurchaseAfter(
             CommittedFutureIndex index, string partName, double currentUT)
         {
             if (index == null || string.IsNullOrEmpty(partName)) return null;
-            var future = index.FutureEntries(CommittedFutureKind.PartPurchase, partName, currentUT);
-            for (int i = 0; i < future.Count; i++)
-                if (future[i].Amount > 0f) return future[i];
-            return null;
+            return index.FirstFuture(CommittedFutureKind.PartPurchase, partName, currentUT);
         }
 
         /// <summary>

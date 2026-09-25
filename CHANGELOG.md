@@ -1013,6 +1013,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Buying a part no longer charges again for the identical parts the game gives you free.**
+  When you buy a part in the VAB/SPH or in R&D, the game also marks the part's identical
+  variants (same tech node) as purchased without charging for them. Parsek recorded each of
+  those as a paid purchase, so its funds history charged the entry cost once per variant
+  while the game charged it once. It now records what the game charged: the part you
+  bought at its entry cost, and each identical variant as a free purchase. The free record
+  still counts: after a rewind the variant is marked purchased again when its date passes,
+  and it cannot be bought before then, like the part you paid for. Purchases recorded
+  before this fix keep the amount they were recorded with.
 - **Real Spawn Control and the Log (Structure) window: column text now starts exactly under
   its header.** The header cells are boxes that inset their text 4px, while the body cells
   were plain labels with no inset, so every column's text sat 4px left of its header in
