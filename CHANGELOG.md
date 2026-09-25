@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane checks that a replayed ghost keeps its recorded attitude.** With
+  ghost render tracing on, each traced ghost frame now also logs how far, in degrees, the ghost's
+  drawn orientation is from the orientation its recording implies at that moment, worked out from
+  the recording itself the same way playback does. The new lane `AP-1-minmus-attitude-residual`
+  replays a recorded Minmus mission through a warp across the Kerbin-to-Minmus crossing and a
+  warp while watching the ghost in orbit, and requires that difference to stay under 0.05 degrees
+  on every frame while the ghost turns more than 90 degrees. Both flights measured 0.000 degrees
+  on about 830 frames while the ghost turned 157 degrees. Coverage 236 -> 237 of 247.
 - **Automated testing: replayed ghosts are now checked for engine flames defined in a part's
   EFFECTS node, and for cargo-bay doors that open and close.** A ghost engine now logs one line
   each time it ignites on replay, naming the part, where its flame effects came from (the part's
