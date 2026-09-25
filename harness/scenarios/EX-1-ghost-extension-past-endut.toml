@@ -265,6 +265,14 @@ steps = [
 ]
 
 [dimensionsCovered]
+# D13 `ksc-exclusion` (CLAIMED 2026-09-25, branch `cov-wave1`, no new token) <- the
+#   already-required `[Spawner] Spawn RETIRED for #N (Logi Cargo Rig): flight ended
+#   within KSC exclusion zone (pad) - no vessel ...` (VesselSpawner.cs:2387). The
+#   operator ruled on 2026-09-23 that a flight ending parked in the KSC exclusion zone
+#   is RETIRED rather than held, and the supervisor ruling of 2026-09-25 (pending
+#   operator confirmation) counts that retirement as the cell: the exclusion zone is
+#   what decides the spawn. Armed and flown green on `2026-09-23_1810` / `_1820`.
+D13 = ["ksc-exclusion"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations]

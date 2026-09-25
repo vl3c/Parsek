@@ -280,6 +280,13 @@ steps = [
 ]
 
 [dimensionsCovered]
+# D13 `bbox-block` (CLAIMED 2026-09-25, branch `cov-wave1`, no new token) <- the
+#   already-required `Spawn blocked for #N (Single Point Holder): overlaps 'Kerbal X
+#   Probe' at Nm (single-point trajectory)` (VesselSpawner.cs:1923): the bounding-box
+#   overlap check refusing a spawn onto a live vessel, the collision detector that
+#   replaced the old proximity offset (VesselSpawner.cs:19). Armed flight
+#   `2026-09-23_2110` PASS, negative control `_2113`.
+D13 = ["bbox-block"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 D18 = ["ghost-extension-past-endut"]
 

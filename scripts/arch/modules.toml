@@ -105,7 +105,19 @@ placement = "R0"
 # dialogs, caches for windows, and Unity-instantiated overlays that no code references (KSP creates them)
 [[module]]
 name = "UI"
-prefix = "^CommittedActionDialog[.]cs$|^DockEventGraphCache[.]cs$|^ResourceBudget[.]cs$|^CurrencyReservationOverlay[.]cs$|^StockUiOverlayController[.]cs$|^ParsekToolbarRegistration[.]cs$"
+prefix = "^CommittedActionDialog[.]cs$|^DockEventGraphCache[.]cs$|^ResourceBudget[.]cs$|^CurrencyReservationOverlay[.]cs$|^StockUiOverlayController[.]cs$|^ParsekToolbarRegistration[.]cs$|^StockUi[A-Za-z]+[.]cs$|^ReservationExplanation[.]cs$"
+placement = "R0"
+
+# stock-UI reservation layer: ledger-derived predicates the stock-screen blocks and marks read
+[[module]]
+name = "GameActions"
+prefix = "^CommittedFutureIndex[.]cs$|^ContractSlotReservation[.]cs$|^StrategyReservationPredicates[.]cs$|^FacilityRepairCapture[.]cs$"
+placement = "R0"
+
+# its references come from MapRender
+[[module]]
+name = "MapRender"
+prefix = "^RefusedResumedCopyTail[.]cs$"
 placement = "R0"
 
 # all three references come from Display
