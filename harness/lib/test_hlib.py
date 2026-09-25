@@ -12679,6 +12679,12 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     # ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
     # workflow.
     GHOSTLIFE_ARMED_SPECS = {
+        # ARMED 2026-09-26 off the reading run `2026-09-25_2235_AP-1-minmus-attitude-residual`
+        # (PASS attempt 1): 831 resolved AfterUpdate attitude lines, every one dRotDeg=0.000,
+        # rendered sweep 157.3 deg (checkpoint-orbit-ofr) / 168.7 deg (surface). The first
+        # member arming the v3 `attitude` sub-table. Armed re-flight and the offline negative
+        # control (one line perturbed to 12.5 deg) are recorded in autotest-status.md.
+        "AP-1-minmus-attitude-residual.toml",
         # ARMED 2026-09-08 off the reading run `2026-09-08_1711_GS-7-kerbalx-crash-watch-hold`
         # (MISSION-OK attempt 1, PARSEK-FAIL on one re-cut logContract token only;
         # ghostLifecycle spawned=8 spawnLines=8 destroyLines=8 unbalanced=0 with

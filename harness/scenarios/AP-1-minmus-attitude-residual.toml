@@ -34,7 +34,8 @@ id = "AP-1-minmus-attitude-residual"
 # of the positioner's lerped position against the Kepler position (a few tenths of a
 # degree at most on this subject), which is why the ceiling is not zero.
 #
-# STATUS: AUTHORED 2026-09-26, windows from the reading run (see below).
+# STATUS: reading `2026-09-25_2235` PASS attempt 1; ARMED off it (the block below);
+# armed re-flight and offline negative control recorded in autotest-status.md.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
 description = "D6 attitude-preservation: replay the committed Minmus loop subject (cycle 1) with the flight render tracer on, warp across the Kerbin->Minmus seam and then 600 s while watching the ghost in its Minmus park, and gate the AfterUpdate attitude residual (dRotDeg, rendered vs recording-implied rotation through the positioner's own frame conventions): bounded on every resolved line while the rendered attitude sweeps far enough to make the bound meaningful."
@@ -71,6 +72,7 @@ steps = [
 ]
 
 [dimensionsCovered]
+D6  = ["attitude-preservation"]
 D14 = ["minmus", "scene-flight", "sandbox"]
 
 [expectations]
@@ -91,11 +93,20 @@ forbidden = [
   "timejump refused reason=backward-jump",
 ]
 
-# REPORT-ONLY for the reading run: the attitude facet and the lifecycle census are
-# recorded unconditionally; windows are re-cut to the measured numbers before arming.
+# ARMED 2026-09-26 off the reading run `2026-09-25_2235` (PASS attempt 1, wall 109 s):
+# 831 AfterUpdate lines, ALL resolved (0 unresolved, 0 legacy): 577
+# `checkpoint-orbit-ofr` (both spans; FrameStart reads `frames=0 checkpoints=1`, so the
+# positioner took the orbit-only branch) and 254 `surface`. Every line printed
+# `dRotDeg=0.000` (under 0.0005 deg, float noise) while the rendered attitude of the one
+# replayed recording swept 157.3 deg on the orbit decode and 168.7 deg on the surface
+# decode. Windows: a 0.05 deg ceiling (two orders above the noise, far below any
+# frame / segment / bracket error, which moves attitude by degrees), sweep floors at
+# about 60 % of the measurement, line floors at about half. requireBalanced stays off
+# (the lane quits mid-playback by design; the reading measured 1/1/1, `engine teardown`).
 [expectations.ghostLifecycle]
+gating = true
 requireBalanced = false
-attitude = { maxRotDeg = 1.0, minSweepDeg = 30.0, resolvedLines = { min = 100 } }
+attitude = { maxRotDeg = 0.05, minSweepDeg = 90.0, resolvedLines = { min = 400 }, refs = { "checkpoint-orbit-ofr" = { resolvedLines = { min = 250 }, minSweepDeg = 90.0 }, "surface" = { resolvedLines = { min = 100 } } } }
 
 [runtime]
 budgetSeconds = 1500
