@@ -105,8 +105,8 @@ namespace Parsek.Tests
         {
             string src = TooltipEchoBudgetTests.ReadParsekSource("Patches/KerbalDismissalPatch.cs");
             Assert.Contains("CommittedActionDialog.ShowBlocked(", src);
-            Assert.Contains("DescribeDismissalBlock(kerbals.GetReservationKind(crew.name),", src);
-            Assert.Contains("kerbals?.ShouldBlockDismissal(crew.name)", src);
+            Assert.Contains("DescribeDismissalBlock(kerbals.GetReservationKind(kerbalName),", src);
+            Assert.Contains("kerbals.ShouldBlockDismissal(kerbalName)", src);
             // No new dialog type: the patch never spawns its own popup.
             Assert.DoesNotContain("PopupDialog", src);
             Assert.DoesNotContain("MultiOptionDialog", src);

@@ -57,7 +57,30 @@ pairing rule):
 - The Mission Control badges are lost on a tab switch.
 - Contract Configurator disables the Mission Control overlay and bypasses the Accept
   pre-block (read from source).
-- The Astronaut Complex opened from the editor is undecorated.
+- ~~The Astronaut Complex opened from the editor is undecorated.~~ Fixed by PR 2a (branch
+  `stock-ui-rnd-ac`): the Astronaut Complex annotations are Harmony postfixes on the stock
+  row builders (`AstronautComplex.AddItem_*`, `UpdateCrewCounts`,
+  `TooltipController_CrewAC.SetTooltip`), which run in every scene.
+- ~~R&D and Astronaut Complex badges (`OverlayBadge`, a Parsek-drawn uGUI icon with an IMGUI
+  hover box).~~ Migrated by PR 2a to stock mechanisms: R&D tints the node icon
+  (`RDNode.UpdateGraphics` postfix), appends the explanation to the node tooltip
+  (`RDNode.GetTooltipCaption`) and the side-panel description (`RDController.ShowNodePanel`)
+  and disables Research (`RDController.UpdatePanel`, research state only); the Astronaut
+  Complex sets the row label and stock's locked-with-reason button
+  (`CrewListItem.SetButtonEnabled`) and appends to the crew tooltip. Mission Control still
+  uses `OverlayBadge` (its migration is the sibling PR 2b; `OverlayBadge.cs` goes once both
+  land).
+- ~~The Astronaut Complex Dismiss button was never refused.~~ Found in PR 2a: stock's
+  Available-row dismiss calls `KerbalRoster.SackAvailable` (the kerbal becomes an applicant),
+  which never reaches `KerbalRoster.Remove`, so `KerbalDismissalPatch` did not see it. Fixed
+  with a pre-UI prefix on `AstronautComplex.Xbutton_AvailableCrew` and a `SackAvailable`
+  backstop over the same predicate (`KerbalDismissalPatch.ShouldAllowDismissal`); the
+  Astronaut Complex greys that button for the same set.
+- In-game coverage: the six rewritten `StockUiOverlay` cells have not flown; H45 pins
+  `total=8` INTERIM until its reading run. The editor-opened complex has no in-game cell (no
+  lane runs `StockUiOverlay` in the EDITOR), and a timeline change while that complex is open
+  re-annotates only on the next stock rebuild (the refresh hook lives in the SpaceCentre-only
+  `StockUiOverlayController`).
 - ~~Marks and blocks go stale after a rewind: the `MilestoneStore` unreplayed slice
   never advances. F1 verified: after a rewind the committed facility upgrade blocks
   every later upgrade of that facility for good, because the predicate keys on the facility id
