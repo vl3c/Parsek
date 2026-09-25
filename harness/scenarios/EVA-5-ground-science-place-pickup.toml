@@ -1,7 +1,17 @@
 schema = 1
 id = "EVA-5-ground-science-place-pickup"
-# COVERAGE WAVE 10 (D7 `inventory-place-remove`). NEVER FLOWN: every token below is
-# pre-registered from the decompile and the source, and the reading flight pins them.
+# COVERAGE WAVE 10 (D7 `inventory-place-remove`, NOT CLAIMED - see EXPECTED-FAIL below).
+#
+# EXPECTED-FAIL on todo EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL. The reading run
+# `2026-09-25_2341` flew every step OK and then reddened PARSEK-FAIL(analyzer) on
+# `INV4-PARTEVENT-PID unresolved-pid pid=4140861083 event=InventoryPartPlaced`: the recorder
+# keys the event to the placed part's pid, which stock makes its OWN vessel, so the pid is
+# never in the kerbal recording's snapshot and the ghost never shows the placed part. The
+# analyzer red short-circuits every later verifier, so the lane is quarantined on that
+# subkind until the operator rules on the design question the todo entry states. THE
+# CONTRACT SET BELOW PASSED OFFLINE on `_2341`'s KSP.log (hlib.evaluate_expectations:
+# recordings 4 of 4, every required token present, no forbidden hit), so removing the
+# `[expectedFail]` table re-arms the lane as-is once the defect is fixed.
 #
 # THE SUBJECT. The recorder hooks exactly two stock events for this family,
 # GameEvents.onGroundSciencePartDeployed / onGroundSciencePartRemoved
@@ -45,7 +55,7 @@ id = "EVA-5-ground-science-place-pickup"
 # applier to REPORT that (it previously reported `applied` unconditionally, a visual write
 # that did not happen). The lane therefore proves the replay DISPATCHED both events on the
 # kerbal's ghost and pins that no visual exists - todo
-# EVA-GROUND-SCIENCE-PLACEMENT-HAS-NO-GHOST - rather than claiming a ghost seismometer.
+# EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL - rather than claiming a ghost seismometer.
 tier = "nightly"
 description = "Ground EVA on the pad with a Breaking Ground seismometer in the kerbal's inventory: exit, place it through the stock inventory slot + confirm key, pick it back up through its own Pick Up event, board, commit, then replay the tree's mission loop. The recorder's InventoryPartPlaced / InventoryPartRemoved captures (same pid as the placed part) and the replay's inventory-surface apply lines are required."
 instanceProfile = "stock-minimal"
@@ -99,7 +109,9 @@ steps = [
 ]
 
 [dimensionsCovered]
-D7  = ["inventory-place-remove"]
+# D7 `inventory-place-remove` is deliberately NOT declared while the lane is EXPECTED-FAIL
+# (operator ruling 2026-09-26): an EXPECTED-FAIL run is green in compute_coverage, and the
+# cell would read covered on a lane whose own product defect is open.
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations]
@@ -147,4 +159,5 @@ budgetSeconds = 1800
 policy = "once"
 
 [expectedFail]
-bugId = ""
+bugId = "EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL"
+subkind = "analyzer"

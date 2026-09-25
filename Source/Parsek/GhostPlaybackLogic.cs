@@ -2741,7 +2741,7 @@ namespace Parsek
         /// new vessel (<c>ModuleInventoryPart.DeployGroundPart</c> -> <c>AddVessel</c>), so
         /// the pid the recorder captures on the kerbal's recording is never a part of the
         /// kerbal's ghost, and an unconditional <c>applied</c> claimed a visual write that
-        /// did not happen (coverage wave 10, todo EVA-GROUND-SCIENCE-PLACEMENT-HAS-NO-GHOST).
+        /// did not happen (coverage wave 10, todo EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL).
         /// </summary>
         private static GhostPartEventOutcome ApplyInventoryPartPlacedEvent(
             GhostPlaybackState state,

@@ -209,6 +209,14 @@ values = ["basic-playback", "loop-period-modes", "self-overlap", "overlap-expiry
           "watch-entry-distance-cutoff"]
 
 [D7]  # part events
+# `inventory-place-remove` SCOPE NOTE (coverage wave 10, 2026-09-26): UNCLAIMED, pending
+# the operator's design ruling on todo EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL.
+# `EVA-5-ground-science-place-pickup` drives the stock placement and pick-up (seam verb
+# EvaGroundScience) and is EXPECTED-FAIL on the analyzer's INV4 unresolved-pid finding. Its
+# evidence is DISPATCH-ONLY: the recorder captures InventoryPartPlaced / Removed with the
+# placed part's pid and the replay consumes both on the kerbal's ghost (reason
+# no-info-for-part), but the ghost never shows the placed part. A future claim off EVA-5
+# alone would therefore be a dispatch claim, and must say so here.
 values = ["decouple-stage-destroy", "engine-fx-legacy", "engine-fx-effects",
           "engine-fx-waterfall-fallback", "rcs", "chute-two-phase", "chute-cut", "shroud",
           "fairing", "panels-antennas-radiators", "gear", "bays", "lights", "dock-undock",

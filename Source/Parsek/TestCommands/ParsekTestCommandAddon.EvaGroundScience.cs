@@ -112,6 +112,8 @@ namespace Parsek.TestCommands
             typeof(ModuleInventoryPart).GetField("partFullyCreated", BindingFlags.Instance | BindingFlags.NonPublic);
         private static readonly FieldInfo InvOnTerrainField =
             typeof(ModuleInventoryPart).GetField("placementonTerrain", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo InvGridField =
+            typeof(ModuleInventoryPart).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
         private static readonly FieldInfo InvInsideCapField =
             typeof(ModuleInventoryPart).GetField("placementInsideCap", BindingFlags.Instance | BindingFlags.NonPublic);
 
@@ -135,6 +137,7 @@ namespace Parsek.TestCommands
         private int groundSciSettledFrames;
         private bool groundSciFaceAway;
         private int groundSciTurnFrame;
+        private bool groundSciOpenedPaw;
 
         private void EvaGroundScienceImpl(ParsedCommand cmd)
         {
@@ -189,6 +192,7 @@ namespace Parsek.TestCommands
             groundSciSettledFrames = 0;
             groundSciFaceAway = ArgOrNull(cmd, TestCommandEvaGroundScience.FaceAwayArg) == "true";
             groundSciTurnFrame = -1;
+            groundSciOpenedPaw = false;
             EvaJumpKeyPressInjection.Remove();
             EvaJumpKeyPressInjection.AnsweredCount = 0;
 
@@ -333,6 +337,23 @@ namespace Parsek.TestCommands
                 {
                     TurnKerbalAwayFromNearestVessel(kerbal);
                     groundSciTurnFrame = Time.frameCount;
+                    return;
+                }
+                // A player places from the kerbal's OPEN inventory window (the slot icon is
+                // a PAW control), and stock relies on it: the placement cooldown's end calls
+                // grid.pawInventory.ResetPlacePartIcons with no null check. Open the kerbal's
+                // part window the way a right-click does and wait for its inventory control.
+                bool pawReady = InventoryPawReady(inv);
+                if (able && uiReady && standing && !pawReady)
+                {
+                    if (!groundSciOpenedPaw && UIPartActionController.Instance != null)
+                    {
+                        UIPartActionController.Instance.SpawnPartActionWindow(kerbal.rootPart);
+                        groundSciOpenedPaw = true;
+                        ParsekLog.Info(Tag, "evagroundscience place opened kerbal part window");
+                    }
+                    if (elapsed >= budget)
+                        FinishGroundScience("ERROR", null, "inventory-window-timeout", elapsed);
                     return;
                 }
                 bool turnSettled = groundSciTurnFrame < 0
@@ -492,9 +513,17 @@ namespace Parsek.TestCommands
                 slot, 0, groundSciDistance), null, elapsed);
         }
 
+        private static bool InventoryPawReady(ModuleInventoryPart inv)
+        {
+            UI_Grid grid = InvGridField != null ? InvGridField.GetValue(inv) as UI_Grid : null;
+            return grid != null && grid.pawInventory != null;
+        }
+
         private void FinishGroundScience(string verdict, List<KeyValuePair<string, string>> payload,
             string msg, double elapsed, string diag = null)
         {
+            // The part window this verb opened stays open, as a player's would: stock's
+            // placement cooldown reads it about a second after the placement.
             EvaJumpKeyPressInjection.Remove();
             string id = completionId; long seq = completionSeq; string verb = completionVerb;
             ClearTwoPhase();
