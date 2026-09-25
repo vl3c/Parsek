@@ -110,8 +110,22 @@ pairing rule):
   with a pre-UI prefix on `AstronautComplex.Xbutton_AvailableCrew` and a `SackAvailable`
   backstop over the same predicate (`KerbalDismissalPatch.ShouldAllowDismissal`); the
   Astronaut Complex greys that button for the same set.
+- ~~The KSC facility menu showed nothing: Upgrade on a facility the committed timeline
+  upgrades later stayed live, and the click met a surprise "Action Blocked" popup.~~ Fixed by
+  PR 7 (branch `stock-ui-facility`): a postfix on the protected
+  `KSCFacilityContextMenu.OnFacilityValuesModified` (stock's button fill, re-run on structure
+  collapse / repair) sets the private `UpgradeButton` non-interactable and puts the
+  explanation in a stock `TooltipController_Text` on it (`RequireInteractable = false`, prefab
+  copied from a stock controller; the menu's description text is the logged fallback), over
+  `StockUiDecorationQuery.ForFacilityMenu`, the predicate and text the
+  `FacilityUpgradeSpendPatch` / `FacilityUpgradePatch` refusal reads
+  (`FacilityUpgradePatch.TryBlockFacilityUpgradeById`). A timeline change re-runs stock's fill
+  on an open menu; a clock that passes the committed UT while the menu stays open is picked
+  up on the next fill or open (the refusal reads the live clock either way). The raw
+  facility id appears in no player-facing string (the refusal's title and body are pinned).
 - In-game coverage: the rewritten `StockUiOverlay` cells (six R&D / Astronaut
-  Complex from PR 2a, three Mission Control from PR 2b) have not flown; H45 pins `total=9`
+  Complex from PR 2a, three Mission Control from PR 2b, the Active-row / Cancel cell from
+  PR 3 and the facility menu cell from PR 7) have not flown; H45 pins `total=11`
   INTERIM until its reading run. The editor-opened complex has no in-game cell (no
   lane runs `StockUiOverlay` in the EDITOR), and a timeline change while that complex is open
   re-annotates only on the next stock rebuild (the refresh hook lives in the SpaceCentre-only

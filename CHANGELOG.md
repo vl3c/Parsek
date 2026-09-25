@@ -1055,6 +1055,16 @@ _(unreleased — entries accumulate here per commit)_
   explanation. A contract whose only future is its deadline stays cancellable, since
   cancelling early for the smaller penalty is ordinary play, and the debug toolbar's
   "regenerate contracts" still works.
+- **Space Center: the facility menu greys out Upgrade, with the reason, when your committed
+  timeline upgrades that facility later.** Clicking Upgrade on such a building used to be the
+  first you heard of it: an "Action Blocked" popup. Now the Upgrade button in the building's
+  menu is greyed out, and hovering it shows the same explanation the popup gives (for example
+  `Upgraded to level 2 on Y2 D114 on your committed timeline.`, that committed history cannot
+  happen earlier or twice, and `The upgrade happens on that date.`). Once the clock passes the
+  last committed upgrade, Upgrade is back the next time the menu opens; a change to the
+  committed timeline while the menu is open updates it at once. The refusal stays in place
+  for any other way of starting the upgrade, and both name the building, never its internal
+  id.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
