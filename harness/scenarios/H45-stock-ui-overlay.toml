@@ -72,46 +72,55 @@ tier = "nightly"
 # 6/6 line matched verbatim, `recordings.count = 2`, every verifier PASS or REPORT.
 #
 # -------------------------------------------------------------------------------------
-# THIRD SHAPE (2026-09-25, stock-UI overlays PR 2b) - NOT YET FLOWN. The Mission Control
-# badge (`Parsek_ContractOverlay`) is gone: a committed-accept Offered contract now
-# carries a status on its OWN stock row label, the committed-accept explanation in the
-# stock detail text, and greyed Accept and Decline, with `Contract.Decline` refused as
-# the backstop. The two Mission Control cells were rewritten for those mechanisms and a
-# third added: `MissionControlAvailableRowLabelSurvivesTabSwitchAndRebuild`,
-# `MissionControlDetailPanelDisablesAcceptAndDeclineWithReason` and
-# `MissionControlStockAnnotationsLeakNothingOverOpenCloseCycles`. The category is 7
-# declarations; the pin is `total=7` literal with the split regexed (registered in
-# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`) until the new cells' first flight.
-# Their guards are the same pair as before (career mode, an Offered contract row), so
-# the prediction on this host is 7 of 7. The R&D and Astronaut Complex cells move to
-# stock mechanisms in a sibling PR, which changes this pin again.
+# THIRD SHAPE (2026-09-25, stock-UI overlays PR 2b and PR 2a) - NOT YET FLOWN. No stock
+# screen carries a Parsek badge any more.
+#  - PR 2b, Mission Control: the badge (`Parsek_ContractOverlay`) is gone; a
+#    committed-accept Offered contract carries a status on its OWN stock row label, the
+#    committed-accept explanation in the stock detail text, and greyed Accept and
+#    Decline, with `Contract.Decline` refused as the backstop. Three cells:
+#    `MissionControlAvailableRowLabelSurvivesTabSwitchAndRebuild`,
+#    `MissionControlDetailPanelDisablesAcceptAndDeclineWithReason` and
+#    `MissionControlStockAnnotationsLeakNothingOverOpenCloseCycles`.
+#  - PR 2a, R&D and the Astronaut Complex: their four badge cells were replaced by six
+#    cells asserting the stock mechanisms (tinted node icon, stock tooltip / description
+#    text, disabled Research, row labels, locked hire / dismiss) and their survival across
+#    stock rebuilds (RDTechTree.RefreshUI, AstronautComplex.UpdateCrewCounts, a crew list
+#    re-list), a disabled button showing its reason, and no Parsek GameObject on the stock
+#    screen across open/close cycles (`InGameTests/StockUiStockDecorationTests.cs`).
+# That made 9 declarations (`total=9`).
 #
 # FOURTH SHAPE (2026-09-25, stock-UI overlays PR 3, C4) - NOT YET FLOWN. One more
-# Mission Control cell: `MissionControlActiveRowLabelAndCancelBlockedWithReason` - an
-# Active contract the committed timeline completes later carries the status on its
+# Mission Control cell in `RuntimeTests.cs`: `MissionControlActiveRowLabelAndCancelBlockedWithReason`
+# - an Active contract the committed timeline completes later carries the status on its
 # Active-tab row label, greys out Cancel with the why in the detail text, and
-# `Contract.Cancel` is refused with the same text. This fixture has no Active contract,
-# so the cell accepts an Offered one through stock `Contract.Accept` (the batch baseline
-# restore reverts it); its guards are the career mode and an Offered row, as before.
-# The category is 8 declarations; the pin is `total=8` literal with the split regexed
-# (still in `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`); the prediction is 8 of 8.
-description = "INTERIM (re-opened 2026-09-25, the rewritten and added cells not yet flown): the in-game StockUiOverlay category unattended on a career host with contracts on offer, eight cells, pin total=8 with the split regexed - Parsek's annotations on the live stock R&D, Astronaut Complex and Mission Control screens (Mission Control on stock mechanisms: row labels on the Available and Active tabs, detail-panel why, greyed Accept / Decline / Cancel, Decline and Cancel backstops) and their cleanup on close. Earlier shape flown 6 of 6 on 2026-09-08."
+# `Contract.Cancel` is refused with the same text. It needs an ACTIVE contract and never
+# makes one (a SPACECENTER batch restores persistent.sfs on disk only, so accepting an
+# Offered contract would leak into the live career). This fixture carries none (nine
+# Offered contracts, zero Active), so the cell SKIPS here with "needs a career host with
+# an Active contract" until a host with one drives it.
+# The category is 10 declarations; the pin is `total=10` literal with the split regexed
+# (registered in `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`) until the new cells'
+# first flight. The guards are career mode, an Offered contract row, an Active contract,
+# an unresearched RESEARCHABLE node and the Astronaut Complex building, so the prediction
+# on this host is 9 passed, 1 skipped (the Cancel cell).
+description = "INTERIM (re-opened 2026-09-25, the rewritten and added cells not yet flown): the in-game StockUiOverlay category unattended on a career host with contracts on offer, ten cells, pin total=10 with the split regexed - Parsek's annotations on the live stock R&D, Astronaut Complex and Mission Control screens, all on stock mechanisms (tinted R&D node, stock tooltip / description / detail text, row labels on the Available and Active tabs, greyed Research / hire / dismiss / Accept / Decline / Cancel, Decline and Cancel backstops) and nothing left behind on close. The Active-contract Cancel cell skips on this host (no Active contract). Earlier shape flown 6 of 6 on 2026-09-08."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45", "reading-run"]
 
 [fixture]
 # career-earned-ksc (career-contract-pad until 2026-09-08), and BOTH properties are
-# load-bearing. CAREER: four of the six
-# cells skip outright on a non-career mode ("Astronaut Complex overlay verification
-# is career-only", "R&D overlay verification needs a tech-research-capable mode"),
+# load-bearing. CAREER: the seven Astronaut Complex and Mission Control cells skip
+# outright on a non-career mode ("Astronaut Complex annotation verification is
+# career-only") and the three R&D cells on SANDBOX ("R&D annotation verification needs a
+# tech-research-capable mode"),
 # so the whole batch would be vacuous on any SANDBOX host including the wave's
-# gloops-airshow. CONTRACTS ON OFFER: the two Mission Control cells need an Offered
+# gloops-airshow. CONTRACTS ON OFFER: three of the four Mission Control cells need an Offered
 # contract row to decorate; this fixture carries nine, the old host carried none in
 # front of the screen (its one contract is Active, spliced for L5).
 #
 # It boots via `LoadGame scene=spacecenter` (the R12 argument H34 also uses).
 # Its activeVessel would otherwise take the Focusable route into FLIGHT, where
-# all six SPACECENTER-scoped declarations scene-skip and the batch is empty.
+# all ten SPACECENTER-scoped declarations scene-skip and the batch is empty.
 saveTemplate = "fixtures/saves/career-earned-ksc"
 injectedRecordings = "none"
 craft = []
@@ -148,19 +157,21 @@ count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 # ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
-#  - total=8 is ATTRIBUTE-EXACT: 8 `[InGameTest(Category = "StockUiOverlay")]`
-#    declarations, all `Scene = GameScenes.SPACECENTER`, all in `RuntimeTests.cs`. The
-#    ATTRIBUTE FLOOR for `skipped` is 0 at SPACECENTER.
+#  - total=10 is ATTRIBUTE-EXACT: 10 `[InGameTest(Category = "StockUiOverlay")]`
+#    declarations, all `Scene = GameScenes.SPACECENTER` (the four Mission Control cells in
+#    `RuntimeTests.cs`, the six R&D / Astronaut Complex cells in
+#    `InGameTests/StockUiStockDecorationTests.cs`). The ATTRIBUTE FLOOR for `skipped` is
+#    0 at SPACECENTER; the Active-contract Cancel cell skips at runtime on this host.
 #  - passed / skipped are OPEN for the reason in the header: the contract-picker and
 #    building-instance guards are runtime facts on this host.
 #  - failed=0 is the ASSERTION.
 #  - scene=SPACECENTER is LOAD-BEARING and is the B10 fail-open guard: a boot that lost
-#    the `scene=` argument lands in FLIGHT, where all of them scene-skip and the tally reads
-#    `total=8 passed=0 failed=0 skipped=8` - a vacuous line this pin rejects.
-#  - 2026-09-25: total=7 (the Mission Control cells rewritten for stock mechanisms, one
-#    added), split regexed until the first flight of the new cells - see the header.
-#  - 2026-09-25 (PR 3): total=8, the Active-row / Cancel-block cell added.
-required  = ["BATCH_COMPLETE v1 total=8 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=StockUiOverlay scene=SPACECENTER"]
+#    the `scene=` argument lands in FLIGHT, where all ten scene-skip and the tally reads
+#    `total=10 passed=0 failed=0 skipped=10` - a vacuous line this pin rejects.
+#  - 2026-09-25: total=10 (PR 2b rewrote the Mission Control cells and added one, PR 2a
+#    replaced the four R&D / Astronaut cells with six, PR 3 added the Active-row / Cancel
+#    cell), split regexed until the first flight of the new cells - see the header.
+required  = ["BATCH_COMPLETE v1 total=10 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=StockUiOverlay scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

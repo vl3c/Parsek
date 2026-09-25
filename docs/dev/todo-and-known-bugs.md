@@ -70,6 +70,9 @@ pairing rule):
   and rebuilds the whole list right after), let through by
   `ContractSystemRebuildContractsScopePatch`. The unconditional double penalty itself is
   the ledger bug below and stays open.
+  Open: the in-game cell `MissionControlActiveRowLabelAndCancelBlockedWithReason` needs a
+  career host with an Active contract (it never accepts one: SPACECENTER batches restore
+  `persistent.sfs` on disk only); H45's `career-earned-ksc` has none, so it skips there.
 - P1 part purchases (verified, bypass-entry-purchase off only): no block, and no state patch.
   After a rewind a committed purchase is charged at its UT but never applied, and buying the
   part again charges the entry cost twice. The fix needs the block AND an additive
@@ -99,7 +102,31 @@ pairing rule):
   panel BEFORE calling `Decline()`, so if anything re-enabled the button and it were
   clicked, the refusal would leave an empty panel over a still-Offered row (cosmetic). The
   CC row label is not applied to CC's contract-TYPE rows (no contract behind them).
-- The Astronaut Complex opened from the editor is undecorated.
+- ~~The Astronaut Complex opened from the editor is undecorated.~~ Fixed by PR 2a (branch
+  `stock-ui-rnd-ac`): the Astronaut Complex annotations are Harmony postfixes on the stock
+  row builders (`AstronautComplex.AddItem_*`, `UpdateCrewCounts`,
+  `TooltipController_CrewAC.SetTooltip`), which run in every scene.
+- ~~R&D and Astronaut Complex badges (`OverlayBadge`, a Parsek-drawn uGUI icon with an IMGUI
+  hover box).~~ Migrated by PR 2a to stock mechanisms: R&D tints the node icon
+  (`RDNode.UpdateGraphics` postfix), appends the explanation to the node tooltip
+  (`RDNode.GetTooltipCaption`) and the side-panel description (`RDController.ShowNodePanel`)
+  and disables Research (`RDController.UpdatePanel`, research state only); the Astronaut
+  Complex sets the row label and stock's locked-with-reason button
+  (`CrewListItem.SetButtonEnabled`) and appends to the crew tooltip. Mission Control moved
+  to stock mechanisms in PR 2b; with both merged no screen uses a badge, and `OverlayBadge.cs`
+  is deleted.
+- ~~The Astronaut Complex Dismiss button was never refused.~~ Found in PR 2a: stock's
+  Available-row dismiss calls `KerbalRoster.SackAvailable` (the kerbal becomes an applicant),
+  which never reaches `KerbalRoster.Remove`, so `KerbalDismissalPatch` did not see it. Fixed
+  with a pre-UI prefix on `AstronautComplex.Xbutton_AvailableCrew` and a `SackAvailable`
+  backstop over the same predicate (`KerbalDismissalPatch.ShouldAllowDismissal`); the
+  Astronaut Complex greys that button for the same set.
+- In-game coverage: the rewritten `StockUiOverlay` cells (six R&D / Astronaut
+  Complex from PR 2a, three Mission Control from PR 2b) have not flown; H45 pins `total=9`
+  INTERIM until its reading run. The editor-opened complex has no in-game cell (no
+  lane runs `StockUiOverlay` in the EDITOR), and a timeline change while that complex is open
+  re-annotates only on the next stock rebuild (the refresh hook lives in the SpaceCentre-only
+  `StockUiOverlayController`).
 - ~~Marks and blocks go stale after a rewind: the `MilestoneStore` unreplayed slice
   never advances. F1 verified: after a rewind the committed facility upgrade blocks
   every later upgrade of that facility for good, because the predicate keys on the facility id
