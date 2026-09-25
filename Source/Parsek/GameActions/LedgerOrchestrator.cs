@@ -2952,7 +2952,9 @@ namespace Parsek
                 suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings,
                 authoritativeReduction: authoritativeReduction,
                 unaffordableTechDrops: unaffordableTechDrops,
-                strategies: strategiesModule);
+                strategies: strategiesModule,
+                partPurchaseActions: actions,
+                walkUtCutoff: utCutoff);
 
             // LedgerTrace Tier-A: emit ONE structural snapshot per recalc, here (after
             // PatchAll), never inside a Patch* (that would emit 7x). Built from data

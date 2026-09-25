@@ -99,10 +99,36 @@ pairing rule):
   Open: the in-game cell `MissionControlActiveRowLabelAndCancelBlockedWithReason` needs a
   career host with an Active contract (it never accepts one: SPACECENTER batches restore
   `persistent.sfs` on disk only); H45's `career-earned-ksc` has none, so it skips there.
-- P1 part purchases (verified, bypass-entry-purchase off only): no block, and no state patch.
+- ~~P1 part purchases (verified, bypass-entry-purchase off only): no block, and no state patch.
   After a rewind a committed purchase is charged at its UT but never applied, and buying the
-  part again charges the entry cost twice. The fix needs the block AND an additive
-  `partsPurchased` patch (reference section 10 step 9).
+  part again charges the entry cost twice.~~ Fixed by PR 8 (branch `stock-ui-parts`), both
+  halves, no ledger dedupe (D4). Block: `StockUiReservationPredicates.IsPartPurchaseBlocked`
+  (a committed-future `FundsSpending` / `Other` row for the part, key = runtime
+  `AvailablePart.name`, `FundsSpent > 0`, part unpurchased in stock, bypass off). A
+  `PartListTooltip.Setup` postfix disables both purchase buttons and a
+  `PartListTooltipController.CreateTooltip` postfix writes the reason into
+  `textGreyoutMessage` (editor and R&D part lists); backstops refuse with the same text on
+  `PartListTooltipController.onPurchase` (both scenes; the editor branch never reaches
+  `RDTech.PurchasePart`) and `RDTech.PurchasePart`. R&D purchase-all
+  (`RDController.ActionButtonClick("purchase")`) buys the unblocked parts, skips the blocked
+  ones with one dialog naming them, and is greyed when every remaining part is blocked.
+  State: `KspStatePatcher.PatchPurchasedParts` runs after `PatchTechTree`, adds each part
+  whose purchase row is at or before the cutoff to its tech's `partsPurchased` (add-only,
+  idempotent, skips a tech not researched in stock with a WARN). Cutoff: the tech cutoff,
+  else the walk cutoff, clamped to the ready live clock (a `double.MaxValue` sentinel counts
+  as none): the KSC ledger cursor runs a cutoff-less walk when the clock passes the LAST
+  committed row, and the post-tombstone refresh passes `techPatchCutoff = double.MaxValue`,
+  which unclamped would mark future purchases for good. The editor clock is paused by stock
+  (`PSystemSetup.SetEditor`), so no purchase row can pass while the player is in the VAB/SPH.
+  Open: (1) not proven in game (no in-game cell: EDITOR tests are forbidden and a
+  SPACECENTER cell would have to buy a part); the `textGreyoutMessage` placement in the
+  purchase state is read from the decompile (stock enables it with an empty text there), not
+  seen. (2) Stock's purchase-all caption still totals the skipped parts' entry costs.
+  (3) Capture bug found on the way: a purchase in the editor or R&D also buys the part's
+  `identicalParts` (same tech) with `costsFunds = false`, so stock charges nothing for them
+  (`Funding.onPartPurchased` checks the flag), but
+  `GameStateRecorder.OnPartPurchased` records `cost = entryCost` for each, so the ledger
+  over-charges. Not changed here (it changes what a row says); needs its own fix.
 
 **Ledger / flight defects with no stock control to mark:**
 - Contract fail / cancel penalties are charged unconditionally, so an already-resolved

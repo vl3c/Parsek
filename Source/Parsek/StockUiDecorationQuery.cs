@@ -171,6 +171,47 @@ namespace Parsek
             return index != null && index.HasFuture(CommittedFutureKind.KerbalHire, kerbalName, currentUT);
         }
 
+        /// <summary>
+        /// The committed part purchase still ahead of <paramref name="currentUT"/> that
+        /// charges an entry cost: the earliest <c>FundsSpending</c> / <c>Other</c> row for
+        /// this part (key = <c>AvailablePart.name</c>, the runtime dot-form the capture
+        /// stores) with <c>FundsSpent &gt; 0</c>, or null. A zero-cost row was captured
+        /// under bypass-entry-purchase and reserves nothing.
+        /// </summary>
+        internal static CommittedFutureEntry CommittedPartPurchaseAfter(
+            CommittedFutureIndex index, string partName, double currentUT)
+        {
+            if (index == null || string.IsNullOrEmpty(partName)) return null;
+            var future = index.FutureEntries(CommittedFutureKind.PartPurchase, partName, currentUT);
+            for (int i = 0; i < future.Count; i++)
+                if (future[i].Amount > 0f) return future[i];
+            return null;
+        }
+
+        /// <summary>
+        /// The part-purchase block (P1): buying <paramref name="partName"/> now is refused
+        /// when the committed timeline buys it later and stock still shows it unpurchased.
+        /// Inert with stock's bypass-entry-purchase difficulty option on (purchases are free
+        /// and every researched part is rehydrated). It lifts at the committed row's UT,
+        /// when <c>KspStatePatcher.PatchPurchasedParts</c> marks the part purchased. The
+        /// greyed tooltip button, the editor / R&amp;D purchase refusals and the R&amp;D
+        /// purchase-all skip all read this one predicate (the pairing rule).
+        /// </summary>
+        internal static bool IsPartPurchaseBlocked(
+            CommittedFutureIndex index, string partName, double currentUT,
+            bool bypassEntryPurchase, bool purchasedInStock)
+        {
+            if (bypassEntryPurchase || purchasedInStock) return false;
+            return CommittedPartPurchaseAfter(index, partName, currentUT) != null;
+        }
+
+        internal static ReservationText ExplainPartPurchase(
+            CommittedFutureIndex index, string partName, double currentUT, Func<double, string> formatDate)
+        {
+            return ReservationExplanation.PartPurchase(
+                CommittedPartPurchaseAfter(index, partName, currentUT), formatDate);
+        }
+
         internal static ReservationText ExplainTech(
             CommittedFutureIndex index, string techId, double currentUT, Func<double, string> formatDate)
         {

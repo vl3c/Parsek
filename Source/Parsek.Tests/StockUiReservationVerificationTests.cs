@@ -403,7 +403,8 @@ namespace Parsek.Tests
             var action = GameStateEventConverter.ConvertEvent(PartPurchase(300.0, 1600f, bypass: false), null);
 
             // No tech / part identity field: only a funds row whose DedupKey is the part
-            // name. Nothing in the walk or KspStatePatcher reads it back as purchased state.
+            // name. The committed-future index (the block) and
+            // KspStatePatcher.PatchPurchasedParts (the state patch) both key on that name.
             Assert.Equal(GameActionType.FundsSpending, action.Type);
             Assert.Equal(FundsSpendingSource.Other, action.FundsSpendingSource);
             Assert.Equal("mk1pod.v2", action.DedupKey);
@@ -412,13 +413,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void P1_BuyNowPlusCommittedPurchase_ChargesTheEntryCostTwice_DocumentsHole()
+        public void P1_BuyNowWhileTheCommittedPurchaseIsAhead_IsRefused_Fixed()
         {
+            // Committed KSC purchase at UT 300; after a rewind to UT 100 stock shows the part
+            // unpurchased. Buying it at UT 120 used to add a second row the walk charged too.
+            // Now the purchase is refused at the control, so the second row never exists.
+            GameStateRecorder.BypassEntryPurchaseAfterResearchProviderForTesting = () => false;
+            StockUiPartPurchase.PurchasedInStockProviderForTesting = ap => false;
+            var dialogs = new List<string>();
+            CommittedActionDialog.TestHookForTesting = (action, reason, detail) => dialogs.Add(reason);
+            try
+            {
+                var committed = GameStateEventConverter.ConvertEvent(PartPurchase(300.0, 1600f, false), null);
+                Ledger.AddAction(committed);
+                CommittedFutureIndexCache.NowUtProviderForTesting = () => 120.0;
+
+                var part = new AvailablePart { name = "mk1pod.v2", title = "Mk1 Pod", TechRequired = "start" };
+                Assert.True(StockUiPartPurchase.TryBlockPurchase(part, "test", showDialog: true));
+                Assert.Single(dialogs);
+                Assert.StartsWith("Purchased on ", dialogs[0]);
+
+                // At the committed UT the block lifts; the state patch marks the part
+                // purchased from the same row (P1_CommittedPurchase_IsMarkedPurchasedAtItsUT_Fixed).
+                CommittedFutureIndexCache.NowUtProviderForTesting = () => 300.0;
+                Assert.False(StockUiPartPurchase.TryBlockPurchase(part, "test", showDialog: true));
+            }
+            finally
+            {
+                CommittedActionDialog.TestHookForTesting = null;
+                StockUiPartPurchase.ResetForTesting();
+                GameStateRecorder.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void P1_TwoPurchaseRows_AreBothCharged_TheLedgerIsNeverDeduped()
+        {
+            // Owner ruling D4: whether a second purchase row is legitimate depends on WHEN it
+            // was made, so the walk charges every row; the fix is the block, not a dedupe.
             var funds = new FundsModule();
             RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
 
-            // Committed KSC purchase at UT 300, then (after a rewind to UT 100) the player
-            // buys the same part again at UT 120 because stock still shows it unpurchased.
             var committed = GameStateEventConverter.ConvertEvent(PartPurchase(300.0, 1600f, false), null);
             var boughtNow = GameStateEventConverter.ConvertEvent(PartPurchase(120.0, 1600f, false), null);
             var actions = new List<GameAction> { FundsSeed(10000f), committed, boughtNow };
@@ -428,6 +463,28 @@ namespace Parsek.Tests
             Assert.True(committed.Affordable);
             Assert.True(boughtNow.Affordable);
             Assert.Equal(10000.0 - 2 * 1600.0, funds.GetRunningBalance(), 1);
+        }
+
+        [Fact]
+        public void P1_CommittedPurchase_IsMarkedPurchasedAtItsUT_Fixed()
+        {
+            // Hole (a): the walk charged the committed row at its UT but nothing marked the
+            // part purchased, so the player paid and never got it. The state patch now adds
+            // it to stock's purchased list once the cutoff reaches the row.
+            var committed = GameStateEventConverter.ConvertEvent(PartPurchase(300.0, 1600f, false), null);
+            var actions = new List<GameAction> { FundsSeed(10000f), committed };
+            var purchased = new HashSet<string>();
+
+            foreach (double cutoff in new[] { 299.0, 300.0 })
+            {
+                KspStatePatcher.ApplyPartPurchasePatch(
+                    KspStatePatcher.BuildPurchasedPartNamesForPatch(actions, cutoff),
+                    n => "start",
+                    t => true,
+                    n => purchased.Contains(n),
+                    n => purchased.Add(n));
+                Assert.Equal(cutoff >= 300.0, purchased.Contains("mk1pod.v2"));
+            }
         }
 
         [Fact]
