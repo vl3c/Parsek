@@ -1,6 +1,6 @@
 # Explaining paradox-prevention blocks on the stock KSP screens
 
-**Date:** 2026-09-25. **Status:** analysis for owner decisions. Nothing here is implemented.
+**Date:** 2026-09-25. **Status:** owner rulings taken 2026-09-25 (section 11); the section 12 claims are settled by unit cells in `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`. Nothing here is implemented yet.
 
 **This document is the single reference for:**
 - where Parsek explains a reservation or block to the player
@@ -22,7 +22,7 @@ The follow-up todo entries point here: #640, #430 and `STOCK-UI-RESERVATION-OVER
 - `docs/dev/design-gui-inventory.md`
 - `docs/dev/research/gui-feature-exposure-2026-09-11.md`
 
-**Legend.** Claims are confirmed from source unless marked *(inferred)*. Every inferred claim is also listed in section 12.
+**Legend.** Claims are confirmed from source unless marked *(inferred)*. Section 12 lists every claim that was inferred at first, with its verification result.
 
 ---
 
@@ -34,7 +34,7 @@ The follow-up todo entries point here: #640, #430 and `STOCK-UI-RESERVATION-OVER
    - `Contract.CanBeDeclined` / `CanBeCancelled`
    - `CrewListItem.SetButtonEnabled(false, reason)`
    - the node and part tooltips
-3. **Several blocks are missing.** Strategies, contract slots, Decline, Cancel and part purchases can each break or double-charge committed history today (section 4). Under the pairing rule, an overlay can only ship together with its block.
+3. **Several blocks are missing.** Strategies, contract slots, Decline, Cancel and part purchases can each break or double-charge committed history today (section 4, verified in section 12). Under the pairing rule, an overlay can only ship together with its block. Part purchases also need a state patch: today a committed purchase is charged but never applied.
 4. **"Rewind before that flight" frees nothing.** Rewinding is what creates the committed future. The honest "way out" is *when the item frees up*. The exceptions are recovering an Aboard vessel, stopping a loop and a Re-Fly of the flight that holds it (section 6).
 5. **Decline and Cancel, recommended:**
    - Block Decline on an offer the committed future accepts.
@@ -105,7 +105,7 @@ Defects:
 6. **Marks and blocks go stale.**
    - The committed-future slice is `MilestoneStore`'s unreplayed range (`LastReplayedEventIndex + 1 ..`). Only a rewind or revert load resets it (`MilestoneStore.cs:464-467`), and nothing advances it as the clock passes an event. Its only writes are creation (`:144`), restore-from-save (`:456`), reset (`:467`) and removal decrements.
    - Tech and contracts: this is mostly cosmetic, because the item changes state anyway.
-   - Facilities: `FacilityUpgradePatch` blocks by facility id at ANY level, so a later 2->3 upgrade probably stays refused after the committed 1->2 has replayed *(inferred)*.
+   - Facilities: `FacilityUpgradePatch.TryBlockFacilityUpgrade` reads only `facility.id` against `GetCommittedFacilityUpgrades()`, a set with no level and no UT, and the `SetLevel` prefix only checks `lvl > current`. After a rewind or revert the committed 1->2 upgrade's milestone sits at index -1, and the next save writes -1 back, so a later 2->3 upgrade stays refused for good. Only a purge of that milestone event lifts it. Confirmed by `F1_CommittedOneToTwoUpgrade_BlocksEveryLaterUpgradeOfThatFacility_AfterRewind_DocumentsDefect`. On the timeline that recorded the upgrade nothing is blocked, because `CreateMilestone` marks every event replayed (`F1_FreshlyCreatedMilestone_IsFullyReplayed_DoesNotBlock`).
 7. **Invisible to the GUI census.** uGUI plus hover-only means neither the GuiTree recorder nor a screenshot captures the layer (todo `GUI-INVENTORY-STOCKUIOVERLAY-BADGES-ARE-INVISIBLE-TO-BOTH-CENSUS-INSTRUMENTS`). Moving to stock mechanisms does not fix that by itself.
 
 ## 4. Block audit: is every reservation actually enforced?
@@ -127,10 +127,10 @@ Verdicts:
 | C4 | Cancel a contract the future completes, fails or cancels | **HOLE** | Completion zeroed with a possible cascade; penalties charged twice; section 7.3 |
 | C6 | Complete now (a present-day flight) a contract the future fails or cancels | **HOLE** (world-driven, not blockable) | The completion is credited now, and the committed fail or cancel penalty is still charged later, because penalties are unconditional; the 7.5 ledger defect |
 | C5 | Complete now (another flight) a contract the future completes | SAFE | Earliest wins; the later completion is `Effective=false` (`ContractsModule.cs:393-450`) |
-| F1 | Upgrade a facility the future upgrades | BLOCKED, probably over-blocked | By facility id at any level, never lifted (section 3 item 6) |
+| F1 | Upgrade a facility the future upgrades | BLOCKED, **over-blocked** | By facility id at any level; after a rewind it is never lifted by the clock (section 3 item 6, verified) |
 | F2 | Downgrade | SAFE | `FacilityDowngraded` is not a ledger action; `FacilityStatePatcher` re-writes the ledger level |
 | F3 | Repair a facility the future repairs | state SAFE, **funds HOLE** | Every repair row charges `FacilityCost` (`FundsModule.cs:165`) without checking the building was destroyed |
-| P1 | Purchase a part (entry cost) the future purchases | **HOLE** *(inferred)* | No block; a purchase is a `FundsSpending` row keyed by part name. Stock purchased state is rebuilt only in bypass-entry-purchase mode (`KspStatePatcher.cs:920-935`), so buying now plus the committed row charges twice |
+| P1 | Purchase a part (entry cost) the future purchases | **HOLE** (verified) | No block. A purchase is only a `FundsSpending` row (`FundsSpendingSource.Other`, `DedupKey` = part name). Stock purchased state is rebuilt only in bypass-entry-purchase mode (`KspStatePatcher.cs:920-930`), where purchases are free. With bypass off, the committed row is charged at its UT but nothing marks the part purchased, and buying it now charges the entry cost a second time. See "P1" below |
 | K1 | Assign / hire / dismiss a reserved or committed kerbal via VAB, SPH or Astronaut Complex | BLOCKED | Filter + swap + hire/dismiss patches |
 | K2 | EVA / crew-transfer / rescue a reserved kerbal already aboard a live non-active vessel | **HOLE** (damage limited) | No `onCrewTransferred` / `onCrewOnEva` guard, and no swap on a `[` / `]` vessel switch. The spawn-time crew dedup (`VesselSpawner.cs:2972-3060`) empties the duplicate seat, so the recorded flight loses the kerbal instead of the world holding two |
 | Sc1 | Collect science on a subject the future credits | SAFE | See "Sc1" below |
@@ -140,22 +140,31 @@ Verdicts:
 **S1: strategies.**
 - `StrategyLifecyclePatch` is capture-only postfixes.
 - A second activation of the same id overwrites with a Warn (`StrategiesModule.cs:103-107`) and charges the setup cost again (`FundsModule.cs:171`).
-- `StrategiesModule.GetAvailableSlots` has no caller.
-- No production code writes stock `StrategySystem`, so after a rewind a committed activation is charged but the stock strategy never switches on.
+- `StrategiesModule.GetAvailableSlots` (`:199`) has no production caller.
+- No production code writes stock `StrategySystem` or calls `Strategy.Activate()` / `Deactivate()`. The only caller is the automation-only command seam (`TestCommandKscAction.cs:982`, `:1040`, armed by `PARSEK_TEST_COMMANDS`). So after a rewind a committed activation is charged, but the stock strategy never switches on.
 - `docs/parsek-game-actions-and-resources-recorder-design.md:322/340` claims a "UT=0 reservation ... blocks new strategy activations entirely", which no code does.
+- All four bullets were re-checked 2026-09-25. The overwrite and the double setup charge are pinned by `S1_SecondActivationOfTheSameStrategy_OverwritesAndChargesSetupAgain_DocumentsHole`.
 
 **C2: contract slots.**
 - `ContractsModule.GetAvailableSlots` has no caller.
 - `KspStatePatcher.PatchContracts` restores committed accepts with no slot check (`ContractsModule.cs:565`: "can be negative if over-subscribed").
+
+**P1: part purchases** (verified 2026-09-25).
+- Capture: stock `PartListTooltipController.onPurchaseProceed` (EDITOR) and `RDTech.PurchasePart` (R&D) add the part to `ProtoTechNode.partsPurchased` and fire `GameEvents.OnPartPurchased`. Stock `Funding.onPartPurchased` deducts `entryCost` from that event unless bypass is on. `GameStateRecorder.OnPartPurchased` (`GameStateRecorder.Handlers.cs:367`) records `PartPurchased` (key = part name, `cost=` 0 under bypass), and `ConvertPartPurchased` (`GameStateEventConverter.cs:569`) turns it into a `FundsSpending` row. `Ledger.AddAction` does not dedupe.
+- (a) After a rewind before a committed purchase, the part shows unpurchased, because the rewind quicksave predates the purchase. With bypass off, **nothing marks it purchased at the committed UT**. `PatchTechTree` keeps an already-available node's proto as found, and `EnsureAvailableProtoTechNode` gives a newly unlocked node an empty `partsPurchased`, rehydrating parts only under bypass (`KspStatePatcher.cs:901-930`). The committed row is still charged at its UT, so the player pays and never gets the part.
+- (b) Buying it now adds a second row, and the walk charges both. Pinned by `P1_BuyNowPlusCommittedPurchase_ChargesTheEntryCostTwice_DocumentsHole` and `P1_PartPurchase_BecomesAFundsOnlyRowKeyedByPartName`. With bypass on, both rows cost 0, so there is no hole (`P1_BypassEntryPurchase_PurchaseIsFree_NoDoubleCharge`).
+- (c) Tech research, the closest analogue, pairs a block with a state patch. `TechResearchPatch` / `TechResearchSpendPatch` refuse a node in the committed slice, and `PatchTechTree` unlocks the committed node at its UT on every current-UT recalc. Part purchases have neither half.
+- Reference mods: Contract Configurator's `UnlockPart` behaviour writes stock purchased state directly (`ptn.partsPurchased.Add(part)` + `SetTechState`, only when bypass is off). That is the pattern for the state half. KSPCF has no purchase gating. RP-1 is not in the local mods tree; its `Harmony/PartListTooltip.cs` greyout is cited from the earlier read.
+- `PartPurchased` is a milestone event (not in `IsMilestoneFilteredEvent`), so the stale `MilestoneStore` slice could key a block today. It must not: it has the same never-lifts defect as F1.
 
 **Sc1: science subjects.**
 - The ledger's cap walk sets `EffectiveScience = min(awarded, max - credited)`, earliest first (`ScienceModule.cs:242-256`).
 - `ScienceSubjectPatch` reads the cutoff walk and does not see future credits. It is not the safety mechanism.
 
 **What this means for overlays:**
-- **Blocks that must ship with their overlays:** S1, C2, C3, C4, and P1 if a part overlay is wanted.
+- **Blocks that must ship with their overlays:** S1, C2, C3, C4 and P1. P1 also needs a state patch (section 10 step 9).
 - **Ledger or flight defects with no control to mark:** F3 and K2, plus the unconditional double penalty behind C4 and C6 (section 7.5). File these as bugs.
-- **Cheapest alternative, decision D5:** where the walk can make a duplicate harmless (earliest wins, no double charge), no block and no explanation is needed. Candidates are P1, F3 and the S1 setup cost.
+- **Silent ledger dedupe is rejected** (D4 / D5, owner ruling 2026-09-25). The ledger is an append-only record that is recalculated, and whether a duplicate is legitimate depends on WHEN it happened. So P1 gets a visible block at the stock control, like T1. F3 and the double penalties stay ledger bugs outside this program.
 
 ## 5. Where each annotation goes, screen by screen
 
@@ -174,7 +183,7 @@ Common technique:
 | **Astronaut Complex** | postfix `AddItem_Applicants` / `_Available` / `_Assigned` / `_Kia`: `CrewListItem.SetLabel("Reserved until Y2 D114")` | postfix `CrewListItem.SetTooltip`, append to `TooltipController_CrewAC.descriptionString` | `SetButtonEnabled(false, title, caption)` (stock "locked with reason"); re-apply in a postfix on `UpdateCrewCounts`, which re-unlocks applicants. Also covers the EDITOR-opened complex (defect 5) | RP-1 `Harmony/AstronautComplex.cs`, `CrewListItem.cs`; Crew R&R `SetLabel`. Hazard: Enhanced Astronaut Complex clones rows | easy-moderate |
 | **VAB/SPH crew dialog** (owner: show marked) | replace `CrewDialogFilterPatch`'s hiding with a postfix on the `AddAvailItem(pcm, out CrewListItem, ...)` overload, applying stock's `crew.inactive` look: `disabledCrewListSprite`, greyed name, `UIDragPanel.dragEnabled = false`, `MouseoverEnabled = false` | `SetButtonEnabled(false, "Reserved", "<why>")` | keep `CrewAutoAssignPatch`'s swap, so a reserved kerbal never lands in a seat | RP-1 `Harmony/BaseCrewAssignmentDialog.cs`. Do NOT copy Crew R&R's `rosterStatus = 9001` trick | moderate |
 | **KSC facility menu** | - | attach a stock `TooltipController_Text` with `RequireInteractable = false` | postfix protected `KSCFacilityContextMenu.OnFacilityValuesModified` (re-runs on structure events): `UpgradeButton.interactable = false` (private; `AccessTools.FieldRefAccess`). `onFacilityContextMenuSpawn` fires before the buttons fill, so do not decorate there. Fix the raw facility id via `FacilityDisplayNames` | RP-1 `Harmony/KSCFacilityContextMenu.cs` | easy |
-| **Part list / purchase** (only with a P1 block) | skip per-icon badges: `EditorPartIcon` is rebuilt on every refresh and KSPCF transpiles those paths | postfix `PartListTooltip.Setup` (both overloads): reason in `textGreyoutMessage` | disable `buttonPurchase`. NOT `EditorPartList.GreyoutFilters`, which makes the part unusable rather than unpurchasable. The R&D part list has the same need | RP-1 `Harmony/PartListTooltip.cs` | moderate |
+| **Part list / purchase** (P1) | skip per-icon badges: `EditorPartIcon` is rebuilt on every refresh and KSPCF transpiles those paths | postfix `PartListTooltip.Setup` (both overloads): reason in `textGreyoutMessage` | disable `buttonPurchase` and `buttonPurchaseRed`. NOT `EditorPartList.GreyoutFilters`, which makes the part unusable rather than unpurchasable. Backstop: prefixes on the private `PartListTooltipController.onPurchaseProceed` and on `RDTech.PurchasePart(AvailablePart)`. An `OnPartPurchased` hook is too late, because stock `Funding.onPartPurchased` deducts on that event. The R&D part list has the same need | RP-1 `Harmony/PartListTooltip.cs`; CC `UnlockPart` for the state patch | moderate |
 | **Funds / science widgets** | - | keep the `CurrencyReservationOverlay` tooltip; extend its scene gate to the EDITOR, where funds are spent (todo `RESERVATION-OVERLAY-GAPS` (a)) | funds gate per P15 / D7 | - | easy |
 
 Not worth it:
@@ -193,7 +202,11 @@ Not worth it:
 **Genuine way-outs that do exist, all for kerbals:**
 - An Aboard or Unknown hold ends when the kerbal is recovered from a real vessel continuing that flight (`KerbalsModule.cs:814-825`, `ResolveRecoveryClosureUT`).
 - A Recovered hold ends at the flight's recovery UT.
-- A hold made open-ended by a looping chain ends only if the loop stops, because a chain with a looping segment keeps `+inf` (`KerbalsModule.cs:804-812`). The loop toggle is an Advanced-only control (`design-ui-basic-advanced.md` section 4.5). The claim that turning the loop off releases the hold is *(inferred)*.
+- A hold made open-ended by a looping chain ends only if the loop stops, because a chain with a looping segment keeps `+inf` (`KerbalsModule.cs:808-812`). The loop toggle is an Advanced-only control (`design-ui-basic-advanced.md` section 4.5). Verified 2026-09-25:
+  - Turning the loop off releases a **Recovered** hold, which drops to the flight's EndUT (`LoopHold_TurningLoopOff_ReleasesARecoveredHoldOnTheNextWalk`).
+  - An **Aboard** or Unknown hold stays open-ended until a recovery closure (`LoopHold_TurningLoopOff_LeavesAnAboardHoldOpenEnded`).
+  - The toggle writes `Recording.LoopPlayback` (`RecordingsTableUI.cs:2354`) and runs no recalc itself. `KerbalsModule.PrePass` re-reads the flag on the next ledger walk.
+  - The looping segment itself holds no one (`KerbalsModule.cs:783`).
 
 The honest third part is therefore **when it frees up**, plus the kerbal-specific actions above:
 
@@ -206,7 +219,8 @@ The honest third part is therefore **when it frees up**, plus the kerbal-specifi
 | Strategy | `Activated on Y2 D114 on your committed timeline.` + rule + `It becomes active on that date.` |
 | Facility upgrade | `Upgraded to level 2 on Y2 D114 on your committed timeline.` + rule + `The upgrade happens on that date.` |
 | Kerbal hire | `Hired on Y2 D114 on your committed timeline.` + rule + `They join the roster on that date.` |
-| Kerbal on a flight | `Flies 'Mun Lander 3' on your committed timeline.` `A kerbal on a committed flight cannot be used or risked before it ends.` `Free after Y2 D130.` / `Free once 'Mun Lander 3' is recovered.` / `Held while 'Mun Lander 3' loops.` |
+| Kerbal on a flight | `Flies 'Mun Lander 3' on your committed timeline.` `A kerbal on a committed flight cannot be used or risked before it ends.` `Free after Y2 D130.` / `Free once 'Mun Lander 3' is recovered.` / `Held while 'Mun Lander 3' loops.` (only for a Recovered end, where stopping the loop frees the kerbal) |
+| Part purchase | `Purchased on Y2 D114 on your committed timeline.` + rule + `It is purchased on that date.` |
 | Kerbal lost | `Lost on the committed flight 'Mun Lander 3'.` `That flight is fixed history.` (no way out) |
 
 Wording rules:
@@ -250,8 +264,8 @@ Option C reuses the Accept block's predicate (`GetCommittedContractAcceptIds`) o
 
 | Case | What the committed timeline does later | Cancelling now, today |
 |---|---|---|
-| X1 | completes it | Cancel penalty now; the completion's funds, reputation and science are zeroed; the ghost still completes it on screen. Downstream committed spending may become unaffordable, and a committed tech unlock is refused. **A paradox cascade into committed history** |
-| X2 | fails it (recorded) | Cancel penalty now **plus** the committed fail penalty: **charged twice** |
+| X1 | completes it | Cancel penalty now; the completion's funds, reputation and science are zeroed; the ghost still completes it on screen. Downstream committed spending becomes unaffordable, and a committed tech unlock it funded is refused: the node leaves the patch target set, so it never unlocks at its UT (if it is already researched live, the re-lock guard keeps it and WARNs). **A paradox cascade into committed history** (verified: `X1_CancelBeforeCommittedCompletion_ZeroesTheCompletionAndRefusesTheLaterTechAndBuild`) |
+| X2 | fails it (recorded) | Cancel penalty now **plus** the committed fail penalty: **charged twice** (verified: `X2X3_CancelNowPlusCommittedFailOrCancel_ChargesBothPenalties_DocumentsDefect`) |
 | X3 | cancels it (recorded) | Two cancel penalties |
 | X4 | nothing, or only the derived deadline expiry | No committed row is affected. Cancelling early for the cheaper penalty is legitimate stock play |
 
@@ -382,7 +396,7 @@ Each step is one PR; each pairs a mark with its block.
 1. **Wording and predicates, no new screens.**
    - The `ReservationExplanation` builder (section 6) feeds the dialog and the existing badges.
    - Replace the stale `MilestoneStore` slice with a UT-keyed committed-future index over the effective ledger, read by BOTH the marks and the blocks.
-   - Verify and fix the facility over-block (F1).
+   - Fix the facility over-block (F1, confirmed in section 12; the F1 `_DocumentsDefect` cell flips).
 2. **Migrate R&D, the Astronaut Complex and Mission Control to stock mechanisms.** This fixes defects 2-5. The Decline block (section 7.2, C3) ships in this step, because the Available-row mark it re-draws is otherwise a marked row with a live Decline, which breaks the pairing rule. The CC Accept hook ships here too.
 3. **Mission Control Cancel block + Active-row annotations** (section 7.3). Closes C4.
 4. **Contract slots:** a committed-slot predicate on Accept (C2).
@@ -393,7 +407,12 @@ Each step is one PR; each pairs a mark with its block.
 6. **Retire the Career window** (section 8.1).
 7. **VAB/SPH crew dialog: show marked** (section 5). Then re-rule the Kerbals window's Basic visibility (D3).
 8. **KSC facility menu** (section 5). Currency tooltip in the EDITOR, subject to D1 (section 9).
-9. **Only if wanted:** a P1 part-purchase block + `PartListTooltip`, or the ledger-side dedupe (D4 / D5).
+9. **Part purchases (P1).** Needs both halves, like tech research:
+   - **Block predicate:** the committed future holds an effective `FundsSpending` row with `FundsSpendingSource.Other`, `DedupKey` = this part and `FundsSpent > 0`, after now, and the part is unpurchased in stock. Read it from the UT-keyed index of step 1, never from the `MilestoneStore` slice.
+   - **When the predicate applies:** only with `BypassEntryPurchaseAfterResearch` off. With bypass on, a purchase is free and every part of a researched node is rehydrated.
+   - **Controls:** the `PartListTooltip` greyout, plus the section 5 backstops.
+   - **When it lifts:** at the committed row's UT.
+   - **State patch (required):** `KspStatePatcher` adds the part to its node's `partsPurchased` once the walk passes an effective purchase row (the CC `UnlockPart` pattern). The patch is additive only and runs after `PatchTechTree`, because a node newly unlocked there gets an empty list. Without the patch the block lifts onto a part that is still unpurchased: the player then pays twice, or has paid for nothing.
 10. **Bugs, independent of the UI:**
     - the unconditional contract penalty double charge (7.5)
     - the facility repair double charge (F3)
@@ -408,23 +427,28 @@ Each step is one PR; each pairs a mark with its block.
 | R2 | Explanation depth: mark + fact + rule + way out; no jump links | owner-ruled |
 | R3 | VAB/SPH crew dialog shows reserved kerbals marked, not hidden | owner-ruled |
 | R4 | Audit block completeness alongside overlay placement | owner-ruled |
-| D1 | Adopt the section 9 rule amendment; migrate `OverlayBadge` | **open**; recommended |
-| D2 | Way out: "committed is permanent, the text says when it frees" vs building a real un-commit for KSC-origin actions | **open**; recommended: the former |
-| D3 | Kerbals window back to Advanced once the crew dialog shows reserved kerbals | **open**; recommended |
-| D4 | Part purchases: block, or dedupe in the ledger | **open**; recommended: ledger dedupe (no UI needed) |
-| D5 | Prefer making duplicates harmless in the walk over blocking wherever possible (P1, F3, the S1 setup cost) | **open**; recommended |
-| D6 | Retire the Career window after the section 8.1 conditions | **open**; recommended |
-| D7 | Block Decline on committed accepts; block Cancel when a committed row later resolves the contract | **open**; recommended (section 7) |
+| D1 | Adopt the section 9 rule amendment; migrate `OverlayBadge` | owner-ruled 2026-09-25: approved. The rule text lands in its own PR |
+| D2 | Way out: "committed is permanent, the text says when it frees" vs building a real un-commit for KSC-origin actions | owner-ruled 2026-09-25: the text says when the item frees up; no un-commit path |
+| D3 | Kerbals window back to Advanced once the crew dialog shows reserved kerbals | **open**; out of this program's scope (Parsek's own windows); recommended |
+| D4 | Part purchases: block, or dedupe in the ledger | owner-ruled 2026-09-25: **block** with an explanation at the stock control, like tech research (T1). Dedupe rejected: "we can't hide decisions from the player"; whether a purchase is a duplicate depends on WHEN it was made, and the ledger is a recalculated, append-only action log. P1 is in scope (section 10 step 9) |
+| D5 | Prefer making duplicates harmless in the walk over blocking wherever possible (P1, F3, the S1 setup cost) | owner-ruled 2026-09-25: **rejected** as a general preference. F3 and the double penalties (7.5) stay separate ledger bugs outside this program |
+| D6 | Retire the Career window after the section 8.1 conditions | **open**; out of this program's scope (Parsek's own windows); recommended |
+| D7 | Block Decline on committed accepts; block Cancel when a committed row later resolves the contract | owner-ruled 2026-09-25: approved. Decline is blocked on committed accepts; Cancel is blocked only when a committed row later completes, fails or cancels the contract (section 7) |
+| S1 | Strategies in scope | owner-ruled 2026-09-25: in scope. Block via `CanBeActivated`, a deactivate refusal on the player path only (never the stock auto-expiry), and a `KspStatePatcher` strategy-state patch (section 10 step 5) |
 
-## 12. Claims still to verify
+## 12. Verification results (2026-09-25)
 
-| Claim | Where | How to verify |
-|---|---|---|
-| F1 facility over-block after the committed upgrade replays | section 3 item 6, section 4 | Rewind before a committed 1->2 upgrade, let it replay, try 2->3 |
-| P1 part purchase double charge | section 4 | Rewind before a committed purchase, buy the part, read the ledger funds rows |
-| CC switches off the Mission Control overlay and bypasses the Accept pre-block | section 3 item 4 | Open Mission Control with CC installed and a committed accept |
-| Turning a loop off releases a looping chain's kerbal hold | section 6 | Unit cell over `KerbalsModule` with `LoopPlayback` toggled |
-| X1 cascade reaches a refused committed tech unlock | section 7.3 | A synthetic ledger: completion reward funds a later tech spend, then cancel before the completion |
+All cells live in `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`. A cell ending in `_DocumentsDefect` / `_DocumentsHole` asserts today's wrong value on purpose; the fix PR flips it.
+
+| Claim | Where | Result | Evidence |
+|---|---|---|---|
+| F1 facility over-block after the committed upgrade replays | section 3 item 6, section 4 | **Confirmed.** The predicate keys on facility id only: no level, no UT. The committed slice (`LastReplayedEventIndex + 1 ..`) is set only by `CreateMilestone` (all replayed), `RestoreMutableState` (saved index, or -1 for milestones newer than the loaded save on rewind / revert) and the removal decrements. Nothing advances it as the clock passes an event. After a rewind the 1->2 milestone is -1 for good (the next save writes -1), so every later upgrade of that facility is refused | `F1_CommittedOneToTwoUpgrade_BlocksEveryLaterUpgradeOfThatFacility_AfterRewind_DocumentsDefect`, `F1_FreshlyCreatedMilestone_IsFullyReplayed_DoesNotBlock`; `FacilityUpgradePatch.cs:22,41-60`, `MilestoneStore.cs:144,456,467,643-663`, `ParsekScenario.cs:4015,4715` |
+| P1 part purchase double charge | section 4 | **Confirmed, and wider than stated**, with bypass off only: (a) nothing marks the part purchased at the committed UT, so the committed row charges for a part the player never gets; (b) buying it now charges the entry cost twice. With bypass on there is no hole | `P1_PartPurchase_BecomesAFundsOnlyRowKeyedByPartName`, `P1_BuyNowPlusCommittedPurchase_ChargesTheEntryCostTwice_DocumentsHole`, `P1_BypassEntryPurchase_PurchaseIsFree_NoDoubleCharge`; `KspStatePatcher.cs:901-930`, section 4 "P1" |
+| CC switches off the Mission Control overlay and bypasses the Accept pre-block | section 3 item 4 | **Code-read confirmed, not reproduced.** CC removes and replaces the Accept / Decline / Cancel listeners (`MissionControlUI.cs:397-402`) and overwrites `btnAccept.interactable` (`:1271`). A unit cell cannot settle the null row lookup: it needs CC's uGUI rows in a live Mission Control | CC `MissionControlUI.cs` |
+| Turning a loop off releases a looping chain's kerbal hold | section 6 | **Partly.** A Recovered hold drops to the flight's EndUT on the next ledger walk. An Aboard or Unknown hold stays `+inf` until a recovery closure. The toggle itself runs no recalc | `LoopHold_TurningLoopOff_ReleasesARecoveredHoldOnTheNextWalk`, `LoopHold_TurningLoopOff_LeavesAnAboardHoldOpenEnded`; `KerbalsModule.cs:673,783,808-812`, `RecordingsTableUI.cs:2354` |
+| X1 cascade reaches a refused committed tech unlock | section 7.3 | **Confirmed.** The completion goes `Effective=false` ("explicitly resolved"). The tech unlock it funded is refused (`Affordable=false`, `UnaffordableRunningScience=0`, WARN "possible bug or data corruption"), so it is left out of `BuildTargetTechIdsForPatch`'s target set and lands in the re-lock-refusal map. A committed vessel build funded by the reward also goes unaffordable | `X1_CancelBeforeCommittedCompletion_ZeroesTheCompletionAndRefusesTheLaterTechAndBuild`, control `X1_Control_CommittedCompletionFundsTheLaterTechAndBuild`; `ContractsModule.cs:414`, `ScienceModule.cs:294-321` |
+| X2 / X3 double penalty | sections 7.3, 7.5 | **Confirmed.** `FundsModule.ProcessContractPenalty` is unconditional | `X2X3_CancelNowPlusCommittedFailOrCancel_ChargesBothPenalties_DocumentsDefect`; `FundsModule.cs:461` |
+| S1 bullets (second activation overwrites and charges setup again; `GetAvailableSlots` has no caller; nothing writes stock `StrategySystem`) | section 4 "S1" | **Confirmed.** The only `Strategy.Activate` / `Deactivate` caller is the automation-only command seam | `S1_SecondActivationOfTheSameStrategy_OverwritesAndChargesSetupAgain_DocumentsHole`; `StrategiesModule.cs:103-107,199`, `ContractsModule.cs:567`, `FundsModule.cs:171,514`, `TestCommandKscAction.cs:982,1040` |
 
 ## Sources
 

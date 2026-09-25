@@ -15,11 +15,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing [FILED 2026-09-25 from the stock-UI reservation analysis. OPEN; owner decisions D1-D7 pending]
+## STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing [FILED 2026-09-25 from the stock-UI reservation analysis. OPEN; owner rulings taken 2026-09-25 (D1, D2, D4, D5, D7, S1 ruled; D3, D6 out of scope); section 12 claims verified by unit cells]
 
 **Reference:** `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` is the single
 planning reference (it supersedes #640's v2 list and re-scopes #430). Its section 10 is the
 PR sequence and section 11 the decision register.
+
+**Rulings (2026-09-25):** D1 approved (the rule text lands in its own PR). D2: the "why" text
+says when the item frees up; no un-commit path. D7: block Decline on committed accepts; block
+Cancel only when a committed row later completes / fails / cancels the contract. S1 in scope:
+`CanBeActivated` block, a player-path-only deactivate refusal and a `KspStatePatcher`
+strategy-state patch. D4 / D5 rejected: no silent ledger dedupe, because the ledger is a
+recalculated, append-only record and whether a duplicate is legitimate depends on when it
+happened. P1 gets a visible block at the stock control, like tech research. F3 and the double
+penalties stay separate ledger bugs. D3 and D6 (Parsek's own windows) stay open, outside this
+program.
 
 **Holes found by the block audit** (section 4; each blocks its screen's annotation under the
 pairing rule):
@@ -32,7 +42,10 @@ pairing rule):
 - C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.
 - C4 Cancel of a contract the committed future completes / fails / cancels: the completion is
   zeroed (possible committed tech-spend cascade), or the penalty is charged twice.
-- P1 part purchases (inferred): no block; a double charge after a rewind.
+- P1 part purchases (verified, bypass-entry-purchase off only): no block, and no state patch.
+  After a rewind a committed purchase is charged at its UT but never applied, and buying the
+  part again charges the entry cost twice. The fix needs the block AND an additive
+  `partsPurchased` patch (reference section 10 step 9).
 
 **Ledger / flight defects with no stock control to mark:**
 - Contract fail / cancel penalties are charged unconditionally, so an already-resolved
@@ -46,10 +59,18 @@ pairing rule):
   pre-block (read from source).
 - The Astronaut Complex opened from the editor is undecorated.
 - Marks and blocks go stale after a rewind: the `MilestoneStore` unreplayed slice
-  never advances. A facility is probably over-blocked at the next level (inferred).
+  never advances. F1 verified: after a rewind the committed facility upgrade blocks
+  every later upgrade of that facility for good, because the predicate keys on the facility id
+  only.
 - The tooltips use raw UT and em dashes.
 
-**Still to verify in game or with a unit cell:** section 12 of the reference.
+**Verification (2026-09-25):** reference section 12, cells in
+`Source/Parsek.Tests/StockUiReservationVerificationTests.cs`:
+- F1, X1 (the cancel zeroes the completion, and the tech unlock and build it funded are
+  refused), X2/X3, S1 and P1 are confirmed.
+- The loop hold is released by turning the loop off only for a Recovered end.
+- The CC Mission Control bypass is code-read only: it needs a live Mission Control with CC
+  installed.
 
 ---
 
