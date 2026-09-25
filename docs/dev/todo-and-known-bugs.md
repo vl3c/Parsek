@@ -15,6 +15,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave [FILED 2026-09-25, branch `cov-wave1`. OPEN]
+
+**Pending operator confirmation (supervisor rulings 2026-09-25, applied in the registry):**
+retire D13 `proximity-offset` (code removed, VesselSpawner.cs:19), D12 `reservation-auto-hire`
+(never produced; stand-ins replaced it) and D14 `situation` (an axis, not a behaviour); define
+D14 `atmosphere` ("a recording replays correctly around a non-Kerbin atmospheric body", claimed
+on V16M) and `warp-1x` ("ghosts replayed at 1x, seen in the render warp histogram", claimed on
+V14M); count EX-1's pad retirement as D13 `ksc-exclusion`; D13 `pid-dedup` is a separate cell
+from D6 `spawn-at-end-pid-dedup`. If any is overruled, revert that registry entry and the
+matching `[dimensionsCovered]` line.
+
+**Left uncovered on purpose:**
+- D16 `alias-mode` was proposed for retirement on the premise that the feature does not exist;
+  it does (`GhostSnapshotMode.AliasVessel`, Recording.cs:7; RecordingStore.cs:270), so it stays.
+  Its witness is `SaveRecordingFiles: ... ghostSnapshotMode=AliasVessel ... wroteGhost=False`
+  (RecordingSidecarStore.cs:1231), printed only by operator-local GUI census logs; a claim wants a
+  committed-fixture lane that prints it plus a save-parse check that no `_ghost.craft` exists.
+- D16 `deflate-snapshots`: every snapshot write is DeflateV1 (`SnapshotSidecarCodec.Write`), but
+  the log label is a constant and a successful load logs no encoding, and no archived lane writes
+  a snapshot and re-loads the same id. A load-side encoding line (or a save-parse magic check of
+  a written sidecar) would make it claimable.
+- D14 `atmosphere` is claimed on an ORBITAL Laythe replay; a replay descending into a non-Kerbin
+  atmosphere is not gated anywhere.
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect]
 
 **What the map shows** (`python scripts/arch/archview.py --check`, canaries in
