@@ -1368,7 +1368,16 @@ _(unreleased — entries accumulate here per commit)_
   refused for a kerbal Parsek manages: it went through a stock path Parsek did not guard.
   Mission Control moved to the same stock mechanisms (see Fixed), so no Space Center screen
   shows a Parsek badge any more.
-
+- **VAB/SPH crew dialog: kerbals your committed timeline reserves are shown greyed out with
+  the reason, instead of being hidden.** A kerbal a committed flight holds, lost on a
+  committed flight, or retired as a stand-in used to vanish from the available crew list
+  without a word. They are now listed the way KSP lists an inactive kerbal (greyed, cannot be
+  dragged), and their hover tooltip says why and, for a kerbal a committed flight holds, when
+  they are free again (the same text the Astronaut Complex shows). They cannot reach a seat by
+  dragging, clicking or Fill (Fill skips them and seats the next kerbal), and a refused
+  placement shows the same explanation. A saved craft that names a reserved kerbal still gets that seat
+  swapped to their stand-in or emptied; that now also happens when no stand-in exists yet at
+  all, where the kerbal used to stay seated.
 - **Timeline: the time-range presets are back on their own always-visible row.** This
   partly reverts the `Time: <range>` button from the two-row filter area above. The filter
   area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career),

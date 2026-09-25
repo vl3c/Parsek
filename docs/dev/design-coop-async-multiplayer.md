@@ -748,7 +748,7 @@ roster and the Kerbals window, owner-tagged, dismissal-blocked, reservation
 derived normally from UT=0. The assignment gate: a player may crew missions
 only with kerbals they own or that are unclaimed. The gate runs at crew
 ASSIGNMENT time (the VAB/SPH crew panel and the launch-pad crew dialog,
-through the existing `CrewDialogFilter` patch), never at commit and never at
+through the crew dialog's reservation refusal, `StockUiCrewDialogDecoration`), never at commit and never at
 an in-flight board event. **Rescue carve-out:** a kerbal taken aboard from a
 foreign spawned vessel in flight (EVA and Board from a vessel the local player
 did not launch) is exempt; the rescuing recording's crew row is attributed to

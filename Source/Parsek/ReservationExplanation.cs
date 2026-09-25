@@ -423,6 +423,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// A retired stand-in (the Kerbals window's <c>Retired</c>): he stood in for a
+        /// reserved owner on a committed flight, and that owner is free again
+        /// (<c>KerbalsModule.ComputeRetiredSet</c>: displaced, flew a committed recording,
+        /// not reserved now). <c>KerbalsModule.ShouldFilterFromCrewDialog</c> keeps him off
+        /// new crews. No player action is known to bring him back, so there is no way-out
+        /// sentence rather than an invented one.
+        /// </summary>
+        internal static ReservationText KerbalRetiredStandIn(string slotOwner)
+        {
+            bool hasOwner = !string.IsNullOrEmpty(slotOwner);
+            return new ReservationText
+            {
+                Title = "Retired",
+                Fact = hasOwner
+                    ? "Stood in for " + slotOwner + " on a committed flight."
+                    : "Stood in for a reserved kerbal on a committed flight.",
+                Rule = (hasOwner ? slotOwner + " is" : "That kerbal is")
+                       + " free again, so Parsek has retired this stand-in and they cannot join a new crew."
+            };
+        }
+
+        /// <summary>
         /// A kerbal a committed flight killed. The way back is the Kerbals window's own
         /// (<see cref="KerbalsPresentation.LostReFlyRemedy"/>): a Re-Fly merge tombstones
         /// the death row, which is what releases the permanent reservation.
