@@ -651,10 +651,16 @@ values = ["bbox-block", "trajectory-walkback", "terrain-correction",
 # confirmation) as: a player with committed recordings whose ghosts are pending goes to
 # the VAB/SPH mid-timeline, then returns or launches; afterwards the timeline and ghosts
 # are intact - no recordings lost or duplicated, ghosts still replay, the ledger is
-# unchanged - and the new launch records into a NEW tree. DECLARER:
-# SE-1-editor-round-trip, on the two scene-route verbs added with it (`GoToEditor`: the
-# building's own OnLeftClick plus the craft browser's load; `LaunchFromEditor`: the
-# editor's Launch button).
+# unchanged - and the new launch records into a NEW tree. TWO DECLARERS.
+# GUI-28-census-stock-screens (PR #1838) claimed the cell first: its StockScreen
+# `screen=editor` census stands a career run in the VAB, which proves the scene is
+# reached with Parsek loaded but gates none of the behaviour above. SE-1-editor-round-trip
+# is the behavioural declarer with the stronger witness, on the two scene-route verbs
+# added with it (`GoToEditor`: the building's own OnLeftClick plus the craft browser's
+# load; `LaunchFromEditor`: the editor's Launch button): the committed count holds
+# across both transitions, ghosts replay after the launch, the ledger's action count is
+# unchanged by the walk, and the launch commits as a second tree. SE-1 adds no coverage
+# increment - the cell was already covered.
 values = ["kerbin", "mun", "minmus", "moho", "eve", "gilly", "duna", "ike", "dres",
           "jool", "laythe", "vall", "tylo", "bop", "pol", "eeloo",
           "atmosphere", "soi-count",
