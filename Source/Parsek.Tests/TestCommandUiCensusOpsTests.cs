@@ -654,7 +654,7 @@ namespace Parsek.Tests
             // windows joined with GUI-12: each draws one fold per in-game test category,
             // and both OPEN with every one of them expanded, so `key=none` is the state a
             // census could not otherwise photograph. CAREER joined in wave 6, with the two
-            // `Pending in timeline` folds under one `pending:` prefix - the window keeps ONE
+            // `Accepted later` / `Activated later` folds under one `pending:` prefix - the window keeps ONE
             // fold collection, and its other two tabs have no folds at all.
             var expandable = new[]
             {

@@ -2896,7 +2896,7 @@ missing step. `route-action-refused` stays unmapped on purpose - it is a POST-AC
 claiming a refusal subkind would name a refusal that never happened.
 
 **THE CAREER WINDOW JOINED `op=expand`** with a `pending:` prefix over its two
-`Pending in timeline` folds. ONE prefix because the window keeps ONE fold collection, and
+`Accepted later` / `Activated later` folds. ONE prefix because the window keeps ONE fold collection, and
 the wire VALUES are the TAB (`pending:contracts` / `pending:strategies`) rather than the
 dotted production key (`Contracts.Pending`) the set is keyed by: a spec author already knows
 the tab. The set is INVERTED (membership means FOLDED), so the window gained an absolute

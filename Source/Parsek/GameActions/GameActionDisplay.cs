@@ -222,8 +222,80 @@ namespace Parsek
             return "Contract " + shortId;
         }
 
+        /// <summary>
+        /// Every contract accept in <paramref name="actions"/>, grouped by contract id in
+        /// list order, for <see cref="FindAcceptForOutcome"/>. Unlike
+        /// <see cref="BuildContractAcceptIndex"/> (one titled accept per id, for the name)
+        /// it keeps each re-accept, whose deadline is its own.
+        /// </summary>
+        internal static Dictionary<string, List<GameAction>> BuildContractAcceptHistory(
+            IReadOnlyList<GameAction> actions)
+        {
+            var history = new Dictionary<string, List<GameAction>>(StringComparer.Ordinal);
+            if (actions == null) return history;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || a.Type != GameActionType.ContractAccept) continue;
+                if (string.IsNullOrEmpty(a.ContractId)) continue;
+                List<GameAction> accepts;
+                if (!history.TryGetValue(a.ContractId, out accepts))
+                {
+                    accepts = new List<GameAction>();
+                    history[a.ContractId] = accepts;
+                }
+                accepts.Add(a);
+            }
+            return history;
+        }
+
+        /// <summary>
+        /// The accept an outcome row closes: the latest accept of the same contract at or
+        /// before the outcome's UT. Null when the ledger holds none.
+        /// </summary>
+        internal static GameAction FindAcceptForOutcome(
+            IReadOnlyDictionary<string, List<GameAction>> acceptHistory, GameAction outcome)
+        {
+            if (acceptHistory == null || outcome == null || string.IsNullOrEmpty(outcome.ContractId))
+                return null;
+            List<GameAction> accepts;
+            if (!acceptHistory.TryGetValue(outcome.ContractId, out accepts)) return null;
+            GameAction best = null;
+            for (int i = 0; i < accepts.Count; i++)
+            {
+                if (accepts[i].UT <= outcome.UT && (best == null || accepts[i].UT >= best.UT))
+                    best = accepts[i];
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Pure: true when a <c>ContractFail</c> row is the contract's deadline running
+        /// out (stock's <c>DeadlineExpired</c>, which fires the same <c>onFailed</c>
+        /// event), judged against the accept it closes with the ledger's own test
+        /// (<see cref="ContractsModule.IsDeadlineExpiryFail"/>). A fail with no accept on
+        /// the ledger, or before its deadline, is a failure.
+        /// </summary>
+        internal static bool IsExpiredContractFail(GameAction fail, GameAction accept)
+        {
+            if (fail == null || accept == null || fail.Type != GameActionType.ContractFail)
+                return false;
+            return ContractsModule.IsDeadlineExpiryFail(fail.UT, accept.DeadlineUT, accept.UT);
+        }
+
         /// <summary>Row text for the four contract action types, given the resolved name.</summary>
         internal static string GetContractDescription(GameAction action, string displayName)
+        {
+            return GetContractDescription(action, displayName, null);
+        }
+
+        /// <summary>
+        /// Row text for the four contract action types, given the resolved name and the
+        /// accept the row closes (may be null): a fail at or after that accept's deadline
+        /// reads <c>Expired: name</c>, any other fail <c>Fail: name</c>.
+        /// </summary>
+        internal static string GetContractDescription(GameAction action, string displayName,
+                                                      GameAction closedAccept)
         {
             if (action == null) return "";
             switch (action.Type)
@@ -240,7 +312,8 @@ namespace Parsek
                 }
 
                 case GameActionType.ContractFail:
-                    return "Fail: " + displayName;
+                    return (IsExpiredContractFail(action, closedAccept) ? "Expired: " : "Fail: ")
+                        + displayName;
 
                 case GameActionType.ContractCancel:
                     return "Cancel: " + displayName;

@@ -457,19 +457,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TheClosingContractStateTagsAllThreeClosingCauses()
+        public void TheClosingContractStateTagsAllFourClosingCauses()
         {
             GuiMockPayload payload = GuiMockCatalogue.ById("career.contracts.closing").Build();
             CareerStateWindowUI.ContractsTabVM tab = payload.Career.Value.Contracts;
-            // Completed / failed / cancelled after live UT each carry their own outcome
-            // on the CURRENT row - the classification is the ledger walk's, not this
-            // test's - so a future failure never reads like a completion.
-            Assert.Equal(3, tab.CurrentRows.Count(r => r.IsClosingByTimelineEnd));
+            // Completed / failed / expired / cancelled after live UT each carry their own
+            // outcome on the CURRENT row - the classification is the ledger walk's, not
+            // this test's - so a future failure never reads like a completion, and a
+            // deadline running out never reads like a failure.
+            Assert.Equal(4, tab.CurrentRows.Count(r => r.IsClosingByTimelineEnd));
             Assert.Equal(
                 new[]
                 {
                     CareerStateWindowUI.TimelineEndKind.Cancelled,
                     CareerStateWindowUI.TimelineEndKind.Completed,
+                    CareerStateWindowUI.TimelineEndKind.Expired,
                     CareerStateWindowUI.TimelineEndKind.Failed,
                 },
                 tab.CurrentRows.Select(r => r.EndKind).OrderBy(k => k.ToString()).ToArray());
@@ -490,22 +492,25 @@ namespace Parsek.Tests
             Assert.True(full.MissionControlLevel > 1);
             Assert.True(full.CurrentMaxSlots > LedgerOrchestrator.GetContractSlots(1));
             Assert.Equal(full.CurrentMaxSlots, full.CurrentActive);
-            Assert.Equal(CareerStateWindowUI.FormatActiveHeading(
-                    full.CurrentActive, full.CurrentMaxSlots),
-                full.GroupHeadingText);
+            Assert.Equal(CareerStateWindowUI.FormatSlotHeading(full.Slots), full.GroupHeadingText);
+            Assert.Equal("0 of 7 slots free (7 active)", full.GroupHeadingText);
 
             CareerStateWindowUI.StrategiesTabVM admin =
                 GuiMockCatalogue.ById("career.strategies.admin-above-one")
                     .Build().Career.Value.Strategies;
             Assert.True(admin.AdminLevel > 1);
-            Assert.StartsWith("Active now: ", admin.GroupHeadingText, StringComparison.Ordinal);
+            Assert.Equal("2 of 5 slots free (3 active)", admin.GroupHeadingText);
 
             CareerStateWindowUI.ContractsTabVM divergent =
                 GuiMockCatalogue.ById("career.banner.divergent")
                     .Build().Career.Value.Contracts;
             Assert.NotEmpty(divergent.PendingRows);
-            Assert.StartsWith("Pending in timeline (" + divergent.PendingRows.Count + ") - ",
-                divergent.PendingFoldText, StringComparison.Ordinal);
+            Assert.Equal("Accepted later by your recorded flights (" + divergent.PendingRows.Count + ")",
+                divergent.PendingFoldText);
+            // The divergent picture carries a reservation: one of its current contracts
+            // completes before the first later accept, which takes that slot.
+            Assert.Equal("3 of 7 slots free (3 active, 1 reserved for later)",
+                divergent.GroupHeadingText);
         }
 
         [Fact]
@@ -518,11 +523,15 @@ namespace Parsek.Tests
             foreach (GuiMockState state in GuiMockCatalogue.ForWindow(GuiMockSession.CareerWindow))
             {
                 CareerStateWindowUI.CareerStateViewModel vm = state.Build().Career.Value;
+                // The peak the recorded future holds at once, too: a mocked future that
+                // over-books its own building is a picture no career can produce.
                 Assert.True(vm.Contracts.CurrentActive <= vm.Contracts.CurrentMaxSlots
-                            && vm.Contracts.ProjectedActive <= vm.Contracts.ProjectedMaxSlots,
+                            && vm.Contracts.ProjectedActive <= vm.Contracts.ProjectedMaxSlots
+                            && vm.Contracts.Slots.PeakNeed <= vm.Contracts.CurrentMaxSlots,
                     state.Id + ": " + vm.Contracts.GroupHeadingText + " / " + vm.Contracts.PendingFoldText);
                 Assert.True(vm.Strategies.CurrentActive <= vm.Strategies.CurrentMaxSlots
-                            && vm.Strategies.ProjectedActive <= vm.Strategies.ProjectedMaxSlots,
+                            && vm.Strategies.ProjectedActive <= vm.Strategies.ProjectedMaxSlots
+                            && vm.Strategies.Slots.PeakNeed <= vm.Strategies.CurrentMaxSlots,
                     state.Id + ": " + vm.Strategies.GroupHeadingText + " / " + vm.Strategies.PendingFoldText);
             }
         }
