@@ -173,7 +173,7 @@ namespace Parsek.TestCommands
         internal const string RosterKeyPrefix = "roster";
         internal const string FlightsKeyPrefix = "flights";
 
-        /// <summary>The Career window's two <c>Pending in timeline</c> folds. ONE prefix
+        /// <summary>The Career window's two <c>Accepted later</c> / <c>Activated later</c> folds. ONE prefix
         /// because the window keeps ONE fold collection; the wire VALUES are the tab the
         /// fold belongs to (<c>contracts</c> / <c>strategies</c>), which is what a spec
         /// author already knows, rather than the dotted production key

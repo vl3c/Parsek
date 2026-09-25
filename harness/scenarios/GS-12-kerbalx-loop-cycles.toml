@@ -35,14 +35,16 @@ id = "GS-12-kerbalx-loop-cycles"
 # Stages 2 and 3 run long enough past their arm UT (> the span) for the first copies
 # to finish their flights: ghostlife v2's `MeshDestroyed reason=overlap expired`.
 #
-# WHY THE LOOP IS ARMED AFTER THE FIRST RUN - A WORKAROUND FOR A PRODUCT DEFECT, NOT
-# INTENDED BEHAVIOUR. With a mission loop armed, a Rewind-to-Launch shows NO ghost for
-# the whole first run: MissionLoopUnitBuilder step 7b-i clamps the anchor to at least
-# the span end, and the engine skips the member as `SpanClockUnresolved` before the
-# anchor. The operator ruling (2026-09-24) is that the first run plays as a normal ghost
-# (it is the real flight, #1778) and the loop copies begin after it; todo
-# LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED. Until that is fixed this lane arms the loop
-# after PLAYBACK-WAIT, which keeps GS-4's first run (and its rewind-point census) intact.
+# WHY THE LOOP IS ARMED AFTER THE FIRST RUN. It began as a workaround: with a mission
+# loop armed, a Rewind-to-Launch showed NO ghost for the whole first run (the engine
+# skipped the member as `SpanClockUnresolved` before the loop anchor). FIXED 2026-09-25
+# (todo LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED, operator ruling 2026-09-24): until its
+# anchor a loop unit is left out of every scene's published set, so the first run plays
+# as an ordinary ghost; `LF-2-loop-armed-rewind-first-run-real` flies that shape (loop
+# armed, rewind, 1x first run drawn, then the copies). The arm-after order is kept here
+# on purpose as the MIRROR shape: a loop armed after its first run is live from the
+# arm UT, so its playback is unchanged by the fix, and GS-4's first run (and its
+# rewind-point census) stays intact.
 #
 # WHAT MUST NOT RED THIS LANE (known, filed): LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS
 # (this tree has no chain), LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED (the loop is

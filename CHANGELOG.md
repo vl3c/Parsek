@@ -164,8 +164,9 @@ _(unreleased — entries accumulate here per commit)_
   itself is retired.
 - **Automated testing: a lane rewinds a mission while its loop is on.**
   `LF-2-loop-armed-rewind-first-run-real` turns the mission loop on first, runs three loops,
-  then rewinds to launch twice. The first rewind is reloaded into flight, where the first run's
-  vessel comes back in flight; the second lets the Space Center clock pass the recording's end,
+  then rewinds to launch twice. The first rewind is reloaded into flight and plays at normal
+  speed, so the first run's ghost is drawn, its vessel comes back at the end, and the first loop
+  copy follows; the second lets the Space Center clock pass the recording's end,
   and the vessel comes back exactly once and keeps its id through a reload and two more loops.
   Before the fix the same lane ended with no vessel at all. Like LF-1, it now records the
   runway rover rather than a vessel on the pad.
@@ -1011,6 +1012,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: the GUI mirror's Timeline `Career` view button no longer jumps to the Career window.**
+  The page's launcher rule sent any control whose text spelled a window's name to that
+  window. Only the main window's controls launch windows now; elsewhere such a control is
+  routed as a view or state of its own window, or says there is no capture for it
+  (`harness/tools/gui_mirror.py`, `routeClick`).
+- **Dev: the GUI mirror names windows, tabs and states by what the game draws.** The rail,
+  headers, Compare and the notes list showed seam tokens (`structure`, `rewindff`,
+  `expandedstats`), so a window whose token is not its title could not be found. A window
+  now reads by its own title without the `Parsek - ` prefix (the structure window by the
+  title it draws with no mission or route open, its other titles in the tooltip), a
+  Timeline view by its button's text, and a state by the one control its step changed
+  where the capture shows it (`Info`, `Recordings off`, `Last Day`); every name comes from
+  the captures, and the token stays in the tooltip and in every link and note key.
 - **Space Center: a refused research, contract accept, facility upgrade, hire or dismissal now
   says why, and when the item frees up.** The "Action Blocked" dialog and the badge hovers on
   the R&D, Astronaut Complex and Mission Control screens used to print a raw `UT 183420`. They
@@ -1043,6 +1057,23 @@ _(unreleased — entries accumulate here per commit)_
   committed date anyway, and the decline could still cost reputation. The refusal says when
   the contract becomes active. Contracts the committed timeline leaves alone decline as
   before.
+- **Space Center: the Administration building explains and refuses strategy actions that
+  conflict with your committed timeline.** A strategy your committed timeline activates later
+  can no longer be activated early (which also charged its setup cost a second time); nor can
+  one whose activation would take a slot a committed activation needs, or one that stock's own
+  conflict rule would not allow beside a strategy your committed timeline activates while it
+  is still running. An active strategy your committed timeline deactivates or re-activates
+  later can no longer be cancelled before then. Stock greys the row or the Cancel button and
+  prints why in its own orange reason line, for example `Activated on Y2 D114 on your
+  committed timeline.`, with the date it frees up.
+  Stock's own strategy expiry is never blocked.
+- **Space Center: committed strategy activations and deactivations now take effect in the
+  stock game.** After a rewind, a strategy your committed timeline activated was charged its
+  setup cost but never switched on, and one it deactivated stayed on. The stock strategy list
+  now follows the committed timeline at each ledger recalculation, including the one when a
+  save loads (applied as soon as the game has loaded its strategy list, a frame later),
+  without charging or refunding anything again. Strategies activated before the save used
+  Parsek are left alone.
 - **Mission Control: cancelling an active contract your committed timeline completes,
   fails or cancels later is now refused, and its Active-tab row says so.** Cancelling it
   used to charge the cancel penalty now and then either wipe out the later completion's
@@ -1184,6 +1215,15 @@ _(unreleased — entries accumulate here per commit)_
   is turned back into an ordinary quickload stash, so a later quicksave and quickload cannot
   put it back on the launched craft either. The same fix stops an F9 pressed right after a
   scene loads from being taken for a switch.
+- **A looped mission's first run is drawn again.** With a mission loop on, a Rewind to Launch
+  showed nothing for the whole first run: the loop's copies only start after the recorded flight
+  has ended, and until then the looped mission's vessels were simply skipped. The real vessel
+  appeared at the end, then the copies began. Now, until its first copy starts, a looped mission
+  plays exactly like one that does not loop, in flight, at the Space Center and in the Tracking
+  Station: its ghosts fly the first run, the map shows them, the watch camera can follow them,
+  and the flight's end brings the real vessel back through the ordinary spawn. The copies take
+  over from there with one ghost, not two. A loop turned on after the first run (the usual case)
+  is unchanged, and later loops stay ghost-only.
 - **A looping recording's first run is real again: its vessel comes back after a rewind even
   while the loop is on.** A looped mission (or a recording with its own loop toggle) replays
   on its loop clock, and that path never reached the spawn at the end of the recording. So a
@@ -1322,6 +1362,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Timeline: every filter button is the same width, and the rows are left-aligned.** The
+  five view buttons (Overview, Details, Rewind/FF, Re-Fly, Career) no longer stretch across
+  the window; they take the same width as the buttons of the two rows below them (the cell
+  of a six-button row), so the columns line up and each row leaves empty room on the right
+  for later filters. The minimum window width is unchanged.
+
 - **R&D and the Astronaut Complex show Parsek's reservations with KSP's own controls instead
   of Parsek's badge icons.** In R&D, a tech node your committed timeline researches later has a
   gold-tinted icon, its hover tooltip and the side panel's description say when and by which
@@ -1336,10 +1382,11 @@ _(unreleased — entries accumulate here per commit)_
   refused for a kerbal Parsek manages: it went through a stock path Parsek did not guard.
   Mission Control moved to the same stock mechanisms (see Fixed), so no Space Center screen
   shows a Parsek badge any more.
+
 - **Timeline: the time-range presets are back on their own always-visible row.** This
   partly reverts the `Time: <range>` button from the two-row filter area above. The filter
-  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career)
-  stretched across the full width, the view's own toggles (unchanged), and Last Day /
+  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career),
+  the view's own toggles (unchanged), and Last Day /
   Last 7d / Last 30d / This Year / All / Custom. Exactly one of those six is lit, so the
   range in force is always on screen (All by default). Custom shows the From / To sliders;
   dragging a slider lights Custom, picking a preset turns Custom off and hides the sliders,
@@ -1387,17 +1434,34 @@ _(unreleased — entries accumulate here per commit)_
   still physically exists in your save (for example because you never left it) is kept as it
   is. Rewinding to before the end brings the rule back into play the next time the clock
   passes it.
+- **The Career window counts the slots your recorded flights will need, and tells an
+  expired contract from a failed one.** Each tab's heading now reads free slots first:
+  `4 of 7 slots free (2 active, 1 reserved for later)`, `5 of 7 slots free (2 active)` when
+  nothing is reserved, `No slot limit (2 active)` at Mission Control level 3. "Reserved" is
+  the most contracts (or strategies) the recorded future holds at once beyond today's: a
+  contract that completes on day 50 frees the slot a flight's day-60 accept then takes, so
+  only overlapping ones count. The hover says why
+  (`Contracts your recorded flights accept later need 1 more slot at peak, so only 4 are free
+  for a new one.`). This is Parsek's count only: stock Mission Control and Administration
+  still count just what is active now and do not stop an accept or activation beyond it.
+  The fold row now reads `Accepted later by your recorded flights (1)` (Strategies:
+  `Activated later ...`), with the slots free at the timeline end in its hover. A contract
+  whose deadline runs out now reads `expires <deadline>` in the Timeline-end column (amber,
+  like a failure: stock charges the same penalties) instead of `FAILS <date>`, and the
+  Timeline's Contracts view shows `Expired: <name>` for it. Stock reports an expiry with
+  the same failure event, so Parsek tells them apart by the accepted deadline, exactly as
+  its ledger already does; older recordings read correctly with no new data. A contract
+  whose deadline passes before the recorded timeline ends also reads as expired, as the
+  ledger treats it.
 - **The Career window is now the state view of your contracts and strategies, and links
   into the Timeline for their history.** It keeps two tabs, Contracts and Strategies: the
   two slot-limited things whose recorded future has consequences. The Facilities and
   Milestones tabs are gone. A building's level is shown at the Space Center, and dated
   facility and milestone history (including repeat world records, which the old tab left
-  out) is in the Timeline's Career view. Each tab now opens with ONE heading line,
-  `Active now: 2 of 2 slots`, or `Active now: 4 (no slot limit)` at stock's unlimited level (hover it for the Mission Control or Administration level
-  behind the limit), then one column header and the rows. The contracts or strategies the
-  recorded timeline adds later sit under a fold row inside the same table,
-  `Pending in timeline (1) - 3 of 3 slots at timeline end`, so both groups share one set of
-  columns. The old title bar and group label (`Mission Control L1 - slots 2/2 now, ...` over
+  out) is in the Timeline's Career view. Each tab now opens with ONE heading line (its
+  slot wording is the entry above), then one column header and the rows. The contracts or
+  strategies the recorded timeline adds later sit under a fold row inside the same table,
+  so both groups share one set of columns. The old title bar and group label (`Mission Control L1 - slots 2/2 now, ...` over
   `Active (2)`) are gone. A tab with nothing in it is one grey line (`No active contracts.`).
   Clicking a contract or strategy name opens the Timeline on that category, scrolled to it.
   The `Career` launcher now shows only in Career mode: Science mode has no contracts or

@@ -84,6 +84,10 @@ namespace Parsek
         // GhostMapPresence.UpdateTrackingStationGhostLifecycle once per Update tick) and the OnGUI
         // atmospheric-marker pass (DrawAtmosphericMarkers reads cachedLoopUnits directly), so the
         // (allocating, Verbose-logging) Build never runs per OnGUI frame.
+        // builtLoopUnits is the signature-cached build; cachedLoopUnits is its per-Update LIVE view
+        // (MissionLoopUnitBuilder.ResolveLiveUnits: a unit still before its first loop instance is left
+        // out, so its first run plays as an ordinary recording), and every reader above reads that.
+        private GhostPlaybackLogic.LoopUnitSet builtLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
         private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
         private string lastLoopUnitSignature;
 
@@ -347,7 +351,7 @@ namespace Parsek
                 forceFaithful);
             if (!string.Equals(signature, lastLoopUnitSignature, System.StringComparison.Ordinal))
             {
-                cachedLoopUnits = MissionLoopUnitBuilder.Build(
+                builtLoopUnits = MissionLoopUnitBuilder.Build(
                     unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode,
                     forceFaithful);
                 lastLoopUnitSignature = signature;
@@ -362,7 +366,9 @@ namespace Parsek
             // the recorder holds the live unit set; the plan RECORD is signature-deduped inside
             // NotePlan. Instant no-op when the manifest env gate is unarmed.
             Parsek.MapRender.RenderCompositionRecorder.NotePlan(
-                "TrackingStation", signature, cachedLoopUnits, committed, unioned);
+                "TrackingStation", signature, builtLoopUnits, committed, unioned);
+            cachedLoopUnits = MissionLoopUnitBuilder.ResolveLiveUnits(
+                "TrackingStation", builtLoopUnits, cachedLoopUnits, routeSelectUT);
         }
 
         void OnGUI()

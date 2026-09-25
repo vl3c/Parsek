@@ -111,10 +111,10 @@ LAYOUT_EPOCHS = {
     # PR #1762 (merged 2026-09-22T20:38:41Z): slot-grouped roster, no Since column.
     # First run on it: GUI-11-census-kerbals-crewed 2026-09-22_2004.
     "kerbals": {"utc": "2026-09-22T20:04:25Z", "pr": 1762},
-    # PR #1809 (after #1792): five view buttons, the source / category row, and the
-    # always-visible preset row with Custom (the "Time:" toggle is gone).
-    # First run on it: GUI-24-census-timeline-filters 2026-09-24_1942.
-    "timeline": {"utc": "2026-09-24T19:42:55Z", "pr": 1809},
+    # PR #1818 (after #1809 and #1792): every filter button one width, rows
+    # left-aligned (the view row no longer stretches).
+    # First run on it: GUI-24-census-timeline-filters 2026-09-25_1725.
+    "timeline": {"utc": "2026-09-25T17:25:59Z", "pr": 1818},
     # PR #1796 (merged 2026-09-24T16:18:48Z): the state view, two tabs.
     # First run on it: GUI-15-census-career-contracts 2026-09-24_1522.
     "career": {"utc": "2026-09-24T15:22:01Z", "pr": 1796},
@@ -1699,6 +1699,242 @@ def title_prefix(titles):
     return " ".join(head)
 
 
+def display_title_prefix(titles):
+    """The product's own name as the READER sees it: the leading words shared by
+    most window titles, not by all of them.
+
+    `title_prefix` asks every title to agree, which is right for the record
+    vocabulary but returns nothing on the real corpus, where one window of
+    another product family is titled by its own name. For a display label the
+    majority is enough: the words carried by more than half the distinct titles
+    (at least two), with at least one of them longer than the prefix.
+    """
+    distinct = sorted({(t or "").strip() for t in titles if (t or "").strip()})
+    firsts = defaultdict(list)
+    for title in distinct:
+        parts = [p for p in re.split(r"[\s-]+", title) if p]
+        if parts:
+            firsts[parts[0].lower()].append(title)
+    if not firsts:
+        return ""
+    group = max(firsts.values(), key=len)
+    if len(group) < 2 or len(group) * 2 <= len(distinct):
+        return ""
+    return title_prefix(group)
+
+
+def window_display_names(window_titles, prefix):
+    """Each window's name as the game draws it: its captured title minus the
+    product prefix, keyed by seam token.
+
+    A window whose title VARIES with its subject (the structure window is titled
+    by the route or mission it shows) is named by the one title that spells its
+    own token, which is the title it draws with no subject; with no such title
+    it keeps its token. A title that IS the product name keeps the whole title.
+    Two windows that would read the same are told apart by their tokens.
+    """
+    names = {}
+    for tok, titles in window_titles.items():
+        shown = []
+        for title in titles:
+            raw = (title or "").strip()
+            if raw:
+                shown.append(strip_title_prefix(raw, prefix) or raw)
+        shown = sorted(set(shown))
+        if len(shown) == 1:
+            names[tok] = shown[0]
+        else:
+            own = [t for t in shown if norm(t) == norm(tok)]
+            names[tok] = own[0] if own else tok
+    readers = defaultdict(list)
+    for tok, name in names.items():
+        readers[norm(name)].append(tok)
+    for toks in readers.values():
+        if len(toks) < 2:
+            continue
+        for tok in toks:
+            if names[tok] != tok:
+                names[tok] = "%s (%s)" % (names[tok], tok)
+    return names
+
+
+def _state_controls(cap, own_titles):
+    """The labelled toggles and buttons the capture's OWN window drew.
+
+    A toggle is keyed by its text and read by its lit value; a button is keyed
+    by the letters and digits of its text and read by its whole text, so a
+    button that swaps a glyph beside its word reads as changed. A key the
+    window draws twice is ambiguous and dropped.
+    """
+    out, dup = {}, set()
+
+    def walk(node):
+        kind = node.get("k")
+        text = node.get("t") or ""
+        if kind in ("toggle", "button") and re.search(r"[A-Za-z0-9]", text):
+            if kind == "toggle" and "v" in node:
+                key, val = ("toggle", text.strip()), bool(node["v"])
+            else:
+                key, val = ("button", norm(text)), text.strip()
+            if key in out:
+                dup.add(key)
+            out[key] = val
+        for child in node.get("c") or []:
+            walk(child)
+
+    for root in cap.get("roots") or []:
+        if root.get("foreign") or root.get("title") not in own_titles:
+            continue
+        walk(root)
+    for key in dup:
+        out.pop(key, None)
+    return out
+
+
+def _word_of(text):
+    """A control's text without the glyphs around its words."""
+    return re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", text or "")
+
+
+def _differing_control(mine, controls, unanimous):
+    """The one control `mine` draws differently from its peers, or None.
+
+    A peer value counts when more than half the peers that draw the control
+    agree on it (`unanimous`: all of them). Exactly one toggle lit against
+    unlit peers names that toggle; otherwise exactly one toggle unlit against
+    lit peers names it with "off"; otherwise, with no toggle differing, exactly
+    one button whose text differs names its words. A button whose text carries
+    a digit is a count, which moves with the data rather than the state, and
+    never names one.
+    """
+    lit, unlit, changed = [], [], []
+    for key, val in mine.items():
+        if key[0] == "button" and re.search(r"[0-9]", key[1]):
+            continue
+        peers = [other[key] for other in controls
+                 if other is not mine and key in other]
+        if len(peers) < 2:
+            continue
+        modal, count = Counter(peers).most_common(1)[0]
+        agreed = count == len(peers) if unanimous else count * 2 > len(peers)
+        if not agreed or val == modal:
+            continue
+        if key[0] == "toggle":
+            (lit if val else unlit).append(key[1])
+        else:
+            changed.append(_word_of(val))
+    if len(lit) == 1:
+        return lit[0]
+    if not lit and len(unlit) == 1:
+        return unlit[0] + " off"
+    if not lit and not unlit and len(changed) == 1 and changed[0]:
+        return changed[0]
+    return None
+
+
+def toggle_tab_names(captures, window_titles):
+    """Tab names for a window whose tabs are a row of toggles rather than a
+    selection grid, keyed `{window: {tab: name}}`.
+
+    A grid reports its selected item's text, which is how most tabs get their
+    names (`_first_grid_value`); a toggle row reports none. A tab's toggle is
+    the one lit in every capture of that tab and unlit in every capture of
+    another tab that draws it - a grouping toggle lit under several tabs names
+    none of them. Captures that name no tab are left out of both sides. The
+    CURRENT captures are asked first; where they leave a tab unnamed or
+    ambiguous (every current capture of it happens to share a lit preset, or a
+    re-layout left it no current capture at all), every capture of the window
+    is asked, which only adds captures to both sides. A tab with no such
+    toggle, or with more than one, keeps its token.
+    """
+    current = _toggle_tab_names([c for c in captures if not is_stale(c)],
+                                window_titles)
+    everything = _toggle_tab_names(captures, window_titles)
+    out = {}
+    for win in set(current) | set(everything):
+        merged = dict(everything.get(win, {}))
+        merged.update(current.get(win, {}))
+        out[win] = merged
+    return out
+
+
+def _toggle_tab_names(captures, window_titles):
+    """One pass of `toggle_tab_names` over the captures it is given."""
+    by_window = defaultdict(lambda: defaultdict(list))
+    for cap in captures:
+        if cap.get("mocked") or not cap.get("tab"):
+            continue
+        by_window[cap["window"]][cap["tab"]].append(cap)
+    out = {}
+    for win, tabs in by_window.items():
+        own = set(window_titles.get(win) or ())
+        drawn = {}
+        always_lit = {}
+        for tab, caps in tabs.items():
+            sets = []
+            for cap in caps:
+                ctl = _state_controls(cap, own)
+                sets.append({k[1] for k, v in ctl.items()
+                             if k[0] == "toggle" and v is True})
+                drawn.setdefault(tab, []).append(ctl)
+            always_lit[tab] = set.intersection(*sets) if sets else set()
+        for tab, always in always_lit.items():
+            picks = []
+            for text in always:
+                elsewhere = [ctl[("toggle", text)]
+                             for other, ctls in drawn.items() if other != tab
+                             for ctl in ctls if ("toggle", text) in ctl]
+                if elsewhere and not any(elsewhere):
+                    picks.append(text)
+            if len(picks) == 1:
+                out.setdefault(win, {})[tab] = picks[0]
+    return out
+
+
+def state_display_names(captures, window_titles):
+    """The visible control each state's seam name stands for, keyed by
+    `window|tab|state|mode` - where the capture's own tree shows it.
+
+    A state token is the lane's name for a seam step, not something the game
+    draws. Among the CURRENT captures of one window, tab and mode, a state's
+    control is the one it draws differently from its peers
+    (`_differing_control`), asked first of the controls every peer agrees on and
+    then of those most peers agree on: a capture taken under another sort order
+    differs in its sort headers by majority only, so the unanimous pass finds
+    the one control its own step changed. Anything else - no difference, or
+    several - keeps the token, and so does a name two states of the same group
+    would share, because two rows reading the same would be worse than a token.
+    Nothing is typed: every name comes out of a dump.
+    """
+    groups = defaultdict(list)
+    for cap in captures:
+        if is_stale(cap) or cap.get("mocked") or not cap.get("window"):
+            continue
+        groups[(cap["window"], cap.get("tab") or "",
+                cap.get("mode") or "")].append(cap)
+    derived = {}
+    for (win, tab, mode), caps in groups.items():
+        own = set(window_titles.get(win) or ())
+        controls = [_state_controls(c, own) for c in caps]
+        by_state = defaultdict(set)
+        for cap, mine in zip(caps, controls):
+            state = cap.get("state") or ""
+            if not state:
+                continue
+            name = (_differing_control(mine, controls, True)
+                    or _differing_control(mine, controls, False))
+            if name:
+                by_state[state].add(name)
+        owners = defaultdict(set)
+        for state, names in by_state.items():
+            if len(names) == 1:
+                owners[next(iter(names))].add(state)
+        for name, states in owners.items():
+            if len(states) == 1:
+                derived["|".join((win, tab, next(iter(states)), mode))] = name
+    return derived
+
+
 def strip_title_prefix(title, prefix):
     """`title` with the product's own name taken off the front, if it is there."""
     if not prefix:
@@ -2512,6 +2748,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         if cap["specId"] not in fixtures[cap["fixture"]]["specIds"]:
             fixtures[cap["fixture"]]["specIds"].append(cap["specId"])
 
+    # A tab row of toggles names its tabs through the toggle each tab lights.
+    toggled = toggle_tab_names(captures, window_titles)
     windows = []
     for tok in window_tokens:
         caps = [c for c in captures if c["window"] == tok]
@@ -2519,7 +2757,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             "token": tok,
             "titles": sorted(window_titles.get(tok, [])),
             "tabs": [{"token": t, "index": i,
-                       "name": tab_display.get(tok, {}).get(t) or t}
+                       "name": (tab_display.get(tok, {}).get(t)
+                                or toggled.get(tok, {}).get(t) or t)}
                      for t, i in sorted(tabs_by_window.get(tok, {}).items(),
                                         key=lambda kv: kv[1])],
             "captureCount": len(caps),
@@ -2530,6 +2769,17 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         windows.append({"token": tok, "titles": sorted(window_titles.get(tok, [])),
                         "tabs": [], "captureCount": len(caps),
                         "mockedCount": len([c for c in caps if c.get("mocked")])})
+
+    # What the rail and the headers call each window: its own title, not its
+    # seam token (`window_display_names`). The token stays the key everywhere.
+    # Only the seam's windows are named: a diagnostic surface the census
+    # photographed (the GuiTree probe) keeps its token, so it never contends
+    # with a product window for a name.
+    shown_names = window_display_names(
+        {w["token"]: w["titles"] for w in windows if w["token"] in window_tokens},
+        display_title_prefix([t for w in windows for t in w["titles"]]))
+    for w in windows:
+        w["name"] = shown_names.get(w["token"]) or w["token"]
 
     # states with no capture: a tab the seam knows but no capture selected, per
     # window and mode.
@@ -2580,6 +2830,10 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         # The product's own name, derived from the window titles the captures
         # carry, so the page can strip it without knowing it.
         "titlePrefix": title_prefix([t for w in windows for t in w["titles"]]),
+        # Each state's visible control where the dumps show one
+        # (`state_display_names`), keyed `window|tab|state|mode`.
+        "stateNames": state_display_names(
+            captures, {w["token"]: w["titles"] for w in windows}),
         "clickKinds": list(CLICK_KINDS),
         # The op vocabulary, so the page can recognise the one op that is also a
         # button label without a window string being typed into this file.
@@ -3226,9 +3480,25 @@ function tabName(win, tab){
   var t = (w.tabs || []).filter(function(x){ return x.token === tab; })[0];
   return (t && t.name) ? t.name.replace(/<[^>]*>/g, '') : tab;
 }
-function stateLabel(win, tab, state, mode){
-  var parts = [tabName(win, tab), (state || '').replace(/-/g, ' '), modeWord(mode)];
-  return parts.filter(Boolean).join(' - ') || win || '';
+/* A window by the name its own title bar draws (the generator's
+   `window_display_names`), the seam token where no capture named it. The token
+   stays the key of every link, note and lookup. */
+function winName(win){
+  var w = M.windows.filter(function(x){ return x.token === win; })[0];
+  return (w && w.name) || win || '';
+}
+/* A state by the control it stands for where the dumps show one (the
+   generator's `state_display_names`), else its seam token as words. */
+function stateWords(win, tab, state, mode){
+  if (!state) return '';
+  var k = [win || '', tab || '', state, mode || ''].join('|');
+  var named = (M.stateNames || {})[k];
+  return named || state.replace(/-/g, ' ');
+}
+function stateLabel(win, tab, state, mode, hideTab){
+  var parts = [hideTab ? '' : tabName(win, tab), stateWords(win, tab, state, mode),
+               modeWord(mode)];
+  return parts.filter(Boolean).join(' - ') || winName(win);
 }
 function railNoteKey(win, tab, state, mode){
   return [win || '', tab || '', state || '', mode || ''].join('|');
@@ -3463,7 +3733,7 @@ function paintNotesPanel(){
   rows.forEach(function(r){
     var li = el('div', 'nrow');
     li.title = 'show this state';
-    li.appendChild(el('b', null, r.window || '-'));
+    li.appendChild(el('b', null, r.window ? winName(r.window) : '-'));
     li.appendChild(el('span', null, stateLabel(r.window, r.tab, r.state, r.mode)));
     if (r.mocked) li.appendChild(el('span', 'badge mock', 'mock'));
     if (r.verdict) li.appendChild(el('span', 'vd', r.verdict));
@@ -3900,8 +4170,15 @@ function routeClick(ev, cap){
   var txt = norm(node.querySelector('.tx') ? node.querySelector('.tx').textContent : '');
   if (!txt) { flash(node, 'that control has no text to match a capture by.'); return; }
 
-  /* a launcher: the control names another window the census captured */
-  var wins = M.windows.filter(function(w){ return w.captureCount > 0; });
+  /* The home window: the seam's first window, the launcher every other window
+     opens from and the one the close affordance returns to. */
+  var home = M.seamWindows[0];
+  /* a launcher: the control names another window the census captured. Only the
+     home window's controls launch windows. Elsewhere a control whose text spells
+     a window's name (a view button of another window's filter row) is that
+     window's own tab or state and is routed below, or flashed. */
+  var wins = cap.window === home
+    ? M.windows.filter(function(w){ return w.captureCount > 0; }) : [];
   for (var i=0;i<wins.length;i++){
     var w = wins[i];
     /* `M.titlePrefix` is the product's own name, derived by the generator from
@@ -3918,7 +4195,6 @@ function routeClick(ev, cap){
      button's label, and the no-typed-UI-text guard has to be able to tell seam
      vocabulary from window text. */
   if (txt === norm(M.closeOp)){
-    var home = M.seamWindows[0];
     if (cap.window !== home){ go(home, null, null, S.mode); }
     else { status('the window closes; nothing else was photographed behind it.'); }
     return;
@@ -4022,7 +4298,7 @@ function select(cap, exact){
      declares, and where it came from in small print. */
   var head = document.getElementById('stagehead');
   head.innerHTML = '';
-  head.appendChild(el('b', null, cap.window));
+  head.appendChild(el('b', null, winName(cap.window)));
   head.appendChild(el('span', null, stateLabel(cap.window, cap.tab, cap.state, cap.mode)));
   appendFlags(head, cap);
   var src = el('span', 'lab', cap.fixture + ', run ' + cap.runId);
@@ -4094,10 +4370,14 @@ function buildRail(){
     var here = (w.token === S.window);
     row.title = here
       ? (open ? 'Hide' : 'Show') + ' the ' + w.captureCount + ' captures of ' +
-        w.token
-      : 'Show the ' + w.token + ' window';
+        winName(w.token)
+      : 'Show the ' + winName(w.token) + ' window';
+    /* Every title the window drew, where it drew more than one (a window
+       titled by its subject), and the seam token the page keys it by. */
+    row.title += ' (seam window ' + w.token
+      + ((w.titles || []).length > 1 ? '; titled ' + w.titles.join(', ') : '') + ')';
     row.appendChild(el('span', 'caret' + (open ? ' open' : ''), '\u25b8'));
-    row.appendChild(el('b', null, w.token));
+    row.appendChild(el('b', null, winName(w.token)));
     if (w.mockedCount){
       /* The mocked count BESIDE the real one, per window: "how much of this is
          real" has to be answerable without opening a capture. */
@@ -4180,9 +4460,10 @@ function buildRail(){
       }
       var sr = el('div', 's' + (c.id === S.capture ? ' sel' : '')
                        + (isStale(c) ? ' stale' : ''));
-      sr.appendChild(el('span', null, stateLabel(w.token, headed ? null : c.tab, c.state, c.mode)));
+      sr.appendChild(el('span', null, stateLabel(w.token, c.tab, c.state, c.mode, headed)));
       appendFlags(sr, c, true);
-      sr.title = 'dataset ' + c.fixture + ', run ' + c.runId + ' (' + c.label + ')';
+      sr.title = 'dataset ' + c.fixture + ', run ' + c.runId + ' (' + c.label + ')'
+        + (c.state ? '; seam state ' + c.state : '');
       sr.dataset.nk = railNoteKey(w.token, c.tab, c.state, c.mode);
       if (noted[sr.dataset.nk]) sr.classList.add('noted');
       sr.appendChild(el('span', 'dot'));
@@ -4333,7 +4614,7 @@ function buildCompare(){
 
   [win].forEach(function(win){
     var sec = el('div','cmp');
-    sec.appendChild(el('h3', null, win));
+    sec.appendChild(el('h3', null, winName(win)));
     sec.appendChild(summaryHead(win));
     sec.appendChild(noteBlock(win, rows[win]));
     if (!rows[win].length){
@@ -4779,6 +5060,7 @@ def _page_model(model):
         "generatedUtc": model.get("generatedUtc", ""),
         "seamWindows": model["seamWindows"],
         "titlePrefix": model["titlePrefix"],
+        "stateNames": model.get("stateNames") or {},
         "clickKinds": model["clickKinds"],
         "seamOps": model["seamOps"],
         "closeOp": model["closeOp"],

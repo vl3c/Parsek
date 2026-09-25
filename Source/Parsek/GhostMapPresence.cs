@@ -9426,7 +9426,10 @@ namespace Parsek
             // first lifecycle pass corrects it (deferred item C / TS-entry wrong-position icon flash).
             // Built here because both startup call sites (ParsekTrackingStation.Start and the
             // SpaceTracking.Awake precreate) run before the addon's per-frame DriveMissionLoopUnits.
-            GhostPlaybackLogic.LoopUnitSet loopUnits = BuildStartupTrackingStationLoopUnits(committed);
+            // The LIVE view, like the per-frame pass: a unit still before its first loop instance is
+            // left out, so its first run seeds as an ordinary recording.
+            GhostPlaybackLogic.LoopUnitSet loopUnits =
+                BuildStartupTrackingStationLoopUnits(committed).LiveAt(currentUT);
 
             int created = 0, skippedDebris = 0, skippedSuppressed = 0, skippedSpawned = 0;
             int skippedTerminal = 0, skippedBeforeActivation = 0;
