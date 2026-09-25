@@ -241,7 +241,7 @@ namespace Parsek
 
         private void OnMissionControlDespawn()
         {
-            MissionControlStockUi.OnScreenClosed();
+            MissionControlStockUi.OnScreenClosed(currentMissionControl);
             missionOpen = false;
             currentMissionControl = null;
         }

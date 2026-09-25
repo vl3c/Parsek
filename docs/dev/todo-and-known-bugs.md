@@ -351,6 +351,39 @@ pairing rule):
   click-block reads it. Fold it into the index properly if a dismissal ever becomes a
   ledger action.
 
+**First in-game census (2026-09-25, lane GUI-28, run `2026-09-25_2055` on base `7c90492bd`):**
+every annotated screen drew; the findings below are what the screenshots showed.
+- ~~F1: buttons Parsek disables looked live. R&D's `actionButton` (a `UIStateButton` whose
+  research / purchase states have no distinct disabled sprite) and Mission Control's Accept,
+  Decline and Cancel draw no disabled state, so the reason text was the only cue.~~ Fixed
+  (branch `stock-ui-fixes-a`): `StockUiGreyedButton` uses the button's own disabled visual
+  when its transition has one (a distinct disabled sprite, or a ColorTint with a distinct
+  disabled colour) and otherwise multiplies every graphic on the button by Unity's default
+  disabled tint. The look is re-derived after every stock write the block follows (R&D
+  `UpdatePanel`; Mission Control `UpdateInfoPanelContract`, `RefreshUIControls`, the timeline
+  refresh and the screen close) from the same decision as `interactable`, and the originals are
+  saved per graphic per button and restored the moment the selection moves to an unblocked
+  item; a colour stock rewrote while greyed is never overwritten (`GreyLedger`, unit cells in
+  `StockUiGreyedButtonTests`). The facility Upgrade and part-purchase buttons already dim and
+  are unchanged.
+- ~~F4: the facility menu Upgrade tooltip drew as one unwrapped ~1170 px line left of the
+  menu.~~ Fixed: the borrowed stock `Tooltip_Text` prefab has no maximum width and neither
+  `TooltipController_Text` nor `Tooltip_Text` exposes one (decompiled), so the explanation is
+  word-wrapped at 60 characters (`StockUiFacilityDecoration.WrapTooltipText`) before it goes in
+  the tooltip; the description fallback keeps the unwrapped text.
+- ~~F5: Mission Control row labels were clipped by the three-line row ("... accepted on Y1,
+  D03, 01:53 on your committed time...").~~ Fixed: the row status is the Timeline verb and a
+  date-only compact date (`- accepted Y1 D3`, `- completes Y2 D114`); the detail panel keeps
+  the full explanation.
+- ~~F6: the slot refusal named the committed contract by title only, and three Offered rows
+  shared it.~~ Fixed: it also names the contract's agent, the name Mission Control shows on
+  each row and in the panel (`CommittedFutureEntry.AgentTitle`, from the accept snapshot's
+  `agent`, else the live offer's `Agent.Title`).
+- Still to see in the next census: the greyed Research / purchase-all / Accept / Decline /
+  Cancel (the in-game cells now assert the look and the restored colours), the wrapped facility
+  tooltip, and the shorter row labels. The Astronaut Complex and Administration findings are on
+  branch `stock-ui-fixes-b`.
+
 **Verification (2026-09-25):** reference section 12, cells in
 `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`:
 - F1, X1 (the cancel zeroes the completion, and the tech unlock and build it funded are

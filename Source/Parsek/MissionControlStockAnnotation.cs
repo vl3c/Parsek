@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Contracts;
 
 namespace Parsek
@@ -46,8 +48,13 @@ namespace Parsek
         /// needs (C2): only Accept is greyed out, Decline stays stock's.</summary>
         internal const string SlotDetailHeading = "Accept is unavailable";
 
-        /// <summary>The row tail after the reservation title.</summary>
-        internal const string RowStatusTail = " on your committed timeline";
+        /// <summary>
+        /// The longest row status (<c>cancelled Y12 D426</c> is 18) the stock row fits
+        /// next to a long title: <c>MCListItem</c> draws at most three lines, so a status
+        /// with a time of day and a "committed timeline" tail was clipped (first in-game
+        /// census, 2026-09-25). The detail panel keeps the full explanation.
+        /// </summary>
+        internal const int RowStatusMaxLength = 24;
 
         /// <summary>
         /// The label stock <c>MissionControl.AddItem</c> draws for a row passed an empty
@@ -149,6 +156,19 @@ namespace Parsek
             return decoration.Blocked && decoration.Kind == StockUiDecorationKind.ContractResolution;
         }
 
+        /// <summary>
+        /// Which of Accept / Decline / Cancel Parsek greys for the contract on show: the same
+        /// buttons the decision disables (<see cref="BlocksAccept"/>,
+        /// <see cref="BlocksAcceptAndDecline"/>, <see cref="BlocksCancel"/>). An undecorated
+        /// or unblocked decision greys none, which gives back any stock look Parsek saved.
+        /// </summary>
+        internal static void GreyedButtons(StockUiDecoration decoration, out bool accept, out bool decline, out bool cancel)
+        {
+            accept = BlocksAccept(decoration);
+            decline = BlocksAcceptAndDecline(decoration);
+            cancel = BlocksCancel(decoration);
+        }
+
         /// <summary>The detail-panel heading naming the buttons a decision greys out.</summary>
         internal static string DetailHeadingFor(StockUiDecorationKind kind)
         {
@@ -161,15 +181,66 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The row status: the reservation title with a lower-case first letter plus
-        /// <see cref="RowStatusTail"/>, e.g. <c>accepted on Y2, D114 on your committed timeline</c>
-        /// or <c>completes on Y2, D114 on your committed timeline</c>.
+        /// The row status: the Timeline verb and a date-only compact date, e.g.
+        /// <c>accepted Y1 D3</c> or <c>completes Y2 D114</c>. The verb is the reservation
+        /// title's first word (<see cref="ReservationExplanation"/>: Accepted / Completes /
+        /// Fails / Cancelled), lower-cased. The date is <paramref name="formatRowDate"/> of
+        /// the decoration's UT (production: <see cref="MissionControlStockUi.RowDateFormatter"/>,
+        /// stock's date without the time of day), else the title's own date.
         /// </summary>
-        internal static string RowStatus(string reservationTitle)
+        internal static string RowStatus(StockUiDecoration decoration, Func<double, string> formatRowDate)
         {
-            if (string.IsNullOrEmpty(reservationTitle))
-                return "accepted" + RowStatusTail;
-            return char.ToLowerInvariant(reservationTitle[0]) + reservationTitle.Substring(1) + RowStatusTail;
+            string verb = RowVerb(decoration);
+            string date = null;
+            if (formatRowDate != null && !double.IsNaN(decoration.UT) && !double.IsInfinity(decoration.UT))
+                date = formatRowDate(decoration.UT);
+            if (string.IsNullOrEmpty(date))
+                date = TitleDate(decoration.Title);
+            return string.IsNullOrEmpty(date) ? verb : verb + " " + date.Trim();
+        }
+
+        /// <summary>The lower-case verb of a row status: the title's words before " on ",
+        /// else the kind's own verb.</summary>
+        internal static string RowVerb(StockUiDecoration decoration)
+        {
+            string title = decoration.Title;
+            if (!string.IsNullOrEmpty(title))
+            {
+                int at = title.IndexOf(" on ", StringComparison.Ordinal);
+                string head = at > 0 ? title.Substring(0, at) : title;
+                if (head.Length > 0)
+                    return char.ToLowerInvariant(head[0]) + head.Substring(1);
+            }
+            return decoration.Kind == StockUiDecorationKind.ContractResolution ? "completes" : "accepted";
+        }
+
+        /// <summary>The date part of a reservation title (<c>Accepted on X</c> is <c>X</c>), or null.</summary>
+        internal static string TitleDate(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return null;
+            int at = title.IndexOf(" on ", StringComparison.Ordinal);
+            return at > 0 && at + 4 < title.Length ? title.Substring(at + 4) : null;
+        }
+
+        private static readonly Regex StockCompactDate =
+            new Regex(@"^\s*(\D*?)(\d+),\s*(\D*?)0*(\d+)\s*$", RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Stock's date-only compact date (<c>KSPUtil.PrintDateCompact(ut, false)</c>,
+        /// <c>Y1, D03</c>) in the row's shorter form, <c>Y1 D3</c>: no comma, no leading
+        /// zero on the day. The localized prefixes are kept; any other shape (a calendar
+        /// mod's formatter) is returned trimmed and unchanged.
+        /// </summary>
+        internal static string CompactRowDate(string stockDateOnly)
+        {
+            if (string.IsNullOrEmpty(stockDateOnly)) return stockDateOnly;
+            Match m = StockCompactDate.Match(stockDateOnly);
+            if (!m.Success) return stockDateOnly.Trim();
+            string day = m.Groups[4].Value;
+            int parsed;
+            if (int.TryParse(day, NumberStyles.None, CultureInfo.InvariantCulture, out parsed))
+                day = parsed.ToString(CultureInfo.InvariantCulture);
+            return m.Groups[1].Value + m.Groups[2].Value + " " + m.Groups[3].Value + day;
         }
 
         /// <summary>Removes a Parsek row status (and anything after it) from a label.</summary>
@@ -187,14 +258,15 @@ namespace Parsek
         /// appended only for a marked decoration, so an unmarked row comes back exactly
         /// as stock drew it and a relabel is idempotent.
         /// </summary>
-        internal static string ComposeRowLabel(string currentLabel, string contractTitle, StockUiDecoration decoration)
+        internal static string ComposeRowLabel(string currentLabel, string contractTitle, StockUiDecoration decoration,
+            Func<double, string> formatRowDate = null)
         {
             string baseLabel = string.IsNullOrEmpty(currentLabel)
                 ? StockDefaultLabel(contractTitle)
                 : StripRowStatus(currentLabel);
             if (!decoration.Marked)
                 return baseLabel;
-            return baseLabel + RowStatusMarker + RowStatus(decoration.Title) + "</color>";
+            return baseLabel + RowStatusMarker + RowStatus(decoration, formatRowDate) + "</color>";
         }
 
         /// <summary>True when <paramref name="label"/> carries a Parsek row status.</summary>
