@@ -7775,7 +7775,6 @@ namespace Parsek.Tests
 
         internal const string SpawnControlTargetVesselName = "Spawn Control Target";
         internal const string SpawnControlTargetRecordingId = "rsc-target-0001";
-        internal const uint SpawnControlTargetPid = 96001;
         // ~75 m north and ~105 m east of the Launch Pad (-0.0972078, -74.5576834): inside
         // Real Spawn Control's 250 m warp radius from a vessel on the pad, outside the 50 m
         // KSC pad exclusion circle, and clear of the part-showcase lines.
@@ -7802,8 +7801,10 @@ namespace Parsek.Tests
         {
             double t0 = baseUT + SpawnControlTargetStartOffsetSeconds;
             double tEnd = t0 + SpawnControlTargetDurationSeconds;
+            string id = SpawnControlTargetRecordingId;
             var b = new RecordingBuilder(SpawnControlTargetVesselName)
-                .WithRecordingId(SpawnControlTargetRecordingId)
+                .WithRecordingId(id)
+                .WithRecordedVesselGuid(ScenarioWriter.DeriveVesselLaunchGuid(id))
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
                 .WithRecordingGroup("Synthetic");
             const int pointCount = 10;
@@ -7817,11 +7818,18 @@ namespace Parsek.Tests
                 TrackSectionSource.Active, t0, tEnd, sampleRateHz: 1.0f);
             b.WithTerminalState((int)TerminalState.Landed);
             b.WithTerrainHeightAtEnd(SpawnControlTargetAlt - 2.0);
+            // Production-shaped identity: the snapshot pid and launch guid are the ones the
+            // tree record carries (VesselPersistentId is FNV-1a of the id; RecordedVesselGuid
+            // above), as on the spawn-safety siblings.
             b.WithGhostVisualSnapshot(
-                VesselSnapshotBuilder.ProbeShip(SpawnControlTargetVesselName, pid: SpawnControlTargetPid)
+                VesselSnapshotBuilder.ProbeShip(SpawnControlTargetVesselName,
+                        pid: ScenarioWriter.DeriveVesselPersistentId(id))
+                    .WithLaunchGuid(ScenarioWriter.DeriveVesselLaunchGuid(id))
                     .AsLanded(SpawnControlTargetLat, SpawnControlTargetLon, SpawnControlTargetAlt));
             b.WithVesselSnapshot(
-                VesselSnapshotBuilder.ProbeShip(SpawnControlTargetVesselName, pid: SpawnControlTargetPid)
+                VesselSnapshotBuilder.ProbeShip(SpawnControlTargetVesselName,
+                        pid: ScenarioWriter.DeriveVesselPersistentId(id))
+                    .WithLaunchGuid(ScenarioWriter.DeriveVesselLaunchGuid(id))
                     .AsLanded(SpawnControlTargetLat, SpawnControlTargetLon, SpawnControlTargetAlt));
             return b;
         }
@@ -7852,6 +7860,20 @@ namespace Parsek.Tests
             Assert.True(first > saveUT, "the ghost must start after the save clock");
             Assert.True(last - saveUT > 300.0, "EndUT must stay in the future through the lane");
             Assert.NotNull(node.GetNode("VESSEL_SNAPSHOT"));
+        }
+
+        [Fact]
+        public void SpawnControlTarget_SnapshotIdentityIsTheTreeRecordsIdentity()
+        {
+            Recording rec = MaterializeSpawnSafetyRecording(
+                SpawnControlTargetRecording(21.16), SpawnControlTargetRecordingId);
+            ConfigNode snap = rec.VesselSnapshot;
+            Assert.NotNull(snap);
+            Assert.Equal(rec.VesselPersistentId.ToString(CultureInfo.InvariantCulture),
+                snap.GetValue("persistentId"));
+            Assert.Equal(rec.RecordedVesselGuid, snap.GetValue("pid"));
+            Assert.Equal(ScenarioWriter.DeriveVesselLaunchGuid(SpawnControlTargetRecordingId),
+                RoundTripTreeRecord(rec).RecordedVesselGuid);
         }
 
         [Fact]
