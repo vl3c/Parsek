@@ -820,7 +820,7 @@ with it), the milestone list (it kept only each id's first credit, so repeat wor
 never showed; the Timeline's Milestones view shows every credit), their seven gallery
 states, and the Science-mode tab subsets.
 
-Pictures on this shape (2026-09-24 re-flights): GUI-15 `2026-09-24_1528`
+Pictures of the slots / expiry wording (2026-09-25): GUI-15 `2026-09-25_1718` (`cc-career-contracts-pendingfold-advanced`: `3 of 7 slots free (3 active, 1 reserved for later)` over `Accepted later by your recorded flights (2)`; `cc-career-contracts-closing-advanced`: `completes` / `FAILS` / `expires` / `cancelled`; `cc-career-strategies-pendingfold-advanced`: `0 of 3 slots free (2 active, 1 reserved for later)` over `Activated later by your recorded flights (1)`), GUI-5 `2026-09-25_1722_a2` (`0 of 1 slot free (1 active)` over Outsourced R&D). Earlier pictures, with the old wording (2026-09-24 re-flights): GUI-15 `2026-09-24_1528`
 `cc-career-contracts-active-advanced` (`Active now: 2 of 2 slots`, two rows),
 `cc-career-contracts-pendingfold-advanced` (the fold over the gallery's
 `career.banner.divergent` view model: `Active now: 3 of 7 slots`, `Pending in timeline (2) -

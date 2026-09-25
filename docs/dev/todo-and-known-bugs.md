@@ -1216,7 +1216,8 @@ reserves - stock counts only what is active now, and Parsek's one accept block
 (`ContractAcceptPatch`) refuses only a contract already committed later. The heading's hover
 states the ledger count without claiming stock refuses; the block itself is the stock-UI
 overlay work's planned "C2 contract slots" item, whose shared free-slot query should then
-replace `ComputeSlotUsage` here (code comment at the call site).
+replace `ComputeSlotUsage` here (code comment at the call site). Re-flown PASS: GUI-15
+`2026-09-25_1718` (adds the closing and strategies-fold mock captures), GUI-5 `_1722_a2`.
 
 Open residue:
 1. No REAL host has pending contracts or strategies, so the fold's only picture is the
