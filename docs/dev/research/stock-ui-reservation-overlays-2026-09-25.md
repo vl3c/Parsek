@@ -282,13 +282,13 @@ dated history and the timeline projection.
 | Window / tab | Keep | Remove or demote |
 |---|---|---|
 | Timeline > Career view (Contracts, Strategies, Facilities, Milestones, Tech) | all of it: dated rows, past and future | nothing |
-| Career window > Contracts | `Timeline end` column; `Pending in timeline` fold (slot pressure over time is a projection no stock screen shows) | `Active now: N of M slots`, which duplicates Mission Control. The slot explanation moves to Mission Control's Accept reason once hole #4b is blocked |
-| Career window > Strategies | `Timeline end` and the pending fold | `Activated` / `Flow` "now" columns duplicate Administration |
+| Career window > Contracts | see section 10: the whole window becomes redundant once the section 10.3 conditions hold | every column is covered by stock Mission Control, a Mission Control annotation or the Timeline's Career view |
+| Career window > Strategies | see section 10 | every column is covered by stock Administration, an Administration annotation or the Timeline's Career view |
 | Kerbals window > Roster | status plus the `Reserved until` hover, as the full roster reference | once the VAB crew dialog shows reserved kerbals marked, Basic mode loses its reason to show this window. Consider moving it back to Advanced (reverses the 2026-09-22 re-ruling; `design-ui-basic-advanced.md` section 3) |
 | Kerbals window > Outcomes | all of it (history) | nothing |
 
 Net effect:
-- The Career window becomes a pure "timeline projection" view, which is Advanced-only already.
+- The Career window can be retired once the overlays are complete (section 10).
 - The Kerbals window becomes a reference rather than the only explanation.
 - No career fact is lost, because every removed "now" value is exactly what the stock screen already shows.
 
@@ -327,6 +327,8 @@ Each step is one PR and a pairing of mark and block.
 4. **Strategies:** a committed-future strategy predicate plus the `CanBeActivated` / `CanBeDeactivated` postfix (section 3.2). This closes hole #1.
    Correct or delete the design-doc claim.
 5. **Contract slots:** a committed-slot predicate, blocking Accept with the reason (hole #4b).
+5b. **Mission Control Decline / Cancel and Active-row annotations, plus the strategy state patch** (section 10.2).
+   Then **retire the Career window** in one PR (section 10.3).
 6. **KSC facility menu** (section 3.6). Extend the currency tooltip to the EDITOR (section 3.8).
 7. **Only if wanted:** a part-purchase block plus the `PartListTooltip` annotation (hole #2).
 8. **Separately, as bugs:** facility repair double charge (#3c) and the EVA / transfer reservation path (#8b).
@@ -344,6 +346,76 @@ Each step is one PR and a pairing of mark and block.
 - **D5.** The same ledger-side option for strategies and facility repairs: make the duplicate action harmless in the walk
   (earliest wins, no double charge) instead of blocking it. For every kind where that is possible, it removes the need for
   both a block AND an explanation. That is the cheapest way to answer "why is this blocked": it is not blocked.
+
+- **D6.** Retire the Career window once the section 10.3 conditions hold. Decide separately whether Decline and Cancel on a
+  contract the committed future accepts or resolves are BLOCKED or only annotated (section 10.2).
+
+## 10. Is the Career window redundant once the overlays are done?
+
+**Short answer: yes.** Its contracts and strategies tabs become redundant, but only after four conditions are met (section 10.3). Two of those conditions are
+defects or holes that the window currently papers over, not features that the overlays would need to copy.
+
+What the window is today: `UI/CareerStateWindowUI.cs`, PR #1796 (2026-09-24), inventory section 3.5.
+- It is read-only and hidden in Basic mode.
+- Its launcher appears in Career games only, in the KSC and FLIGHT scenes.
+- It has two tabs, Contracts and Strategies. Each tab has:
+  - a heading, `Active now: N of M slots`
+  - a table of what is active now
+  - a `Pending in timeline (n) - N of M slots at timeline end` fold listing what the recorded future adds
+  - a `Timeline end` column saying what the recorded future does to each row
+- Its only interaction is the name-cell link into the Timeline's Career view.
+
+### 10.1 Element-by-element coverage
+
+The "stock" column below was checked against the 1.12.5 decompile (`MissionControl`, `Administration`, `Strategies.Strategy`).
+
+| Career window element | Stock screen today | With the section 3 annotations | Timeline Career view |
+|---|---|---|---|
+| Contracts heading `Active now: 2 of 3 slots` | **yes**: `MissionControl.textMCStats` prints the active count and limit (`#autoLOC_468173`), orange when full | the Accept reason names a slot held for a committed flight (hole #4b) | no |
+| its hover `Slot limit from Mission Control L1` | implicit: the limit follows the building level | n/a | Facilities view dates the upgrade |
+| Active contract rows (name) | **yes**: Mission Control Active tab | n/a | accept rows |
+| `Accepted` date | no | no | **yes**: dated accept row |
+| `Deadline` + `(in 12d)` / `(overdue 3d)` | **yes**: detail panel, `PrintDate` / `PrintDateDeltaCompact` on `DateDeadline` | n/a | no |
+| `Timeline end` on an ACTIVE contract (`completes` / `FAILS` / `cancelled <date>`) | no | **new annotation needed**: Mission Control Active-tab row + detail text, `Completed on Y1 D40 by the committed flight 'X'` / `Fails on Y1 D40 ...` (todo #640's future-completed / future-failed badges) | **yes**: dated complete / fail / cancel rows (future rows dimmed) |
+| Pending fold: contracts the future accepts | only if still Offered | the existing future-accept mark on Offered rows; paired with the accept block | **yes**, including contracts no longer offered (plan E9: not offered, so nothing on the stock screen to mark) |
+| `N of M slots at timeline end` | no | not needed: the blocking question is peak concurrent slots before each future accept, not the end count, and it belongs on the Accept reason (#4b) | no |
+| Strategies heading `Active now: N of M` | **yes**: `Administration.activeStratCount` (`#autoLOC_439627`) | the `CanBeActivated` reason names a slot held for the future | no |
+| `Activated` date | no (stock keeps `Strategy.DateActivated` but does not show it) | no | **yes**: dated activate row |
+| `Flow` | **yes**: the strategy's effect and commitment are in the Administration description | n/a | no |
+| `Timeline end` on an active strategy (`deactivates <date>`) | no | `CanBeDeactivated` reason plus description text, `Deactivated on Y2 D114 on your committed timeline` | **yes** |
+| Pending fold: strategies the future activates | no | the `CanBeActivated` reason on that strategy (section 3.2) | **yes** |
+| Mode banner `(timeline ends <date>)` | no | n/a | **yes**: the future rows after the "now" divider |
+| Name cell link into the Timeline | n/a | n/a | the Timeline's own category buttons |
+| Available in FLIGHT | stock Mission Control and Administration are KSC-only | n/a | **yes**: the Timeline opens in flight. No contract or strategy decision is taken in flight, so nothing is lost for the "why is this blocked" question |
+
+Every row is covered by at least one surface. **What is genuinely lost** is the one-screen roll-up: "which contracts or strategies are active now, and what does my committed future do to each". Today that takes a Mission Control visit plus the Timeline's Contracts view, and after section 10.3 it is a Mission Control visit with annotated rows. That roll-up is a planning convenience, and the window is already hidden from Basic players, so they never had it.
+
+### 10.2 What the window was covering up
+
+1. **The Strategies tab shows state that stock does not have.**
+   - The tab reads the ledger (`EffectiveState.ComputeELS()`).
+   - No production code ever writes the ledger's strategy state back into stock's `StrategySystem`.
+   - After a rewind, a committed future activation is listed under the fold and charged in the ledger, but the stock strategy is never switched on (section 4, hole #1).
+   - Retiring the window without fixing that would hide the divergence rather than solve it. The fix belongs in `KspStatePatcher`, so that stock Administration becomes the truth for "active now", the same way `PatchContracts` already makes Mission Control the truth for contracts.
+2. **Mission Control's Decline and Cancel have no reasons and no blocks.** Stock has `btnDecline` and `btnCancel`. Neither is blocked for a contract the committed future relies on.
+   - **Declining an offer the future accepts** is silently overridden: the committed accept is restored at its UT. Today the row carries the accept mark, but Decline stays live. That breaks the #721 invariant: a marked row has a clickable affordance with no block.
+   - **Cancelling an active contract the future completes** makes the future completion `Effective=false` (earliest wins). The committed flight's reward is silently withdrawn.
+   - Both are paradox-adjacent in exactly the owner's sense: the append-only timeline says the committed accept or completion happened. Each needs either a block with the section 5 reason, or at least the annotation. Only the Career window's `Timeline end` column hints at this today, and only for players who open it.
+
+### 10.3 Conditions for retiring the window
+
+1. **Mission Control:**
+   - Offered rows the future accepts: mark and reason, with both Accept and Decline blocked (10.2 item 2).
+   - Active rows the future completes, fails or cancels: annotated, with Cancel blocked or annotated per the owner's choice (D6).
+   - A slot held for a committed accept: shown as the Accept reason (hole #4b).
+   - All of this must survive tab switches and Contract Configurator (section 1.1 items 3-4).
+2. **Administration:**
+   - `CanBeActivated` / `CanBeDeactivated` return reasons for future activations, deactivations and held slots (section 3.2).
+   - The ledger's strategy state is patched into stock `StrategySystem` (10.2 item 1).
+3. **The Timeline's Career view stays as it is:** dated past and future rows for Contracts and Strategies. It is the history-and-schedule surface that absorbs the `Accepted`, `Activated`, pending and `Timeline end` information. No change is needed there.
+4. **Retire in one PR, after 1 and 2 have shipped.** Remove the window, its launcher, the `career` census vocabulary (`op=tab window=career`, `pending:` keys), the GUI-1 / GUI-5 / GUI-8 / GUI-14 / GUI-15 captures, the gallery states in `UI/Gallery/GuiMockCareerStates.cs`, the `UiSurface` gate key, and the inventory and Basic/Advanced rows. Note the `CommittedBatchTallySourceSyncTests` trap for any in-game tests in its categories.
+
+Retiring the window early, before 1 and 2, would leave Advanced players with the Timeline alone. That is still a complete record of events, but it has no "active now" roll-up and no in-place explanation, which is exactly the owner's "wrong place" problem.
 
 ## Sources
 
