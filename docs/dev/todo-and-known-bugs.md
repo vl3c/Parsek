@@ -34,6 +34,55 @@ the route built from it - the supply-route hand-off). Also measured on the same 
 NOT claimed: the drill tree's synthetic `m2-drill-delivery` window lets
 `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` pass on this host (41 / 6 against
 H38's 39 / 8); that is a shape check over a synthetic window, not a recorded dock capture.
+## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
+
+**Evidence.** The Astronaut Complex shows Jebediah as `Reserved` with the hover text `Flies
+'Jumping Flea' on your committed timeline. ... Free once 'Jumping Flea' is recovered.` (KSP.log
+`record label=stk-ac-ksc ... item=Jebediah Kerman kind=KerbalOnFlight ... why="... Free once 'Jumping
+Flea' is recovered."`), and the VAB crew dialog greys him for the same reason, yet the base career
+recovered him at UT 348.08. The base ledger
+(`Source/Parsek.Tests/Fixtures/C2CareerPostFix/Parsek/GameState/ledger.pgld`) has, for the Jumping Flea
+recording `5436a7e8840b4c5885afcbaedc9dc037`, a `KerbalAssignment` row with `endState = 0` (Aboard,
+`endUT = 347.92`) and a `KerbalExperience` row whose career entries end in `Recover`, but NO
+`KerbalRecovered` (type 34) row: the career was harvested before crewed recoveries wrote one, so the
+reservation walk sees an Aboard end with no closing recovery and holds him open-ended. Every fixture
+derived from it inherits the row set: `career-earned-pad` and `career-earned-ksc` (both carry that
+recording id) and GUI-28's `stock-screen-census`.
+
+**Options.** (1) Re-harvest the base career from a current build (fly the Jumping Flea recovery again
+so the capture writes the `KerbalRecovered` row), then re-run the derived-fixture builders
+(`harness/tools/build_career_earned_pad.py` and siblings; `test_career_earned_pad.py` asserts
+byte-identity with the base, so they must move together) and re-pin whatever reads Jeb's state. (2)
+Leave the fixtures and document that Jeb reads held on them. No migration or load-time repair of old
+ledgers: the recording schema policy (CLAUDE.md, "Recording schema") is one current contract, and a
+missing capture row is not something load code should synthesize.
+
+## STAND-INS-EXCEED-THE-CREW-LIMIT: a generated stand-in counts against stock's active-crew limit, so a hold can push the Astronaut Complex over its cap [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F9); OPEN, design decision needed]
+
+**Evidence.** `stk-ac-ksc.png` shows `Active Kerbals: 6 [Max: 5]` at Astronaut Complex level 1. The
+roster is Jebediah, Bill, Bob, Valentina plus two stand-ins: Debwig (Jeb's, already in the base) and
+Leoly, generated when the census fixture's synthetic Bill flight put Bill on hold (KSP.log
+`[KerbalsModule] Stand-in generated: 'Leoly Kerman' (Engineer) for slot 'Bill Kerman' depth 0`). Stock
+`KerbalRoster.GetActiveCrewCount` (decompiled, KSP 1.12.5) counts every Crew-type kerbal whose status is
+Assigned, Available or Missing, and a stand-in is an ordinary Crew kerbal
+(`KerbalsModule.KerbalRosterFacade.TryCreateGeneratedStandIn` -> `roster.GetNewKerbal(Crew)`), created in
+`ApplyToRoster`'s chain pass with no limit check. The held owner stays in the roster too, so each hold
+with a stand-in counts two kerbals for one seat. Effects: stock locks every applicant with its own
+crew-limit reason (`AstronautComplex.UpdateCrewCounts`), the next hire costs more
+(`GetRecruitHireCost(GetActiveCrewCount())`), and the editor's auto-hire refuses on the same count.
+
+**Not a one-line fix.** The generation site is inside the chain pass and the stand-in's existence is
+what keeps the owner's seat usable, so refusing to generate at the limit leaves a hold with no
+replacement.
+
+**Proposed fix (needs a ruling).** (a) A postfix on `KerbalRoster.GetActiveCrewCount` that subtracts
+one per slot whose owner is reserved now and whose ACTIVE stand-in is in the roster
+(`KerbalsModule.FindActiveStandInOwner`), so a hold plus its stand-in count as the one seat they are;
+the Astronaut Complex would read `5 [Max: 5]`, the hire limit and hire cost stay what they were before
+the hold, and a retired or displaced stand-in still counts. Needs an in-game cell (the count is read
+by the complex header, the hire lock, the hire cost and the editor auto-hire). (b) Refuse generation at
+the limit and log it (the seat then has no replacement). (c) Accept and document. Recommendation: (a).
+
 ## MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`]
 
 `Mission.Clone` copies `LoopPlayback` (with the period, unit and anchor) and
@@ -549,6 +598,34 @@ every annotated screen drew; the findings below are what the screenshots showed.
 - The loop hold is released by turning the loop off only for a Recovered end.
 - The CC Mission Control bypass is code-read only: it needs a live Mission Control with CC
   installed.
+
+**First real-game census (GUI-28, run `2026-09-25_2055`), findings fixed on branch
+`stock-ui-fixes-b`:**
+- F2: a future-hire applicant's "Hired on <date>" went to `CrewListItem.label`, which the
+  applicant prefab hides (stock's own "For Hire" never shows either). The status now goes to the
+  row's trait line when the status line is not shown (applicant rows only,
+  `StockUiAstronautDecoration.ChooseStatusSurface`), restored when the hire is no longer ahead.
+- F3: an active stand-in recorded `kind=None marked=false why=""` while its row drew the dismissal
+  lock. New kind `KerbalStandIn` with the row label `Stand-in for <owner>`
+  (`KerbalsModule.FindActiveStandInOwner`); the record's blocked flag and why come from the same
+  `KerbalDismissalPatch.DescribeDismissalRefusal` the dismiss block uses (context
+  `DismissalRefusal` replaces the boolean `DismissalBlocked`), so every dismissal-blocked row now
+  carries the drawn refusal as its why.
+- F1 (Administration): stock's `UIStateButton.Enable(false)` only sets `interactable`; the
+  accept / cancel states have no distinct disabled picture, so stock's own refusals look enabled
+  too. While a Parsek refusal disables it the button's image is tinted with its own
+  `ColorBlock.disabledColor` (half alpha when that is neutral) and the exact stock colour comes back
+  on an unblocked selection (`StockUiAdministrationDecoration`, re-derived in `SetSelectedStrategy`
+  and `UpdateStrategyStats` postfixes).
+- F7 (ruling 2026-09-25): stock-first precedence. The `CanBeActivated` postfix, the Cancel
+  refusal, the click backstop and the pairing cells apply Parsek's refusal only when stock's own
+  `CanBeActivated` / `CanBeDeactivated` allows; otherwise stock's result and reason stand. Still
+  present on `main` after PR #1836 (that PR only added the expiry gate).
+- F8 and F9 are filed separately: `C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED`,
+  `STAND-INS-EXCEED-THE-CREW-LIMIT`.
+- The census lane's `record` / `control` lines live on the unmerged census branch; its
+  Administration records call `StrategyReservationGate.TryRefuseActivation(id, out text)`, which now
+  reads stock's verdict itself, so they follow the precedence without a change there.
 
 ---
 

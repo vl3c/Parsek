@@ -406,6 +406,47 @@ namespace Parsek.Tests
         // ── Query methods ──
 
         [Fact]
+        public void FindActiveStandInOwner_OnlyTheActiveOccupantOfAnotherKerbalsSlot()
+        {
+            // Jeb -> Hanley (active, Jeb is reserved) -> Kirrim (displaced).
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotNode = parent.AddNode("KERBAL_SLOTS").AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            slotNode.AddNode("CHAIN_ENTRY").AddValue("name", "Hanley");
+            slotNode.AddNode("CHAIN_ENTRY").AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+            RecordingStore.AddRecordingWithTreeForTesting(MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 2000));
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.Equal("Jeb", kerbals.FindActiveStandInOwner("Hanley"));
+            Assert.Null(kerbals.FindActiveStandInOwner("Kirrim"));
+            Assert.Null(kerbals.FindActiveStandInOwner("Jeb"));
+            Assert.Null(kerbals.FindActiveStandInOwner("Bob"));
+            Assert.Null(kerbals.FindActiveStandInOwner(null));
+        }
+
+        [Fact]
+        public void FindActiveStandInOwner_OwnerFreeAgain_NoOneStandsIn()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotNode = parent.AddNode("KERBAL_SLOTS").AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            slotNode.AddNode("CHAIN_ENTRY").AddValue("name", "Hanley");
+            module.LoadSlots(parent);
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.Equal("Jeb", kerbals.GetActiveOccupant("Jeb"));
+            Assert.Null(kerbals.FindActiveStandInOwner("Hanley"));
+        }
+
+        [Fact]
         public void GetActiveOccupant_OwnerFree_ReturnsOwner()
         {
             var kerbals = new KerbalsModule();

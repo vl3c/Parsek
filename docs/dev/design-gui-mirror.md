@@ -22,7 +22,8 @@ is counted separately in `gui-mirror-index.json`. Sections 15 and 16 own the oth
 two halves of the review loop - the notes the owner's feedback comes back
 through, and the one-window focus link the round is scoped by - and section 17
 owns the three mechanical rules that stop a stale, an empty-hover or a
-mislabelled capture reading as coverage.
+mislabelled capture reading as coverage. Section 18 owns the stock screens: photographs of
+stock KSP screens, shown as taken, beside the decorations Parsek logged for them.
 
 ## 1. Generated, not written
 
@@ -1103,3 +1104,119 @@ from 2026-09-25_1838 on no `from - to` line draws above the From / To sliders. I
 Real Spawn Control and Structure boundaries are the tables: from those runs on the
 pinned header row sits inside the same dark box as the rows, Spawn Control's header
 carries a `Warp` cell, and body text starts at the header text's x.
+
+## 18. Stock screens
+
+Parsek annotates and blocks STOCK KSP controls (owner ruling D1, 2026-09-25;
+plan `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md`): the R&D
+tree, Mission Control, the Administration building, the Astronaut Complex, the
+crew dialog, the launch-site picker, the facility menu and the part tooltips.
+Those screens are uGUI, so no control-tree dump can see them, and the owner's
+ruling for the mirror is SCREENSHOTS FIRST: a stock screen is shown as the frame
+the census took, never redrawn.
+
+**Which captures.** A capture is a stock-screen capture when its label is
+`stk-<screen>[-<state>]` (the stock-screen census lane's grammar, e.g.
+`stk-rnd-node-hover`, `stk-mc-available-detail`, `stk-crewdialog`), or when its
+dump holds no Parsek window at all - every root another mod's, no standing dialog
+reported and no open window named by the seam (`is_stock_capture`; on the
+2026-09-25 corpus of 520 captures, none qualifies by that second arm). The lane
+may photograph without dumping, so a `stk-*.png` with no `.gui.json` beside it is
+a capture too; its time is the PNG's own modification time, since there is no
+dump to carry one.
+
+**Filing.** The screen is the label's second token, the state the rest, and the
+window token is `stk-<screen>` so a stock screen can never share a token with a
+Parsek window. There is no tab and no mode. The rail lists Parsek's windows first
+and then the stock screens under their own `Stock screens` heading, one group per
+screen, named by the label token; the Parsek heading's counts leave the stock
+captures out. Every mirror rule still applies, because the captures are ordinary
+entries in the model: superseded / retired flags, the stale banner, the notes box,
+Compare pairing by key, deep links. Three rules are switched off for them, each
+for a stated reason: the hover-not-captured rule (it reads IMGUI's `GUI.tooltip`,
+which says nothing about a uGUI screen, and with no tree every stock frame would be
+every other's "twin"); the foreign-root classifier (a stock frame has no Parsek
+window to judge against); and the default-dataset contest and the repo-record
+notes (both are about Parsek's own windows). A stock-screen lane therefore leaves
+every Parsek capture byte-identical in the model
+(`test_the_parsek_captures_are_untouched_by_a_stock_lane`).
+
+**The stage** is the whole PNG at its own pixel size in a scrolling box, with a
+`fit to width` toggle; the photo modes do not apply. The photograph is never
+subsampled by the size budget (the ladder may still raise its colour floor), so a
+page carrying many 1920x1080 stock frames needs a larger `--budget-mb`. In
+Compare, BEFORE and AFTER are the two photographs at the pane width, each with its
+decoration panel, and the measured line says whether the frames are
+byte-identical and how the decoration rows and pairing problems moved. `changed`
+for a stock key is "the PNG bytes or the decoration rows differ".
+
+**The decoration panel** sits beside the photograph and lists what Parsek
+decorated on that screen, read from the run's `KSP.log` (`parse_stock_log`,
+`stock_decoration`). Every row is a log line; nothing is inferred from the
+picture. The lines read, all under the `[StockUiOverlay]` tag:
+
+* The stock census lane's (GUI-28) per-capture lines, logged after each
+  `capturescreenshot ok label=<label>` and keyed by their own `label=`, so their
+  position does not matter. When a capture has any `record` line, those lines are
+  its whole panel:
+  * `record label=<label> screen=<S> tab=<T> items=N marked=M blocked=B` - a
+    per-tab summary; one capture can carry several screens (a part tooltip over
+    the R&D tree records `RnD` and `PartTooltip`), and every row then says which.
+  * `record label=<label> screen=<S> tab=<T> item=<id> kind=<K> marked=<b>
+    blocked=<b> why="..."` - one decorated item (`id=` is read the same way).
+  * `record label=<label> screens=none` - the lane asked and no screen was
+    decorated (the KSC scene, the editor with no dialog open).
+  * `control label=<label> screen=<S> name=<button> state=<s> interactable=<b>
+    visible=<b>` - one stock button's own state read off the live uGUI. These go
+    in a second table under the decorations (button, state, interactable,
+    visible; invisible rows dimmed), whichever source the decorations came from.
+    The table reports, it does not judge: a blocked button that stock draws
+    without a disabled look is an overlay finding the photograph shows.
+* `decorate screen=<S> tab=<T> items=N marked=M blocked=B` (Info) - one pass's
+  per-tab summary. A pass prints one per tab on ADJACENT lines; a summary that is
+  not adjacent, or repeats a tab, starts the next pass.
+* `decorate screen=<S> tab=<T> item=<id> kind=<K> marked=<b> blocked=<b>
+  why="..."` (Verbose) - one marked or blocked item of the current pass.
+* `decorate screen=<S> kind=ContractSlot blocked=N marked=0 why="..."` - the
+  slot-refusal aggregate; one row standing for N items.
+* `decorate screen=FacilityMenu facility=<id> marked=<b> blocked=<b>` (Info), and
+  its Verbose partner `facility=<id> (<reason>) why="..."` or `... unmarked:
+  <sentence>`, whose why or sentence becomes that item's why. Each Info line is a
+  pass of its own (the menu shows one building).
+
+A value runs to the next known key, not to the next space, because an id can hold
+spaces (a kerbal's name); `why="..."` is cut out by position first. Without
+`record` lines, the panel falls back to the NEAREST pass for the capture's screen
+that started before the `capturescreenshot ok label=<label>` line, with the item
+lines it had logged by then (a line logged after the capture is not part of what
+it photographed). The label token is matched to the log's screen name without a
+table (`stock_screen_matches`): the squashed name (`rnd` / `RnD`), its leading
+part (`facility` / `FacilityMenu`), its CamelCase initials (`mc` /
+`MissionControl`, `ac` / `AstronautComplex`), or the token starting with the
+name's first word (`crewdialog` / `CrewAssignment`). With neither a record nor a
+matching pass, the panel says `no decoration lines logged for this screen` and
+names the screens the run did log, rather than guessing.
+
+**Pairing.** Each row carries a verdict by the pairing rule: marked and blocked
+is `paired`, neither is `stock`, a mark alone is `marked, not blocked` and a block
+alone is `blocked, not marked` - both PROBLEMS, which lead the table in red, are
+counted on the panel and badge the capture's rail row and its screen's rail row.
+Two exemptions, typed as `StockUiDecorationKind` member names and held to the C#
+enum by a source-sync cell: the INFORMATIONAL kinds (`KerbalRetire`, `KerbalLost`,
+`KerbalRetiredStandIn` - marks no stock button acts on) may be marked without a
+block, and the BLOCK-ONLY kind (`ContractSlot` - the slot refusal has no per-row
+mark by design) may be blocked without a mark. Each exemption covers its own
+direction only. A summary that counts marked or blocked items with no item line
+beside it says so (the item lines are Verbose).
+
+**The first run** (GUI-28 2026-09-25_2055, 25 frames at 1920x1080): every capture
+has `record` lines, 23 with decorations and 2 `screens=none`; all 25 have a
+panel. The one pairing problem it shows is real, not a parse artifact: the
+Astronaut Complex records the active stand-ins (Debwig, Leoly) as `kind=None
+marked=false blocked=true` - their Dismiss is refused (with its own stock button
+caption, logged separately) while the decoration query carries no mark or why
+for them - on all five AC captures and `stk-ac-editor`. The 25 frames add about
+11.6 MB of base64 at the ladder's first step (photo payload 34.3 -> 46.0 MB, which
+needs a budget of at least 74 MB to stay on that step), so the gen23 page runs at
+`--budget-mb 80` and comes to 61.3 MB, every Parsek capture byte-identical to
+gen22's.
