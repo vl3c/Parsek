@@ -176,7 +176,24 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # refuses a target save at another UT.
                                         # No RP. Consumer:
                                         # EX-2-single-point-held-ghost.
-                                        "single-point-hold")
+                                        "single-point-hold",
+                                        # spawn-safety: TWO committed
+                                        # single-recording trees on
+                                        # eva2-lko-crewed, both ending
+                                        # inside the lane's first rails
+                                        # warp: a Landed recording whose
+                                        # terminal snapshot still says
+                                        # FLYING (the #169 situation
+                                        # correction) on KSC grass outside
+                                        # the exclusion circles, and an
+                                        # Orbiting one whose terminal orbit
+                                        # has a 60 km periapsis (the
+                                        # terminal-orbit spawn deferral).
+                                        # `--filter InjectSpawnSafety`; the
+                                        # injector refuses a target save at
+                                        # another UT. No RP. Consumer:
+                                        # SS-1-spawn-safety-corrections.
+                                        "spawn-safety")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")

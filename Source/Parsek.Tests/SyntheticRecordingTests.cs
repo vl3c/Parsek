@@ -7365,6 +7365,412 @@ namespace Parsek.Tests
             }
         }
 
+        // ---------------------------------------------------------------------------------
+        // spawn-safety preset (SS-1-spawn-safety-corrections): two committed single-recording
+        // trees on the same eva2-lko-crewed host EX-2 uses, each driving one D13 spawn-safety
+        // path end to end in a flight scene. Both recordings start at the save UT, end inside
+        // the lane's first rails warp (so both spawns are warp-deferred), and sit far from the
+        // focused Kerbal X, the Kerbal X Probe and the KSC exclusion circles.
+        // ---------------------------------------------------------------------------------
+
+        /// <summary>Body radius and gravitational parameter of stock Kerbin.</summary>
+        internal const double SpawnSafetyKerbinRadius = 600000.0;
+        internal const double SpawnSafetyKerbinMu = 3.5316e12;
+
+        /// <summary>
+        /// The Landed recording's rest position: KSC grassland about 2.9 km west of the pad and
+        /// 1.2 km from the runway's west threshold, so neither 50 m KSC exclusion circle (#1783
+        /// retirement) contains it. The rover fixtures park on the same grass at about 66 m
+        /// (<c>rover-relay-recorded</c>'s rovers read 65.95 m at lon -74.82 / -74.80);
+        /// <c>VesselSpawner.ClampAltitudeForLanded</c> lifts the spawn if the PQS surface here
+        /// is higher.
+        /// </summary>
+        internal const double SituationCorrectionLat = -0.1000;
+        internal const double SituationCorrectionLon = -74.8300;
+        internal const double SituationCorrectionAlt = 66.0;
+        internal const string SituationCorrectionVesselName = "Situation Hopper";
+        internal const string SituationCorrectionRecordingId = "situation-correction-rec";
+
+        /// <summary>Seconds from the save UT to the Landed recording's EndUT.</summary>
+        internal const double SituationCorrectionWindowSeconds = 100.0;
+
+        /// <summary>
+        /// The Orbiting recording's terminal orbit: periapsis 60 km, apoapsis 150 km over
+        /// Kerbin (atmosphere 70 km, so the terminal-orbit spawn safe altitude is 75 km with
+        /// the 5 km <c>TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters</c>), near
+        /// equatorial. Periapsis passage is <see cref="TerminalOrbitPeriapsisLeadSeconds"/>
+        /// after the save UT; the orbit is under 75 km from about +50 s to about +550 s.
+        /// argPe is placed so the vessel stays on the far side of Kerbin from the focused
+        /// Kerbal X for the whole lane (174 degrees apart at the save UT).
+        /// </summary>
+        internal const double TerminalOrbitSma = 705000.0;
+        internal const double TerminalOrbitEcc = 0.06382978723404255;
+        internal const double TerminalOrbitInc = 0.1;
+        internal const double TerminalOrbitLan = 0.0;
+        internal const double TerminalOrbitArgPe = 303.32825538401545;
+        internal const double TerminalOrbitMnaAtSaveUT = 5.330776652375797;
+        internal const double TerminalOrbitPeriapsisLeadSeconds = 300.0;
+
+        /// <summary>
+        /// The recording's single flat point: where the orbit puts the vessel at the save
+        /// UT, in Kerbin body-fixed coordinates. Derived from the Kerbal X Probe's saved
+        /// position and ORBIT node on the same host (its element-frame longitude minus its
+        /// body-fixed longitude is the frame offset at the save UT), so it is the ghost's
+        /// first pose, not a physics-exact state; the spawn never reads it (an Orbiting
+        /// terminal spawns from the recorded terminal orbit).
+        /// </summary>
+        internal const double TerminalOrbitPointLat = -0.0887;
+        internal const double TerminalOrbitPointLon = 145.4877;
+        internal const double TerminalOrbitPointAlt = 80926.8;
+        internal const string TerminalOrbitVesselName = "Low Perigee Probe";
+        internal const string TerminalOrbitRecordingId = "terminal-orbit-safety-rec";
+
+        /// <summary>Seconds from the save UT to the Orbiting recording's EndUT (alt about 68 km).</summary>
+        internal const double TerminalOrbitWindowSeconds = 120.0;
+
+        /// <summary>
+        /// The two absolute <c>WarpToUT</c> targets SS-1 pins. The first warp crosses both
+        /// EndUTs (so both spawns are warp-deferred) and stops at about periapsis, with the
+        /// terminal orbit under the safe altitude; the second crosses the orbit's next safe
+        /// UT, where the deferred spawn re-evaluates.
+        /// </summary>
+        internal const double SpawnSafetyFirstWarpUT = 715.0;
+        internal const double SpawnSafetySecondWarpUT = 1040.0;
+
+        /// <summary>
+        /// Game seconds before a <c>WarpToUT</c> target at which the rails rate is back at
+        /// index 0 (stock's lowest non-1x rung, 5x, needs 2.5 real seconds before the target:
+        /// <c>TestCommandWarpToUT.MinRealSecondsAtRate</c>). The first 1x frame, where the
+        /// deferred queue flushes, is inside this span before the target.
+        /// </summary>
+        internal const double SpawnSafetyWarpRampDownSeconds = 12.5;
+
+        internal static RecordingBuilder SpawnSafetySituationCorrection(double baseUT)
+        {
+            string id = SituationCorrectionRecordingId;
+            var b = new RecordingBuilder(SituationCorrectionVesselName)
+                .WithRecordingId(id)
+                .WithRecordedVesselGuid(ScenarioWriter.DeriveVesselLaunchGuid(id));
+            // A short settling hop onto the grass, ending at rest on the snapshot position.
+            b.AddPoint(baseUT, SituationCorrectionLat, SituationCorrectionLon, SituationCorrectionAlt + 25.0);
+            b.AddPoint(baseUT + SituationCorrectionWindowSeconds * 0.5,
+                SituationCorrectionLat, SituationCorrectionLon, SituationCorrectionAlt + 8.0);
+            b.AddPoint(baseUT + SituationCorrectionWindowSeconds,
+                SituationCorrectionLat, SituationCorrectionLon, SituationCorrectionAlt);
+            b.WithTerminalState((int)TerminalState.Landed);
+            // The #169 shape: the terminal snapshot still says FLYING (landed = False) at the
+            // rest position. Snapshot pid and launch guid are the ones the tree record
+            // carries (VesselPersistentId is FNV-1a of the id; RecordedVesselGuid above).
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.ProbeShip(SituationCorrectionVesselName,
+                        pid: ScenarioWriter.DeriveVesselPersistentId(id))
+                    .WithLaunchGuid(ScenarioWriter.DeriveVesselLaunchGuid(id))
+                    .AsFlyingAtSurface(SituationCorrectionLat, SituationCorrectionLon,
+                        SituationCorrectionAlt));
+            return b;
+        }
+
+        internal static RecordingBuilder SpawnSafetyTerminalOrbit(double baseUT)
+        {
+            string id = TerminalOrbitRecordingId;
+            var b = new RecordingBuilder(TerminalOrbitVesselName)
+                .WithRecordingId(id)
+                .WithRecordedVesselGuid(ScenarioWriter.DeriveVesselLaunchGuid(id));
+            b.AddPoint(baseUT, TerminalOrbitPointLat, TerminalOrbitPointLon, TerminalOrbitPointAlt);
+            b.AddOrbitSegment(baseUT, baseUT + TerminalOrbitWindowSeconds,
+                inc: TerminalOrbitInc, ecc: TerminalOrbitEcc, sma: TerminalOrbitSma,
+                lan: TerminalOrbitLan, argPe: TerminalOrbitArgPe,
+                mna: TerminalOrbitMnaAtSaveUT, epoch: SinglePointHoldSaveUT);
+            b.WithTerminalState((int)TerminalState.Orbiting);
+            b.WithTerminalOrbit("Kerbin", TerminalOrbitSma, TerminalOrbitEcc, TerminalOrbitInc,
+                TerminalOrbitLan, TerminalOrbitArgPe, TerminalOrbitMnaAtSaveUT, SinglePointHoldSaveUT);
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.ProbeShip(TerminalOrbitVesselName,
+                        pid: ScenarioWriter.DeriveVesselPersistentId(id))
+                    .WithLaunchGuid(ScenarioWriter.DeriveVesselLaunchGuid(id))
+                    .AsOrbiting(TerminalOrbitSma, TerminalOrbitEcc, TerminalOrbitInc,
+                        lan: TerminalOrbitLan, argPe: TerminalOrbitArgPe,
+                        mna: TerminalOrbitMnaAtSaveUT, epoch: SinglePointHoldSaveUT));
+            return b;
+        }
+
+        /// <summary>
+        /// Altitude over Kerbin of the terminal orbit at <paramref name="ut"/>: a plain Kepler
+        /// solve (the radius depends on a, e and M only, so no element frame is involved).
+        /// </summary>
+        internal static double TerminalOrbitAltitudeAt(double ut)
+        {
+            double n = Math.Sqrt(SpawnSafetyKerbinMu / Math.Pow(TerminalOrbitSma, 3));
+            double m = TerminalOrbitMnaAtSaveUT + n * (ut - SinglePointHoldSaveUT);
+            double e = TerminalOrbitEcc;
+            double eccAnomaly = m;
+            for (int i = 0; i < 50; i++)
+                eccAnomaly -= (eccAnomaly - e * Math.Sin(eccAnomaly) - m) / (1.0 - e * Math.Cos(eccAnomaly));
+            return TerminalOrbitSma * (1.0 - e * Math.Cos(eccAnomaly)) - SpawnSafetyKerbinRadius;
+        }
+
+        private static Recording MaterializeSpawnSafetyRecording(RecordingBuilder builder, string id)
+        {
+            RecordingTree tree = ScenarioWriter.MaterializeTree(new[] { builder });
+            Recording rec = tree.Recordings[id];
+            RecordingStore.DeserializeTrajectoryFrom(builder.BuildTrajectoryNode(), rec);
+            return rec;
+        }
+
+        private static Recording RoundTripTreeRecord(Recording rec)
+        {
+            var recNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(recNode, rec);
+            var reloaded = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(recNode, reloaded);
+            return reloaded;
+        }
+
+        [Fact]
+        public void SpawnSafetySituationCorrection_IsTheBug169ShapeOutsideTheKscCircles()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                Recording rec = MaterializeSpawnSafetyRecording(
+                    SpawnSafetySituationCorrection(SinglePointHoldSaveUT), SituationCorrectionRecordingId);
+
+                Assert.Equal(3, rec.Points.Count);
+                Assert.Equal(SinglePointHoldSaveUT + SituationCorrectionWindowSeconds, rec.EndUT);
+                Recording reloaded = RoundTripTreeRecord(rec);
+                Assert.Equal(TerminalState.Landed, reloaded.TerminalStateValue);
+
+                ConfigNode snap = rec.VesselSnapshot;
+                Assert.NotNull(snap);
+                Assert.Equal("FLYING", snap.GetValue("sit"));
+                Assert.Equal("False", snap.GetValue("landed"));
+                // Production-shaped identity: the snapshot's pid / guid are the recording's.
+                Assert.Equal(rec.VesselPersistentId.ToString(CultureInfo.InvariantCulture),
+                    snap.GetValue("persistentId"));
+                Assert.Equal(rec.RecordedVesselGuid, snap.GetValue("pid"));
+                Assert.Equal(ScenarioWriter.DeriveVesselLaunchGuid(SituationCorrectionRecordingId),
+                    reloaded.RecordedVesselGuid);
+                // The last point is the rest position the snapshot carries.
+                TrajectoryPoint last = rec.Points[rec.Points.Count - 1];
+                Assert.Equal(SituationCorrectionAlt, last.altitude);
+                Assert.Equal(SituationCorrectionAlt,
+                    double.Parse(snap.GetValue("alt"), CultureInfo.InvariantCulture));
+
+                // Not a KSC retirement (#1783): outside both 50 m circles.
+                Assert.Equal(KscExclusionZone.None, SpawnCollisionDetector.ClassifyKscExclusionZone(
+                    SituationCorrectionLat, SituationCorrectionLon, SpawnSafetyKerbinRadius,
+                    SpawnCollisionDetector.DefaultKscExclusionRadiusMeters));
+
+                // The production correction fires on exactly this snapshot and terminal.
+                Assert.Equal("LANDED",
+                    VesselSpawner.ComputeCorrectedSituation(snap.GetValue("sit"), rec.TerminalStateValue));
+                ConfigNode copy = snap.CreateCopy();
+                Assert.True(VesselSpawner.CorrectUnsafeSnapshotSituation(copy, rec.TerminalStateValue));
+                Assert.Equal("LANDED", copy.GetValue("sit"));
+                Assert.Contains(logLines, l => l.Contains("[Spawner]")
+                    && l.Contains("Corrected unsafe snapshot situation: FLYING -> LANDED (terminal=Landed)"));
+                // A Landed terminal never takes the terminal-orbit spawn route.
+                Assert.False(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void SpawnSafetyTerminalOrbit_DefersAtTheFirstWarpAndRefusesAtTheSecond()
+        {
+            Recording rec = MaterializeSpawnSafetyRecording(
+                SpawnSafetyTerminalOrbit(SinglePointHoldSaveUT), TerminalOrbitRecordingId);
+
+            Assert.Single(rec.Points);
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(SinglePointHoldSaveUT + TerminalOrbitWindowSeconds, rec.EndUT);
+            Assert.True(VesselSpawner.ShouldUseRecordedTerminalOrbitSpawnState(rec, isEva: false));
+            Recording reloaded = RoundTripTreeRecord(rec);
+            Assert.Equal(TerminalState.Orbiting, reloaded.TerminalStateValue);
+            Assert.Equal("Kerbin", reloaded.TerminalOrbitBody);
+            Assert.Equal(TerminalOrbitSma, reloaded.TerminalOrbitSemiMajorAxis);
+            Assert.Equal(TerminalOrbitEcc, reloaded.TerminalOrbitEccentricity);
+            Assert.Equal(TerminalOrbitMnaAtSaveUT, reloaded.TerminalOrbitMeanAnomalyAtEpoch);
+            Assert.True(VesselSpawner.HasRecordedTerminalOrbit(reloaded));
+            Assert.Equal(rec.RecordedVesselGuid, rec.VesselSnapshot.GetValue("pid"));
+            Assert.Equal(rec.VesselPersistentId.ToString(CultureInfo.InvariantCulture),
+                rec.VesselSnapshot.GetValue("persistentId"));
+            Assert.Equal("ORBITING", rec.VesselSnapshot.GetValue("sit"));
+
+            double pe = TerminalOrbitSma * (1.0 - TerminalOrbitEcc) - SpawnSafetyKerbinRadius;
+            double ap = TerminalOrbitSma * (1.0 + TerminalOrbitEcc) - SpawnSafetyKerbinRadius;
+            Assert.Equal(60000.0, pe, 6);
+            Assert.Equal(150000.0, ap, 6);
+            Assert.Equal(60000.0, TerminalOrbitAltitudeAt(
+                SinglePointHoldSaveUT + TerminalOrbitPeriapsisLeadSeconds), 1);
+            // The recorded point sits at the orbit's own altitude at the save UT.
+            Assert.Equal(TerminalOrbitPointAlt, TerminalOrbitAltitudeAt(SinglePointHoldSaveUT), 0);
+
+            // Both EndUTs fall well inside the first warp, with the orbit already under
+            // 75 km at the Orbiting EndUT, so a spawn attempt anywhere between that EndUT
+            // and the first warp's end (a held-ghost retry during the warp, or the deferred
+            // flush after it) takes the DeferUntilSafe branch.
+            Assert.True(SinglePointHoldSaveUT + SituationCorrectionWindowSeconds < SpawnSafetyFirstWarpUT - 100.0);
+            Assert.True(SinglePointHoldSaveUT + TerminalOrbitWindowSeconds < SpawnSafetyFirstWarpUT - 100.0);
+            double safe = TerminalOrbitSpawnSafety.ComputeSafeAltitude(
+                70000.0, TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters);
+            Assert.Equal(75000.0, safe);
+            for (double ut = SinglePointHoldSaveUT + TerminalOrbitWindowSeconds;
+                 ut <= SpawnSafetyFirstWarpUT + 60.0; ut += 5.0)
+            {
+                var d = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
+                    true, 70000.0, TerminalOrbitAltitudeAt(ut), pe, ap);
+                Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe, d.Action);
+                Assert.Equal(TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude, d.ReasonCode);
+            }
+
+            // The second warp ends past the next safe UT: the re-evaluation clears the
+            // current-altitude check and then refuses on the periapsis. A periapsis under the
+            // safe altitude never becomes spawnable; the deferral only delays that verdict.
+            double secondFlushUT = SpawnSafetySecondWarpUT - SpawnSafetyWarpRampDownSeconds;
+            Assert.True(TerminalOrbitAltitudeAt(secondFlushUT) > safe + 5000.0);
+            var refusal = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
+                true, 70000.0, TerminalOrbitAltitudeAt(secondFlushUT), pe, ap);
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, refusal.Action);
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude, refusal.ReasonCode);
+        }
+
+        [Fact]
+        public void SpawnSafety_SidecarRoundTripKeepsBothShapes()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            string dir = Path.Combine(Path.GetTempPath(), "parsek-spawn-safety-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var writer = new ScenarioWriter().WithV3Format();
+                writer.AddRecordingAsTree(SpawnSafetySituationCorrection(SinglePointHoldSaveUT));
+                writer.AddRecordingAsTree(SpawnSafetyTerminalOrbit(SinglePointHoldSaveUT));
+                try
+                {
+                    writer.WriteSidecarFiles(dir);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    throw new InvalidOperationException(
+                        ex.Message + "\n" + string.Join("\n", logLines), ex);
+                }
+
+                string recDir = Path.Combine(dir, "Parsek", "Recordings");
+                var landed = new Recording { RecordingId = SituationCorrectionRecordingId };
+                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                    landed,
+                    Path.Combine(recDir, SituationCorrectionRecordingId + ".prec"),
+                    Path.Combine(recDir, SituationCorrectionRecordingId + "_vessel.craft"),
+                    Path.Combine(recDir, SituationCorrectionRecordingId + "_ghost.craft")));
+                Assert.Equal(3, landed.Points.Count);
+                Assert.Equal("FLYING", landed.VesselSnapshot.GetValue("sit"));
+
+                var orbiting = new Recording { RecordingId = TerminalOrbitRecordingId };
+                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                    orbiting,
+                    Path.Combine(recDir, TerminalOrbitRecordingId + ".prec"),
+                    Path.Combine(recDir, TerminalOrbitRecordingId + "_vessel.craft"),
+                    Path.Combine(recDir, TerminalOrbitRecordingId + "_ghost.craft")));
+                Assert.Single(orbiting.Points);
+                Assert.Single(orbiting.OrbitSegments);
+                Assert.Equal(SinglePointHoldSaveUT + TerminalOrbitWindowSeconds, orbiting.EndUT);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                if (Directory.Exists(dir))
+                    Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        /// <summary>
+        /// Injects the <c>spawn-safety</c> preset behind <c>SS-1-spawn-safety-corrections</c>:
+        /// <see cref="SpawnSafetySituationCorrection"/> and <see cref="SpawnSafetyTerminalOrbit"/>
+        /// as two committed single-recording trees, no RewindPoint sidecar. Same env contract
+        /// and guarded purge as every sibling injector. Authored against
+        /// <c>eva2-lko-crewed</c> (the orbit's phase is keyed to its save UT and its Kerbal X),
+        /// so a target save at any other UT is refused.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("spawn-safety-fixture")]
+        public void InjectSpawnSafety()
+        {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "spawn-safety-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            Assert.True(File.Exists(targetPath),
+                "target save vanished after discovery: " + targetPath);
+
+            double baseUT = ReadUTFromSave(targetPath);
+            Assert.True(Math.Abs(baseUT - SinglePointHoldSaveUT) < 1e-3,
+                "spawn-safety is authored against eva2-lko-crewed (UT="
+                + SinglePointHoldSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                + "); target save UT is "
+                + baseUT.ToString("R", CultureInfo.InvariantCulture));
+
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            var writer = new ScenarioWriter().WithV3Format();
+            writer.AddRecordingAsTree(SpawnSafetySituationCorrection(baseUT));
+            writer.AddRecordingAsTree(SpawnSafetyTerminalOrbit(baseUT));
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = " + SituationCorrectionVesselName, content);
+                    Assert.Contains("vesselName = " + TerminalOrbitVesselName, content);
+                    Assert.Contains(SituationCorrectionRecordingId, content);
+                    Assert.Contains(TerminalOrbitRecordingId, content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+        }
+
         [Trait("Category", "Manual")]
         [InjectTargetFact("test career")]
         public void InjectAllRecordings()

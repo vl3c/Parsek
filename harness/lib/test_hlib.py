@@ -10742,6 +10742,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # Orbiting 1, pointCount total / largest 1 (the injected
                        # one-point shape survives the load and the save).
                        "EX-2-single-point-held-ghost.toml",
+                       # SS-1: `structure` + `points` armed 2026-09-26 off its reading
+                       # `2026-09-25_2102` (trees / committedTrees / recordings 2,
+                       # Landed 1 / Orbiting 1, spawnedVessels 1, vesselNames Situation
+                       # Hopper 1 / Low Perigee Probe 0, pointCount total 4 / largest 3).
+                       "SS-1-spawn-safety-corrections.toml",
                        # LF-1: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-22_2350` (trees / committedTrees / recordings 1,
                        # Landed 1, and the new vessel census: spawnedVessels 1,
