@@ -31,6 +31,71 @@ copy whose Loop toggle reads on while it does nothing. Fix options, a product ca
 is a separate click), or run `ClearLoopsConflictingWith` on the copy. MS-1 deliberately does
 not pin the clone payload's `loop=` so either fix leaves it green.
 
+## ~~D13-SPAWN-SAFETY-CORRECTIONS-HOST: `situation-correction` and `terminal-orbit-safety` had no driven lane~~ [FILED AND CLOSED 2026-09-26 by `SS-1-spawn-safety-corrections`, coverage wave 3]
+
+**CLOSED 2026-09-26.** Both D13 cells were R8 residue: the guards had unit tests and self-skipping
+in-game tests, but no committed fixture reached them in a real spawn. `SS-1-spawn-safety-corrections`
+does, through the new `spawn-safety` injected preset on `eva2-lko-crewed` (two committed
+single-recording trees, production-shaped identity: snapshot pid = the tree record's
+`VesselPersistentId`, snapshot `VESSEL.pid` = `recordedVesselGuid` =
+`ScenarioWriter.DeriveVesselLaunchGuid(id)`). Both recordings end inside a real `WarpToUT` rails
+warp, because the policy line `Deferred spawn held for terminal orbit safety` is printed only by
+`FlushDeferredSpawns`, whose queue only a completion delivered during warp fills.
+- `situation-correction`: a Landed `Situation Hopper` on KSC grass (-0.1000, -74.8300), outside
+  both 50 m exclusion circles (#1783), whose terminal snapshot still says `sit = FLYING`. After
+  the warp: `Corrected unsafe snapshot situation: FLYING -> LANDED (terminal=Landed)`, then
+  `Vessel spawn for #0 (Situation Hopper) ... sit=LANDED`.
+- `terminal-orbit-safety`: an Orbiting `Low Perigee Probe` on a 60 x 150 km terminal orbit
+  (safe altitude 75 km). The held-ghost retry inside the warp at UT 541.61 (68 km) is
+  `DeferUntilSafe`, `nextSafeUT=971.14`; the deferred queue holds it; past that UT the
+  re-evaluation refuses it on the periapsis (`CannotSpawnSafely
+  reason=periapsis-below-safe-altitude`).
+Reading `2026-09-25_2102` PASS attempt 1; `structure` / `points` armed off it; armed re-flight
+`2026-09-25_2107_a2` PASS; negative controls offline. Automation DLL sha256 `b60d27ff...`
+(origin/main `7c90492bd` build, no C# product change).
+
+Design note for the operator, not a defect claim: `DeferUntilSafe` can never end in a spawn for
+a fixed orbit. It fires only when the propagated altitude is under the safe altitude, so the
+periapsis is under it too, and the re-evaluation at the next safe UT then refuses on the
+periapsis. The deferral delays the `CannotSpawnSafely` verdict (and keeps the ghost visible
+meanwhile); `Terminal spawn succeeded after defer` is reachable only if the re-evaluated orbit
+differs from the first one.
+
+## SS1-WARPTOUT-WARP-LOCKED-AFTER-LOAD: `WarpToUT` refused `warp-locked` for at least 19 s after a load that other runs warped from at the same moment [FILED 2026-09-26 from SS-1. OPEN, harness flake]
+
+SS-1 attempt `2026-09-25_2106`: `warptout refused reason=warp-locked ut=715` 3.2 s after
+`Unpacking Kerbal X` / `Unpacking Kerbal X Probe`, and `warptout refused reason=warp-locked
+ut=1040` 19 s later, so the lock held through the whole lane. The reading `_2102` and the
+retry `_2107_a2` warped from the same step at the same offset after the unpack. The check is
+`InputLockManager.IsLocked(ControlTypes.TIMEWARP)`; no Parsek path this lane runs sets one
+(the ControlTypes.All sites are the merge / re-fly dialogs and a census-only UiAction row, none
+of which opened; the window locks are CAMERACONTROLS), and KSP.log names no lock owner. The `once` retry absorbed it.
+Fix: make the `warptout refused reason=warp-locked` line name the lock ids
+(`InputLockManager.lockStack` keys whose mask includes TIMEWARP), so the next occurrence says
+who holds it.
+
+## SS1-DUPLICATE-COMPLETION-DELIVERY-IN-WARP: a non-live ghost's PlaybackCompleted is delivered twice in one warp frame pair [FILED 2026-09-26 from SS-1. OPEN, report-only, harmless today]
+
+SS-1 reading `2026-09-25_2102`, `Situation Hopper` (ghost torn down by distance LOD, so
+`ghostWasActive=False`): `PlaybackCompleted index=0 ... needsSpawn=True` and `Deferred spawn
+during warp: #0 "Situation Hopper"` at 00:02:57.446, then the engine's stale past-end cleanup
+destroys the slot, then the same completion and the same deferral line again at 00:02:57.460.
+Harmless because `pendingSpawnRecordingIds` is a set, but a consumer that counts completions (or a
+future non-idempotent completion handler) would see two. Fix: find why the engine re-raises the
+completion after the stale cleanup destroyed the slot (the completed-state bookkeeping for a
+slot whose ghost was never live), and a headless engine test that crosses EndUT once in warp and
+asserts one delivery.
+
+## SS1-REFUSED-TERMINAL-ORBIT-GHOST-HELD-FOR-THE-SCENE: a terminal-orbit spawn refused as CannotSpawnSafely keeps its held ghost until the scene ends [FILED 2026-09-26 from SS-1. OPEN, question for the operator]
+
+After the refusal at UT 971.24, `Low Perigee Probe`'s ghost (held since the warp-deferred
+completion) is never released: `DecideHeldGhostAction` returns `Hold` whenever
+`TerminalOrbitSpawnSafety.GetDeferredSpawnState` is `Hold`, and that state covers
+`TerminalSpawnCannotSpawnSafely` as well as an in-force deferral, so neither the timeout nor a
+release applies. The ghost stays visible past EndUT for the rest of the scene. That may be the
+intent (a visible stand-in for a vessel that can never materialize), but no comment or design
+doc says so. Decide: keep (and say so at `DecideHeldGhostAction`), or release the ghost once the
+verdict is CannotSpawnSafely.
 ## ~~TIMELINE-KERBAL-EXPERIENCE-RAW-ROW: a kerbal's career-log (XP) ledger row rendered in the Timeline as the raw word "KerbalExperience" and warned on every rebuild~~ [FILED and FIXED 2026-09-25, coverage wave 4, branch `cov-ingame`]
 
 **Symptom.** `KerbalExperience` (type 31, written by a crewed recovery's career-log correlation) had no

@@ -16,7 +16,7 @@ _(unreleased — entries accumulate here per commit)_
   checkbox's own code, and a `clone` op runs the Clone button's code. The new lane
   `MS-1-mission-leg-trim-clone` loops a recorded two-vessel mission, unticks the main vessel's
   launch interval and reads the loop shrinking to start at the separation, then clones the
-  mission and reads the copy carrying the trim. Coverage 223 -> 225 of 247 (D11 complete).
+  mission and reads the copy carrying the trim. Coverage 225 -> 227 of 247 (D11 complete).
 - **Automated testing: two lanes check the Timeline against the ledger and three storage formats
   on live saves.** `ST-1-storage-timeline-ingame` boots the earned career and runs two new in-game
   categories: `Timeline` checks that every effective-ledger action is exactly one Timeline row with
@@ -135,6 +135,13 @@ _(unreleased — entries accumulate here per commit)_
   `REJECTED tab-hidden-in-game-mode` naming the mode, and `key=customRange` now opens the
   Time fold. `GUI-24-census-timeline-filters` photographs the Contracts, Milestones and
   Tech views on its host and Milestones under a This Year range.
+- **Automated testing: a lane checks two spawn-safety guards on a real spawn.**
+  `SS-1-spawn-safety-corrections` injects two recordings that end during a time warp. One
+  landed on the grass near the Space Center but its saved state still said "flying"; it
+  spawns after the warp with that state corrected to landed. The other ends in an orbit
+  that dips to 60 km, inside the 75 km safety margin over Kerbin's atmosphere; its spawn is
+  held while the orbit is low, and once the orbit climbs back out it is refused, because the
+  low point would still drag it down. Test-side only: a new `spawn-safety` injection preset.
 - **Automated testing: a lane watches a ghost wait past its end for a blocked spawn.**
   `EX-2-single-point-held-ghost` injects a one-point recording that ends in orbit on top of
   another loaded vessel. At the recording's end the spawn is blocked and, with only one
