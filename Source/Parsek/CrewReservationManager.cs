@@ -30,7 +30,7 @@ namespace Parsek
         /// Call when discarding, recovering, or wiping recordings.
         ///
         /// No rosterStatus changes — reserved kerbals stay at their natural status
-        /// (typically Available). CrewDialogFilterPatch handles crew dialog filtering.
+        /// (typically Available). The crew dialog greys and refuses them (StockUiCrewDialogDecoration).
         /// </summary>
         public static void UnreserveCrewInSnapshot(ConfigNode snapshot)
         {

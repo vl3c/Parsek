@@ -9,7 +9,9 @@ namespace Parsek
     {
         RnD,
         AstronautComplex,
-        MissionControl
+        MissionControl,
+        /// <summary>The VAB/SPH crew assignment dialog (<c>BaseCrewAssignmentDialog</c>).</summary>
+        CrewAssignment
     }
 
     /// <summary>Why a stock item is decorated. <see cref="None"/> is an undecorated item.</summary>
@@ -210,6 +212,8 @@ namespace Parsek
         internal const string AstronautAvailableTab = "Available";
         internal const string AstronautAssignedTab = "Assigned";
         internal const string AstronautKiaTab = "Kia";
+        /// <summary>The crew assignment dialog's available-crew list (<c>scrollListAvail</c>).</summary>
+        internal const string CrewAssignmentAvailableTab = "Available";
 
         /// <summary>The retired stand-in's text: the Kerbals window's <c>Retired</c>
         /// status, qualified because the stock list does not say he is a stand-in.</summary>

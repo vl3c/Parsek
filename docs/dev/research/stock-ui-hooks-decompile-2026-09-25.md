@@ -364,7 +364,7 @@ The namespace is `KSP.UI`, not `KSP.UI.Screens`.
 | `Patches/KerbalHirePatch.cs` `KerbalHirePatch` | `KerbalRoster.HireApplicant(ProtoCrewMember)` | Prefix |
 | same file, `AstronautComplexHireRecruitPatch` | `AstronautComplex.HireRecruit(UIList, UIList, UIListItem)` | Prefix |
 | `Patches/KerbalDismissalPatch.cs` | `KerbalRoster.Remove(ProtoCrewMember)` | Prefix |
-| `Patches/CrewDialogFilterPatch.cs` | `BaseCrewAssignmentDialog.AddAvailItem(PCM, UIList, ButtonTypes)` (3-argument, NOT the `out` overload) | Prefix returning false (hides the row) |
+| `Patches/CrewDialogFilterPatch.cs` (deleted in PR 6; replaced by `Patches/CrewDialogReservationPatches.cs`: `AddAvailItem` `out` overload and `CreateAvailList` postfixes, `MoveCrewToEmptySeat` / `DropOnCrewList` / `ButtonFill` prefixes) | `BaseCrewAssignmentDialog.AddAvailItem(PCM, UIList, ButtonTypes)` (3-argument, NOT the `out` overload) | Prefix returning false (hides the row) |
 | `Patches/CrewAutoAssignPatch.cs` | `BaseCrewAssignmentDialog.RefreshCrewLists(VesselCrewManifest, bool, bool, Func<PartCrewManifest,bool>)` | Prefix (stand-in swap) |
 | `Patches/StrategyLifecyclePatch.cs` | `Strategy.Activate()` / `Strategy.Deactivate()` | Postfix (ledger capture, filters `__result`) |
 | `Patches/TechResearchPatch.cs` | `RDTech.UnlockTech` | Prefix |
