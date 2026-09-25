@@ -556,31 +556,49 @@ namespace Parsek.Tests
             Assert.Equal("All", window.ActiveTimeRangePresetForTesting);
         }
 
-        [Fact]
-        public void ViewRow_FillsTheWidth_WithFiveOrFourCells()
+        [Theory]
+        [InlineData(610f)]
+        [InlineData(820f)]
+        [InlineData(1400f)]
+        public void EveryFilterRow_UsesTheSameCellWidth(float windowWidth)
         {
-            Assert.Equal(5, TimelineWindowUI.ViewRowCellCount(drawCareer: true));
-            Assert.Equal(4, TimelineWindowUI.ViewRowCellCount(drawCareer: false));
-            // At the first-open width a five-cell row spans the width exactly:
-            // chrome 22 + margins 4 * (5 + 1) + 5 cells.
-            float w = TimelineWindowUI.ComputeFilterCellWidth(820f, 5);
-            Assert.Equal(820.0, 22.0 + 24.0 + 5.0 * w, 3);
-            Assert.True(w > TimelineWindowUI.ComputeFilterCellWidth(820f, TimelineWindowUI.GridCells));
+            // Owner ruling: every filter button is one width, the cell of the six-cell grid,
+            // whatever row it sits in and however many buttons that row holds.
+            float grid = TimelineWindowUI.ComputeFilterCellWidth(windowWidth, TimelineWindowUI.GridCells);
+            foreach (TimelineWindowUI.TimelineFilterRow row in
+                Enum.GetValues(typeof(TimelineWindowUI.TimelineFilterRow)))
+            {
+                Assert.Equal(grid, TimelineWindowUI.FilterRowCellWidth(row, windowWidth));
+            }
+            Assert.Equal(3, Enum.GetValues(typeof(TimelineWindowUI.TimelineFilterRow)).Length);
+        }
+
+        [Fact]
+        public void ViewRow_IsLeftAligned_WithRoomOnTheRight()
+        {
+            // The five view buttons take five grid cells and leave the sixth empty instead
+            // of stretching: at the first-open width a full six-cell row spans the width
+            // exactly (chrome 22 + margins 4 * (6 + 1) + 6 cells), so five cells fall one
+            // cell plus one gap short of it.
+            float cell = TimelineWindowUI.FilterRowCellWidth(TimelineWindowUI.TimelineFilterRow.View, 820f);
+            Assert.Equal(820.0, 22.0 + 28.0 + 6.0 * cell, 3);
+            float fiveCellRow = 22f + 24f + 5f * cell;
+            Assert.Equal(820.0 - cell - 4.0, fiveCellRow, 3);
         }
 
         [Fact]
         public void EveryFilterRow_FitsAtTheMinimumWidth()
         {
-            // The six-cell rows are the widest; at the floor width their cells must not be
-            // held up by the cell floor, or the row would widen the window past its minimum.
-            float cell = TimelineWindowUI.ComputeFilterCellWidth(
-                TimelineWindowUI.MinWindowWidth, TimelineWindowUI.GridCells);
-            Assert.True(22f + 28f + TimelineWindowUI.GridCells * cell
-                <= TimelineWindowUI.MinWindowWidth + 0.001f);
-            float viewCell = TimelineWindowUI.ComputeFilterCellWidth(
-                TimelineWindowUI.MinWindowWidth, TimelineWindowUI.ViewRowCellCount(true));
-            Assert.True(22f + 24f + 5 * viewCell <= TimelineWindowUI.MinWindowWidth + 0.001f);
-            Assert.True(viewCell >= cell);
+            // A full six-cell row is the widest any filter row gets; at the floor width its
+            // cells must not be held up by the cell floor, or the row would widen the window
+            // past its minimum.
+            foreach (TimelineWindowUI.TimelineFilterRow row in
+                Enum.GetValues(typeof(TimelineWindowUI.TimelineFilterRow)))
+            {
+                float cell = TimelineWindowUI.FilterRowCellWidth(row, TimelineWindowUI.MinWindowWidth);
+                Assert.True(22f + 28f + TimelineWindowUI.GridCells * cell
+                    <= TimelineWindowUI.MinWindowWidth + 0.001f);
+            }
         }
 
         // The button the row draws lit: the window's Custom selection plus the filter.

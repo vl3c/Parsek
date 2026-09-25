@@ -1011,6 +1011,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: the GUI mirror's Timeline `Career` view button no longer jumps to the Career window.**
+  The page's launcher rule sent any control whose text spelled a window's name to that
+  window. Only the main window's controls launch windows now; elsewhere such a control is
+  routed as a view or state of its own window, or says there is no capture for it
+  (`harness/tools/gui_mirror.py`, `routeClick`).
+- **Dev: the GUI mirror names windows, tabs and states by what the game draws.** The rail,
+  headers, Compare and the notes list showed seam tokens (`structure`, `rewindff`,
+  `expandedstats`), so a window whose token is not its title could not be found. A window
+  now reads by its own title without the `Parsek - ` prefix (the structure window by the
+  title it draws with no mission or route open, its other titles in the tooltip), a
+  Timeline view by its button's text, and a state by the one control its step changed
+  where the capture shows it (`Info`, `Recordings off`, `Last Day`); every name comes from
+  the captures, and the token stays in the tooltip and in every link and note key.
 - **Space Center: a refused research, contract accept, facility upgrade, hire or dismissal now
   says why, and when the item frees up.** The "Action Blocked" dialog and the badge hovers on
   the R&D, Astronaut Complex and Mission Control screens used to print a raw `UT 183420`. They
@@ -1060,6 +1073,18 @@ _(unreleased — entries accumulate here per commit)_
   save loads (applied as soon as the game has loaded its strategy list, a frame later),
   without charging or refunding anything again. Strategies activated before the save used
   Parsek are left alone.
+- **Mission Control: cancelling an active contract your committed timeline completes,
+  fails or cancels later is now refused, and its Active-tab row says so.** Cancelling it
+  used to charge the cancel penalty now and then either wipe out the later completion's
+  reward (with anything the committed timeline bought with it) or charge the committed
+  failure or cancellation penalty a second time. The row now reads, for example,
+  `Explore the Mun - completes on Y2 D114 on your committed timeline`, the contract
+  details end with `Cancel is unavailable` and the explanation (`Completes on Y2 D114 by
+  the committed flight 'Mun Lander 3'.`, the rule, and `It completes and frees its slot on
+  that date.`), and Cancel is greyed out; a cancel from anywhere else gets the same
+  explanation. A contract whose only future is its deadline stays cancellable, since
+  cancelling early for the smaller penalty is ordinary play, and the debug toolbar's
+  "regenerate contracts" still works.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
@@ -1313,6 +1338,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Timeline: every filter button is the same width, and the rows are left-aligned.** The
+  five view buttons (Overview, Details, Rewind/FF, Re-Fly, Career) no longer stretch across
+  the window; they take the same width as the buttons of the two rows below them (the cell
+  of a six-button row), so the columns line up and each row leaves empty room on the right
+  for later filters. The minimum window width is unchanged.
+
 - **R&D and the Astronaut Complex show Parsek's reservations with KSP's own controls instead
   of Parsek's badge icons.** In R&D, a tech node your committed timeline researches later has a
   gold-tinted icon, its hover tooltip and the side panel's description say when and by which
@@ -1327,10 +1358,11 @@ _(unreleased — entries accumulate here per commit)_
   refused for a kerbal Parsek manages: it went through a stock path Parsek did not guard.
   Mission Control moved to the same stock mechanisms (see Fixed), so no Space Center screen
   shows a Parsek badge any more.
+
 - **Timeline: the time-range presets are back on their own always-visible row.** This
   partly reverts the `Time: <range>` button from the two-row filter area above. The filter
-  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career)
-  stretched across the full width, the view's own toggles (unchanged), and Last Day /
+  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career),
+  the view's own toggles (unchanged), and Last Day /
   Last 7d / Last 30d / This Year / All / Custom. Exactly one of those six is lit, so the
   range in force is always on screen (All by default). Custom shows the From / To sliders;
   dragging a slider lights Custom, picking a preset turns Custom off and hides the sliders,
