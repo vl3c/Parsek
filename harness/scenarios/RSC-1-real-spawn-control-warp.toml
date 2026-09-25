@@ -80,7 +80,8 @@ steps = [
 ]
 
 [dimensionsCovered]
-# D13 claimed off the warp line plus the spawn it caused (reading run `2026-09-25_2125`).
+# D13 claimed off the warp line plus the spawn it caused (reading run `2026-09-25_2125`,
+# armed `_2141`, armed re-fly on the production-shaped fixture identity `_2233`).
 D13 = ["real-spawn-control"]
 D14 = ["sandbox", "scene-flight"]
 
