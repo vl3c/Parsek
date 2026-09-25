@@ -103,6 +103,22 @@ namespace Parsek
                 : "by the committed flight '" + recordingName + "'";
         }
 
+        /// <summary>
+        /// A part entry purchase the committed timeline makes later (P1): the greyed
+        /// purchase button's tooltip text and every purchase refusal read this text.
+        /// </summary>
+        internal static ReservationText PartPurchase(CommittedFutureEntry entry, Func<double, string> formatDate)
+        {
+            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
+            return new ReservationText
+            {
+                Title = "Purchased on " + date,
+                Fact = "Purchased on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
+                Rule = TimelineRule,
+                WayOut = "It becomes available on that date."
+            };
+        }
+
         internal static ReservationText Tech(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
             string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);

@@ -67,7 +67,9 @@ namespace Parsek
             double? techBaselineUt = null,
             bool suppressSuspiciousDrawdownWarnings = false,
             bool authoritativeReduction = false,
-            IDictionary<string, UnaffordableUnlockDrop> unaffordableTechDrops = null)
+            IDictionary<string, UnaffordableUnlockDrop> unaffordableTechDrops = null,
+            IReadOnlyList<GameAction> partPurchaseActions = null,
+            double? walkUtCutoff = null)
         {
             using (SuppressionGuard.ResourcesAndReplay())
             {
@@ -88,6 +90,7 @@ namespace Parsek
 
                 PatchScience(science, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
                 PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt, unaffordableTechDrops);
+                PatchPurchasedParts(partPurchaseActions, walkUtCutoff, techUtCutoff);
                 PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
                 PatchReputation(reputation, authoritativeReduction);
                 PatchFacilities(facilities);
@@ -1042,6 +1045,278 @@ namespace Parsek
             {
                 ParsekLog.Warn(Tag,
                     $"PatchTechTree: RefreshTechTreeUI threw: {ex.Message}");
+            }
+        }
+
+        // ---------------- part purchases (P1 state half) ----------------
+
+        /// <summary>
+        /// The UT up to which committed part purchases are applied to stock. The tech-tree
+        /// cutoff when one is supplied (the walk never charges past it), else the walk
+        /// cutoff, else the live clock: a cutoff-less walk runs when no committed row lies
+        /// ahead, and the KSC ledger cursor takes exactly that path when the clock passes
+        /// the LAST committed row, so gating on the tech cutoff alone would leave a part
+        /// the walk just charged unpurchased. The live clock also keeps a full-timeline
+        /// walk (tombstone refresh, a not-ready clock) from marking a future purchase.
+        /// Null (skip) when no cutoff is known and the clock is not ready. Pure.
+        /// </summary>
+        internal static double? ResolvePartPurchasePatchCutoff(
+            double? walkCutoff, double? techPatchCutoff, double liveUT)
+        {
+            if (techPatchCutoff.HasValue) return techPatchCutoff;
+            if (walkCutoff.HasValue) return walkCutoff;
+            return LedgerOrchestrator.IsCurrentUtReadyForCutoff(liveUT) ? liveUT : (double?)null;
+        }
+
+        /// <summary>
+        /// The part names the patch marks purchased: every effective part-purchase row
+        /// (<c>FundsSpending</c>, <c>FundsSpendingSource.Other</c>, key = the runtime
+        /// <c>AvailablePart.name</c> in <c>DedupKey</c>) at or before
+        /// <paramref name="cutoff"/>. Every such row counts whatever its amount: the walk
+        /// charges it, and the purchase happened on the committed timeline. Sorted, so the
+        /// apply order and its log are deterministic. Pure.
+        /// </summary>
+        internal static List<string> BuildPurchasedPartNamesForPatch(
+            IReadOnlyList<GameAction> actions, double cutoff)
+        {
+            var names = new SortedSet<string>(StringComparer.Ordinal);
+            if (actions != null)
+            {
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var a = actions[i];
+                    if (a == null || a.Type != GameActionType.FundsSpending) continue;
+                    if (a.FundsSpendingSource != FundsSpendingSource.Other) continue;
+                    if (string.IsNullOrEmpty(a.DedupKey)) continue;
+                    if (a.UT > cutoff) continue;
+                    names.Add(a.DedupKey);
+                }
+            }
+            return new List<string>(names);
+        }
+
+        /// <summary>What <see cref="ApplyPartPurchasePatch"/> did with one part name.</summary>
+        internal enum PartPurchasePatchOutcome { Added, AlreadyPurchased, UnknownPart, TechNotResearched }
+
+        /// <summary>The per-pass counters and the bounded identity lists the log prints.</summary>
+        internal sealed class PartPurchasePatchResult
+        {
+            internal int Added;
+            internal int AlreadyPurchased;
+            internal int UnknownPart;
+            internal int TechNotResearched;
+            internal readonly List<string> AddedNames = new List<string>();
+            internal readonly List<string> UnknownNames = new List<string>();
+            internal readonly List<string> TechNotResearchedNames = new List<string>();
+        }
+
+        /// <summary>
+        /// The add-only core of <see cref="PatchPurchasedParts"/>, over delegates so it is
+        /// testable without KSP. For each name: an unknown part (no loaded part or no
+        /// required tech) is skipped; a part whose tech is not researched in stock is
+        /// skipped and logged, never forced (a committed purchase implies its tech is
+        /// researched by then, so the gap is a ledger / tech-state disagreement to see,
+        /// not to paper over); an already purchased part is left alone; otherwise
+        /// <paramref name="markPurchased"/> adds it. Nothing is ever removed: a rewind
+        /// reloads stock's purchased state from its quicksave. Running it twice adds
+        /// nothing the second time.
+        /// </summary>
+        internal static PartPurchasePatchResult ApplyPartPurchasePatch(
+            IEnumerable<string> partNames,
+            Func<string, string> techOfPart,
+            Func<string, bool> isTechResearched,
+            Func<string, bool> isPurchased,
+            Action<string> markPurchased)
+        {
+            var result = new PartPurchasePatchResult();
+            if (partNames == null) return result;
+            foreach (var name in partNames)
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                switch (ClassifyPartPurchaseForPatch(name, techOfPart, isTechResearched, isPurchased))
+                {
+                    case PartPurchasePatchOutcome.UnknownPart:
+                        result.UnknownPart++;
+                        result.UnknownNames.Add(name);
+                        break;
+                    case PartPurchasePatchOutcome.TechNotResearched:
+                        result.TechNotResearched++;
+                        result.TechNotResearchedNames.Add(name);
+                        break;
+                    case PartPurchasePatchOutcome.AlreadyPurchased:
+                        result.AlreadyPurchased++;
+                        break;
+                    default:
+                        markPurchased?.Invoke(name);
+                        result.Added++;
+                        result.AddedNames.Add(name);
+                        break;
+                }
+            }
+            return result;
+        }
+
+        internal static PartPurchasePatchOutcome ClassifyPartPurchaseForPatch(
+            string partName,
+            Func<string, string> techOfPart,
+            Func<string, bool> isTechResearched,
+            Func<string, bool> isPurchased)
+        {
+            string techId = techOfPart != null ? techOfPart(partName) : null;
+            if (string.IsNullOrEmpty(techId)) return PartPurchasePatchOutcome.UnknownPart;
+            if (isTechResearched == null || !isTechResearched(techId)) return PartPurchasePatchOutcome.TechNotResearched;
+            if (isPurchased != null && isPurchased(partName)) return PartPurchasePatchOutcome.AlreadyPurchased;
+            return PartPurchasePatchOutcome.Added;
+        }
+
+        /// <summary>Test seam for the live clock the part-purchase cutoff falls back to.</summary>
+        internal static Func<double> PartPurchaseLiveUtProviderForTesting;
+
+        /// <summary>
+        /// The state half of the part-purchase reservation (P1): marks every part whose
+        /// committed purchase row the walk has reached as purchased in stock, the way
+        /// Contract Configurator's <c>UnlockPart</c> does (add the <c>AvailablePart</c> to
+        /// its tech's <c>ProtoTechNode.partsPurchased</c>, then <c>SetTechState</c>). Runs
+        /// after <see cref="PatchTechTree"/> because a node that patch newly unlocks gets an
+        /// empty list. Only with bypass-entry-purchase OFF: with it on, stock rehydrates
+        /// every part of a researched node (<see cref="EnsureAvailableProtoTechNode"/>).
+        /// Writing the list fires no <c>OnPartPurchased</c>, so no ledger row and no funds
+        /// change result (and <see cref="PatchAll"/>'s suppression covers the rest).
+        ///
+        /// <para>Load order: the ksp-load recalc runs inside <c>ScenarioRunner.LoadModules</c>
+        /// and so may run before <c>ResearchAndDevelopment</c> exists (skipped here, like
+        /// <see cref="PatchTechTree"/>); <c>ParsekScenario.DeferredSeedAndRecalculate</c>
+        /// repeats the recalc a frame later, once every scenario module of the scene has
+        /// loaded, and that pass applies the purchases.</para>
+        /// </summary>
+        internal static void PatchPurchasedParts(
+            IReadOnlyList<GameAction> actions, double? walkCutoff, double? techPatchCutoff)
+        {
+            if (actions == null)
+            {
+                VerboseStablePatchState("patch-skip|parts|actions", "actions-null",
+                    "PatchPurchasedParts: no action list supplied - skipping");
+                return;
+            }
+
+            if (ResearchAndDevelopment.Instance == null)
+            {
+                VerboseStablePatchState("patch-skip|parts|rnd", "rnd-null",
+                    "PatchPurchasedParts: ResearchAndDevelopment.Instance is null - skipping " +
+                    "(the deferred-seed recalc re-applies once R&D has loaded)");
+                return;
+            }
+
+            if (GameStateRecorder.IsBypassEntryPurchaseAfterResearch())
+            {
+                VerboseStablePatchState("patch-skip|parts|bypass", "bypass-on",
+                    "PatchPurchasedParts: bypass-entry-purchase is on - stock rehydrates researched parts, skipping");
+                return;
+            }
+
+            var liveProvider = PartPurchaseLiveUtProviderForTesting;
+            double liveUT = !walkCutoff.HasValue && !techPatchCutoff.HasValue
+                ? (liveProvider != null ? liveProvider() : CommittedFutureIndexCache.CurrentUT())
+                : 0.0;
+            double? cutoff = ResolvePartPurchasePatchCutoff(walkCutoff, techPatchCutoff, liveUT);
+            if (!cutoff.HasValue)
+            {
+                VerboseStablePatchState("patch-skip|parts|cutoff", "cutoff-unknown",
+                    "PatchPurchasedParts: no cutoff and the clock is not ready - skipping");
+                return;
+            }
+
+            var names = BuildPurchasedPartNamesForPatch(actions, cutoff.Value);
+            if (names.Count == 0)
+            {
+                VerboseStablePatchState("patch-noop|parts", "no-rows",
+                    "PatchPurchasedParts: no committed part purchase at or before the cutoff");
+                return;
+            }
+
+            var partCache = new Dictionary<string, AvailablePart>(StringComparer.Ordinal);
+            Func<string, AvailablePart> part = n =>
+            {
+                AvailablePart ap;
+                if (!partCache.TryGetValue(n, out ap))
+                {
+                    ap = PartLoader.getPartInfoByName(n);
+                    partCache[n] = ap;
+                }
+                return ap;
+            };
+            var rnd = ResearchAndDevelopment.Instance;
+            var result = ApplyPartPurchasePatch(
+                names,
+                n => part(n)?.TechRequired,
+                techId =>
+                {
+                    ProtoTechNode proto = rnd.GetTechState(techId);
+                    return proto != null && proto.state == RDTech.State.Available;
+                },
+                n =>
+                {
+                    AvailablePart ap = part(n);
+                    ProtoTechNode proto = rnd.GetTechState(ap.TechRequired);
+                    return proto != null && ContainsPurchasedPart(proto.partsPurchased, ap);
+                },
+                n =>
+                {
+                    AvailablePart ap = part(n);
+                    ProtoTechNode proto = rnd.GetTechState(ap.TechRequired);
+                    if (proto.partsPurchased == null)
+                        proto.partsPurchased = new List<AvailablePart>();
+                    proto.partsPurchased.Add(ap);
+                    rnd.SetTechState(ap.TechRequired, proto);
+                });
+
+            string cutoffLabel = cutoff.Value.ToString("R", IC);
+            string summary =
+                $"PatchPurchasedParts: targets={names.Count.ToString(IC)}, " +
+                $"added={result.Added.ToString(IC)}, " +
+                $"alreadyPurchased={result.AlreadyPurchased.ToString(IC)}, " +
+                $"unknownPart={result.UnknownPart.ToString(IC)}, " +
+                $"techNotResearched={result.TechNotResearched.ToString(IC)}, " +
+                $"cutoffUT={cutoffLabel}" +
+                (result.AddedNames.Count > 0
+                    ? $", addedParts=[{ComposeBoundedIdentitySample(result.AddedNames, IdentitySampleCap)}]"
+                    : string.Empty);
+            if (result.Added > 0)
+                ParsekLog.Info(Tag, summary);
+            else
+                VerboseStablePatchState("patch-parts", summary, summary);
+
+            if (result.TechNotResearched > 0)
+            {
+                ParsekLog.Warn(Tag,
+                    "PatchPurchasedParts: committed purchase of a part whose tech is not researched in stock - " +
+                    $"left unpurchased, not forced: parts=[{ComposeBoundedIdentitySample(result.TechNotResearchedNames, IdentitySampleCap)}], " +
+                    $"cutoffUT={cutoffLabel}");
+            }
+            if (result.UnknownPart > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    "PatchPurchasedParts: committed purchase of a part not loaded in this install - skipped: " +
+                    $"parts=[{ComposeBoundedIdentitySample(result.UnknownNames, IdentitySampleCap)}]");
+            }
+
+            if (result.Added > 0)
+            {
+                RefreshTechTreeUi();
+                RefreshEditorPartList();
+            }
+        }
+
+        private static void RefreshEditorPartList()
+        {
+            try
+            {
+                if (HighLogic.LoadedScene == GameScenes.EDITOR && KSP.UI.Screens.EditorPartList.Instance != null)
+                    KSP.UI.Screens.EditorPartList.Instance.Refresh();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"PatchPurchasedParts: EditorPartList.Refresh threw: {ex.Message}");
             }
         }
 
@@ -3767,6 +4042,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             SuppressUnityCallsForTesting = false;
+            PartPurchaseLiveUtProviderForTesting = null;
             protoTechNodesReflectionWarnEmitted = false;
             scienceSubjectsReflectionWarnEmitted = false;
             ResetDrawdownGuardSessionLatches();

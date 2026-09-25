@@ -1055,6 +1055,20 @@ _(unreleased — entries accumulate here per commit)_
   explanation. A contract whose only future is its deadline stays cancellable, since
   cancelling early for the smaller penalty is ordinary play, and the debug toolbar's
   "regenerate contracts" still works.
+- **Space Center and VAB/SPH: buying a part your committed timeline buys later is refused,
+  and a committed part purchase now actually takes effect after a rewind.** With the
+  difficulty option that bypasses part entry purchases off, rewinding to before a committed
+  purchase left the part unpurchased for good: the committed purchase was still charged on
+  its date, but the part never became usable, and buying it again charged the entry cost a
+  second time. Now the part's tooltip (in the VAB/SPH part list and in R&D) greys out its
+  purchase button and says why, for example `Purchased on Y2 D114 by the committed flight
+  'Mun Lander 3'.`, that committed history cannot happen earlier or twice, and `It becomes
+  available on that date.`; a purchase from anywhere else gets the same explanation. R&D's
+  "purchase all parts" buys the others and names the parts it skipped, and is greyed out
+  when every remaining part is one of them. When the committed date passes, the part is
+  marked purchased in the game, with no second charge. Parsek's ledger keeps every purchase
+  you made; nothing is dropped or merged. With the bypass option on, purchases are free and
+  nothing changes.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as

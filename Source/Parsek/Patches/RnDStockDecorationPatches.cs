@@ -111,6 +111,16 @@ namespace Parsek.Patches
                 ParsekLog.WarnRateLimited("StockUiOverlay", "rnd-panel-block-failed",
                     "R&D Research button block failed (" + ex.GetType().Name + ": " + ex.Message + ")");
             }
+            try
+            {
+                // On a researched node the same button is "purchase all parts" (P1).
+                StockUiPartPurchase.ApplyPurchaseAllBlock(__instance);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited("StockUiOverlay", "rnd-purchase-all-block-failed",
+                    "R&D purchase-all button block failed (" + ex.GetType().Name + ": " + ex.Message + ")");
+            }
         }
     }
 
