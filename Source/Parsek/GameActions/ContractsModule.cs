@@ -147,6 +147,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: true when a <c>ContractFail</c> row at <paramref name="failUT"/> is the
+        /// contract's deadline running out rather than a failure.
+        ///
+        /// <para>Stock reports both the same way: <c>Contract.Update</c> sets
+        /// <c>State.DeadlineExpired</c> once <c>GameTime &gt;= dateDeadline</c>, and
+        /// <c>SetState</c> then fires <c>GameEvents.Contract.onFailed</c> (plus
+        /// <c>onFinished</c>) exactly as for <c>State.Failed</c>, so the recorded event
+        /// carries no reason. The walk tells them apart by the accepted deadline (a fail
+        /// at or after it is an expiry: <see cref="CheckDeadlines"/> runs before the fail
+        /// is dispatched and records <see cref="ContractTerminalOutcome.DeadlineExpired"/>),
+        /// and every reader of a fail row uses this same test, so an old row needs no new
+        /// field. An open-ended or implausible deadline never expires.</para>
+        /// </summary>
+        internal static bool IsDeadlineExpiryFail(double failUT, double deadlineUT, double acceptUT)
+        {
+            return HasContractDeadlineElapsed(failUT, deadlineUT, acceptUT);
+        }
+
+        /// <summary>
         /// Emits the guard's one-per-contract WARN when a deadline is implausible.
         /// Returns true when the deadline was implausible (i.e. the caller must not act
         /// on it).

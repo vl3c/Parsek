@@ -725,6 +725,10 @@ namespace Parsek
             // title was never recorded) resolve it by contract id against the same
             // effective ledger's accept.
             var contractAcceptIndex = GameActionDisplay.BuildContractAcceptIndex(ledgerActions);
+            // A fail row reads "Expired:" when it lands at or after the deadline of the
+            // accept it closes; each re-accept carries its own deadline.
+            var contractAcceptHistory = GameActionDisplay.BuildContractAcceptHistory(ledgerActions);
+            int contractExpiredRows = 0;
             int facilityBuildingRowsCompacted;
             List<GameAction> compactedActions =
                 CompactFacilityBuildingActions(ledgerActions, out facilityBuildingRowsCompacted);
@@ -784,7 +788,13 @@ namespace Parsek
                     GameActionDisplay.ContractNameSource nameSource;
                     string contractName = GameActionDisplay.ResolveContractDisplayName(
                         action, contractAcceptIndex, out nameSource);
-                    displayText = GameActionDisplay.GetContractDescription(action, contractName);
+                    GameAction closedAccept = action.Type == GameActionType.ContractFail
+                        ? GameActionDisplay.FindAcceptForOutcome(contractAcceptHistory, action)
+                        : null;
+                    displayText = GameActionDisplay.GetContractDescription(
+                        action, contractName, closedAccept);
+                    if (GameActionDisplay.IsExpiredContractFail(action, closedAccept))
+                        contractExpiredRows++;
                     contractRows++;
                     if (nameSource == GameActionDisplay.ContractNameSource.AcceptTitle) contractNamedFromAccept++;
                     else if (nameSource == GameActionDisplay.ContractNameSource.ContractType) contractNamedFromType++;
@@ -851,7 +861,7 @@ namespace Parsek
                 ParsekLog.Verbose("Timeline",
                     $"Contract row names: rows={contractRows} fromAccept={contractNamedFromAccept} " +
                     $"fromType={contractNamedFromType} fromIdFallback={contractNamedFromId} " +
-                    $"acceptIndex={contractAcceptIndex.Count}");
+                    $"expired={contractExpiredRows} acceptIndex={contractAcceptIndex.Count}");
 
             if (count > 0)
                 ParsekLog.Verbose("Timeline",

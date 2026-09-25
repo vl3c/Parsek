@@ -568,7 +568,11 @@ Row text for career rows: a contract row (Accept / Complete / Fail / Cancel) nam
 contract - its own `ContractTitle`, else the title of the same contract's accept in the ELS
 (`GameActionDisplay.BuildContractAcceptIndex`), else the humanized contract type, else
 `Contract <first id block>` (an accept outside the ledger: pre-Parsek or tombstoned). A
-facility row names the facility through `FacilityDisplayNames.ResolveBuildingDisplayName`,
+contract fail row reads `Expired: <name>` when it lands at or after the deadline of the accept
+it closes (the latest accept of that id at or before it,
+`GameActionDisplay.BuildContractAcceptHistory` / `FindAcceptForOutcome`), else `Fail: <name>`:
+stock reports a deadline expiry with the same `onFailed` event, and this is the ledger's own
+deadline test. A facility row names the facility through `FacilityDisplayNames.ResolveBuildingDisplayName`,
 the Career window's resolver, so a building-level destructible id reads as its facility
 (`Launchpad destroyed`). The ledger keys a destruction or repair by ONE building, so one
 facility event is several rows (a Runway repair is up to ten, one per destroyed building, at
@@ -747,13 +751,29 @@ the entire body with one label plus `Close`. Every date is the house compact KSP
 
 Each tab body, top to bottom - the stacked title bar + group label + column header of round 3
 collapsed to ONE heading and ONE header:
-- the heading line `Active now: 2 of 2 slots` (bold, `FormatActiveHeading`; `1 of 1 slot`
-  singular), whose hover names the building behind the limit (`Slot limit from Mission
-  Control L1.`, plus `(L2 at timeline end)` when a recorded upgrade raises it);
+- the heading line, free first, then active, then reserved (bold, `FormatSlotHeading`
+  over `SlotUsage`; 2026-09-25): `4 of 7 slots free (2 active, 1 reserved for later)`,
+  `5 of 7 slots free (2 active)` with no reservation, `No slot limit (2 active)` at Mission
+  Control L3 (999), `1 of 1 slot free` singular. Reserved = the PEAK the recorded future holds
+  at once minus what is active now (`ComputeSlotUsage` walks the post-snapshot accept /
+  complete / fail / cancel / expiry / activate / deactivate / upgrade changes in UT order,
+  releases before occupies on one tick; a later upgrade counts against today's limit), so a
+  completion on day 50 and a flight's accept on day 60 share one slot. Its hover
+  (`FormatSlotHeadingTooltip`) with a reservation: `Contracts your recorded flights accept
+  later need 1 more slot at peak, so only 4 are free for a new one.` (Strategies: `activate
+  later`); without one it names the building behind the limit (`Slot limit from Mission
+  Control L1.`, plus `(L2 at timeline end)`; `No slot limit at Mission Control L3.`). The
+  count is Parsek's ledger view only: stock Mission Control / Administration count what is
+  active now, and no Parsek block stops an accept or activation beyond it (the only accept
+  block, `ContractAcceptPatch`, refuses a contract already committed later). The
+  stock-UI-overlay work's shared "free slots for a new accept now" query is meant to replace
+  `ComputeSlotUsage` here when it lands;
 - ONE column header;
 - one body box holding the rows active now and, only when the recorded timeline adds rows,
-  a full-width fold row `Pending in timeline (1) - 3 of 3 slots at timeline end`
-  (`FormatPendingFold`) with the pending rows under it, so both groups share the columns.
+  a full-width fold row `Accepted later by your recorded flights (1)` / `Activated later by
+  your recorded flights (1)` (`FormatPendingFold`; hover `FormatPendingFoldTooltip`: `Not
+  active yet. At the end of the recorded timeline: 3 of 7 slots free.`, or `... no slot
+  limit.`) with the pending rows under it, so both groups share the columns.
   A tab with pending rows but nothing active draws `No active contracts.` in the body above
   the fold.
 A tab with nothing active and nothing pending is ONE grey line (`No active contracts.` /
@@ -766,7 +786,14 @@ A tab with nothing active and nothing pending is ONE grey line (`No active contr
 
 `Timeline end` is drawn only when some row of the tab has an outcome, and says what the
 recorded future does to the row: `completes <date>`, `FAILS <date>` (alert amber),
-`cancelled <date>`, `deactivates <date>`. `Deadline` is the date plus a relative tail,
+`expires <deadline>` (alert amber; stock charges the failure penalties),
+`cancelled <date>`, `deactivates <date>`. FAILS stays upper case as the Career emphasis for a
+real failure; the other verbs match the stock-screen wording the overlay work uses. An
+expiry is a contract whose accepted deadline passes before the timeline ends: stock's
+`Contract.Update` sets `State.DeadlineExpired` and fires the same `onFailed` event as a
+failure, so a recorded fail row at or after the deadline is the expiry
+(`ContractsModule.IsDeadlineExpiryFail`, the ledger's own test), and a deadline passing with
+no row expires at the deadline too, as `ContractsModule.CheckDeadlines` does. `Deadline` is the date plus a relative tail,
 `(in 12d)` or `(overdue 3d)` in amber. Pending rows are not coloured - the fold row is their
 one marker; amber is kept for cells that need attention. Fold keys `Contracts.Pending` /
 `Strategies.Pending`; seam wire values `pending:contracts` / `pending:strategies`.
@@ -781,7 +808,11 @@ not a link.
 
 The walk (`Build`) reads the effective ledger (`EffectiveState.ComputeELS()`) and branches on
 seven action types: the four contract ones, the two strategy ones, and `FacilityUpgrade`
-read only for the Mission Control and Administration levels. Every cell's text is formatted
+read only for the Mission Control and Administration levels. Before each action it expires
+every active contract whose deadline has passed by that action's UT (dated at the deadline),
+mirroring `ContractsModule.ProcessAction`. The rebuild's Verbose line carries
+`contractsExpired=` and `contractSlots=` / `strategySlots=`
+(`active=/limit=/peak=/reserved=/free=`). Every cell's text is formatted
 once per rebuild, and the rebuild runs once per game minute, or once per second while a
 deadline is within two minutes of now.
 
@@ -791,7 +822,7 @@ with it), the milestone list (it kept only each id's first credit, so repeat wor
 never showed; the Timeline's Milestones view shows every credit), their seven gallery
 states, and the Science-mode tab subsets.
 
-Pictures on this shape (2026-09-24 re-flights): GUI-15 `2026-09-24_1528`
+Pictures of the slots / expiry wording (2026-09-25): GUI-15 `2026-09-25_1718` (`cc-career-contracts-pendingfold-advanced`: `3 of 7 slots free (3 active, 1 reserved for later)` over `Accepted later by your recorded flights (2)`; `cc-career-contracts-closing-advanced`: `completes` / `FAILS` / `expires` / `cancelled`; `cc-career-strategies-pendingfold-advanced`: `0 of 3 slots free (2 active, 1 reserved for later)` over `Activated later by your recorded flights (1)`), GUI-5 `2026-09-25_1722_a2` (`0 of 1 slot free (1 active)` over Outsourced R&D). Earlier pictures, with the old wording (2026-09-24 re-flights): GUI-15 `2026-09-24_1528`
 `cc-career-contracts-active-advanced` (`Active now: 2 of 2 slots`, two rows),
 `cc-career-contracts-pendingfold-advanced` (the fold over the gallery's
 `career.banner.divergent` view model: `Active now: 3 of 7 slots`, `Pending in timeline (2) -

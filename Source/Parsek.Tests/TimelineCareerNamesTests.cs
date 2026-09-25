@@ -95,7 +95,77 @@ namespace Parsek.Tests
             Assert.Contains("Cancel: " + ContractTitle, texts);
             Assert.DoesNotContain(texts, t => t.Contains("unknown"));
             Assert.Contains(logLines, l => l.Contains("[Timeline]")
-                && l.Contains("Contract row names: rows=4 fromAccept=3 fromType=0 fromIdFallback=0 acceptIndex=1"));
+                && l.Contains("Contract row names: rows=4 fromAccept=3 fromType=0 fromIdFallback=0 expired=0 acceptIndex=1"));
+        }
+
+        // catches: stock's DeadlineExpired reading "Fail:". Stock fires the same onFailed
+        // event for both, so the ledger row carries no reason and the accepted deadline
+        // decides - the test ContractsModule applies to the same row.
+        [Fact]
+        public void Build_AFailAtOrAfterTheAcceptedDeadline_ReadsExpired()
+        {
+            GameAction accept = Accept();
+            accept.DeadlineUT = 150.0;
+            var entries = BuildFrom(new List<GameAction>
+            {
+                accept,
+                Outcome(GameActionType.ContractFail),          // UT 200, after the deadline
+            });
+
+            Assert.Contains("Expired: " + ContractTitle, entries.Select(e => e.DisplayText));
+            Assert.Contains(logLines, l => l.Contains("[Timeline]")
+                && l.Contains("Contract row names: rows=2") && l.Contains("expired=1"));
+        }
+
+        [Fact]
+        public void Build_AFailBeforeTheDeadline_OrWithNoDeadline_ReadsFail()
+        {
+            GameAction accept = Accept();
+            accept.DeadlineUT = 900.0;
+            var entries = BuildFrom(new List<GameAction>
+            {
+                accept,
+                Outcome(GameActionType.ContractFail),
+            });
+            Assert.Contains("Fail: " + ContractTitle, entries.Select(e => e.DisplayText));
+
+            // An old row whose accept carries no deadline, and a fail with no accept on
+            // the ledger at all, stay failures.
+            entries = BuildFrom(new List<GameAction>
+            {
+                Accept(),
+                Outcome(GameActionType.ContractFail),
+            });
+            Assert.Contains("Fail: " + ContractTitle, entries.Select(e => e.DisplayText));
+            entries = BuildFrom(new List<GameAction>
+            {
+                Outcome(GameActionType.ContractFail, title: ContractTitle),
+            });
+            Assert.Equal("Fail: " + ContractTitle, Assert.Single(entries).DisplayText);
+        }
+
+        [Fact]
+        public void FindAcceptForOutcome_TakesTheLatestAcceptAtOrBeforeTheOutcome()
+        {
+            // A re-accept of the same contract carries its own deadline.
+            GameAction first = Accept();
+            first.UT = 100; first.DeadlineUT = 150.0;
+            GameAction second = Accept();
+            second.UT = 300; second.DeadlineUT = 900.0;
+            GameAction fail = Outcome(GameActionType.ContractFail);
+            fail.UT = 400;
+            var history = GameActionDisplay.BuildContractAcceptHistory(
+                new List<GameAction> { first, second, fail });
+
+            Assert.Same(second, GameActionDisplay.FindAcceptForOutcome(history, fail));
+            Assert.False(GameActionDisplay.IsExpiredContractFail(fail, second));
+            Assert.Equal("Fail: X", GameActionDisplay.GetContractDescription(fail, "X", second));
+            fail.UT = 200;
+            Assert.Same(first, GameActionDisplay.FindAcceptForOutcome(history, fail));
+            Assert.Equal("Expired: X", GameActionDisplay.GetContractDescription(fail, "X", first));
+            // Only a fail row can read Expired.
+            Assert.Equal("Cancel: X", GameActionDisplay.GetContractDescription(
+                Outcome(GameActionType.ContractCancel), "X", first));
         }
 
         // catches: a contract accepted before Parsek (no accept row) reading "unknown".
@@ -109,7 +179,7 @@ namespace Parsek.Tests
 
             Assert.Equal("Complete: Contract 7a726c83 +39270 funds", Assert.Single(entries).DisplayText);
             Assert.Contains(logLines, l => l.Contains("[Timeline]")
-                && l.Contains("rows=1 fromAccept=0 fromType=0 fromIdFallback=1 acceptIndex=0"));
+                && l.Contains("rows=1 fromAccept=0 fromType=0 fromIdFallback=1 expired=0 acceptIndex=0"));
         }
 
         // catches: a tombstoned accept still naming (or crashing) its outcome rows - the
