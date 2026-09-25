@@ -931,6 +931,13 @@ namespace Parsek.TestCommands
                 TryCompleteUiAction(now);
                 return;
             }
+            // StockScreen: the stock screen's own readiness signal plus a frame floor, so a
+            // following CaptureScreenshot sees the rows the screen builds after its spawn.
+            if (completionVerb == TestCommandStockScreen.Verb)
+            {
+                TryCompleteStockScreen(now);
+                return;
+            }
             if (completionVerb == "WarpToUT")
             {
                 // The REAL warp's sibling partial. Its completion polls the advancing
@@ -1466,6 +1473,9 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.GloopsStart(ParsedCommand cmd) => GloopsStartImpl(cmd);
         void ITestCommandExecutor.GloopsStop(ParsedCommand cmd) => GloopsStopImpl(cmd);
 
+        // StockScreen: body and its settle poll in the sibling ParsekTestCommandAddon.StockScreen.cs.
+        void ITestCommandExecutor.StockScreen(ParsedCommand cmd) => StockScreenImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1523,6 +1533,7 @@ namespace Parsek.TestCommands
                 case "DumpGuiTree": exec.DumpGuiTree(cmd); break;
                 case "GloopsStart": exec.GloopsStart(cmd); break;
                 case "GloopsStop": exec.GloopsStop(cmd); break;
+                case "StockScreen": exec.StockScreen(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

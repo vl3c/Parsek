@@ -726,6 +726,24 @@ pre-action ones. Nine typed refusals: `unknown-partner`, `partner-ambiguous`,
 finer `driver-*` subkind; `route-action-refused` deliberately does not, being a POST-ACT
 ERROR.
 
+`StockScreen` IS A VERB, NOT A `UiAction` OP, and it is the census route onto the STOCK
+KSP screens Parsek annotates (R&D, the Astronaut Complex from the KSC and from the VAB,
+Mission Control, Administration, a KSC facility's right-click menu, the launch-site crew
+picker, the VAB with a craft loaded and its crew panel). `UiAction` cannot reach them: it
+drives Parsek's IMGUI windows and is refused `ui-host-unavailable` in the editor. The shape
+is `StockScreen screen=<rnd|astronaut|missioncontrol|administration|facilitymenu|launchsite|editor|crewdialog>
+act=<open|close|select|hover> [item=] [part=] [pane=]`; the per-screen table is
+`docs/dev/design-autotest-command-seam.md` -> `#### StockScreen`. Every screen opens through
+its own building entry point, a row is selected through its own radio button, and a hover
+MOVES THE OPERATOR'S CURSOR onto the control (stock uGUI tooltips follow the OS cursor, unlike
+IMGUI hover - see the hover paragraph above) and spawns its stock tooltip if the pointer did
+not; every non-hover call despawns the tooltip and parks the cursor again. It presses no stock
+action. Because the annotations are uGUI, a `DumpGuiTree` beside these PNGs would be empty of
+the subject; instead every `CaptureScreenshot` logs `[StockUiOverlay] record label=<label> ...`
+lines with the decision records of each open stock screen, the shape `tools/gui_mirror.py`
+reads beside the overlay's own `decorate` pass lines. `GUI-28-census-stock-screens` is the
+lane.
+
 SIX AUTHORING RULES that cost a flight if missed:
 
 - **Coordinates are CLIENT pixels, y DOWN.** The same frame the dumps' `rect` uses, so an

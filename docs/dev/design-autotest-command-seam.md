@@ -3325,6 +3325,73 @@ as reading-run specs and neither armed.
 
 ## Behavior
 
+#### StockScreen (additive; the stock KSP screens Parsek annotates)
+
+**Why.** The stock-screen annotation program (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md)
+greys stock controls and appends Parsek's reason to stock tooltips, reason fields and row
+labels. Those are uGUI surfaces behind stock buildings: no `UiAction` op reaches them
+(`UiAction` drives Parsek's IMGUI windows and is refused `ui-host-unavailable` in the
+editor), and the GuiTree recorder cannot see them. This verb is the census route onto them.
+
+**Grammar.** `cmd=StockScreen screen=<s> act=<a> [item=<id>] [part=<name>] [pane=<tab>]`.
+
+| screen | acts | item / part / pane | entry point |
+|---|---|---|---|
+| `rnd` | open, close, select, hover | select `item=<techId>`; hover `item=<techId>` (node tooltip) or `part=<name>` (the selected node's part list) | `RnDBuilding.EnterBuilding`; select runs the node's own click body (`RDNode.NodeInput`) |
+| `astronaut` | open, close, hover | hover `item=<kerbal>` | `AstronautComplexFacility.EnterBuilding` at the KSC; in the VAB the crew panel's own `CrewAssignmentDialog.ButtonAstronautComplex` |
+| `missioncontrol` | open, close, select | open `[pane=]`; select `item=<contract guid> [pane=]` | `MissionControlBuilding.EnterBuilding`; `SetDisplayMode*`; the row's own radio button |
+| `administration` | open, close, select | select `item=<strategy config name>` | `AdministrationFacility.EnterBuilding`; the strategy row's own radio button |
+| `facilitymenu` | open, close, hover | open `item=<facility id>`; hover = the Upgrade button | the building's own `OnRightClick`; close `KSCFacilityContextMenu.Dismiss(None)` |
+| `launchsite` | open, close, select, hover | select `item=<craft name>`; hover `item=<kerbal>` | the VAB launch site's `EnterBuilding` (the craft picker); select runs `VesselSpawnDialog.SelectVesselDataItem`; close is the dialog's own Close button |
+| `editor` | open, close, hover | open `item=<craft name>` (the save's `Ships/VAB`); hover `part=<name>` | open saves `persistent` then `EditorDriver.StartAndLoadVessel` (the VAB building's own sequence); close runs `EditorLogic.onExitConfirm` |
+| `crewdialog` | open, hover | hover `item=<kerbal>` | `EditorLogic.SelectPanelCrew` |
+
+**Precondition.** `RequiresGameLoaded` (the `UiAction` row). The scene each call needs is
+the verb's own typed REJECTED `stockscreen-wrong-scene`: the Space Center for every screen
+but these - `astronaut` in both scenes, `crewdialog` and the editor's hover / close in the
+editor. A non-career save is `stockscreen-career-only`.
+
+**Phases.** TWO-PHASE on the 60 s default budget (NOT a `DEFERRED_SEAM_VERB`). Each call
+arms the screen's own readiness signal (the screen's singleton exists and its rows are
+built, the selected row is the named one, stock's current tooltip is the named control, the
+scene is EDITOR with the craft loaded) and completes once it holds AND three frames have
+drawn, so a following `CaptureScreenshot` sees the rows stock builds after the spawn event.
+
+**Hover.** Stock tooltips follow the EventSystem, which reads `Input.mousePosition`, and that
+tracks the OS cursor. So a hover moves the REAL cursor onto the control's rect centre
+(writing the machine-wide operator Info line `op=pointer` writes) and, once a frame has
+passed, spawns the control's own tooltip controller through `UIMasterController.SpawnTooltip`
+when the pointer alone did not; the OK payload's `tooltip=<type>/<pointer|direct>/<move>`
+says which. Every NON-hover call first despawns stock's current tooltip and parks a cursor
+its own hover moved, so a capture after an open or a select shows the screen and not the
+previous hover.
+
+**Nothing is pressed.** No accept, decline, cancel, hire, dismiss, research, purchase,
+upgrade or strategy button is invoked, and no career state changes.
+
+**Records at capture time.** `CaptureScreenshot` logs, beside its `capturescreenshot ok
+label=` line, the decision records of every stock screen open in that frame
+(`TestCommands/StockScreenRecords.cs`): `[StockUiOverlay] record label=<l> screen=<S>
+tab=<T> items=N marked=M blocked=B` per screen and tab, then one
+`record label=<l> screen= tab= item=<id> kind= marked= blocked= why="..."` per marked or
+blocked item, or `record label=<l> screens=none`; then one `control label=<l> screen=<S>
+name=<control> state=<UIStateButton state> interactable=<b> visible=<b>` per stock control
+those decisions act on (R&D's action button, Mission Control's Accept / Decline / Cancel,
+Administration's Accept / Cancel, a facility menu's Upgrade, the part tooltip's purchase
+buttons, every Astronaut Complex and crew-panel row button), so a button that LOOKS enabled
+can be told apart from one that IS. Each record is read from the decision the screen
+itself draws from (the R&D / Astronaut Complex snapshot, `MissionControlStockUi.DecideNow`,
+the strategy gate, `StockUiCrewDialogDecoration.DescribeCurrent`, `ForFacilityMenu`,
+`StockUiPartPurchase.DecideLive`), never from the drawn text.
+
+**Refusals.** `stockscreen-screen-arg-missing|invalid`, `-act-arg-missing|invalid`,
+`-act-unsupported`, `-item-arg-missing`, `-pane-arg-invalid`, `-pane-not-for-screen`,
+`-part-not-for-screen`, `-item-not-found` (arg-class) and `-wrong-scene`, `-not-open`,
+`-already-open`, `-entry-not-found`, `-no-tooltip`, `-career-only` (gate-class) are
+REJECTED; `-open-failed` and `-not-settled` are ERROR. hlib mirrors the vocabularies
+(`STOCKSCREEN_*`, pinned by `StockScreenSourceSyncTests`) and `validate_stock_screen_step`
+catches a missing or mis-scoped arg pre-launch.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`

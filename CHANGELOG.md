@@ -19,6 +19,16 @@ _(unreleased — entries accumulate here per commit)_
   splits a kerbal off an orbiting ship, which writes a rewind-point quicksave, and checks the file is
   on disk under `Parsek/RewindPoints/`, loads as a save at the rewind point's time, and left no
   temporary file behind.
+- **Automated testing: a GUI census lane photographs Parsek's annotations on the stock KSP screens.**
+  `GUI-28-census-stock-screens` visits R&D, the Astronaut Complex (from the Space Center and from the
+  VAB), Mission Control, Administration, the Tracking Station's right-click menu, the launch-site crew
+  picker, the VAB part list and its crew panel, and photographs each greyed control and stock tooltip. Its
+  host is a new committed fixture, `stock-screen-census`: a rewound career whose committed timeline
+  researches a node, accepts an offered contract, completes an active one, hires an applicant, holds a
+  kerbal on a future flight, upgrades a building, buys a part and swaps strategies after the clock (built
+  by a test, never hand-edited). A new automation-only test command, `StockScreen`, opens those screens
+  through their own buildings, selects rows and hovers controls without pressing anything, and every
+  screenshot now also logs what Parsek decided for each stock screen open at that moment.
 - **Automated testing: nine more behaviours are gated by lanes that already show them, and three registry cells that named nothing are retired.**
   Existing lanes now require the log lines that prove the in-flight crew swap (GS-4), freeing a crewed
   recording's reservation when its end passed without a spawn (L4), the tracking-station duplicate-spawn

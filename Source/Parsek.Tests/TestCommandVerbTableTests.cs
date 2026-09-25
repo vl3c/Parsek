@@ -51,6 +51,7 @@ namespace Parsek.Tests
         [InlineData("DumpGuiTree")]
         [InlineData("GloopsStart")]
         [InlineData("GloopsStop")]
+        [InlineData("StockScreen")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -153,7 +154,9 @@ namespace Parsek.Tests
             // StartRecording / StopRecording: those own the auto-record tree that commits
             // into the career, these own the parallel ghost-only recorder behind the Gloops
             // window's primary button.
-            Assert.Equal(38, TestCommandVerbs.ImplementedVerbNames.Count);
+            // StockScreen is ADDITIVE once more (38 -> 39; reserved unchanged at 5): the
+            // reserved envelope never carried a stock-screen verb.
+            Assert.Equal(39, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
