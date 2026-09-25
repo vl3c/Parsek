@@ -102,8 +102,11 @@ pairing rule):
   State: `KspStatePatcher.PatchPurchasedParts` runs after `PatchTechTree`, adds each part
   whose purchase row is at or before the cutoff to its tech's `partsPurchased` (add-only,
   idempotent, skips a tech not researched in stock with a WARN). Cutoff: the tech cutoff,
-  else the walk cutoff, else the ready live clock, because the KSC ledger cursor runs a
-  cutoff-less walk when the clock passes the LAST committed row.
+  else the walk cutoff, clamped to the ready live clock (a `double.MaxValue` sentinel counts
+  as none): the KSC ledger cursor runs a cutoff-less walk when the clock passes the LAST
+  committed row, and the post-tombstone refresh passes `techPatchCutoff = double.MaxValue`,
+  which unclamped would mark future purchases for good. The editor clock is paused by stock
+  (`PSystemSetup.SetEditor`), so no purchase row can pass while the player is in the VAB/SPH.
   Open: (1) not proven in game (no in-game cell: EDITOR tests are forbidden and a
   SPACECENTER cell would have to buy a part); the `textGreyoutMessage` placement in the
   purchase state is read from the decompile (stock enables it with an empty text there), not

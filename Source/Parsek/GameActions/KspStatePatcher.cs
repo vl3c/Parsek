@@ -1057,21 +1057,40 @@ namespace Parsek
         // ---------------- part purchases (P1 state half) ----------------
 
         /// <summary>
-        /// The UT up to which committed part purchases are applied to stock. The tech-tree
-        /// cutoff when one is supplied (the walk never charges past it), else the walk
-        /// cutoff, else the live clock: a cutoff-less walk runs when no committed row lies
-        /// ahead, and the KSC ledger cursor takes exactly that path when the clock passes
-        /// the LAST committed row, so gating on the tech cutoff alone would leave a part
-        /// the walk just charged unpurchased. The live clock also keeps a full-timeline
-        /// walk (tombstone refresh, a not-ready clock) from marking a future purchase.
-        /// Null (skip) when no cutoff is known and the clock is not ready. Pure.
+        /// The UT up to which committed part purchases are applied to stock: the supplied
+        /// cutoff (tech-tree cutoff, else walk cutoff), CLAMPED to the live clock whenever
+        /// the clock is ready. The patch is add-only, so marking a purchase that lies after
+        /// now could never be undone, and the block (which lifts once stock shows the part
+        /// purchased) would hand the player the part before its committed date. The clamp
+        /// is load-bearing on two shapes:
+        /// <list type="bullet">
+        /// <item>a cutoff-less walk (no committed row ahead): the KSC ledger cursor takes
+        /// that path when the clock passes the LAST committed row, and the live clock is
+        /// then the only cutoff there is;</item>
+        /// <item>a full-timeline walk with a sentinel tech cutoff:
+        /// <c>LedgerOrchestrator.RecalculateAndPatchAfterTombstones</c> passes
+        /// <c>techPatchCutoff = double.MaxValue</c> with no walk cutoff whenever the pass
+        /// retired a ScienceSpending row. A non-finite or <c>MaxValue</c> cutoff therefore
+        /// counts as no cutoff.</item>
+        /// </list>
+        /// The block reads the same clock (<c>row.UT &gt; now</c>), so a purchase is marked
+        /// exactly when its block would lift. With the clock not ready (a cold load reads
+        /// UT 0) only an explicit finite cutoff is used; null (skip) when there is none. Pure.
         /// </summary>
         internal static double? ResolvePartPurchasePatchCutoff(
             double? walkCutoff, double? techPatchCutoff, double liveUT)
         {
-            if (techPatchCutoff.HasValue) return techPatchCutoff;
-            if (walkCutoff.HasValue) return walkCutoff;
-            return LedgerOrchestrator.IsCurrentUtReadyForCutoff(liveUT) ? liveUT : (double?)null;
+            double? resolved = techPatchCutoff ?? walkCutoff;
+            if (resolved.HasValue && !IsFiniteExplicitCutoff(resolved.Value))
+                resolved = null;
+            if (!LedgerOrchestrator.IsCurrentUtReadyForCutoff(liveUT))
+                return resolved;
+            return resolved.HasValue ? Math.Min(resolved.Value, liveUT) : liveUT;
+        }
+
+        private static bool IsFiniteExplicitCutoff(double cutoff)
+        {
+            return !double.IsNaN(cutoff) && !double.IsInfinity(cutoff) && cutoff < double.MaxValue;
         }
 
         /// <summary>
@@ -1099,6 +1118,20 @@ namespace Parsek
                 }
             }
             return new List<string>(names);
+        }
+
+        /// <summary>
+        /// The names one <see cref="PatchPurchasedParts"/> pass would mark purchased, from the
+        /// caller's cutoffs and the live clock (<see cref="ResolvePartPurchasePatchCutoff"/>
+        /// then <see cref="BuildPurchasedPartNamesForPatch"/>). Null when there is no usable
+        /// cutoff. Pure: the live wrapper only adds the stock reads and writes.
+        /// </summary>
+        internal static List<string> PlanPurchasedPartNamesForPatch(
+            IReadOnlyList<GameAction> actions, double? walkCutoff, double? techPatchCutoff,
+            double liveUT, out double? cutoff)
+        {
+            cutoff = ResolvePartPurchasePatchCutoff(walkCutoff, techPatchCutoff, liveUT);
+            return cutoff.HasValue ? BuildPurchasedPartNamesForPatch(actions, cutoff.Value) : null;
         }
 
         /// <summary>What <see cref="ApplyPartPurchasePatch"/> did with one part name.</summary>
@@ -1189,11 +1222,21 @@ namespace Parsek
         /// Writing the list fires no <c>OnPartPurchased</c>, so no ledger row and no funds
         /// change result (and <see cref="PatchAll"/>'s suppression covers the rest).
         ///
-        /// <para>Load order: the ksp-load recalc runs inside <c>ScenarioRunner.LoadModules</c>
-        /// and so may run before <c>ResearchAndDevelopment</c> exists (skipped here, like
-        /// <see cref="PatchTechTree"/>); <c>ParsekScenario.DeferredSeedAndRecalculate</c>
-        /// repeats the recalc a frame later, once every scenario module of the scene has
-        /// loaded, and that pass applies the purchases.</para>
+        /// <para>Load order: every OnLoad recalc runs inside <c>ScenarioRunner.LoadModules</c>,
+        /// which loads the save's SCENARIO modules one at a time. A cold load also schedules
+        /// <c>ParsekScenario.DeferredSeedAndRecalculate</c>, which repeats the recalc a frame
+        /// later with every module loaded. A WARM load (scene change, revert, rewind) returns
+        /// from <c>ParsekScenario.OnLoad</c> before that coroutine is scheduled, so its one
+        /// recalc works only because <c>ResearchAndDevelopment</c> precedes
+        /// <c>ParsekScenario</c> in SCENARIO order and has already loaded its tech state.
+        /// <see cref="PatchTechTree"/> relies on the same order. If R&amp;D were absent
+        /// the patch skips (logged) and the next recalc applies it.</para>
+        ///
+        /// <para>Clock: stock pauses <c>Planetarium</c> in the VAB/SPH
+        /// (<c>PSystemSetup.SetEditor</c> sets <c>Planetarium.fetch.pause = true</c>), so a
+        /// purchase row's UT cannot pass while the player sits in the editor. At the Space
+        /// Center the clock runs, and the KSC ledger cursor recalculates in the same frame
+        /// the clock reaches the next committed row (<c>currentUT &gt;= nextActionUT</c>).</para>
         /// </summary>
         internal static void PatchPurchasedParts(
             IReadOnlyList<GameAction> actions, double? walkCutoff, double? techPatchCutoff)
@@ -1209,7 +1252,7 @@ namespace Parsek
             {
                 VerboseStablePatchState("patch-skip|parts|rnd", "rnd-null",
                     "PatchPurchasedParts: ResearchAndDevelopment.Instance is null - skipping " +
-                    "(the deferred-seed recalc re-applies once R&D has loaded)");
+                    "(the next recalc with R&D loaded applies it)");
                 return;
             }
 
@@ -1221,18 +1264,16 @@ namespace Parsek
             }
 
             var liveProvider = PartPurchaseLiveUtProviderForTesting;
-            double liveUT = !walkCutoff.HasValue && !techPatchCutoff.HasValue
-                ? (liveProvider != null ? liveProvider() : CommittedFutureIndexCache.CurrentUT())
-                : 0.0;
-            double? cutoff = ResolvePartPurchasePatchCutoff(walkCutoff, techPatchCutoff, liveUT);
-            if (!cutoff.HasValue)
+            double liveUT = liveProvider != null ? liveProvider() : CommittedFutureIndexCache.CurrentUT();
+            double? cutoff;
+            var names = PlanPurchasedPartNamesForPatch(actions, walkCutoff, techPatchCutoff, liveUT, out cutoff);
+            if (names == null)
             {
                 VerboseStablePatchState("patch-skip|parts|cutoff", "cutoff-unknown",
-                    "PatchPurchasedParts: no cutoff and the clock is not ready - skipping");
+                    "PatchPurchasedParts: no finite cutoff and the clock is not ready - skipping");
                 return;
             }
 
-            var names = BuildPurchasedPartNamesForPatch(actions, cutoff.Value);
             if (names.Count == 0)
             {
                 VerboseStablePatchState("patch-noop|parts", "no-rows",

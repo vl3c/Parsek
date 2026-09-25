@@ -388,8 +388,60 @@ namespace Parsek.Tests
             Assert.Equal(100.0, KspStatePatcher.ResolvePartPurchasePatchCutoff(200.0, 100.0, 300.0));
             Assert.Equal(200.0, KspStatePatcher.ResolvePartPurchasePatchCutoff(200.0, null, 300.0));
             Assert.Equal(300.0, KspStatePatcher.ResolvePartPurchasePatchCutoff(null, null, 300.0));
-            // A not-ready clock (UT 0 on a cold load) never marks anything.
+            // A not-ready clock (UT 0 on a cold load) never marks anything without an
+            // explicit finite cutoff, and keeps an explicit one as given.
             Assert.Null(KspStatePatcher.ResolvePartPurchasePatchCutoff(null, null, 0.0));
+            Assert.Equal(200.0, KspStatePatcher.ResolvePartPurchasePatchCutoff(null, 200.0, 0.0));
+        }
+
+        [Fact]
+        public void StatePatch_Cutoff_IsClampedToTheReadyLiveClock()
+        {
+            // An explicit cutoff past now never marks a purchase the block still guards.
+            Assert.Equal(300.0, KspStatePatcher.ResolvePartPurchasePatchCutoff(500.0, 500.0, 300.0));
+            Assert.Equal(300.0, KspStatePatcher.ResolvePartPurchasePatchCutoff(500.0, null, 300.0));
+        }
+
+        [Theory]
+        [InlineData(double.MaxValue)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NaN)]
+        public void StatePatch_Cutoff_SentinelTechCutoff_CountsAsNoCutoff(double sentinel)
+        {
+            Assert.Equal(300.0, KspStatePatcher.ResolvePartPurchasePatchCutoff(null, sentinel, 300.0));
+            Assert.Null(KspStatePatcher.ResolvePartPurchasePatchCutoff(null, sentinel, 0.0));
+        }
+
+        [Fact]
+        public void StatePatch_TombstoneRefreshShape_MarksThePastPurchase_NotTheFutureOne()
+        {
+            // LedgerOrchestrator.RecalculateAndPatchAfterTombstones after retiring a
+            // ScienceSpending row: utCutoff null, techPatchCutoff double.MaxValue. The walk
+            // spans the whole timeline, but the add-only patch must stop at now.
+            var actions = new List<GameAction>
+            {
+                Purchase(100, Booster, 800f),
+                Purchase(300, Pod, 1600f)
+            };
+            double? cutoff;
+            var names = KspStatePatcher.PlanPurchasedPartNamesForPatch(
+                actions, walkCutoff: null, techPatchCutoff: double.MaxValue, liveUT: 200.0, out cutoff);
+
+            Assert.Equal(200.0, cutoff);
+            Assert.Equal(new[] { Booster }, names.ToArray());
+
+            var rnd = new FakeRnD();
+            rnd.TechOf[Pod] = "start";
+            rnd.TechOf[Booster] = "start";
+            rnd.Researched.Add("start");
+            rnd.Apply(names);
+            Assert.Contains(Booster, rnd.Purchased);
+            Assert.DoesNotContain(Pod, rnd.Purchased);
+
+            // So the future purchase stays blocked (stock still shows it unpurchased).
+            var index = Index(actions.ToArray());
+            Assert.True(StockUiReservationPredicates.IsPartPurchaseBlocked(
+                index, Pod, 200.0, false, rnd.Purchased.Contains(Pod)));
         }
 
         [Fact]
