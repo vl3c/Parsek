@@ -11,6 +11,13 @@ _(unreleased — entries accumulate here per commit)_
 ### Added
 
 - **Dev: the GUI mirror shows stock KSP screens as photographs, with Parsek's decorations beside them.** A census capture labelled `stk-<screen>-<state>` (or one with no Parsek window in it) is listed under a `Stock screens` rail heading, one group per screen, and shown as the frame the census took, never redrawn; a PNG with no control-tree dump is enough. Beside it a panel lists what Parsek decorated on that screen, read from the run's `KSP.log`: the stock census lane's own `record label=` lines (per-tab summaries, items, or `screens=none`), else the nearest `decorate` pass for that screen before the capture, else a line saying none was logged. Each row shows id, tab, kind, marked, blocked and why, a second table lists the stock buttons the lane logged (`control` lines: name, state, interactable, visible), and a mark without its block (or a block without its mark) on a kind the pairing rule covers is highlighted and badged in the rail. Superseded / retired flags, notes and Compare pairs work as for Parsek's windows (`harness/tools/gui_mirror.py`; `docs/dev/design-gui-mirror.md` section 18).
+- **Automated testing: the Missions tab's leg trim and Clone button are driven by a lane.**
+  Two test-seam additions reach the last two Missions-tab authoring actions no lane could: a
+  `leg:` key for the include op unticks ONE interval of a vessel, through the interval
+  checkbox's own code, and a `clone` op runs the Clone button's code. The new lane
+  `MS-1-mission-leg-trim-clone` loops a recorded two-vessel mission, unticks the main vessel's
+  launch interval and reads the loop shrinking to start at the separation, then clones the
+  mission and reads the copy carrying the trim. Coverage 225 -> 227 of 247 (D11 complete).
 - **Automated testing: two lanes check the Timeline against the ledger and three storage formats
   on live saves.** `ST-1-storage-timeline-ingame` boots the earned career and runs two new in-game
   categories: `Timeline` checks that every effective-ledger action is exactly one Timeline row with
@@ -20,6 +27,16 @@ _(unreleased — entries accumulate here per commit)_
   splits a kerbal off an orbiting ship, which writes a rewind-point quicksave, and checks the file is
   on disk under `Parsek/RewindPoints/`, loads as a save at the rewind point's time, and left no
   temporary file behind.
+- **Automated testing: a GUI census lane photographs Parsek's annotations on the stock KSP screens.**
+  `GUI-28-census-stock-screens` visits R&D, the Astronaut Complex (from the Space Center and from the
+  VAB), Mission Control, Administration, the Tracking Station's right-click menu, the launch-site crew
+  picker, the VAB part list and its crew panel, and photographs each greyed control and stock tooltip. Its
+  host is a new committed fixture, `stock-screen-census`: a rewound career whose committed timeline
+  researches a node, accepts an offered contract, completes an active one, hires an applicant, holds a
+  kerbal on a future flight, upgrades a building, buys a part and swaps strategies after the clock (built
+  by a test, never hand-edited). A new automation-only test command, `StockScreen`, opens those screens
+  through their own buildings, selects rows and hovers controls without pressing anything, and every
+  screenshot now also logs what Parsek decided for each stock screen open at that moment.
 - **Automated testing: nine more behaviours are gated by lanes that already show them, and three registry cells that named nothing are retired.**
   Existing lanes now require the log lines that prove the in-flight crew swap (GS-4), freeing a crewed
   recording's reservation when its end passed without a spawn (L4), the tracking-station duplicate-spawn
@@ -129,6 +146,13 @@ _(unreleased — entries accumulate here per commit)_
   `REJECTED tab-hidden-in-game-mode` naming the mode, and `key=customRange` now opens the
   Time fold. `GUI-24-census-timeline-filters` photographs the Contracts, Milestones and
   Tech views on its host and Milestones under a This Year range.
+- **Automated testing: a lane checks two spawn-safety guards on a real spawn.**
+  `SS-1-spawn-safety-corrections` injects two recordings that end during a time warp. One
+  landed on the grass near the Space Center but its saved state still said "flying"; it
+  spawns after the warp with that state corrected to landed. The other ends in an orbit
+  that dips to 60 km, inside the 75 km safety margin over Kerbin's atmosphere; its spawn is
+  held while the orbit is low, and once the orbit climbs back out it is refused, because the
+  low point would still drag it down. Test-side only: a new `spawn-safety` injection preset.
 - **Automated testing: a lane watches a ghost wait past its end for a blocked spawn.**
   `EX-2-single-point-held-ghost` injects a one-point recording that ends in orbit on top of
   another loaded vessel. At the recording's end the spawn is blocked and, with only one
