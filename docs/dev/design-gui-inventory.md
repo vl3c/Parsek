@@ -140,8 +140,8 @@ structure:
 |---|---|
 | `ClickThruBlocker.GUILayoutWindow(` / `GUILayout.Window(` / `GUI.Window(` | 16 sites: 15 player-facing hosts drawing **14 distinct windows**, 1 test-only probe at `InGameTests/GuiTreeDumpImguiTest.cs:484` |
 | `PopupDialog.SpawnPopupDialog(` excluding `InGameTests/` + `TestCommands/` | **21** modal dialogs |
-| `void OnGUI()` in production | **6** hosts: `ParsekFlight.cs:2087`, `ParsekKSC.cs:227`, `ParsekTrackingStation.cs:350`, `CurrencyReservationOverlay.cs:87`, `OverlayBadge.cs:122`, `InGameTests/TestRunnerShortcut.cs:177` |
-| IMGUI draw calls outside `UI/` | 7 files: `CurrencyReservationOverlay.cs`, `MapMarkerRenderer.cs`, `OverlayBadge.cs`, `ParsekFlight.cs`, `ParsekKSC.cs`, `ParsekUI.cs`, `WatchModeController.cs` |
+| `void OnGUI()` in production | **5** hosts: `ParsekFlight.cs:2087`, `ParsekKSC.cs:227`, `ParsekTrackingStation.cs:350`, `CurrencyReservationOverlay.cs:87`, `InGameTests/TestRunnerShortcut.cs:177` (`OverlayBadge.cs` was the sixth until 2026-09-25, when the stock-UI badges moved to stock mechanisms and the file was deleted) |
+| IMGUI draw calls outside `UI/` | 6 files: `CurrencyReservationOverlay.cs`, `MapMarkerRenderer.cs`, `ParsekFlight.cs`, `ParsekKSC.cs`, `ParsekUI.cs`, `WatchModeController.cs` (`OverlayBadge.cs` deleted 2026-09-25) |
 | `UiSurfaceVisibility.IsVisible(` | **12** call sites in 5 files; 4 of the 14 enum keys have none |
 | `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` | 107 raw, **95** real producers |
 
@@ -182,7 +182,7 @@ career with 704 recording sidecars and 12 vessels. Screen 1280x720.
 |---|---|---|---|
 | IMGUI inside a `GUI.Window` callback | every window and tab in section 3 | YES | yes |
 | IMGUI outside any window | watch overlay, ghost map markers, currency tooltip, in-world ghost labels | NO | yes, if drawn |
-| uGUI (`PopupDialog`, `RawImage` badges, the stock toolbar button) | all 21 dialogs, the R&D / Astronaut / Mission Control badges, the ApplicationLauncher button | NO | yes, if raised |
+| uGUI (`PopupDialog`, stock controls Parsek annotates, the stock toolbar button) | all 21 dialogs, the R&D / Astronaut / Mission Control stock-control annotations, the ApplicationLauncher button | NO | yes, if raised |
 | hover-dependent IMGUI inside a window | the `TooltipEchoBox` strip's TEXT, `DisabledHoverEcho` reasons | node captured, always EMPTY | only with a parked pointer |
 
 Colour is a third blind spot: the tree carries no colour field, so a tint (the red/cyan
@@ -1127,7 +1127,7 @@ MEASURED EXCEPTION, and TWO now have a picture (updated 2026-09-11 off the wave-
 - **Photographed:** the Watch Mode overlay (above) and the flight-map ghost markers
   (`play-mapview-ghostmarkers-advanced`, PNG only, with 243 `[GhostMap] Marker DRAWN` lines
   behind the frame).
-- **Still with no picture (5):** the currency reservation tooltip and the stock-UI badges (both
+- **Still with no picture (5):** the currency reservation tooltip and the stock-UI annotations' tooltip text (both
   hover-only, and hover does not paint - see 6.2), the Tracking Station markers (no driveable
   scene), the in-world ghost labels (no `SpawnWarningUI` producer fired on either flight lane),
   and the Logistics launcher TINT in its broken state (zero
@@ -1142,7 +1142,7 @@ MEASURED EXCEPTION, and TWO now have a picture (updated 2026-09-11 off the wave-
 |---|---|---|---|---|
 | Watch Mode overlay | `WatchModeController.cs:1054`, called `ParsekFlight.cs:2103` | FLIGHT | none (pure output) | the ghost-to-vessel distance and the `[Horizon]` / `[Free]` camera mode; a fixed 300x50 box centred in the LEFT half of the screen (`:1094-1096`) |
 | Currency reservation tooltip | `CurrencyReservationOverlay.cs:87`, paint `:129` | SPACECENTER + FLIGHT | hover only | the Total / Reserved split and the `Short by` overdraw; the stock bar shows only Available. Reputation is deliberately undecorated (`:22-24`). Unconditional since the 2026-08-27 simplification (`:89-90`) |
-| Stock-UI badges | `StockUiOverlayController.cs:49`, renderer `OverlayBadge.cs:7` | SPACECENTER (R&D, Astronaut Complex, Mission Control) | hover only | six tint kinds and five tooltip texts naming which recording committed a tech node, which contract a committed future claims, which slot holds an applicant, and which roster entry is a stand-in |
+| Stock-UI annotations (the badges until 2026-09-25) | Harmony postfixes: `Patches/RnDStockDecorationPatches.cs`, `Patches/AstronautComplexDecorationPatches.cs`, `Patches/MissionControlStockUiPatches.cs`; refresh host `StockUiOverlayController.cs`. No Parsek-drawn object: `OverlayBadge.cs` is deleted | R&D and Mission Control (SPACECENTER); Astronaut Complex in any scene that opens it (also from the VAB/SPH) | the tint, row labels and greyed buttons are always visible; the explanation is in the stock hover tooltip / description | a tinted R&D node icon, the stock row label of a kerbal or contract, stock's disabled Research / hire / dismiss / Accept / Decline buttons, and the explanation text (fact, rule, when it frees up) appended to the stock tooltip or detail text |
 | Ghost map markers (flight map) | `MapMarkerRenderer.cs:208` via `ParsekUI.cs:1901` | FLIGHT map | LEFT click falls through to stock (no handler is supplied, `ParsekUI.cs:2763`); RIGHT click toggles a sticky label | a marker for a ghost with no ProtoVessel; eight distinct skip conditions decide absence (`ParsekUI.cs:2021-2296`) |
 | Ghost map markers (Tracking Station) | `ParsekTrackingStation.cs:364` | TRACKSTATION | LEFT click opens the ghost popup; RIGHT click pins | the same, plus a click-block while the popup is open (`:380-388`) |
 | In-world ghost labels | `ParsekFlight.cs:27052`, call `:2106` | FLIGHT | none | a 250x40 two-line label per chain ghost: `Ghost -- spawn abandoned` / `spawn blocked` / `chain terminated` / `spawns at UT=n` (`SpawnWarningUI.cs:130-147`) |
@@ -1545,7 +1545,7 @@ One line each for the rest:
 | D18 | The virtual Unfinished Flights hide-all branch is unreachable; P17's fix should make the ordinary path carry the same guard: verify after, then decide whether the branch stays |
 | I | `DrawRecordingTooltip` (`UI/RecordingsTableUI.cs:5451`) is a fully unit-tested 78-line hover panel with no caller, and the SOLE production caller of `FormatResourceManifest` / `FormatInventoryManifest` / `FormatCrewManifest`: wire it back, or delete it and three green formatter test suites with it? |
 | exposure | 46 `InfoRateLimited` / `WarnRateLimited` sites mean a Logistics Pause / Activate / Send Once / Create click can no-op invisibly: is a log-only refusal acceptable for a click the player made? |
-| tooling | `StockUiOverlay` badges (R&D, Astronaut Complex, Mission Control) are invisible to both census instruments: is a uGUI capture path worth building? |
+| tooling | the `StockUiOverlay` stock-control annotations (R&D, Astronaut Complex, Mission Control; badges until 2026-09-25) are invisible to the GuiTree recorder (uGUI) and their explanation text is hover-only: is a uGUI capture path worth building? |
 
 The eight empty-surface captures, the 21 unphotographed dialogs and the 7 unphotographed
 overlays are covered by section 7 and carry no todo entry of their own.
@@ -1838,7 +1838,7 @@ tooltip and the badges inherit THAT, which is a stronger blocker than a missing 
 | target | what is needed |
 |---|---|
 | all 21 dialogs, all 7 overlays, every populated tooltip | full-screen `CaptureScreenshot` paired with `pointer`, not a window-tree dump. `CaptureScreenshot` already grabs the framebuffer, so the missing half is only "raise it and hold it" |
-| the stock-UI badges (R&D, Astronaut Complex, Mission Control) and their five tooltips | a verb that opens a stock facility screen plus `pointer`; the `c2` career fixture with a committed tech, contract and hire is the subject |
+| the stock-UI annotations (R&D, Astronaut Complex, Mission Control) and their tooltip text | a verb that opens a stock facility screen plus `pointer`; the `c2` career fixture with a committed tech, contract and hire is the subject |
 | the currency reservation tooltip (four text forms x two widgets) | `pointer` over a stock uGUI widget rect - the first pointer target that is not a Parsek control |
 | ghost map markers in either scene | the existing `EnterMapView` verb (M-A7) plus a full-screen capture; the sticky variant additionally needs a synthesised right-click on a marker |
 | any tint (Logistics red/cyan, phase colours, amber pending rows, the `(partial)` dim) | the tree carries no colour field, so every tint claim must be paired with a PNG |
@@ -1889,7 +1889,7 @@ class of defect the Milestones `Rewards` overflow belongs to:
 | Settings | 45 auto-loop field, 40 unit button, 85 audio label, 35 percent label |
 | Real Spawn Control | expand / 55 / 70 / 100 / 95 / 110 / 118 (`UI/SpawnControlUI.cs:56-60`) |
 | Test Runner | status icon 20, `Run` 40, `Run+` 44, play 24, search label 48, clear 24; `ErrorIndent` 40, `ErrorMaxWidth` 380 |
-| overlays | watch box 300x50 pinned; currency tooltip 147 wide; badge 18x18 with a 320x54 tooltip; map icon 20 with 6 px click and 24 px toggle pads; ghost label 250x40 |
+| overlays | watch box 300x50 pinned; currency tooltip 147 wide; stock-UI annotations draw no Parsek box (the 18x18 badge and its 320x54 tooltip were retired 2026-09-25); map icon 20 with 6 px click and 24 px toggle pads; ghost label 250x40 |
 
 The tooltip echo strip is 23 px in single-line windows (Timeline, Logistics, Career State,
 Missions, Real Spawn Control) and 38 px in two-line windows (main, Kerbals, Settings, Gloops,

@@ -1028,15 +1028,30 @@ _(unreleased — entries accumulate here per commit)_
   research, contract and hire blocks (and their marks) likewise lift once the committed
   date passes, and they only protect committed history: a flight still in progress never
   blocks a Space Center action.
+- **Mission Control: a contract your committed timeline accepts later is marked on its own
+  row and explained in its details, with Accept and Decline greyed out.** The small blue
+  badge (hover-only, and gone after any tab switch) is replaced by the stock screen's own
+  parts: the row's title now reads, for example, `Explore the Mun - accepted on Y2 D114 on
+  your committed timeline`, the contract details end with `Accept and Decline are
+  unavailable` and the same explanation the refusal dialog gives, and both buttons are
+  disabled. All of it is re-applied whenever Mission Control rebuilds its list, so it
+  survives switching tabs and contracts being offered or completed. It also works with
+  Contract Configurator installed, whose own contract list and Accept button used to switch
+  the marking off.
+- **Mission Control: declining a contract your committed timeline accepts later is now
+  refused.** Declining it did nothing useful: the contract came back as active on the
+  committed date anyway, and the decline could still cost reputation. The refusal says when
+  the contract becomes active. Contracts the committed timeline leaves alone decline as
+  before.
 - **Space Center: the Administration building explains and refuses strategy actions that
   conflict with your committed timeline.** A strategy your committed timeline activates later
   can no longer be activated early (which also charged its setup cost a second time); nor can
   one whose activation would take a slot a committed activation needs, or one that stock's own
   conflict rule would not allow beside a strategy your committed timeline activates while it
-  is still running. An active strategy
-  your committed timeline deactivates or re-activates later can no longer be cancelled before
-  then. Stock greys the row or the Cancel button and prints why in its own orange reason line,
-  for example `Activated on Y2 D114 on your committed timeline.`, with the date it frees up.
+  is still running. An active strategy your committed timeline deactivates or re-activates
+  later can no longer be cancelled before then. Stock greys the row or the Cancel button and
+  prints why in its own orange reason line, for example `Activated on Y2 D114 on your
+  committed timeline.`, with the date it frees up.
   Stock's own strategy expiry is never blocked.
 - **Space Center: committed strategy activations and deactivations now take effect in the
   stock game.** After a rewind, a strategy your committed timeline activated was charged its
@@ -1296,6 +1311,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **R&D and the Astronaut Complex show Parsek's reservations with KSP's own controls instead
+  of Parsek's badge icons.** In R&D, a tech node your committed timeline researches later has a
+  gold-tinted icon, its hover tooltip and the side panel's description say when and by which
+  committed flight it is researched, and its Research button is greyed out (the "purchase all
+  parts" button on researched nodes is untouched). In the Astronaut Complex, a kerbal's row
+  says what the committed timeline does with him in the row's own status text (`Hired on Y2
+  D114`, `Reserved until Y2 D130`, `Lost`, `Retired`, `Dismissed on ...`), and the hire button
+  of a kerbal a committed flight hires later, and the dismiss button of a kerbal Parsek
+  manages, are locked the way KSP locks hiring at the crew limit, with the reason in the
+  kerbal's hover tooltip. This now also works in the Astronaut Complex opened from the
+  VAB/SPH crew dialog, which used to show nothing. The stock Dismiss button is now actually
+  refused for a kerbal Parsek manages: it went through a stock path Parsek did not guard.
+  Mission Control moved to the same stock mechanisms (see Fixed), so no Space Center screen
+  shows a Parsek badge any more.
 - **Timeline: the time-range presets are back on their own always-visible row.** This
   partly reverts the `Time: <range>` button from the two-row filter area above. The filter
   area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career)

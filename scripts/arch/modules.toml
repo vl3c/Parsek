@@ -105,7 +105,7 @@ placement = "R0"
 # dialogs, caches for windows, and Unity-instantiated overlays that no code references (KSP creates them)
 [[module]]
 name = "UI"
-prefix = "^CommittedActionDialog[.]cs$|^DockEventGraphCache[.]cs$|^ResourceBudget[.]cs$|^CurrencyReservationOverlay[.]cs$|^OverlayBadge[.]cs$|^StockUiOverlayController[.]cs$|^ParsekToolbarRegistration[.]cs$"
+prefix = "^CommittedActionDialog[.]cs$|^DockEventGraphCache[.]cs$|^ResourceBudget[.]cs$|^CurrencyReservationOverlay[.]cs$|^StockUiOverlayController[.]cs$|^ParsekToolbarRegistration[.]cs$"
 placement = "R0"
 
 # all three references come from Display

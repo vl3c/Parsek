@@ -115,7 +115,8 @@ namespace Parsek
             };
         }
 
-        /// <summary>The accept explanation; the Decline refusal (a later PR) reads the same text.</summary>
+        /// <summary>The accept explanation; the Decline refusal and the Mission Control
+        /// detail panel read the same text.</summary>
         internal static ReservationText ContractAccept(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
             string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
