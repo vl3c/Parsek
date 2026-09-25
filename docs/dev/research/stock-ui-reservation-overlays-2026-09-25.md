@@ -187,8 +187,9 @@ the holes below come before, or together with, their screen's overlay.
 | 3 | Repair a facility the future repairs | state SAFE, **funds HOLE** | See "Row 3" below |
 | 4 | Accept the same contract (same guid) | BLOCKED | `ContractAcceptPatch` |
 | 4 | Accept OTHER contracts until the slots the future needs are full | **HOLE** | See "Row 4" below |
-| 4 | Decline an offer the future accepts | SAFE (future overrides) | `ContractDeclined` is not a ledger action; the accept is restored from its snapshot at its UT |
-| 4 | Complete / cancel / fail a contract the future completes | SAFE | earliest wins; the later completion gets `Effective=false` (`ContractsModule.cs:396-429`) |
+| 4 | Decline an offer the future accepts | **HOLE** (silently overridden; see section 11.2) | `ContractDeclined` is not a ledger action; the accept is restored from its snapshot at its UT, and the decline's reputation loss stays |
+| 4 | Complete a contract now (another flight) that the future completes | SAFE | earliest wins; the later completion gets `Effective=false` (`ContractsModule.cs:396-429`) |
+| 4 | Cancel a contract the future completes, fails or cancels | **HOLE** (see section 11.3) | completion zeroed, with a possible committed-spend cascade; fail and cancel penalties are charged twice |
 | 5 | Collect science on a subject the future credits | SAFE | See "Row 5" below |
 | 6 | Spend funds the future needs | advisory | See "Row 6" below |
 | 7 | Achieve a milestone the future achieves | SAFE | earliest wins (`MilestonesModule.cs:54-114`); records stay effective by design |
@@ -347,8 +348,9 @@ Each step is one PR and a pairing of mark and block.
   (earliest wins, no double charge) instead of blocking it. For every kind where that is possible, it removes the need for
   both a block AND an explanation. That is the cheapest way to answer "why is this blocked": it is not blocked.
 
-- **D6.** Retire the Career window once the section 10.3 conditions hold. Decide separately whether Decline and Cancel on a
-  contract the committed future accepts or resolves are BLOCKED or only annotated (section 10.2).
+- **D6.** Retire the Career window once the section 10.3 conditions hold. The recommendation for Decline and Cancel on
+  contracts the committed future relies on is in section 11: block both, with Cancel blocked only when a committed row
+  resolves the contract later.
 
 ## 10. Is the Career window redundant once the overlays are done?
 
@@ -416,6 +418,72 @@ Every row is covered by at least one surface. **What is genuinely lost** is the 
 4. **Retire in one PR, after 1 and 2 have shipped.** Remove the window, its launcher, the `career` census vocabulary (`op=tab window=career`, `pending:` keys), the GUI-1 / GUI-5 / GUI-8 / GUI-14 / GUI-15 captures, the gallery states in `UI/Gallery/GuiMockCareerStates.cs`, the `UiSurface` gate key, and the inventory and Basic/Advanced rows. Note the `CommittedBatchTallySourceSyncTests` trap for any in-game tests in its categories.
 
 Retiring the window early, before 1 and 2, would leave Advanced players with the Timeline alone. That is still a complete record of events, but it has no "active now" roll-up and no in-place explanation, which is exactly the owner's "wrong place" problem.
+
+## 11. Decision analysis: block Decline and Cancel, or only annotate them?
+
+### 11.1 The facts both options have to respect
+
+**Stock KSP, checked in the 1.12.5 decompile:**
+- `MissionControl.OnClickDecline` calls `Contract.Decline()`, and `OnClickCancel` calls `Contract.Cancel()`. Neither asks for confirmation.
+- `Decline()` costs `Career.RepLossDeclined` reputation, a difficulty setting that can be zero.
+- `Cancel()` leads to `PenalizeCancellation()`. That charges funds and reputation interpolated from the advance to the full failure penalty, by the fraction of time elapsed towards the deadline. Cancelling early is cheaper than failing.
+- Stock already has the hooks to disable both buttons: `Contract.CanBeDeclined()` and `Contract.CanBeCancelled()` are virtual and return true. `MissionControl` sets `btnDecline.interactable` / `btnCancel.interactable` from them.
+- Contract Configurator overrides both hooks from contract-type config (`declinable` / `cancellable`). It also replaces both button listeners with handlers that call `Contract.Decline()` / `Contract.Cancel()` directly.
+
+**Parsek:**
+- **Decline:** `ContractDeclined` is not a ledger action (`GameStateEventConverter.cs:331`). A committed accept at a later UT is restored anyway by `KspStatePatcher.PatchContracts`.
+- **Cancel:** it becomes a `ContractCancel` ledger row now. The walk then treats a later committed row as already resolved:
+  - A later committed `ContractComplete` for the same contract becomes `Effective=false`, and its rewards are zeroed (`ContractsModule.cs:414-420`). Those are funds, reputation and science.
+  - Fail and cancel penalties are charged **unconditionally**, whatever the Effective flag (`FundsModule.cs:454-470`; `ContractsModule` `ProcessFail` / `ProcessCancel`). A later committed `ContractFail` or `ContractCancel` is therefore charged a second time.
+- **Deadline expiry is not a committed row.** The walk derives it from `DeadlineUT` (`ContractsModule.cs:470-497`).
+- **An unaffordable committed tech unlock is refused.** The row is marked `UnaffordableRunningScience`, a Warn reads "possible bug or data corruption", and `KspStatePatcher`'s relock guard takes over (`ScienceModule.cs:294-321`). Science that a committed tech unlock depends on can come from a contract completion reward.
+
+### 11.2 Decline an Offered contract that a committed flight accepts later
+
+| Option | What happens | Verdict |
+|---|---|---|
+| A. Allow silently (today) | The offer vanishes, the player may lose reputation, and at the committed UT the contract reappears as Active with no explanation. The player's intent is defeated. The row carries the accept mark while Decline stays live, which breaks the #721 invariant | reject |
+| B. Allow, annotate | The same no-op plus penalty, now explained. It still offers a click whose only durable effect is a reputation loss | reject |
+| C. **Block** | Decline is greyed and the reason sits in the detail panel. The backstop refuses with the section 5 text. The offer stays listed until stock expires it or the committed UT arrives. Either way it becomes active then | **adopt** |
+| D. Honour the decline | Remove the committed accept. That tombstones a committed action, leaves the flight's later completion with no accept, and contradicts the append-only model | reject |
+
+Option C costs nothing: it reuses the accept block's predicate (`GetCommittedContractAcceptIds`) on the same row, so the invariant holds by construction. The stale-slice problem (section 1.1 item 6) cannot bite here, because after the committed UT the contract is Active, not Offered, and Decline is unreachable.
+
+### 11.3 Cancel an Active contract
+
+| Case | What the committed timeline does later | Effect of cancelling now (today) |
+|---|---|---|
+| C1 | completes it (a recorded completion) | The cancel penalty is charged now, and the committed completion's funds, reputation and science are zeroed. The ghost still completes it on screen, but nothing pays. Downstream committed spending that relied on the reward can become unaffordable: a committed tech unlock is refused and the tree may re-lock. **This is a paradox cascade into committed history**, the exact thing the blocks exist to prevent |
+| C2 | fails it (a recorded failure, e.g. the vessel is lost) | Cancel penalty now, **plus** the committed failure penalty later, because penalties are unconditional. **The player pays twice** |
+| C3 | cancels it (a recorded KSC cancel) | Two cancel penalties, the same double charge |
+| C4 | nothing, or only the derived deadline expiry | No committed row is affected. This is ordinary stock play: cancelling early to take the cheaper penalty is a legitimate stock decision |
+
+| Option | Result | Verdict |
+|---|---|---|
+| A. Allow silently (today) | C1 cascades, C2 and C3 double-charge. Nothing on screen says so | reject |
+| B. Allow, annotate | Still cascades and double-charges; only the player's reading prevents it. It also breaks the "every mark is paired with a block" rule for a clickable kind | reject |
+| C. **Block C1-C3, allow C4** | No cascade and no double charge. Cost: the player cannot free that slot before the committed UT. The committed history already occupies the slot until then, and any committed later accept was planned around it, so freeing it early buys nothing the timeline can keep | **adopt** |
+| D. Block C1 only | C2 and C3 still double-charge, and the rule is harder to state ("you may cancel this one, but not that one") | reject |
+| E. Confirmation popup | A new popup type, which the UI rule forbids. It also cannot state the downstream cascade honestly, because that needs a full recalc per click | reject |
+
+**The rule to adopt:** Cancel is refused for a contract **when the committed timeline has a later explicit completion, failure or cancellation row for it**. Derived deadline expiry does not count; it is a rule of the game, not a committed action. Contracts the committed future leaves open stay cancellable.
+
+**Way-out text (section 5 form):**
+- `Completed on Y1 D40 by the committed flight 'Mun Lander 3'. Parsek's timeline is fixed once committed, so this contract cannot be cancelled before then. It completes and frees its slot on that date.`
+- For a failure: `Fails on Y1 D40 on your committed timeline ... it fails and frees its slot on that date.`
+
+### 11.4 Implementation shape
+
+The same layering as the existing Accept block:
+- **Predicate.** Declines use the existing accept helper. Cancels need a new pure helper over the effective ledger: the committed resolution of a contract after now (row type + UT + recording), cached and invalidated on `LedgerOrchestrator.OnTimelineDataChanged`. It is keyed by UT against the ledger rather than the `MilestoneStore` slice, so the stale-slice problem does not apply. The Active-row annotation (section 10.3 item 1) reads the SAME helper. That is the invariant.
+- **Button state.** Postfix `Contract.CanBeDeclined` / `CanBeCancelled` to return false, and CC's `ConfiguredContract` overrides too when CC is loaded. A Harmony patch on the base method does not cover an override. Stock's `btnDecline` / `btnCancel` then grey themselves. The reason goes into the detail panel through the `UpdateInfoPanelContract` postfix.
+- **Backstop.** Prefixes on `Contract.Decline()` / `Contract.Cancel()` (non-virtual, and CC's handlers call them) refuse with `CommittedActionDialog` and the same text. Bypass while `GameStateRecorder.IsReplayingActions` is set. `PatchContracts` writes contract state directly and calls neither method (`KspStatePatcher.cs:2501`).
+- **Tests.** Pairwise invariant cells in the E18 style: the decline predicate against the accept mark, and the cancel predicate against the Active-row annotation. A pure cell for each of C1-C4, and a CC-override target-resolution cell.
+
+### 11.5 What this decision does not cover
+
+- **A present-day failure from the game world.** Example: a flight in the present crashes the vessel a committed completion relied on, and stock fires `Contract.Fail` from a parameter. It cannot be blocked; it is physics, not a button. It takes the C1 path, with the future completion zeroed and a possible cascade. Record it as the one known path where present play overrides a committed contract outcome, and make the ledger cascade visible, for example by pinning the "possible bug or data corruption" Warn wording to this cause.
+- **The double charge in C2 and C3 is a ledger defect in its own right.** A fail or cancel row on a contract that is already resolved should not charge again. Fix it in `ContractsModule` / `FundsModule` independently of the block, because the world-driven path above still reaches it.
 
 ## Sources
 
