@@ -70,9 +70,24 @@ tier = "nightly"
 # pins the whole category executing; `career-contract-pad` stays the L5 lane's host.
 # FIRST FLIGHT ON THIS HOST: run `2026-09-08_1039`, PASS attempt 1, wall 49 s, the
 # 6/6 line matched verbatim, `recordings.count = 2`, every verifier PASS or REPORT.
-description = "FLOWN: the in-game StockUiOverlay category unattended on a career host with contracts on offer, all six cells executing - Parsek's decorations on the live stock R&D, Astronaut Complex and Mission Control screens, and their removal on despawn."
+#
+# -------------------------------------------------------------------------------------
+# THIRD SHAPE (2026-09-25, stock-UI overlays PR 2b) - NOT YET FLOWN. The Mission Control
+# badge (`Parsek_ContractOverlay`) is gone: a committed-accept Offered contract now
+# carries a status on its OWN stock row label, the committed-accept explanation in the
+# stock detail text, and greyed Accept and Decline, with `Contract.Decline` refused as
+# the backstop. The two Mission Control cells were rewritten for those mechanisms and a
+# third added: `MissionControlAvailableRowLabelSurvivesTabSwitchAndRebuild`,
+# `MissionControlDetailPanelDisablesAcceptAndDeclineWithReason` and
+# `MissionControlStockAnnotationsLeakNothingOverOpenCloseCycles`. The category is 7
+# declarations; the pin is `total=7` literal with the split regexed (registered in
+# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`) until the new cells' first flight.
+# Their guards are the same pair as before (career mode, an Offered contract row), so
+# the prediction on this host is 7 of 7. The R&D and Astronaut Complex cells move to
+# stock mechanisms in a sibling PR, which changes this pin again.
+description = "INTERIM (re-opened 2026-09-25, the rewritten cells not yet flown): the in-game StockUiOverlay category unattended on a career host with contracts on offer, seven cells, pin total=7 with the split regexed - Parsek's annotations on the live stock R&D, Astronaut Complex and Mission Control screens (Mission Control on stock mechanisms: row label, detail-panel why, greyed Accept / Decline, Decline backstop) and their cleanup on close. Earlier shape flown 6 of 6 on 2026-09-08."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45", "flown"]
+tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45", "reading-run"]
 
 [fixture]
 # career-earned-ksc (career-contract-pad until 2026-09-08), and BOTH properties are
@@ -123,7 +138,7 @@ count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 # ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
-#  - total=6 is ATTRIBUTE-EXACT: 6 `[InGameTest(Category = "StockUiOverlay")]`
+#  - total=7 is ATTRIBUTE-EXACT: 7 `[InGameTest(Category = "StockUiOverlay")]`
 #    declarations, all `Scene = GameScenes.SPACECENTER`, all in `RuntimeTests.cs`. The
 #    ATTRIBUTE FLOOR for `skipped` is 0 at SPACECENTER.
 #  - passed / skipped are OPEN for the reason in the header: the contract-picker and
@@ -131,8 +146,10 @@ count = { min = 2, max = 2 }
 #  - failed=0 is the ASSERTION.
 #  - scene=SPACECENTER is LOAD-BEARING and is the B10 fail-open guard: a boot that lost
 #    the `scene=` argument lands in FLIGHT, where all six scene-skip and the tally reads
-#    `total=6 passed=0 failed=0 skipped=6` - a vacuous line this pin rejects.
-required  = ["BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=StockUiOverlay scene=SPACECENTER"]
+#    `total=7 passed=0 failed=0 skipped=7` - a vacuous line this pin rejects.
+#  - 2026-09-25: total=7 (the Mission Control cells rewritten for stock mechanisms, one
+#    added), split regexed until the first flight of the new cells - see the header.
+required  = ["BATCH_COMPLETE v1 total=7 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=StockUiOverlay scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

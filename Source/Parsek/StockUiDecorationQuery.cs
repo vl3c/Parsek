@@ -90,7 +90,8 @@ namespace Parsek
             return index != null && index.HasFuture(CommittedFutureKind.TechResearch, techId, currentUT);
         }
 
-        /// <summary>The Accept block; the Decline block (a later PR) reads it too.</summary>
+        /// <summary>The Accept block; the Decline block (<c>ContractDeclinePatch</c>), the
+        /// Mission Control row label and the greyed Accept / Decline buttons read it too.</summary>
         internal static bool IsContractAcceptBlocked(CommittedFutureIndex index, string contractKey, double currentUT)
         {
             return index != null && index.HasFuture(CommittedFutureKind.ContractAccept, contractKey, currentUT);
@@ -245,9 +246,9 @@ namespace Parsek
 
         /// <summary>
         /// Mission Control: an Offered contract (the Available tab) a committed future
-        /// accepts is marked and its Accept is refused. Rows on the Active and Archive tabs
-        /// are listed undecorated (the Active-row annotation and the Cancel block are a
-        /// later PR).
+        /// accepts is marked and its Accept and Decline are refused. Rows on the Active and
+        /// Archive tabs are listed undecorated (the Active-row annotation and the Cancel
+        /// block are a later PR).
         /// </summary>
         internal static List<StockUiDecoration> ForMissionControl(
             CommittedFutureIndex index,
