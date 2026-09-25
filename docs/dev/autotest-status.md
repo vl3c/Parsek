@@ -272,7 +272,13 @@ steps across both lanes now command the true floor (1410 / 1355), so those pictu
 honestly CLIPPED at the 1280 px client edge rather than crushed -
 GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH stayed open until a wider frame closed
 it: since 2026-09-24 every census lane flies at 1920x1080 (`[runtime] screenResolution`,
-harness README "The census frame"), proven on GUI-3 / GUI-4 / GUI-14.
+harness README "The census frame"), proven on GUI-3 / GUI-4 / GUI-14. CENSUS REFRESH
+2026-09-24 (after the mirror's layout epochs, PR #1810): GUI-1 `_2039`, GUI-4 `_2041`, GUI-5
+`_2042`, GUI-6 `_2043`, GUI-8 `_2046`, GUI-9 `_2047`, GUI-14 `_2050`, GUI-19 `_2051` PASS on
+attempt 1 at 1920x1080; GUI-7 `_2045` and GUI-10 `_2048` were PARSEK-FAIL(expectation) on STALE
+SPEC PINS, not product defects - GUI-7 pinned the tooltip probe's `screenH=720` (the frame is now
+1080) and GUI-10 pinned the `uiaction raise` line before it gained `route=- candidate=-` - both
+pins corrected and re-flown PASS (`_2052`, `_2053`).
 
 AND ONE LATENT DEFECT FIXED, found by the same inventory and filed as risk 8 in
 `design-autotest-seam-verbs-c1.md` a year earlier: three `MergeDialog` spawn sites shared
