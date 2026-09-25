@@ -9545,6 +9545,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # parent, and its five observation targets are pre-registered in the spec
         # header precisely so the post-flight paragraph cannot be written after
         # the fact.
+        "B33-tylo-orbit.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: B25's orbit-start machine re-pointed at Tylo to harvest the `tylo-orbit-recorded` subject its V lane replays; what is open is the flight, not a human review call",
+        "B34-bop-orbit.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: B25's orbit-start machine re-pointed at Bop to harvest the `bop-orbit-recorded` subject its V lane replays; what is open is the flight, not a human review call",
+        "B35-pol-orbit.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: B25's orbit-start machine re-pointed at Pol to harvest the `pol-orbit-recorded` subject its V lane replays; what is open is the flight, not a human review call",
         "B30-mun-minmus-transfer.toml":     "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 and NOT YET FLOWN - the G4 replication of B26's moon-to-moon hop at a second parent (Mun -> Minmus under Kerbin), with five observation targets pre-registered in the header; what is open is the FLIGHT itself, not a human review call",
         # The V21 pair, tier=operator by the same calibration discipline and for
         # the same reason as every V lane before them: their windows are DERIVED
