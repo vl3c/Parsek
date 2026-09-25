@@ -1,0 +1,82 @@
+# ST-3-snapshot-sidecars-bdock - the SnapshotSidecars in-game category on a recorded
+# fixture that carries an AliasVessel recording (D16 `deflate-snapshots`, `alias-mode`).
+#
+# HOST. `bdock-recorded` holds two committed trees and 19 recordings; one of them,
+# f049901e1f4641ffae490b2f52b1d55e (a 1.32 s dock-boundary segment of Kerbal X), is
+# stamped `ghostSnapshotMode = AliasVessel` and ships a `_vessel.craft` with NO
+# `_ghost.craft` - the only shape that witnesses the alias. No other committed fixture a
+# Storage lane boots carries one (career-earned-pad and eva2-lko-crewed do not).
+#
+# WHAT THE TWO CELLS PROVE (Source/Parsek/InGameTests/SnapshotSidecarRuntimeTests.cs):
+#   * deflate-snapshots: every committed snapshot sidecar on disk starts with the PSN0
+#     magic and probes as DeflateV1 (codec byte 1, current format version, current schema
+#     generation) and decodes; decodes are compared with the snapshots the product loaded
+#     at OnLoad; and a snapshot captured from the live active vessel NOW is written through
+#     the product sidecar writer and read back equal.
+#   * alias-mode: the AliasVessel recording's own files (vessel present, ghost absent);
+#     the product alias decision on its snapshots; a copy under a scratch id run through
+#     the product SAVE (which must stamp AliasVessel and write no `_ghost.craft` - the
+#     Verbose `SaveRecordingFiles: ... ghostSnapshotMode=AliasVessel ... wroteGhost=False`
+#     line) and the product LOAD (which must restore the ghost from the vessel snapshot).
+#
+# The entry pair (StopRecording + DiscardTree) is H39's, on the same fixture: the boot
+# resumes a promotion stub of the active craft.
+schema = 1
+id = "ST-3-snapshot-sidecars-bdock"
+tier = "nightly"
+description = "Run the SnapshotSidecars in-game category on bdock-recorded, whose committed AliasVessel recording ships a vessel sidecar and no ghost sidecar: every snapshot sidecar is the DeflateV1 container and decodes, a live vessel snapshot round-trips through the product writer and reader, and the product save and load of an AliasVessel copy write no ghost sidecar and restore the ghost from the vessel."
+instanceProfile = "stock-minimal"
+tags = ["ST-3", "ingame-batch", "storage", "snapshot-sidecars", "recorded-fixture", "bdock"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "SnapshotSidecars" },                expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+D16 = ["deflate-snapshots", "alias-mode"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+# 21 = the fixture's 19 committed recordings + the two the boot's promotion stub leaves
+# (H39 on the same fixture reads 21 too). Measured 21 on reading `2026-09-25_2158`.
+[expectations.recordings]
+count = { min = 21, max = 21 }
+
+# Pinned WHOLE off reading `2026-09-25_2158` (PASS attempt 1, 61 s): both cells executed
+# and passed. The deflate census is a property of the fixture's files (21 vessel + 20
+# ghost sidecars; the one recording without a ghost sidecar is the AliasVessel one), so
+# files / vessel / ghost are pinned exactly; `matchedInMemory` (24) depends on which
+# snapshots the boot kept in memory and stays a floor, `differedInMemory=0` is pinned.
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=SnapshotSidecars scene=FLIGHT",
+  "deflate snapshot sidecars: files=41 vessel=21 ghost=20 matchedInMemory=[1-9][0-9]* differedInMemory=0 uncompressedBytes=[1-9][0-9]* compressedBytes=[1-9][0-9]* liveRoundTrips=1",
+  "alias-vessel sidecars: recordings=1 onDiskChecked=1 rewritten=1 reloaded=1",
+  "SaveRecordingFiles: id=ingamealias[0-9a-f]{32} .*snapshotEncoding=DeflateV1 .*ghostSnapshotMode=AliasVessel wroteVessel=True wroteGhost=False",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

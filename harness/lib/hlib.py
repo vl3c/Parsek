@@ -193,7 +193,42 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # injector refuses a target save at
                                         # another UT. No RP. Consumer:
                                         # SS-1-spawn-safety-corrections.
-                                        "spawn-safety")
+                                        "spawn-safety",
+                                        # spawn-control-target: ONE committed,
+                                        # stationary, Landed recording ~130 m
+                                        # from the Launch Pad, in progress at the
+                                        # save's UT with a future EndUT, so a pad
+                                        # vessel sees it as a Real Spawn Control
+                                        # candidate with "Warp to Spawn" ENABLED.
+                                        # `--filter InjectSpawnControlTarget`. No
+                                        # RP. Consumer:
+                                        # RSC-1-real-spawn-control-warp.
+                                        "spawn-control-target",
+                                        # drill-harvest-route: the M2 synthetic
+                                        # drill-run tree `tree-drill-harvest-m2`
+                                        # ALONE (all-synthetic carries it too,
+                                        # beside dozens of recordings that would
+                                        # move the Logistics roster). `--filter
+                                        # InjectDrillHarvestRoute`. No RP.
+                                        # Consumer: HV-1-harvest-route-analysis.
+                                        "drill-harvest-route",
+                                        # background-claim: ONE committed
+                                        # two-recording tree on
+                                        # eva2-lko-crewed: a root destroyed
+                                        # before the save, and a PARENTLESS
+                                        # background recording of the save's
+                                        # real Kerbal X Probe (its pid and
+                                        # launch guid) carrying an engine
+                                        # ignite / shutdown and an hour-long
+                                        # orbit tail, so the chain walker
+                                        # claims the probe via
+                                        # BACKGROUND_EVENT and the flight
+                                        # scene ghosts it. `--filter
+                                        # InjectBackgroundClaim`; the
+                                        # injector refuses a target save at
+                                        # another UT. No RP. Consumer:
+                                        # CI-5-background-event-claim.
+                                        "background-claim")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -2282,7 +2317,12 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # set and loop configuration. Like `select` it writes MISSION state that persists with
     # the save, so a lane using it runs on a throwaway staged fixture. `window=missions`
     # only, plus the OPTIONAL `mission=` selector op=select takes.
-    "clone")
+    "clone",
+    # `warp` presses the Real Spawn Control table's FIRST row warp button through the
+    # button's own click body (SpawnControlUI.ExecuteRowWarp), and refuses when the table
+    # has no row or the button is drawn disabled. Takes `window=` (only `spawncontrol`,
+    # UIACTION_WARP_WINDOWS) and no other arg; `op=sort` picks which row is first.
+    "warp")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
@@ -2293,6 +2333,12 @@ UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     # OWN OnGUI - outside either scene host's showUI gate, in every scene but LOADING.
     "testrunnerglobal")
 UIACTION_MODE_KEY = "mode"
+# WarpToUT's optional ladder selector (coverage wave 5, D14 `warp-phys`). Absent = the
+# live stock ladder (the verb's original behaviour); `phys` = stock physics warp, held
+# for the whole warp. The C# parse (TestCommandWarpToUT.ResolveWarpMode) is exact and
+# case-sensitive and REJECTS anything else `warp-ladder-invalid`.
+WARPTOUT_LADDER_KEY = "ladder"
+WARPTOUT_LADDER_VALUES: Tuple[str, ...] = ("phys",)
 UIACTION_MODE_VALUES: Tuple[str, ...] = ("basic", "advanced")
 
 # `op=find`'s control-kind filter, mirroring TestCommandUiFind.CtrlValues, which itself
@@ -2670,7 +2716,12 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
 # three take `popup=` instead (UIACTION_POPUP_KEY).
 UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
     "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run",
-    "state", "sort", "select", "edit", "clone")
+    "state", "sort", "select", "edit", "clone", "warp")
+
+# The windows `op=warp` is defined for, mirroring TestCommandUiAction.WindowHasRowWarpButton:
+# the one window whose table rows carry a warp button. Any other window answers
+# `warp-unsupported-window`.
+UIACTION_WARP_WINDOWS: Tuple[str, ...] = ("spawncontrol",)
 
 # The four rect args, all REQUIRED together on `op=rect`: a partial rect mixes a
 # commanded position with a stale size, so the capture it produces is not reproducible.
@@ -3176,6 +3227,16 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "step is op=%s -- the arg would be silently ignored (the RunTests VERB reads "
             "the same key, which is what makes this easy to misplace)"
             % (index, UIACTION_RUN_CATEGORY_KEY, op))
+
+    if op == "warp":
+        window_name = str(window) if window is not None else None
+        if (window_name in UIACTION_WINDOW_VALUES
+                and window_name not in UIACTION_WARP_WINDOWS):
+            errors.append(
+                "driver.steps[%d].args.%s: window %r has no row warp button, so op=warp "
+                "answers REJECTED warp-unsupported-window. The ones that do are %s"
+                % (index, UIACTION_WINDOW_KEY, window_name,
+                   ", ".join(UIACTION_WARP_WINDOWS)))
 
     if op not in ("expand", "playback", "state") and UIACTION_STATE_KEY in step_args:
         errors.append(
@@ -3699,6 +3760,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_OP_KEY: ("UiAction", UIACTION_OP_VALUES),
     UIACTION_WINDOW_KEY: ("UiAction", UIACTION_WINDOW_VALUES),
     UIACTION_MODE_KEY: ("UiAction", UIACTION_MODE_VALUES),
+    WARPTOUT_LADDER_KEY: ("WarpToUT", WARPTOUT_LADDER_VALUES),
     UIACTION_CTRL_KEY: ("UiAction", UIACTION_CTRL_VALUES),
     UIACTION_STATE_KEY: ("UiAction", UIACTION_STATE_VALUES),
     UIACTION_PARK_KEY: ("UiAction", UIACTION_PARK_VALUES),
@@ -9130,6 +9192,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "max-rate-invalid": "driver-arg",
     "warp-unavailable": "driver-gate",
     "warp-locked": "driver-gate",
+    # WarpToUT ladder=phys: an unknown ladder token is arg-class (fail-closed, like
+    # maxRate); a game whose difficulty forbids physics warp is a gate.
+    "warp-ladder-invalid": "driver-arg",
+    "physics-warp-disallowed": "driver-gate",
     # The Gloops pair: every refusal is a GATE the verb asked for and did not get (the
     # verb takes no args, so there is no arg-class fault it can have). Each token is a
     # read-back of an EXISTING Gloops guard's decision, and each is distinct so a report

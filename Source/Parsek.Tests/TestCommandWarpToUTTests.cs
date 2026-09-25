@@ -135,6 +135,75 @@ namespace Parsek.Tests
             Assert.Equal(TestCommandWarpToUT.MaxRateInvalidReason, error);
         }
 
+        // ----- ResolveWarpMode / physics-mode decisions (ladder=phys) -----
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void ResolveWarpMode_AbsentIsAuto_TheVerbsOriginalBehaviour(string raw)
+        {
+            WarpLadderMode mode = TestCommandWarpToUT.ResolveWarpMode(raw, out string error);
+            Assert.Null(error);
+            Assert.Equal(WarpLadderMode.Auto, mode);
+        }
+
+        [Fact]
+        public void ResolveWarpMode_PhysSelectsThePhysicsLadder()
+        {
+            WarpLadderMode mode = TestCommandWarpToUT.ResolveWarpMode("phys", out string error);
+            Assert.Null(error);
+            Assert.Equal(WarpLadderMode.Physics, mode);
+        }
+
+        [Theory]
+        [InlineData("PHYS")]
+        [InlineData("physics")]
+        [InlineData("rails")]
+        [InlineData("auto")]
+        [InlineData(" phys")]
+        public void ResolveWarpMode_FailsClosedOnAnyOtherToken(string raw)
+        {
+            // Fail-closed like maxRate: a mis-typed ladder must never run a rails warp on a
+            // lane whose claim is physics warp.
+            TestCommandWarpToUT.ResolveWarpMode(raw, out string error);
+            Assert.Equal(TestCommandWarpToUT.WarpModeInvalidReason, error);
+        }
+
+        [Fact]
+        public void EvaluateModeFeasibility_RefusesPhysicsOnlyWhenTheGameForbidsIt()
+        {
+            Assert.Equal(TestCommandWarpToUT.PhysicsWarpDisallowedReason,
+                TestCommandWarpToUT.EvaluateModeFeasibility(WarpLadderMode.Physics, physicsWarpAllowed: false));
+            Assert.Null(TestCommandWarpToUT.EvaluateModeFeasibility(WarpLadderMode.Physics, physicsWarpAllowed: true));
+            // An Auto warp never asked for physics, so the gate cannot refuse it.
+            Assert.Null(TestCommandWarpToUT.EvaluateModeFeasibility(WarpLadderMode.Auto, physicsWarpAllowed: false));
+        }
+
+        [Fact]
+        public void ShouldAssertPhysicsMode_OnlyForAPhysicsRequestOffPhysicsAboveOneX()
+        {
+            // The one case that must re-assert: physics requested, stock on rails, rung > 0.
+            Assert.True(TestCommandWarpToUT.ShouldAssertPhysicsMode(WarpLadderMode.Physics, false, 3));
+            Assert.True(TestCommandWarpToUT.ShouldAssertPhysicsMode(WarpLadderMode.Physics, false, 1));
+            // Already in physics warp: nothing to do.
+            Assert.False(TestCommandWarpToUT.ShouldAssertPhysicsMode(WarpLadderMode.Physics, true, 3));
+            // Rung 0: stock's own low-rung switch back to rails is harmless at 1x, and
+            // re-asserting there would flip the mode every frame.
+            Assert.False(TestCommandWarpToUT.ShouldAssertPhysicsMode(WarpLadderMode.Physics, false, 0));
+            // An Auto warp never touches the mode.
+            Assert.False(TestCommandWarpToUT.ShouldAssertPhysicsMode(WarpLadderMode.Auto, false, 3));
+        }
+
+        [Fact]
+        public void SelectRateIndex_OnThePhysicsLadderTopsOutAtFourX()
+        {
+            // Stock physicsWarpRates: 1x 2x 3x 4x. 4x needs 4 * 2.5 = 10 game-seconds left.
+            float[] physics = { 1f, 2f, 3f, 4f };
+            Assert.Equal(3, TestCommandWarpToUT.SelectRateIndex(80.0, physics, 3, TestCommandWarpToUT.UncappedMaxRate));
+            Assert.Equal(2, TestCommandWarpToUT.SelectRateIndex(9.0, physics, 3, TestCommandWarpToUT.UncappedMaxRate));
+            Assert.Equal(0, TestCommandWarpToUT.SelectRateIndex(2.0, physics, 3, TestCommandWarpToUT.UncappedMaxRate));
+        }
+
         // ----- Feasibility -----
 
         [Fact]
@@ -420,6 +489,8 @@ namespace Parsek.Tests
                 TestCommandWarpToUT.WarpUnavailableReason,
                 TestCommandWarpToUT.WarpLockedReason,
                 TestCommandWarpToUT.WarpTimeoutReason,
+                TestCommandWarpToUT.WarpModeInvalidReason,
+                TestCommandWarpToUT.PhysicsWarpDisallowedReason,
             };
             Assert.Equal(reasons.Length, reasons.Distinct().Count());
             // A reason token reaches the wire as the response `msg`, which the harness

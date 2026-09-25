@@ -97,6 +97,10 @@ namespace Parsek
         /// <summary>The owner whose seat this kerbal is the ACTIVE stand-in for, or null
         /// (<c>KerbalsModule.FindActiveStandInOwner</c>).</summary>
         internal Func<string, string> ActiveStandInOwner;
+        /// <summary>The owner whose seat this active stand-in shares under the active-crew
+        /// count's own subtraction rule, or null (<c>StandInSeatCount.SeatSharedOwner</c>):
+        /// only then does the stand-in's tooltip say it does not count against the limit.</summary>
+        internal Func<string, string> SeatSharedOwner;
         internal Func<string, bool> IsLoopingRecording;
         /// <summary>Names already in the live Crew or Tourist lists: a committed future
         /// hire of one of them is moot, so it is not marked.</summary>
@@ -525,6 +529,12 @@ namespace Parsek
                         d.Title = StandInTitle(owner);
                     }
                     d.Why = dismissalRefusal;
+                    if (d.Kind == StockUiDecorationKind.KerbalStandIn)
+                    {
+                        string seatOwner = context.SeatSharedOwner != null ? context.SeatSharedOwner(name) : null;
+                        if (!string.IsNullOrEmpty(seatOwner))
+                            d.Why = StandInSeatCount.AppendSeatSharedSentence(dismissalRefusal, seatOwner);
+                    }
                 }
                 result.Add(d);
             }

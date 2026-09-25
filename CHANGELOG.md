@@ -10,6 +10,46 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane checks that a background-recorded vessel is claimed for a ghost chain
+  by its own part event.** The new injected preset `background-claim` adds to a test save a recording
+  of a real, loaded, non-focused probe that the tree recorded in the background, with no parent and
+  an engine ignite / shutdown. The new lane `CI-5-background-event-claim` reads the chain walker
+  claiming that probe, building its chain, and the flight scene turning the real probe into a ghost.
+  The claim covers the walker's decision on a hand-built recording, not a flight that produces one.
+  Coverage 237 -> 238 of 247 (D18 complete).
+- **Automated testing: a lane checks that a replayed ghost keeps its recorded attitude.** With
+  ghost render tracing on, each traced ghost frame now also logs how far, in degrees, the ghost's
+  drawn orientation is from the orientation its recording implies at that moment, worked out from
+  the recording itself the same way playback does. The new lane `AP-1-minmus-attitude-residual`
+  replays a recorded Minmus mission through a warp across the Kerbin-to-Minmus crossing and a
+  warp while watching the ghost in orbit, and requires that difference to stay under 0.05 degrees
+  on every frame while the ghost turns more than 90 degrees. Both flights measured 0.000 degrees
+  on about 830 frames while the ghost turned 157 degrees. Coverage 236 -> 237 of 247.
+- **Automated testing: replayed ghosts are now checked for engine flames defined in a part's
+  EFFECTS node, and for cargo-bay doors that open and close.** A ghost engine now logs one line
+  each time it ignites on replay, naming the part, where its flame effects came from (the part's
+  EFFECTS node, its legacy `fx_*` effects, or a Parsek stand-in) and how many are playing. GS-6
+  now requires that line for its Ant, the only EFFECTS-node engine it carries. The new lane
+  `BAY-1-runway-cargo-bays` rolls the stock Mallard out onto the runway, stages it where it stands
+  so recording starts, opens and closes its three cargo bays, commits, rewinds to launch and lets
+  the Space Center replay it; it requires the ghost's bay doors to open and close.
+- **Automated testing: three new lanes for Real Spawn Control, drilled-cargo routes and Making History launch sites.**
+  `RSC-1` presses Real Spawn Control's "Warp to Spawn" on a ghost parked near the pad and requires the time jump
+  and the vessel that spawns; a new test command, `UiAction op=warp`, runs the button's own click code and
+  refuses when the button is greyed out. `HV-1` runs the Logistics tests with a synthetic drill mission present,
+  so the check that a route treats drilled cargo as its own origin runs instead of skipping. `MC-4` launches the
+  staged Kerbal X from the Making History Desert pad and requires the recording to name the site, save it, and
+  replay there. Two new injection presets supply the subjects. Coverage 231 -> 234 of 247.
+- **Automated testing: ghosts are checked under physics warp, and snapshot files are checked for
+  their compressed format and for ghost snapshots that reuse the vessel snapshot.** The test warp
+  command can now hold the game in physics warp (1x to 4x) for a whole span instead of taking
+  whichever warp the game picks. `V7W-minmus-physics-warp` replays the Minmus loop under physics
+  warp, once across the Kerbin-to-Minmus boundary and once while watching the ghost, and requires
+  the render record to count physics-warp frames. `ST-3-snapshot-sidecars-bdock` runs a new in-game
+  category on a save with a recording whose ghost snapshot is its vessel snapshot: every snapshot
+  file must be in the compressed format and read back correctly, a snapshot of the live vessel must
+  survive a write and read, and saving such a recording must write no separate ghost file while
+  loading it must restore the ghost from the vessel snapshot.
 - **Automated testing: a lane walks into the Spaceplane Hangar and launches, with committed ghosts
   replaying.** Two new test-seam verbs reach the vehicle editor the way a player does:
   `GoToEditor` clicks the VAB or SPH building at the Space Center (and loads a craft through the
@@ -18,7 +58,10 @@ _(unreleased — entries accumulate here per commit)_
   launch site with vessels standing on it). The new lane `SE-1-editor-round-trip` loops a recorded
   Kerbin flight, goes from the Space Center into the SPH, launches the same stock Kerbal X onto the
   Runway and records it: the committed recordings survive both scene changes unchanged, ghosts
-  replay after the launch, and the new flight commits as its own tree (D14 `scene-editor`).
+  replay after the launch, and the new flight commits as its own tree. It is the second declarer of D14
+  `scene-editor` (coverage unchanged at 238 of 247). Test staging now creates every staged save's
+  `Ships/VAB` and `Ships/SPH` folders the way KSP does for a real save, without which the editor's Launch
+  button failed to write its auto-saved ship.
 - **Dev: the GUI mirror shows stock KSP screens as photographs, with Parsek's decorations beside them.** A census capture labelled `stk-<screen>-<state>` (or one with no Parsek window in it) is listed under a `Stock screens` rail heading, one group per screen, and shown as the frame the census took, never redrawn; a PNG with no control-tree dump is enough. Beside it a panel lists what Parsek decorated on that screen, read from the run's `KSP.log`: the stock census lane's own `record label=` lines (per-tab summaries, items, or `screens=none`), else the nearest `decorate` pass for that screen before the capture, else a line saying none was logged. Each row shows id, tab, kind, marked, blocked and why, a second table lists the stock buttons the lane logged (`control` lines: name, state, interactable, visible), and a mark without its block (or a block without its mark) on a kind the pairing rule covers is highlighted and badged in the rail. Superseded / retired flags, notes and Compare pairs work as for Parsek's windows (`harness/tools/gui_mirror.py`; `docs/dev/design-gui-mirror.md` section 18).
 - **Automated testing: the Missions tab's leg trim and Clone button are driven by a lane.**
   Two test-seam additions reach the last two Missions-tab authoring actions no lane could: a
@@ -1074,6 +1117,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
+  While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
+  and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
+  [Max: 5]`, lock every applicant at the crew limit early and charge more for the next hire.
+  The active-crew count now treats the held kerbal and his active stand-in as one seat, so the
+  header, the hire limit, the hire cost (and the editor's auto-hire) read what they read before
+  the hold, and Parsek's ledger records the same hire cost stock charges. A retired or displaced
+  stand-in still counts, and the count returns to stock's own when the hold ends. The stand-in's
+  dismiss tooltip adds that it shares the owner's seat and does not count against the limit.
 - **Space Center: the Administration building keeps stock's own reason when stock already
   refuses a strategy, and a strategy Parsek refuses now looks refused.** With every strategy
   slot taken, all ten inactive strategies showed Parsek's "a committed activation needs this

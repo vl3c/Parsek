@@ -1425,6 +1425,26 @@ class InjectPostconditionTests(unittest.TestCase):
         open(os.path.join(rp_dir, "rp_b9_root.sfs"), "w").close()
         self.assertEqual([], run._inject_postcondition_missing(save, "rewind-b9"))
 
+    def test_metadata_only_preset_is_proven_by_its_tree_id_not_by_sidecars(self):
+        save = os.path.join(self.tmp, "postcond-metadata-only")
+        os.makedirs(save, exist_ok=True)
+        # A non-empty Recordings dir does NOT satisfy it: the proof is the tree itself.
+        rec = os.path.join(save, "Parsek", "Recordings")
+        os.makedirs(rec, exist_ok=True)
+        open(os.path.join(rec, "other.prec"), "w").close()
+        self.assertEqual(["persistent.sfs carrying tree-drill-harvest-m2"],
+                         run._inject_postcondition_missing(save, "drill-harvest-route"))
+        with open(os.path.join(save, "persistent.sfs"), "w") as fh:
+            fh.write("GAME\n{\n}\n")
+        self.assertEqual(["persistent.sfs carrying tree-drill-harvest-m2"],
+                         run._inject_postcondition_missing(save, "drill-harvest-route"))
+        with open(os.path.join(save, "persistent.sfs"), "w") as fh:
+            fh.write("RECORDING_TREE\n{\n id = tree-drill-harvest-m2\n}\n")
+        self.assertEqual([], run._inject_postcondition_missing(save, "drill-harvest-route"))
+        # Every metadata-only preset is a real preset.
+        for preset in run.SAVE_TOKEN_BY_METADATA_ONLY_PRESET:
+            self.assertIn(preset, run.RP_SIDECAR_BY_PRESET)
+
 
 class AutopilotHandoffSmokeTests(unittest.TestCase):
     """M-B1 (design Test Plan "run.py handoff over a fake mission subprocess"): the

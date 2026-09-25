@@ -1,4 +1,4 @@
-# In-game test category inventory (all 116 categories)
+# In-game test category inventory (all 117 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -180,6 +180,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Serialization` | 4 | 4 | 4 | 4 | 0 | 1 | H25 | A |
 | `Settings` | 5 | 4 | 3 | 4 | 0 | 2 | H46 (flown 2026-08-28, executes 4 of 5; the 5th is TRACKSTATION-scoped) | B |
 | `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
+| `SnapshotSidecars` | 2 | 2 | 2 | 2 | 0 | 2 | ST-3-snapshot-sidecars-bdock (single-category, authored 2026-09-26 by coverage wave 5 on `bdock-recorded`, the one committed Storage-shaped host with a committed AliasVessel recording: every snapshot sidecar probed as DeflateV1 and decoded, a live vessel snapshot round-tripped through the product writer and reader, and an AliasVessel copy run through the product save (no `_ghost.craft`) and load (ghost restored from the vessel). LIVE-PROVEN: reading `2026-09-25_2158` and armed `2026-09-25_2203`, both PASS attempt 1, executes 2 of 2 - the whole category at FLIGHT with zero skips, `total=2 passed=2 failed=0 skipped=0` pinned whole. Its own category so `Storage`'s whole-pinned tally on ST-1 / ST-2 does not move) | A |
 | `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
 | `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `SpawnHealth` | 3 | 3 | 3 | 3 | 0 | 0 | H16 | A |
@@ -210,8 +211,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **116 categories / 640 declarations**. Buckets **A 88 categories
-(358 declarations)**, **B 27 categories (277 declarations)**, **C 1 category (5
+Totals, re-derived: **117 categories / 642 declarations**. Buckets **A 89 categories
+(360 declarations)**, **B 27 categories (277 declarations)**, **C 1 category (5
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes). All re-derived
 mechanically by counting the table's
@@ -314,10 +315,10 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **115 of 116 categories**, covering **635 of 640
+Driven by a committed spec: **116 of 117 categories**, covering **637 of 642
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 640 declarations in
-116 categories over `Source/Parsek`. The 2026-09-08 reading was 112 of 112; the GUI-tree
+Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 642 declarations in
+117 categories over `Source/Parsek`. The 2026-09-08 reading was 112 of 112; the GUI-tree
 dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on
 2026-09-11; the GUI state gallery's P1 opened a 114th on 2026-09-22 and left it
 UNCLAIMED, which is the honest state - P1 ships no lane, and claiming the row from an
@@ -707,7 +708,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (88 categories, 357 declarations)
+### Bucket A - wired now (89 categories, 360 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.

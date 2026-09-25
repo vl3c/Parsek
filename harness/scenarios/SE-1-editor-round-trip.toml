@@ -76,6 +76,10 @@ instanceProfile = "stock-minimal"
 # committedTrees 2, recordings 10. THE FIX IS THE EPOCH: a TimeJump to UT 21600
 # after the launch, 16 s into the replayed ascent from the pad next to the Runway,
 # before StartRecording. The structure block is armed on those measured facets.
+#
+# ARMED RE-FLIGHT `2026-09-25_2338`: PASS attempt 1, every verifier green (the ghost mesh
+# created at currentUT=21600.140, after `launchfromeditor complete`). Negative controls
+# offline via hlib.evaluate_expectations (autotest-status.md, the SE-1 row).
 # =====================================================================================
 description = "Coverage wave 12 (D14 scene-editor): on kerbin-splashdown-recorded with its mission looping (ghosts replaying), boot to the Space Center, walk into the SPH through the building's own click and load the stock Kerbal X through the craft browser (new GoToEditor), press Launch (new LaunchFromEditor), then record and commit on the Runway. The committed recordings survive both transitions unchanged, ghosts replay after the launch, and the new flight commits as a second tree."
 tags = ["SE1", "scene-editor", "editor-route", "loop-playback", "coverage-wave-12"]

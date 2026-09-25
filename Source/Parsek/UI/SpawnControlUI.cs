@@ -404,28 +404,96 @@ namespace Parsek
                 DisabledHoverEcho.CarryLastControl(
                     row.WarpButtonEnabled, row.WarpButtonDisabledReason);
                 if (warpClicked)
-                {
-                    if (row.UsesDepartureWarp)
-                    {
-                        ParsekLog.Info("UI",
-                            string.Format(ic,
-                                "Real Spawn Control: warp to departure '{0}' recording #{1} depUT={2:F1}",
-                                cand.vesselName, cand.recordingIndex, cand.departureUT));
-                        flight.WarpToDeparture(cand.recordingIndex, cand.departureUT);
-                    }
-                    else
-                    {
-                        ParsekLog.Info("UI",
-                            string.Format(ic,
-                                "Real Spawn Control: warp to '{0}' recording #{1}",
-                                cand.vesselName, cand.recordingIndex));
-                        flight.WarpToRecordingEnd(cand.recordingIndex);
-                    }
-                }
+                    ExecuteRowWarp(cand, row, flight);
                 GUI.enabled = true;
                 GUILayout.EndHorizontal();
             }
         }
+
+        /// <summary>
+        /// The row warp button's click body: log the warp and hand it to the flight
+        /// controller. The ONE body behind both the drawn button and the automation-only
+        /// <c>UiAction op=warp</c> seam op (<see cref="TryPressFirstRowWarpForTesting"/>), so
+        /// the seam cannot drift from what a player's click does.
+        /// </summary>
+        private static void ExecuteRowWarp(NearbySpawnCandidate cand,
+            SpawnCandidateRowPresentation row, ParsekFlight flight)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            if (row.UsesDepartureWarp)
+            {
+                ParsekLog.Info("UI",
+                    string.Format(ic,
+                        "Real Spawn Control: warp to departure '{0}' recording #{1} depUT={2:F1}",
+                        cand.vesselName, cand.recordingIndex, cand.departureUT));
+                flight.WarpToDeparture(cand.recordingIndex, cand.departureUT);
+            }
+            else
+            {
+                ParsekLog.Info("UI",
+                    string.Format(ic,
+                        "Real Spawn Control: warp to '{0}' recording #{1}",
+                        cand.vesselName, cand.recordingIndex));
+                flight.WarpToRecordingEnd(cand.recordingIndex);
+            }
+        }
+
+        /// <summary>
+        /// Automation-only: press the FIRST row's warp button (first in the table's current
+        /// sort order, which <c>UiAction op=sort</c> can set), exactly as a click would.
+        /// Refuses, pressing nothing, when there is no row or when the button is drawn
+        /// disabled - a greyed button cannot be clicked, so the seam must not click it
+        /// either. The rows come from the same sort and the same row presentation the draw
+        /// pass uses.
+        /// </summary>
+        /// <param name="refusal">Null on a press; otherwise
+        /// <see cref="WarpRefusalNoRow"/> or <see cref="WarpRefusalButtonDisabled"/>.</param>
+        /// <param name="disabledReason">The button's own disabled-hover text on a
+        /// <see cref="WarpRefusalButtonDisabled"/> refusal.</param>
+        internal bool TryPressFirstRowWarpForTesting(ParsekFlight flight,
+            out NearbySpawnCandidate cand, out SpawnCandidateRowPresentation row,
+            out string refusal, out string disabledReason)
+        {
+            cand = default(NearbySpawnCandidate);
+            row = default(SpawnCandidateRowPresentation);
+            refusal = null;
+            disabledReason = null;
+            var candidates = flight?.NearbySpawnCandidates;
+            if (candidates == null || candidates.Count == 0)
+            {
+                refusal = WarpRefusalNoRow;
+                return false;
+            }
+            List<NearbySpawnCandidate> sorted = SpawnControlPresentation.SortCandidates(
+                candidates, spawnSortColumn, spawnSortAscending);
+            cand = sorted[0];
+            row = SpawnControlPresentation.BuildRowPresentation(
+                cand, ReadCurrentUT(),
+                ParsekFlight.NearbySpawnRadius,
+                ParsekFlight.MaxRelativeSpeed);
+            if (!row.WarpButtonEnabled)
+            {
+                refusal = WarpRefusalButtonDisabled;
+                disabledReason = row.WarpButtonDisabledReason;
+                return false;
+            }
+            ExecuteRowWarp(cand, row, flight);
+            return true;
+        }
+
+        // Kept out of TryPressFirstRowWarpForTesting's body so the headless no-row path
+        // never JITs a Planetarium reference (mono runs a failing KSP static initializer at
+        // JIT of the CALLING method).
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static double ReadCurrentUT() => Planetarium.GetUniversalTime();
+
+        /// <summary><see cref="TryPressFirstRowWarpForTesting"/>: the table has no row.</summary>
+        internal const string WarpRefusalNoRow = "warp-no-candidate-row";
+
+        /// <summary><see cref="TryPressFirstRowWarpForTesting"/>: the first row's warp
+        /// button is drawn disabled (too far, too fast, or already past its UT).</summary>
+        internal const string WarpRefusalButtonDisabled = "warp-button-disabled";
 
         private void DrawSpawnControlBottomBar(List<NearbySpawnCandidate> candidates,
             double currentUT, ParsekFlight flight)
