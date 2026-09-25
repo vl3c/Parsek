@@ -8,7 +8,13 @@ namespace Parsek.Patches
 {
     /// <summary>
     /// Harmony prefix on Contracts.Contract.Accept to block accepting a contract a
-    /// committed future row accepts (<see cref="CommittedFutureIndex"/>).
+    /// committed future row accepts (<see cref="CommittedFutureIndex"/>), or any other
+    /// Offered contract when accepting it now would leave no Mission Control slot for a
+    /// committed accept (<see cref="ContractSlotReservation"/>, C2). Both read
+    /// <see cref="MissionControlStockAnnotation.Decide"/>, the decision the greyed Accept
+    /// button and Contract Configurator's CanAccept postfix read (the pairing rule).
+    /// Stock's other caller, <c>ContractSystem</c> generating an auto-accept contract,
+    /// is never slot-checked: stock neither counts nor limits those.
     /// </summary>
     [HarmonyPatch]
     internal static class ContractAcceptPatch
@@ -34,10 +40,23 @@ namespace Parsek.Patches
 
             string keyString = __instance.ContractGuid.ToString();
             string title = __instance.Title ?? keyString;
-            return ShouldAllowAccept(keyString, title);
+            return ShouldAllowAccept(keyString, title, __instance.ContractState, __instance.AutoAccept, true);
         }
 
+        /// <summary>The committed-accept block only (no slot model): an Offered contract.</summary>
         internal static bool ShouldAllowAccept(string keyString, string title)
+        {
+            return ShouldAllowAccept(keyString, title, Contracts.Contract.State.Offered, false, false);
+        }
+
+        /// <summary>
+        /// The Accept backstop decision. <paramref name="useSlotModel"/> reads the live
+        /// contract-slot forecast (<see cref="ContractSlotReservation.ForecastNow(CommittedFutureIndex, double)"/>,
+        /// which tests replace through its provider seam). Refused exactly when
+        /// <see cref="MissionControlStockAnnotation.BlocksAccept"/> holds for the decision.
+        /// </summary>
+        internal static bool ShouldAllowAccept(
+            string keyString, string title, Contracts.Contract.State state, bool autoAccept, bool useSlotModel)
         {
             if (string.IsNullOrEmpty(keyString)) return true;
 
@@ -52,9 +71,27 @@ namespace Parsek.Patches
             double nowUT = CommittedFutureIndexCache.CurrentUT();
             if (!StockUiReservationPredicates.IsContractAcceptBlocked(index, keyString, nowUT))
             {
+                ContractSlotForecast slots = useSlotModel && !autoAccept
+                    ? ContractSlotReservation.ForecastNow(index, nowUT)
+                    : null;
+                StockUiDecoration slotDecision = MissionControlStockAnnotation.Decide(
+                    index, nowUT, keyString, state, ReservationExplanation.DefaultDateFormatter, slots, autoAccept);
+                if (MissionControlStockAnnotation.BlocksAcceptForSlot(slotDecision))
+                {
+                    ParsekLog.Info("ContractAcceptPatch",
+                        $"blocking accept for guid={keyString} - the committed timeline needs every free contract slot " +
+                        $"nowUT={nowUT.ToString("F0", CultureInfo.InvariantCulture)} {slots.Describe()}");
+                    CommittedActionDialog.ShowBlocked(
+                        "Cannot accept \"" + (string.IsNullOrEmpty(title) ? keyString : title) + "\"",
+                        slotDecision.Why,
+                        "");
+                    return false;
+                }
+
                 ParsekLog.Verbose("ContractAcceptPatch",
                     $"allowing accept for guid={keyString} - no committed future accept " +
-                    $"(nowUT={nowUT.ToString("F0", CultureInfo.InvariantCulture)})");
+                    $"(nowUT={nowUT.ToString("F0", CultureInfo.InvariantCulture)}" +
+                    (slots != null ? " " + slots.Describe() : " slots=not-modeled") + ")");
                 return true;
             }
 
@@ -122,7 +159,7 @@ namespace Parsek.Patches
 
             string keyString = contract.ContractGuid.ToString();
             string title = contract.Title ?? keyString;
-            return ContractAcceptPatch.ShouldAllowAccept(keyString, title);
+            return ContractAcceptPatch.ShouldAllowAccept(keyString, title, contract.ContractState, contract.AutoAccept, true);
         }
 
         private static bool TryGetSelectedContract(

@@ -125,19 +125,22 @@ namespace Parsek.Patches
 
         /// <summary>
         /// The CanAccept postfix decision: a true CC answer becomes false for a contract the
-        /// committed future accepts. Replay bypasses. Only the accept block counts: an Active
-        /// contract's Cancel block says nothing about accepting. Pure over its inputs.
+        /// committed future accepts, or for any other Offered contract while the committed
+        /// timeline needs every free slot (C2). Replay bypasses. Only the Accept blocks
+        /// count: an Active contract's Cancel block says nothing about accepting. Pure over
+        /// its inputs.
         /// </summary>
         internal static bool FilterCanAccept(bool ccResult, StockUiDecoration decision, bool replaying)
         {
             if (!ccResult || replaying) return ccResult;
-            return !MissionControlStockAnnotation.BlocksAcceptAndDecline(decision);
+            return !MissionControlStockAnnotation.BlocksAccept(decision);
         }
     }
 
     /// <summary>
     /// Postfix on CC's <c>ContractConfigurator.CanAccept(Contract)</c>: false for a
-    /// committed-accept contract, so CC's select handler leaves Accept greyed out.
+    /// committed-accept contract, or for any Offered contract while the committed timeline
+    /// needs every free slot, so CC's select handler leaves Accept greyed out.
     /// </summary>
     [HarmonyPatch]
     internal static class ContractConfiguratorCanAcceptPatch
@@ -173,7 +176,7 @@ namespace Parsek.Patches
                 __result = filtered;
                 if (MissionControlStockUi.FirstLogThisOpen("cc-canaccept", d.Id))
                     ParsekLog.Info(Tag, "Contract Configurator CanAccept -> false for guid=" + d.Id
-                        + " - committed future accept; Accept stays disabled why=\"" + d.Why + "\"");
+                        + " kind=" + d.Kind + " - Accept stays disabled why=\"" + d.Why + "\"");
             }
             catch (Exception ex)
             {

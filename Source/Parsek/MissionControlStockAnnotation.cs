@@ -11,7 +11,9 @@ namespace Parsek
     /// extended with a short status, the committed-accept explanation appended to the
     /// stock detail text, and Accept + Decline greyed out. An Active contract a committed
     /// row later completes, fails or cancels gets the same label and detail treatment and
-    /// a greyed Cancel. Every one of those reads <see cref="Decide"/>, which reads
+    /// a greyed Cancel. Any other Offered contract gets a greyed Accept (only) and the reason
+    /// in the detail panel, never a row mark, while the committed timeline needs every free
+    /// slot (<see cref="ContractSlotReservation"/>, C2). Every one of those reads <see cref="Decide"/>, which reads
     /// <see cref="StockUiDecorationQuery.ForMissionControl"/>, which reads
     /// <see cref="StockUiReservationPredicates.IsContractAcceptBlocked"/> (Available) or
     /// <see cref="StockUiReservationPredicates.CommittedContractResolutionAfter"/> (Active):
@@ -39,6 +41,10 @@ namespace Parsek
 
         /// <summary>The heading of the detail-panel block for a committed resolution.</summary>
         internal const string CancelDetailHeading = "Cancel is unavailable";
+
+        /// <summary>The heading of the detail-panel block for a slot the committed timeline
+        /// needs (C2): only Accept is greyed out, Decline stays stock's.</summary>
+        internal const string SlotDetailHeading = "Accept is unavailable";
 
         /// <summary>The row tail after the reservation title.</summary>
         internal const string RowStatusTail = " on your committed timeline";
@@ -77,14 +83,21 @@ namespace Parsek
         /// future row accepts it after <paramref name="currentUT"/> (kind
         /// <see cref="StockUiDecorationKind.ContractAccept"/>), or the contract is Active and
         /// a committed row completes, fails or cancels it after <paramref name="currentUT"/>
-        /// (kind <see cref="StockUiDecorationKind.ContractResolution"/>).
+        /// (kind <see cref="StockUiDecorationKind.ContractResolution"/>). An Offered contract
+        /// the committed timeline does not accept is Blocked but NOT marked (kind
+        /// <see cref="StockUiDecorationKind.ContractSlot"/>) when <paramref name="slots"/> says
+        /// a new accept now would leave no slot for a committed accept; a null forecast
+        /// reserves no slot. Pass <paramref name="autoAccept"/> for a stock auto-accepted
+        /// contract: stock neither counts nor slot-checks those, so neither does Parsek.
         /// </summary>
         internal static StockUiDecoration Decide(
             CommittedFutureIndex index,
             double currentUT,
             string contractKey,
             Contract.State state,
-            Func<double, string> formatDate)
+            Func<double, string> formatDate,
+            ContractSlotForecast slots = null,
+            bool autoAccept = false)
         {
             string tab = TabFor(state);
             if (string.IsNullOrEmpty(contractKey))
@@ -100,7 +113,8 @@ namespace Parsek
             }
 
             List<StockUiDecoration> one = StockUiDecorationQuery.ForMissionControl(
-                index, currentUT, new[] { new StockUiItem(contractKey, tab) }, formatDate);
+                index, currentUT, new[] { new StockUiItem(contractKey, tab) }, formatDate,
+                autoAccept ? null : slots);
             return one[0];
         }
 
@@ -108,6 +122,21 @@ namespace Parsek
         internal static bool BlocksAcceptAndDecline(StockUiDecoration decoration)
         {
             return decoration.Blocked && decoration.Kind == StockUiDecorationKind.ContractAccept;
+        }
+
+        /// <summary>True when the decision greys out Accept only (a slot the committed timeline needs).</summary>
+        internal static bool BlocksAcceptForSlot(StockUiDecoration decoration)
+        {
+            return decoration.Blocked && decoration.Kind == StockUiDecorationKind.ContractSlot;
+        }
+
+        /// <summary>
+        /// True when the decision refuses Accept, for either reason: the greyed Accept, the
+        /// <c>Contract.Accept</c> backstop and Contract Configurator's <c>CanAccept</c> all read this.
+        /// </summary>
+        internal static bool BlocksAccept(StockUiDecoration decoration)
+        {
+            return BlocksAcceptAndDecline(decoration) || BlocksAcceptForSlot(decoration);
         }
 
         /// <summary>True when the decision greys out Cancel (a committed resolution).</summary>
@@ -119,7 +148,12 @@ namespace Parsek
         /// <summary>The detail-panel heading naming the buttons a decision greys out.</summary>
         internal static string DetailHeadingFor(StockUiDecorationKind kind)
         {
-            return kind == StockUiDecorationKind.ContractResolution ? CancelDetailHeading : DetailHeading;
+            switch (kind)
+            {
+                case StockUiDecorationKind.ContractResolution: return CancelDetailHeading;
+                case StockUiDecorationKind.ContractSlot: return SlotDetailHeading;
+                default: return DetailHeading;
+            }
         }
 
         /// <summary>
