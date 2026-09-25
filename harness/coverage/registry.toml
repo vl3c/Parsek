@@ -644,6 +644,14 @@ values = ["bbox-block", "trajectory-walkback", "terrain-correction",
 # 177). A 1x-only histogram claims NOTHING about warped rendering: RC-WARP's
 # seam/hold traversal clauses apply only to declarations naming an above-1x bucket
 # (V24W, `warp-rails`).
+#
+# COVERAGE WAVE 5 (2026-09-26, branch `cov-wave5`): `warp-phys` IS CLAIMED as "ghosts
+# replayed under stock PHYSICS warp (TimeWarp.Modes.LOW), seen in the render warp
+# histogram". DECLARER: V7W-minmus-physics-warp, off its armed renderComposition
+# block's `warpBuckets = ["warpPhys"]` (measured 2025 / 2024 physics-warp dwell frames)
+# with a seam crossed while physics-warped (an above-1x bucket, so RC-WARP's
+# `seamsAboveOneX` clause applies). The drive is `WarpToUT ladder=phys`; its negative
+# control on the default (rails) ladder read warpPhys 0 and red on exactly that bucket.
 values = ["kerbin", "mun", "minmus", "moho", "eve", "gilly", "duna", "ike", "dres",
           "jool", "laythe", "vall", "tylo", "bop", "pol", "eeloo",
           "atmosphere", "soi-count",
@@ -661,9 +669,12 @@ values = ["timeline-projection"]
 # exists; it does: `GhostSnapshotMode.AliasVessel` (Recording.cs:7), chosen by
 # `RecordingStore.DetermineGhostSnapshotMode` (RecordingStore.cs:270) when the ghost
 # snapshot equals the vessel snapshot, in which case no `_ghost.craft` sidecar is
-# written. The witness exists (`SaveRecordingFiles: ... ghostSnapshotMode=AliasVessel
-# ... wroteGhost=False`, RecordingSidecarStore.cs:1231), but no committed-fixture lane
-# was found printing it; only operator-local GUI census logs do. Left uncovered.
+# written. CLAIMED by coverage wave 5 (2026-09-26): DECLARER ST-3-snapshot-sidecars-bdock,
+# whose host `bdock-recorded` carries a committed AliasVessel recording with no
+# `_ghost.craft`; the in-game `SnapshotSidecars` cell checks its files, the product
+# alias decision, and a scratch-id copy through the product save (the Verbose
+# `SaveRecordingFiles: ... ghostSnapshotMode=AliasVessel wroteVessel=True
+# wroteGhost=False` line, pinned) and load (ghost restored from the vessel).
 #
 # `sidecar-pann` - the `.pann` smoothing-annotation sidecar, READ and WRITTEN in one
 # run: `Pannotations read OK: recordingId=... block=SmoothingSplineList`
@@ -675,11 +686,14 @@ values = ["timeline-projection"]
 # lane whose gating saveParse block parses the produced save's ParsekScenario node.
 # DECLARER: GS-4-kerbalx-rewind-watch (`[expectations.rewind]`, gating).
 #
-# `deflate-snapshots` stays UNCOVERED on purpose: every snapshot write goes through
-# the DeflateV1 codec (`SnapshotSidecarCodec.Write`), but the only log label
-# (`snapshotEncoding=DeflateV1` on `SaveRecordingFiles`) is a constant, and a
-# successful load logs no encoding. No archived lane both writes a snapshot and
-# re-loads that same id, so no honest single-lane witness exists yet.
+# `deflate-snapshots` IS CLAIMED by coverage wave 5 (2026-09-26). The log label alone
+# (`snapshotEncoding=DeflateV1` on `SaveRecordingFiles`) is a constant and a successful
+# load logs no encoding, so the witness is an in-game cell instead: ST-3's
+# `SnapshotSidecars` category probes every committed snapshot sidecar's header (PSN0
+# magic, DeflateV1 encoding, codec byte 1, current version and generation), decodes it
+# and compares with the snapshot the product loaded, and writes a snapshot captured from
+# the live active vessel through the product writer and reads it back equal
+# (`deflate snapshot sidecars: files=41 vessel=21 ghost=20 ... liveRoundTrips=1`).
 values = ["sidecar-prec", "sidecar-craft", "sidecar-pann",
           "rp-quicksaves", "deflate-snapshots", "txt-mirrors", "alias-mode",
           "sfs-scenario-node", "schema-gate", "path-validation", "safe-write",

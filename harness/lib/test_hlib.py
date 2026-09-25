@@ -1163,7 +1163,9 @@ class SpecValidationRejectTests(unittest.TestCase):
                                 ("backward-warp", "driver-arg"),
                                 ("max-rate-invalid", "driver-arg"),
                                 ("warp-unavailable", "driver-gate"),
-                                ("warp-locked", "driver-gate")):
+                                ("warp-locked", "driver-gate"),
+                                ("warp-ladder-invalid", "driver-arg"),
+                                ("physics-warp-disallowed", "driver-gate")):
             self.assertEqual(subkind, hlib._SEAM_REFUSAL_SUBKINDS[reason])
 
     def test_warptout_step_accepted_by_validate_spec(self):
@@ -1178,6 +1180,33 @@ class SpecValidationRejectTests(unittest.TestCase):
         v = self._reject(m)
         self.assertFalse(any("WarpToUT" in e for e in v.errors),
                          "WarpToUT wrongly flagged: %s" % list(v.errors))
+
+    def test_warptout_ladder_arg_is_a_closed_verb_scoped_value(self):
+        """`ladder=phys` (coverage wave 5) validates clean; any other spelling, and the
+        arg on a verb that does not read it, is a pre-launch spec error rather than a
+        typed REJECTED warp-ladder-invalid after a whole boot."""
+        def ok(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "WarpToUT", "args": {"ut": "1200", "ladder": "phys"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(ok)
+        self.assertFalse(any("ladder" in e for e in v.errors), list(v.errors))
+
+        def bad_value(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "WarpToUT", "args": {"ut": "1200", "ladder": "physics"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(bad_value)
+        self.assertTrue(any("args.ladder" in e and "'physics'" in e for e in v.errors),
+                        list(v.errors))
+
+        def wrong_verb(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "TimeJump", "args": {"ut": "1200", "ladder": "phys"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(wrong_verb)
+        self.assertTrue(any("args.ladder" in e and "only the WarpToUT verb" in e
+                            for e in v.errors), list(v.errors))
 
     def test_warptout_step_budget_over_the_cap_is_a_spec_error(self):
         """It is a DEFERRED_SEAM_VERB, so the 540 s cap governs its declared budget.
@@ -11914,6 +11943,19 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # control; the discipline is not complete until it flies.
         "V26M-interbody-route-map-lines.toml",
         "V26T-interbody-route-ts-arrival.toml",
+        # V7W: ARMED 2026-09-26 (coverage wave 5, D14 `warp-phys`) off its own
+        # report-only reading `2026-09-25_2154` (renderCompose REPORT, zero FAIL
+        # findings; the run's one mismatch was an over-precise log token of the
+        # spec's own). Measured: warpPhys 2025 / warp1x 676 / rails 0, dwells 1
+        # closed + 1 open, seamsAboveOneX 1 (the SOI seam at UT 1345212.596 closes a
+        # dwell carrying 863 physics-warp frames), seamKinds rigid 8 / flexible-soi 1.
+        # Windows: dwells {1,8}, requireSeamKinds [rigid, flexible-soi],
+        # warpBuckets ["warpPhys"]. ARMED RE-FLIGHT `2026-09-25_2159` PASS attempt 1,
+        # zero mismatches (warpPhys 2024). NEGATIVE CONTROL `2026-09-25_2201`: both
+        # WarpToUT spans without `ladder=phys` (rails, warp100 818 / warpPhys 0),
+        # PARSEK-FAIL(render-composition) on exactly `RC-WARP [FAIL]
+        # warpBuckets.warpPhys`. Discipline complete.
+        "V7W-minmus-physics-warp.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):
@@ -12180,6 +12222,10 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     # reading-pending. Render host in brackets.
                                     # [M] watch-mode entry on a Kerbin->Minmus loop.
                                     "V7M-minmus-player-loop.toml",
+                                    # [M] coverage wave 5 (D14 warp-phys): the V7M
+                                    # subject with two WarpToUT ladder=phys spans,
+                                    # warpBuckets ["warpPhys"].
+                                    "V7W-minmus-physics-warp.toml",
                                     # [M] arm-only floor case, Dres fixture.
                                     "V9-dres-player-loop.toml",
                                     # [M] the Dres re-aimed arrival; synthesizer runs.
@@ -12490,20 +12536,39 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # above could grow this token without changing the KEY set at all.
         self.assertNotIn("warpHigh", block["warpBuckets"])
         # And the suite property the sibling pins state from the other side: exactly
-        # ONE armed block in the corpus names an ABOVE-1x warp bucket, and it is this
-        # one. (V14M declares ["warp1x"] alone since 2026-09-25, which RC-WARP reads
-        # as a 1x-only claim with no traversal clause.) A second lane naming an
-        # above-1x bucket is an arming decision of its own.
+        # TWO armed blocks in the corpus name an ABOVE-1x warp bucket - this one
+        # (rails, a commanded warp stair) and V7W (physics, `WarpToUT ladder=phys`,
+        # armed 2026-09-26 as its own decision; see its key-set pin). (V14M declares
+        # ["warp1x"] alone since 2026-09-25, which RC-WARP reads as a 1x-only claim
+        # with no traversal clause.) A third lane naming an above-1x bucket is an
+        # arming decision of its own.
         with_buckets = sorted(
             n for n in self.RENDERCOMPOSE_ARMED_SPECS
             if any(b in rendercompose.WARP_BUCKETS_ABOVE_1X
                    for b in self._armed_block(n).get("warpBuckets", [])))
-        self.assertEqual(["V24W-duna-one-warp-stair.toml"], with_buckets,
-                         "an above-1x warp bucket is armed on a lane other than the RC-WARP one; "
-                         "every other committed subject moves the clock with "
-                         "instantaneous TimeJumps, so its histogram is 1x-only BY "
+        self.assertEqual(["V24W-duna-one-warp-stair.toml", "V7W-minmus-physics-warp.toml"],
+                         with_buckets,
+                         "an above-1x warp bucket is armed on a lane other than the two "
+                         "warp-driving ones; every other committed subject moves the clock "
+                         "with instantaneous TimeJumps, so its histogram is 1x-only BY "
                          "CONSTRUCTION and the key would pin the drive shape rather "
                          "than the product")
+
+    def test_v7w_declares_the_render_composition_block_armed_with_the_physics_bucket(self):
+        """V7W, ARMED 2026-09-26 (D14 `warp-phys`) off reading `2026-09-25_2154`:
+        warpPhys 2025, dwells 1 closed, seamsAboveOneX 1, seamKinds rigid 8 /
+        flexible-soi 1. Armed re-flight `2026-09-25_2159` PASS; negative control
+        `2026-09-25_2201` (rails ladder) red on exactly `warpBuckets.warpPhys`.
+        The KEY SET is pinned so a window cannot be appended without its own
+        reading run; `unevaluable` is deliberately absent (SEAM_ENDPOINT decimation
+        scales with session length)."""
+        block = self._armed_block("V7W-minmus-physics-warp.toml")
+        self.assertEqual({"gating", "dwells", "requireSeamKinds", "warpBuckets"}, set(block))
+        self.assertEqual({"min": 1, "max": 8}, block["dwells"])
+        self.assertEqual(["rigid", "flexible-soi"], block["requireSeamKinds"])
+        # THE CELL: physics warp only. A rails bucket here would claim a regime this
+        # drive never enters (the control measured rails as the ONLY way to zero it).
+        self.assertEqual(["warpPhys"], block["warpBuckets"])
 
     def test_every_armed_block_keeps_an_anti_vacuity_floor(self):
         """The property both key-set pins exist to protect, stated once against the
@@ -23221,6 +23286,52 @@ class ListHandlesSourceSyncTests(unittest.TestCase):
             r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', code))
         self.assertEqual({"AKindToken": "a"}, consts)
         self.assertEqual(["AKindToken"], re.findall(r"\bcase\s+(\w+)\s*:", code))
+
+
+class WarpToUTLadderSourceSyncTests(unittest.TestCase):
+    """Reads OUTSIDE harness/: `Source/Parsek/TestCommands/TestCommandWarpToUT.cs` and
+    `ParsekTestCommandAddon.WarpToUT.cs`. hlib's `WARPTOUT_LADDER_KEY` /
+    `WARPTOUT_LADDER_VALUES` closed-arg row and the two `ladder=` refusal mappings are
+    a MIRROR of the C#: a renamed token would let the pre-launch validator pass a
+    spec the seam REJECTS `warp-ladder-invalid` after a whole boot (or refuse one the
+    seam accepts). Both files are read as CODE, every line stripped of its `//`
+    comment (`strip_cs_line_comment`), so doc comments quoting the literals cannot
+    count."""
+
+    DIR = os.path.join(PARSEK_SOURCE_DIR, "TestCommands")
+
+    @classmethod
+    def _code(cls, name):
+        path = os.path.join(cls.DIR, name)
+        if not os.path.isfile(path):
+            raise AssertionError("the C# WarpToUT half moved; this mirror is vacuous: %s"
+                                 % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            raw = fh.read().replace("\r\n", "\n")
+        return "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pure = cls._code("TestCommandWarpToUT.cs")
+        cls.applier = cls._code("ParsekTestCommandAddon.WarpToUT.cs")
+        cls.consts = dict(re.findall(
+            r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', cls.pure))
+
+    def test_the_phys_token_is_the_one_value_hlib_accepts(self):
+        self.assertEqual((self.consts["PhysicsModeToken"],), hlib.WARPTOUT_LADDER_VALUES)
+
+    def test_the_arg_key_is_the_one_the_applier_reads(self):
+        keys = re.findall(r'ArgOrNull\(\s*cmd\s*,\s*"(\w+)"\s*\)', self.applier)
+        self.assertIn(hlib.WARPTOUT_LADDER_KEY, keys)
+        # The key sits beside the verb's other two args, so a rename of either
+        # shape is caught rather than matched by a stray literal elsewhere.
+        self.assertEqual({"ut", "maxRate", hlib.WARPTOUT_LADDER_KEY}, set(keys))
+
+    def test_the_ladder_refusal_reasons_are_mapped(self):
+        self.assertEqual("driver-arg",
+                         hlib._SEAM_REFUSAL_SUBKINDS[self.consts["WarpModeInvalidReason"]])
+        self.assertEqual("driver-gate",
+                         hlib._SEAM_REFUSAL_SUBKINDS[self.consts["PhysicsWarpDisallowedReason"]])
 
 
 class ScreenResolutionSpecTests(unittest.TestCase):
