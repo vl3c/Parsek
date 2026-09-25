@@ -1011,6 +1011,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Space Center: a refused research, contract accept, facility upgrade, hire or dismissal now
+  says why, and when the item frees up.** The "Action Blocked" dialog and the badge hovers on
+  the R&D, Astronaut Complex and Mission Control screens used to print a raw `UT 183420`. They
+  now say what your committed timeline does, on which calendar date and, where there is one,
+  by which committed flight (for example `Researched on Y2 D114 by the committed flight
+  'Mun Lander 3'.`), that committed history cannot happen earlier or twice, and when the item
+  frees up. A kerbal held by a committed flight says when he is free again, or that he is
+  free once the flight is recovered, or that its loop holds him. The hover and the refused
+  click now show the same text, and the facility dialog names the building instead of its
+  internal id.
+- **Space Center: facility upgrades no longer stay blocked after the committed upgrade has
+  happened.** After a rewind, a facility upgrade a committed flight made later refused every
+  upgrade of that facility for good, even long after that upgrade had taken place. The
+  block now lifts once the clock passes the last committed upgrade of that facility. The
+  research, contract and hire blocks (and their marks) likewise lift once the committed
+  date passes, and they only protect committed history: a flight still in progress never
+  blocks a Space Center action.
+
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
   soon as it had sent the deploy command. It now reads the parachute's own state and

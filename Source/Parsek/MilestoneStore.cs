@@ -6,15 +6,15 @@ using System.IO;
 namespace Parsek
 {
     /// <summary>
-    /// Stores committed game-state event milestones and exposes the unreplayed,
-    /// current-timeline slices consumed by replay, click-blocks, and stock UI
-    /// overlays.
+    /// Stores committed game-state event milestones and the unreplayed slice
+    /// (LastReplayedEventIndex) the resource budget reads.
     ///
-    /// Future code that advances LastReplayedEventIndex or changes event
-    /// visibility must finish by calling LedgerOrchestrator.RecalculateAndPatch()
-    /// or by invoking LedgerOrchestrator.OnTimelineDataChanged directly. Open
-    /// stock overlays rebuild from that signal and otherwise remain stale until
-    /// the player reopens the stock screen.
+    /// The stock-screen click-blocks and overlays do NOT read the unreplayed slice:
+    /// nothing advances LastReplayedEventIndex as the clock passes an event, so a
+    /// slice-keyed block never lifted (F1). They read the UT-keyed
+    /// CommittedFutureIndex over the effective ledger instead; the one exception is
+    /// the committed-dismissal mark, which has no ledger row and reads committed
+    /// CrewRemoved events here through CommittedFutureIndexCache's narrow fallback.
     /// </summary>
     internal static class MilestoneStore
     {
@@ -199,8 +199,8 @@ namespace Parsek
                         // #431: mirror RemoveCommittedEvent's single-event path — if the purged
                         // slot sat at or before the replay boundary, the next surviving event
                         // shifts into this slot and would be wrongly treated as already-replayed
-                        // by consumers that iterate from LastReplayedEventIndex + 1 (tech/facility
-                        // dupe guards, FindCommittedEvent). Clamp at -1 so an empty pre-boundary
+                        // by consumers that iterate from LastReplayedEventIndex + 1 (the resource
+                        // budget). Clamp at -1 so an empty pre-boundary
                         // doesn't underflow.
                         if (j <= m.LastReplayedEventIndex)
                         {
@@ -607,165 +607,5 @@ namespace Parsek
                 $"RemoveCommittedEvent: no match for {target.eventType} key='{target.key}' ut={target.ut:F1}");
             return false;
         }
-
-        #region Committed Action Queries
-
-        /// <summary>
-        /// Returns tech IDs that are committed but not yet replayed.
-        /// Used by TechResearchPatch to block duplicate research.
-        /// </summary>
-        internal static HashSet<string> GetCommittedTechIds()
-        {
-            var result = new HashSet<string>();
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (!m.Committed) continue;
-                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
-                {
-                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
-                    if (m.Events[j].eventType == GameStateEventType.TechResearched
-                        && !string.IsNullOrEmpty(m.Events[j].key))
-                        result.Add(m.Events[j].key);
-                }
-            }
-
-            if (result.Count > 0)
-                ParsekLog.Verbose("MilestoneStore", $"GetCommittedTechIds: {result.Count} committed tech(s): [{string.Join(", ", result)}]");
-
-            return result;
-        }
-
-        /// <summary>
-        /// Returns facility IDs that have committed-but-unreplayed upgrade events.
-        /// Used by FacilityUpgradePatch to block duplicate upgrades.
-        /// </summary>
-        internal static HashSet<string> GetCommittedFacilityUpgrades()
-        {
-            var result = new HashSet<string>();
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (!m.Committed) continue;
-                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
-                {
-                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
-                    if (m.Events[j].eventType == GameStateEventType.FacilityUpgraded
-                        && !string.IsNullOrEmpty(m.Events[j].key))
-                        result.Add(m.Events[j].key);
-                }
-            }
-
-            if (result.Count > 0)
-                ParsekLog.Verbose("MilestoneStore", $"GetCommittedFacilityUpgrades: {result.Count} committed facility(ies): [{string.Join(", ", result)}]");
-
-            return result;
-        }
-
-        /// <summary>
-        /// Returns contract accept keys that are committed but not yet replayed.
-        /// Used by stock UI overlays and click-blocks for Mission Control.
-        /// </summary>
-        internal static HashSet<string> GetCommittedContractAcceptIds()
-        {
-            var result = new HashSet<string>();
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (!m.Committed) continue;
-                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
-                {
-                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
-                    if (m.Events[j].eventType == GameStateEventType.ContractAccepted
-                        && !string.IsNullOrEmpty(m.Events[j].key))
-                        result.Add(m.Events[j].key);
-                }
-            }
-
-            if (result.Count > 0)
-                ParsekLog.Verbose("MilestoneStore", $"GetCommittedContractAcceptIds: {result.Count} committed contract accept(s): [{string.Join(", ", result)}]");
-
-            return result;
-        }
-
-        /// <summary>
-        /// Returns kerbal names with committed-but-unreplayed hire events.
-        /// Used by stock UI overlays and click-blocks for the Astronaut Complex.
-        /// </summary>
-        internal static HashSet<string> GetCommittedKerbalHireNames()
-        {
-            var result = new HashSet<string>();
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (!m.Committed) continue;
-                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
-                {
-                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
-                    if (m.Events[j].eventType == GameStateEventType.CrewHired
-                        && !string.IsNullOrEmpty(m.Events[j].key))
-                        result.Add(m.Events[j].key);
-                }
-            }
-
-            if (result.Count > 0)
-                ParsekLog.Verbose("MilestoneStore", $"GetCommittedKerbalHireNames: {result.Count} committed kerbal hire(s): [{string.Join(", ", result)}]");
-
-            return result;
-        }
-
-        /// <summary>
-        /// Returns kerbal names with committed-but-unreplayed removal events.
-        /// Used by stock UI overlays for FutureRetired markers.
-        /// </summary>
-        internal static HashSet<string> GetCommittedKerbalRetireNames()
-        {
-            var result = new HashSet<string>();
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (!m.Committed) continue;
-                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
-                {
-                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
-                    if (m.Events[j].eventType == GameStateEventType.CrewRemoved
-                        && !string.IsNullOrEmpty(m.Events[j].key))
-                        result.Add(m.Events[j].key);
-                }
-            }
-
-            if (result.Count > 0)
-                ParsekLog.Verbose("MilestoneStore", $"GetCommittedKerbalRetireNames: {result.Count} committed kerbal retire(s): [{string.Join(", ", result)}]");
-
-            return result;
-        }
-
-        /// <summary>
-        /// Finds the first unreplayed committed event matching the given type and key.
-        /// Returns null if not found. Used for blocking dialog messages.
-        /// </summary>
-        internal static GameStateEvent? FindCommittedEvent(GameStateEventType type, string key)
-        {
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (!m.Committed) continue;
-                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
-                {
-                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
-                    if (m.Events[j].eventType == type && m.Events[j].key == key)
-                    {
-                        ParsekLog.Verbose("MilestoneStore",
-                            $"FindCommittedEvent: found {type} key='{key}' in milestone {ShortId(m.MilestoneId)} event[{j}] ut={m.Events[j].ut:F0}");
-                        return m.Events[j];
-                    }
-                }
-            }
-
-            ParsekLog.Verbose("MilestoneStore", $"FindCommittedEvent: no match for {type} key='{key}'");
-            return null;
-        }
-
-        #endregion
     }
 }

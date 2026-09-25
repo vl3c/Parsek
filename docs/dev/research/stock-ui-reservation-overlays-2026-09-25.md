@@ -1,6 +1,6 @@
 # Explaining paradox-prevention blocks on the stock KSP screens
 
-**Date:** 2026-09-25. **Status:** owner rulings taken 2026-09-25 (section 11); the section 12 claims are settled by unit cells in `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`. Nothing here is implemented yet.
+**Date:** 2026-09-25. **Status:** owner rulings taken 2026-09-25 (section 11); the section 12 claims are settled by unit cells in `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`. Section 10 step 1 (PR 1, branch `stock-ui-predicates`) is implemented: see the status notes in sections 3, 10 and 12. Nothing later is.
 
 **This document is the single reference for:**
 - where Parsek explains a reservation or block to the player
@@ -108,6 +108,11 @@ Defects:
    - Facilities: `FacilityUpgradePatch.TryBlockFacilityUpgrade` reads only `facility.id` against `GetCommittedFacilityUpgrades()`, a set with no level and no UT, and the `SetLevel` prefix only checks `lvl > current`. After a rewind or revert the committed 1->2 upgrade's milestone sits at index -1, and the next save writes -1 back, so a later 2->3 upgrade stays refused for good. Only a purge of that milestone event lifts it. Confirmed by `F1_CommittedOneToTwoUpgrade_BlocksEveryLaterUpgradeOfThatFacility_AfterRewind_DocumentsDefect`. On the timeline that recorded the upgrade nothing is blocked, because `CreateMilestone` marks every event replayed (`F1_FreshlyCreatedMilestone_IsFullyReplayed_DoesNotBlock`).
 7. **Invisible to the GUI census.** uGUI plus hover-only means neither the GuiTree recorder nor a screenshot captures the layer (todo `GUI-INVENTORY-STOCKUIOVERLAY-BADGES-ARE-INVISIBLE-TO-BOTH-CENSUS-INSTRUMENTS`). Moving to stock mechanisms does not fix that by itself.
 
+**Status after PR 1 (2026-09-25):**
+- Defect 1 (text): fixed. `ReservationExplanation.cs` builds the section 6 text; the badge hover and the `CommittedActionDialog` refusal show the same body, with calendar dates, no raw UT and no em dashes. The facility dialog names the building through `FacilityDisplayNames`.
+- Defect 6 (stale marks and blocks, F1): fixed. Every mark and click-block reads one `CommittedFutureIndex` (`CommittedFutureIndex.cs`) over the effective ledger, keyed by UT. The `MilestoneStore.GetCommitted*` / `FindCommittedEvent` queries are deleted. Only the committed-dismissal mark still reads milestone events (a `CrewRemoved` has no ledger row), through a narrow UT-keyed fallback.
+- Defect 7, partly: every decoration pass now logs `decorate screen=<S> tab=<T> items=N marked=M blocked=B` plus one Verbose line per decorated item with its `why` text (`StockUiDecorationQuery.cs`), so KSP.log records what each screen showed. Defects 2-5 and the badge itself are section 10 step 2.
+
 ## 4. Block audit: is every reservation actually enforced?
 
 Verdicts:
@@ -172,7 +177,7 @@ Common technique:
 - Postfix the method that BUILDS or REFRESHES each stock row or button, never "decorate once at spawn": stock rebuilds rows and resets button state constantly.
 - Text goes into the stock tooltip or reason field.
 - Prefer postfixes: RP-1 replaces several of these methods with false-returning prefixes, and CC replaces listeners.
-- Predicates are cached and invalidated on `LedgerOrchestrator.OnTimelineDataChanged`. `MilestoneStore.GetCommitted*` allocates and walks every committed event, and `CanAffordScienceSpending` runs a full recalc, so neither may run per row or per frame.
+- Predicates are cached and invalidated on `LedgerOrchestrator.OnTimelineDataChanged`. `CanAffordScienceSpending` runs a full recalc, so it may not run per row or per frame. Since PR 1 the predicates read `CommittedFutureIndexCache.Current`, which is rebuilt only when the effective ledger, the effective recording set or the committed milestones change (or on an explicit invalidation), and each decoration pass fetches it once.
 
 | Screen | Mark | Why | Block at the control | Reference | Difficulty |
 |---|---|---|---|---|---|
@@ -237,9 +242,10 @@ The honest third part is therefore **when it frees up**, plus the kerbal-specifi
 | Strategy | `Activated on Y2 D114 on your committed timeline.` + rule + `It becomes active on that date.` |
 | Facility upgrade | `Upgraded to level 2 on Y2 D114 on your committed timeline.` + rule + `The upgrade happens on that date.` |
 | Kerbal hire | `Hired on Y2 D114 on your committed timeline.` + rule + `They join the roster on that date.` |
-| Kerbal on a flight | `Flies 'Mun Lander 3' on your committed timeline.` `A kerbal on a committed flight cannot be used or risked before it ends.` `Free after Y2 D130.` / `Free once 'Mun Lander 3' is recovered.` / `Held while 'Mun Lander 3' loops.` (only for a Recovered end, where stopping the loop frees the kerbal) |
+| Kerbal on a flight | `Flies 'Mun Lander 3' on your committed timeline.` `A kerbal on a committed flight cannot be used or risked before it ends.` `Free after Y2 D130.` / `Free once 'Mun Lander 3' is recovered.` / `Held while 'Mun Lander 3' loops. Stopping its loop frees them after Y2 D130.` (a Recovered end, where stopping the loop frees the kerbal) / `Held while 'Mun Lander 3' loops, and then until it is recovered.` (an Aboard or Unknown end in a looping chain) |
 | Part purchase | `Purchased on Y2 D114 on your committed timeline.` + rule + `It is purchased on that date.` |
-| Kerbal lost | `Lost on the committed flight 'Mun Lander 3'.` `That flight is fixed history.` (no way out) |
+| Kerbal lost | `Lost on the committed flight 'Mun Lander 3'.` `That flight is fixed history.` + the Kerbals window's `If that mission has a rewind point, re-flying it can undo the loss.` A Re-Fly merge tombstones the recording-scoped death row, so by the rule below this is a genuine way out (corrected in PR 1; this row first read "no way out") |
+| Kerbal dismissal (informational) | `Dismissed on Y2 D114 on your committed timeline.` + rule + `They leave the roster on that date.` Worded "Dismissed" because the Kerbals window's `Retired` is a stand-in whose seat went back to its owner (added in PR 1) |
 
 Wording rules:
 - Use the Kerbals window's crew vocabulary (Kerbals design ruling 19, "one crew vocabulary").
@@ -276,7 +282,7 @@ Wording rules:
 | **C. Block** | Decline greyed, reason in the detail panel, backstop refusal. The offer stays listed until stock expires it or the committed UT arrives; either way it becomes active then | **adopt** |
 | D. Honour the decline | Tombstones a committed action, leaves the flight's completion with no accept, contradicts append-only | reject |
 
-Option C reuses the Accept block's predicate (`GetCommittedContractAcceptIds`) on the same row. The stale slice cannot bite here: after the committed UT the contract is Active, so Decline is unreachable.
+Option C reuses the Accept block's predicate (`StockUiReservationPredicates.IsContractAcceptBlocked` since PR 1; `GetCommittedContractAcceptIds` before) on the same row. The stale slice cannot bite here: after the committed UT the contract is Active, so Decline is unreachable.
 
 ### 7.3 Cancel an Active contract
 
@@ -415,6 +421,7 @@ Each step is one PR; each pairs a mark with its block.
    - The `ReservationExplanation` builder (section 6) feeds the dialog and the existing badges.
    - Replace the stale `MilestoneStore` slice with a UT-keyed committed-future index over the effective ledger, read by BOTH the marks and the blocks.
    - Fix the facility over-block (F1, confirmed in section 12; the F1 `_DocumentsDefect` cell flips).
+   - **Status: done in PR 1** (branch `stock-ui-predicates`). `CommittedFutureIndex.cs` (index + cache), `ReservationExplanation.cs` (texts), `StockUiDecorationQuery.cs` (click-block predicates + per-screen decoration queries + pass logging). Committed means: in the effective ledger AND KSC-origin or tagged to a recording in the Effective Recording Set (so the live / pending tree and a Re-Fly provisional never reserve). Future means `row.UT > now`; a row at the current UT has already been applied by the walk. The index also carries ContractComplete / Fail / Cancel, StrategyActivate / Deactivate and part-purchase (`FundsSpending`, `Other`) rows for steps 3, 5 and 9.
 2. **Migrate R&D, the Astronaut Complex and Mission Control to stock mechanisms.** This fixes defects 2-5. The Decline block (section 7.2, C3) ships in this step, because the Available-row mark it re-draws is otherwise a marked row with a live Decline, which breaks the pairing rule. The CC Accept hook ships here too.
 3. **Mission Control Cancel block + Active-row annotations** (section 7.3). Closes C4.
 4. **Contract slots:** a committed-slot predicate on Accept (C2).
@@ -460,7 +467,7 @@ All cells live in `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`. 
 
 | Claim | Where | Result | Evidence |
 |---|---|---|---|
-| F1 facility over-block after the committed upgrade replays | section 3 item 6, section 4 | **Confirmed.** The predicate keys on facility id only: no level, no UT. The committed slice (`LastReplayedEventIndex + 1 ..`) is set only by `CreateMilestone` (all replayed), `RestoreMutableState` (saved index, or -1 for milestones newer than the loaded save on rewind / revert) and the removal decrements. Nothing advances it as the clock passes an event. After a rewind the 1->2 milestone is -1 for good (the next save writes -1), so every later upgrade of that facility is refused | `F1_CommittedOneToTwoUpgrade_BlocksEveryLaterUpgradeOfThatFacility_AfterRewind_DocumentsDefect`, `F1_FreshlyCreatedMilestone_IsFullyReplayed_DoesNotBlock`; `FacilityUpgradePatch.cs:22,41-60`, `MilestoneStore.cs:144,456,467,643-663`, `ParsekScenario.cs:4015,4715` |
+| F1 facility over-block after the committed upgrade replays | section 3 item 6, section 4 | **Confirmed.** The predicate keys on facility id only: no level, no UT. The committed slice (`LastReplayedEventIndex + 1 ..`) is set only by `CreateMilestone` (all replayed), `RestoreMutableState` (saved index, or -1 for milestones newer than the loaded save on rewind / revert) and the removal decrements. Nothing advances it as the clock passes an event. After a rewind the 1->2 milestone is -1 for good (the next save writes -1), so every later upgrade of that facility is refused | `F1_CommittedOneToTwoUpgrade_BlocksEveryLaterUpgradeOfThatFacility_AfterRewind_DocumentsDefect`, `F1_FreshlyCreatedMilestone_IsFullyReplayed_DoesNotBlock`; `FacilityUpgradePatch.cs:22,41-60`, `MilestoneStore.cs:144,456,467,643-663`, `ParsekScenario.cs:4015,4715`. **Fixed in PR 1:** the cell flipped to `F1_CommittedOneToTwoUpgrade_AfterRewind_BlocksOnlyUntilItsUT_Fixed`, with `F1_BeforeTheCommittedUpgrade_Blocked`, `F1_AtAndAfterTheCommittedUpgrade_Allowed`, `F1_TwoCommittedUpgrades_BlockedUntilTheLaterOnePasses` and `F1_AnotherFacilitysCommittedUpgrade_DoesNotBlock` (the fresh-milestone cell went with the slice query) |
 | P1 part purchase double charge | section 4 | **Confirmed, and wider than stated**, with bypass off only: (a) nothing marks the part purchased at the committed UT, so the committed row charges for a part the player never gets; (b) buying it now charges the entry cost twice. With bypass on there is no hole | `P1_PartPurchase_BecomesAFundsOnlyRowKeyedByPartName`, `P1_BuyNowPlusCommittedPurchase_ChargesTheEntryCostTwice_DocumentsHole`, `P1_BypassEntryPurchase_PurchaseIsFree_NoDoubleCharge`; `KspStatePatcher.cs:901-930`, section 4 "P1" |
 | CC switches off the Mission Control overlay and bypasses the Accept pre-block | section 3 item 4 | **Code-read confirmed, not reproduced.** CC removes and replaces the Accept / Decline / Cancel listeners (`MissionControlUI.cs:397-402`) and overwrites `btnAccept.interactable` (`:1271`). A unit cell cannot settle the null row lookup: it needs CC's uGUI rows in a live Mission Control | CC `MissionControlUI.cs` |
 | Turning a loop off releases a looping chain's kerbal hold | section 6 | **Partly.** A Recovered hold drops to the flight's EndUT on the next ledger walk. An Aboard or Unknown hold stays `+inf` until a recovery closure. The toggle itself runs no recalc | `LoopHold_TurningLoopOff_ReleasesARecoveredHoldOnTheNextWalk`, `LoopHold_TurningLoopOff_LeavesAnAboardHoldOpenEnded`; `KerbalsModule.cs:673,783,808-812`, `RecordingsTableUI.cs:2354` |

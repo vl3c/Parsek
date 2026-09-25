@@ -64,7 +64,7 @@ Parsek.Tests/
 ├── BackgroundRecorderTests.cs       # Background recorder tests
 ├── BackwardCompatTests.cs           # Backward compatibility tests
 ├── CameraFollowTests.cs            # Camera follow ghost tests
-├── CommittedActionTests.cs          # Committed action blocking tests
+├── CommittedFutureIndexTests.cs     # Committed-future index (stock-screen blocks) tests
 ├── ComputeStatsTests.cs            # Recording statistics computation tests
 ├── FxDiagnosticsTests.cs           # FX diagnostic logging tests
 ├── GameStateEventTests.cs          # Game state event serialization tests

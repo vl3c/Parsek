@@ -33,7 +33,10 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
             ParsekSettings.CurrentOverrideForTesting = new ParsekSettings();
+            // Every committed row these cells seed sits at UT >= 12345, ahead of this clock.
+            CommittedFutureIndexCache.NowUtProviderForTesting = () => 0.0;
 
             CommittedActionDialog.TestHookForTesting = (action, reason, detail) =>
             {
@@ -59,7 +62,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Allows accept when not committed. Fails if the patch blocks contracts outside the committed helper set.
+        /// Allows accept when not committed. Fails if the patch blocks contracts with no committed future accept.
         /// </summary>
         [Fact]
         public void ContractAcceptPatch_AllowsAcceptWhenNotCommitted_NoDialogLogAndReturnsTrue()
@@ -81,7 +84,7 @@ namespace Parsek.Tests
         public void ContractAcceptPatch_BlocksWhenCommitted_LogsAndReturnsFalse()
         {
             string key = Guid.NewGuid().ToString();
-            AddMilestone(Event(GameStateEventType.ContractAccepted, key, ut: 12345.0));
+            AddCommittedRow(Event(GameStateEventType.ContractAccepted, key, ut: 12345.0));
 
             bool allowed = ContractAcceptPatch.ShouldAllowAccept(key, "Committed Contract");
 
@@ -90,7 +93,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, line =>
                 line.Contains("[INFO][ContractAcceptPatch]") &&
                 line.Contains("blocking accept for guid=" + key) &&
-                line.Contains("committed at UT 12345"));
+                line.Contains("committed future accept ut=12345"));
             Assert.Contains(logLines, line =>
                 line.Contains("[INFO][CommittedAction]") &&
                 line.Contains("Blocked action: Cannot accept \"Committed Contract\""));
@@ -103,7 +106,7 @@ namespace Parsek.Tests
         public void ContractAcceptPatch_BypassesWhenReplayingActions_LogsAndReturnsTrue()
         {
             string key = Guid.NewGuid().ToString();
-            AddMilestone(Event(GameStateEventType.ContractAccepted, key, ut: 23456.0));
+            AddCommittedRow(Event(GameStateEventType.ContractAccepted, key, ut: 23456.0));
             GameStateRecorder.IsReplayingActions = true;
 
             bool allowed = ContractAcceptPatch.ShouldAllowAccept(key, "Replay Contract");
@@ -118,7 +121,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Invariant test for §3/§8.3. Fails if the patch stops using GetCommittedContractAcceptIds as the exact predicate source.
+        /// Invariant test for §3/§8.3. Fails if the patch stops keying on the committed-future index's raw contract-guid key.
         /// </summary>
         [Fact]
         public void ContractAcceptPatch_PredicateUsesCommittedContractAcceptIdsRawKey()
@@ -126,15 +129,16 @@ namespace Parsek.Tests
             Guid guid = Guid.NewGuid();
             string recorderShape = guid.ToString();
             string noHyphenShape = guid.ToString("N");
-            AddMilestone(Event(GameStateEventType.ContractAccepted, recorderShape, ut: 34567.0));
+            AddCommittedRow(Event(GameStateEventType.ContractAccepted, recorderShape, ut: 34567.0));
 
             bool recorderShapeAllowed = ContractAcceptPatch.ShouldAllowAccept(recorderShape, "Recorder Shape");
             bool noHyphenAllowed = ContractAcceptPatch.ShouldAllowAccept(noHyphenShape, "No Hyphen Shape");
 
             Assert.False(recorderShapeAllowed);
             Assert.True(noHyphenAllowed);
-            Assert.Contains(MilestoneStore.GetCommittedContractAcceptIds(), id => id == recorderShape);
-            Assert.DoesNotContain(MilestoneStore.GetCommittedContractAcceptIds(), id => id == noHyphenShape);
+            var futureAccepts = CommittedFutureIndexCache.Current.FutureKeys(CommittedFutureKind.ContractAccept, 0.0);
+            Assert.Contains(futureAccepts, id => id == recorderShape);
+            Assert.DoesNotContain(futureAccepts, id => id == noHyphenShape);
         }
 
         /// <summary>
@@ -164,15 +168,11 @@ namespace Parsek.Tests
             };
         }
 
-        private static void AddMilestone(GameStateEvent ev)
+        /// <summary>A committed KSC-origin ledger row, converted the way the KSC door converts
+        /// the captured event.</summary>
+        private static void AddCommittedRow(GameStateEvent ev)
         {
-            MilestoneStore.AddMilestoneForTesting(new Milestone
-            {
-                MilestoneId = Guid.NewGuid().ToString("N"),
-                Committed = true,
-                LastReplayedEventIndex = -1,
-                Events = new List<GameStateEvent> { ev }
-            });
+            Ledger.AddAction(GameStateEventConverter.ConvertEvent(ev, null));
         }
     }
 }
