@@ -95,9 +95,9 @@ tier = "nightly"
 # restore reverts it); its guards are the career mode and an Offered row, as before.
 # The category is 8 declarations; the pin is `total=8` literal with the split regexed
 # (still in `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`); the prediction is 8 of 8.
-description = "FLOWN: the in-game StockUiOverlay category unattended on a career host with contracts on offer, all six cells executing - Parsek's decorations on the live stock R&D, Astronaut Complex and Mission Control screens, and their removal on despawn."
+description = "INTERIM (re-opened 2026-09-25, the rewritten and added cells not yet flown): the in-game StockUiOverlay category unattended on a career host with contracts on offer, eight cells, pin total=8 with the split regexed - Parsek's annotations on the live stock R&D, Astronaut Complex and Mission Control screens (Mission Control on stock mechanisms: row labels on the Available and Active tabs, detail-panel why, greyed Accept / Decline / Cancel, Decline and Cancel backstops) and their cleanup on close. Earlier shape flown 6 of 6 on 2026-09-08."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45", "flown"]
+tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45", "reading-run"]
 
 [fixture]
 # career-earned-ksc (career-contract-pad until 2026-09-08), and BOTH properties are

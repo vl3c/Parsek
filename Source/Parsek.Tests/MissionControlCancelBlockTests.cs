@@ -246,6 +246,23 @@ namespace Parsek.Tests
             Assert.False(ContractConfiguratorCompat.FilterCanAccept(true, accept, false));
         }
 
+        [Fact]
+        public void AcceptWrite_ACancelBlock_NeverGreysAccept_AndKeepsAPendingAcceptRestore()
+        {
+            var index = Index(Accept(500, "offered"), Complete(500, "active"));
+            var cancelBlocked = ActiveRow(index, "active");
+            var acceptBlocked = MissionControlStockAnnotation.Decide(index, 100, "offered", Contract.State.Offered, Fmt);
+            var free = MissionControlStockAnnotation.Decide(index, 100, "free", Contract.State.Offered, Fmt);
+
+            Assert.Null(MissionControlStockUi.ResolveAcceptWrite(cancelBlocked, Contract.State.Active, () => true));
+            Assert.False(MissionControlStockUi.AcceptDisabledByParsekForTesting);
+
+            MissionControlStockUi.ResolveAcceptWrite(acceptBlocked, Contract.State.Offered, () => true);
+            Assert.Null(MissionControlStockUi.ResolveAcceptWrite(cancelBlocked, Contract.State.Active, () => true));
+            Assert.True(MissionControlStockUi.AcceptDisabledByParsekForTesting);
+            Assert.Equal(true, MissionControlStockUi.ResolveAcceptWrite(free, Contract.State.Offered, () => true));
+        }
+
         // ---------------------------------------------------------------- texts
 
         [Fact]

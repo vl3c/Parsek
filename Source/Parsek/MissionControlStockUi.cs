@@ -36,6 +36,12 @@ namespace Parsek
 
         private static readonly Dictionary<Type, FieldInfo[]> containerFields = new Dictionary<Type, FieldInfo[]>();
 
+        // True while btnAccept is greyed because PARSEK greyed it. Stock 1.12.5 writes
+        // btnAccept.interactable only in RefreshUIControls (never on select, deselect or
+        // UpdateInfoPanelContract), so Parsek's disable outlives the blocked selection
+        // and must be undone by Parsek when an unblocked Offered contract is selected.
+        private static bool acceptDisabledByParsek;
+
         /// <summary>The Mission Control tab stock is showing.</summary>
         internal static string TabForDisplayMode(MissionControl.DisplayMode mode)
         {
@@ -73,6 +79,7 @@ namespace Parsek
         {
             int cleared = loggedThisOpen.Count;
             loggedThisOpen.Clear();
+            acceptDisabledByParsek = false;
             ParsekLog.Verbose(Tag, "MissionControl opened - stock-control annotations active (once-per-open log keys cleared="
                 + cleared.ToString(CultureInfo.InvariantCulture) + ")");
         }
@@ -84,6 +91,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, "MissionControl closed with a rebuild pass still open - discarding it");
                 ResetPass();
             }
+            acceptDisabledByParsek = false;
             ParsekLog.Verbose(Tag, "MissionControl closed - Parsek owns no GameObject on it, nothing to strip");
         }
 
@@ -156,10 +164,36 @@ namespace Parsek
         // ---------------------------------------------------------------- detail panel
 
         /// <summary>
+        /// What the detail panel must write to <c>btnAccept</c> for the contract being
+        /// shown: false for a committed accept (and Parsek now owns the greyed state);
+        /// for an unblocked Offered contract, stock's own Accept rule
+        /// (<paramref name="stockAllows"/>) but ONLY when Parsek greyed the button earlier;
+        /// otherwise null (leave it). Undoing only Parsek's own write, rather than
+        /// re-deriving Accept on every selection, keeps stock's slot rule and any other
+        /// mod's Accept gate authoritative for contracts Parsek does not block. A
+        /// non-Offered contract hides Accept, so the restore waits for the next Offered one.
+        /// </summary>
+        internal static bool? ResolveAcceptWrite(StockUiDecoration decision, Contract.State state, Func<bool> stockAllows)
+        {
+            if (MissionControlStockAnnotation.BlocksAcceptAndDecline(decision))
+            {
+                acceptDisabledByParsek = true;
+                return false;
+            }
+            if (!acceptDisabledByParsek || state != Contract.State.Offered)
+                return null;
+            acceptDisabledByParsek = false;
+            return stockAllows == null || stockAllows();
+        }
+
+        /// <summary>
         /// The <c>UpdateInfoPanelContract</c> postfix body: appends the explanation to the
         /// stock detail text and greys out Accept and Decline for a committed accept, or
-        /// Cancel for a committed resolution. For an unblocked contract stock's own button
-        /// state is left alone.
+        /// Cancel for a committed resolution. For an unblocked contract stock's Decline and
+        /// Cancel state is kept (stock rewrites both here) and Accept is restored to stock's
+        /// rule only if Parsek greyed it for an earlier selection (<see cref="ResolveAcceptWrite"/>).
+        /// Under Contract Configurator its select handler overwrites Accept right after this
+        /// with the same rule.
         /// </summary>
         internal static void ApplyDetailPanel(MissionControl mc, Contract contract, string source)
         {
@@ -186,10 +220,21 @@ namespace Parsek
                 return;
             }
 
+            bool? acceptWrite = ResolveAcceptWrite(d, contract.ContractState, () => StockAcceptAllowed(contract));
             if (!d.Blocked)
             {
-                ParsekLog.Verbose(Tag, "MissionControl detail panel: contract=" + d.Id
-                    + " tab=" + d.Tab + " not blocked - stock Accept/Decline state kept (" + (source ?? "?") + ")");
+                if (acceptWrite.HasValue)
+                {
+                    SetInteractable(mc.btnAccept, acceptWrite.Value);
+                    ParsekLog.Verbose(Tag, "MissionControl detail panel: contract=" + d.Id
+                        + " not blocked - Accept restored to stock's rule accept=" + (acceptWrite.Value ? "true" : "false")
+                        + " after Parsek greyed it for an earlier selection (" + (source ?? "?") + ")");
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, "MissionControl detail panel: contract=" + d.Id
+                        + " tab=" + d.Tab + " not blocked - stock Accept/Decline state kept (" + (source ?? "?") + ")");
+                }
                 return;
             }
 
@@ -207,6 +252,9 @@ namespace Parsek
         internal static bool ReapplyButtonsForSelection(MissionControl mc, string source)
         {
             Contract contract = mc != null && mc.selectedMission != null ? mc.selectedMission.contract : null;
+            // Stock has just written btnAccept from its own slot rule, so any earlier
+            // Parsek disable is gone unless it is re-applied below.
+            acceptDisabledByParsek = false;
             if (contract == null)
                 return false;
 
@@ -227,6 +275,7 @@ namespace Parsek
                 return cancelChanged;
             }
 
+            acceptDisabledByParsek = true;
             bool changed = IsInteractable(mc.btnAccept) || IsInteractable(mc.btnDecline);
             SetInteractable(mc.btnAccept, false);
             SetInteractable(mc.btnDecline, false);
@@ -269,6 +318,7 @@ namespace Parsek
             }
             if (d.Blocked)
             {
+                acceptDisabledByParsek = true;
                 SetInteractable(mc.btnAccept, false);
                 SetInteractable(mc.btnDecline, false);
                 ParsekLog.Verbose(Tag, "MissionControl refresh: selected contract=" + d.Id + " still blocked");
@@ -289,6 +339,7 @@ namespace Parsek
             {
                 bool accept = StockAcceptAllowed(selected);
                 bool decline = selected.CanBeDeclined();
+                acceptDisabledByParsek = false;
                 SetInteractable(mc.btnAccept, accept);
                 SetInteractable(mc.btnDecline, decline);
                 ParsekLog.Verbose(Tag, "MissionControl refresh: selected contract=" + d.Id
@@ -484,9 +535,12 @@ namespace Parsek
                 button.interactable = value;
         }
 
+        internal static bool AcceptDisabledByParsekForTesting => acceptDisabledByParsek;
+
         internal static void ResetForTesting()
         {
             ResetPass();
+            acceptDisabledByParsek = false;
             loggedThisOpen.Clear();
             containerFields.Clear();
         }

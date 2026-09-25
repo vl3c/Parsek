@@ -20818,7 +20818,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
-            Description = "Stock-UI overlays PR 2b: selecting a committed-accept Offered contract greys out Accept and Decline and appends the why to the stock detail text; a RefreshUIControls pass and a tab switch plus re-select keep both disabled; Contract.Decline is refused with the same text.")]
+            Description = "Stock-UI overlays PR 2b: selecting a committed-accept Offered contract greys out Accept and Decline and appends the why to the stock detail text; a RefreshUIControls pass and a tab switch plus re-select keep both disabled; Contract.Decline is refused with the same text; selecting an ordinary Offered contract afterwards gives Accept back when stock's slot rule allows it.")]
         public IEnumerator MissionControlDetailPanelDisablesAcceptAndDeclineWithReason()
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
@@ -20899,6 +20899,39 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual(1, dialogCount, "the refused Decline should explain itself once");
                 InGameAssert.AreEqual(why, dialogReason,
                     "the Decline refusal should say exactly what the detail panel says");
+
+                // Selecting an ordinary Offered contract after the blocked one: stock writes
+                // btnAccept only in RefreshUIControls, so Parsek must undo its own disable.
+                AssertMissionControlPanelBlocked(mc, why, "before selecting another contract");
+                string otherKey = FindOtherUnmarkedOfferedContractKey(mc, contractPick.ContractKey);
+                if (otherKey == null)
+                {
+                    ParsekLog.Info("TestRunner",
+                        "MissionControlDetailPanelDisablesAcceptAndDeclineWithReason: Accept-restore step skipped - " +
+                        "the host lists no second Offered contract without a committed accept");
+                }
+                else
+                {
+                    InGameAssert.IsTrue(SelectMissionControlRowForTest(mc, otherKey, out Contract other),
+                        "the second Offered row should be selectable");
+                    string otherText = mc.contractText != null ? mc.contractText.text : "";
+                    InGameAssert.IsFalse(otherText.Contains(MissionControlStockAnnotation.DetailHeading),
+                        "an unblocked contract's detail text should carry no Parsek block");
+                    InGameAssert.AreEqual(other.CanBeDeclined(), mc.btnDecline.interactable,
+                        "an unblocked contract's Decline should be stock's own state");
+                    if (!MissionControlSlotFreeForTest(out string slotReason))
+                    {
+                        ParsekLog.Info("TestRunner",
+                            "MissionControlDetailPanelDisablesAcceptAndDeclineWithReason: Accept-restore step skipped - " +
+                            slotReason);
+                    }
+                    else
+                    {
+                        InGameAssert.IsTrue(mc.btnAccept.interactable,
+                            "selecting an ordinary Offered contract after a committed-accept one should re-enable " +
+                            "Accept when stock's slot rule allows it (" + slotReason + ")");
+                    }
+                }
             }
             finally
             {
@@ -22013,6 +22046,48 @@ namespace Parsek.InGameTests
             mc.selectedMission = selection;
             mc.UpdateInfoPanelContract(selection.contract);
             contract = selection.contract;
+            return true;
+        }
+
+        private static string FindOtherUnmarkedOfferedContractKey(MissionControl mc, string excludeKey)
+        {
+            if (mc == null) return null;
+            MCListItem[] rows = mc.GetComponentsInChildren<MCListItem>(true);
+            for (int i = 0; i < rows.Length; i++)
+            {
+                Contract candidate = ExtractMissionControlRowContractForTest(rows[i]);
+                if (candidate == null || candidate.ContractState != Contract.State.Offered)
+                    continue;
+                string key = candidate.ContractGuid.ToString();
+                if (string.Equals(key, excludeKey, System.StringComparison.Ordinal))
+                    continue;
+                if (MissionControlStockUi.DecideNow(candidate).Blocked)
+                    continue;
+                return key;
+            }
+            return null;
+        }
+
+        // Stock's Accept rule (MissionControl.RefreshUIControls): fewer active contracts
+        // than the Mission Control level allows.
+        private static bool MissionControlSlotFreeForTest(out string reason)
+        {
+            int active = ContractSystem.Instance != null ? ContractSystem.Instance.GetActiveContractCount() : -1;
+            int limit = GameVariables.Instance != null
+                ? GameVariables.Instance.GetActiveContractsLimit(
+                    ScenarioUpgradeableFacilities.GetFacilityLevel(SpaceCenterFacility.MissionControl))
+                : -1;
+            reason = $"activeContracts={active} limit={limit}";
+            if (active < 0 || limit < 0)
+            {
+                reason = "ContractSystem / GameVariables unavailable (" + reason + ")";
+                return false;
+            }
+            if (active >= limit)
+            {
+                reason = "no free contract slot (" + reason + ")";
+                return false;
+            }
             return true;
         }
 

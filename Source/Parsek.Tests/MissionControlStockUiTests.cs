@@ -293,6 +293,85 @@ namespace Parsek.Tests
             Assert.Null(MissionControlStockUi.LabelForAddItem(null, null));
         }
 
+        // ---------------------------------------------------------------- Accept restore
+
+        /// <summary>
+        /// Stock writes btnAccept only in RefreshUIControls, so after Parsek greys Accept for
+        /// committed-accept contract A, selecting ordinary Offered contract B must restore
+        /// stock's Accept rule - otherwise B shows an unmarked row with a greyed Accept.
+        /// Fails if the unblocked branch leaves Accept alone after a Parsek disable.
+        /// </summary>
+        [Fact]
+        public void AcceptWrite_BlockedThenUnblockedOffered_RestoresStocksRuleOnce()
+        {
+            var index = Index(Accept(500, "a"));
+            var blockedA = MissionControlStockAnnotation.Decide(index, 100, "a", Contract.State.Offered, Fmt);
+            var freeB = MissionControlStockAnnotation.Decide(index, 100, "b", Contract.State.Offered, Fmt);
+            int stockCalls = 0;
+            Func<bool> stockAllows = () => { stockCalls++; return true; };
+
+            Assert.Equal(false, MissionControlStockUi.ResolveAcceptWrite(blockedA, Contract.State.Offered, stockAllows));
+            Assert.True(MissionControlStockUi.AcceptDisabledByParsekForTesting);
+
+            Assert.Equal(true, MissionControlStockUi.ResolveAcceptWrite(freeB, Contract.State.Offered, stockAllows));
+            Assert.False(MissionControlStockUi.AcceptDisabledByParsekForTesting);
+            Assert.Equal(1, stockCalls);
+
+            // Parsek no longer owns the button: a later unblocked selection leaves it to stock.
+            Assert.Null(MissionControlStockUi.ResolveAcceptWrite(freeB, Contract.State.Offered, stockAllows));
+            Assert.Equal(1, stockCalls);
+        }
+
+        [Fact]
+        public void AcceptWrite_RestoreFollowsStocksRule_AFullSlotCountStaysGreyed()
+        {
+            var index = Index(Accept(500, "a"));
+            var blockedA = MissionControlStockAnnotation.Decide(index, 100, "a", Contract.State.Offered, Fmt);
+            var freeB = MissionControlStockAnnotation.Decide(index, 100, "b", Contract.State.Offered, Fmt);
+
+            MissionControlStockUi.ResolveAcceptWrite(blockedA, Contract.State.Offered, () => true);
+
+            Assert.Equal(false, MissionControlStockUi.ResolveAcceptWrite(freeB, Contract.State.Offered, () => false));
+        }
+
+        [Theory]
+        [InlineData(Contract.State.Active)]
+        [InlineData(Contract.State.Completed)]
+        public void AcceptWrite_NonOfferedSelection_NeverEnablesAccept_AndKeepsTheRestorePending(Contract.State state)
+        {
+            var index = Index(Accept(500, "a"));
+            var blockedA = MissionControlStockAnnotation.Decide(index, 100, "a", Contract.State.Offered, Fmt);
+            var other = MissionControlStockAnnotation.Decide(index, 100, "c", state, Fmt);
+            var freeB = MissionControlStockAnnotation.Decide(index, 100, "b", Contract.State.Offered, Fmt);
+            MissionControlStockUi.ResolveAcceptWrite(blockedA, Contract.State.Offered, () => true);
+
+            Assert.Null(MissionControlStockUi.ResolveAcceptWrite(other, state, () => true));
+            Assert.True(MissionControlStockUi.AcceptDisabledByParsekForTesting);
+            Assert.Equal(true, MissionControlStockUi.ResolveAcceptWrite(freeB, Contract.State.Offered, () => true));
+        }
+
+        [Fact]
+        public void AcceptWrite_NoEarlierParsekDisable_LeavesStockAlone()
+        {
+            var freeB = MissionControlStockAnnotation.Decide(Index(), 100, "b", Contract.State.Offered, Fmt);
+            int stockCalls = 0;
+
+            Assert.Null(MissionControlStockUi.ResolveAcceptWrite(freeB, Contract.State.Offered, () => { stockCalls++; return true; }));
+            Assert.Equal(0, stockCalls);
+        }
+
+        [Fact]
+        public void AcceptWrite_ScreenReopen_ForgetsAnEarlierDisable()
+        {
+            var index = Index(Accept(500, "a"));
+            MissionControlStockUi.ResolveAcceptWrite(
+                MissionControlStockAnnotation.Decide(index, 100, "a", Contract.State.Offered, Fmt), Contract.State.Offered, () => true);
+
+            MissionControlStockUi.OnScreenOpened();
+
+            Assert.False(MissionControlStockUi.AcceptDisabledByParsekForTesting);
+        }
+
         // ---------------------------------------------------------------- row payloads
 
         [Fact]
