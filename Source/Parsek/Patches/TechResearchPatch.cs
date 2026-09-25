@@ -41,32 +41,8 @@ namespace Parsek.Patches
                 return false;
             }
 
-            var index = CommittedFutureIndexCache.Current;
-            double nowUT = CommittedFutureIndexCache.CurrentUT();
-            if (StockUiReservationPredicates.IsTechResearchBlocked(index, techId, nowUT))
-            {
-                var entry = index.FirstFuture(CommittedFutureKind.TechResearch, techId, nowUT);
-                var ic = System.Globalization.CultureInfo.InvariantCulture;
-
-                string sciCost = "";
-                if (entry != null && entry.Amount > 0f)
-                    sciCost = entry.Amount.ToString("F1", ic) + " science reserved for this action";
-
-                ParsekLog.Info("TechResearchPatch",
-                    $"Blocking tech research: '{techId}' ({tech.title ?? techId}) - committed future row " +
-                    $"ut={(entry != null ? entry.UT.ToString("F0", ic) : "?")} nowUT={nowUT.ToString("F0", ic)} " +
-                    $"recording={entry?.RecordingId ?? "(ksc)"}" +
-                    (!string.IsNullOrEmpty(sciCost) ? $", {sciCost}" : ""));
-
-                var text = StockUiReservationPredicates.ExplainTech(
-                    index, techId, nowUT, ReservationExplanation.DefaultDateFormatter);
-                CommittedActionDialog.ShowBlocked(
-                    "Cannot research \"" + (tech.title ?? techId) + "\"",
-                    text.Body,
-                    sciCost);
-
+            if (TryBlockCommittedTech(techId, tech.title))
                 return true;
-            }
 
             if (includeAffordability)
             {
@@ -92,8 +68,45 @@ namespace Parsek.Patches
 
             ParsekLog.Verbose("TechResearchPatch",
                 $"Allowing tech research: '{techId}' ({tech.title ?? techId}) - no committed future row " +
-                $"(nowUT={nowUT.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)})");
+                $"(nowUT={CommittedFutureIndexCache.CurrentUT().ToString("F0", System.Globalization.CultureInfo.InvariantCulture)})");
             return false;
+        }
+
+        /// <summary>
+        /// The committed-future half of the tech-research block: refuses a node a committed
+        /// future researches (the log line + the blocked dialog). The R&amp;D screen marks
+        /// and disables exactly this set (<c>StockUiRnDDecoration</c> reads the same
+        /// <see cref="StockUiReservationPredicates.IsTechResearchBlocked"/>). The caller
+        /// handles the replay bypass.
+        /// </summary>
+        internal static bool TryBlockCommittedTech(string techId, string title)
+        {
+            if (string.IsNullOrEmpty(techId)) return false;
+            var index = CommittedFutureIndexCache.Current;
+            double nowUT = CommittedFutureIndexCache.CurrentUT();
+            if (!StockUiReservationPredicates.IsTechResearchBlocked(index, techId, nowUT))
+                return false;
+
+            var entry = index.FirstFuture(CommittedFutureKind.TechResearch, techId, nowUT);
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+
+            string sciCost = "";
+            if (entry != null && entry.Amount > 0f)
+                sciCost = entry.Amount.ToString("F1", ic) + " science reserved for this action";
+
+            ParsekLog.Info("TechResearchPatch",
+                $"Blocking tech research: '{techId}' ({title ?? techId}) - committed future row " +
+                $"ut={(entry != null ? entry.UT.ToString("F0", ic) : "?")} nowUT={nowUT.ToString("F0", ic)} " +
+                $"recording={entry?.RecordingId ?? "(ksc)"}" +
+                (!string.IsNullOrEmpty(sciCost) ? $", {sciCost}" : ""));
+
+            var text = StockUiReservationPredicates.ExplainTech(
+                index, techId, nowUT, ReservationExplanation.DefaultDateFormatter);
+            CommittedActionDialog.ShowBlocked(
+                "Cannot research \"" + (title ?? techId) + "\"",
+                text.Body,
+                sciCost);
+            return true;
         }
     }
 }

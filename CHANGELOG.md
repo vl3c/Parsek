@@ -1308,6 +1308,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **R&D and the Astronaut Complex show Parsek's reservations with KSP's own controls instead
+  of Parsek's badge icons.** In R&D, a tech node your committed timeline researches later has a
+  gold-tinted icon, its hover tooltip and the side panel's description say when and by which
+  committed flight it is researched, and its Research button is greyed out (the "purchase all
+  parts" button on researched nodes is untouched). In the Astronaut Complex, a kerbal's row
+  says what the committed timeline does with him in the row's own status text (`Hired on Y2
+  D114`, `Reserved until Y2 D130`, `Lost`, `Retired`, `Dismissed on ...`), and the hire button
+  of a kerbal a committed flight hires later, and the dismiss button of a kerbal Parsek
+  manages, are locked the way KSP locks hiring at the crew limit, with the reason in the
+  kerbal's hover tooltip. This now also works in the Astronaut Complex opened from the
+  VAB/SPH crew dialog, which used to show nothing. The stock Dismiss button is now actually
+  refused for a kerbal Parsek manages: it went through a stock path Parsek did not guard.
+  Mission Control moved to the same stock mechanisms (see Fixed), so no Space Center screen
+  shows a Parsek badge any more.
 - **Timeline: the time-range presets are back on their own always-visible row.** This
   partly reverts the `Time: <range>` button from the two-row filter area above. The filter
   area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career)
