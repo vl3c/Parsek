@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: replayed ghosts are now checked for engine flames defined in a part's
+  EFFECTS node, and for cargo-bay doors that open and close.** A ghost engine now logs one line
+  each time it ignites on replay, naming the part, where its flame effects came from (the part's
+  EFFECTS node, its legacy `fx_*` effects, or a Parsek stand-in) and how many are playing. GS-6
+  now requires that line for its Ant, the only EFFECTS-node engine it carries. The new lane
+  `BAY-1-runway-cargo-bays` rolls the stock Mallard out onto the runway, stages it where it stands
+  so recording starts, opens and closes its three cargo bays, commits, rewinds to launch and lets
+  the Space Center replay it; it requires the ghost's bay doors to open and close.
 - **Automated testing: three new lanes for Real Spawn Control, drilled-cargo routes and Making History launch sites.**
   `RSC-1` presses Real Spawn Control's "Warp to Spawn" on a ghost parked near the pad and requires the time jump
   and the vessel that spawns; a new test command, `UiAction op=warp`, runs the button's own click code and
