@@ -20832,12 +20832,16 @@ namespace Parsek.InGameTests
                 while (!filled.BlocksNewAcceptNow && fixtures.Count < maxFixtures)
                 {
                     string rid = "stockui-mc-slot-" + System.Guid.NewGuid().ToString("N");
+                    // Tracked before it is created, so the finally removes it even if the
+                    // fixture helper throws halfway.
+                    int slot = fixtures.Count;
+                    fixtures.Add(new KeyValuePair<string, Recording>(rid, null));
                     Recording rec = AddCommittedOverlayFixture(
                         rid,
                         GameStateEventType.ContractAccepted,
                         System.Guid.NewGuid().ToString(),
-                        "contractTitle=Slot fixture " + (fixtures.Count + 1).ToString(CultureInfo.InvariantCulture));
-                    fixtures.Add(new KeyValuePair<string, Recording>(rid, rec));
+                        "contractTitle=Slot fixture " + (slot + 1).ToString(CultureInfo.InvariantCulture));
+                    fixtures[slot] = new KeyValuePair<string, Recording>(rid, rec);
                     filled = ContractSlotReservation.ForecastNow();
                     InGameAssert.IsNotNull(filled, "the forecast should still be available");
                 }
@@ -20845,6 +20849,17 @@ namespace Parsek.InGameTests
                 {
                     InGameAssert.Skip(maxFixtures.ToString(CultureInfo.InvariantCulture)
                         + " committed accepts did not fill the free slots (unlimited Mission Control?) (" + filled.Describe() + ")");
+                    yield break;
+                }
+                // The picked contract holds its slot only until its own deadline; one that would
+                // expire before the fixtures' accept is legitimately not refused.
+                double pickRelease = ContractSlotReservation.NewAcceptReleaseUT(
+                    contractPick.Contract, CommittedFutureIndexCache.CurrentUT());
+                if (!filled.BlocksNewAccept(pickRelease))
+                {
+                    InGameAssert.Skip("the picked Offered contract's deadline (release UT "
+                        + pickRelease.ToString("F0", CultureInfo.InvariantCulture)
+                        + ") comes before the fixtures' committed accept (" + filled.Describe() + ")");
                     yield break;
                 }
                 ParsekLog.Info("TestRunner", "MissionControlSlotNeededByCommittedAcceptGreysAcceptWithReason: "
@@ -20879,7 +20894,8 @@ namespace Parsek.InGameTests
                     dialogReason = reason;
                 };
                 bool allowed = Patches.ContractAcceptPatch.ShouldAllowAccept(
-                    contractPick.ContractKey, contract.Title, contract.ContractState, contract.AutoAccept, true);
+                    contractPick.ContractKey, contract.Title, contract.ContractState, contract.AutoAccept, true,
+                    ContractSlotReservation.NewAcceptReleaseUT(contract, CommittedFutureIndexCache.CurrentUT()));
                 InGameAssert.IsFalse(allowed, "the Contract.Accept backstop should refuse while the slots are reserved");
                 InGameAssert.AreEqual(1, dialogCount, "the refused accept should explain itself once");
                 InGameAssert.AreEqual(d.Why, dialogReason, "the refusal should say exactly what the detail panel says");
@@ -20887,7 +20903,7 @@ namespace Parsek.InGameTests
 
                 // Remove the committed accepts: the open screen re-evaluates and gives Accept back.
                 for (int i = 0; i < fixtures.Count; i++)
-                    RemoveCommittedOverlayFixture(fixtures[i].Key, fixtures[i].Value);
+                    RemoveCommittedOverlayFixture(fixtures[i].Key, fixtures[i].Value ?? LedgerOrchestrator.FindRecordingById(fixtures[i].Key));
                 fixtures.Clear();
                 NotifyTimelineDataChangedForOverlayTest();
                 float deadline = Time.realtimeSinceStartup + 4f;
@@ -20909,7 +20925,7 @@ namespace Parsek.InGameTests
             {
                 CommittedActionDialog.TestHookForTesting = priorHook;
                 for (int i = 0; i < fixtures.Count; i++)
-                    RemoveCommittedOverlayFixture(fixtures[i].Key, fixtures[i].Value);
+                    RemoveCommittedOverlayFixture(fixtures[i].Key, fixtures[i].Value ?? LedgerOrchestrator.FindRecordingById(fixtures[i].Key));
                 if (fixtures.Count > 0)
                     NotifyTimelineDataChangedForOverlayTest();
                 ClearMissionControlSelectionForTest();

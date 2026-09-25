@@ -41,9 +41,11 @@ pairing rule):
   accepts over a full Mission Control.~~
   Fixed by PR 4 (branch `stock-ui-slots`): `ContractSlotReservation.Forecast` (pure, next to
   `CommittedFutureIndex`) walks the committed timeline from now (actives held until their
-  committed resolution, committed accepts added, removals first on a UT tie, the limit raised
-  by committed Mission Control upgrades), and an Offered contract the committed timeline does
-  not accept is refused when a new accept now would leave a committed accept without a slot.
+  committed resolution or their deadline, committed accepts added until theirs, committed
+  auto-accept rows skipped, removals first on a UT tie, the limit raised by committed Mission
+  Control upgrades), and an Offered contract the committed timeline does not accept is refused
+  when a new accept now, held until its own deadline, would leave a committed accept without
+  a slot.
   One decision (`MissionControlStockAnnotation.Decide`, kind `ContractSlot`) greys Accept in
   the detail panel with the reason, refuses in the `Contract.Accept` / `OnClickAccept`
   backstops and in the CC `CanAccept` postfix; there is no row mark (the section 4 C2

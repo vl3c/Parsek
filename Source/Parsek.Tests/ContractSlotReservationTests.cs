@@ -92,8 +92,13 @@ namespace Parsek.Tests
             protected override string GetTitle() => title;
         }
 
-        private static GameAction Accept(double ut, string id, string rec = null, string title = null) =>
-            new GameAction { UT = ut, Type = GameActionType.ContractAccept, ContractId = id, RecordingId = rec, ContractTitle = title };
+        private static GameAction Accept(double ut, string id, string rec = null, string title = null,
+            double deadlineUT = double.NaN) =>
+            new GameAction
+            {
+                UT = ut, Type = GameActionType.ContractAccept, ContractId = id, RecordingId = rec,
+                ContractTitle = title, DeadlineUT = deadlineUT
+            };
 
         private static GameAction Resolve(GameActionType type, double ut, string id) =>
             new GameAction { UT = ut, Type = type, ContractId = id };
@@ -109,6 +114,9 @@ namespace Parsek.Tests
             CommittedFutureIndex.Build(actions, id => id == "rec", id => id == "rec" ? "Mun Lander 3" : null, null);
 
         private static ContractSlotForecast Forecast(CommittedFutureIndex index, int limit, params string[] active) =>
+            ContractSlotReservation.Forecast(index, active, limit, 100.0);
+
+        private static ContractSlotForecast Forecast(CommittedFutureIndex index, int limit, params ContractSlotHolder[] active) =>
             ContractSlotReservation.Forecast(index, active, limit, 100.0);
 
         // ---------------------------------------------------------------- the peak model
@@ -196,8 +204,9 @@ namespace Parsek.Tests
             Assert.Equal(0, f.FreeSlotsForNewAcceptNow);
             Assert.Equal("e", f.FirstStarvedAccept.Key);
             Assert.True(f.BlocksNewAcceptNow);
-            Assert.Equal(1, ContractSlotReservation.FreeSlotsForNewAcceptNow(index, new[] { "a" }, 4, 100.0));
-            Assert.Equal(2, ContractSlotReservation.ReservedForLater(index, new[] { "a" }, 4, 100.0));
+            var holders = new[] { new ContractSlotHolder("a", 10, double.NaN) };
+            Assert.Equal(1, ContractSlotReservation.FreeSlotsForNewAcceptNow(index, holders, 4, 100.0));
+            Assert.Equal(2, ContractSlotReservation.ReservedForLater(index, holders, 4, 100.0));
         }
 
         [Fact]
@@ -319,6 +328,164 @@ namespace Parsek.Tests
             {
                 CultureInfo.CurrentCulture = prior;
             }
+        }
+
+
+        // ---------------------------------------------------------------- deadlines
+
+        [Fact]
+        public void ActiveDeadlineBeforeTheCommittedAccept_FreesItsSlot()
+        {
+            var f = Forecast(Index(Accept(500, "c")), 2, new ContractSlotHolder("a", 10, 300));
+
+            Assert.Equal(1, f.PeakCommitted);
+            Assert.Equal(1, f.FreeSlotsForNewAcceptNow);
+            Assert.False(f.BlocksNewAcceptNow);
+        }
+
+        [Fact]
+        public void ActiveDeadlineAtTheCommittedAcceptUt_RemovalComesFirst()
+        {
+            var f = Forecast(Index(Accept(500, "c")), 2, new ContractSlotHolder("a", 10, 500));
+
+            Assert.False(f.BlocksNewAcceptNow);
+        }
+
+        [Fact]
+        public void ActiveDeadlineAfterTheCommittedAccept_StillHoldsItsSlotThere()
+        {
+            var f = Forecast(Index(Accept(500, "c")), 2, new ContractSlotHolder("a", 10, 600));
+
+            Assert.True(f.BlocksNewAcceptNow);
+            Assert.Equal("c", f.FirstStarvedAccept.Key);
+        }
+
+        [Theory]
+        [InlineData(10.0)]   // deadline == accept
+        [InlineData(5.0)]    // deadline before accept (a duration captured as a UT)
+        public void ActiveWithAnImplausibleDeadline_IsOpenEnded(double deadlineUT)
+        {
+            Assert.True(ContractsModule.IsImplausibleContractDeadline(deadlineUT, 10));
+
+            var f = Forecast(Index(Accept(500, "c")), 2, new ContractSlotHolder("a", 10, deadlineUT));
+
+            Assert.True(f.BlocksNewAcceptNow);
+        }
+
+        [Fact]
+        public void CommittedAcceptWithADeadline_ReleasesItsSlotThere()
+        {
+            // limit 3, active a. c accepted at 200 with its deadline at 300; d accepted at 400.
+            var withDeadline = Forecast(Index(Accept(200, "c", deadlineUT: 300), Accept(400, "d")), 3, "a");
+            var openEnded = Forecast(Index(Accept(200, "c"), Accept(400, "d")), 3, "a");
+            var implausible = Forecast(Index(Accept(200, "c", deadlineUT: 200), Accept(400, "d")), 3, "a");
+            var atTheNextAccept = Forecast(Index(Accept(200, "c", deadlineUT: 400), Accept(400, "d")), 3, "a");
+
+            Assert.Equal(1, withDeadline.FreeSlotsForNewAcceptNow);
+            Assert.False(withDeadline.BlocksNewAcceptNow);
+            Assert.True(openEnded.BlocksNewAcceptNow);
+            Assert.Equal("d", openEnded.FirstStarvedAccept.Key);
+            Assert.True(implausible.BlocksNewAcceptNow);
+            Assert.False(atTheNextAccept.BlocksNewAcceptNow);
+        }
+
+        [Fact]
+        public void TheNewContractsDeadline_BeforeTheStarvedAccept_IsNotRefused()
+        {
+            var f = Forecast(Index(Accept(500, "c")), 2, "a");
+
+            Assert.True(f.BlocksNewAcceptNow);
+            Assert.False(f.BlocksNewAccept(400));
+            Assert.False(f.BlocksNewAccept(500));   // released at the accept's UT: removal first
+            Assert.True(f.BlocksNewAccept(501));
+            Assert.True(f.BlocksNewAccept(double.PositiveInfinity));
+        }
+
+        [Fact]
+        public void NewAcceptReleaseUT_FollowsStocksAcceptDeadlineRule()
+        {
+            // now = 100
+            Assert.Equal(400, ContractSlotReservation.NewAcceptReleaseUT(Contract.DeadlineType.Floating, 0, 300, 100));
+            Assert.Equal(600, ContractSlotReservation.NewAcceptReleaseUT(Contract.DeadlineType.Fixed, 600, 300, 100));
+            Assert.Equal(double.PositiveInfinity,
+                ContractSlotReservation.NewAcceptReleaseUT(Contract.DeadlineType.None, 600, 300, 100));
+            // Implausible: no duration, or a fixed deadline not after now -> open-ended.
+            Assert.Equal(double.PositiveInfinity,
+                ContractSlotReservation.NewAcceptReleaseUT(Contract.DeadlineType.Floating, 0, 0, 100));
+            Assert.Equal(double.PositiveInfinity,
+                ContractSlotReservation.NewAcceptReleaseUT(Contract.DeadlineType.Fixed, 50, 0, 100));
+            Assert.Equal(double.PositiveInfinity, ContractSlotReservation.SlotReleaseUT(100, double.NaN));
+        }
+
+        [Fact]
+        public void NewAcceptReleaseUT_ReadsTheLiveContractsDeadlineType()
+        {
+            var floating = new FakeContract("Floating", Guid.NewGuid(), Contract.State.Offered);
+            floating.TimeDeadline = 300;
+            var none = new FakeContract("None", Guid.NewGuid(), Contract.State.Offered);
+            none.TimeDeadline = 300;
+            typeof(Contract).GetField("deadlineType", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(none, Contract.DeadlineType.None);
+
+            Assert.Equal(400, ContractSlotReservation.NewAcceptReleaseUT(floating, 100));
+            Assert.Equal(double.PositiveInfinity, ContractSlotReservation.NewAcceptReleaseUT(none, 100));
+        }
+
+        [Fact]
+        public void Decide_AndBackstop_LetThroughAContractWhoseDeadlineComesFirst()
+        {
+            Ledger.AddAction(Accept(500, "c-500"));
+            ContractSlotReservation.ForecastProviderForTesting =
+                (idx, now) => ContractSlotReservation.Forecast(idx, new[] { "a" }, 2, now);
+            var index = CommittedFutureIndexCache.Current;
+            var slots = ContractSlotReservation.ForecastNow(index, 100.0);
+
+            var shortLived = MissionControlStockAnnotation.Decide(index, 100.0, "short", Contract.State.Offered,
+                Fmt, slots, false, 400);
+            var longLived = MissionControlStockAnnotation.Decide(index, 100.0, "long", Contract.State.Offered,
+                Fmt, slots, false, 600);
+
+            Assert.False(shortLived.Blocked);
+            Assert.True(MissionControlStockAnnotation.BlocksAcceptForSlot(longLived));
+            Assert.True(ContractAcceptPatch.ShouldAllowAccept("short", "Short", Contract.State.Offered, false, true, 400));
+            Assert.False(ContractAcceptPatch.ShouldAllowAccept("long", "Long", Contract.State.Offered, false, true, 600));
+            Assert.Equal(1, dialogCount);
+        }
+
+        // ---------------------------------------------------------------- auto-accept rows
+
+        [Fact]
+        public void CommittedAutoAcceptRows_DoNotTakeASlot()
+        {
+            var index = CommittedFutureIndex.Build(new[] { Accept(500, "c") }, null, null, null, id => id == "c");
+            var f = Forecast(index, 2, "a");
+
+            Assert.True(index.FirstFuture(CommittedFutureKind.ContractAccept, "c", 100).AutoAccept);
+            Assert.Equal(1, f.PeakCommitted);
+            Assert.False(f.BlocksNewAcceptNow);
+        }
+
+        [Fact]
+        public void AutoAcceptFlag_ComesFromTheAcceptSnapshot()
+        {
+            var auto = new ConfigNode("CONTRACT");
+            auto.AddValue("autoAccept", "True");
+            var manual = new ConfigNode("CONTRACT");
+            manual.AddValue("autoAccept", "False");
+            GameStateStore.AddContractSnapshot("c-auto", auto, 50);
+            GameStateStore.AddContractSnapshot("c-manual", manual, 50);
+            Ledger.AddAction(Accept(500, "c-auto"));
+            Ledger.AddAction(Accept(500, "c-manual"));
+
+            var index = CommittedFutureIndexCache.Current;
+
+            Assert.True(CommittedFutureIndexCache.IsAutoAcceptSnapshotNode(auto));
+            Assert.False(CommittedFutureIndexCache.IsAutoAcceptSnapshotNode(manual));
+            Assert.False(CommittedFutureIndexCache.IsAutoAcceptSnapshotNode(new ConfigNode("CONTRACT")));
+            Assert.False(CommittedFutureIndexCache.IsAutoAcceptSnapshotNode(null));
+            Assert.True(index.FirstFuture(CommittedFutureKind.ContractAccept, "c-auto", 100).AutoAccept);
+            Assert.False(index.FirstFuture(CommittedFutureKind.ContractAccept, "c-manual", 100).AutoAccept);
+            Assert.Equal(1, Forecast(index, 3, "a").ReservedForLater);
         }
 
         // ---------------------------------------------------------------- the Accept decision

@@ -89,6 +89,9 @@ namespace Parsek
         /// a new accept now would leave no slot for a committed accept; a null forecast
         /// reserves no slot. Pass <paramref name="autoAccept"/> for a stock auto-accepted
         /// contract: stock neither counts nor slot-checks those, so neither does Parsek.
+        /// <paramref name="newContractReleaseUT"/> is when the contract, accepted now, would
+        /// give its slot back by deadline (+inf for none): a committed accept after that is
+        /// not starved by it.
         /// </summary>
         internal static StockUiDecoration Decide(
             CommittedFutureIndex index,
@@ -97,7 +100,8 @@ namespace Parsek
             Contract.State state,
             Func<double, string> formatDate,
             ContractSlotForecast slots = null,
-            bool autoAccept = false)
+            bool autoAccept = false,
+            double newContractReleaseUT = double.PositiveInfinity)
         {
             string tab = TabFor(state);
             if (string.IsNullOrEmpty(contractKey))
@@ -114,7 +118,7 @@ namespace Parsek
 
             List<StockUiDecoration> one = StockUiDecorationQuery.ForMissionControl(
                 index, currentUT, new[] { new StockUiItem(contractKey, tab) }, formatDate,
-                autoAccept ? null : slots);
+                autoAccept ? null : slots, _ => newContractReleaseUT);
             return one[0];
         }
 

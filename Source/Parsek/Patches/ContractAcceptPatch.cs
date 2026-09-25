@@ -40,7 +40,8 @@ namespace Parsek.Patches
 
             string keyString = __instance.ContractGuid.ToString();
             string title = __instance.Title ?? keyString;
-            return ShouldAllowAccept(keyString, title, __instance.ContractState, __instance.AutoAccept, true);
+            return ShouldAllowAccept(keyString, title, __instance.ContractState, __instance.AutoAccept, true,
+                ContractSlotReservation.NewAcceptReleaseUT(__instance, CommittedFutureIndexCache.CurrentUT()));
         }
 
         /// <summary>The committed-accept block only (no slot model): an Offered contract.</summary>
@@ -54,9 +55,12 @@ namespace Parsek.Patches
         /// contract-slot forecast (<see cref="ContractSlotReservation.ForecastNow(CommittedFutureIndex, double)"/>,
         /// which tests replace through its provider seam). Refused exactly when
         /// <see cref="MissionControlStockAnnotation.BlocksAccept"/> holds for the decision.
+        /// <paramref name="newContractReleaseUT"/> is when the contract, accepted now, gives its
+        /// slot back by deadline (+inf for none).
         /// </summary>
         internal static bool ShouldAllowAccept(
-            string keyString, string title, Contracts.Contract.State state, bool autoAccept, bool useSlotModel)
+            string keyString, string title, Contracts.Contract.State state, bool autoAccept, bool useSlotModel,
+            double newContractReleaseUT = double.PositiveInfinity)
         {
             if (string.IsNullOrEmpty(keyString)) return true;
 
@@ -75,12 +79,15 @@ namespace Parsek.Patches
                     ? ContractSlotReservation.ForecastNow(index, nowUT)
                     : null;
                 StockUiDecoration slotDecision = MissionControlStockAnnotation.Decide(
-                    index, nowUT, keyString, state, ReservationExplanation.DefaultDateFormatter, slots, autoAccept);
+                    index, nowUT, keyString, state, ReservationExplanation.DefaultDateFormatter, slots, autoAccept,
+                    newContractReleaseUT);
                 if (MissionControlStockAnnotation.BlocksAcceptForSlot(slotDecision))
                 {
                     ParsekLog.Info("ContractAcceptPatch",
                         $"blocking accept for guid={keyString} - the committed timeline needs every free contract slot " +
-                        $"nowUT={nowUT.ToString("F0", CultureInfo.InvariantCulture)} {slots.Describe()}");
+                        $"nowUT={nowUT.ToString("F0", CultureInfo.InvariantCulture)} " +
+                        $"releaseUT={(double.IsPositiveInfinity(newContractReleaseUT) ? "none" : newContractReleaseUT.ToString("F0", CultureInfo.InvariantCulture))} " +
+                        $"{slots.Describe()}");
                     CommittedActionDialog.ShowBlocked(
                         "Cannot accept \"" + (string.IsNullOrEmpty(title) ? keyString : title) + "\"",
                         slotDecision.Why,
@@ -159,7 +166,8 @@ namespace Parsek.Patches
 
             string keyString = contract.ContractGuid.ToString();
             string title = contract.Title ?? keyString;
-            return ContractAcceptPatch.ShouldAllowAccept(keyString, title, contract.ContractState, contract.AutoAccept, true);
+            return ContractAcceptPatch.ShouldAllowAccept(keyString, title, contract.ContractState, contract.AutoAccept, true,
+                ContractSlotReservation.NewAcceptReleaseUT(contract, CommittedFutureIndexCache.CurrentUT()));
         }
 
         private static bool TryGetSelectedContract(

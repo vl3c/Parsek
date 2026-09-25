@@ -76,7 +76,8 @@ namespace Parsek
                 contract != null ? contract.ContractState : Contract.State.Offered,
                 ReservationExplanation.DefaultDateFormatter,
                 ContractSlotReservation.ForecastNow(index, now),
-                contract != null && contract.AutoAccept);
+                contract != null && contract.AutoAccept,
+                ContractSlotReservation.NewAcceptReleaseUT(contract, now));
         }
 
         // ---------------------------------------------------------------- screen lifecycle
@@ -157,7 +158,8 @@ namespace Parsek
             if (passOpen)
             {
                 d = MissionControlStockAnnotation.Decide(passIndex, passNow, ContractKey(contract),
-                    contract.ContractState, ReservationExplanation.DefaultDateFormatter, passSlots, contract.AutoAccept);
+                    contract.ContractState, ReservationExplanation.DefaultDateFormatter, passSlots, contract.AutoAccept,
+                    ContractSlotReservation.NewAcceptReleaseUT(contract, passNow));
                 passDecorations.Add(d);
             }
             else
@@ -449,7 +451,8 @@ namespace Parsek
                 }
 
                 StockUiDecoration d = MissionControlStockAnnotation.Decide(index, now, ContractKey(contract),
-                    contract.ContractState, ReservationExplanation.DefaultDateFormatter, slots, contract.AutoAccept);
+                    contract.ContractState, ReservationExplanation.DefaultDateFormatter, slots, contract.AutoAccept,
+                    ContractSlotReservation.NewAcceptReleaseUT(contract, now));
                 decorations.Add(d);
                 string current = row.title.text;
                 string next = d.Marked

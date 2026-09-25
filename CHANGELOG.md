@@ -1064,9 +1064,12 @@ _(unreleased — entries accumulate here per commit)_
   this slot.`, the rule, and `A slot frees when one of your active contracts ends.`); an
   accept from anywhere else, including Contract Configurator's Accept, gets the same answer.
   The count follows the committed timeline to its end: contracts active now hold their slot
-  until a committed completion, failure or cancellation, committed accepts add theirs, and a
-  committed Mission Control upgrade raises the limit from its date. Decline stays available,
-  and when stock already shows every slot full nothing extra is said.
+  until a committed completion, failure or cancellation, or until their deadline, committed
+  accepts add theirs until their own resolution or deadline (auto-accepted contracts, which
+  stock does not count, are left out), and a committed Mission Control upgrade raises the
+  limit from its date. A contract whose own deadline ends before the committed accept that
+  needs the slot is not refused. Decline stays available, and when stock already shows every
+  slot full nothing extra is said.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as

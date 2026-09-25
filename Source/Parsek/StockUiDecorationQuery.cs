@@ -303,14 +303,18 @@ namespace Parsek
         /// says a new accept now would leave no slot for a committed accept (C2); an Active
         /// contract (the Active tab) a committed row later completes, fails or cancels is
         /// marked and its Cancel is refused. Archive rows are listed undecorated. A null
-        /// <paramref name="slots"/> reserves no slot.
+        /// <paramref name="slots"/> reserves no slot. <paramref name="newAcceptReleaseUT"/> gives
+        /// the UT an Offered row's contract would release its slot by deadline if accepted now
+        /// (<see cref="ContractSlotReservation.NewAcceptReleaseUT(Contracts.Contract, double)"/>);
+        /// null means no deadline.
         /// </summary>
         internal static List<StockUiDecoration> ForMissionControl(
             CommittedFutureIndex index,
             double currentUT,
             IEnumerable<StockUiItem> rows,
             Func<double, string> formatDate,
-            ContractSlotForecast slots = null)
+            ContractSlotForecast slots = null,
+            Func<string, double> newAcceptReleaseUT = null)
         {
             ReservationText slotText = default(ReservationText);
             bool slotTextBuilt = false;
@@ -334,7 +338,8 @@ namespace Parsek
                 }
                 else if (tab == MissionControlAvailableTab
                     && ContractSlotReservation.IsAcceptSlotBlocked(
-                        slots, index, row.Id, Contracts.Contract.State.Offered, false, currentUT))
+                        slots, index, row.Id, Contracts.Contract.State.Offered, false, currentUT,
+                        newAcceptReleaseUT != null ? newAcceptReleaseUT(row.Id) : double.PositiveInfinity))
                 {
                     if (!slotTextBuilt)
                     {
