@@ -141,10 +141,23 @@ RP_SIDECAR_BY_PRESET = {
     "single-point-hold": None,
     # SS-1's spawn-safety pair: two committed single-recording trees, no RP.
     "spawn-safety": None,
+    # RSC-1's Real Spawn Control candidate: one committed landed recording, no RP.
+    "spawn-control-target": None,
+    # HV-1's M2 synthetic drill-run tree alone: a committed tree only, no RP.
+    "drill-harvest-route": None,
     # CI-5's background-claim tree: one committed two-recording tree, no RP.
     "background-claim": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
+
+# Presets whose subject is METADATA-ONLY: a RECORDING_TREE authored as a ConfigNode, whose
+# recordings carry no trajectory and so get no sidecar at all (they load as the #422
+# synthetic-fixture marker, `trajectory-missing` with zero points, which the load keeps).
+# For these the non-empty Parsek/Recordings/ half of the postcondition cannot hold by
+# construction, so the proof is the preset's own tree id in the staged persistent.sfs.
+SAVE_TOKEN_BY_METADATA_ONLY_PRESET = {
+    "drill-harvest-route": "tree-drill-harvest-m2",
+}
 
 # Per-step wait default when a step names no budget (a non-deferred verb resolves
 # fast; the run budget is the real ceiling).
@@ -1025,8 +1038,22 @@ def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
     - ``looped-interplanetary`` -> a non-empty ``Parsek/Recordings/`` only (a
       committed looped tree, no RP; the S1.8 SoiCrossingPlayback corpus).
     - ``pending-limbo-tree`` -> a non-empty ``Parsek/Recordings/`` only (one tree
-      under the ``isActive`` marker, no RP; the S0.9 auto-merge fixture)."""
+      under the ``isActive`` marker, no RP; the S0.9 auto-merge fixture).
+    - a METADATA-ONLY preset (``SAVE_TOKEN_BY_METADATA_ONLY_PRESET``, e.g.
+      ``drill-harvest-route``) -> its tree id in the staged ``persistent.sfs``, since
+      its recordings carry no trajectory and write no sidecar."""
     missing: List[str] = []
+    token = SAVE_TOKEN_BY_METADATA_ONLY_PRESET.get(preset)
+    if token:
+        try:
+            with open(os.path.join(save_dir, "persistent.sfs"), "r",
+                      encoding="utf-8", errors="replace") as fh:
+                has_token = token in fh.read()
+        except OSError:
+            has_token = False
+        if not has_token:
+            missing.append("persistent.sfs carrying %s" % token)
+        return missing
     rec_dir = os.path.join(save_dir, "Parsek", "Recordings")
     try:
         has_recordings = os.path.isdir(rec_dir) and bool(os.listdir(rec_dir))

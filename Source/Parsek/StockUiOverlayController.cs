@@ -258,7 +258,9 @@ namespace Parsek
                 ReservationKind = ResolveReservationKind,
                 Reservation = ResolveReservation,
                 SlotOwner = ResolveReservationSlotOwner,
-                DismissalBlocked = name => LedgerOrchestrator.Kerbals?.ShouldBlockDismissal(name) ?? false,
+                DismissalRefusal = name => Patches.KerbalDismissalPatch.DescribeDismissalRefusal(LedgerOrchestrator.Kerbals, name),
+                ActiveStandInOwner = name => LedgerOrchestrator.Kerbals?.FindActiveStandInOwner(name),
+                SeatSharedOwner = StandInSeatCount.LiveSeatSharedOwner,
                 IsLoopingRecording = IsRecordingInLoopingChain,
                 LiveCrewOrTourist = liveCrewOrTourist
             };

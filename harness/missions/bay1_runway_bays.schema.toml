@@ -1,0 +1,55 @@
+# Declared param schema for mission bay1_runway_bays (the BAY-1 lane: roll a stock
+# spaceplane out onto the Runway, stage it where it stands so Parsek's first-staging
+# auto-record trigger starts the recording, cycle every cargo bay open and shut, done).
+#
+# Consumed exactly like every sibling schema: run.py parses it into the
+# { mission -> schema } registry and hlib's pure _validate_mission_params reads the
+# `params` table and nothing else. min/max are consulted only on numeric types.
+# Every default lives in `mlib.bay1_params_from_dict`.
+
+# The craft FILE launched (`<save>/Ships/VAB/<craftName>.craft`). Required: the
+# machine refuses to roll out an empty name.
+[params.craftName]
+required = true
+type = "string"
+
+# What the ACTIVE VESSEL must read back before the machine stages anything: the
+# `ship = ` line inside the craft file. Defaults to craftName.
+[params.expectedVesselName]
+required = false
+type = "string"
+
+# kRPC launch site. Defaults to "Runway".
+[params.launchSite]
+required = false
+type = "string"
+
+# Frame bound on the rollout's read-back gate before the machine gives up by name.
+[params.rolloutFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# Consecutive settled frames the rollout gate requires.
+[params.rolloutReadyDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 50
+
+# Frames between the stage click (the auto-record trigger) and the first bay
+# command, so the recorder's first samples are the closed pose.
+[params.recordSettleFrames]
+required = false
+type = "int"
+min = 1
+max = 600
+
+# Frames each door state is held. The recorder emits CargoBayOpened / CargoBayClosed
+# only when the animation reaches its end, so this must outlast the slowest bay.
+[params.bayHoldFrames]
+required = false
+type = "int"
+min = 2
+max = 600

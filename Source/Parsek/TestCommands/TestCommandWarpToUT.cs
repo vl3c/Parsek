@@ -28,6 +28,20 @@ namespace Parsek.TestCommands
     }
 
     /// <summary>
+    /// Which stock warp ladder a <c>WarpToUT</c> drives. <see cref="Auto"/> (the arg
+    /// absent) keeps the verb's original behaviour: whichever ladder stock is on, re-read
+    /// every frame. <see cref="Physics"/> (<c>ladder=phys</c>) puts stock in physics warp
+    /// (<c>TimeWarp.Modes.LOW</c>, 1x-4x on the stock ladder) and holds it there for
+    /// the whole warp, so a lane can replay ghosts under PHYSICS warp in a place where
+    /// stock would otherwise choose rails (vacuum, or landed and still).
+    /// </summary>
+    internal enum WarpLadderMode
+    {
+        Auto,
+        Physics,
+    }
+
+    /// <summary>
     /// Pure decision + payload helpers for the forward-only, REAL-TIME-ADVANCING
     /// <c>WarpToUT</c> verb.
     ///
@@ -129,6 +143,17 @@ namespace Parsek.TestCommands
         /// <summary>The completion budget expired before the clock reached the target.</summary>
         internal const string WarpTimeoutReason = "warp-timeout";
 
+        /// <summary><c>ladder</c> present but not a known ladder token.</summary>
+        internal const string WarpModeInvalidReason = "warp-ladder-invalid";
+
+        /// <summary><c>ladder=phys</c> in a game whose difficulty settings forbid physics
+        /// warp (<c>GameParameters.Flight.CanTimeWarpLow</c>, the same gate stock's own
+        /// physics-warp button reads).</summary>
+        internal const string PhysicsWarpDisallowedReason = "physics-warp-disallowed";
+
+        /// <summary>The <c>ladder</c> token that selects the physics ladder.</summary>
+        internal const string PhysicsModeToken = "phys";
+
         /// <summary>
         /// Pure forward-warp gate (strictly <c>target &gt; now</c>). A backward or zero
         /// target is a DRIVER refusal (the orchestrator asked to warp into the past),
@@ -198,6 +223,55 @@ namespace Parsek.TestCommands
             error = null;
             return cap;
         }
+
+        /// <summary>
+        /// Resolve the OPTIONAL <c>ladder</c> arg. Absent (or empty) is
+        /// <see cref="WarpLadderMode.Auto"/>, the verb's original behaviour; the exact token
+        /// <see cref="PhysicsModeToken"/> is <see cref="WarpLadderMode.Physics"/>. Anything
+        /// else is <see cref="WarpModeInvalidReason"/>, FAIL-CLOSED like <c>maxRate</c>, so a
+        /// mis-typed ladder can never silently run a rails warp on a lane that claims physics
+        /// warp.
+        /// </summary>
+        internal static WarpLadderMode ResolveWarpMode(string modeArg, out string error)
+        {
+            error = null;
+            if (string.IsNullOrEmpty(modeArg))
+                return WarpLadderMode.Auto;
+            if (string.Equals(modeArg, PhysicsModeToken, StringComparison.Ordinal))
+                return WarpLadderMode.Physics;
+            error = WarpModeInvalidReason;
+            return WarpLadderMode.Auto;
+        }
+
+        /// <summary>
+        /// The physics-mode feasibility gate: a <see cref="WarpLadderMode.Physics"/> request in
+        /// a game that forbids physics warp is refused up front rather than run as a rails
+        /// warp. Returns the refusal reason or <c>null</c>. <see cref="WarpLadderMode.Auto"/>
+        /// never refuses here.
+        /// </summary>
+        internal static string EvaluateModeFeasibility(WarpLadderMode mode, bool physicsWarpAllowed)
+        {
+            if (mode == WarpLadderMode.Physics && !physicsWarpAllowed)
+                return PhysicsWarpDisallowedReason;
+            return null;
+        }
+
+        /// <summary>
+        /// Whether the applier must (re)put stock in physics warp before requesting
+        /// <paramref name="desiredIndex"/>. True only for a <see cref="WarpLadderMode.Physics"/>
+        /// request, while stock is NOT in physics warp, and for a rung above 1x.
+        ///
+        /// <para>The rung term is what keeps this from fighting stock every frame: stock's
+        /// <c>TimeWarp.Update</c> switches physics warp back to rails by itself whenever the
+        /// rate index is at or below <c>maxModeSwitchRate_index</c> and the vessel is in
+        /// vacuum or landed and still (decompiled, KSP 1.12.5). At rung 0 that switch is
+        /// harmless (1x is 1x on both ladders), so re-asserting there would only flip the
+        /// mode back and forth; above rung 0 a switched mode would read the RAILS rung
+        /// (index 1 is 5x rails, 2x physics), which is exactly what a physics lane must not
+        /// run.</para>
+        /// </summary>
+        internal static bool ShouldAssertPhysicsMode(WarpLadderMode mode, bool stockInPhysicsWarp, int desiredIndex)
+            => mode == WarpLadderMode.Physics && !stockInPhysicsWarp && desiredIndex > 0;
 
         /// <summary>
         /// The up-front feasibility gate, in evaluation order. Returns the refusal reason

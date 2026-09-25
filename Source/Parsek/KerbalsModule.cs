@@ -1938,6 +1938,26 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// The owner whose seat this kerbal is standing in for: the slot owner whose chain
+        /// lists him AND whose active occupant he is now (the Kerbals window's
+        /// <c>Stand-in for &lt;owner&gt;</c>, a per-member fact). Null for an owner, a
+        /// displaced or retired chain member, and a kerbal in no chain.
+        /// </summary>
+        internal string FindActiveStandInOwner(string kerbalName)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return null;
+            foreach (var slot in slots.Values)
+            {
+                if (slot == null || slot.Chain == null || string.IsNullOrEmpty(slot.OwnerName)) continue;
+                if (string.Equals(slot.OwnerName, kerbalName, StringComparison.Ordinal)) continue;
+                if (!slot.Chain.Contains(kerbalName)) continue;
+                if (string.Equals(GetActiveOccupant(slot.OwnerName), kerbalName, StringComparison.Ordinal))
+                    return slot.OwnerName;
+            }
+            return null;
+        }
+
         // ────────────────────────────────────────────────────────
         // ApplyToRoster — KSP state mutations
         // ────────────────────────────────────────────────────────

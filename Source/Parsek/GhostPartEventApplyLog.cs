@@ -357,3 +357,82 @@ namespace Parsek
         }
     }
 }
+
+namespace Parsek
+{
+    /// <summary>
+    /// The per-engine IGNITION witness. The applier's aggregate line names ONE
+    /// representative pid per (family, surface) batch, so a lane cannot tell from it
+    /// which engine of a multi-engine ghost started its plume. This line is emitted
+    /// once per ignition EDGE (engine power crosses from 0 to above 0) and names the
+    /// part, the build-time FX source and how many EFFECTS-node systems are playing.
+    ///
+    /// COST: nothing on the steady-state path. The edge test is one float compare on a
+    /// call that already runs; the counting and formatting happen only on an edge and
+    /// only when verbose logging is on. Keyed per (pid, midx) and rate-limited, because
+    /// a recorded throttle that dips to zero and back re-crosses the edge, and a looped
+    /// ghost re-ignites every cycle.
+    /// </summary>
+    internal static class GhostEngineFxStartLog
+    {
+        internal const double RateLimitSeconds = 15.0;
+
+        internal static bool IsIgnitionEdge(float previousPower, float newPower)
+            => previousPower <= 0f && newPower > 0f;
+
+        internal static string SourceToken(EngineFxSource source)
+        {
+            switch (source)
+            {
+                case EngineFxSource.Legacy: return "legacy";
+                case EngineFxSource.EffectsNode: return "effects-node";
+                case EngineFxSource.Supplement: return "supplement";
+                default: return "none";
+            }
+        }
+
+        /// <summary>
+        /// THE line grammar. Every token is whitespace-free except the quoted part name,
+        /// which is a KSP part name (no spaces by construction).
+        /// </summary>
+        internal static string FormatLine(
+            string partName, uint pid, int moduleIndex, EngineFxSource source,
+            int effectsSystems, int supplementSystems, int legacySystems,
+            int effectsPlaying, int playing, int emitters, float power)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "engine-fx start part='{0}' pid={1} midx={2} source={3} effectsSystems={4} " +
+                "supplementSystems={5} legacySystems={6} effectsPlaying={7} playing={8} " +
+                "emitters={9} power={10}",
+                string.IsNullOrEmpty(partName) ? "?" : partName,
+                pid, moduleIndex, SourceToken(source),
+                effectsSystems, supplementSystems, legacySystems,
+                effectsPlaying, playing, emitters,
+                power.ToString("F3", CultureInfo.InvariantCulture));
+        }
+
+        internal static string RateLimitKey(uint pid, int moduleIndex)
+            => string.Format(CultureInfo.InvariantCulture, "engine-fx-start-{0}-{1}", pid, moduleIndex);
+
+        /// <summary>
+        /// Emits the witness for one ignition edge. The caller has already started the
+        /// systems and passes the counts it observed; this method owns only the gate and
+        /// the line, so it runs headless.
+        /// </summary>
+        internal static void Emit(EngineGhostInfo info, int effectsPlaying, int playing, float power)
+        {
+            if (info == null) return;
+            ParsekLog.VerboseRateLimited(
+                GhostPartEventApplyLog.Subsystem,
+                RateLimitKey(info.partPersistentId, info.moduleIndex),
+                FormatLine(
+                    info.partName, info.partPersistentId, info.moduleIndex, info.fxSource,
+                    info.effectsNodeSystemCount, info.supplementSystemCount, info.legacySystemCount,
+                    effectsPlaying, playing,
+                    info.kspEmitters != null ? info.kspEmitters.Count : 0,
+                    power),
+                RateLimitSeconds);
+        }
+    }
+}

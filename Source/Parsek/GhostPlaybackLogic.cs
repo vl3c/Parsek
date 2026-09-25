@@ -3250,6 +3250,10 @@ namespace Parsek
             ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
             EngineGhostInfo info = state.engineInfos[key];
 
+            // The ignition witness is decided on the power the info held BEFORE this event,
+            // and costs nothing unless it is an edge and verbose logging is on.
+            bool witnessIgnition = GhostEngineFxStartLog.IsIgnitionEdge(info.currentPower, power)
+                && ParsekLog.IsVerboseEnabled;
             info.currentPower = power;
 
             // S1: MAGNITUDE. Scale the plume to the throttle before flipping the boolean gate.
@@ -3292,6 +3296,20 @@ namespace Parsek
                     SetParticleRenderersEnabled(ps, false);
                 }
 
+            }
+
+            if (witnessIgnition)
+            {
+                int playing = 0;
+                int effectsPlaying = 0;
+                for (int i = 0; i < info.particleSystems.Count; i++)
+                {
+                    var ps = info.particleSystems[i];
+                    if (ps == null || !ps.isPlaying) continue;
+                    playing++;
+                    if (i < info.effectsNodeSystemCount) effectsPlaying++;
+                }
+                GhostEngineFxStartLog.Emit(info, effectsPlaying, playing, power);
             }
 
             return GhostPartEventOutcome.Applied;

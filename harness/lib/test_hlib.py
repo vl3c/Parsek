@@ -1163,7 +1163,9 @@ class SpecValidationRejectTests(unittest.TestCase):
                                 ("backward-warp", "driver-arg"),
                                 ("max-rate-invalid", "driver-arg"),
                                 ("warp-unavailable", "driver-gate"),
-                                ("warp-locked", "driver-gate")):
+                                ("warp-locked", "driver-gate"),
+                                ("warp-ladder-invalid", "driver-arg"),
+                                ("physics-warp-disallowed", "driver-gate")):
             self.assertEqual(subkind, hlib._SEAM_REFUSAL_SUBKINDS[reason])
 
     def test_warptout_step_accepted_by_validate_spec(self):
@@ -1178,6 +1180,33 @@ class SpecValidationRejectTests(unittest.TestCase):
         v = self._reject(m)
         self.assertFalse(any("WarpToUT" in e for e in v.errors),
                          "WarpToUT wrongly flagged: %s" % list(v.errors))
+
+    def test_warptout_ladder_arg_is_a_closed_verb_scoped_value(self):
+        """`ladder=phys` (coverage wave 5) validates clean; any other spelling, and the
+        arg on a verb that does not read it, is a pre-launch spec error rather than a
+        typed REJECTED warp-ladder-invalid after a whole boot."""
+        def ok(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "WarpToUT", "args": {"ut": "1200", "ladder": "phys"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(ok)
+        self.assertFalse(any("ladder" in e for e in v.errors), list(v.errors))
+
+        def bad_value(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "WarpToUT", "args": {"ut": "1200", "ladder": "physics"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(bad_value)
+        self.assertTrue(any("args.ladder" in e and "'physics'" in e for e in v.errors),
+                        list(v.errors))
+
+        def wrong_verb(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "TimeJump", "args": {"ut": "1200", "ladder": "phys"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(wrong_verb)
+        self.assertTrue(any("args.ladder" in e and "only the WarpToUT verb" in e
+                            for e in v.errors), list(v.errors))
 
     def test_warptout_step_budget_over_the_cap_is_a_spec_error(self):
         """It is a DEFERRED_SEAM_VERB, so the 540 s cap governs its declared budget.
@@ -4720,6 +4749,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # measures them on landed rovers. AUTHORED 2026-09-02, NEVER FLOWN, so the
         # split is INTERIM (see INTERIM_PIN_IDS).
         "H56-route-dock-capture-landed": ("RouteDockCapture", 6),
+        # H38's host plus ONE injected subject, the M2 synthetic drill tree
+        # (`drill-harvest-route` preset), so the one Logistics cell every committed host
+        # skips on a missing subject - HarvestRoute_AnalyzesEligible_FromSyntheticRecording
+        # - executes. Same (category, scene), so the same derivation; the split is a
+        # fixture property; measured 41 / 6 on `2026-09-25_2127` (MEASURED_SKIPPED).
+        "HV-1-harvest-route-analysis": ("Logistics", 47),
         # TIER B ITEM 4, AND A DIFFERENT CATEGORY IN THE SAME SOURCE FILE. The
         # `RouteStartDockedOrigin` cells reuse the `RouteDockCapture` rig (the
         # CellContext / PartnerRig machinery is a private nested type, so moving them
@@ -4864,7 +4899,15 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # The arg still does real work - it is the only way to run the capture cell at all -
     # but one cell of margin is what makes its tally non-discriminating, which is a
     # separate declaration (TALLY_CANNOT_DISCRIMINATE_IDS).
+    # Isolated members that boot an EMPTY template and inject ONE subject the batch
+    # needs: id -> (preset, recordings the subject carries). HV-1's subject is the M2
+    # synthetic drill tree, two metadata-only recordings (they write no `.prec` at
+    # inject; the produced-save count is measured by the reading run).
+    INJECTED_SUBJECT_IDS = {"HV-1-harvest-route-analysis": ("drill-harvest-route", 2)}
+
     PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent",
+                                 # HV-1: H38's host and category, same 8-vs-46.
+                                 "HV-1-harvest-route-analysis",
                                  "H38-logistics-isolated",
                                  "H39-logistics-isolated-bdock",
                                  "H40-logistics-isolated-depot-route",
@@ -5347,6 +5390,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # THE HEADER PREDICTIONS: H69 and H70 held cell for cell and string for string; H68
     # was REFUTED TWICE, which is what writing a prediction down is for. Both refutations
     # are recorded in its MEASURED_SKIPPED entry below and in the spec's own header.
+    #
     INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
@@ -5362,6 +5406,11 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # attributes cannot derive; what it costs is that the number is MEASURED, so it
     # must be re-measured (not re-guessed) whenever the fixture or the guards move.
     MEASURED_SKIPPED = {
+        # HV-1 (`logi-cargo-pad` + the M2 synthetic drill tree): 1 attribute-forced + 5
+        # run-time, MEASURED off `2026-09-25_2127`. H38's eight minus TWO: the harvest
+        # cell the tree exists for, and the active-as-target dock-window cell, which the
+        # tree's synthetic delivery window also satisfies.
+        "HV-1-harvest-route-analysis": 6,
         # R7a: 6 attribute-forced (the SPACECENTER-scoped six scene-skip at FLIGHT)
         # + 16 run-time, the marker-dependent family plus the two-command-pod staging
         # trio plus InvokeRPStripAndActivate. Derivation in the spec's own comment.
@@ -6429,6 +6478,17 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                                        "Parsek", "Recordings")
                 staged = ([f for f in os.listdir(rec_dir) if f.endswith(".prec")]
                           if os.path.isdir(rec_dir) else [])
+                if not staged and sid in self.INJECTED_SUBJECT_IDS:
+                    # An EMPTY template plus ONE injected subject: the preset is named,
+                    # and the band may not exceed the recordings that subject carries,
+                    # so a leaked tree or a failed baseline revert still reds.
+                    preset, subject_recordings = self.INJECTED_SUBJECT_IDS[sid]
+                    self.assertEqual(preset, fixture.get("injectedRecordings"), sid)
+                    self.assertLessEqual(count.get("max", 10 ** 9), subject_recordings,
+                                         "%s injects a %d-recording subject; a wider "
+                                         "band would accept a leaked tree"
+                                         % (sid, subject_recordings))
+                    continue
                 if not staged:
                     self.assertEqual("none", fixture.get("injectedRecordings"), sid)
                     self.assertEqual(
@@ -9441,6 +9501,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE D17 MAKING-HISTORY LANE, 2026-09-25.
+        "MC-4-making-history-desert.toml": "tier=operator BY THE REGISTRY'S OWN DEFINITION of the cell (D17 comment, operator ruling B5: a GS-4 clone, operator tier, one reading flight), NOT debt: it is a reading-run lane whose GREEN / INVALID readings are named in its header (a MechJeb ascent failure from the Desert is driver-INVALID). What is owed is the flight, which the lane itself is",
         # THE G3b RENDER-SURFACE LANE, 2026-09-07, same shape as H59 below.
         "V27M-rover-route-endpoint-substituted-map-lines.toml": "tier=operator on the calibration-discipline shape, NOT debt: reading run `2026-09-07_1858`, armed re-flight `_1902` PASS attempt 1, negative control `_1903` red on exactly the inverted `Route line build ... legs=1` token, `[expectations.routes]` GATING - roadmap gap G3b closed by it the same day; it stays operator because its subject is a liveState-patched fixture whose value is the one-off class answer (no render surface consults a rebound endpoint), not a regression floor worth a nightly slot. Claim-gap wave 2026-09-10: armed `2026-09-10_1748` + control `_1752`, D3 `absolute` claimed off its KSC `branch=absolute` token.",
         # THE D11 CENSUS LANE, 2026-09-02, same reading-run shape as the four below.
@@ -9871,6 +9933,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Priority register C4 (2026-09-23, `d5-debris`): the two D5 debris lanes on
         # the kx machine's close-cut opt-in.
         "GS-10-kerbalx-debris-ttl.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-ttl: GS-7's crash lane with round 1's close cut, the kx machine's impactCutAtLastBoosterDrop opt-in); operator tier is GS-7's cadence (a 12-minute crash + rewind + watch flight), and the discipline is recorded in its status row, not a debt",
+        "BAY-1-runway-cargo-bays.toml": "calibration-discipline - AUTHORED 2026-09-26 (coverage wave 7, D7 `bays`: the stock Mallard staged in place on the Runway, its three Mk3 cargo bays cycled, committed, Rewound-to-Launch and replayed as a Space Center ghost); operator tier is the calibration discipline for a new lane (reading 1 `2026-09-25_2214` red on the filed deploy-limit gap, reading 2 `_2218` PASS, armed `_2230` PASS, negative controls offline), and its status row records what has flown, not a debt",
         "GS-12-kerbalx-loop-cycles.toml": "calibration-discipline - AUTHORED 2026-09-24 (ghost-replay Tier C item 12: GS-4's flight, then the committed mission looped in three stages through the kx machine's loopStages opt-in); operator tier is GS-4's cadence plus the warped loop block, and its status row records what has flown, not a debt",
         "GS-11-kerbalx-debris-promotion.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-promotion: GS-10's close cut plus the promoteDebrisVesselName switch to a just-dropped booster inside its TTL); operator tier is GS-7's cadence; its status row records what has flown, not a debt",
         # Ghost-replay Tier B item 8 (2026-09-10, `ghost-replay-tier-b`): GS-4's
@@ -11918,6 +11981,19 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # control; the discipline is not complete until it flies.
         "V26M-interbody-route-map-lines.toml",
         "V26T-interbody-route-ts-arrival.toml",
+        # V7W: ARMED 2026-09-26 (coverage wave 5, D14 `warp-phys`) off its own
+        # report-only reading `2026-09-25_2154` (renderCompose REPORT, zero FAIL
+        # findings; the run's one mismatch was an over-precise log token of the
+        # spec's own). Measured: warpPhys 2025 / warp1x 676 / rails 0, dwells 1
+        # closed + 1 open, seamsAboveOneX 1 (the SOI seam at UT 1345212.596 closes a
+        # dwell carrying 863 physics-warp frames), seamKinds rigid 8 / flexible-soi 1.
+        # Windows: dwells {1,8}, requireSeamKinds [rigid, flexible-soi],
+        # warpBuckets ["warpPhys"]. ARMED RE-FLIGHT `2026-09-25_2159` PASS attempt 1,
+        # zero mismatches (warpPhys 2024). NEGATIVE CONTROL `2026-09-25_2201`: both
+        # WarpToUT spans without `ladder=phys` (rails, warp100 818 / warpPhys 0),
+        # PARSEK-FAIL(render-composition) on exactly `RC-WARP [FAIL]
+        # warpBuckets.warpPhys`. Discipline complete.
+        "V7W-minmus-physics-warp.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):
@@ -12184,6 +12260,10 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     # reading-pending. Render host in brackets.
                                     # [M] watch-mode entry on a Kerbin->Minmus loop.
                                     "V7M-minmus-player-loop.toml",
+                                    # [M] coverage wave 5 (D14 warp-phys): the V7M
+                                    # subject with two WarpToUT ladder=phys spans,
+                                    # warpBuckets ["warpPhys"].
+                                    "V7W-minmus-physics-warp.toml",
                                     # [M] arm-only floor case, Dres fixture.
                                     "V9-dres-player-loop.toml",
                                     # [M] the Dres re-aimed arrival; synthesizer runs.
@@ -12494,20 +12574,39 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # above could grow this token without changing the KEY set at all.
         self.assertNotIn("warpHigh", block["warpBuckets"])
         # And the suite property the sibling pins state from the other side: exactly
-        # ONE armed block in the corpus names an ABOVE-1x warp bucket, and it is this
-        # one. (V14M declares ["warp1x"] alone since 2026-09-25, which RC-WARP reads
-        # as a 1x-only claim with no traversal clause.) A second lane naming an
-        # above-1x bucket is an arming decision of its own.
+        # TWO armed blocks in the corpus name an ABOVE-1x warp bucket - this one
+        # (rails, a commanded warp stair) and V7W (physics, `WarpToUT ladder=phys`,
+        # armed 2026-09-26 as its own decision; see its key-set pin). (V14M declares
+        # ["warp1x"] alone since 2026-09-25, which RC-WARP reads as a 1x-only claim
+        # with no traversal clause.) A third lane naming an above-1x bucket is an
+        # arming decision of its own.
         with_buckets = sorted(
             n for n in self.RENDERCOMPOSE_ARMED_SPECS
             if any(b in rendercompose.WARP_BUCKETS_ABOVE_1X
                    for b in self._armed_block(n).get("warpBuckets", [])))
-        self.assertEqual(["V24W-duna-one-warp-stair.toml"], with_buckets,
-                         "an above-1x warp bucket is armed on a lane other than the RC-WARP one; "
-                         "every other committed subject moves the clock with "
-                         "instantaneous TimeJumps, so its histogram is 1x-only BY "
+        self.assertEqual(["V24W-duna-one-warp-stair.toml", "V7W-minmus-physics-warp.toml"],
+                         with_buckets,
+                         "an above-1x warp bucket is armed on a lane other than the two "
+                         "warp-driving ones; every other committed subject moves the clock "
+                         "with instantaneous TimeJumps, so its histogram is 1x-only BY "
                          "CONSTRUCTION and the key would pin the drive shape rather "
                          "than the product")
+
+    def test_v7w_declares_the_render_composition_block_armed_with_the_physics_bucket(self):
+        """V7W, ARMED 2026-09-26 (D14 `warp-phys`) off reading `2026-09-25_2154`:
+        warpPhys 2025, dwells 1 closed, seamsAboveOneX 1, seamKinds rigid 8 /
+        flexible-soi 1. Armed re-flight `2026-09-25_2159` PASS; negative control
+        `2026-09-25_2201` (rails ladder) red on exactly `warpBuckets.warpPhys`.
+        The KEY SET is pinned so a window cannot be appended without its own
+        reading run; `unevaluable` is deliberately absent (SEAM_ENDPOINT decimation
+        scales with session length)."""
+        block = self._armed_block("V7W-minmus-physics-warp.toml")
+        self.assertEqual({"gating", "dwells", "requireSeamKinds", "warpBuckets"}, set(block))
+        self.assertEqual({"min": 1, "max": 8}, block["dwells"])
+        self.assertEqual(["rigid", "flexible-soi"], block["requireSeamKinds"])
+        # THE CELL: physics warp only. A rails bucket here would claim a regime this
+        # drive never enters (the control measured rails as the ONLY way to zero it).
+        self.assertEqual(["warpPhys"], block["warpBuckets"])
 
     def test_every_armed_block_keeps_an_anti_vacuity_floor(self):
         """The property both key-set pins exist to protect, stated once against the
@@ -12684,6 +12783,12 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     # ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
     # workflow.
     GHOSTLIFE_ARMED_SPECS = {
+        # ARMED 2026-09-26 off the reading run `2026-09-25_2235_AP-1-minmus-attitude-residual`
+        # (PASS attempt 1): 831 resolved AfterUpdate attitude lines, every one dRotDeg=0.000,
+        # rendered sweep 157.3 deg (checkpoint-orbit-ofr) / 168.7 deg (surface). The first
+        # member arming the v3 `attitude` sub-table. Armed re-flight and the offline negative
+        # control (one line perturbed to 12.5 deg) are recorded in autotest-status.md.
+        "AP-1-minmus-attitude-residual.toml",
         # ARMED 2026-09-08 off the reading run `2026-09-08_1711_GS-7-kerbalx-crash-watch-hold`
         # (MISSION-OK attempt 1, PARSEK-FAIL on one re-cut logContract token only;
         # ghostLifecycle spawned=8 spawnLines=8 destroyLines=8 unbalanced=0 with
@@ -12888,6 +12993,13 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     # the block up (or dropping it) is always a deliberate, reviewed edit - the
     # RENDERCOMPOSE_DECLARER_SPECS convention exactly.
     GHOSTLIFE_DECLARER_SPECS = {
+        # [D] THE ATTITUDE-RESIDUAL HOST (coverage wave 9, 2026-09-26, D6
+        #     `attitude-preservation`): the first declarer of the v3 `attitude`
+        #     sub-table, on the committed Minmus loop subject (V7M cycle 1) with two
+        #     WarpToUT spans over OrbitalCheckpoint playback. `requireBalanced = false`
+        #     because the lane quits mid-playback by design; the block exists for the
+        #     AfterUpdate dRotDeg residual.
+        "AP-1-minmus-attitude-residual.toml",
         # [D] THE FIRST DECLARER, and the lane the evaluator was built FOR: the
         #     full player-workflow derender tripwire (staged Kerbal X ascent ->
         #     commit -> Rewind-to-Launch -> Jumping Flea watch anchor -> map view
@@ -16063,6 +16175,36 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual([], hlib.validate_ui_action_step(
             2, {"op": "find", "window": "settings", "text": "Close", "ctrl": "button",
                 "index": "2"}))
+
+    # ---- op=warp: the Real Spawn Control row warp button ----
+
+    def test_the_warp_op_mirrors_the_c_sharp_tables(self):
+        """Reads OUTSIDE harness/. The op token, the one window it is defined for, and the
+        two press refusals the SpawnControlUI half answers - each renamed on one side alone
+        would validate here and REJECT after a whole KSP boot."""
+        op_path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiAction.cs")
+        with open(op_path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        self.assertIn('WarpOpToken = "warp"', text)
+        self.assertIn('WarpUnsupportedWindowReason = "warp-unsupported-window"', text)
+        self.assertIn("=> window == SpawnControlWindow;", text)
+        self.assertEqual(("spawncontrol",), hlib.UIACTION_WARP_WINDOWS)
+        ui_path = os.path.join(PARSEK_SOURCE_DIR, "UI", "SpawnControlUI.cs")
+        with open(ui_path, encoding="utf-8-sig") as fh:
+            ui_text = fh.read()
+        self.assertIn('WarpRefusalNoRow = "warp-no-candidate-row"', ui_text)
+        self.assertIn('WarpRefusalButtonDisabled = "warp-button-disabled"', ui_text)
+
+    def test_warp_needs_the_spawncontrol_window_and_nothing_else(self):
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "warp", "window": "spawncontrol"}))
+        errors = hlib.validate_ui_action_step(1, {"op": "warp"})
+        self.assertTrue(any("window-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(2, {"op": "warp", "window": "missions"})
+        self.assertTrue(any("warp-unsupported-window" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            3, {"op": "warp", "window": "spawncontrol", "tab": "missions"})
+        self.assertTrue(any("only op=tab reads it" in e for e in errors), errors)
 
     # ---- op=mock: the GUI state gallery primitive (P1) ----
 
@@ -23225,6 +23367,52 @@ class ListHandlesSourceSyncTests(unittest.TestCase):
             r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', code))
         self.assertEqual({"AKindToken": "a"}, consts)
         self.assertEqual(["AKindToken"], re.findall(r"\bcase\s+(\w+)\s*:", code))
+
+
+class WarpToUTLadderSourceSyncTests(unittest.TestCase):
+    """Reads OUTSIDE harness/: `Source/Parsek/TestCommands/TestCommandWarpToUT.cs` and
+    `ParsekTestCommandAddon.WarpToUT.cs`. hlib's `WARPTOUT_LADDER_KEY` /
+    `WARPTOUT_LADDER_VALUES` closed-arg row and the two `ladder=` refusal mappings are
+    a MIRROR of the C#: a renamed token would let the pre-launch validator pass a
+    spec the seam REJECTS `warp-ladder-invalid` after a whole boot (or refuse one the
+    seam accepts). Both files are read as CODE, every line stripped of its `//`
+    comment (`strip_cs_line_comment`), so doc comments quoting the literals cannot
+    count."""
+
+    DIR = os.path.join(PARSEK_SOURCE_DIR, "TestCommands")
+
+    @classmethod
+    def _code(cls, name):
+        path = os.path.join(cls.DIR, name)
+        if not os.path.isfile(path):
+            raise AssertionError("the C# WarpToUT half moved; this mirror is vacuous: %s"
+                                 % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            raw = fh.read().replace("\r\n", "\n")
+        return "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.pure = cls._code("TestCommandWarpToUT.cs")
+        cls.applier = cls._code("ParsekTestCommandAddon.WarpToUT.cs")
+        cls.consts = dict(re.findall(
+            r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', cls.pure))
+
+    def test_the_phys_token_is_the_one_value_hlib_accepts(self):
+        self.assertEqual((self.consts["PhysicsModeToken"],), hlib.WARPTOUT_LADDER_VALUES)
+
+    def test_the_arg_key_is_the_one_the_applier_reads(self):
+        keys = re.findall(r'ArgOrNull\(\s*cmd\s*,\s*"(\w+)"\s*\)', self.applier)
+        self.assertIn(hlib.WARPTOUT_LADDER_KEY, keys)
+        # The key sits beside the verb's other two args, so a rename of either
+        # shape is caught rather than matched by a stray literal elsewhere.
+        self.assertEqual({"ut", "maxRate", hlib.WARPTOUT_LADDER_KEY}, set(keys))
+
+    def test_the_ladder_refusal_reasons_are_mapped(self):
+        self.assertEqual("driver-arg",
+                         hlib._SEAM_REFUSAL_SUBKINDS[self.consts["WarpModeInvalidReason"]])
+        self.assertEqual("driver-gate",
+                         hlib._SEAM_REFUSAL_SUBKINDS[self.consts["PhysicsWarpDisallowedReason"]])
 
 
 class ScreenResolutionSpecTests(unittest.TestCase):

@@ -4,6 +4,8 @@ using System.Runtime.CompilerServices;
 using KSP.UI;
 using KSP.UI.Screens;
 using KSP.UI.TooltipTypes;
+using UnityEngine;
+using UnityEngine.UI;
 
 namespace Parsek
 {
@@ -24,15 +26,32 @@ namespace Parsek
         internal string BlockKind;
     }
 
+    /// <summary>Which of a crew row's own stock text lines carries the Parsek status.</summary>
+    internal enum CrewStatusSurface
+    {
+        /// <summary>Nothing visible to write to: the row stays unlabelled (logged).</summary>
+        None,
+        /// <summary>The row's status line (<c>CrewListItem.label</c>, <c>SetLabel</c>).</summary>
+        Label,
+        /// <summary>The trait line (<c>CrewListItem.xp_trait</c>): an applicant row's only
+        /// line under the name, because the applicant prefab hides <c>label</c> (stock's own
+        /// <c>SetLabel("For Hire")</c> never shows either).</summary>
+        Trait
+    }
+
     /// <summary>
     /// Astronaut Complex annotation on stock mechanisms (docs/dev/research/
     /// stock-ui-reservation-overlays-2026-09-25.md, section 5). Every marked kerbal gets
-    /// its row's own stock label (<c>CrewListItem.SetLabel</c>). A clickable block puts
+    /// its row's own stock label (<c>CrewListItem.SetLabel</c>; on an applicant row, whose
+    /// prefab hides that label, the trait line under the name, see
+    /// <see cref="ChooseStatusSurface"/>). A clickable block puts
     /// the button in stock's locked-with-reason state and appends the explanation to the
     /// stock crew tooltip: hire for an applicant a committed future hires (the
     /// <c>KerbalHirePatch</c> predicate), dismiss for a kerbal Parsek manages (the
     /// <c>KerbalDismissalPatch</c> predicate). Informational kinds (lost, retired
-    /// stand-in, future dismissal) change the label only. The Harmony postfixes are
+    /// stand-in, future dismissal) change the label only; an active stand-in's label
+    /// (<c>Stand-in for &lt;owner&gt;</c>) sits on a row whose dismiss button the same
+    /// dismissal predicate locks. The Harmony postfixes are
     /// scene-independent, so the complex opened from the VAB/SPH crew dialog is decorated
     /// the same way as the Space Center one.
     /// </summary>
@@ -48,7 +67,10 @@ namespace Parsek
         {
             internal string StockLabel;
             internal bool LabelChanged;
+            internal string StockTrait;
+            internal bool TraitChanged;
             internal bool ButtonDisabledByParsek;
+            internal bool SurfaceLogged;
         }
 
         private static ConditionalWeakTable<CrewListItem, RowState> rowStates =
@@ -85,10 +107,71 @@ namespace Parsek
             {
                 r.DisableButton = true;
                 r.DisabledTitle = d.Marked && !string.IsNullOrEmpty(d.Title) ? d.Title : DismissBlockedTitle;
-                r.DisabledCaption = dismissalRefusal;
+                // An active stand-in's why is the refusal plus, when it shares its owner's
+                // seat in the active-crew count, the one seat sentence (ForAstronautComplex).
+                r.DisabledCaption = d.Kind == StockUiDecorationKind.KerbalStandIn && !string.IsNullOrEmpty(d.Why)
+                    ? d.Why
+                    : dismissalRefusal;
                 r.BlockKind = "dismiss";
             }
             return r;
+        }
+
+        /// <summary>
+        /// Where a row's status goes: its stock status line when that line is shown, else,
+        /// on an APPLICANT row only, the trait line (the applicant prefab hides the status
+        /// line, so writing it changes nothing on screen - the GUI-28 census finding F2).
+        /// Any other row with a hidden status line stays unlabelled rather than overwrite
+        /// the trait column.
+        /// </summary>
+        internal static CrewStatusSurface ChooseStatusSurface(string tab, bool labelShown, bool traitPresent)
+        {
+            if (labelShown) return CrewStatusSurface.Label;
+            if (tab == StockUiDecorationQuery.AstronautApplicantsTab && traitPresent) return CrewStatusSurface.Trait;
+            return CrewStatusSurface.None;
+        }
+
+        /// <summary>
+        /// Why a stock text is or is not on screen inside its row: <c>shown</c>,
+        /// <c>missing</c> (no such text), <c>disabled</c> (the component is off),
+        /// <c>transparent</c> (alpha 0) or <c>inactive:&lt;object&gt;</c> (it or a parent
+        /// up to the row root is deactivated). Parents above the row are not read: a row
+        /// built while the complex is hidden is still judged by its own prefab.
+        /// </summary>
+        internal static string DescribeVisibilityWithinRow(object text, Transform rowRoot)
+        {
+            // "is", not "== null", and the Unity reads in a separate non-inlined core: the
+            // no-text answer must not JIT or call a Unity native (headless-testable).
+            if (!(text is Component)) return "missing";
+            return DescribeLiveVisibilityWithinRow((Component)text, rowRoot);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string DescribeLiveVisibilityWithinRow(Component comp, Transform rowRoot)
+        {
+            object text = comp;
+            Behaviour behaviour = text as Behaviour;
+            if (behaviour != null && !behaviour.enabled) return "disabled";
+            Graphic graphic = text as Graphic;
+            if (graphic != null && graphic.color.a <= 0.01f) return "transparent";
+            for (Transform t = comp.transform; t != null; t = t.parent)
+            {
+                if (!t.gameObject.activeSelf) return "inactive:" + t.name;
+                if (t == rowRoot) break;
+            }
+            return "shown";
+        }
+
+        /// <summary>The status text a row shows (its status line, else an applicant's trait
+        /// line): what the player reads, for the in-game cells.</summary>
+        internal static string ShownStatusText(CrewListItem row)
+        {
+            if (row == null) return "";
+            object label = StockUiText.LabelField(row, typeof(CrewListItem), "label");
+            if (DescribeVisibilityWithinRow(label, row.transform) == "shown")
+                return StockUiText.Get(label) ?? "";
+            object trait = StockUiText.LabelField(row, typeof(CrewListItem), "xp_trait");
+            return StockUiText.Get(trait) ?? "";
         }
 
         /// <summary>An Assigned row's stock label names the vessel and seat, so the status is
@@ -234,20 +317,38 @@ namespace Parsek
             {
                 RowState state = rowStates.GetValue(row, _ => new RowState());
                 object label = StockUiText.LabelField(row, typeof(CrewListItem), "label");
+                object trait = StockUiText.LabelField(row, typeof(CrewListItem), "xp_trait");
                 string current = StockUiText.Get(label);
+                string currentTrait = StockUiText.Get(trait);
                 if (!state.LabelChanged)
                     state.StockLabel = current;
+                if (!state.TraitChanged)
+                    state.StockTrait = currentTrait;
+
+                string labelVisibility = DescribeVisibilityWithinRow(label, row.transform);
+                var surface = ChooseStatusSurface(tab, labelVisibility == "shown", trait != null);
 
                 bool actionable = state.ButtonDisabledByParsek || row.MouseoverEnabled;
+                // The same predicate the record reads (AstronautComplexContext.DismissalRefusal).
                 string dismissalRefusal = tab == StockUiDecorationQuery.AstronautAvailableTab
                     ? Patches.KerbalDismissalPatch.DescribeDismissalRefusal(LedgerOrchestrator.Kerbals, name)
                     : null;
-                var decision = Decide(d, tab, state.StockLabel, actionable, dismissalRefusal);
+                string stockText = surface == CrewStatusSurface.Trait ? state.StockTrait : state.StockLabel;
+                var decision = Decide(d, tab, stockText, actionable, dismissalRefusal);
+                string wantLabel = surface == CrewStatusSurface.Label ? decision.Label : null;
+                string wantTrait = surface == CrewStatusSurface.Trait ? decision.Label : null;
 
-                if (decision.Label != null)
+                if (decision.Label != null && !state.SurfaceLogged)
                 {
-                    if (!string.Equals(current, decision.Label, StringComparison.Ordinal))
-                        row.SetLabel(decision.Label);
+                    state.SurfaceLogged = true;
+                    ParsekLog.Verbose(Tag, "Astronaut Complex " + tab + " row for " + name + " status surface="
+                        + surface + " (stock label " + labelVisibility + ")");
+                }
+
+                if (wantLabel != null)
+                {
+                    if (!string.Equals(current, wantLabel, StringComparison.Ordinal))
+                        row.SetLabel(wantLabel);
                     state.LabelChanged = true;
                     if (counts != null) counts.Labelled++;
                 }
@@ -257,6 +358,25 @@ namespace Parsek
                     state.LabelChanged = false;
                     if (counts != null) counts.Restored++;
                 }
+
+                if (wantTrait != null)
+                {
+                    if (!string.Equals(currentTrait, wantTrait, StringComparison.Ordinal))
+                        StockUiText.Set(trait, wantTrait);
+                    state.TraitChanged = true;
+                    if (counts != null) counts.Labelled++;
+                }
+                else if (state.TraitChanged)
+                {
+                    StockUiText.Set(trait, state.StockTrait ?? "");
+                    state.TraitChanged = false;
+                    if (counts != null) counts.Restored++;
+                }
+
+                if (decision.Label != null && surface == CrewStatusSurface.None)
+                    ParsekLog.VerboseRateLimited(Tag, "ac-no-status-surface",
+                        "Astronaut Complex " + tab + " row for " + name + " has no visible status line (stock label "
+                        + labelVisibility + ") - status '" + decision.Label + "' not shown");
 
                 if (decision.DisableButton)
                 {

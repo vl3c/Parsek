@@ -24,12 +24,41 @@ namespace Parsek.Patches
         internal static Func<int> SlotLimitProviderForTesting;
         internal static Func<string, string> StrategyTitleProviderForTesting;
         internal static Func<IReadOnlyList<StrategyTagInfo>> StockStrategiesProviderForTesting;
+        /// <summary>Stock's own <c>CanBeActivated</c> / <c>CanBeDeactivated</c> verdict for a
+        /// strategy id. Null in production (the live strategy is asked).</summary>
+        internal static Func<string, bool> StockCanBeActivatedProviderForTesting;
+        internal static Func<string, bool> StockCanBeDeactivatedProviderForTesting;
+
+        private static int stockProbeDepth;
+
+        /// <summary>True while <see cref="StockAllowsActivation"/> asks stock's own
+        /// <c>CanBeActivated</c>: the Parsek postfix stands aside so the answer is stock's.</summary>
+        internal static bool IsProbingStock => stockProbeDepth > 0;
 
         /// <summary>
-        /// The activation refusal for one strategy, or false when activating it is allowed
-        /// (or a replay / state patch is running).
+        /// The activation refusal for one strategy, or false when activating it is allowed,
+        /// when stock's own <c>CanBeActivated</c> already refuses it, or while a replay /
+        /// state patch runs. Stock's verdict is read from the live strategy.
+        ///
+        /// <para>Stock-first precedence (ruling 2026-09-25, the same rule as Mission Control's
+        /// slot block): Parsek's refusal applies only where stock itself would allow the
+        /// action. When stock already refuses for its own reason (slots full, a conflict, the
+        /// cost, a minimum duration), stock's result and stock's reason stay untouched, and
+        /// the click backstop lets stock handle the click. No exception.</para>
         /// </summary>
         internal static bool TryRefuseActivation(string strategyId, out ReservationText text)
+        {
+            text = new ReservationText();
+            if (string.IsNullOrEmpty(strategyId)) return false;
+            return TryRefuseActivation(strategyId, StockAllowsActivation(strategyId), out text);
+        }
+
+        /// <summary>
+        /// The activation refusal given stock's own verdict (the <c>CanBeActivated</c> postfix
+        /// passes stock's <c>__result</c>). The one decision behind the stock reason text, the
+        /// greyed Accept button and the click backstop.
+        /// </summary>
+        internal static bool TryRefuseActivation(string strategyId, bool stockAllows, out ReservationText text)
         {
             text = new ReservationText();
             if (string.IsNullOrEmpty(strategyId)) return false;
@@ -37,6 +66,13 @@ namespace Parsek.Patches
             {
                 ParsekLog.VerboseRateLimited(Tag, "activation-replay-bypass",
                     "activation check bypassed - replay in progress");
+                return false;
+            }
+            if (!stockAllows)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "activation-stock-refuses|" + strategyId,
+                    "activation left to stock strategy=" + strategyId
+                    + " - stock's CanBeActivated already refuses it; stock's result and reason kept");
                 return false;
             }
 
@@ -56,8 +92,17 @@ namespace Parsek.Patches
             return true;
         }
 
-        /// <summary>The player-path deactivation refusal, or false when allowed.</summary>
+        /// <summary>The player-path deactivation refusal, or false when allowed or when
+        /// stock's own <c>CanBeDeactivated</c> already refuses it (the same stock-first
+        /// precedence as the activation).</summary>
         internal static bool TryRefuseDeactivation(string strategyId, out ReservationText text)
+        {
+            text = new ReservationText();
+            if (string.IsNullOrEmpty(strategyId)) return false;
+            return TryRefuseDeactivation(strategyId, StockAllowsDeactivation(strategyId), out text);
+        }
+
+        internal static bool TryRefuseDeactivation(string strategyId, bool stockAllows, out ReservationText text)
         {
             text = new ReservationText();
             if (string.IsNullOrEmpty(strategyId)) return false;
@@ -65,6 +110,13 @@ namespace Parsek.Patches
             {
                 ParsekLog.VerboseRateLimited(Tag, "deactivation-replay-bypass",
                     "deactivation check bypassed - replay in progress");
+                return false;
+            }
+            if (!stockAllows)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "deactivation-stock-refuses|" + strategyId,
+                    "deactivation left to stock strategy=" + strategyId
+                    + " - stock's CanBeDeactivated already refuses it; stock's result and reason kept");
                 return false;
             }
 
@@ -105,6 +157,66 @@ namespace Parsek.Patches
                 "Cannot deactivate \"" + (string.IsNullOrEmpty(title) ? strategyId : title) + "\"",
                 text.Body, "");
             return false;
+        }
+
+        /// <summary>Stock's own activation verdict for the strategy, with the Parsek postfix
+        /// standing aside. An unknown id or an unreadable strategy answers true (Parsek's
+        /// refusal then decides alone, as it did before the precedence rule).</summary>
+        internal static bool StockAllowsActivation(string strategyId)
+        {
+            var seam = StockCanBeActivatedProviderForTesting;
+            if (seam != null) return seam(strategyId);
+            try
+            {
+                return ReadLiveStockVerdict(strategyId, true);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(Tag, "stock-can-activate-unreadable",
+                    "stock CanBeActivated unreadable, Parsek's refusal decides alone (" + ex.GetType().Name + ")");
+                return true;
+            }
+        }
+
+        /// <summary>Stock's own deactivation verdict (<c>CanBeDeactivated</c> is not patched).</summary>
+        internal static bool StockAllowsDeactivation(string strategyId)
+        {
+            var seam = StockCanBeDeactivatedProviderForTesting;
+            if (seam != null) return seam(strategyId);
+            try
+            {
+                return ReadLiveStockVerdict(strategyId, false);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(Tag, "stock-can-deactivate-unreadable",
+                    "stock CanBeDeactivated unreadable, Parsek's refusal decides alone (" + ex.GetType().Name + ")");
+                return true;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool ReadLiveStockVerdict(string strategyId, bool activation)
+        {
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null || system.Strategies == null || string.IsNullOrEmpty(strategyId)) return true;
+            for (int i = 0; i < system.Strategies.Count; i++)
+            {
+                var s = system.Strategies[i];
+                if (s?.Config == null || s.Config.Name != strategyId) continue;
+                string reason;
+                if (!activation) return s.CanBeDeactivated(out reason);
+                stockProbeDepth++;
+                try
+                {
+                    return s.CanBeActivated(out reason);
+                }
+                finally
+                {
+                    stockProbeDepth--;
+                }
+            }
+            return true;
         }
 
         private static IEnumerable<string> ActiveStrategyIds()
@@ -228,6 +340,9 @@ namespace Parsek.Patches
             SlotLimitProviderForTesting = null;
             StrategyTitleProviderForTesting = null;
             StockStrategiesProviderForTesting = null;
+            StockCanBeActivatedProviderForTesting = null;
+            StockCanBeDeactivatedProviderForTesting = null;
+            stockProbeDepth = 0;
         }
     }
 
@@ -508,14 +623,17 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// Postfix on <c>Strategies.Strategy.CanBeActivated(out string reason)</c>: when the
-    /// committed timeline refuses the activation, returns false with the explanation as
-    /// the reason. Stock Administration then greys the list row (state "na") and prints
-    /// the reason in orange above the description, and <c>Strategy.Activate()</c>, which
-    /// checks <c>CanBeActivated</c> first, refuses too. A postfix, so stock's own checks
-    /// (slots now, conflicts, commitment, costs) still run; ours overrides their reason
-    /// only when ours applies. Bypassed during replay (<c>IsReplayingActions</c>), which
-    /// also covers the state patch (it activates through <c>Strategy.Load</c> anyway).
+    /// Postfix on <c>Strategies.Strategy.CanBeActivated(out string reason)</c>: when stock
+    /// allows the activation and the committed timeline refuses it, returns false with the
+    /// explanation as the reason. Stock Administration then greys the list row (state "na")
+    /// and prints the reason in orange above the description, and <c>Strategy.Activate()</c>,
+    /// which checks <c>CanBeActivated</c> first, refuses too. When stock's own checks (slots
+    /// now, conflicts, commitment, costs) already refuse, stock's result and stock's reason
+    /// are left untouched (stock-first precedence, see
+    /// <see cref="StrategyReservationGate.TryRefuseActivation(string, bool, out ReservationText)"/>).
+    /// Bypassed during replay (<c>IsReplayingActions</c>), which also covers the state patch
+    /// (it activates through <c>Strategy.Load</c> anyway), and while the gate asks stock for
+    /// its own verdict.
     /// </summary>
     [HarmonyPatch]
     internal static class StrategyCanBeActivatedPatch
@@ -545,9 +663,10 @@ namespace Parsek.Patches
         {
             try
             {
+                if (StrategyReservationGate.IsProbingStock) return;
                 string id = __instance?.Config?.Name;
                 ReservationText text;
-                if (!StrategyReservationGate.TryRefuseActivation(id, out text)) return;
+                if (!StrategyReservationGate.TryRefuseActivation(id, __result, out text)) return;
                 __result = false;
                 reason = text.Body;
             }
@@ -561,12 +680,16 @@ namespace Parsek.Patches
 
     /// <summary>
     /// Postfix on <c>Administration.SetSelectedStrategy(StrategyWrapper)</c>: for an ACTIVE
-    /// strategy the committed timeline changes later, disables stock's Cancel button and
-    /// puts the explanation in stock's reason slot of the description. The player path
-    /// only: <c>Strategy.CanBeDeactivated</c> is NOT patched, because stock
+    /// strategy the committed timeline changes later (and stock's own
+    /// <c>CanBeDeactivated</c> allows), disables stock's Cancel button and puts the
+    /// explanation in stock's reason slot of the description. The player path only:
+    /// <c>Strategy.CanBeDeactivated</c> is NOT patched, because stock
     /// <c>Strategy.Update()</c> (with KSPCommunityFixes' StrategyDuration fix) expires a
     /// strategy through <c>Deactivate()</c> gated on it, and refusing there would freeze
-    /// the expiry and re-post its message every frame.
+    /// the expiry and re-post its message every frame. Then, for either selection, the
+    /// Accept / Cancel button is greyed while a Parsek refusal disables it and restored to
+    /// its stock look otherwise (<see cref="StockUiAdministrationDecoration"/>): stock's
+    /// own disabled state of that button looks exactly like its enabled one.
     /// </summary>
     [HarmonyPatch]
     internal static class AdministrationSetSelectedStrategyPatch
@@ -608,21 +731,39 @@ namespace Parsek.Patches
             try
             {
                 var strategy = wrapper?.strategy;
-                if (__instance == null || strategy == null || !strategy.IsActive) return;
+                if (__instance == null || strategy == null) return;
+                string id = strategy.Config?.Name;
                 ReservationText text;
-                if (!StrategyReservationGate.TryRefuseDeactivation(strategy.Config?.Name, out text)) return;
-
-                if (__instance.btnAcceptCancel != null)
-                    __instance.btnAcceptCancel.Enable(false);
-                if (UpdateStrategyDescriptionMethod != null)
+                bool parsekBlocked;
+                if (strategy.IsActive)
                 {
-                    UpdateStrategyDescriptionMethod.Invoke(__instance, new object[]
+                    string stockReason;
+                    bool stockAllows = strategy.CanBeDeactivated(out stockReason);
+                    parsekBlocked = StrategyReservationGate.TryRefuseDeactivation(id, stockAllows, out text);
+                    if (parsekBlocked)
                     {
-                        strategy.Title, strategy.Description, strategy.Effect, text.Body
-                    });
+                        if (__instance.btnAcceptCancel != null)
+                            __instance.btnAcceptCancel.Enable(false);
+                        if (UpdateStrategyDescriptionMethod != null)
+                        {
+                            UpdateStrategyDescriptionMethod.Invoke(__instance, new object[]
+                            {
+                                strategy.Title, strategy.Description, strategy.Effect, text.Body
+                            });
+                        }
+                        ParsekLog.VerboseRateLimited(Tag, "deactivation-marked|" + id,
+                            "Administration: Cancel disabled with reason for strategy=" + id);
+                    }
                 }
-                ParsekLog.VerboseRateLimited(Tag, "deactivation-marked|" + strategy.Config?.Name,
-                    "Administration: Cancel disabled with reason for strategy=" + strategy.Config?.Name);
+                else
+                {
+                    // Stock already ran CanBeActivated (with the Parsek postfix) and set the
+                    // button; this asks the same decision again for the look.
+                    parsekBlocked = StrategyReservationGate.TryRefuseActivation(id, out text);
+                }
+                StockUiAdministrationDecoration.RefreshButtonLook(
+                    __instance.btnAcceptCancel, parsekBlocked, id,
+                    strategy.IsActive ? AdministrationButtonBackstopPatch.CancelState : AdministrationButtonBackstopPatch.AcceptState);
             }
             catch (Exception ex)
             {
@@ -633,12 +774,64 @@ namespace Parsek.Patches
     }
 
     /// <summary>
+    /// Postfix on the private <c>Administration.UpdateStrategyStats()</c>, which re-runs
+    /// stock's <c>CanBeActivated</c> and re-sets Accept when the commitment slider moves
+    /// (the cost changes, so stock's own verdict can flip and take precedence). Re-derives
+    /// the greyed look of Accept for the selected inactive strategy from the same decision.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class AdministrationUpdateStrategyStatsPatch
+    {
+        private const string Tag = "StrategyReservation";
+
+        static MethodBase TargetMethod()
+        {
+            var method = ResolveTargetMethodForTesting();
+            if (method == null)
+                ParsekLog.Warn(Tag,
+                    "Administration.UpdateStrategyStats() not found - the greyed Accept look is re-derived only on selection");
+            return method;
+        }
+
+        internal static MethodBase ResolveTargetMethodForTesting()
+        {
+            return typeof(Administration).GetMethod(
+                "UpdateStrategyStats",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                Type.EmptyTypes,
+                null);
+        }
+
+        static void Postfix(Administration __instance)
+        {
+            try
+            {
+                var strategy = __instance?.SelectedWrapper?.strategy;
+                if (strategy == null || strategy.IsActive) return;
+                string id = strategy.Config?.Name;
+                ReservationText text;
+                bool parsekBlocked = StrategyReservationGate.TryRefuseActivation(id, out text);
+                StockUiAdministrationDecoration.RefreshButtonLook(
+                    __instance.btnAcceptCancel, parsekBlocked, id, AdministrationButtonBackstopPatch.AcceptState);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(Tag, "update-stats-threw",
+                    "UpdateStrategyStats postfix threw: " + ex.Message);
+            }
+        }
+    }
+
+    /// <summary>
     /// Prefix on the private <c>Administration.BtnInputAccept(string state)</c>, the
     /// Accept / Cancel button handler: the click backstop behind the disabled button.
     /// <c>"cancel"</c> on an active strategy refuses with the committed-action dialog when
     /// the deactivation is blocked; <c>"accept"</c> on an inactive strategy does the same
     /// for a blocked activation (stock's confirmation dialog would otherwise open and its
-    /// <c>Activate()</c> fail silently).
+    /// <c>Activate()</c> fail silently). Both read the gate's stock-first decision: when
+    /// stock's own <c>CanBeActivated</c> / <c>CanBeDeactivated</c> already refuses, the
+    /// click is left to stock.
     /// </summary>
     [HarmonyPatch]
     internal static class AdministrationButtonBackstopPatch
