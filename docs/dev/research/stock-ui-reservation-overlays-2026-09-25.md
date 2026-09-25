@@ -1,516 +1,452 @@
-# Reservation and block state on the stock KSP screens
+# Explaining paradox-prevention blocks on the stock KSP screens
 
-**Date:** 2026-09-25. **Status:** analysis for an owner decision. Nothing here is implemented yet.
-**Inputs:** a code read of the overlay layer, the patches, the ledger modules and `MilestoneStore`, plus a
-1.12.5 `Assembly-CSharp.dll` decompile (from `vl3c/ksp-refs`) for the stock hook points.
-It also reads RP-1, Contract Configurator, Strategia, KSPCommunityFixes and Crew R&R as reference mods.
-Prior art it builds on:
+**Date:** 2026-09-25. **Status:** analysis for owner decisions. Nothing here is implemented.
+
+**This document is the single reference for:**
+- where Parsek explains a reservation or block to the player
+- whether each block is actually enforced
+- what text explains it
+- which Parsek window state moves out as a result
+
+The follow-up todo entries point here: #640, #430 and `STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`.
+
+**Inputs:**
+- A code read of the overlay layer, the Harmony patches, the ledger modules, `MilestoneStore` and `KerbalsModule`.
+- A KSP 1.12.5 `Assembly-CSharp.dll` decompile (`vl3c/ksp-refs`, ilspycmd) for every stock hook named here.
+- The reference mods RP-1, Contract Configurator (CC), Strategia, KSPCommunityFixes (KSPCF) and Crew R&R.
+
+**Prior art:**
 - `docs/dev/done/plans/game-state-ui-overlays.md` (PR #721, the v1 overlay layer)
-- todo #640 (overlay v2) and todo #430 (the "why is this blocked" explainer)
+- todo #640 (overlay v2)
+- todo #430 (the "why is this blocked" explainer)
 - `docs/dev/design-gui-inventory.md`
 - `docs/dev/research/gui-feature-exposure-2026-09-11.md`
 
-## 0. The problem, as the owner framed it (interview, 2026-09-25)
+**Legend.** Claims are confirmed from source unless marked *(inferred)*. Every inferred claim is also listed in section 12.
 
-Each surface already covers a different kind of state:
-- The Timeline window shows PAST states of the career systems. That is fine as it is.
-- The stock screens show CURRENT state. That is also fine.
+---
 
-The unsolved problem is explaining WHY an action on a stock screen is blocked. The cause is a reservation made on behalf of a future state: Parsek's timeline is append-only, and blocks prevent paradoxes. Today that explanation is in the wrong place, in a Parsek table the player has to cross-reference. Or it arrives as a surprise, a popup after the click.
+## Summary
 
-The owner's answers that shape this report:
-- **Problem:** "wrong place" and "surprise blocks". The core is explaining the paradox rule, not listing state.
-- **Overlay depth:** mark plus why. The "why" carries three things: the fact, the append-only rule and the way out. No jump links.
-- **VAB/SPH crew dialog:** show reserved kerbals marked (greyed, with a reason) instead of hiding them.
-- **Scope:** also audit whether the blocks themselves are complete. Section 4 does that.
-- **The "No new player-facing UI surfaces" rule:** propose an explicit amendment (section 7).
-- **What stays in the Parsek windows:** undecided. This report recommends per window (section 6).
-- The owner had forgotten the v1 overlay layer exists. The report therefore starts from it (section 1).
+1. **An overlay layer already exists** (PR #721), on R&D, the Astronaut Complex and Mission Control. It says *what* and *when* in raw UT, never *why*. It uses a custom-drawn badge, loses its Mission Control badges on a tab switch, and is switched off by Contract Configurator (section 3).
+2. **Every stock screen has a native way to say "disabled, and here is why".** The plan is to use those mechanisms instead of Parsek-drawn badges (section 5). Examples:
+   - `Strategy.CanBeActivated(out reason)`
+   - `Contract.CanBeDeclined` / `CanBeCancelled`
+   - `CrewListItem.SetButtonEnabled(false, reason)`
+   - the node and part tooltips
+3. **Several blocks are missing.** Strategies, contract slots, Decline, Cancel and part purchases can each break or double-charge committed history today (section 4). Under the pairing rule, an overlay can only ship together with its block.
+4. **"Rewind before that flight" frees nothing.** Rewinding is what creates the committed future. The honest "way out" is *when the item frees up*. The exceptions are recovering an Aboard vessel, stopping a loop and a Re-Fly of the flight that holds it (section 6).
+5. **Decline and Cancel, recommended:**
+   - Block Decline on an offer the committed future accepts.
+   - Block Cancel only when a committed row later completes, fails or cancels that contract (section 7).
+6. **The Career window becomes redundant** once Mission Control and Administration carry the annotations and stock strategy state is patched from the ledger. The Kerbals window can return to Advanced once the VAB crew dialog shows reserved kerbals (section 8).
+7. **The "No new player-facing UI surfaces" rule needs one bounded exception** for annotating stock controls (section 9).
 
-## 1. What already exists: the PR #721 overlay layer
+---
 
-`Source/Parsek/StockUiOverlayController.cs` is a `[KSPAddon(SpaceCentre)]` addon. It decorates three stock screens with
-an 18x18 `OverlayBadge`: a uGUI `RawImage` showing the stock alarm icon, with its tooltip box drawn in IMGUI. Separate Harmony
-prefixes refuse the action and pop `CommittedActionDialog.ShowBlocked` ("Action Blocked", OK button).
+## 1. The problem and the owner's rulings (interview, 2026-09-25)
 
-| Stock screen | Mark today | Tooltip text today | Block today |
+Each surface covers a different kind of state:
+- The Timeline window shows PAST states of the career systems, and that is fine.
+- The stock screens show CURRENT state, and that is also fine.
+
+The unsolved problem is explaining WHY an action on a stock screen is blocked, when the cause is a reservation made on behalf of a future state. Parsek's timeline is append-only, and the blocks exist to prevent paradoxes. Today that explanation is either in the wrong place, a Parsek table the player must cross-reference, or it arrives as a surprise popup after the click.
+
+| Question | Owner ruling |
+|---|---|
+| Problem | "Wrong place" and "surprise blocks". The core is explaining the paradox rule, not listing state |
+| Overlay depth | Mark plus why. The why states the fact, the append-only rule and the way out. No jump links |
+| VAB/SPH crew dialog | Show reserved kerbals marked (greyed, with a reason) instead of hiding them |
+| Scope | Also audit whether the blocks themselves are complete |
+| UI rule | Propose an explicit amendment |
+| What stays in Parsek windows | Undecided at the interview. This document recommends (section 8) |
+| Existing overlay layer | The owner had forgotten it; the analysis starts from it |
+
+## 2. Principle: which surface owns which question
+
+| Question the player asks | Owner surface |
+|---|---|
+| What happened, and when? | Timeline window (unchanged) |
+| What do I have right now? | Stock screens, already patched to the ledger by `KspStatePatcher` (strategies are the exception, section 4 row S1) |
+| Can I do this, and if not, why not? | **The stock control the player is about to click** |
+| What is scheduled ahead of me? | Timeline window, as dated future rows (unchanged) |
+
+The third row is what this document places. The answer always sits on the control itself: its disabled state, its existing stock tooltip, or stock's own reason field.
+
+**The pairing rule** (the PR #721 invariant, carried forward): for every clickable kind, the mark and the click-block read **the same predicate helper**.
+- A mark with no block misleads the player.
+- A block with no mark is the surprise block the owner wants removed.
+
+## 3. What exists today, and what is wrong with it
+
+`StockUiOverlayController.cs` (`[KSPAddon(SpaceCentre)]`) attaches an 18x18 `OverlayBadge` to stock rows. The badge is a uGUI `RawImage` showing the stock alarm icon, and its tooltip box is drawn in IMGUI. Separate Harmony prefixes refuse actions with `CommittedActionDialog.ShowBlocked`, a popup titled "Action Blocked" with an OK button.
+
+| Stock screen | Mark today | Tooltip today | Block today |
 |---|---|---|---|
-| R&D tech tree | gold badge on a node a committed future researches | `Committed at UT 183420 - recording 'Mun Lander 3' (+1 more committed)` | `TechResearchSpendPatch` / `TechResearchPatch`: "Cannot research X. This technology is already committed on your timeline at UT n." It also refuses when projected science is short |
-| Astronaut Complex | badges for future-hired, future-retired, reserved, lost and retired stand-in | `Reserved - held by a committed flight (Parsek)`, `Lost on a committed flight (Parsek)`, `Will be hired at UT n` | `KerbalHirePatch` (committed hire), `KerbalDismissalPatch` |
+| R&D tech tree | gold badge on a node a committed future researches | `Committed at UT 183420 - recording 'Mun Lander 3' (+1 more committed)` | `TechResearchSpendPatch` / `TechResearchPatch`: "already committed on your timeline at UT n". Also refuses when projected science is short |
+| Astronaut Complex | badges: future-hired, future-retired, reserved, lost, retired stand-in | `Reserved - held by a committed flight (Parsek)`, `Lost on a committed flight (Parsek)`, `Will be hired at UT n` | `KerbalHirePatch`, `KerbalDismissalPatch` |
 | Mission Control | blue badge on an Offered contract a committed future accepts | `Will be accepted at UT n` | `ContractAcceptPatch` (+ `MissionControl.OnClickAccept` pre-block) |
-| Funds / Science widgets | none; hovering the widget opens a tooltip | `Total / Reserved / Short by` (`CurrencyReservationOverlay.cs`, SPACECENTER and FLIGHT only) | science enforced; funds advisory (P15 / D7) |
-| KSC facility menu | none | none | `FacilityUpgradePatch` / `FacilityUpgradeSpendPatch` (dialog prints the raw facility id) |
+| Funds / Science widgets | none; the widget hover shows a tooltip | `Total / Reserved / Short by` (`CurrencyReservationOverlay.cs`; SPACECENTER and FLIGHT only) | science enforced; funds advisory (P15 / D7) |
+| KSC facility menu | none | none | `FacilityUpgradePatch` / `FacilityUpgradeSpendPatch` (the dialog prints the raw facility id) |
 | VAB/SPH crew dialog | reserved kerbals **silently hidden** (`CrewDialogFilterPatch`) and swapped (`CrewAutoAssignPatch`) | none | the hiding is the block |
 | Administration | none | none | **none** |
 | Part list / purchase | none | none | **none** |
 
-The v1 plan's load-bearing invariant is still right and should carry forward (plan section 3, todo #640 "Review guidance"):
-**for every clickable kind, the overlay candidate set equals the click-block predicate set, and both read the same
-source helper.** A mark with no block misleads the player. A block with no mark is the "surprise block" the owner wants removed.
+Defects:
 
-### 1.1 What is wrong with the existing layer
-
-Each item below is confirmed from source unless marked otherwise.
-
-1. **It says what and when, never why.** No text states the append-only rule, and no text states what the player can do. "Committed at UT 183420"
-   also uses raw UT, while every Parsek window has moved to `KSPUtil.PrintDateCompact` dates. The tooltips also contain
-   em dashes, against the house style.
-2. **The badge is hover-only and custom-drawn.** The 18px alarm icon's IMGUI tooltip box is a Parsek-drawn surface on a stock
-   screen. Every screen has a STOCK way to say "disabled, and here is why" (section 3), and the badge uses none of them.
-3. **Mission Control badges disappear on a tab switch.** `MissionControl.RebuildContractList()` destroys every row on each tab
-   change, archive filter change, accept, decline and `onContractsListChanged`. The controller decorates only at spawn and on
-   `OnTimelineDataChanged`. The v1 plan accepted this as edge case E6. In practice the player loses the badges after one
-   Available, Active, Available round trip.
-4. **Contract Configurator breaks the Mission Control path.** CC builds its own rows (`PrfbMissionListItem`, with a `ContractContainer` in
-   `Data`), so `ExtractMissionControlRowContract` returns null and the overlay switches itself off. CC also replaces the Accept
-   button's listeners, which bypasses the `OnClickAccept` pre-block, so only the `Contract.Accept` backstop still refuses. CC is in most career
-   installs. This is from CC's source (`MissionControlUI.cs`) and was not reproduced in game.
-5. **An Astronaut Complex opened from the VAB/SPH is not decorated.** `CrewAssignmentDialog.onOpenACProceed` fires
-   `onGUIAstronautComplexSpawn` in the EDITOR scene, and the addon is SpaceCentre-only.
-6. **Badges can go stale.** The committed-future slice is `MilestoneStore`'s unreplayed range
-   (`LastReplayedEventIndex + 1 ..`). Only a rewind or revert load resets it (`MilestoneStore.cs:464-467`). Nothing ever advances it again as
-   the clock passes an event's UT: the only writes are creation (`:144`), restore-from-save (`:456`), reset (`:467`) and removal
-   decrements. So after a rewind, a mark and its block stay on for the rest of the session, even after the event has replayed.
-   - Tech and contracts: this is mostly cosmetic, because the node or contract changes state anyway.
-   - Facilities: `FacilityUpgradePatch` blocks by facility id at ANY level, so this probably over-blocks. A later 2->3 upgrade stays refused after the
-     committed 1->2 has replayed. This is inferred from code and needs an in-game check.
-7. **The census cannot see the layer.** uGUI plus hover-only means neither the GuiTree recorder nor a screenshot captures it
-   (todo `GUI-INVENTORY-STOCKUIOVERLAY-BADGES-ARE-INVISIBLE-TO-BOTH-CENSUS-INSTRUMENTS`). Any expansion is untestable by the
-   harness until that tooling exists. Moving to stock tooltips (section 3) does not fix this by itself.
-
-## 2. The principle: which surface owns which question
-
-| Question the player asks | Owner surface |
-|---|---|
-| What happened, and when? (past) | Parsek Timeline window (unchanged) |
-| What do I have right now? | Stock screens, already patched to the ledger by `KspStatePatcher` |
-| Can I do this, and if not, why not? | **The stock control the player is about to click** |
-| What is scheduled on the timeline ahead of me? | Timeline window, as dated future rows (unchanged) |
-
-The third row is what this report places. The answer always sits on the control itself: its disabled state, its existing
-tooltip, or stock's own "reason" field. It never sits in a separate Parsek panel.
-
-## 3. Where each overlay goes, screen by screen
-
-Common technique for all screens:
-- Postfix the method that BUILDS or REFRESHES each stock row or button, never "decorate once at spawn". Stock rebuilds rows constantly and resets button state on refresh.
-- Put the text in the stock tooltip or reason field, never in a Parsek-drawn box.
-- Prefer postfixes: RP-1 replaces several of these methods with false-returning prefixes, and CC replaces listeners.
-
-### 3.1 R&D tech tree (easy)
-- **Mark:** postfix `RDNode.UpdateGraphics` and tint via `graphics.SetIconColor`. `SetButtonState` resets the colour to white, so the
-  tint must be applied after it.
-- **Why:** postfix the private `RDNode.GetTooltipCaption` and append the explanation to the stock node tooltip
-  (`TooltipController_TitleAndText`).
-- **At the button:** postfix `RDController.UpdatePanel` to call `actionButton.Enable(false)` and put the reason in the panel.
-  `UpdatePanel` re-enables Research every time a node is shown. With this in place the player never reaches the popup; the popup stays as the backstop.
-- **Reference:** RP-1 `Harmony/RDNode.cs` and `Harmony/RDController.cs`. `RDController.nodes` is public, so the current reflection is unnecessary.
-- **Pairs with:** the existing tech block. No new predicate is needed.
-
-### 3.2 Administration / strategies (easy, and the most native of all)
-- **One postfix on `Strategies.Strategy.CanBeActivated(out string reason)`**, returning false with a Parsek reason. Stock then does everything:
-  - greys the list row (title colour `#bdbdbd`, state "na")
-  - disables Accept (`btnAcceptCancel.Enable(...)`)
-  - prints the reason in orange at the top of the description (`GetStrategyDescription`)
-  - refuses `Strategy.Activate()`, which checks `CanBeActivated` itself
-- Mirror it on `CanBeDeactivated` for a strategy the committed future relies on. Bypass it while
-  `GameStateRecorder.IsReplayingActions` is set. Strategia uses the same shape (`CanActivate(ref string reason)`).
-- **This is a mark and a block in one predicate.** The invariant holds by construction.
-- **Blocked on section 4:** no committed-future strategy predicate exists yet.
-
-### 3.3 Mission Control / contracts (moderate)
-- **Mark:** postfix `MissionControl.AddItem` and decorate the row it just built. This fixes the tab-switch loss.
-- **Contract Configurator:** add a cheap change check while Mission Control is open, for example on the row count. Resolve `Data` in three ways: as
-  `MissionSelection`, then as `Contract`, then as any object with a `Contract`-typed `contract` field.
-- **Why:** postfix `UpdateInfoPanelContract` and append the explanation to `contractText`, the way KSPCF's `ShowContractFinishDates` does.
-- **At the button:** postfix `RefreshUIControls` and set `btnAccept.interactable = false`.
-- **Pairs with:** the existing same-guid accept block. The slot-exhaustion hole (section 4) is the second thing this screen must explain.
-
-### 3.4 Astronaut Complex (easy to moderate)
-- **Mark:** postfix `AddItem_Applicants` / `_Available` / `_Assigned` / `_Kia` and call stock's
-  `CrewListItem.SetLabel("Reserved until Y2 D114")`, which replaces the status line.
-- **Block:** call `SetButtonEnabled(false, reasonTitle, reasonCaption)` for a committed hire or a protected dismissal. That is stock's own
-  "locked with reason" behaviour: it disables the hover buttons and appends a bold reason to the tooltip.
-- **Why:** postfix `CrewListItem.SetTooltip` and append to `TooltipController_CrewAC.descriptionString`.
-- **Re-apply** in a postfix on `UpdateCrewCounts`. That method re-unlocks every applicant row one frame after init and after every hire or fire.
-- **Scene:** extend the controller to the EDITOR, or move the logic entirely into the patches, which are scene-agnostic.
-- **References:** RP-1 `Harmony/AstronautComplex.cs` and `Harmony/CrewListItem.cs`, and Crew R&R's `SetLabel("Ready In: ...")`.
-- **Compatibility hazard:** Enhanced Astronaut Complex clones rows.
-
-### 3.5 VAB/SPH crew assignment dialog (moderate; owner chose "show marked")
-- **Replace** `CrewDialogFilterPatch`'s hiding with a postfix on the `AddAvailItem(pcm, out CrewListItem, ...)` overload. The postfix applies
-  stock's existing disabled-crew look, the same one stock uses for `crew.inactive`:
-  - `disabledCrewListSprite`
-  - greyed name
-  - `UIDragPanel.dragEnabled = false`
-  - `MouseoverEnabled = false`
-- Add `SetButtonEnabled(false, "Reserved", "<why>")` on top.
-- **Keep `CrewAutoAssignPatch`'s swap.** A reserved kerbal must still never land in a seat. The player now sees why Jeb is not in the pod.
-- **Reference:** RP-1 `Harmony/BaseCrewAssignmentDialog.cs`. Do NOT copy Crew R&R's roster-status trick (it sets `rosterStatus = 9001` while the crew tab is open).
-- **Consequence:** the Kerbals window loses the reason it was un-hidden in Basic mode (section 6).
-
-### 3.6 KSC facility context menu (easy)
-- **Block:** postfix the protected `KSCFacilityContextMenu.OnFacilityValuesModified`, which re-runs on every structure event. Set
-  `UpgradeButton.interactable = false` (a private field, reached via `AccessTools.FieldRefAccess`).
-- **Why:** attach a stock `TooltipController_Text` with `RequireInteractable = false`, so the disabled button still explains itself.
-  `GameEvents.onFacilityContextMenuSpawn` fires before the buttons are filled, so do not decorate there.
-- **Reference:** RP-1 `Harmony/KSCFacilityContextMenu.cs`.
-- **Also fix:** the dialog's raw facility id. `FacilityDisplayNames.cs` already maps ids to names.
-
-### 3.7 Part list and part purchase (moderate; only if section 4's part hole is closed by a block)
-- **Do NOT use** `EditorPartList.GreyoutFilters`. It makes the part unusable, not unpurchasable.
-- **Instead:** postfix `PartListTooltip.Setup` (both overloads), disable `buttonPurchase`, and put the reason in `textGreyoutMessage`.
-  The R&D screen's part list has the same need.
-- **Skip per-icon badges on `EditorPartIcon`.** Icons are rebuilt on every category or filter refresh, and KSPCF's `FasterEditorPartList` transpiles those paths.
-- **Reference:** RP-1 `Harmony/PartListTooltip.cs`.
-
-### 3.8 Funds and science widgets
-- Keep the `CurrencyReservationOverlay` tooltip, and extend its scene gate to the EDITOR. That is where funds are actually spent;
-  see open todo `RESERVATION-OVERLAY-GAPS` (a).
-- This is also the place for the funds half of the "why", once P15 / D7 decides whether a funds gate exists.
-
-### 3.9 Not worth it
-- **Tracking Station vessel list:** `TrackingStationWidget.Update()` rewrites its text every frame, and nothing on it is a reservation decision.
-- **Science subjects:** the ledger's cap walk (earliest credit first) already makes collecting now safe (section 4). There is nothing to block, so there is nothing to mark.
+1. **No why.** No text states the append-only rule or the way out. The text also uses raw UT where every Parsek window uses `KSPUtil.PrintDateCompact`, and contains em dashes, against the house style.
+2. **The badge is custom-drawn and hover-only.** Its IMGUI tooltip box is a Parsek-drawn surface on a stock screen, and it uses none of the stock "disabled with reason" mechanisms.
+3. **Mission Control loses its badges on a tab switch.** `MissionControl.RebuildContractList()` destroys every row on each tab change, filter change, accept, decline and `onContractsListChanged`. The controller decorates only at spawn and on `OnTimelineDataChanged`. The v1 plan accepted this as edge case E6.
+4. **Contract Configurator switches the Mission Control path off.**
+   - CC builds its own rows (`PrfbMissionListItem`, with a `ContractContainer` in `Data`), so the row lookup returns null and the overlay disables itself.
+   - CC also replaces the Accept listener, bypassing the `OnClickAccept` pre-block, so only the `Contract.Accept` backstop refuses.
+   - Read from CC source; not reproduced in game.
+5. **An Astronaut Complex opened from the VAB/SPH is undecorated.** `CrewAssignmentDialog.onOpenACProceed` fires `onGUIAstronautComplexSpawn` in the EDITOR scene, and the addon runs in SpaceCentre only.
+6. **Marks and blocks go stale.**
+   - The committed-future slice is `MilestoneStore`'s unreplayed range (`LastReplayedEventIndex + 1 ..`). Only a rewind or revert load resets it (`MilestoneStore.cs:464-467`), and nothing advances it as the clock passes an event. Its only writes are creation (`:144`), restore-from-save (`:456`), reset (`:467`) and removal decrements.
+   - Tech and contracts: this is mostly cosmetic, because the item changes state anyway.
+   - Facilities: `FacilityUpgradePatch` blocks by facility id at ANY level, so a later 2->3 upgrade probably stays refused after the committed 1->2 has replayed *(inferred)*.
+7. **Invisible to the GUI census.** uGUI plus hover-only means neither the GuiTree recorder nor a screenshot captures the layer (todo `GUI-INVENTORY-STOCKUIOVERLAY-BADGES-ARE-INVISIBLE-TO-BOTH-CENSUS-INSTRUMENTS`). Moving to stock mechanisms does not fix that by itself.
 
 ## 4. Block audit: is every reservation actually enforced?
 
-The rule that falls out of the #721 invariant: **an overlay may only ship for a kind whose block ships in the same change.** So
-the holes below come before, or together with, their screen's overlay.
+Verdicts:
+- **BLOCKED:** refused today.
+- **SAFE:** the ledger walk reconciles the conflict.
+- **HOLE:** committed history can be broken or double-charged.
+- **ADVISORY:** shown but not enforced.
 
-| # | Player action now, against a committed future | Verdict | Mechanism / evidence |
+| Id | Player action now, against a committed future | Verdict | Mechanism / evidence |
 |---|---|---|---|
-| 1 | Activate a strategy the future activates; deactivate one it relies on; fill slots it needs | **HOLE** | See "Row 1" below |
-| 2 | Purchase a part (entry cost) the future purchases | **HOLE** (inferred) | See "Row 2" below |
-| 3 | Upgrade a facility the future upgrades | BLOCKED, probably over-blocked | by facility id at any level, and never lifts (section 1.1 item 6) |
-| 3 | Downgrade | SAFE | `FacilityDowngraded` is not a ledger action; `FacilityStatePatcher` re-writes the ledger level |
-| 3 | Repair a facility the future repairs | state SAFE, **funds HOLE** | See "Row 3" below |
-| 4 | Accept the same contract (same guid) | BLOCKED | `ContractAcceptPatch` |
-| 4 | Accept OTHER contracts until the slots the future needs are full | **HOLE** | See "Row 4" below |
-| 4 | Decline an offer the future accepts | **HOLE** (silently overridden; see section 11.2) | `ContractDeclined` is not a ledger action; the accept is restored from its snapshot at its UT, and the decline's reputation loss stays |
-| 4 | Complete a contract now (another flight) that the future completes | SAFE | earliest wins; the later completion gets `Effective=false` (`ContractsModule.cs:396-429`) |
-| 4 | Cancel a contract the future completes, fails or cancels | **HOLE** (see section 11.3) | completion zeroed, with a possible committed-spend cascade; fail and cancel penalties are charged twice |
-| 5 | Collect science on a subject the future credits | SAFE | See "Row 5" below |
-| 6 | Spend funds the future needs | advisory | See "Row 6" below |
-| 7 | Achieve a milestone the future achieves | SAFE | earliest wins (`MilestonesModule.cs:54-114`); records stay effective by design |
-| 8 | Assign / dismiss / hire a reserved or committed kerbal via VAB, SPH or Astronaut Complex | BLOCKED | filter + swap + hire/dismiss patches |
-| 8 | EVA / crew transfer / rescue a reserved kerbal who sits in a live non-active vessel | **HOLE** (damage limited) | See "Row 8" below |
-| 9 | Research the same tech node | BLOCKED | `TechResearchPatch` |
-| 9 | Research a different prerequisite path | SAFE | `PatchTechTree` unlocks the future node at its UT regardless |
+| T1 | Research the same tech node | BLOCKED | `TechResearchPatch` |
+| T2 | Research a different prerequisite path | SAFE | `PatchTechTree` unlocks the committed node at its UT regardless |
+| S1 | Activate a strategy the future activates; deactivate one it relies on; fill slots it needs | **HOLE** | See "S1" below |
+| C1 | Accept the same contract | BLOCKED | `ContractAcceptPatch` |
+| C2 | Accept other contracts until the slots the future needs are full | **HOLE** | See "C2" below |
+| C3 | Decline an offer the future accepts | **HOLE** | Silently overridden; section 7.2 |
+| C4 | Cancel a contract the future completes, fails or cancels | **HOLE** | Completion zeroed with a possible cascade; penalties charged twice; section 7.3 |
+| C5 | Complete now (another flight) a contract the future completes | SAFE | Earliest wins; the later completion is `Effective=false` (`ContractsModule.cs:396-429`) |
+| F1 | Upgrade a facility the future upgrades | BLOCKED, probably over-blocked | By facility id at any level, never lifted (section 3 item 6) |
+| F2 | Downgrade | SAFE | `FacilityDowngraded` is not a ledger action; `FacilityStatePatcher` re-writes the ledger level |
+| F3 | Repair a facility the future repairs | state SAFE, **funds HOLE** | Every repair row charges `FacilityCost` (`FundsModule.cs:165`) without checking the building was destroyed |
+| P1 | Purchase a part (entry cost) the future purchases | **HOLE** *(inferred)* | No block; a purchase is a `FundsSpending` row keyed by part name. Stock purchased state is rebuilt only in bypass-entry-purchase mode (`KspStatePatcher.cs:920-935`), so buying now plus the committed row charges twice |
+| K1 | Assign / hire / dismiss a reserved or committed kerbal via VAB, SPH or Astronaut Complex | BLOCKED | Filter + swap + hire/dismiss patches |
+| K2 | EVA / crew-transfer / rescue a reserved kerbal already aboard a live non-active vessel | **HOLE** (damage limited) | No `onCrewTransferred` / `onCrewOnEva` guard, and no swap on a `[` / `]` vessel switch. The spawn-time crew dedup (`VesselSpawner.cs:2972-3060`) empties the duplicate seat, so the recorded flight loses the kerbal instead of the world holding two |
+| Sc1 | Collect science on a subject the future credits | SAFE | See "Sc1" below |
+| M1 | Achieve a milestone the future achieves | SAFE | Earliest wins (`MilestonesModule.cs:54-114`); records stay effective by design |
+| $1 | Spend funds the future needs | ADVISORY | The walk can go negative; the stock bar shows the projected minimum, so stock's own affordability checks gate KSC purchases; `CanAffordFundsSpending` has no caller (P15 / D7) |
 
-**Row 1: strategies.**
-- There is no block anywhere. `StrategyLifecyclePatch` only has capture postfixes on `Activate` / `Deactivate`.
-- A second activation of the same id overwrites, with a Warn (`StrategiesModule.cs:103-107`), and charges setup cost again on every activate row (`FundsModule.cs:171`).
-- No production code ever mutates the stock `StrategySystem`.
+**S1: strategies.**
+- `StrategyLifecyclePatch` is capture-only postfixes.
+- A second activation of the same id overwrites with a Warn (`StrategiesModule.cs:103-107`) and charges the setup cost again (`FundsModule.cs:171`).
 - `StrategiesModule.GetAvailableSlots` has no caller.
-- `docs/parsek-game-actions-and-resources-recorder-design.md:322/340` claims a "UT=0 reservation ... blocks new strategy activations entirely". No code does this.
+- No production code writes stock `StrategySystem`, so after a rewind a committed activation is charged but the stock strategy never switches on.
+- `docs/parsek-game-actions-and-resources-recorder-design.md:322/340` claims a "UT=0 reservation ... blocks new strategy activations entirely", which no code does.
 
-**Row 2: part purchases.**
-- There is no block.
-- A purchase is a `FundsSpending` row keyed by part name. Stock purchased state is only rebuilt in bypass-entry-purchase mode (`KspStatePatcher.cs:920-935`).
-- So after a rewind, buying now plus the future row means two charges.
-
-**Row 3: facility repair.**
-- The building state is the last destroy or repair row by UT, which is safe.
-- Every repair row charges `FacilityCost` without checking that the building was destroyed (`FundsModule.cs:165`). So a repair now plus the future repair means paying for a no-op repair.
-
-**Row 4: contract slot exhaustion.**
+**C2: contract slots.**
 - `ContractsModule.GetAvailableSlots` has no caller.
-- `KspStatePatcher.PatchContracts` restores committed accepts with no slot check ("can be negative if over-subscribed", `ContractsModule.cs:565`).
-- The design doc's UT=0 slot reservation is not enforced.
+- `KspStatePatcher.PatchContracts` restores committed accepts with no slot check (`ContractsModule.cs:565`: "can be negative if over-subscribed").
 
-**Row 5: science subjects.**
+**Sc1: science subjects.**
 - The ledger's cap walk sets `EffectiveScience = min(awarded, max - credited)`, earliest first (`ScienceModule.cs:242-256`).
-- `ScienceSubjectPatch` does NOT see future credits, because it reads the cutoff walk. It is not the safety mechanism; the cap walk is.
+- `ScienceSubjectPatch` reads the cutoff walk and does not see future credits. It is not the safety mechanism.
 
-**Row 6: funds.**
-- The walk can go negative.
-- The stock bar shows the projected minimum, so stock's own affordability checks are the effective gate at KSC.
-- `CanAffordFundsSpending` has no caller (open decision P15 / D7).
+**What this means for overlays:**
+- **Blocks that must ship with their overlays:** S1, C2, C3, C4, and P1 if a part overlay is wanted.
+- **Ledger or flight defects with no control to mark:** F3 and K2, plus the unconditional double penalty behind C4 (section 7.5). File these as bugs.
+- **Cheapest alternative, decision D5:** where the walk can make a duplicate harmless (earliest wins, no double charge), no block and no explanation is needed. Candidates are P1, F3 and the S1 setup cost.
 
-**Row 8: kerbals via EVA / transfer / rescue.**
-- No `onCrewTransferred` / `onCrewOnEva` guard exists, and the swap does not run on a `[` / `]` vessel switch.
-- The spawn-time crew dedup (`VesselSpawner.cs:2972-3060`) empties the duplicate seat, so the recorded flight loses the kerbal instead of the world holding two copies.
+## 5. Where each annotation goes, screen by screen
 
-**The holes that must close before their overlay can ship:**
-- strategies (#1)
-- contract slots (#4b)
-- part purchase (#2), if a part overlay is wanted
+Common technique:
+- Postfix the method that BUILDS or REFRESHES each stock row or button, never "decorate once at spawn": stock rebuilds rows and resets button state constantly.
+- Text goes into the stock tooltip or reason field.
+- Prefer postfixes: RP-1 replaces several of these methods with false-returning prefixes, and CC replaces listeners.
+- Predicates are cached and invalidated on `LedgerOrchestrator.OnTimelineDataChanged`. `MilestoneStore.GetCommitted*` allocates and walks every committed event, and `CanAffordScienceSpending` runs a full recalc, so neither may run per row or per frame.
 
-Facility repair funds (#3c) and the EVA / transfer path (#8b) are ledger or flight defects with no stock-screen control to mark. File them as bugs.
+| Screen | Mark | Why | Block at the control | Reference | Difficulty |
+|---|---|---|---|---|---|
+| **R&D tech tree** | postfix `RDNode.UpdateGraphics`, tint via `graphics.SetIconColor` (runs after `SetButtonState`, which resets the colour) | postfix private `RDNode.GetTooltipCaption`, append to the stock node tooltip | postfix `RDController.UpdatePanel`: `actionButton.Enable(false)` + reason (it re-enables Research whenever a node is shown) | RP-1 `Harmony/RDNode.cs`, `RDController.cs`. `RDController.nodes` is public, so the current reflection is unneeded | easy |
+| **Administration** | stock greys the row (`#bdbdbd`, state "na") | stock prints the reason in orange atop the description | ONE postfix on `Strategies.Strategy.CanBeActivated(out string reason)`, mirrored on `CanBeDeactivated`. It also refuses `Activate()`, which checks `CanBeActivated`. Bypass while `GameStateRecorder.IsReplayingActions` is set | Strategia `CanActivate(ref reason)`; RP-1 `Harmony/Administration.cs` | easy; needs the S1 predicate |
+| **Mission Control: Available** | postfix `MissionControl.AddItem`, decorate the row just built (fixes the tab-switch loss). For CC: a cheap row-count change check while open, resolving `Data` as `MissionSelection`, then `Contract`, then any object with a `Contract`-typed `contract` field | postfix `UpdateInfoPanelContract`, append to `contractText` (as KSPCF `ShowContractFinishDates` does) | Accept: postfix `RefreshUIControls`, `btnAccept.interactable = false`; slot reason (C2). Decline: section 7.4 | CC `MissionControlUI.cs`; RP-1 `Harmony/MissionControl.cs` | moderate |
+| **Mission Control: Active** | the same `AddItem` postfix: `Completes / Fails / Cancelled on <date> on your committed timeline` | the same detail-panel postfix | Cancel: section 7.4 | - | moderate |
+| **Astronaut Complex** | postfix `AddItem_Applicants` / `_Available` / `_Assigned` / `_Kia`: `CrewListItem.SetLabel("Reserved until Y2 D114")` | postfix `CrewListItem.SetTooltip`, append to `TooltipController_CrewAC.descriptionString` | `SetButtonEnabled(false, title, caption)` (stock "locked with reason"); re-apply in a postfix on `UpdateCrewCounts`, which re-unlocks applicants. Also covers the EDITOR-opened complex (defect 5) | RP-1 `Harmony/AstronautComplex.cs`, `CrewListItem.cs`; Crew R&R `SetLabel`. Hazard: Enhanced Astronaut Complex clones rows | easy-moderate |
+| **VAB/SPH crew dialog** (owner: show marked) | replace `CrewDialogFilterPatch`'s hiding with a postfix on the `AddAvailItem(pcm, out CrewListItem, ...)` overload, applying stock's `crew.inactive` look: `disabledCrewListSprite`, greyed name, `UIDragPanel.dragEnabled = false`, `MouseoverEnabled = false` | `SetButtonEnabled(false, "Reserved", "<why>")` | keep `CrewAutoAssignPatch`'s swap, so a reserved kerbal never lands in a seat | RP-1 `Harmony/BaseCrewAssignmentDialog.cs`. Do NOT copy Crew R&R's `rosterStatus = 9001` trick | moderate |
+| **KSC facility menu** | - | attach a stock `TooltipController_Text` with `RequireInteractable = false` | postfix protected `KSCFacilityContextMenu.OnFacilityValuesModified` (re-runs on structure events): `UpgradeButton.interactable = false` (private; `AccessTools.FieldRefAccess`). `onFacilityContextMenuSpawn` fires before the buttons fill, so do not decorate there. Fix the raw facility id via `FacilityDisplayNames` | RP-1 `Harmony/KSCFacilityContextMenu.cs` | easy |
+| **Part list / purchase** (only with a P1 block) | skip per-icon badges: `EditorPartIcon` is rebuilt on every refresh and KSPCF transpiles those paths | postfix `PartListTooltip.Setup` (both overloads): reason in `textGreyoutMessage` | disable `buttonPurchase`. NOT `EditorPartList.GreyoutFilters`, which makes the part unusable rather than unpurchasable. The R&D part list has the same need | RP-1 `Harmony/PartListTooltip.cs` | moderate |
+| **Funds / science widgets** | - | keep the `CurrencyReservationOverlay` tooltip; extend its scene gate to the EDITOR, where funds are spent (todo `RESERVATION-OVERLAY-GAPS` (a)) | funds gate per P15 / D7 | - | easy |
 
-## 5. The "why" text: fact + rule + way out
+Not worth it:
+- **Tracking Station vessel list:** `TrackingStationWidget.Update()` rewrites its text every frame, and no reservation decision is taken there.
+- **Science subjects:** SAFE via the cap walk (Sc1); nothing to block, so nothing to mark.
+- **Game modes:** Science mode has no contracts or strategies, so only R&D, Astronaut Complex, VAB and facility annotations apply. Sandbox has no committed career state.
 
-The owner picked a three-part explanation. The audit found a problem with the third part: **for most blocks, the obvious way
-out does not exist.**
+## 6. The "why" text: fact + rule + way out
 
-- **Rewind (R) does not free anything.** It reloads the launch quicksave and re-applies every committed action as the timeline replays
-  (`docs/user-guide.md` "Rewind / Fast-Forward"). Rewinding is what CREATES the committed future.
-- **Re-Fly (Rewind-to-Separation) does free items**, through tombstones, but with two limits:
-  - It only covers recording-scoped rows of the superseded subtree.
-  - Null-scoped KSC rows (tech, facility, strategy, part, hire and KSC-side accepts) are never tombstoned (`TombstoneEligibility.cs:55-120`). Re-Fly is also only offered at split Rewind Points.
-- **Deleting a committed recording has no player UI** apart from the ghost-only "X". Mission Delete only removes cloned missions.
-- **Todo #430 plans a "Revert to launch" shortcut in the blocked dialog.** It would not unblock anything, so re-scope #430 accordingly.
+**Finding: for most blocks, the obvious way out does not exist.**
+- **Rewind (R) frees nothing.** It reloads the launch quicksave and re-applies every committed action as the timeline replays (`docs/user-guide.md`, "Rewind / Fast-Forward"). Rewinding is what CREATES the committed future.
+- **Re-Fly (Rewind-to-Separation)** frees only recording-scoped rows of the superseded subtree. Null-scoped KSC rows (tech, facility, strategy, part, hire, KSC-side accepts) are never tombstoned (`TombstoneEligibility.cs:55-120`). It is also offered only at split Rewind Points.
+- **Deleting a committed recording has no player UI**, apart from the ghost-only "X". Mission Delete removes cloned missions only.
+- **Todo #430's planned "Revert to launch" shortcut** in the blocked dialog would unblock nothing. Re-scope it to the explanation alone.
 
-The honest "way out" is therefore **when it frees up**, not **how to undo it**:
+**Genuine way-outs that do exist, all for kerbals:**
+- An Aboard or Unknown hold ends when the kerbal is recovered from a real vessel continuing that flight (`KerbalsModule.cs:814-825`, `ResolveRecoveryClosureUT`).
+- A Recovered hold ends at the flight's recovery UT.
+- A hold made open-ended by a looping chain ends only if the loop stops, because a chain with a looping segment keeps `+inf` (`KerbalsModule.cs:804-812`). The loop toggle is an Advanced-only control (`design-ui-basic-advanced.md` section 4.5). The claim that turning the loop off releases the hold is *(inferred)*.
 
-| Kind | Proposed text (stock tooltip / reason field) |
+The honest third part is therefore **when it frees up**, plus the kerbal-specific actions above:
+
+| Kind | Proposed text |
 |---|---|
-| Tech | `Researched on Y2 D114 by the committed flight 'Mun Lander 3'.` / `Parsek's timeline is fixed once committed, so this cannot happen earlier or twice.` / `It unlocks when the clock reaches that date.` |
-| Contract accept | `Accepted on Y2 D114 by the committed flight 'Mun Lander 3'.` / same rule / `It becomes active on that date.` |
-| Contract slots | `A committed flight accepts a contract on Y2 D114 and needs this slot.` / same rule / `A slot frees when one of your active contracts ends.` |
-| Strategy | `Activated on Y2 D114 on your committed timeline.` / same rule / `It becomes active on that date.` |
-| Facility upgrade | `Upgraded to level 2 on Y2 D114 on your committed timeline.` / same rule / `The upgrade happens on that date.` |
-| Kerbal hire | `Hired on Y2 D114 by your committed timeline.` / same rule / `They join the roster on that date.` |
-| Kerbal reserved (flight) | `Flies 'Mun Lander 3' on your committed timeline.` / `A kerbal on a committed flight cannot be used or risked before it ends.` / `Free after Y2 D130.` (or `Free once 'Mun Lander 3' is recovered.` for an open-ended hold) |
-| Kerbal lost | `Lost on the committed flight 'Mun Lander 3'.` / `That flight is fixed history.` / (no way out) |
+| Tech | `Researched on Y2 D114 by the committed flight 'Mun Lander 3'.` `Parsek's timeline is fixed once committed, so this cannot happen earlier or twice.` `It unlocks on that date.` |
+| Contract accept / decline | `Accepted on Y2 D114 by the committed flight 'Mun Lander 3'.` + rule + `It becomes active on that date.` |
+| Contract cancel | `Completed on Y1 D40 by the committed flight 'Mun Lander 3'.` + rule + `It completes and frees its slot on that date.` (or `Fails ...` / `Cancelled ...`) |
+| Contract slots | `A committed flight accepts a contract on Y2 D114 and needs this slot.` + rule + `A slot frees when one of your active contracts ends.` |
+| Strategy | `Activated on Y2 D114 on your committed timeline.` + rule + `It becomes active on that date.` |
+| Facility upgrade | `Upgraded to level 2 on Y2 D114 on your committed timeline.` + rule + `The upgrade happens on that date.` |
+| Kerbal hire | `Hired on Y2 D114 on your committed timeline.` + rule + `They join the roster on that date.` |
+| Kerbal on a flight | `Flies 'Mun Lander 3' on your committed timeline.` `A kerbal on a committed flight cannot be used or risked before it ends.` `Free after Y2 D130.` / `Free once 'Mun Lander 3' is recovered.` / `Held while 'Mun Lander 3' loops.` |
+| Kerbal lost | `Lost on the committed flight 'Mun Lander 3'.` `That flight is fixed history.` (no way out) |
 
-Where a Re-Fly genuinely would release the item, the text can add `Re-Fly that flight to change it.` Deciding where that is
-true needs the tombstone scope above, per kind. Wording should reuse the Kerbals window's crew vocabulary (Kerbals design
-ruling 19, "one crew vocabulary"), dates via `KSPUtil.PrintDateCompact`, and no em dashes. The same strings feed the
-backstop `CommittedActionDialog`, so a blocked click and a hover say the same thing.
+Wording rules:
+- Use the Kerbals window's crew vocabulary (Kerbals design ruling 19, "one crew vocabulary").
+- Dates go through `KSPUtil.PrintDateCompact`.
+- Plain ASCII, no em dashes.
+- ONE pure `ReservationExplanation` builder per kind feeds the tooltip, the reason field and the backstop `CommittedActionDialog`, so a hover and a refused click say the same thing.
+- Add `Re-Fly that flight to change it.` only where a Re-Fly genuinely releases the item.
+- Parsek's text is English; stock reason fields are localized. This matches every other Parsek string today.
 
-**One owner decision falls out of this (D2 in section 9):** whether a player-side way out SHOULD exist for KSC-origin
-commitments. Examples would be a Re-Fly that also tombstones the KSC actions between two flights, or an explicit
-"un-commit". Today the model is strict: committed means permanent. The overlay text should say so plainly rather than hint at an
-escape that is not there.
+## 7. Decision analysis: Decline and Cancel on contracts the committed future relies on
 
-## 6. What leaves the Parsek windows
+### 7.1 Facts
 
-The recommendation follows the ownership table in section 2: remove present-tense "can I" state from the windows, and keep
-dated history and the timeline projection.
+**Stock KSP, from the 1.12.5 decompile:**
+- `MissionControl.OnClickDecline` calls `Contract.Decline()`, and `OnClickCancel` calls `Contract.Cancel()`. Neither asks for confirmation.
+- `Decline()` costs `Career.RepLossDeclined` reputation, a difficulty setting that can be zero.
+- `Cancel()` runs `PenalizeCancellation()`: funds and reputation interpolated from the advance to the full failure penalty, by the fraction of time elapsed towards the deadline. Cancelling early is cheaper than failing.
+- `Contract.CanBeDeclined()` / `CanBeCancelled()` are virtual and return true. `MissionControl` sets `btnDecline` / `btnCancel.interactable` from them, so this is a native disable hook.
+- Contract Configurator overrides both (`ConfiguredContract`, from its `declinable` / `cancellable` config) and replaces both listeners with handlers that call `Contract.Decline()` / `Cancel()`.
 
-| Window / tab | Keep | Remove or demote |
+**Parsek:**
+- `ContractDeclined` is not a ledger action (`GameStateEventConverter.cs:331`). A committed later accept is restored anyway by `KspStatePatcher.PatchContracts`.
+- `Cancel()` becomes a `ContractCancel` row now. A later committed `ContractComplete` then becomes `Effective=false` and loses its funds, reputation and science (`ContractsModule.cs:414-420`).
+- Fail and cancel penalties are charged **unconditionally**, whatever the Effective flag (`FundsModule.cs:454-470`), so a later committed fail or cancel is charged again.
+- Deadline expiry is not a committed row; the walk derives it (`ContractsModule.cs:470-497`).
+- An unaffordable committed tech unlock is refused and marked `UnaffordableRunningScience`, with a Warn reading "possible bug or data corruption" (`ScienceModule.cs:294-321`). Contract completions can award science.
+
+### 7.2 Decline an Offered contract that a committed flight accepts later
+
+| Option | Effect | Verdict |
 |---|---|---|
-| Timeline > Career view (Contracts, Strategies, Facilities, Milestones, Tech) | all of it: dated rows, past and future | nothing |
-| Career window > Contracts | see section 10: the whole window becomes redundant once the section 10.3 conditions hold | every column is covered by stock Mission Control, a Mission Control annotation or the Timeline's Career view |
-| Career window > Strategies | see section 10 | every column is covered by stock Administration, an Administration annotation or the Timeline's Career view |
-| Kerbals window > Roster | status plus the `Reserved until` hover, as the full roster reference | once the VAB crew dialog shows reserved kerbals marked, Basic mode loses its reason to show this window. Consider moving it back to Advanced (reverses the 2026-09-22 re-ruling; `design-ui-basic-advanced.md` section 3) |
-| Kerbals window > Outcomes | all of it (history) | nothing |
+| A. Allow silently (today) | The offer vanishes, reputation may drop, and at the committed UT the contract reappears as Active unexplained. The row is marked while Decline stays live, breaking the pairing rule | reject |
+| B. Allow, annotate | The same no-op plus penalty, now explained | reject |
+| **C. Block** | Decline greyed, reason in the detail panel, backstop refusal. The offer stays listed until stock expires it or the committed UT arrives; either way it becomes active then | **adopt** |
+| D. Honour the decline | Tombstones a committed action, leaves the flight's completion with no accept, contradicts append-only | reject |
 
-Net effect:
-- The Career window can be retired once the overlays are complete (section 10).
-- The Kerbals window becomes a reference rather than the only explanation.
-- No career fact is lost, because every removed "now" value is exactly what the stock screen already shows.
+Option C reuses the Accept block's predicate (`GetCommittedContractAcceptIds`) on the same row. The stale slice cannot bite here: after the committed UT the contract is Active, so Decline is unreachable.
 
-## 7. Proposed amendment to the "No new player-facing UI surfaces" rule
+### 7.3 Cancel an Active contract
+
+| Case | What the committed timeline does later | Cancelling now, today |
+|---|---|---|
+| X1 | completes it | Cancel penalty now; the completion's funds, reputation and science are zeroed; the ghost still completes it on screen. Downstream committed spending may become unaffordable, and a committed tech unlock is refused. **A paradox cascade into committed history** |
+| X2 | fails it (recorded) | Cancel penalty now **plus** the committed fail penalty: **charged twice** |
+| X3 | cancels it (recorded) | Two cancel penalties |
+| X4 | nothing, or only the derived deadline expiry | No committed row is affected. Cancelling early for the cheaper penalty is legitimate stock play |
+
+| Option | Result | Verdict |
+|---|---|---|
+| A. Allow silently (today) | X1 cascades; X2 and X3 double-charge | reject |
+| B. Allow, annotate | The same outcomes, now explained; breaks the pairing rule | reject |
+| **C. Block X1-X3, allow X4** | No cascade, no double charge. Cost: the slot cannot be freed before the committed UT, but committed history already occupies it until then | **adopt** |
+| D. Block X1 only | X2 and X3 still double-charge; a harder rule to state | reject |
+| E. Confirmation popup | A new popup type (forbidden by the UI rule), and it cannot state the cascade without a full recalc per click | reject |
+
+**Rule:** Cancel is refused when the committed timeline has a later explicit completion, failure or cancellation row for the contract. Derived deadline expiry does not count. Contracts the committed future leaves open stay cancellable.
+
+### 7.4 Implementation
+
+The same layering as the Accept block:
+- **Predicate.**
+  - Decline uses the accept helper.
+  - Cancel uses a new pure helper over the effective ledger: the contract's committed resolution after now (type + UT + recording), cached, keyed by UT, and so free of the stale slice.
+  - The Active-row annotation reads the SAME helper.
+- **Button state.** Postfix `Contract.CanBeDeclined` / `CanBeCancelled`, plus CC's `ConfiguredContract` overrides when CC is loaded, because a patch on the base method does not cover an override. The reason goes in via the `UpdateInfoPanelContract` postfix.
+- **Backstop.** Prefixes on the non-virtual `Contract.Decline()` / `Cancel()`, which CC's handlers call too, refusing with the section 6 text. Bypass while `IsReplayingActions` is set. `PatchContracts` writes state directly and calls neither (`KspStatePatcher.cs:2501`).
+- **Tests.**
+  - E18-style pairing cells: decline vs the accept mark, cancel vs the Active-row annotation.
+  - A pure cell for each of X1-X4.
+  - A CC-override target-resolution cell.
+
+### 7.5 Not covered by this decision
+
+- **A world-driven failure now:** a present-day flight loses the vessel a committed completion relied on, and stock fires `Contract.Fail`. This cannot be blocked. It takes the X1 path. Record it as the one known path where present play overrides a committed contract outcome, and point the "possible bug or data corruption" Warn at this cause.
+- **The unconditional double penalty** (X2, X3, and the world-driven path) is a ledger defect in its own right. A fail or cancel on an already-resolved contract should not charge again.
+
+## 8. What leaves the Parsek windows
+
+### 8.1 The Career window becomes redundant
+
+The window is `UI/CareerStateWindowUI.cs`, PR #1796, inventory section 3.5.
+- It is read-only, Advanced-only, and shown in Career games in the KSC and FLIGHT scenes.
+- It has two tabs, Contracts and Strategies. Each tab shows:
+  - `Active now: N of M slots`
+  - the active rows
+  - a `Pending in timeline (n) - N of M slots at timeline end` fold
+  - a `Timeline end` column
+- Name cells link into the Timeline's Career view.
+
+| Career window element | Stock screen today | With the section 5 annotations | Timeline Career view |
+|---|---|---|---|
+| `Active now: 2 of 3 slots` (contracts) | **yes**: `MissionControl.textMCStats` (`#autoLOC_468173`), orange when full | the Accept reason names a held slot (C2) | no |
+| Active contract rows | **yes**: Active tab | - | accept rows |
+| `Accepted` date | no | no | **yes** |
+| `Deadline` + `(in 12d)` | **yes**: detail panel (`PrintDate` / `PrintDateDeltaCompact` on `DateDeadline`) | - | no |
+| `Timeline end` on an active contract | no | **new**: the Active-row annotation (section 5) | **yes**: dated rows, future dimmed |
+| Pending fold: contracts the future accepts | only while still Offered | the accept mark + Accept / Decline blocks | **yes**, including contracts no longer offered |
+| `N of M slots at timeline end` | no | not needed: blocking depends on peak concurrent slots before each committed accept (the C2 reason), not the end count | no |
+| `Active now: N of M` (strategies) | **yes**: `Administration.activeStratCount` (`#autoLOC_439627`) | the `CanBeActivated` reason names a held slot | no |
+| `Activated` date | no (stock keeps `Strategy.DateActivated` but does not show it) | no | **yes** |
+| `Flow` | **yes**: the Administration description | - | no |
+| `Timeline end` on an active strategy | no | the `CanBeDeactivated` reason + description text | **yes** |
+| Pending fold: strategies the future activates | no | the `CanBeActivated` reason | **yes** |
+| Mode banner `(timeline ends <date>)` | no | - | **yes**: rows after the "now" divider |
+| Available in FLIGHT | stock screens are KSC-only | - | **yes**; no contract or strategy decision is taken in flight |
+
+- **Genuinely lost:** the one-screen roll-up of "what is active and what the committed future does to it". That is a planning convenience for Advanced players only; Basic players never had the window.
+- **What the window was covering up:**
+  - **Strategies:** the tab reads the ledger (`ComputeELS()`), but stock `StrategySystem` is never patched from it (S1). Retiring the window without a `KspStatePatcher` strategy patch would hide that divergence, not fix it.
+  - **Mission Control:** Decline and Cancel are unblocked (C3, C4); only the `Timeline end` column hinted at the consequence.
+
+**Conditions for retiring the window:**
+1. **Mission Control:**
+   - Available rows: mark, reason, and Accept + Decline blocked.
+   - Active rows: annotated, with Cancel blocked per section 7.3.
+   - The C2 slot reason on Accept.
+   - All of it survives tab switches and CC.
+2. **Administration:**
+   - `CanBeActivated` / `CanBeDeactivated` reasons.
+   - Stock strategy state patched from the ledger.
+3. **The Timeline's Career view stays as it is.**
+4. **One retirement PR** after 1 and 2. It removes:
+   - the window and its launcher
+   - the `career` census vocabulary (`op=tab window=career`, `pending:` keys)
+   - the GUI-1 / GUI-5 / GUI-8 / GUI-14 / GUI-15 captures
+   - `UI/Gallery/GuiMockCareerStates.cs`
+   - the gate key and the inventory and Basic/Advanced rows
+
+   Mind the `CommittedBatchTallySourceSyncTests` / census source-sync cells that read those vocabularies.
+
+Retiring the window before conditions 1 and 2 ship would leave Advanced players with no in-place explanation, which is the owner's "wrong place" problem.
+
+### 8.2 The other windows
+
+| Window / tab | Recommendation |
+|---|---|
+| Timeline > Career view | Keep everything: dated past and future rows are its job |
+| Kerbals > Roster | Keep as the full roster reference. Once the VAB crew dialog shows reserved kerbals marked, the 2026-09-22 reason for showing this window in Basic ("the only surface explaining why a reserved kerbal is missing") is gone, so consider returning it to Advanced (D3) |
+| Kerbals > Outcomes | Keep (history) |
+
+## 9. Proposed amendment to the "No new player-facing UI surfaces" rule
 
 Current text (`.claude/CLAUDE.md`, Hard rules):
 > No new player-facing UI surfaces (windows, popups, badge counters, persistent "issues" panels). When information seems to
 > need surfacing, the only options are extra wording in an EXISTING hover tooltip ..., a one-shot `ParsekLog.ScreenMessage`
 > for an EVENT ..., or nothing ...
 
-Proposed addition (one bullet, appended):
+Proposed addition:
 > **Exception: stock-control annotation.** Parsek may annotate a STOCK KSP control the player can act on, to explain a Parsek
-> block on that exact control. The annotation uses only stock's own mechanisms:
+> block on that exact control. It may use only stock's own mechanisms:
 > - the control's disabled or greyed state
 > - text appended to that control's existing stock tooltip or description
 > - stock's own reason field (`CanBeActivated` reason, `CrewListItem.SetButtonEnabled` caption, `SetLabel` status line)
 > - a tint of the control's existing icon
 >
-> Every annotation is paired with a click-block that reads the same predicate, the PR #721 invariant. There are no Parsek-drawn boxes, badges, counters or panels on stock screens.
+> Every annotation is paired with a click-block that reads the same predicate. There are no Parsek-drawn boxes, badges,
+> counters or panels on stock screens.
 
-Consequence: the existing `OverlayBadge` (a custom icon with a Parsek-drawn IMGUI box) does not meet the amended rule. It
-should be migrated to the stock mechanisms in section 3 rather than grandfathered. The Kerbals design's "one crew vocabulary"
-already requires the wording to match the Parsek windows.
+**Consequences:**
+- `OverlayBadge`, a custom icon with a Parsek-drawn IMGUI box, does not meet the amended rule. Migrate it rather than grandfather it.
+- The Active-row contract annotation and the Astronaut Complex status labels for lost or retired stand-ins are informational kinds that no stock button acts on. They are allowed because they annotate an existing stock row's own status text. The pairing rule applies to clickable kinds, as in the v1 plan.
+- The rule text itself is changed only in `.claude/CLAUDE.md` + `AGENTS.md` (byte-identical) and only on the owner's ruling (D1).
 
-## 8. Suggested sequencing
+## 10. Sequencing
 
-Each step is one PR and a pairing of mark and block.
+Each step is one PR; each pairs a mark with its block.
 
-1. **Wording and plumbing, no new screens.**
-   - One pure `ReservationExplanation` builder per kind: fact + rule + when, with dates and no em dashes.
-   - Feed it to `CommittedActionDialog` and to the existing badges.
-   - Fix the stale-slice problem (item 6). A UT or replay-aware filter must be applied to both the overlay and the block, together, or the #721 invariant breaks.
-   - Verify and fix the facility over-block.
-2. **Migrate R&D, the Astronaut Complex and Mission Control to stock mechanisms** (sections 3.1, 3.3, 3.4). This fixes the Mission Control tab-switch loss, Contract Configurator rows and the Astronaut Complex opened from the editor.
-3. **VAB/SPH crew dialog: show marked** (section 3.5). Then re-rule the Kerbals window's Basic visibility.
-4. **Strategies:** a committed-future strategy predicate plus the `CanBeActivated` / `CanBeDeactivated` postfix (section 3.2). This closes hole #1.
-   Correct or delete the design-doc claim.
-5. **Contract slots:** a committed-slot predicate, blocking Accept with the reason (hole #4b).
-5b. **Mission Control Decline / Cancel and Active-row annotations, plus the strategy state patch** (section 10.2).
-   Then **retire the Career window** in one PR (section 10.3).
-6. **KSC facility menu** (section 3.6). Extend the currency tooltip to the EDITOR (section 3.8).
-7. **Only if wanted:** a part-purchase block plus the `PartListTooltip` annotation (hole #2).
-8. **Separately, as bugs:** facility repair double charge (#3c) and the EVA / transfer reservation path (#8b).
-9. **Tooling:** a uGUI capture path for the GuiTree recorder, so the census can see stock-screen annotations. Its tooltip text
-   becomes photographable via pointer parking.
+1. **Wording and predicates, no new screens.**
+   - The `ReservationExplanation` builder (section 6) feeds the dialog and the existing badges.
+   - Replace the stale `MilestoneStore` slice with a UT-keyed committed-future index over the effective ledger, read by BOTH the marks and the blocks.
+   - Verify and fix the facility over-block (F1).
+2. **Migrate R&D, the Astronaut Complex and Mission Control to stock mechanisms.** This fixes defects 2-5.
+3. **Mission Control Decline / Cancel blocks + Active-row annotations** (section 7). Closes C3 and C4.
+4. **Contract slots:** a committed-slot predicate on Accept (C2).
+5. **Strategies:**
+   - the S1 predicate + `CanBeActivated` / `CanBeDeactivated`
+   - a `KspStatePatcher` strategy-state patch
+   - correct the design-doc claim
+6. **Retire the Career window** (section 8.1).
+7. **VAB/SPH crew dialog: show marked** (section 5). Then re-rule the Kerbals window's Basic visibility (D3).
+8. **KSC facility menu** (section 5). Currency tooltip in the EDITOR.
+9. **Only if wanted:** a P1 part-purchase block + `PartListTooltip`, or the ledger-side dedupe (D4 / D5).
+10. **Bugs, independent of the UI:**
+    - the unconditional contract penalty double charge (7.5)
+    - the facility repair double charge (F3)
+    - the EVA / transfer reservation path (K2)
+11. **Tooling:** a uGUI capture path for the GuiTree recorder, plus pointer parking for tooltips, so the census can see stock-screen annotations.
 
-## 9. Open decisions for the owner
+## 11. Decision register
 
-- **D1.** Adopt the rule amendment in section 7, and migrate `OverlayBadge` rather than keep it.
-- **D2.** The way out: accept "committed is permanent; the text says when it happens", or design a real un-commit path
-  for KSC-origin actions (section 5).
-- **D3.** Kerbals window back to Advanced once the crew dialog shows reserved kerbals (section 6).
-- **D4.** Whether part purchases get a block at all, or whether the double charge is fixed purely in the ledger. For example, dedupe
-  purchases by part name the way milestones dedupe, which would make the action SAFE and need no overlay.
-- **D5.** The same ledger-side option for strategies and facility repairs: make the duplicate action harmless in the walk
-  (earliest wins, no double charge) instead of blocking it. For every kind where that is possible, it removes the need for
-  both a block AND an explanation. That is the cheapest way to answer "why is this blocked": it is not blocked.
-
-- **D6.** Retire the Career window once the section 10.3 conditions hold. The recommendation for Decline and Cancel on
-  contracts the committed future relies on is in section 11: block both, with Cancel blocked only when a committed row
-  resolves the contract later.
-
-## 10. Is the Career window redundant once the overlays are done?
-
-**Short answer: yes.** Its contracts and strategies tabs become redundant, but only after four conditions are met (section 10.3). Two of those conditions are
-defects or holes that the window currently papers over, not features that the overlays would need to copy.
-
-What the window is today: `UI/CareerStateWindowUI.cs`, PR #1796 (2026-09-24), inventory section 3.5.
-- It is read-only and hidden in Basic mode.
-- Its launcher appears in Career games only, in the KSC and FLIGHT scenes.
-- It has two tabs, Contracts and Strategies. Each tab has:
-  - a heading, `Active now: N of M slots`
-  - a table of what is active now
-  - a `Pending in timeline (n) - N of M slots at timeline end` fold listing what the recorded future adds
-  - a `Timeline end` column saying what the recorded future does to each row
-- Its only interaction is the name-cell link into the Timeline's Career view.
-
-### 10.1 Element-by-element coverage
-
-The "stock" column below was checked against the 1.12.5 decompile (`MissionControl`, `Administration`, `Strategies.Strategy`).
-
-| Career window element | Stock screen today | With the section 3 annotations | Timeline Career view |
-|---|---|---|---|
-| Contracts heading `Active now: 2 of 3 slots` | **yes**: `MissionControl.textMCStats` prints the active count and limit (`#autoLOC_468173`), orange when full | the Accept reason names a slot held for a committed flight (hole #4b) | no |
-| its hover `Slot limit from Mission Control L1` | implicit: the limit follows the building level | n/a | Facilities view dates the upgrade |
-| Active contract rows (name) | **yes**: Mission Control Active tab | n/a | accept rows |
-| `Accepted` date | no | no | **yes**: dated accept row |
-| `Deadline` + `(in 12d)` / `(overdue 3d)` | **yes**: detail panel, `PrintDate` / `PrintDateDeltaCompact` on `DateDeadline` | n/a | no |
-| `Timeline end` on an ACTIVE contract (`completes` / `FAILS` / `cancelled <date>`) | no | **new annotation needed**: Mission Control Active-tab row + detail text, `Completed on Y1 D40 by the committed flight 'X'` / `Fails on Y1 D40 ...` (todo #640's future-completed / future-failed badges) | **yes**: dated complete / fail / cancel rows (future rows dimmed) |
-| Pending fold: contracts the future accepts | only if still Offered | the existing future-accept mark on Offered rows; paired with the accept block | **yes**, including contracts no longer offered (plan E9: not offered, so nothing on the stock screen to mark) |
-| `N of M slots at timeline end` | no | not needed: the blocking question is peak concurrent slots before each future accept, not the end count, and it belongs on the Accept reason (#4b) | no |
-| Strategies heading `Active now: N of M` | **yes**: `Administration.activeStratCount` (`#autoLOC_439627`) | the `CanBeActivated` reason names a slot held for the future | no |
-| `Activated` date | no (stock keeps `Strategy.DateActivated` but does not show it) | no | **yes**: dated activate row |
-| `Flow` | **yes**: the strategy's effect and commitment are in the Administration description | n/a | no |
-| `Timeline end` on an active strategy (`deactivates <date>`) | no | `CanBeDeactivated` reason plus description text, `Deactivated on Y2 D114 on your committed timeline` | **yes** |
-| Pending fold: strategies the future activates | no | the `CanBeActivated` reason on that strategy (section 3.2) | **yes** |
-| Mode banner `(timeline ends <date>)` | no | n/a | **yes**: the future rows after the "now" divider |
-| Name cell link into the Timeline | n/a | n/a | the Timeline's own category buttons |
-| Available in FLIGHT | stock Mission Control and Administration are KSC-only | n/a | **yes**: the Timeline opens in flight. No contract or strategy decision is taken in flight, so nothing is lost for the "why is this blocked" question |
-
-Every row is covered by at least one surface. **What is genuinely lost** is the one-screen roll-up: "which contracts or strategies are active now, and what does my committed future do to each". Today that takes a Mission Control visit plus the Timeline's Contracts view, and after section 10.3 it is a Mission Control visit with annotated rows. That roll-up is a planning convenience, and the window is already hidden from Basic players, so they never had it.
-
-### 10.2 What the window was covering up
-
-1. **The Strategies tab shows state that stock does not have.**
-   - The tab reads the ledger (`EffectiveState.ComputeELS()`).
-   - No production code ever writes the ledger's strategy state back into stock's `StrategySystem`.
-   - After a rewind, a committed future activation is listed under the fold and charged in the ledger, but the stock strategy is never switched on (section 4, hole #1).
-   - Retiring the window without fixing that would hide the divergence rather than solve it. The fix belongs in `KspStatePatcher`, so that stock Administration becomes the truth for "active now", the same way `PatchContracts` already makes Mission Control the truth for contracts.
-2. **Mission Control's Decline and Cancel have no reasons and no blocks.** Stock has `btnDecline` and `btnCancel`. Neither is blocked for a contract the committed future relies on.
-   - **Declining an offer the future accepts** is silently overridden: the committed accept is restored at its UT. Today the row carries the accept mark, but Decline stays live. That breaks the #721 invariant: a marked row has a clickable affordance with no block.
-   - **Cancelling an active contract the future completes** makes the future completion `Effective=false` (earliest wins). The committed flight's reward is silently withdrawn.
-   - Both are paradox-adjacent in exactly the owner's sense: the append-only timeline says the committed accept or completion happened. Each needs either a block with the section 5 reason, or at least the annotation. Only the Career window's `Timeline end` column hints at this today, and only for players who open it.
-
-### 10.3 Conditions for retiring the window
-
-1. **Mission Control:**
-   - Offered rows the future accepts: mark and reason, with both Accept and Decline blocked (10.2 item 2).
-   - Active rows the future completes, fails or cancels: annotated, with Cancel blocked or annotated per the owner's choice (D6).
-   - A slot held for a committed accept: shown as the Accept reason (hole #4b).
-   - All of this must survive tab switches and Contract Configurator (section 1.1 items 3-4).
-2. **Administration:**
-   - `CanBeActivated` / `CanBeDeactivated` return reasons for future activations, deactivations and held slots (section 3.2).
-   - The ledger's strategy state is patched into stock `StrategySystem` (10.2 item 1).
-3. **The Timeline's Career view stays as it is:** dated past and future rows for Contracts and Strategies. It is the history-and-schedule surface that absorbs the `Accepted`, `Activated`, pending and `Timeline end` information. No change is needed there.
-4. **Retire in one PR, after 1 and 2 have shipped.** Remove the window, its launcher, the `career` census vocabulary (`op=tab window=career`, `pending:` keys), the GUI-1 / GUI-5 / GUI-8 / GUI-14 / GUI-15 captures, the gallery states in `UI/Gallery/GuiMockCareerStates.cs`, the `UiSurface` gate key, and the inventory and Basic/Advanced rows. Note the `CommittedBatchTallySourceSyncTests` trap for any in-game tests in its categories.
-
-Retiring the window early, before 1 and 2, would leave Advanced players with the Timeline alone. That is still a complete record of events, but it has no "active now" roll-up and no in-place explanation, which is exactly the owner's "wrong place" problem.
-
-## 11. Decision analysis: block Decline and Cancel, or only annotate them?
-
-### 11.1 The facts both options have to respect
-
-**Stock KSP, checked in the 1.12.5 decompile:**
-- `MissionControl.OnClickDecline` calls `Contract.Decline()`, and `OnClickCancel` calls `Contract.Cancel()`. Neither asks for confirmation.
-- `Decline()` costs `Career.RepLossDeclined` reputation, a difficulty setting that can be zero.
-- `Cancel()` leads to `PenalizeCancellation()`. That charges funds and reputation interpolated from the advance to the full failure penalty, by the fraction of time elapsed towards the deadline. Cancelling early is cheaper than failing.
-- Stock already has the hooks to disable both buttons: `Contract.CanBeDeclined()` and `Contract.CanBeCancelled()` are virtual and return true. `MissionControl` sets `btnDecline.interactable` / `btnCancel.interactable` from them.
-- Contract Configurator overrides both hooks from contract-type config (`declinable` / `cancellable`). It also replaces both button listeners with handlers that call `Contract.Decline()` / `Contract.Cancel()` directly.
-
-**Parsek:**
-- **Decline:** `ContractDeclined` is not a ledger action (`GameStateEventConverter.cs:331`). A committed accept at a later UT is restored anyway by `KspStatePatcher.PatchContracts`.
-- **Cancel:** it becomes a `ContractCancel` ledger row now. The walk then treats a later committed row as already resolved:
-  - A later committed `ContractComplete` for the same contract becomes `Effective=false`, and its rewards are zeroed (`ContractsModule.cs:414-420`). Those are funds, reputation and science.
-  - Fail and cancel penalties are charged **unconditionally**, whatever the Effective flag (`FundsModule.cs:454-470`; `ContractsModule` `ProcessFail` / `ProcessCancel`). A later committed `ContractFail` or `ContractCancel` is therefore charged a second time.
-- **Deadline expiry is not a committed row.** The walk derives it from `DeadlineUT` (`ContractsModule.cs:470-497`).
-- **An unaffordable committed tech unlock is refused.** The row is marked `UnaffordableRunningScience`, a Warn reads "possible bug or data corruption", and `KspStatePatcher`'s relock guard takes over (`ScienceModule.cs:294-321`). Science that a committed tech unlock depends on can come from a contract completion reward.
-
-### 11.2 Decline an Offered contract that a committed flight accepts later
-
-| Option | What happens | Verdict |
+| Id | Decision | Status |
 |---|---|---|
-| A. Allow silently (today) | The offer vanishes, the player may lose reputation, and at the committed UT the contract reappears as Active with no explanation. The player's intent is defeated. The row carries the accept mark while Decline stays live, which breaks the #721 invariant | reject |
-| B. Allow, annotate | The same no-op plus penalty, now explained. It still offers a click whose only durable effect is a reputation loss | reject |
-| C. **Block** | Decline is greyed and the reason sits in the detail panel. The backstop refuses with the section 5 text. The offer stays listed until stock expires it or the committed UT arrives. Either way it becomes active then | **adopt** |
-| D. Honour the decline | Remove the committed accept. That tombstones a committed action, leaves the flight's later completion with no accept, and contradicts the append-only model | reject |
+| R1 | The problem is explaining paradox blocks at the stock control; the Timeline keeps history | owner-ruled 2026-09-25 |
+| R2 | Explanation depth: mark + fact + rule + way out; no jump links | owner-ruled |
+| R3 | VAB/SPH crew dialog shows reserved kerbals marked, not hidden | owner-ruled |
+| R4 | Audit block completeness alongside overlay placement | owner-ruled |
+| D1 | Adopt the section 9 rule amendment; migrate `OverlayBadge` | **open**; recommended |
+| D2 | Way out: "committed is permanent, the text says when it frees" vs building a real un-commit for KSC-origin actions | **open**; recommended: the former |
+| D3 | Kerbals window back to Advanced once the crew dialog shows reserved kerbals | **open**; recommended |
+| D4 | Part purchases: block, or dedupe in the ledger | **open**; recommended: ledger dedupe (no UI needed) |
+| D5 | Prefer making duplicates harmless in the walk over blocking wherever possible (P1, F3, the S1 setup cost) | **open**; recommended |
+| D6 | Retire the Career window after the section 8.1 conditions | **open**; recommended |
+| D7 | Block Decline on committed accepts; block Cancel when a committed row later resolves the contract | **open**; recommended (section 7) |
 
-Option C costs nothing: it reuses the accept block's predicate (`GetCommittedContractAcceptIds`) on the same row, so the invariant holds by construction. The stale-slice problem (section 1.1 item 6) cannot bite here, because after the committed UT the contract is Active, not Offered, and Decline is unreachable.
+## 12. Claims still to verify
 
-### 11.3 Cancel an Active contract
-
-| Case | What the committed timeline does later | Effect of cancelling now (today) |
+| Claim | Where | How to verify |
 |---|---|---|
-| C1 | completes it (a recorded completion) | The cancel penalty is charged now, and the committed completion's funds, reputation and science are zeroed. The ghost still completes it on screen, but nothing pays. Downstream committed spending that relied on the reward can become unaffordable: a committed tech unlock is refused and the tree may re-lock. **This is a paradox cascade into committed history**, the exact thing the blocks exist to prevent |
-| C2 | fails it (a recorded failure, e.g. the vessel is lost) | Cancel penalty now, **plus** the committed failure penalty later, because penalties are unconditional. **The player pays twice** |
-| C3 | cancels it (a recorded KSC cancel) | Two cancel penalties, the same double charge |
-| C4 | nothing, or only the derived deadline expiry | No committed row is affected. This is ordinary stock play: cancelling early to take the cheaper penalty is a legitimate stock decision |
-
-| Option | Result | Verdict |
-|---|---|---|
-| A. Allow silently (today) | C1 cascades, C2 and C3 double-charge. Nothing on screen says so | reject |
-| B. Allow, annotate | Still cascades and double-charges; only the player's reading prevents it. It also breaks the "every mark is paired with a block" rule for a clickable kind | reject |
-| C. **Block C1-C3, allow C4** | No cascade and no double charge. Cost: the player cannot free that slot before the committed UT. The committed history already occupies the slot until then, and any committed later accept was planned around it, so freeing it early buys nothing the timeline can keep | **adopt** |
-| D. Block C1 only | C2 and C3 still double-charge, and the rule is harder to state ("you may cancel this one, but not that one") | reject |
-| E. Confirmation popup | A new popup type, which the UI rule forbids. It also cannot state the downstream cascade honestly, because that needs a full recalc per click | reject |
-
-**The rule to adopt:** Cancel is refused for a contract **when the committed timeline has a later explicit completion, failure or cancellation row for it**. Derived deadline expiry does not count; it is a rule of the game, not a committed action. Contracts the committed future leaves open stay cancellable.
-
-**Way-out text (section 5 form):**
-- `Completed on Y1 D40 by the committed flight 'Mun Lander 3'. Parsek's timeline is fixed once committed, so this contract cannot be cancelled before then. It completes and frees its slot on that date.`
-- For a failure: `Fails on Y1 D40 on your committed timeline ... it fails and frees its slot on that date.`
-
-### 11.4 Implementation shape
-
-The same layering as the existing Accept block:
-- **Predicate.** Declines use the existing accept helper. Cancels need a new pure helper over the effective ledger: the committed resolution of a contract after now (row type + UT + recording), cached and invalidated on `LedgerOrchestrator.OnTimelineDataChanged`. It is keyed by UT against the ledger rather than the `MilestoneStore` slice, so the stale-slice problem does not apply. The Active-row annotation (section 10.3 item 1) reads the SAME helper. That is the invariant.
-- **Button state.** Postfix `Contract.CanBeDeclined` / `CanBeCancelled` to return false, and CC's `ConfiguredContract` overrides too when CC is loaded. A Harmony patch on the base method does not cover an override. Stock's `btnDecline` / `btnCancel` then grey themselves. The reason goes into the detail panel through the `UpdateInfoPanelContract` postfix.
-- **Backstop.** Prefixes on `Contract.Decline()` / `Contract.Cancel()` (non-virtual, and CC's handlers call them) refuse with `CommittedActionDialog` and the same text. Bypass while `GameStateRecorder.IsReplayingActions` is set. `PatchContracts` writes contract state directly and calls neither method (`KspStatePatcher.cs:2501`).
-- **Tests.** Pairwise invariant cells in the E18 style: the decline predicate against the accept mark, and the cancel predicate against the Active-row annotation. A pure cell for each of C1-C4, and a CC-override target-resolution cell.
-
-### 11.5 What this decision does not cover
-
-- **A present-day failure from the game world.** Example: a flight in the present crashes the vessel a committed completion relied on, and stock fires `Contract.Fail` from a parameter. It cannot be blocked; it is physics, not a button. It takes the C1 path, with the future completion zeroed and a possible cascade. Record it as the one known path where present play overrides a committed contract outcome, and make the ledger cascade visible, for example by pinning the "possible bug or data corruption" Warn wording to this cause.
-- **The double charge in C2 and C3 is a ledger defect in its own right.** A fail or cancel row on a contract that is already resolved should not charge again. Fix it in `ContractsModule` / `FundsModule` independently of the block, because the world-driven path above still reaches it.
+| F1 facility over-block after the committed upgrade replays | section 3 item 6, section 4 | Rewind before a committed 1->2 upgrade, let it replay, try 2->3 |
+| P1 part purchase double charge | section 4 | Rewind before a committed purchase, buy the part, read the ledger funds rows |
+| CC switches off the Mission Control overlay and bypasses the Accept pre-block | section 3 item 4 | Open Mission Control with CC installed and a committed accept |
+| Turning a loop off releases a looping chain's kerbal hold | section 6 | Unit cell over `KerbalsModule` with `LoopPlayback` toggled |
+| X1 cascade reaches a refused committed tech unlock | section 7.3 | A synthetic ledger: completion reward funds a later tech spend, then cancel before the completion |
 
 ## Sources
 
-- **Parsek source, overlay layer:**
+- **Parsek, overlay layer:**
   - `StockUiOverlayController.cs`
   - `OverlayBadge.cs`
   - `CurrencyReservationOverlay.cs`
   - `CommittedActionDialog.cs`
-- **Parsek source, Harmony patches:**
-  - `Patches/TechResearchPatch.cs`
-  - `Patches/ContractAcceptPatch.cs`
-  - `Patches/KerbalHirePatch.cs`
-  - `Patches/KerbalDismissalPatch.cs`
-  - `Patches/FacilityUpgradePatch.cs`
-  - `Patches/CrewDialogFilterPatch.cs`
-  - `Patches/CrewAutoAssignPatch.cs`
-  - `Patches/StrategyLifecyclePatch.cs`
-  - `Patches/FacilityRepairCapturePatches.cs`
-- **Parsek source, stores and state:**
+- **Parsek, Harmony patches:** `Patches/`
+  - `TechResearchPatch`
+  - `ContractAcceptPatch`
+  - `KerbalHirePatch`
+  - `KerbalDismissalPatch`
+  - `FacilityUpgradePatch`
+  - `CrewDialogFilterPatch`
+  - `CrewAutoAssignPatch`
+  - `StrategyLifecyclePatch`
+  - `FacilityRepairCapturePatches`
+- **Parsek, stores and ledger:**
   - `MilestoneStore.cs`
   - `KerbalsModule.cs`
-  - `GameActions/StrategiesModule.cs`, `ContractsModule.cs`, `FundsModule.cs`, `ScienceModule.cs`, `MilestonesModule.cs`, `KspStatePatcher.cs`
   - `TombstoneEligibility.cs`
+  - `GameActions/`: `StrategiesModule`, `ContractsModule`, `FundsModule`, `ScienceModule`, `MilestonesModule`, `KspStatePatcher`, `GameStateEventConverter`
 - **Parsek UI:** `UI/CareerStateWindowUI.cs`, `UI/KerbalsPresentation.cs`
 - **Docs:**
   - `docs/dev/done/plans/game-state-ui-overlays.md`
-  - `docs/dev/todo-and-known-bugs.md` #640, #430, `RESERVATION-OVERLAY-GAPS`, the census badge gap, `GUI-P15-D7`
+  - `docs/dev/todo-and-known-bugs.md`: #640, #430, `RESERVATION-OVERLAY-GAPS`, the census badge gap, `GUI-P15-D7`
   - `docs/dev/design-gui-inventory.md`
   - `docs/dev/design-ui-basic-advanced.md`
   - `docs/dev/design-gui-kerbals-window.md`
@@ -519,14 +455,15 @@ The same layering as the existing Accept block:
 - **KSP 1.12.5 decompile:**
   - `RDController`, `RDNode`, `RDNodePrefab`
   - `MissionControl`, `MCListItem`
+  - `Contracts.Contract`
   - `Administration`, `Strategies.Strategy`
   - `AstronautComplex`, `CrewListItem`, `BaseCrewAssignmentDialog`
   - `KSCFacilityContextMenu`
   - `PartListTooltip`, `EditorPartList`
   - `TrackingStationWidget`
 - **Reference mods:**
-  - RP-1 `Source/RP0/Harmony/{RDNode,RDController,MissionControl,Administration,AstronautComplex,CrewListItem,BaseCrewAssignmentDialog,KSCFacilityContextMenu,PartListTooltip,EditorPartIcon}.cs`
-  - Contract Configurator `MissionControlUI.cs`
+  - RP-1 `Source/RP0/Harmony/` (RDNode, RDController, MissionControl, Administration, AstronautComplex, CrewListItem, BaseCrewAssignmentDialog, KSCFacilityContextMenu, PartListTooltip, EditorPartIcon)
+  - CC `MissionControlUI.cs`, `ConfiguredContract.cs`
   - Strategia `StrategiaStrategy.cs`
-  - KSPCommunityFixes `QoL/ShowContractFinishDates.cs`
+  - KSPCF `QoL/ShowContractFinishDates.cs`
   - Crew R&R `Interface/SpaceCenterModule.cs`

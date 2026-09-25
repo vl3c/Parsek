@@ -18728,6 +18728,12 @@ The map/TS render cutover is COMPLETE (see the DONE entry above): the modular Di
 
 **Status:** TODO - future investigation / review item from PR #721.
 
+**2026-09-25:** superseded as the planning reference by
+`docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` (the stock-control annotation
+plan, block audit and decision register; tracked by `STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`).
+The v2 items below are all covered there, several with a different recommended mechanism
+(stock disable-with-reason hooks instead of `OverlayBadge`).
+
 PR #721 ships the v1 scope: stock R&D, Astronaut Complex, and Mission
 Control committed-future overlays, plus click-blocks for duplicated tech,
 contract accept, kerbal hire, and facility upgrade actions. The following
@@ -18878,6 +18884,13 @@ explicit-rect overload takes no control ID, so the carrier cannot perturb layout
 live cell exists to measure it on the machine the mod runs on - but that cell has never
 been executed (it needs a KSP session), and no human has watched the strip fill in yet.
 So: reasoning and unit coverage are complete; runtime confirmation is entirely owed.
+
+**2026-09-25 re-scope:** `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md`
+section 6 found that the `Revert to launch` shortcut below would unblock nothing (Rewind
+re-applies every committed action; KSC-origin rows are never tombstoned). The residual is the
+explanation text (fact + rule + when it frees), fed from one builder to the dialog and to the
+stock-control annotations; the `Go to Timeline` button stays out per the owner's 2026-09-25
+ruling (mark + why, no jump links).
 
 **Still open (the residual) - the structured blocked-action dialog:**
 
