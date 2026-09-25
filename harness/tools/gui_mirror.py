@@ -3172,6 +3172,8 @@ table.sum .wlink:hover{text-decoration:underline}
   vertical-align:middle;white-space:nowrap}
 .badge.mock{border-color:#8a6ab0;background:#2a2036;color:#dcc6f2}
 .badge.sup{border-color:#4a4a4a;background:#232323;color:#9a9a9a}
+#stagehead .stalebanner{color:var(--warn);font-weight:600;margin-left:8px}
+#stagehead .stalebanner button{margin-left:6px}
 .badge.nohover{border-color:#7a6a3a;background:#2a2620;color:#cbb782}
 .badge.disagree{border-color:#a05a5a;background:#2e2020;color:#e0a0a0}
 #rail .s.stale{opacity:.5;font-style:italic}
@@ -3411,6 +3413,15 @@ function capFlags(cap){
                         + '", log "' + d.log + '"'; }).join('; ') });
   }
   return out;
+}
+/* The newest non-stale capture of the same key, or null. */
+function currentOf(cap){
+  var best = null;
+  M.captures.forEach(function(c){
+    if (c.key !== cap.key || c.window !== cap.window || isStale(c)) return;
+    if (!best || (c.capturedUtc || '') > (best.capturedUtc || '')) best = c;
+  });
+  return best;
 }
 function appendFlags(host, cap, short){
   capFlags(cap).forEach(function(f){
@@ -4301,6 +4312,22 @@ function select(cap, exact){
   head.appendChild(el('b', null, winName(cap.window)));
   head.appendChild(el('span', null, stateLabel(cap.window, cap.tab, cap.state, cap.mode)));
   appendFlags(head, cap);
+  /* A stale capture (superseded, retired, old layout, no hover) reached by a link
+     or a Compare BEFORE is not the window as it is today: say so in words and
+     offer the current capture of the same state, when there is one. */
+  if (isStale(cap)){
+    var cur = currentOf(cap);
+    var ban = el('span', 'stalebanner', cur
+      ? 'Not the current picture of this state (run ' + cur.runId + ' is).'
+      : 'Not the current picture of this state; no current capture exists yet.');
+    if (cur){
+      var go2 = el('button', 'ui', 'show current');
+      go2.onclick = function(ev){ ev.stopPropagation(); select(cur, true);
+        if (S.view === 'compare') buildCompare(); };
+      ban.appendChild(go2);
+    }
+    head.appendChild(ban);
+  }
   var src = el('span', 'lab', cap.fixture + ', run ' + cap.runId);
   src.title = cap.label;
   head.appendChild(src);

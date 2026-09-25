@@ -10,6 +10,7 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the GUI mirror says when a shown capture is not current.** A superseded, retired, old-layout or no-hover capture opened from a link or as a Compare BEFORE now carries a banner naming the run that is current, with a button to show it (`harness/tools/gui_mirror.py`).
 - **Automated testing: a lane loops a recorded mission and watches its copies relaunch, overlap and expire.**
   `GS-12-kerbalx-loop-cycles` flies GS-4's Kerbal X flight, rewinds and watches the first run, then loops
   the whole mission three ways under 10x warp: one copy at a time (150 s period), on the global Auto
@@ -1100,6 +1101,31 @@ _(unreleased — entries accumulate here per commit)_
   marked purchased in the game, with no second charge. Parsek's ledger keeps every purchase
   you made; nothing is dropped or merged. With the bypass option on, purchases are free and
   nothing changes.
+- **Space Center: the facility menu greys out Upgrade, with the reason, when your committed
+  timeline upgrades that facility later.** Clicking Upgrade on such a building used to be the
+  first you heard of it: an "Action Blocked" popup. Now the Upgrade button in the building's
+  menu is greyed out, and hovering it shows the same explanation the popup gives (for example
+  `Upgraded to level 2 on Y2 D114 on your committed timeline.`, that committed history cannot
+  happen earlier or twice, and `The upgrade happens on that date.`). Once the clock passes the
+  last committed upgrade, Upgrade is back the next time the menu opens; a change to the
+  committed timeline while the menu is open updates it at once. The refusal stays in place
+  for any other way of starting the upgrade, and both name the building, never its internal
+  id.
+- **Mission Control: accepting a contract is now refused, with a reason, when a contract
+  your committed timeline accepts later needs that slot.** Accepting it used to fill the
+  slot the committed accept relies on, so the committed timeline ended up over the Mission
+  Control limit. Accept is now greyed out on every contract the committed timeline does not
+  accept itself, and the details end with `Accept is unavailable` and the explanation (`The
+  committed flight 'Mun Lander 3' accepts the contract 'Rescue Bill' on Y2 D114 and needs
+  this slot.`, the rule, and `A slot frees when one of your active contracts ends.`); an
+  accept from anywhere else, including Contract Configurator's Accept, gets the same answer.
+  The count follows the committed timeline to its end: contracts active now hold their slot
+  until a committed completion, failure or cancellation, or until their deadline, committed
+  accepts add theirs until their own resolution or deadline (auto-accepted contracts, which
+  stock does not count, are left out), and a committed Mission Control upgrade raises the
+  limit from its date. A contract whose own deadline ends before the committed accept that
+  needs the slot is not refused. Decline stays available, and when stock already shows every
+  slot full nothing extra is said.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
@@ -1382,7 +1408,16 @@ _(unreleased — entries accumulate here per commit)_
   refused for a kerbal Parsek manages: it went through a stock path Parsek did not guard.
   Mission Control moved to the same stock mechanisms (see Fixed), so no Space Center screen
   shows a Parsek badge any more.
-
+- **VAB/SPH crew dialog: kerbals your committed timeline reserves are shown greyed out with
+  the reason, instead of being hidden.** A kerbal a committed flight holds, lost on a
+  committed flight, or retired as a stand-in used to vanish from the available crew list
+  without a word. They are now listed the way KSP lists an inactive kerbal (greyed, cannot be
+  dragged), and their hover tooltip says why and, for a kerbal a committed flight holds, when
+  they are free again (the same text the Astronaut Complex shows). They cannot reach a seat by
+  dragging, clicking or Fill (Fill skips them and seats the next kerbal), and a refused
+  placement shows the same explanation. A saved craft that names a reserved kerbal still gets that seat
+  swapped to their stand-in or emptied; that now also happens when no stand-in exists yet at
+  all, where the kerbal used to stay seated.
 - **Timeline: the time-range presets are back on their own always-visible row.** This
   partly reverts the `Time: <range>` button from the two-row filter area above. The filter
   area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career),

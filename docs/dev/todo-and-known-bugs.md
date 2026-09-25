@@ -61,8 +61,21 @@ pairing rule):
   stands). The design doc's UT=0 claim is corrected. Not covered, filed separately:
   `STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW` (a KSPCF expiry that replays after a
   rewind appends a second StrategyDeactivate row; predates PR 5).
-- C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
-  accepts over a full Mission Control.
+- ~~C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
+  accepts over a full Mission Control.~~
+  Fixed by PR 4 (branch `stock-ui-slots`): `ContractSlotReservation.Forecast` (pure, next to
+  `CommittedFutureIndex`) walks the committed timeline from now (actives held until their
+  committed resolution or their deadline, committed accepts added until theirs, committed
+  auto-accept rows skipped, removals first on a UT tie, the limit raised by committed Mission
+  Control upgrades), and an Offered contract the committed timeline does not accept is refused
+  when a new accept now, held until its own deadline, would leave a committed accept without
+  a slot.
+  One decision (`MissionControlStockAnnotation.Decide`, kind `ContractSlot`) greys Accept in
+  the detail panel with the reason, refuses in the `Contract.Accept` / `OnClickAccept`
+  backstops and in the CC `CanAccept` postfix; there is no row mark (the section 4 C2
+  pairing interpretation). `ContractsModule.GetAvailableSlots` still has no caller, and
+  `PatchContracts` still restores committed accepts without a slot check: with the block in
+  place only a committed history that was already over the limit can reach it.
 - ~~C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.~~
   Fixed by PR 2b (branch `stock-ui-mc`): `ContractDeclinePatch` prefixes the non-virtual
   `Contract.Decline()` and refuses (with the accept explanation) exactly where
@@ -160,8 +173,39 @@ pairing rule):
   with a pre-UI prefix on `AstronautComplex.Xbutton_AvailableCrew` and a `SackAvailable`
   backstop over the same predicate (`KerbalDismissalPatch.ShouldAllowDismissal`); the
   Astronaut Complex greys that button for the same set.
+- ~~The KSC facility menu showed nothing: Upgrade on a facility the committed timeline
+  upgrades later stayed live, and the click met a surprise "Action Blocked" popup.~~ Fixed by
+  PR 7 (branch `stock-ui-facility`): a postfix on the protected
+  `KSCFacilityContextMenu.OnFacilityValuesModified` (stock's button fill, re-run on structure
+  collapse / repair) sets the private `UpgradeButton` non-interactable and puts the
+  explanation in a stock `TooltipController_Text` on it (`RequireInteractable = false`, prefab
+  copied from a stock controller; the menu's description text is the logged fallback), over
+  `StockUiDecorationQuery.ForFacilityMenu`, the predicate and text the
+  `FacilityUpgradeSpendPatch` / `FacilityUpgradePatch` refusal reads
+  (`FacilityUpgradePatch.TryBlockFacilityUpgradeById`). A timeline change re-runs stock's fill
+  on an open menu; a clock that passes the committed UT while the menu stays open is picked
+  up on the next fill or open (the refusal reads the live clock either way). The raw
+  facility id appears in no player-facing string (the refusal's title and body are pinned).
+- ~~The VAB/SPH crew dialog hides reserved kerbals silently (`CrewDialogFilterPatch`).~~
+  Fixed by PR 6 (branch `stock-ui-crew-dialog`, reference section 10 step 7, owner ruling R3):
+  the hiding prefix is deleted. A postfix on
+  `BaseCrewAssignmentDialog.AddAvailItem(PCM, out CrewListItem, UIList, ButtonTypes)` gives a
+  kerbal `KerbalsModule.ShouldFilterFromCrewDialog` refuses (the old filter's own predicate)
+  stock's `crew.inactive` look plus `SetButtonEnabled(false, title, why)`; a postfix on the
+  private `CreateAvailList` re-derives every row per build (grey, or restore a look Parsek set)
+  and logs `decorate screen=CrewAssignment tab=Available ...`. Every seat path reads the same
+  predicate: `MoveCrewToEmptySeat` (click, Fill) and `DropOnCrewList` (drag from the list)
+  prefixes refuse with the `CommittedActionDialog`; a `ButtonFill` prefix fills from the
+  first assignable row when a refused one is listed (stock always takes the top row). A
+  saved or auto-assigned manifest stays `CrewAutoAssignPatch`'s swap, which no longer skips
+  the walk when no stand-in exists at all (a reserved kerbal used to stay seated then).
+  Code: `StockUiCrewDialogDecoration.cs`, `Patches/CrewDialogReservationPatches.cs`; cells in
+  `StockUiCrewDialogTests.cs`. Not covered in game: `NoEditorSceneTestsExistContract` forbids
+  EDITOR-scene cells (DiskOnly isolation), and a timeline change while the dialog is open
+  re-marks only at the next stock rebuild. D3 (the Kerbals window back to Advanced) stays open.
 - In-game coverage: the rewritten `StockUiOverlay` cells (six R&D / Astronaut
-  Complex from PR 2a, three Mission Control from PR 2b) have not flown; H45 pins `total=9`
+  Complex from PR 2a, three Mission Control from PR 2b, the Active-row / Cancel cell from
+  PR 3 and the facility menu cell from PR 7) have not flown; H45 pins `total=11`
   INTERIM until its reading run. The editor-opened complex has no in-game cell (no
   lane runs `StockUiOverlay` in the EDITOR), and a timeline change while that complex is open
   re-annotates only on the next stock rebuild (the refresh hook lives in the SpaceCentre-only

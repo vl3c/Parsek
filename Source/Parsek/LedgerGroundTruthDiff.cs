@@ -756,8 +756,8 @@ namespace Parsek
         /// divergence: <see cref="KerbalsModule.ApplyToRoster"/> leaves reserved
         /// kerbals at their natural rosterStatus and performs NO rosterStatus
         /// manipulation when stock's MIA respawn flips a Dead kerbal back to
-        /// Available - the reservation persists and CrewDialogFilterPatch keeps them
-        /// out of the crew dialog. Flagging that state made the facet raise on
+        /// Available - the reservation persists and the crew dialog refuses to seat
+        /// them (StockUiCrewDialogDecoration). Flagging that state made the facet raise on
         /// correct behavior. It is counted in the census line instead
         /// (<c>respawnedButReserved</c>), so the signal stays observable without
         /// being a divergence. What DOES still raise is a state the reservation

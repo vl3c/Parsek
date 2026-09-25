@@ -2695,6 +2695,19 @@ class SupersededByKeyTests(unittest.TestCase):
         self.assertEqual(gmi.build_index(model)["supersededCaptureCount"], 0)
 
 
+class StaleCaptureBannerTests(unittest.TestCase):
+    def test_a_stale_capture_says_so_and_links_the_current_one(self):
+        root = tempfile.mkdtemp()
+        html = gmi.render_html(gmi.build_model([make_shots(root)], make_scenarios(root),
+                                               with_photos=False))
+        sel = html[html.index("function select(cap, exact){"):]
+        sel = sel[:sel.index("\nfunction ", 10)]
+        self.assertIn("if (isStale(cap)){", sel)
+        self.assertIn("var cur = currentOf(cap);", sel)
+        self.assertIn("function currentOf(cap){", html)
+        self.assertIn("c.key !== cap.key || c.window !== cap.window || isStale(c)", html)
+
+
 class LabelButtonStyleTests(unittest.TestCase):
     def test_a_label_styled_button_has_no_outline_or_bevel(self):
         # KSP draws a label-styled button (the Career name link) as plain text.

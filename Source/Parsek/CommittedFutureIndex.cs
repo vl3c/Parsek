@@ -58,6 +58,13 @@ namespace Parsek
         internal readonly string Title;
         /// <summary>True for a row read from the milestone fallback, not the ledger.</summary>
         internal readonly bool FromMilestoneFallback;
+        /// <summary>ContractAccept only: the accepted contract's absolute deadline UT, or NaN
+        /// when the row carries none (open-ended).</summary>
+        internal readonly double DeadlineUT;
+        /// <summary>ContractAccept only: true when the accepted contract is a stock
+        /// auto-accept contract (its accept snapshot says <c>autoAccept = True</c>); stock
+        /// neither counts nor slot-checks those.</summary>
+        internal readonly bool AutoAccept;
 
         internal CommittedFutureEntry(
             CommittedFutureKind kind,
@@ -68,7 +75,9 @@ namespace Parsek
             int facilityToLevel = 0,
             float amount = 0f,
             string title = null,
-            bool fromMilestoneFallback = false)
+            bool fromMilestoneFallback = false,
+            double deadlineUT = double.NaN,
+            bool autoAccept = false)
         {
             Kind = kind;
             Key = key ?? "";
@@ -79,6 +88,8 @@ namespace Parsek
             Amount = amount;
             Title = string.IsNullOrEmpty(title) ? null : title;
             FromMilestoneFallback = fromMilestoneFallback;
+            DeadlineUT = deadlineUT;
+            AutoAccept = autoAccept;
         }
     }
 
@@ -226,11 +237,14 @@ namespace Parsek
         /// <param name="recordingName">The display name of a recording, or null.</param>
         /// <param name="fallbackEntries">Rows for kinds with no ledger representation
         /// (<see cref="CommittedFutureKind.KerbalRetire"/>), already committed-filtered.</param>
+        /// <param name="isAutoAcceptContract">True when a contract guid is a stock
+        /// auto-accept contract (production: its accept snapshot); null treats none as one.</param>
         internal static CommittedFutureIndex Build(
             IReadOnlyList<GameAction> effectiveActions,
             Func<string, bool> isCommittedRecording,
             Func<string, string> recordingName,
-            IEnumerable<CommittedFutureEntry> fallbackEntries)
+            IEnumerable<CommittedFutureEntry> fallbackEntries,
+            Func<string, bool> isAutoAcceptContract = null)
         {
             var index = new CommittedFutureIndex();
             var nameCache = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -276,11 +290,14 @@ namespace Parsek
                         case CommittedFutureKind.StrategyActivate: amount = a.SetupCost; break;
                         default: amount = 0f; break;
                     }
+                    bool isAccept = kind == CommittedFutureKind.ContractAccept;
                     index.Add(new CommittedFutureEntry(
                         kind, key, a.UT, a.RecordingId, name,
                         facilityToLevel: kind == CommittedFutureKind.FacilityUpgrade ? a.ToLevel : 0,
                         amount: amount,
-                        title: a.ContractTitle));
+                        title: a.ContractTitle,
+                        deadlineUT: isAccept ? a.DeadlineUT : double.NaN,
+                        autoAccept: isAccept && isAutoAcceptContract != null && isAutoAcceptContract(key)));
                     entries++;
                 }
             }
@@ -581,7 +598,8 @@ namespace Parsek
                         els,
                         isCommitted,
                         ResolveRecordingDisplayName,
-                        CollectRetireFallbackEntries(isCommitted, ResolveRecordingDisplayName));
+                        CollectRetireFallbackEntries(isCommitted, ResolveRecordingDisplayName),
+                        IsAutoAcceptContractSnapshot);
 
                     cached = index;
                     cachedEls = els;
@@ -652,6 +670,26 @@ namespace Parsek
                 : null;
             if (mission != null && !string.IsNullOrEmpty(mission.Name)) return mission.Name;
             return string.IsNullOrEmpty(rec.VesselName) ? null : rec.VesselName;
+        }
+
+        /// <summary>
+        /// True when the contract's accept snapshot (<c>GameStateStore.GetContractSnapshot</c>,
+        /// written from stock's <c>Contract.Save</c> on accept) says <c>autoAccept = True</c>.
+        /// A contract with no snapshot reads as not auto-accepted.
+        /// </summary>
+        internal static bool IsAutoAcceptContractSnapshot(string contractGuid)
+        {
+            if (string.IsNullOrEmpty(contractGuid)) return false;
+            ConfigNode node = GameStateStore.GetContractSnapshot(contractGuid);
+            return IsAutoAcceptSnapshotNode(node);
+        }
+
+        /// <summary>Pure: the snapshot node's <c>autoAccept</c> value, case-insensitively.</summary>
+        internal static bool IsAutoAcceptSnapshotNode(ConfigNode node)
+        {
+            string value = node != null ? node.GetValue("autoAccept") : null;
+            bool parsed;
+            return value != null && bool.TryParse(value.Trim(), out parsed) && parsed;
         }
 
         /// <summary>

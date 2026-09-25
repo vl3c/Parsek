@@ -181,6 +181,38 @@ namespace Parsek
             };
         }
 
+        /// <summary>The way out of a slot-refused accept.</summary>
+        internal const string ContractSlotWayOut = "A slot frees when one of your active contracts ends.";
+
+        /// <summary>
+        /// Accepting a contract now would leave no Mission Control slot for a committed
+        /// accept (section 4 "C2"). <paramref name="starvedAccept"/> is the earliest
+        /// committed accept that would find no slot; its flight and contract title are named
+        /// when the row carries them. The Mission Control detail panel, the Accept backstop
+        /// and Contract Configurator's refusal all read this text.
+        /// </summary>
+        internal static ReservationText ContractSlot(CommittedFutureEntry starvedAccept, Func<double, string> formatDate)
+        {
+            string date = FormatDate(starvedAccept != null ? starvedAccept.UT : 0.0, formatDate);
+            string who;
+            if (starvedAccept != null && starvedAccept.RecordingName != null)
+                who = "The committed flight '" + starvedAccept.RecordingName + "'";
+            else if (starvedAccept != null && starvedAccept.RecordingId == null)
+                who = "Your committed timeline";
+            else
+                who = "A committed flight";
+            string what = starvedAccept != null && starvedAccept.Title != null
+                ? "the contract '" + starvedAccept.Title + "'"
+                : "a contract";
+            return new ReservationText
+            {
+                Title = "Slot needed on " + date,
+                Fact = who + " accepts " + what + " on " + date + " and needs this slot.",
+                Rule = TimelineRule,
+                WayOut = ContractSlotWayOut
+            };
+        }
+
         /// <summary>
         /// The facility-upgrade explanation over every committed upgrade of the facility
         /// still ahead (UT ascending). The block lifts once the clock passes the last one,
@@ -435,6 +467,28 @@ namespace Parsek
                 Fact = fact,
                 Rule = CrewRule,
                 WayOut = wayOut
+            };
+        }
+
+        /// <summary>
+        /// A retired stand-in (the Kerbals window's <c>Retired</c>): he stood in for a
+        /// reserved owner on a committed flight, and that owner is free again
+        /// (<c>KerbalsModule.ComputeRetiredSet</c>: displaced, flew a committed recording,
+        /// not reserved now). <c>KerbalsModule.ShouldFilterFromCrewDialog</c> keeps him off
+        /// new crews. No player action is known to bring him back, so there is no way-out
+        /// sentence rather than an invented one.
+        /// </summary>
+        internal static ReservationText KerbalRetiredStandIn(string slotOwner)
+        {
+            bool hasOwner = !string.IsNullOrEmpty(slotOwner);
+            return new ReservationText
+            {
+                Title = "Retired",
+                Fact = hasOwner
+                    ? "Stood in for " + slotOwner + " on a committed flight."
+                    : "Stood in for a reserved kerbal on a committed flight.",
+                Rule = (hasOwner ? slotOwner + " is" : "That kerbal is")
+                       + " free again, so Parsek has retired this stand-in and they cannot join a new crew."
             };
         }
 
