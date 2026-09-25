@@ -7056,6 +7056,12 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "PartEventFX": 6,
             "GhostLifecycle": 17,
         }),
+        # 2026-09-25 coverage wave 4: the D15 / D16 storage-and-timeline lane,
+        # pinned whole off reading run 2026-09-25_2043.
+        "ST-1-storage-timeline-ingame": ("FLIGHT", {
+            "Timeline": 1,
+            "Storage": 3,
+        }),
     }
 
     # Members whose split has NOT been measured yet, mirroring the two sibling

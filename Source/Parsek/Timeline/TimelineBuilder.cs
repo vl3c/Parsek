@@ -712,6 +712,7 @@ namespace Parsek
         {
             int count = 0;
             int evaReassignSkipped = 0;
+            int routeSkipped = 0;
             int modeSeedSkipped = 0;
             int hireCostSuffixSuppressed = 0;
             int noopSpendSkipped = 0;
@@ -735,6 +736,15 @@ namespace Parsek
             for (int i = 0; i < compactedActions.Count; i++)
             {
                 var action = compactedActions[i];
+
+                // Design section 3.3: the route action types have no timeline entry.
+                // Without this skip each fell to MapGameActionType's default, rendered
+                // as a raw enum-name LegacyEvent row and WARNed on every build.
+                if (IsRouteOnlyActionType(action.Type))
+                {
+                    routeSkipped++;
+                    continue;
+                }
 
                 if (!IsInitialResourceSeedVisibleInMode(action.Type, currentMode))
                 {
@@ -839,6 +849,10 @@ namespace Parsek
             if (evaReassignSkipped > 0)
                 ParsekLog.Verbose("Timeline",
                     $"Filtered {evaReassignSkipped} KerbalAssignment action(s) at EVA branch time(s)");
+
+            if (routeSkipped > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {routeSkipped} route action(s) (no timeline entry by design)");
 
             if (modeSeedSkipped > 0)
                 ParsekLog.Verbose("Timeline",
@@ -961,6 +975,15 @@ namespace Parsek
                 default:
                     return true;
             }
+        }
+
+        /// <summary>
+        /// Pure: the supply-route action types, which the ledger keeps but the timeline
+        /// never shows (timeline design section 3.3).
+        /// </summary>
+        internal static bool IsRouteOnlyActionType(GameActionType type)
+        {
+            return Logistics.RouteLedgerRetire.IsRouteActionType(type);
         }
 
         private static bool IsInitialResourceSeed(GameActionType type)

@@ -1,4 +1,4 @@
-# In-game test category inventory (all 114 categories)
+# In-game test category inventory (all 116 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -188,6 +188,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue wants autostrut parts in range) | B |
 | `StockUiOverlay` | 12 | 0 | 12 | 0 | 0 | 12 | H45 (2026-09-25, stock-UI overlays PR 7: a twelfth cell, the KSC facility menu (`FacilityMenuUpgradeDisabledWithReasonAndRestored`: a committed future upgrade greys Upgrade with the reason in a stock tooltip through a stock refresh, another facility's menu stays stock, and Upgrade comes back when the row goes; it opens the menu with a no-op dismiss callback so nothing in the career changes), pin `total=12`, still interim. PR 4: an eleventh cell, the contract-slot block on Accept (`MissionControlSlotNeededByCommittedAcceptGreysAcceptWithReason`: committed-accept fixture rows fill the free slots, Accept greys with the slot reason and the backstop decision refuses; no stock contract state is changed), pin `total=11`, still interim. PR 3: a tenth cell, the Active-row label and Cancel block (`MissionControlActiveRowLabelAndCancelBlockedWithReason`), which needs an Active contract and skips on `career-earned-ksc` (nine Offered, zero Active); pin `total=10`, still interim. PR 2a: the four R&D / Astronaut Complex badge cells were replaced by six stock-mechanism cells - tinted node icon, stock tooltip and description text, disabled Research button, row labels, locked hire / dismiss buttons, no Parsek object on the stock screen. PR 2b: the two Mission Control badge cells rewritten for the stock mechanisms and a third added. Together 9 declarations, pin `total=9` with the split regexed and the id back in `INTERIM_PIN_IDS` until the new cells fly. EARLIER: RE-HOSTED to `career-earned-ksc` 2026-09-08 and now executes 6 of 6 - the whole category at SPACECENTER with zero skips, run `2026-09-08_1039`. PRIOR: flown 2026-08-28 on `career-contract-pad` at 4 of 6, with the 2 Mission Control cells skipping `rows=0, contractRows=0`, re-measured 2026-09-07 (census CEN-2, run `2026-09-07_2017`) on `career-earned-ksc` at the same 4 of 6 with `rows=9, contractRows=0`. THE SECOND READING - "the rows populate only with the Mission Control BUILDING UI open" - WAS WRONG, and the `rows=9` half was the refutation nobody followed through: nine rows were walked, so the building UI WAS open, and what failed was the row-to-contract lookup. Stock (`MissionControl.AddItem`, KSP 1.12.5) stores a `MissionControl.MissionSelection` wrapper in `UIListItem.Data`; Parsek's overlay and the test both cast it `as Contract`, got null, and disabled themselves, so the Mission Control contract overlays had never decorated a row on any install. `StockUiOverlayController.ExtractMissionControlRowContract` now unwraps the wrapper (a bare `Contract` payload still accepted) and the cells read rows through the same helper. Census CEN-11 (scratch, run `2026-09-08_1034`) on the fixed DLL: 6 of 6, with the production overlay logging `MissionControl decorated contractCount=1`. `career-contract-pad` stays L5's host; its one contract is Active, so it puts no Offered row in front of the screen and could not have shown this either way) | A |
 | `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
+| `Storage` | 3 | 3 | 3 | 3 | 0 | 3 | ST-1-storage-timeline-ingame (MULTI, authored 2026-09-25 by coverage wave 4, LIVE-PROVEN the same day: armed `2026-09-25_2049` PASS attempt 1, executes 2 of 3 on `career-earned-pad` - recording-id validation on the live ids and the readable `.prec.txt` mirrors reconciled off and on and decoded back; the RP cell skips, the host has no rewind point) + ST-2-rewind-point-quicksave (single-category, armed `2026-09-25_2053` PASS attempt 1, executes 2 of 3 on `eva2-lko-crewed` after an EVA split authors an RP in-run - the RP quicksave read back and the RP id validated; the mirror cell skips, no committed recording). Union 3 of 3, both tallies pinned whole; neither lane drives the whole category at its own boot, so the promotion rule does NOT fire and the bucket stays **B**. Its own category for the standing reason - a cell added to `Serialization` would move a tally other specs pin | B |
 | `StrategyLifecycle` | 10 | 0 | 10 | 0 | 0 | 10 | L3 | A |
 | `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-4, run `2026-09-07_2010`) at 2 of 2 - the whole category with zero skips - over `depot-route-recorded`, and the flight measured that line exactly. MOVED OUT OF LT-1 in the same commit: LT-1's injected corpus carries no committed route, so its route structure-list cell skipped there and the category read 1 of 2. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below) | A |
 | `SwitchIntentPatch` | 3 | 1 | 1 | 1 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 3 at FLIGHT - its KSC and TS cells scene-skip) + LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 3 at SPACECENTER - the KSC marker patch cell; its FLIGHT and TS cells scene-skip there). Union 2 of 3: the TS cell needs a TRACKSTATION lane | B |
@@ -197,6 +198,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `TestCommands` | 4 | 3 | 1 | 1 | 0 | 3 | LT-3-long-tail-career-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2035`, PASS attempt 1, 64 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-1, run `2026-09-07_2007`) at 2 of 4 over the `career-earned-pad` career. MOVED OUT OF LT-1 in the same commit, where it read 1 of 4: the fourth cell is the research one, which wants a career R&D. The two remaining skips are MEASURED AND NAMED - the MAINMENU cell scene-skips in FLIGHT, and `FlightChannelRoundTrip_PendingOperator` is the file-channel round trip only an operator drives. A SLICE at 2 of 4, so the promotion rule below does NOT fire and the bucket stays **B**) | B |
 | `TestRunner` | 2 | 2 | 2 | 2 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `TestRunnerIsolation` | 2 | 1 | 2 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2 at FLIGHT - the SPACECENTER cell scene-skips) + LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 2 at SPACECENTER - the in-memory-restore gate cell self-skips pending its own green run) | B |
+| `Timeline` | 1 | 1 | 1 | 1 | 0 | 1 | ST-1-storage-timeline-ingame (MULTI, authored 2026-09-25 by coverage wave 4, LIVE-PROVEN the same day: reading `2026-09-25_2043`, armed `2026-09-25_2049` PASS attempt 1, executes 1 of 1 - the whole category at FLIGHT with zero skips, pinned whole. `TimelineProjectsEffectiveLedger` is the D15 `timeline-projection` cell. Its first flight, on the pre-fix DLL (`2026-09-25_2039`), FAILED on a real defect - KerbalExperience rows rendered as raw `KerbalExperience` LegacyEvent rows (todo TIMELINE-KERBAL-EXPERIENCE-RAW-ROW, fixed in the same PR). PROMOTED to bucket **A** (A3) by the armed flight, on the promotion rule below) | A |
 | `TrackingStation` | 10 | 0 | 0 | 9 | 1 | 3 | H23 | A |
 | `TrajectoryMath` | 8 | 8 | 8 | 8 | 0 | 0 | H7 | A |
 | `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | H49 (flown 2026-08-28, executes 4 of 4) | A |
@@ -208,8 +210,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **114 categories / 636 declarations**. Buckets **A 87 categories
-(357 declarations)**, **B 26 categories (274 declarations)**, **C 1 category (5
+Totals, re-derived: **116 categories / 640 declarations**. Buckets **A 88 categories
+(358 declarations)**, **B 27 categories (277 declarations)**, **C 1 category (5
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes). All re-derived
 mechanically by counting the table's
@@ -312,10 +314,10 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **113 of 114 categories**, covering **631 of 636
+Driven by a committed spec: **115 of 116 categories**, covering **635 of 640
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 636 declarations in
-114 categories over `Source/Parsek`. The 2026-09-08 reading was 112 of 112; the GUI-tree
+Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 640 declarations in
+116 categories over `Source/Parsek`. The 2026-09-08 reading was 112 of 112; the GUI-tree
 dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on
 2026-09-11; the GUI state gallery's P1 opened a 114th on 2026-09-22 and left it
 UNCLAIMED, which is the honest state - P1 ships no lane, and claiming the row from an
@@ -705,7 +707,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (87 categories, 356 declarations)
+### Bucket A - wired now (88 categories, 357 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.
@@ -1078,7 +1080,7 @@ drive WHOLE: `Contracts` (2 of 2, LT-3), `RouteLiveAnchor` (1 of 1, LT-4) and
 to be read against, and LT-1 flew its own 30-constituent pin green the same evening
 (`2026-09-07_2030`, 292 s).
 
-### Bucket B - wireable, but needs something first (26 categories, 274 declarations)
+### Bucket B - wireable, but needs something first (27 categories, 277 declarations)
 
 Not one list but seven reasons, and the reason is what decides whether it is worth
 doing. (Seven since 2026-09-10, when the GUI-tree dump spike added B7; B7 is RETIRED as of

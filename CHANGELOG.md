@@ -10,6 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: two lanes check the Timeline against the ledger and three storage formats
+  on live saves.** `ST-1-storage-timeline-ingame` boots the earned career and runs two new in-game
+  categories: `Timeline` checks that every effective-ledger action is exactly one Timeline row with
+  its own display text (or a route row, which the design leaves out), in time order; `Storage` checks
+  recording-id path validation on the save's real ids and that the readable `.prec.txt` mirrors are
+  removed with the setting off and rewritten faithfully with it on. `ST-2-rewind-point-quicksave`
+  splits a kerbal off an orbiting ship, which writes a rewind-point quicksave, and checks the file is
+  on disk under `Parsek/RewindPoints/`, loads as a save at the rewind point's time, and left no
+  temporary file behind.
 - **Automated testing: nine more behaviours are gated by lanes that already show them, and three registry cells that named nothing are retired.**
   Existing lanes now require the log lines that prove the in-flight crew swap (GS-4), freeing a crewed
   recording's reservation when its end passed without a spawn (L4), the tracking-station duplicate-spawn
@@ -1031,6 +1040,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
+  Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
+  kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name
+  as its text and logged an "Unknown GameActionType" warning every time the Timeline rebuilt. It now
+  shows in the crew bucket, beside `Recovered: <name>`, naming the logged entries. Supply-route ledger
+  rows, which the Timeline design gives no row, are now skipped instead of taking the same fallback.
 - **A committed tech unlock now reaches the R&D tree when the Space Center clock passes it as
   the last committed event.** When the clock caught up with a committed research (for example
   after a rewind to before it) and that research was the last thing on the committed timeline,

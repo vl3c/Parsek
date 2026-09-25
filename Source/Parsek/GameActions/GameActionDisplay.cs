@@ -95,6 +95,9 @@ namespace Parsek
                 case GameActionType.KerbalRecovered:
                     return "Recovered: " + (action.KerbalName ?? "unknown");
 
+                case GameActionType.KerbalExperience:
+                    return GetKerbalExperienceDescription(action);
+
                 case GameActionType.KerbalStandIn:
                     return string.Format("Stand-in: {0} for {1}",
                         action.KerbalName ?? "unknown", action.ReplacesKerbal ?? "unknown");
@@ -122,6 +125,45 @@ namespace Parsek
 
                 default:
                     return action.Type.ToString();
+            }
+        }
+
+        /// <summary>
+        /// "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin, Recovered)" for a
+        /// KerbalExperience row, from its encoded career-log entries. The ledger stores
+        /// the entries, not an XP amount, so the row names what was logged.
+        /// </summary>
+        internal static string GetKerbalExperienceDescription(GameAction action)
+        {
+            string name = action != null && !string.IsNullOrEmpty(action.KerbalName) ? action.KerbalName : "unknown";
+            List<KerbalCareerLogEntry> entries = action != null
+                ? KerbalCareerLogEntry.ParseSet(action.KerbalCareerEntries)
+                : null;
+            if (entries == null || entries.Count == 0)
+                return "XP: " + name;
+            var parts = new List<string>(entries.Count);
+            for (int i = 0; i < entries.Count; i++)
+            {
+                string verb = HumanizeCareerLogType(entries[i].Type);
+                parts.Add(string.IsNullOrEmpty(entries[i].Target) ? verb : verb + " " + entries[i].Target);
+            }
+            return "XP: " + name + " (" + string.Join(", ", parts.ToArray()) + ")";
+        }
+
+        private static string HumanizeCareerLogType(string type)
+        {
+            switch (type)
+            {
+                case "Land": return "Landed";
+                case "Recover": return "Recovered";
+                case "Orbit": return "Orbited";
+                case "Suborbit": return "Suborbital";
+                case "Flyby": return "Flew by";
+                case "Escape": return "Escaped";
+                case "PlantFlag": return "Planted flag";
+                case "Die": return "Died";
+                case "Flight": return "Flight";
+                default: return string.IsNullOrEmpty(type) ? "Logged" : type;
             }
         }
 
