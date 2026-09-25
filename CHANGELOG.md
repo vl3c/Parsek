@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: replayed ghosts are now checked for engine flames defined in a part's
+  EFFECTS node, and for cargo-bay doors that open and close.** A ghost engine now logs one line
+  each time it ignites on replay, naming the part, where its flame effects came from (the part's
+  EFFECTS node, its legacy `fx_*` effects, or a Parsek stand-in) and how many are playing. GS-6
+  now requires that line for its Ant, the only EFFECTS-node engine it carries. The new lane
+  `BAY-1-runway-cargo-bays` rolls the stock Mallard out onto the runway, stages it where it stands
+  so recording starts, opens and closes its three cargo bays, commits, rewinds to launch and lets
+  the Space Center replay it; it requires the ghost's bay doors to open and close.
 - **Automated testing: two lanes check the Timeline against the ledger and three storage formats
   on live saves.** `ST-1-storage-timeline-ingame` boots the earned career and runs two new in-game
   categories: `Timeline` checks that every effective-ledger action is exactly one Timeline row with

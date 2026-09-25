@@ -11574,6 +11574,13 @@ is aboard and its ignition IS recorded, but an applier line's `pid=` is the
 tally's representative rather than an enumeration, so the replay cannot be proved
 per-pid - see the GS-6 spec header).
 
+BOTH RESIDUES CLOSED 2026-09-26 (coverage wave 7). `engine-fx-effects`: a per-engine ignition
+witness now closes the representative-pid gap - `[GhostPartEvents] engine-fx start part=... source=...`,
+one line per ignition edge per engine, naming the build-time FX source and how many EFFECTS-node
+systems are playing. GS-6 reading `2026-09-25_2205` read the Ant as `source=effects-node
+effectsSystems=1 ... effectsPlaying=1`, and GS-6 now requires it. `bays`: `BAY-1-runway-cargo-bays`
+on the stock Mallard (see GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL). The chute trio stays open.
+
 THE FIX IS ONE PURPOSE-BUILT CRAFT, and the roadmap entry (Tier A item 1) already
 specifies the hard part of it: legacy vs EFFECTS engine FX needs BOTH populations
 aboard, and stock's only EFFECTS liquid engines are the Ant / Spark / Twitch v2 family
@@ -11982,7 +11989,7 @@ reading was taken while the two `spotLight1` lamps were still being dropped at l
 (the entry above), so it must be RE-TAKEN on the fixed craft before anything is
 concluded about lamps specifically.
 
-## GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL: the GS-6 sweep craft cannot carry a cargo bay, so D7 `bays` stays unreachable until a `ServiceBay.125.v2` tail is harvested from a live VAB session [FOUND BY READING 2026-09-02 while building the revision-2 craft. CRAFT-AUTHORING CONSTRAINT, REPORT-ONLY - not a product defect, not a driver gap]
+## ~~GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL~~: the GS-6 sweep craft cannot carry a cargo bay, so D7 `bays` stays unreachable until a `ServiceBay.125.v2` tail is harvested from a live VAB session [FOUND BY READING 2026-09-02 while building the revision-2 craft. CRAFT-AUTHORING CONSTRAINT, REPORT-ONLY - not a product defect, not a driver gap. CLOSED 2026-09-26 (coverage wave 7) by a different host, not by the harvest: `BAY-1-runway-cargo-bays` flies the stock Mallard, whose three Mk3 bays need no lifted tail because the whole stock craft file is committed. The GS-6 craft still carries no bay; see BAY-1 and CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING below]
 
 THE DRIVER IS NOT THE PROBLEM: kRPC 0.5.4 exposes `CargoBay.open`, and it is wired
 as `mlib.ACTION_SET_CARGO_BAYS` with `bays-open` / `bays-close` step names. The
@@ -12018,6 +12025,30 @@ THE FIX IS ONE HARVEST, not a design: open the VAB once, place a
 goes INTO the 1.25 m section of the stack (it is a structural section, not a
 nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
 is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
+
+## CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. PRODUCT GAP, OPEN]
+
+THE MEASUREMENT. The stock `Mallard` ships its three Mk3 bays with `ModuleAnimateGeneric`
+`allowDeployLimit = true` and `deployPercent = 44 / 45 / 51`. BAY-1's first reading run flew
+MISSION-OK: kRPC `CargoBay.open` opened, then shut, all three (`set open=True on 3 cargo bay(s)`,
+`set open=False ...`), the recorder's census listed them (`Visual coverage [CargoBay] 3:
+mk3CargoBayM[pid=2989664037](deployIdx=0,closed=1.00), ...`), and the recording carried NO
+CargoBay event at all. The Space Center ghost then replayed every other family it recorded
+(gear, robotic, engine) and left the doors shut.
+
+THE CAUSE (read, not flown). `FlightRecorder.ClassifyCargoBayState` calls a bay open only at the
+far end of its animation (`animTime <= 0.01` when `closedPosition = 1`). A deploy-limited bay
+stops at `animTime = 1 - deployPercent / 100` (0.56 for the Mallard's medium bay), which is
+neither end, so every poll lands in the skip branch, `openCargoBays` is never set, and the close
+is not an edge either.
+
+THE FIX DIRECTION, for whoever takes it: read the open end from the deploy limit (the settled
+stop at `1 - deployPercent/100` for `closedPosition = 1`, the mirror for 0), or classify "left
+the closed end and stopped moving" as open. The ghost side then needs the matching partial pose
+(today `ApplyDeployableStateWithOutcome` interpolates to the fully deployed sample), so this is
+a recorder AND applier change. BAY-1 sidesteps it: its fixture copy of the Mallard sets all three
+bays to `deployPercent = 100`, so the lane gates a full door cycle and this gap stays visible
+here rather than being flown away.
 
 ## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. OPERATOR CONFIRMATION PENDING on the supervisor's ruling]
 

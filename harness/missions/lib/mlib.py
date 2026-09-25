@@ -26277,3 +26277,213 @@ def evaluate_rfo_assertions(frames, params: RfoParams, state) -> List[AssertionO
              "circStartAltitude": num(st.circ_start_altitude) if st is not None else None,
              "phasesReached": list(st.phases_reached) if st is not None else []}),
     ]
+
+
+# ---------------------------------------------------------------------------
+# BAY-1 runway cargo-bay toggle (mission bay1_runway_bays; D7 `bays`).
+# ---------------------------------------------------------------------------
+#
+# The smallest flight that records a cargo-bay door cycle a replay can then show:
+# roll a stock spaceplane out onto the Runway, stage it where it stands (brakes on,
+# throttle zero), which is Parsek's own first-staging-on-the-pad auto-record trigger
+# (it reads PRELAUNCH, and a runway rollout IS PRELAUNCH), open every cargo bay, hold,
+# close them, hold, done. The plane never moves. The bay animation is the subject;
+# the flight is not, and nothing here pretends otherwise.
+#
+# WHAT THE MISSION DOES NOT DO: commit, rewind or watch. The scenario's seam steps own
+# all three after MISSION-OK, exactly as EX-1 does for its pad subject, because they
+# need no telemetry decision and a seam step is cheaper and better logged than a
+# machine phase.
+#
+# NOTHING HERE READS A BAY BACK. The runner's cargo-bay action commands kRPC
+# `CargoBay.open` on every bay and logs the count; whether the recorder saw the doors
+# move and whether the ghost replayed them are Parsek's facts, read off KSP.log by the
+# scenario's logContracts (mission-vs-Parsek orthogonality: a bay that did not animate
+# is a Parsek finding, never a mission failure).
+
+BAY1_ROLLOUT = "ROLLOUT"
+BAY1_ARM = "ARM"
+BAY1_RECORD_SETTLE = "RECORD-SETTLE"
+BAY1_BAYS_OPEN = "BAYS-OPEN"
+BAY1_BAYS_CLOSE = "BAYS-CLOSE"
+BAY1_DONE = "DONE"
+BAY1_PHASES: Tuple[str, ...] = (BAY1_ROLLOUT, BAY1_ARM, BAY1_RECORD_SETTLE,
+                                BAY1_BAYS_OPEN, BAY1_BAYS_CLOSE, BAY1_DONE)
+
+# The kRPC situation a fresh rollout reads. The auto-record staging trigger requires
+# Parsek's PRELAUNCH, which is the same vessel state.
+BAY1_PRELAUNCH_SITUATIONS: Tuple[str, ...] = ("PRE_LAUNCH",)
+
+
+@dataclass(frozen=True)
+class Bay1Params:
+    craft_name: str
+    expected_vessel_name: str
+    launch_site: str = "Runway"
+    rollout_frames: int = 240
+    rollout_ready_debounce: int = 2
+    # Frames between the stage click and the first bay command, so the recorder is
+    # sampling before the doors move (the first sample is the closed pose).
+    record_settle_frames: int = 8
+    # Frames each door state is held. Long enough for the slowest stock bay animation
+    # to finish, because the recorder emits CargoBayOpened / CargoBayClosed only when
+    # the animation reaches its end, never mid-travel.
+    bay_hold_frames: int = 16
+
+
+def bay1_params_from_dict(params: Dict) -> Bay1Params:
+    craft = str(params.get("craftName", "") or "")
+    return Bay1Params(
+        craft_name=craft,
+        expected_vessel_name=str(params.get("expectedVesselName", craft) or craft),
+        launch_site=str(params.get("launchSite", "Runway") or "Runway"),
+        rollout_frames=int(params.get("rolloutFrames", 240)),
+        rollout_ready_debounce=int(params.get("rolloutReadyDebounceFrames", 2)),
+        record_settle_frames=int(params.get("recordSettleFrames", 8)),
+        bay_hold_frames=int(params.get("bayHoldFrames", 16)),
+    )
+
+
+@dataclass(frozen=True)
+class Bay1State:
+    params: Bay1Params
+    phase: str = BAY1_ROLLOUT
+    phase_frames: int = 0
+    phases_reached: Tuple[str, ...] = (BAY1_ROLLOUT,)
+    launch_commanded: bool = False
+    rollout_ready_streak: int = 0
+    rollout_ready_observed: bool = False
+    last_vessel_name: str = ""
+    # The situation read on the frame the stage click was issued; the auto-record
+    # trigger only fires on PRELAUNCH, so this is the evidence the recorder armed.
+    stage_situation: Optional[str] = None
+    stage_ut: Optional[float] = None
+    bays_open_ut: Optional[float] = None
+    bays_close_ut: Optional[float] = None
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+
+
+def bay1_initial_state(params: Bay1Params) -> Bay1State:
+    return Bay1State(params=params)
+
+
+def _bay1_enter(state: Bay1State, phase: str, **changes) -> Bay1State:
+    reached = state.phases_reached
+    if phase not in reached:
+        reached = reached + (phase,)
+    return replace(state, phase=phase, phase_frames=0, phases_reached=reached,
+                   **changes)
+
+
+def _bay1_flake(state: Bay1State, reason: str) -> Bay1State:
+    return replace(state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason)
+
+
+def bay1_decide(state: Bay1State, snapshot: TelemetrySnapshot) -> Tuple[Bay1State, List[Action]]:
+    """Advance the BAY-1 machine one frame; return (new_state, actions).
+
+    ROLLOUT -> ARM -> RECORD-SETTLE -> BAYS-OPEN -> BAYS-CLOSE -> DONE. Every wait is a
+    frame count; only ROLLOUT can flake (the craft never read back as the active
+    vessel), and a vessel loss after it is a deterministic mission failure."""
+    if state.done:
+        return state, []
+    p = state.params
+    state = replace(state, phase_frames=state.phase_frames + 1)
+
+    if state.phase == BAY1_ROLLOUT:
+        if not state.launch_commanded:
+            if not p.craft_name:
+                return _bay1_flake(state, "phase %s: missionParams.craftName is empty"
+                                   % BAY1_ROLLOUT), []
+            # kRPC LaunchVessel reloads FLIGHT onto the new craft, so the next frames
+            # legitimately read a dead handle; the settle gate below holds on them.
+            return (replace(state, launch_commanded=True),
+                    [Action(ACTION_LAUNCH_VESSEL, text=p.craft_name,
+                            launch_site=p.launch_site)])
+        settled = kxrw_launch_settled(snapshot.vessel_lost, snapshot.vessel_name,
+                                      snapshot.situation, p.expected_vessel_name,
+                                      BAY1_PRELAUNCH_SITUATIONS)
+        streak = state.rollout_ready_streak + 1 if settled else 0
+        name = state.last_vessel_name
+        if not snapshot.vessel_lost and snapshot.vessel_name:
+            name = snapshot.vessel_name
+        state = replace(state, rollout_ready_streak=streak, last_vessel_name=name)
+        if streak >= max(1, p.rollout_ready_debounce):
+            return _bay1_enter(state, BAY1_ARM, rollout_ready_observed=True), []
+        if state.phase_frames > p.rollout_frames:
+            return _bay1_flake(
+                state,
+                "phase %s: %r never read back as the active vessel on the %s within "
+                "%d frames (craft file %r, last name read %r, last situation %s). A "
+                "name that reads as an #autoLOC_* token means the craft file's "
+                "ship line is a localization key"
+                % (BAY1_ROLLOUT, p.expected_vessel_name, p.launch_site,
+                   p.rollout_frames, p.craft_name, name,
+                   snapshot.situation or "UNREAD")), []
+        return state, []
+
+    if snapshot.vessel_lost:
+        return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                       loss_reason="vessel-lost in phase %s (the plane never moves; "
+                                   "a lost handle here is not a flight outcome)"
+                                   % state.phase), []
+
+    if state.phase == BAY1_ARM:
+        # Brakes first, throttle zero, then the click: the click is Parsek's
+        # first-staging-on-the-pad auto-record trigger and the plane must not roll.
+        actions = [Action(ACTION_SET_BRAKES, 1.0),
+                   Action(ACTION_SET_THROTTLE, 0.0),
+                   Action(ACTION_ACTIVATE_STAGE)]
+        return _bay1_enter(state, BAY1_RECORD_SETTLE,
+                           stage_situation=snapshot.situation or "",
+                           stage_ut=snapshot.ut), actions
+
+    if state.phase == BAY1_RECORD_SETTLE:
+        if state.phase_frames >= max(1, p.record_settle_frames):
+            return (_bay1_enter(state, BAY1_BAYS_OPEN, bays_open_ut=snapshot.ut),
+                    [Action(ACTION_SET_CARGO_BAYS, 1.0)])
+        return state, []
+
+    if state.phase == BAY1_BAYS_OPEN:
+        if state.phase_frames >= max(1, p.bay_hold_frames):
+            return (_bay1_enter(state, BAY1_BAYS_CLOSE, bays_close_ut=snapshot.ut),
+                    [Action(ACTION_SET_CARGO_BAYS, 0.0)])
+        return state, []
+
+    if state.phase == BAY1_BAYS_CLOSE:
+        if state.phase_frames >= max(1, p.bay_hold_frames):
+            return replace(_bay1_enter(state, BAY1_DONE), done=True), []
+        return state, []
+
+    return state, []
+
+
+def evaluate_bay1_assertions(frames, params: Bay1Params,
+                             state: Optional[Bay1State] = None) -> List[AssertionOutcome]:
+    """Machine-carried evidence only; the frames are not read."""
+    st = state
+    rollout = bool(st is not None and st.rollout_ready_observed)
+    staged = bool(st is not None and st.stage_situation in BAY1_PRELAUNCH_SITUATIONS)
+    cycled = bool(st is not None and st.bays_open_ut is not None
+                  and st.bays_close_ut is not None and st.phase == BAY1_DONE)
+    return [
+        AssertionOutcome(
+            "rolloutObserved", rollout, st.last_vessel_name if st is not None else None,
+            {"expectedVesselName": params.expected_vessel_name,
+             "launchSite": params.launch_site}),
+        AssertionOutcome(
+            "stagedAtPrelaunch", staged, st.stage_situation if st is not None else None,
+            {"note": "Parsek's first-staging auto-record trigger requires PRELAUNCH",
+             "stageUT": st.stage_ut if st is not None else None}),
+        AssertionOutcome(
+            "baysCycled", cycled, st.phase if st is not None else None,
+            {"baysOpenUT": st.bays_open_ut if st is not None else None,
+             "baysCloseUT": st.bays_close_ut if st is not None else None,
+             "holdFrames": params.bay_hold_frames,
+             "phasesReached": list(st.phases_reached) if st is not None else []}),
+    ]
