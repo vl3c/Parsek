@@ -1,0 +1,42 @@
+version = 1
+MILESTONE
+{
+	id = d214f5e4ef5844568cdeb19ffee45217
+	startUT = 0
+	endUT = 27787320.459510837
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 27787319.959510848
+		type = 18
+		key = Orbit
+		detail = funds=12000;rep=2;sci=1
+	}
+}
+MILESTONE
+{
+	id = fbf639e8974b448a9492564fdaac4c62
+	startUT = 27787320.459510837
+	endUT = 29006926.587537028
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 29006875.301988315
+		type = 18
+		key = Tylo/Flyby
+		detail = funds=31000;rep=1;sci=0
+		recordingId = ec77261b75234232aaf0da61d9dfe2d5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 29006875.301988315
+		type = 18
+		key = Jool/Escape
+		detail = funds=18000;rep=1;sci=0
+		recordingId = ec77261b75234232aaf0da61d9dfe2d5
+	}
+}

@@ -1175,6 +1175,29 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["625d63e022c449d6a44b5269c8b54a21"],
             "schemaGeneration": 4,
         },
+        # --- THE TYLO SUBJECT (coverage wave 11, roadmap G9) --------------
+        # PROVENANCE: tylo-orbit-recorded <- B33-tylo-orbit, run
+        # 2026-09-25_2246, PASS attempt 1 (mission wall 719 s), --keep-parsek,
+        # automation DLL a144d0c8bb3ed514 (origin/main 9b54ab140, no C# change).
+        # B25's orbit-start machine re-pointed at Tylo from the Parsek-stripped
+        # `jool-park-nerv`: `startrecording ... already=false` minted the
+        # standalone Jool-rooted tree f1f73e8a500c442d892872c3d70c9fe5; arrival
+        # periapsis 131,971 m against a 1,000 km request (k 0.13 at req/SOI 9.2%);
+        # park 147,371 x 129,600 m, ecc 0.012, inc 12.7 deg. Ten ORBIT_SEGMENTs,
+        # Jool 0-4 then Tylo 5-9, seam 29,006,875.302; explicitStartUT
+        # 27,787,320.500, explicitEndUT 29,017,597.493 (a 340.160 s segment-less
+        # parked tail after the last Tylo segment, the B25 shape). V28M's jump
+        # table is derived from these bytes.
+        "tylo-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["ec77261b75234232aaf0da61d9dfe2d5"],
+            "schemaGeneration": 4,
+        },
         # --- THE SECOND CROSS-PARENT (MOON-TO-MOON) SUBJECT --------------
         # PROVENANCE: mun-minmus-recorded <- B30-mun-minmus-transfer, run
         # 2026-08-24_1536_B30-mun-minmus-transfer (2026-08-24), PASS attempt 1
