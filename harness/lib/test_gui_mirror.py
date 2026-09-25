@@ -1296,6 +1296,259 @@ class CompareScopeTests(unittest.TestCase):
         self.assertIn("captures, no difference)", self.html)
 
 
+class LauncherScopeTests(unittest.TestCase):
+    """Only the home window's controls launch another window.
+
+    The launcher rule matches a control's text against every captured window's
+    token and titles, so a view button in another window's filter row that spells
+    a window's name jumped to that window instead of switching the view it names.
+    The rule is now scoped to the home window (the seam's first window, the same
+    token the close affordance returns to), and a non-home control falls through
+    to the tab / state routing, which flashes when nothing was photographed.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.model = gmi.build_model([make_shots(self.root)],
+                                     make_scenarios(self.root), with_photos=False)
+        self.html = gmi.render_html(self.model)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _route(self):
+        body = self.html[self.html.index("function routeClick(ev, cap){"):]
+        return body[:body.index("\n}")]
+
+    def test_the_launcher_walks_windows_only_from_the_home_window(self):
+        body = self._route()
+        self.assertIn("var home = M.seamWindows[0];", body)
+        self.assertIn("var wins = cap.window === home\n"
+                      "    ? M.windows.filter(function(w){ return w.captureCount > 0; }) : [];",
+                      body)
+        self.assertEqual(body.count("var home"), 1,
+                         "the close affordance and the launcher must share one home")
+
+    def test_the_home_window_is_resolved_before_the_launcher_walk(self):
+        body = self._route()
+        self.assertLess(body.index("var home = M.seamWindows[0];"),
+                        body.index("for (var i=0;i<wins.length;i++){"))
+
+    def test_a_non_home_control_still_reaches_the_tab_and_state_routing(self):
+        body = self._route()
+        launcher = body.index("for (var i=0;i<wins.length;i++){")
+        self.assertLess(launcher, body.index("/* a tab of this window */"))
+        self.assertLess(launcher, body.index("var pool = capsFor(cap.window)"))
+        self.assertIn("'no capture for this state yet - \"'", body)
+
+    def test_the_model_names_its_home_window_first(self):
+        self.assertTrue(self.model["seamWindows"])
+        self.assertIn(self.model["seamWindows"][0],
+                      [w["token"] for w in self.model["windows"]])
+
+
+def _cap(window, state="", tab=None, mode="advanced", title="Vexo - Qorvex",
+         controls=(), **kw):
+    """A capture reduced to what the naming helpers read: its own window's root
+    (by title) and that root's controls, as `(kind, text, value)` triples."""
+    kids = []
+    for kind, text, value in controls:
+        node = {"k": kind, "t": text}
+        if kind == "toggle":
+            node["v"] = value
+        kids.append(node)
+    cap = {"window": window, "tab": tab, "state": state, "mode": mode,
+           "roots": [{"k": "window", "title": title, "t": title, "c": kids}]}
+    cap.update(kw)
+    return cap
+
+
+class WindowDisplayNameTests(unittest.TestCase):
+    """The rail and the headers name a window by its own title, not its seam
+    token: the owner could not find a window whose token is not what the game
+    draws. The prefix every product title starts with comes off; the token stays
+    the key."""
+
+    def test_the_prefix_is_the_majority_head_so_one_outlier_does_not_erase_it(self):
+        titles = ["Vexo", "Vexo - Qorvex", "Vexo - Zynthia Plume", "Glimmer Tock"]
+        self.assertEqual(gmi.title_prefix(titles), "",
+                         "the all-titles prefix is what the outlier breaks")
+        self.assertEqual(gmi.display_title_prefix(titles), "Vexo")
+
+    def test_no_majority_means_no_prefix(self):
+        self.assertEqual(gmi.display_title_prefix(["Vexo - Qorvex", "Glimmer Tock"]), "")
+        self.assertEqual(gmi.display_title_prefix([]), "")
+
+    def test_a_stable_title_names_its_window(self):
+        names = gmi.window_display_names(
+            {"qorvex": ["Vexo - Qorvex"], "zyn": ["Vexo - Zynthia Plume"],
+             "home": ["Vexo"], "tock": ["Glimmer Tock"]}, "Vexo")
+        self.assertEqual(names, {"qorvex": "Qorvex", "zyn": "Zynthia Plume",
+                                 "home": "Vexo", "tock": "Glimmer Tock"})
+
+    def test_a_subject_titled_window_reads_by_the_title_that_spells_its_token(self):
+        names = gmi.window_display_names(
+            {"plinth": ["Vexo - Duna Run 3", "Vexo - Plinth", "Vexo - Route: A to B"]},
+            "Vexo")
+        self.assertEqual(names, {"plinth": "Plinth"})
+        names = gmi.window_display_names(
+            {"plinth": ["Vexo - Duna Run 3", "Vexo - Route: A to B"]}, "Vexo")
+        self.assertEqual(names, {"plinth": "plinth"},
+                         "no stable title and none spelling the token keeps the token")
+
+    def test_two_windows_that_would_read_the_same_carry_their_tokens(self):
+        names = gmi.window_display_names(
+            {"runner": ["Vexo - Test Bench"], "runnerall": ["Vexo - Test Bench"]}, "Vexo")
+        self.assertEqual(names, {"runner": "Test Bench (runner)",
+                                 "runnerall": "Test Bench (runnerall)"})
+
+    def test_the_model_names_every_seam_window_and_the_page_draws_the_name(self):
+        root = tempfile.mkdtemp()
+        try:
+            model = gmi.build_model([make_shots(root)], make_scenarios(root),
+                                    with_photos=False)
+            html = gmi.render_html(model)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        for w in model["windows"]:
+            self.assertTrue(w.get("name"), "%s has no display name" % w["token"])
+        self.assertIn("stateNames", model)
+        self.assertIn("function winName(win){", html)
+        rail = html[html.index("function buildRail(){"):]
+        rail = rail[:rail.index("\n}")]
+        self.assertIn("row.appendChild(el('b', null, winName(w.token)));", rail)
+        self.assertNotIn("el('b', null, w.token)", rail)
+        # the token stays the key of every note and lookup
+        self.assertIn("railNoteKey(w.token, c.tab, c.state, c.mode)", rail)
+        self.assertIn("head.appendChild(el('b', null, winName(cap.window)));", html)
+        self.assertIn("sec.appendChild(el('h3', null, winName(win)));", html)
+
+
+class StateDisplayNameTests(unittest.TestCase):
+    """A state token is the lane's name for a seam step; where the capture's own
+    tree shows the control the step changed, the rail reads by that control."""
+
+    W, T = "qorvex", "Vexo - Qorvex"
+
+    def names(self, caps):
+        return gmi.state_display_names(caps, {self.W: [self.T]})
+
+    def base(self, state="", **over):
+        ctl = {"Plume": True, "Tock": True, "Glim": False, "Wisp": False}
+        ctl.update(over)
+        return _cap(self.W, state, title=self.T,
+                    controls=[("toggle", k, v) for k, v in ctl.items()]
+                    + [("button", "Brisk \u25b6", None)])
+
+    def test_one_toggle_lit_against_its_peers_names_the_state(self):
+        caps = [self.base(), self.base("idle"), self.base("glimon", Glim=True)]
+        self.assertEqual(self.names(caps), {"qorvex||glimon|advanced": "Glim"})
+
+    def test_one_toggle_unlit_against_its_peers_names_it_off(self):
+        caps = [self.base(), self.base("idle"), self.base("noplume", Plume=False)]
+        self.assertEqual(self.names(caps), {"qorvex||noplume|advanced": "Plume off"})
+
+    def test_a_button_that_swaps_its_glyph_names_the_state_by_its_words(self):
+        swapped = self.base("brisk")
+        swapped["roots"][0]["c"][-1]["t"] = "Brisk \u25c0"
+        caps = [self.base(), self.base("idle"), swapped]
+        self.assertEqual(self.names(caps), {"qorvex||brisk|advanced": "Brisk"})
+
+    def test_a_button_carrying_a_count_never_names_a_state(self):
+        caps = [self.base(), self.base("idle"), self.base("more")]
+        for c, text in zip(caps, ("Rows (3)", "Rows (3)", "Rows (4)")):
+            c["roots"][0]["c"].append({"k": "button", "t": text})
+        self.assertEqual(self.names(caps), {})
+
+    def test_the_unanimous_pass_sees_through_a_majority_only_difference(self):
+        # `sorted` was photographed with a toggle another state also left lit, so
+        # that toggle differs from most peers but not all; its own step's button
+        # differs from every peer. A majority-only reading names the toggle.
+        caps = [self.base(), self.base("a"), self.base("b", Glim=True),
+                self.base("sorted", Glim=True), self.base("c")]
+        caps[3]["roots"][0]["c"][-1]["t"] = "Brisk \u25c0"
+        self.assertEqual(self.names(caps)["qorvex||sorted|advanced"], "Brisk")
+
+    def test_two_differences_keep_the_token(self):
+        caps = [self.base(), self.base("idle"), self.base("x"),
+                self.base("both", Glim=True, Wisp=True)]
+        self.assertEqual(self.names(caps), {})
+
+    def test_a_name_two_states_would_share_keeps_both_tokens(self):
+        caps = [self.base(), self.base("idle"), self.base("x"),
+                self.base("glim1", Glim=True), self.base("glim2", Glim=True)]
+        self.assertEqual(self.names(caps), {})
+
+    def test_stale_mocked_and_foreign_captures_are_not_read(self):
+        stale = self.base("glimon", Glim=True)
+        stale["supersededBy"] = "later"
+        self.assertEqual(self.names([self.base(), self.base("idle"), stale]), {})
+        other = self.base("glimon", Glim=True)
+        other["roots"][0]["title"] = "Vexo - Zynthia"
+        self.assertEqual(self.names([self.base(), self.base("idle"), other]), {},
+                         "another window's root is not this window's control")
+
+    def test_the_page_reads_the_name_and_keeps_the_token_in_the_tooltip(self):
+        root = tempfile.mkdtemp()
+        try:
+            html = gmi.render_html(gmi.build_model(
+                [make_shots(root)], make_scenarios(root), with_photos=False))
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        fn = html[html.index("function stateWords(win, tab, state, mode){"):]
+        fn = fn[:fn.index("\n}")]
+        self.assertIn("var named = (M.stateNames || {})[k];", fn)
+        self.assertIn("return named || state.replace(/-/g, ' ');", fn)
+        self.assertIn("(c.state ? '; seam state ' + c.state : '')", html)
+
+
+class ToggleTabNameTests(unittest.TestCase):
+    """A window whose tabs are a row of toggles, not a selection grid, names each
+    tab by the toggle that tab alone lights."""
+
+    W, T = "qorvex", "Vexo - Qorvex"
+
+    def cap(self, tab, lit, state=""):
+        texts = ["Plume", "Tock", "Group", "Glim"]
+        return _cap(self.W, state, tab=tab, title=self.T,
+                    controls=[("toggle", t, t in lit) for t in texts])
+
+    def test_the_toggle_each_tab_alone_lights_names_it(self):
+        caps = [self.cap("plume", {"Plume"}), self.cap("tock", {"Tock"}),
+                self.cap("glim", {"Glim"}), self.cap("plume", {"Plume"}, "x")]
+        self.assertEqual(gmi.toggle_tab_names(caps, {self.W: [self.T]}),
+                         {self.W: {"plume": "Plume", "tock": "Tock", "glim": "Glim"}})
+
+    def test_a_grouping_toggle_lit_under_two_tabs_names_neither(self):
+        caps = [self.cap("plume", {"Plume"}), self.cap("glim", {"Group", "Glim"}),
+                self.cap("tock", {"Group", "Tock"})]
+        names = gmi.toggle_tab_names(caps, {self.W: [self.T]})[self.W]
+        self.assertEqual(names["glim"], "Glim")
+        self.assertEqual(names["tock"], "Tock")
+
+    def test_a_capture_naming_no_tab_is_on_neither_side(self):
+        caps = [self.cap("plume", {"Plume"}), self.cap("tock", {"Tock"}),
+                self.cap(None, {"Plume"}, "loose")]
+        self.assertEqual(gmi.toggle_tab_names(caps, {self.W: [self.T]})[self.W]["plume"],
+                         "Plume")
+
+    def test_an_older_capture_settles_a_tab_its_current_captures_leave_ambiguous(self):
+        # Every CURRENT capture of `glim` also has the `Wisp` preset lit, so the
+        # current pass cannot tell the tab's toggle from the preset; a superseded
+        # capture of the same tab with the preset unlit can.
+        texts = ["Plume", "Tock", "Glim", "Wisp"]
+
+        def cap(tab, lit, **kw):
+            return _cap(self.W, "", tab=tab, title=self.T,
+                        controls=[("toggle", t, t in lit) for t in texts], **kw)
+        current = [cap("plume", {"Plume"}), cap("glim", {"Glim", "Wisp"})]
+        self.assertNotIn("glim", gmi.toggle_tab_names(current, {self.W: [self.T]})[self.W])
+        older = cap("glim", {"Glim"}, supersededBy="later")
+        names = gmi.toggle_tab_names(current + [older], {self.W: [self.T]})[self.W]
+        self.assertEqual(names["glim"], "Glim")
+        self.assertEqual(names["plume"], "Plume")
+
+
 class RailDisclosureTests(unittest.TestCase):
     """The rail's window headers are a real disclosure widget, not a list of
     shortcuts.
@@ -3613,11 +3866,11 @@ class SimplifiedChromeTests(unittest.TestCase):
         self.assertNotIn("buildRail()", body)
 
     def test_rail_rows_read_as_words_not_placeholders(self):
-        self.assertIn("function stateLabel(win, tab, state, mode){", self.html)
-        self.assertIn("(state || '').replace(/-/g, ' ')", self.html)
+        self.assertIn("function stateLabel(win, tab, state, mode, hideTab){", self.html)
+        self.assertIn("return named || state.replace(/-/g, ' ');", self.html)
         self.assertIn("function modeWord(m){", self.html)
         rail = self._fn("function buildRail(){")
-        self.assertIn("stateLabel(w.token, headed ? null : c.tab, c.state, c.mode)", rail)
+        self.assertIn("stateLabel(w.token, c.tab, c.state, c.mode, headed)", rail)
         self.assertNotIn("c.tab || '-'", rail)
         # the dataset moved into the row's tooltip
         self.assertIn("sr.title = 'dataset ' + c.fixture", rail)
