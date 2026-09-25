@@ -1173,6 +1173,16 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                                 "(Ships/VAB carries %d committed craft)"
                        % (run_save_name, total_craft))
 
+    # (2c) the save's two craft folders, exactly as stock creates them for a new game
+    # (GamePersistence) and on a Main Menu resume (MainMenu): `Ships/VAB` and
+    # `Ships/SPH`. The seam's LoadGame bypasses the Main Menu, and git cannot carry an
+    # empty directory, so a staged fixture without craft had neither. The editor then
+    # has no default save folder (EditorDriver.SetDefaultSaveFolder requires the
+    # directory to exist) and its Launch button writes the auto-saved ship to the
+    # drive root - an UnauthorizedAccessException no player can reach.
+    for facility_dir in ("VAB", "SPH"):
+        os.makedirs(os.path.join(target_save, "Ships", facility_dir), exist_ok=True)
+
     # (3) inject synthetic recordings when requested (recording OFF by construction).
     #
     # FAIL CLOSED ON THE POSTCONDITION, not the exit code (HARNESS-INJECT-FAILS-OPEN,

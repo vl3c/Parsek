@@ -938,6 +938,19 @@ namespace Parsek.TestCommands
                 TryCompleteStockScreen(now);
                 return;
             }
+            // The editor scene route, in the ParsekTestCommandAddon.EditorRoute.cs partial:
+            // a settled editor (plus the requested craft on the stage), and a settled
+            // FLIGHT with the launched vessel active.
+            if (completionVerb == TestCommandEditorRoute.GoToEditorVerb)
+            {
+                TryCompleteGoToEditor(now);
+                return;
+            }
+            if (completionVerb == TestCommandEditorRoute.LaunchFromEditorVerb)
+            {
+                TryCompleteLaunchFromEditor(now);
+                return;
+            }
             if (completionVerb == "WarpToUT")
             {
                 // The REAL warp's sibling partial. Its completion polls the advancing
@@ -1476,6 +1489,10 @@ namespace Parsek.TestCommands
         // StockScreen: body and its settle poll in the sibling ParsekTestCommandAddon.StockScreen.cs.
         void ITestCommandExecutor.StockScreen(ParsedCommand cmd) => StockScreenImpl(cmd);
 
+        // The editor scene route: bodies and settle polls in ParsekTestCommandAddon.EditorRoute.cs.
+        void ITestCommandExecutor.GoToEditor(ParsedCommand cmd) => GoToEditorImpl(cmd);
+        void ITestCommandExecutor.LaunchFromEditor(ParsedCommand cmd) => LaunchFromEditorImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1534,6 +1551,8 @@ namespace Parsek.TestCommands
                 case "GloopsStart": exec.GloopsStart(cmd); break;
                 case "GloopsStop": exec.GloopsStop(cmd); break;
                 case "StockScreen": exec.StockScreen(cmd); break;
+                case "GoToEditor": exec.GoToEditor(cmd); break;
+                case "LaunchFromEditor": exec.LaunchFromEditor(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

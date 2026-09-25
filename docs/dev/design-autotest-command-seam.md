@@ -3434,6 +3434,63 @@ REJECTED; `-open-failed` and `-not-settled` are ERROR. hlib mirrors the vocabula
 (`STOCKSCREEN_*`, pinned by `StockScreenSourceSyncTests`) and `validate_stock_screen_step`
 catches a missing or mis-scoped arg pre-launch.
 
+#### GoToEditor / LaunchFromEditor (additive; the editor scene route)
+
+**Why.** `DecideLoadRoute` reaches FLIGHT, SPACECENTER and TRACKSTATION only, so no run could
+stand in the VAB or SPH or launch from there: the Space Center -> editor -> launch
+transition a player makes most often had never run under the harness (D14 `scene-editor`).
+`StockScreen screen=editor` also reaches the VAB, but it is a CAREER-only census verb and
+skips the building click. These two are the mode-agnostic player route. They are NOT a
+generic `LoadScene` (the `ExitToSpaceCenter` argument): each drives one stock click and
+refuses up front the modals that click can raise.
+
+**Grammar.**
+`cmd=GoToEditor facility=<VAB|SPH> [craft=<name>]` and `cmd=LaunchFromEditor [site=<name>]`.
+
+| verb | scene | stock entry point |
+|---|---|---|
+| `GoToEditor` | SPACECENTER | the building's own `SpaceCenterBuilding.OnLeftClick` (damage check, `EnterBuilding` -> `OnClicked`, which saves `persistent` and calls `EditorDriver.StartEditor`); then, with `craft=`, the craft browser's Normal load `EditorLogic.LoadShipFromFile` once the editor is up |
+| `LaunchFromEditor` | EDITOR | the Launch button's handler `EditorLogic.launchVessel()` (`launchBtn.onClick`), or the launch-site picker's `launchVessel(siteName)` with `site=`; stock runs its pre-flight checks and `FlightDriver.StartWithNewLaunch` |
+
+`craft=` is a bare file stem, looked up the way the load dialog lists it: the save's
+`Ships/<facility>`, the save's other folder, then the stock `Ships/<facility>` and other
+folder under the KSP root (the Stock tab). A VAB craft loads into the SPH as it does from
+the dialog's VAB tab.
+
+**Precondition.** `RequiresGameLoaded`; the scene is the verb's own typed REJECTED
+(`goeditor-wrong-scene` / `launchfromeditor-wrong-scene`), the `StockScreen` shape.
+
+**Guards (typed REJECTED before anything is clicked).** GoToEditor: the facility closed by
+the game parameters (`CanGoInVAB` / `CanGoInSPH`, the "FacilityLocked" popup), a closed
+building, or damage >= 70% (OnLeftClick opens the repair menu instead) ->
+`goeditor-facility-closed`. LaunchFromEditor, in the order a player meets them: no ship
+(`-no-ship`), the `EDITOR_LAUNCH` lock held (the button is greyed; `-launch-locked`), a site
+`EditorDriver.ValidLaunchSite` rejects (`-site-invalid`), and vessels standing on the site
+(`-site-obstructed`, read with stock's own `ShipConstruction.FindVesselsLandedAt`, the
+predicate `LaunchSiteClear.Test` uses). The obstruction guard matters on every recorded
+fixture: launch-clamp debris stands on the LaunchPad, and stock's dialog would RECOVER it.
+
+**Phases.** Both TWO-PHASE, in the `ExitToSpaceCenter` budget class (a scene change that
+parses no save off disk), so neither is a `DEFERRED_SEAM_VERB`: GoToEditor 120 s,
+LaunchFromEditor 180 s (the FLIGHT bootstrap of a new vessel). GoToEditor completes when
+the scene is EDITOR with a started `EditorLogic`, no side panel sliding and (with `craft=`)
+the craft on the stage by the name in its header, three frames after the last phase began;
+the load is issued ONCE, after the editor is up. LaunchFromEditor completes on FLIGHT with a
+loaded game AND the launched vessel active. MAINMENU is the fast failure of both.
+
+**Payloads.** GoToEditor `scene facility craft parts ship`; LaunchFromEditor `scene vessel
+pid site situation`. Log lines `goeditor start|loading|complete ...` and `launchfromeditor
+start|complete ...` (both world-mutating, both `recording` post-mission role).
+
+**Refusals.** Arg-class: `goeditor-facility-arg-missing|invalid`, `-craft-arg-invalid`,
+`-craft-not-found`, `launchfromeditor-site-invalid`. Gate-class: the wrong-scene pair,
+`goeditor-building-not-found`, `-facility-closed`, `launchfromeditor-no-ship`,
+`-launch-locked`, `-site-obstructed`. ERROR (post-click, unmapped): `-returned-to-menu` and
+`-not-settled` for each verb. hlib mirrors the tokens (`EDITORROUTE_*`, pinned by
+`EditorRouteSourceSyncTests`); `validate_go_to_editor_step` checks `facility=` and `craft=`
+pre-launch (the `facility` arg name is KscAction's `VERB_SCOPED_CLOSED_ARGS` row, so the
+spelling check lives in the validator). First consumer: `SE-1-editor-round-trip`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -3553,6 +3610,8 @@ wall-clock. Some verbs need a different bound and override the default:
 | `CaptureScreenshot` | (default) 60 s | TWO-PHASE but deliberately NOT in `DEFERRED_SEAM_VERBS`, the `EnterWatchMode` shape: the completion is a file poll that lands in a frame or two, so a capture still unwritten after a minute is broken rather than slow, and a longer budget would only delay the diagnosis |
 | `DumpGuiTree` | (default) 60 s | TWO-PHASE and NOT in `DEFERRED_SEAM_VERBS`, the `CaptureScreenshot` shape: the wait is one Repaint pass plus the `LateUpdate` that flushes it, and the RECORDER gives the arm up on its own after 900 frames (`GuiTreeRecorder.ArmTimeoutFrames`, ~15 s at 60 fps) - so this budget is a backstop behind a shorter bound, not the primary one |
 | `UiAction` | (default) 60 s | bounds the game-not-loaded dispatch defer AND the one-frame settle wait of its two two-phase ops. A settle that has not landed in a minute means the game stopped drawing, not that it is slow, so the default is the right size and the terminal is named `ui-action-not-settled` rather than spelled like a refusal |
+| `GoToEditor` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` class: the building click's persist + the EDITOR scene load, then (with `craft=`) the in-scene editor restart of the craft load; no save is parsed off disk, so NOT a `DEFERRED_SEAM_VERB` |
+| `LaunchFromEditor` | 180 s | TWO-PHASE: stock's pre-flight checks, the craft save and the FLIGHT bootstrap of a NEW vessel; `StartRecording`'s scene-wait size, NOT a `DEFERRED_SEAM_VERB` |
 
 Budgets are measured from when the command first reaches the head and begins deferring. On
 expiry the pump writes `TIMEOUT` with `msg` carrying the last defer reason and advances.

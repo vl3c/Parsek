@@ -15,6 +15,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~D14-SCENE-EDITOR-NO-SEAM-ROUTE: no verb could put a run in the VAB / SPH or launch from there~~ [FILED AND CLOSED 2026-09-26 by `SE-1-editor-round-trip`, coverage wave 12, branch `cov-editor`]
+
+`DecideLoadRoute` reached FLIGHT, SPACECENTER and TRACKSTATION only, and `StockScreen screen=editor` is CAREER-only
+and skips the building click, so the Space Center -> editor -> launch transition had never run under the harness with
+committed recordings pending. Closed by two scene-route verbs, `GoToEditor` (the building's own `OnLeftClick` + the
+craft browser's `EditorLogic.LoadShipFromFile`) and `LaunchFromEditor` (the Launch button's `EditorLogic.launchVessel`),
+contract in `design-autotest-command-seam.md`. Found on the way, both fixed in the same PR, neither a Parsek product
+defect: (1) stock craft name themselves with a localization tag, so a craft-name readiness check must format it;
+(2) a staged fixture had no `Ships/SPH` (stock creates `Ships/VAB` + `Ships/SPH` for every save on new game / Main Menu
+resume; the seam's LoadGame bypasses the Main Menu and git cannot carry empty folders), so the editor had no default
+save folder and its Launch threw `UnauthorizedAccessException` writing the auto-saved ship to the drive root -
+`run.py` staging now creates both folders. Reading run 2's PARSEK-FAIL (`2026-09-25_2334`) was a mis-calibrated epoch
+in the spec, read off the log (the clock stopped 10 s before the loop departure), not a replay defect; the armed
+re-flight `2026-09-25_2338` with a `TimeJump` into the replay window is green.
+
 ## HARVEST-PROVENANCE-CLAIMED-ON-A-SYNTHETIC-DRILL: D10 `harvest-provenance` rests on the M2 synthetic drill tree, not on a flown drill [FILED 2026-09-25 by coverage wave 2 (branch `cov-wave2`). OPEN, low; an operator confirmation, not a defect]
 
 `HV-1-harvest-route-analysis` claims the cell SCOPED to "the route planner treats drilled
