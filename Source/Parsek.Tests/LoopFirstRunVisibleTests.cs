@@ -212,6 +212,39 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Handover at the anchor
+
+        [Fact]
+        public void Handover_OrdinaryFirstRunGhost_IsRetired()
+        {
+            // The first run's ordinary ghost carries no loop cycle; the self-overlap branch must
+            // retire it instead of demoting it as a phantom cycle -1 overlap copy.
+            Assert.True(GhostPlaybackEngine.ShouldRetireOrdinaryStateAtUnitHandover(
+                new GhostPlaybackState()));
+        }
+
+        [Fact]
+        public void Handover_LoopCreatedOrEmptySlot_IsKept()
+        {
+            // Mirror direction: a copy the loop created (cycle >= 0) and an empty slot are
+            // the loop's own business (cycle advance / first spawn).
+            Assert.False(GhostPlaybackEngine.ShouldRetireOrdinaryStateAtUnitHandover(null));
+            Assert.False(GhostPlaybackEngine.ShouldRetireOrdinaryStateAtUnitHandover(
+                new GhostPlaybackState { loopCycleIndex = 0 }));
+            Assert.False(GhostPlaybackEngine.ShouldRetireOrdinaryStateAtUnitHandover(
+                new GhostPlaybackState { loopCycleIndex = 7 }));
+        }
+
+        [Fact]
+        public void Handover_WithoutRetire_OverlapPathWouldDemoteTheOrdinaryGhost()
+        {
+            // Documents the phantom: the overlap path's cycle-change test treats the ordinary
+            // state (-1) as a changed primary, which it demotes into the overlap list.
+            Assert.True(GhostPlaybackEngine.HasLoopCycleChanged(new GhostPlaybackState(), 0));
+        }
+
+        #endregion
+
         #region Consumers of the published view
 
         [Fact]
