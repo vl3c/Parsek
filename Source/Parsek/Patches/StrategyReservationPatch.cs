@@ -23,6 +23,7 @@ namespace Parsek.Patches
         internal static Func<IEnumerable<string>> ActiveStrategyIdsProviderForTesting;
         internal static Func<int> SlotLimitProviderForTesting;
         internal static Func<string, string> StrategyTitleProviderForTesting;
+        internal static Func<IReadOnlyList<StrategyTagInfo>> StockStrategiesProviderForTesting;
 
         /// <summary>
         /// The activation refusal for one strategy, or false when activating it is allowed
@@ -42,7 +43,8 @@ namespace Parsek.Patches
             var index = CommittedFutureIndexCache.Current;
             double nowUT = CommittedFutureIndexCache.CurrentUT();
             var decision = StrategyReservationPredicates.EvaluateActivation(
-                index, strategyId, nowUT, ActiveStrategyIds(), SlotLimit());
+                index, strategyId, nowUT, ActiveStrategyIds(), SlotLimit(),
+                stockStrategies: StockStrategies());
             if (!decision.Blocked) return false;
 
             text = StrategyReservationPredicates.ExplainActivation(
@@ -136,6 +138,38 @@ namespace Parsek.Patches
             return result;
         }
 
+        /// <summary>Stock's strategies in <c>StrategySystem.Strategies</c> order with their
+        /// group tags, for the conflict rule; null when unreadable (the branch is skipped).</summary>
+        internal static IReadOnlyList<StrategyTagInfo> StockStrategies()
+        {
+            var seam = StockStrategiesProviderForTesting;
+            if (seam != null) return seam();
+            try
+            {
+                return ReadLiveStockStrategies();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(Tag, "stock-strategies-unavailable",
+                    "stock strategy list unreadable, conflict check skipped (" + ex.GetType().Name + ")");
+                return null;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static List<StrategyTagInfo> ReadLiveStockStrategies()
+        {
+            var system = Strategies.StrategySystem.Instance;
+            if (system == null || system.Strategies == null) return null;
+            var result = new List<StrategyTagInfo>(system.Strategies.Count);
+            for (int i = 0; i < system.Strategies.Count; i++)
+            {
+                var s = system.Strategies[i];
+                result.Add(new StrategyTagInfo(s?.Config?.Name, s?.Config != null ? s.GroupTags : null));
+            }
+            return result;
+        }
+
         private static int SlotLimit()
         {
             var seam = SlotLimitProviderForTesting;
@@ -193,6 +227,7 @@ namespace Parsek.Patches
             ActiveStrategyIdsProviderForTesting = null;
             SlotLimitProviderForTesting = null;
             StrategyTitleProviderForTesting = null;
+            StockStrategiesProviderForTesting = null;
         }
     }
 

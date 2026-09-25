@@ -11,7 +11,23 @@ namespace Parsek
         /// <summary>The committed timeline activates this strategy later.</summary>
         FutureActivation,
         /// <summary>Activating it now would leave no free slot for a committed activation.</summary>
-        SlotNeeded
+        SlotNeeded,
+        /// <summary>With it active, stock's conflict rule would refuse a committed activation.</summary>
+        ConflictsWithCommitted
+    }
+
+    /// <summary>One stock strategy as the conflict rule sees it: its id and group tags,
+    /// listed in <c>StrategySystem.Strategies</c> order (the rule depends on the order).</summary>
+    internal struct StrategyTagInfo
+    {
+        internal string Id;
+        internal string[] Tags;
+
+        internal StrategyTagInfo(string id, string[] tags)
+        {
+            Id = id;
+            Tags = tags;
+        }
     }
 
     /// <summary>The activation decision for one strategy, with the committed row behind it.</summary>
@@ -27,6 +43,9 @@ namespace Parsek
         internal int CountAtOverflow;
         /// <summary>SlotNeeded only: the slot limit at that activation.</summary>
         internal int LimitAtOverflow;
+        /// <summary>ConflictsWithCommitted only: the committed deactivation of the
+        /// conflicting strategy after its activation, or null when none is committed.</summary>
+        internal CommittedFutureEntry ConflictEnd;
 
         internal bool Blocked => Kind != StrategyActivationBlockKind.None;
     }
@@ -53,6 +72,14 @@ namespace Parsek
     /// exceeds the limit at any committed activation. Nothing after the last committed
     /// activation can raise the count, so the walk stops there. An overflow at NOW alone
     /// is not reported: stock's own slot check already refuses it with its own reason.</item>
+    /// <item>with S active, stock's conflict rule would refuse a committed activation of
+    /// another strategy X. The same walk evaluates, at each committed activation of X (X not
+    /// already active), <see cref="StockHasConflictingActiveStrategies"/> over the modeled
+    /// active set, and refuses when it is true WITH S and false without it: the conflict
+    /// only counts while S is still active at X's date (S stays active from now on unless a
+    /// committed deactivation of S comes first), and a conflict the committed timeline
+    /// already has without S is not blamed on S. Needs stock's ordered strategy list; with
+    /// none the branch is skipped.</item>
     /// </list>
     ///
     /// <para><b>Deactivation of S by the player is refused</b> when the committed timeline
@@ -93,7 +120,8 @@ namespace Parsek
             double currentUT,
             IEnumerable<string> activeNow,
             int currentLimit,
-            Func<int, int> slotsForLevel = null)
+            Func<int, int> slotsForLevel = null,
+            IReadOnlyList<StrategyTagInfo> stockStrategies = null)
         {
             var none = new StrategyActivationDecision { Kind = StrategyActivationBlockKind.None };
             if (index == null || string.IsNullOrEmpty(strategyId)) return none;
@@ -149,6 +177,16 @@ namespace Parsek
                         active.Remove(e.Key);
                         break;
                     default:
+                        if (stockStrategies != null && !active.Contains(e.Key)
+                            && IsConflictCausedBy(stockStrategies, active, e.Key, strategyId))
+                        {
+                            return new StrategyActivationDecision
+                            {
+                                Kind = StrategyActivationBlockKind.ConflictsWithCommitted,
+                                Entry = e,
+                                ConflictEnd = FirstDeactivationAfter(deactivations, e.Key, e.UT)
+                            };
+                        }
                         active.Add(e.Key);
                         if (active.Count > limit)
                         {
@@ -164,6 +202,102 @@ namespace Parsek
                 }
             }
             return none;
+        }
+
+        private static bool IsConflictCausedBy(
+            IReadOnlyList<StrategyTagInfo> stockStrategies, HashSet<string> active, string committedId, string candidateId)
+        {
+            string[] tags = TagsOf(stockStrategies, committedId);
+            if (tags == null || !active.Contains(candidateId)) return false;
+            if (!StockHasConflictingActiveStrategies(stockStrategies, active, tags)) return false;
+            var without = new HashSet<string>(active, StringComparer.Ordinal);
+            without.Remove(candidateId);
+            return !StockHasConflictingActiveStrategies(stockStrategies, without, tags);
+        }
+
+        private static CommittedFutureEntry FirstDeactivationAfter(
+            List<CommittedFutureEntry> deactivations, string key, double afterUT)
+        {
+            for (int i = 0; i < deactivations.Count; i++)
+                if (deactivations[i].Key == key && deactivations[i].UT >= afterUT) return deactivations[i];
+            return null;
+        }
+
+        private static string[] TagsOf(IReadOnlyList<StrategyTagInfo> stockStrategies, string id)
+        {
+            for (int i = 0; i < stockStrategies.Count; i++)
+                if (stockStrategies[i].Id == id) return stockStrategies[i].Tags ?? new string[0];
+            return null;
+        }
+
+        /// <summary>
+        /// A line-for-line mirror of stock
+        /// <c>Strategies.StrategySystem.HasConflictingActiveStrategies(string[] groupTags)</c>
+        /// (KSP 1.12.5 IL), which <c>Strategy.CanBeActivated</c> calls with the candidate's
+        /// <c>GroupTags</c> (<c>Config.GroupTags</c>, the config's comma-split, trimmed
+        /// <c>groupTag</c>). Stock:
+        /// <list type="number">
+        /// <item>collects the active strategies;</item>
+        /// <item>counts the active strategies sharing at least one tag with
+        /// <paramref name="groupTags"/>, stopping at 2 (<c>shared</c>);</item>
+        /// <item>sets <c>threshold = 3 - shared</c>;</item>
+        /// <item>for i from activeCount - 1 down to 0 reads <c>this.strategies[i]</c>, the FULL
+        /// strategy list indexed by the ACTIVE list's positions (so it inspects the first
+        /// activeCount strategies in list order, active or not), counts how many of
+        /// <paramref name="groupTags"/> that strategy carries, and returns true once the
+        /// count reaches the threshold;</item>
+        /// <item>returns false.</item>
+        /// </list>
+        /// The index quirk in step 4 is kept on purpose: this must answer exactly what stock
+        /// answers. Tags compare ordinally (<c>string.op_Equality</c>). A strategy with no
+        /// tags reads as an empty tag list here, where stock would throw.
+        /// </summary>
+        internal static bool StockHasConflictingActiveStrategies(
+            IReadOnlyList<StrategyTagInfo> allInStockOrder, ICollection<string> activeIds, string[] groupTags)
+        {
+            if (allInStockOrder == null || activeIds == null || groupTags == null) return false;
+
+            int activeCount = 0;
+            for (int i = allInStockOrder.Count - 1; i >= 0; i--)
+                if (activeIds.Contains(allInStockOrder[i].Id)) activeCount++;
+
+            int shared = 0;
+            for (int i = allInStockOrder.Count - 1; i >= 0; i--)
+            {
+                if (!activeIds.Contains(allInStockOrder[i].Id)) continue;
+                if (SharesAnyTag(allInStockOrder[i].Tags, groupTags)) shared++;
+                if (shared >= 2) break;
+            }
+
+            int threshold = 3 - shared;
+            for (int i = activeCount - 1; i >= 0; i--)
+            {
+                if (i >= allInStockOrder.Count) continue;
+                string[] tags = allInStockOrder[i].Tags ?? new string[0];
+                int matched = 0;
+                for (int k = groupTags.Length - 1; k >= 0; k--)
+                {
+                    for (int j = tags.Length - 1; j >= 0; j--)
+                    {
+                        if (tags[j] == groupTags[k])
+                        {
+                            matched++;
+                            break;
+                        }
+                    }
+                    if (matched >= threshold) return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool SharesAnyTag(string[] a, string[] b)
+        {
+            if (a == null || b == null) return false;
+            for (int i = 0; i < a.Length; i++)
+                for (int j = 0; j < b.Length; j++)
+                    if (a[i] == b[j]) return true;
+            return false;
         }
 
         private static void AddAdministrationUpgrades(
@@ -222,6 +356,12 @@ namespace Parsek
                         ? strategyTitle(decision.Entry.Key)
                         : null;
                     return ReservationExplanation.StrategySlot(decision.Entry, title, formatDate);
+                case StrategyActivationBlockKind.ConflictsWithCommitted:
+                    string other = decision.Entry != null && strategyTitle != null
+                        ? strategyTitle(decision.Entry.Key)
+                        : null;
+                    return ReservationExplanation.StrategyConflict(
+                        decision.Entry, decision.ConflictEnd, other, formatDate);
                 default:
                     return new ReservationText();
             }
@@ -242,6 +382,8 @@ namespace Parsek
             string s = "kind=" + decision.Kind
                 + " committedKey=" + (decision.Entry?.Key ?? "(none)")
                 + " committedUT=" + (decision.Entry != null ? decision.Entry.UT.ToString("F0", ic) : "NaN");
+            if (decision.Kind == StrategyActivationBlockKind.ConflictsWithCommitted)
+                s += " conflictEndUT=" + (decision.ConflictEnd != null ? decision.ConflictEnd.UT.ToString("F0", ic) : "none");
             if (decision.Kind == StrategyActivationBlockKind.SlotNeeded)
                 s += " count=" + decision.CountAtOverflow.ToString(ic)
                      + " limit=" + decision.LimitAtOverflow.ToString(ic);

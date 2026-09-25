@@ -44,6 +44,7 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             CommittedFutureIndexCache.ResetForTesting();
             StrategyReservationGate.ResetForTesting();
+            StrategyStatePatcher.ResetForTesting();
             RecalculationEngine.ClearModules();
             ParsekSettings.CurrentOverrideForTesting = new ParsekSettings();
             CommittedFutureIndexCache.NowUtProviderForTesting = () => 100.0;
@@ -378,21 +379,34 @@ namespace Parsek.Tests
         [Fact]
         public void Pairing_AdministrationReasonSet_EqualsTheClickBlockSet()
         {
-            // A, D: committed later activations. B: active, committed later deactivation.
+            // A, D, I: committed later activations. B: active, committed later deactivation.
             // G: active, nothing committed ahead. C, E: free, but two slots are full and
-            // the committed activation of A needs one.
+            // the committed activation of I needs one. H: shares I's two tags, so with H
+            // active stock's conflict rule would refuse I's committed activation.
             Ledger.AddAction(On(300.0, "A"));
             Ledger.AddAction(On(10.0, "B"));
             Ledger.AddAction(Off(350.0, "B"));
             Ledger.AddAction(On(400.0, "D"));
             Ledger.AddAction(On(20.0, "G"));
+            Ledger.AddAction(On(200.0, "I"));
             var activeNow = new HashSet<string> { "B", "G" };
             StrategyReservationGate.ActiveStrategyIdsProviderForTesting = () => activeNow;
             StrategyReservationGate.SlotLimitProviderForTesting = () => 2;
+            StrategyReservationGate.StockStrategiesProviderForTesting = () => new List<StrategyTagInfo>
+            {
+                new StrategyTagInfo("H", new[] { "Basic", "A" }),
+                new StrategyTagInfo("A", new[] { "tA" }),
+                new StrategyTagInfo("B", new[] { "tB" }),
+                new StrategyTagInfo("C", new[] { "tC" }),
+                new StrategyTagInfo("D", new[] { "tD" }),
+                new StrategyTagInfo("E", new[] { "tE" }),
+                new StrategyTagInfo("G", new[] { "tG" }),
+                new StrategyTagInfo("I", new[] { "Basic", "A" })
+            };
 
             var marks = new List<string>();
             var blocks = new List<string>();
-            foreach (string id in new[] { "A", "B", "C", "D", "E", "G" })
+            foreach (string id in new[] { "A", "B", "C", "D", "E", "G", "H", "I" })
             {
                 bool isActive = activeNow.Contains(id);
                 ReservationText text;
@@ -405,9 +419,170 @@ namespace Parsek.Tests
                 if (blocked) blocks.Add(id);
             }
 
-            Assert.Equal(new[] { "A", "B", "C", "D", "E" }, marks);
+            Assert.Equal(new[] { "A", "B", "C", "D", "E", "H", "I" }, marks);
             Assert.Equal(marks, blocks);
-            Assert.Equal(5, dialogBodies.Count);
+            Assert.Equal(7, dialogBodies.Count);
+            Assert.Contains(logLines, l => l.Contains("activation refused strategy=H")
+                && l.Contains("kind=ConflictsWithCommitted") && l.Contains("committedKey=I"));
+        }
+
+        // ================================================================
+        // Stock's conflict rule (StrategySystem.HasConflictingActiveStrategies)
+        // ================================================================
+
+        private const string Appreciation = "AppreciationCampaignCfg";
+        private const string Fundraising = "FundraisingCampaignCfg";
+        private const string OpenSource = "OpenSourceTechProgramCfg";
+        private const string Outsourced = "OutsourcedResearchCfg";
+        private const string Aggressive = "AgressiveNegotiations";
+        private const string Leadership = "LeadershipInitiative";
+
+        /// <summary>Stock's 11 strategies in GameData/Squad/Strategies/Strategies.cfg order,
+        /// with their groupTag values (KSP 1.12.5).</summary>
+        private static List<StrategyTagInfo> StockList()
+        {
+            return new List<StrategyTagInfo>
+            {
+                new StrategyTagInfo(Appreciation, new[] { "Basic", "A" }),
+                new StrategyTagInfo(Fundraising, new[] { "Basic", "A" }),
+                new StrategyTagInfo(OpenSource, new[] { "Basic", "B" }),
+                new StrategyTagInfo("UnpaidResearchProgramCfg", new[] { "Basic", "B" }),
+                new StrategyTagInfo(Outsourced, new[] { "Basic", "C" }),
+                new StrategyTagInfo("PatentsLicensingCfg", new[] { "Basic", "C" }),
+                new StrategyTagInfo(Aggressive, new[] { "Misc", "D" }),
+                new StrategyTagInfo("RecoveryTransponders", new[] { "Misc", "Recovery" }),
+                new StrategyTagInfo("BailoutGrant", new[] { "Emergency", "A" }),
+                new StrategyTagInfo("researchIPsellout", new[] { "Emergency", "A" }),
+                new StrategyTagInfo(Leadership, new[] { "Misc", "D" })
+            };
+        }
+
+        private static bool StockConflict(string candidate, params string[] active)
+        {
+            var list = StockList();
+            var tags = list.First(x => x.Id == candidate).Tags;
+            return StrategyReservationPredicates.StockHasConflictingActiveStrategies(
+                list, new HashSet<string>(active), tags);
+        }
+
+        [Fact]
+        public void StockConflict_MirrorsTheStockIl_HandTracedCases()
+        {
+            Assert.False(StockConflict(Fundraising));
+            // One active shares a tag -> threshold 2; the first strategy carries both tags.
+            Assert.True(StockConflict(Fundraising, Appreciation));
+            Assert.False(StockConflict(OpenSource, Appreciation));
+            // Two active share a tag -> threshold 1; any tag in the first two strategies.
+            Assert.True(StockConflict(Outsourced, Appreciation, OpenSource));
+        }
+
+        /// <summary>
+        /// Stock indexes its FULL strategy list with the active list's positions, so it
+        /// inspects the first activeCount strategies in list order, active or not. Pinned
+        /// here because the predicate must answer what stock answers, quirk included.
+        /// </summary>
+        [Fact]
+        public void StockConflict_KeepsStocksIndexQuirk()
+        {
+            // Only Open Source is active, yet Fundraising is refused: the window reads
+            // Appreciation (list position 0, inactive), which carries both of its tags.
+            Assert.True(StockConflict(Fundraising, OpenSource));
+            // Aggressive Negotiations and Leadership Initiative share both tags, but the
+            // window reads Appreciation instead of Aggressive, so stock allows the pair.
+            Assert.False(StockConflict(Leadership, Aggressive));
+        }
+
+        [Fact]
+        public void Activation_WouldMakeStockRefuseACommittedActivation_Refused()
+        {
+            var d = StrategyReservationPredicates.EvaluateActivation(
+                Index(On(200.0, Fundraising)), Appreciation, 100.0, new string[0], 5,
+                stockStrategies: StockList());
+
+            Assert.Equal(StrategyActivationBlockKind.ConflictsWithCommitted, d.Kind);
+            Assert.Equal(Fundraising, d.Entry.Key);
+            Assert.Null(d.ConflictEnd);
+            var text = StrategyReservationPredicates.ExplainActivation(d, id => "Fundraising Campaign", Date);
+            Assert.Equal("Conflicts with 'Fundraising Campaign'", text.Title);
+            Assert.Equal(
+                "Conflicts with 'Fundraising Campaign', which is activated on D200 on your committed timeline. " +
+                ReservationExplanation.TimelineRule,
+                text.Body);
+        }
+
+        [Fact]
+        public void Activation_Conflict_NamesTheCommittedEndWhenThereIsOne()
+        {
+            var d = StrategyReservationPredicates.EvaluateActivation(
+                Index(On(200.0, Fundraising), Off(300.0, Fundraising)), Appreciation, 100.0, new string[0], 5,
+                stockStrategies: StockList());
+            Assert.Equal(300.0, d.ConflictEnd.UT);
+            var text = StrategyReservationPredicates.ExplainActivation(d, id => "Fundraising Campaign", Date);
+            Assert.EndsWith(" The conflict ends when 'Fundraising Campaign' is deactivated on D300.", text.Body);
+        }
+
+        [Fact]
+        public void Activation_Conflict_OnlyWhileTheCandidateIsStillActive()
+        {
+            // A committed deactivation of the candidate before the committed activation:
+            // no overlap, no conflict.
+            var d = StrategyReservationPredicates.EvaluateActivation(
+                Index(Off(150.0, Appreciation), On(200.0, Fundraising)), Appreciation, 100.0, new string[0], 5,
+                stockStrategies: StockList());
+            Assert.False(d.Blocked);
+        }
+
+        [Fact]
+        public void Activation_NoStockConflict_Allowed()
+        {
+            var d = StrategyReservationPredicates.EvaluateActivation(
+                Index(On(200.0, Fundraising)), Aggressive, 100.0, new string[0], 5,
+                stockStrategies: StockList());
+            Assert.False(d.Blocked);
+        }
+
+        [Fact]
+        public void Activation_ConflictTheTimelineAlreadyHasWithoutTheCandidate_IsNotBlamedOnIt()
+        {
+            // Appreciation is active now and already makes Fundraising's committed activation
+            // conflict; activating Patents Licensing changes nothing about that.
+            var d = StrategyReservationPredicates.EvaluateActivation(
+                Index(On(200.0, Fundraising)), "PatentsLicensingCfg", 100.0, new[] { Appreciation }, 5,
+                stockStrategies: StockList());
+            Assert.NotEqual(StrategyActivationBlockKind.ConflictsWithCommitted, d.Kind);
+        }
+
+        [Fact]
+        public void Activation_NoStockList_SkipsTheConflictBranch()
+        {
+            var d = StrategyReservationPredicates.EvaluateActivation(
+                Index(On(200.0, Fundraising)), Appreciation, 100.0, new string[0], 5);
+            Assert.False(d.Blocked);
+        }
+
+        [Fact]
+        public void Plan_LedgerConflictingPair_ActivatesBoth_WarnsOnce_DoesNotThrash()
+        {
+            var known = new HashSet<string>(StockList().Select(x => x.Id));
+            var stock = new HashSet<string>();
+            var ledger = LedgerSet((Appreciation, 50.0), (Fundraising, 60.0));
+
+            var first = StrategyStatePatcher.ComputePlan(ledger, id => true, stock, known, 100.0,
+                stockStrategies: StockList());
+            Assert.Equal(new[] { Appreciation, Fundraising }, first.ToActivate);
+            Assert.Equal(new[] { Appreciation, Fundraising }, first.Conflicting);
+            Assert.True(StrategyStatePatcher.ReportConflicts(first));
+
+            foreach (var id in first.ToActivate) stock.Add(id);
+            var second = StrategyStatePatcher.ComputePlan(ledger, id => true, stock, known, 100.0,
+                stockStrategies: StockList());
+            Assert.False(second.HasChanges);
+            Assert.Equal(first.Conflicting, second.Conflicting);
+            Assert.False(StrategyStatePatcher.ReportConflicts(second));
+
+            Assert.Single(logLines.Where(l => l.Contains("[WARN][KspStatePatcher]")
+                && l.Contains("conflict rule would not allow")));
+            Assert.Contains("conflicting=2", StrategyStatePatcher.DescribePlan(second));
         }
 
         // ================================================================

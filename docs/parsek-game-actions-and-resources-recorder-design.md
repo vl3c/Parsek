@@ -2040,7 +2040,7 @@ The setup cost is deducted from funds by the `FundsModule` when processing `Stra
 
 **Correction (2026-09-25, stock-UI overlay program PR 5).** An earlier draft specified a UT=0 reservation that blocked every new strategy activation while any strategy was on the timeline. No code ever implemented it (`StrategiesModule.GetAvailableSlots` had no caller), and it is not the rule. The shipped rule lives at the stock control (`StrategyReservationPredicates`, reference `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` section 10 step 5):
 
-- **Activation of S is refused** when the committed timeline activates S later, or when activating S now leaves no free slot at a committed future activation. The slot check is a peak walk: the strategies active in stock now plus S, then the committed future activations and deactivations in UT order (deactivations first at the same UT), with the limit raised at each committed Administration upgrade; refuse when the count exceeds the limit at any committed activation.
+- **Activation of S is refused** when the committed timeline activates S later, when activating S now leaves no free slot at a committed future activation, or when, with S still active at a committed activation of another strategy, stock's own conflict rule (`StrategySystem.HasConflictingActiveStrategies`, over group tags) would refuse that activation. The slot check is a peak walk: the strategies active in stock now plus S, then the committed future activations and deactivations in UT order (deactivations first at the same UT), with the limit raised at each committed Administration upgrade; refuse when the count exceeds the limit at any committed activation.
 - **Deactivation of S by the player is refused** while a committed StrategyActivate or StrategyDeactivate row for S is still ahead. No other committed row depends on S being active: contract rewards and strategy conversions are captured after stock applied the strategy and replay as recorded (section 11.4 note).
 - **Stock auto-expiry is never refused.** Expiry exists only with KSPCommunityFixes' StrategyDuration fix; it goes through `Strategy.Deactivate()` gated on `CanBeDeactivated`, which Parsek leaves unpatched, and it is captured as a StrategyDeactivate row like any deactivation.
 
@@ -2131,7 +2131,7 @@ After every ledger recalculation that patches KSP state, `KspStatePatcher.PatchS
 - A strategy the ledger never activated (active before the save had a ledger) is left alone.
 - An activation dated after now, or a strategy whose next committed row is a deactivation, is left as is: a recalculation without a current-UT cutoff walks past now, and those rows apply when the clock reaches them.
 
-Conflict checking (same source resource) is KSP-native. Parsek ensures the correct strategies are active; KSP prevents conflicts in its own UI.
+Conflict checking (group tags) is KSP-native, and the activation block mirrors it against committed activations. `Strategy.Load` bypasses it, so a ledger state stock's rule would not allow is applied as the ledger has it and warned once, never resolved by switching a strategy off.
 
 ### 11.8 Open questions
 

@@ -29,6 +29,11 @@ namespace Parsek
         /// <summary>Stock-active ids the ledger never activated (activated before the save
         /// had a ledger): left alone.</summary>
         internal readonly List<string> Unmanaged = new List<string>();
+        /// <summary>Ids that, in the state this plan leaves stock in, stock's own conflict
+        /// rule would refuse to activate beside the others (both came from the ledger through
+        /// some path the activation block did not cover). Reported, never resolved: turning
+        /// one off would diverge from the ledger and the next patch would turn it back on.</summary>
+        internal readonly List<string> Conflicting = new List<string>();
         /// <summary>Ids already in the ledger's state in stock.</summary>
         internal int Matching;
 
@@ -86,7 +91,8 @@ namespace Parsek
             ICollection<string> stockActive,
             ICollection<string> stockKnown,
             double nowUT,
-            Func<string, bool> hasFutureDeactivation = null)
+            Func<string, bool> hasFutureDeactivation = null,
+            IReadOnlyList<StrategyTagInfo> stockStrategies = null)
         {
             var plan = new StrategyStatePatchPlan();
             var ledgerIds = new List<string>();
@@ -129,7 +135,48 @@ namespace Parsek
                     else plan.ToDeactivate.Add(id);
                 }
             }
+
+            if (stockStrategies != null)
+            {
+                var after = new HashSet<string>(StringComparer.Ordinal);
+                if (stockActive != null) after.UnionWith(stockActive);
+                after.ExceptWith(plan.ToDeactivate);
+                after.UnionWith(plan.ToActivate);
+                var ids = new List<string>(after);
+                ids.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < ids.Count; i++)
+                {
+                    string[] tags = null;
+                    for (int j = 0; j < stockStrategies.Count; j++)
+                        if (stockStrategies[j].Id == ids[i]) { tags = stockStrategies[j].Tags ?? new string[0]; break; }
+                    if (tags == null) continue;
+                    var others = new HashSet<string>(after, StringComparer.Ordinal);
+                    others.Remove(ids[i]);
+                    if (StrategyReservationPredicates.StockHasConflictingActiveStrategies(stockStrategies, others, tags))
+                        plan.Conflicting.Add(ids[i]);
+                }
+            }
             return plan;
+        }
+
+        private static string lastConflictReportKey = "";
+
+        /// <summary>
+        /// Warns once per distinct conflicting set: a repeated patch over the same state
+        /// logs nothing, and an emptied set resets the latch. Returns true when it logged.
+        /// </summary>
+        internal static bool ReportConflicts(StrategyStatePatchPlan plan)
+        {
+            string key = plan != null && plan.Conflicting.Count > 0
+                ? string.Join(",", plan.Conflicting.ToArray())
+                : "";
+            if (key == lastConflictReportKey) return false;
+            lastConflictReportKey = key;
+            if (key.Length == 0) return false;
+            ParsekLog.Warn(Tag,
+                "PatchStrategies: the ledger has strategies active together that stock's conflict rule would not allow: ["
+                + key + "]. Left as the ledger has them; nothing is switched off to resolve it.");
+            return true;
         }
 
         /// <summary>
@@ -150,10 +197,10 @@ namespace Parsek
         {
             return string.Format(IC,
                 "activated={0} deactivated={1} matching={2} missingInStock={3} futureDated={4}" +
-                " futureDeactivation={5} unmanaged={6} activatedIds=[{7}] deactivatedIds=[{8}]",
+                " futureDeactivation={5} unmanaged={6} conflicting={7} activatedIds=[{8}] deactivatedIds=[{9}]",
                 plan.ToActivate.Count, plan.ToDeactivate.Count, plan.Matching,
                 plan.MissingInStock.Count, plan.FutureDated.Count, plan.FutureDeactivation.Count,
-                plan.Unmanaged.Count, Sample(plan.ToActivate), Sample(plan.ToDeactivate));
+                plan.Unmanaged.Count, plan.Conflicting.Count, Sample(plan.ToActivate), Sample(plan.ToDeactivate));
         }
 
         private static string Sample(List<string> ids)
@@ -223,12 +270,19 @@ namespace Parsek
 
             double now = Planetarium.GetUniversalTime();
             var index = CommittedFutureIndexCache.Current;
+            var ordered = new List<StrategyTagInfo>(system.Strategies.Count);
+            for (int i = 0; i < system.Strategies.Count; i++)
+            {
+                var s = system.Strategies[i];
+                ordered.Add(new StrategyTagInfo(s?.Config?.Name, s?.Config != null ? s.GroupTags : null));
+            }
             var plan = ComputePlan(ledgerActive, strategies.IsManagedStrategy, stockActive, byId.Keys, now,
                 id =>
                 {
                     var next = StrategyReservationPredicates.FirstFutureRow(index, id, now);
                     return next != null && next.Kind == CommittedFutureKind.StrategyDeactivate;
-                });
+                },
+                ordered);
 
             int deactivated = 0, activated = 0, failed = 0;
             FieldInfo isActiveField = typeof(Strategies.Strategy).GetField(
@@ -274,6 +328,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseOnChange(Tag, "patch-strategies", summary, "PatchStrategies: no change " + summary);
             }
+            ReportConflicts(plan);
             if (plan.MissingInStock.Count > 0)
             {
                 ParsekLog.WarnRateLimited(Tag, "patch-strategies-missing|" + string.Join(",", plan.MissingInStock.ToArray()),
@@ -304,6 +359,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             isActiveFieldWarned = false;
+            lastConflictReportKey = "";
         }
     }
 }

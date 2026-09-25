@@ -1031,7 +1031,9 @@ _(unreleased — entries accumulate here per commit)_
 - **Space Center: the Administration building explains and refuses strategy actions that
   conflict with your committed timeline.** A strategy your committed timeline activates later
   can no longer be activated early (which also charged its setup cost a second time); nor can
-  one whose activation would take a slot a committed activation needs. An active strategy
+  one whose activation would take a slot a committed activation needs, or one that stock's own
+  conflict rule would not allow beside a strategy your committed timeline activates while it
+  is still running. An active strategy
   your committed timeline deactivates or re-activates later can no longer be cancelled before
   then. Stock greys the row or the Cancel button and prints why in its own orange reason line,
   for example `Activated on Y2 D114 on your committed timeline.`, with the date it frees up.

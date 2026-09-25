@@ -233,6 +233,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Activating a strategy now would make stock's conflict rule refuse a committed
+        /// activation of another strategy. The way-out line is given only when the committed
+        /// timeline also deactivates that strategy (<paramref name="conflictEnd"/>); otherwise
+        /// nothing honest can be said about when it frees.
+        /// </summary>
+        internal static ReservationText StrategyConflict(
+            CommittedFutureEntry committedActivation, CommittedFutureEntry conflictEnd,
+            string otherTitle, Func<double, string> formatDate)
+        {
+            string date = FormatDate(committedActivation != null ? committedActivation.UT : 0.0, formatDate);
+            string name = !string.IsNullOrEmpty(otherTitle)
+                ? otherTitle
+                : (committedActivation != null ? committedActivation.Key : "another strategy");
+            return new ReservationText
+            {
+                Title = "Conflicts with '" + name + "'",
+                Fact = "Conflicts with '" + name + "', which is activated on " + date + " "
+                       + SourcePhrase(committedActivation?.RecordingName) + ".",
+                Rule = TimelineRule,
+                WayOut = conflictEnd != null
+                    ? "The conflict ends when '" + name + "' is deactivated on "
+                      + FormatDate(conflictEnd.UT, formatDate) + "."
+                    : null
+            };
+        }
+
+        /// <summary>
         /// Deactivating a strategy the committed timeline changes later.
         /// <paramref name="entry"/> is the strategy's earliest committed row still ahead:
         /// a deactivation (it stays active until then) or a re-activation.
