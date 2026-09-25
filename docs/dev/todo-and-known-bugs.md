@@ -1110,7 +1110,28 @@ re-flown slot again, next to the fork's ghost. Needs a trace of slot-open resolu
 drop, or a lane (re-fly one slot without sealing, rewind to launch, read the slots).
 
 
-## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. OPEN for blocker 2 only]
+## ~~D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE~~ [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. CLOSED 2026-09-26 (coverage wave 8, branch `cov-bgclaims`): blocker 2 claimed on CI-5, SCOPED TO THE CHAIN-WALKER DECISION ON A BACKGROUND RECORDING; a flight-harvested producer stays unbuilt]
+
+**CLOSED 2026-09-26 (coverage wave 8).** Route A (re-fly the harvest with the boot merge dialog
+answered first) was NOT flown: the code settles it. A stock Switch-To onto the Interceptor half,
+while a recording is live and another committed tree matches the half, is pre-switch Case C
+(`MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction`, `C-loaded-separate-committed`); its
+handlers commit or discard the live tree, and the consume then takes
+`ParsekFlight.TryRouteCommittedSpawnedClone` path B, which clones the half's OWN committed tree and
+attaches the segment under the half's own tip - lineage, exactly what run `2026-09-22_2239`
+measured. Answering the boot dialog changes which dialog stands, not where the segment lands.
+Route B (supervisor ruling 2026-09-25, accepted by the coordinator, pending operator
+confirmation): the injected `background-claim` preset gives `eva2-lko-crewed` one committed tree
+whose second recording is a PARENTLESS, branch-point-free background recording of the save's real
+Kerbal X Probe (pid 2614652043) with an engine ignite / shutdown - the shape
+`PrepareActiveTreeForFreshPostSwitchRecording` (no `FreshStartParentRecordingId`) and
+`StartStandaloneContinuationSegment` write. `CI-5-background-event-claim` carries all three
+witnesses (claim line with the fixture pid and tree `tree-bg-claim-carrier-rec`, `Chain built:
+vessel=2614652043 links=1`, the real probe ghosted): reading `2026-09-25_2241`, armed `_2244`,
+negative control offline, plus the xUnit mirror that the same recording parented under the root
+is not claimed. RESIDUE, not filed as a separate item: a FLOWN producer of that shape (item 2's
+second candidate, the `[` / `]` non-stock switch path, needs a mission shell and a host with two
+loaded outsiders in one bubble).
 
 **STATUS 2026-09-23 (read this first; the original filing follows).**
 

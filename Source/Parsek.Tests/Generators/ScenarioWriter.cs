@@ -1099,7 +1099,7 @@ namespace Parsek.Tests.Generators
                 VesselName = builder.GetVesselName(),
                 RecordingFormatVersion = builder.GetFormatVersion(),
                 RecordingSchemaGeneration = builder.GetSchemaGeneration(),
-                VesselPersistentId = StableHashToUint(recordingId),
+                VesselPersistentId = builder.GetVesselPersistentIdOverride() ?? StableHashToUint(recordingId),
                 RecordedVesselGuid = builder.GetRecordedVesselGuid(),
                 ExplicitStartUT = builder.GetStartUT(),
                 ExplicitEndUT = builder.GetEndUT(),

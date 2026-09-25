@@ -145,6 +145,8 @@ RP_SIDECAR_BY_PRESET = {
     "spawn-control-target": None,
     # HV-1's M2 synthetic drill-run tree alone: a committed tree only, no RP.
     "drill-harvest-route": None,
+    # CI-5's background-claim tree: one committed two-recording tree, no RP.
+    "background-claim": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

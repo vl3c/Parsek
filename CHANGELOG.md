@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane checks that a background-recorded vessel is claimed for a ghost chain
+  by its own part event.** The new injected preset `background-claim` adds to a test save a recording
+  of a real, loaded, non-focused probe that the tree recorded in the background, with no parent and
+  an engine ignite / shutdown. The new lane `CI-5-background-event-claim` reads the chain walker
+  claiming that probe, building its chain, and the flight scene turning the real probe into a ghost.
+  The claim covers the walker's decision on a hand-built recording, not a flight that produces one.
+  Coverage 237 -> 238 of 247 (D18 complete).
 - **Automated testing: a lane checks that a replayed ghost keeps its recorded attitude.** With
   ghost render tracing on, each traced ghost frame now also logs how far, in degrees, the ghost's
   drawn orientation is from the orientation its recording implies at that moment, worked out from

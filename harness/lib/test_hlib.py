@@ -10819,6 +10819,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # Orbiting 1, pointCount total / largest 1 (the injected
                        # one-point shape survives the load and the save).
                        "EX-2-single-point-held-ghost.toml",
+                       # CI-5: `structure` + `points` armed 2026-09-26 off its reading
+                       # `2026-09-25_2241` (trees / committedTrees 1, recordings 2,
+                       # Destroyed 1 / Orbiting 1, ghostChainNodes 0, spawnedVessels 0,
+                       # Kerbal X 1 / Kerbal X Probe 0, pointCount total 3 / largest 2).
+                       "CI-5-background-event-claim.toml",
                        # SS-1: `structure` + `points` armed 2026-09-26 off its reading
                        # `2026-09-25_2102` (trees / committedTrees / recordings 2,
                        # Landed 1 / Orbiting 1, spawnedVessels 1, vesselNames Situation
