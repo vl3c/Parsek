@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the Missions tab's leg trim and Clone button are driven by a lane.**
+  Two test-seam additions reach the last two Missions-tab authoring actions no lane could: a
+  `leg:` key for the include op unticks ONE interval of a vessel, through the interval
+  checkbox's own code, and a `clone` op runs the Clone button's code. The new lane
+  `MS-1-mission-leg-trim-clone` loops a recorded two-vessel mission, unticks the main vessel's
+  launch interval and reads the loop shrinking to start at the separation, then clones the
+  mission and reads the copy carrying the trim. Coverage 225 -> 227 of 247 (D11 complete).
 - **Automated testing: two lanes check the Timeline against the ledger and three storage formats
   on live saves.** `ST-1-storage-timeline-ingame` boots the earned career and runs two new in-game
   categories: `Timeline` checks that every effective-ledger action is exactly one Timeline row with

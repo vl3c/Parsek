@@ -379,6 +379,7 @@ namespace Parsek.Tests
         [Theory]
         [InlineData("vessel:rec17", "vessel", "rec17")]
         [InlineData("link:bp-guid-1", "link", "bp-guid-1")]
+        [InlineData("leg:rec17/seg1@dock2", "leg", "rec17/seg1@dock2")]
         public void ASingleKey_SplitsAtItsPrefix(string raw, string prefix, string value)
         {
             Assert.True(TestCommandUiSelectSort.TryParseSelectKey(
@@ -410,7 +411,8 @@ namespace Parsek.Tests
         [InlineData(":rec17")]          // empty prefix
         [InlineData("vessel:")]         // empty value
         [InlineData("group:Boosters")]  // a prefix op=expand keeps and this op does not
-        [InlineData("leg:m1:seg0")]
+        [InlineData("leg:")]            // the interval prefix with no key
+        [InlineData("Leg:rec17")]       // the parse is case-sensitive
         public void AMalformedOrForeignKey_IsTheInvalidReject(string raw)
         {
             Assert.False(TestCommandUiSelectSort.TryParseSelectKey(
@@ -429,9 +431,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SelectPrefixNames_CarriesBoth()
+        public void SelectPrefixNames_CarriesAllThree()
         {
-            Assert.Equal("vessel,link", TestCommandUiSelectSort.SelectPrefixNames);
+            Assert.Equal("vessel,link,leg", TestCommandUiSelectSort.SelectPrefixNames);
+        }
+
+        /// <summary>The interval prefix is its OWN token, not a second spelling of
+        /// <c>vessel:</c>: the two drive different checkboxes (one key versus a whole row),
+        /// so a lane must be able to say which it meant.</summary>
+        [Fact]
+        public void LegPrefix_IsDistinctFromTheVesselPrefix()
+        {
+            Assert.Equal("leg", TestCommandUiSelectSort.LegKeyPrefix);
+            Assert.NotEqual(TestCommandUiSelectSort.VesselKeyPrefix,
+                            TestCommandUiSelectSort.LegKeyPrefix);
+        }
+
+        /// <summary>A leg key is a SINGLE key, so it needs a direction like any other.</summary>
+        [Fact]
+        public void ALegKey_IsNotABulkScope()
+        {
+            Assert.True(TestCommandUiSelectSort.TryParseSelectKey(
+                "missions", "leg:all", includeGiven: true,
+                out UiSelectScope scope, out string prefix, out string value, out string _));
+            Assert.Equal(UiSelectScope.Single, scope);
+            Assert.Equal("leg", prefix);
+            Assert.Equal("all", value);
         }
 
         /// <summary>The vessel prefix is the SAME token <c>op=expand</c> uses for the
