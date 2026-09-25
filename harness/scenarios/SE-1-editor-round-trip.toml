@@ -42,7 +42,24 @@ instanceProfile = "stock-minimal"
 #   - ghosts replay after the round trip: a ghost mesh created AFTER the launch
 #     completes (ordered regex);
 #   - the new launch starts its own tree: the commit ADDS a tree (2) with 1 recording.
-# READING RUN PENDING: every token is source-derived; nothing is armed.
+#
+# READING RUN 1 (`2026-09-25_2308`, and its retry `_a2`): INVALID on two gaps, both
+# fixed in the same change and neither a Parsek product defect.
+#   (a) GoToEditor timed out with the craft ON the stage (`parts=73`): stock craft
+#       name themselves with a localization tag (`ship = #autoLOC_501232`), so the
+#       readiness check compared the tag with the editor's localized "Kerbal X". The
+#       applier now formats the header through the Localizer.
+#   (b) LaunchFromEditor threw `UnauthorizedAccessException ... C:/Auto-Saved
+#       Ship.craft.tmp`: the staged save had no `Ships/SPH`, so the editor never got a
+#       default save folder (EditorDriver.SetDefaultSaveFolder needs the directory) and
+#       saved the auto-saved ship to the drive root. Stock creates `Ships/VAB` and
+#       `Ships/SPH` for every save (new game / Main Menu resume); the seam's LoadGame
+#       bypasses the Main Menu and git cannot carry empty folders, so run.py's staging
+#       now creates both.
+#   Measured on the way: every scene load reads 9 recordings (FLIGHT, SPACECENTER,
+#   EDITOR), `listhandles kind=committed count=9` at the Space Center and in the
+#   editor, and the ledger saves `actions=16` from the loop fast-forward on - the
+#   value the ledger-unchanged pins below hold across the editor walk.
 # =====================================================================================
 description = "Coverage wave 12 (D14 scene-editor): on kerbin-splashdown-recorded with its mission looping (ghosts replaying), boot to the Space Center, walk into the SPH through the building's own click and load the stock Kerbal X through the craft browser (new GoToEditor), press Launch (new LaunchFromEditor), then record and commit on the Runway. The committed recordings survive both transitions unchanged, ghosts replay after the launch, and the new flight commits as a second tree."
 tags = ["SE1", "scene-editor", "editor-route", "loop-playback", "coverage-wave-12"]
@@ -117,6 +134,9 @@ required = [
   "(?s)goeditor complete .*Scene load complete \\(FLIGHT\\): 9 recordings,.*launchfromeditor complete ",
   "(?s)goeditor complete .*listhandles kind=committed count=9 .*launchfromeditor start ",
   "(?s)launchfromeditor complete .*listhandles kind=committed count=9 ",
+  # The ledger is unchanged by the walk: the building click's save and every save
+  # until the launch settles read the same action count as before it.
+  "(?s)Saved ledger to [^\\r\\n]*actions=16\\r?\\n.*goeditor start .*Saved ledger to [^\\r\\n]*actions=16\\r?\\n.*goeditor complete ",
   # Ghosts replay after the round trip.
   "(?s)launchfromeditor complete .*phase=MeshSpawned .*reason=ghost-created",
   # The new flight commits as a SECOND tree.
@@ -130,6 +150,7 @@ forbidden = [
   "launchfromeditor refused",
   "launchfromeditor timeout",
   "Updated committed tree",
+  "(?s)goeditor start (?:(?!launchfromeditor complete).)*Saved ledger to [^\\r\\n]*actions=(?!16\\b)[0-9]+",
   "Scene load complete \\((EDITOR|FLIGHT)\\): (?!9 recordings,)[0-9]+ recordings,",
 ]
 
