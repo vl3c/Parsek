@@ -139,6 +139,8 @@ RP_SIDECAR_BY_PRESET = {
     "relative-loop": None,
     # EX-2's single-point hold: one committed one-point recording, no RP.
     "single-point-hold": None,
+    # SS-1's spawn-safety pair: two committed single-recording trees, no RP.
+    "spawn-safety": None,
     # RSC-1's Real Spawn Control candidate: one committed landed recording, no RP.
     "spawn-control-target": None,
     # HV-1's M2 synthetic drill-run tree alone: a committed tree only, no RP.

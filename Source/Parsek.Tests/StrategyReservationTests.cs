@@ -917,7 +917,9 @@ namespace Parsek.Tests
         /// <c>Strategy.Update()</c> expires through <c>Deactivate()</c>, gated on
         /// <c>CanBeDeactivated</c>. No Parsek patch may target <c>CanBeDeactivated</c>, and
         /// the only patch on <c>Deactivate()</c> is the capture postfix: the refusal lives on
-        /// the Administration player path only.
+        /// the Administration player path only. The <c>Update()</c> prefix only lets a
+        /// deactivation the committed timeline already made land at its committed UT, with
+        /// no capture (StrategyExpiryReplayTests); every other expiry is stock's own.
         /// </summary>
         [Fact]
         public void AutoExpiry_NoParsekPatchCanRefuseAStockDeactivation()

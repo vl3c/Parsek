@@ -16,7 +16,43 @@ _(unreleased — entries accumulate here per commit)_
   refuses when the button is greyed out. `HV-1` runs the Logistics tests with a synthetic drill mission present,
   so the check that a route treats drilled cargo as its own origin runs instead of skipping. `MC-4` launches the
   staged Kerbal X from the Making History Desert pad and requires the recording to name the site, save it, and
-  replay there. Two new injection presets supply the subjects. Coverage 210 -> 213 of 250.
+  replay there. Two new injection presets supply the subjects. Coverage 228 -> 231 of 247.
+- **Automated testing: the Missions tab's leg trim and Clone button are driven by a lane.**
+  Two test-seam additions reach the last two Missions-tab authoring actions no lane could: a
+  `leg:` key for the include op unticks ONE interval of a vessel, through the interval
+  checkbox's own code, and a `clone` op runs the Clone button's code. The new lane
+  `MS-1-mission-leg-trim-clone` loops a recorded two-vessel mission, unticks the main vessel's
+  launch interval and reads the loop shrinking to start at the separation, then clones the
+  mission and reads the copy carrying the trim. Coverage 225 -> 227 of 247 (D11 complete).
+- **Automated testing: two lanes check the Timeline against the ledger and three storage formats
+  on live saves.** `ST-1-storage-timeline-ingame` boots the earned career and runs two new in-game
+  categories: `Timeline` checks that every effective-ledger action is exactly one Timeline row with
+  its own display text (or a route row, which the design leaves out), in time order; `Storage` checks
+  recording-id path validation on the save's real ids and that the readable `.prec.txt` mirrors are
+  removed with the setting off and rewritten faithfully with it on. `ST-2-rewind-point-quicksave`
+  splits a kerbal off an orbiting ship, which writes a rewind-point quicksave, and checks the file is
+  on disk under `Parsek/RewindPoints/`, loads as a save at the rewind point's time, and left no
+  temporary file behind.
+- **Automated testing: a GUI census lane photographs Parsek's annotations on the stock KSP screens.**
+  `GUI-28-census-stock-screens` visits R&D, the Astronaut Complex (from the Space Center and from the
+  VAB), Mission Control, Administration, the Tracking Station's right-click menu, the launch-site crew
+  picker, the VAB part list and its crew panel, and photographs each greyed control and stock tooltip. Its
+  host is a new committed fixture, `stock-screen-census`: a rewound career whose committed timeline
+  researches a node, accepts an offered contract, completes an active one, hires an applicant, holds a
+  kerbal on a future flight, upgrades a building, buys a part and swaps strategies after the clock (built
+  by a test, never hand-edited). A new automation-only test command, `StockScreen`, opens those screens
+  through their own buildings, selects rows and hovers controls without pressing anything, and every
+  screenshot now also logs what Parsek decided for each stock screen open at that moment.
+- **Automated testing: nine more behaviours are gated by lanes that already show them, and three registry cells that named nothing are retired.**
+  Existing lanes now require the log lines that prove the in-flight crew swap (GS-4), freeing a crewed
+  recording's reservation when its end passed without a spawn (L4), the tracking-station duplicate-spawn
+  guard and the `.pann` sidecar read and write (V22T), and Parsek's save node written and read back
+  (GS-4). EX-2's bounding-box spawn block, EX-1's launch-pad retirement and V16M's Laythe replay now
+  count for their cells, and V14M's render check requires ghosts replayed at 1x. The render check's
+  warp rule asks for seams crossed above 1x only when a lane claims an above-1x warp bucket. Retired:
+  the proximity offset (removed from the code), crew auto-hire (never built; stand-ins replaced it)
+  and the bare "situation" axis. The user guide no longer describes the proximity offset. Coverage
+  210 of 250 -> 219 of 247.
 - **Automated testing: five more coverage cells claimed off logs existing lanes already print.**
   B4 now requires the parachute cut the game performs on splashdown (D7 `chute-cut`); GS-12
   requires the whole-mission loop being switched on and the watch camera reading the mission's
@@ -116,6 +152,13 @@ _(unreleased — entries accumulate here per commit)_
   `REJECTED tab-hidden-in-game-mode` naming the mode, and `key=customRange` now opens the
   Time fold. `GUI-24-census-timeline-filters` photographs the Contracts, Milestones and
   Tech views on its host and Milestones under a This Year range.
+- **Automated testing: a lane checks two spawn-safety guards on a real spawn.**
+  `SS-1-spawn-safety-corrections` injects two recordings that end during a time warp. One
+  landed on the grass near the Space Center but its saved state still said "flying"; it
+  spawns after the warp with that state corrected to landed. The other ends in an orbit
+  that dips to 60 km, inside the 75 km safety margin over Kerbin's atmosphere; its spawn is
+  held while the orbit is low, and once the orbit climbs back out it is refused, because the
+  low point would still drag it down. Test-side only: a new `spawn-safety` injection preset.
 - **Automated testing: a lane watches a ghost wait past its end for a blocked spawn.**
   `EX-2-single-point-held-ghost` injects a one-point recording that ends in orbit on top of
   another loaded vessel. At the recording's end the spawn is blocked and, with only one
@@ -1028,6 +1071,36 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Stock screens: a button Parsek blocks now looks disabled.** The R&D Research and
+  purchase-all button and Mission Control's Accept, Decline and Cancel draw no disabled state
+  of their own, so a blocked one looked clickable and only the reason text said otherwise.
+  They are now greyed while Parsek blocks them (a button whose own style has a disabled look
+  keeps using it), and get their exact stock look back when the block lifts or another,
+  unblocked contract or node is selected.
+- **KSC facility menu: the Upgrade explanation wraps.** The tooltip on a blocked Upgrade
+  button drew as one very long line to the left of the menu; it now wraps to short lines.
+- **Mission Control: row labels fit.** A contract the committed timeline accepts or resolves
+  reads e.g. "- accepted Y1 D3" or "- completes Y2 D114" after its title, instead of a long
+  status the three-line row cut off; the detail panel still gives the full explanation.
+- **Mission Control: the slot refusal names the contract's agent.** When several offers share
+  a title, "Accept is unavailable" now says which one the committed timeline accepts, e.g.
+  "'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics".
+- **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
+  Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
+  kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name
+  as its text and logged an "Unknown GameActionType" warning every time the Timeline rebuilt. It now
+  shows in the crew bucket, beside `Recovered: <name>`, naming the logged entries. Supply-route ledger
+  rows, which the Timeline design gives no row, are now skipped instead of taking the same fallback.
+- **A committed tech unlock now reaches the R&D tree when the Space Center clock passes it as
+  the last committed event.** When the clock caught up with a committed research (for example
+  after a rewind to before it) and that research was the last thing on the committed timeline,
+  the ledger recalculated without a time limit, and that kind of recalculation leaves the tech
+  tree alone so it cannot re-lock anything. The node's science was charged but the node stayed
+  locked, and once its research block lifted it could be bought a second time. Those
+  recalculations now also unlock every committed node at or before the current time. They only
+  unlock, never re-lock, never unlock a node whose research is still ahead, and wait while a
+  rewind is still moving the clock. A committed part purchase on that node now applies in the
+  same pass.
 - **Buying a part no longer charges again for the identical parts the game gives you free.**
   When you buy a part in the VAB/SPH or in R&D, the game also marks the part's identical
   variants (same tech node) as purchased without charging for them. Parsek recorded each of
@@ -1037,6 +1110,12 @@ _(unreleased — entries accumulate here per commit)_
   still counts: after a rewind the variant is marked purchased again when its date passes,
   and it cannot be bought before then, like the part you paid for. Purchases recorded
   before this fix keep the amount they were recorded with.
+- **Kerbals and Career State windows: column text now starts exactly under its header.**
+  Their body cells were plain labels under boxed headers, so the text sat 4px left of the
+  header text (Kerbals Roster: header text at x=289, body at x=285). Every body cell now uses
+  the shared table cell style, including the label-styled link cells (Career row names,
+  Kerbals Last flight and Flights rows) and the fold rows and grey "No active ..." line
+  inside the tables.
 - **Real Spawn Control and the Log (Structure) window: column text now starts exactly under
   its header.** The header cells are boxes that inset their text 4px, while the body cells
   were plain labels with no inset, so every column's text sat 4px left of its header in
@@ -1109,6 +1188,16 @@ _(unreleased — entries accumulate here per commit)_
   save loads (applied as soon as the game has loaded its strategy list, a frame later),
   without charging or refunding anything again. Strategies activated before the save used
   Parsek are left alone.
+- **After a rewind, a strategy's committed expiry no longer records a second deactivation.**
+  With KSPCommunityFixes installed, stock strategies expire when their duration runs out.
+  After a rewind to before a committed expiry, the game expired the strategy again when the
+  clock passed that date, Parsek recorded a second deactivation of it (the Timeline showed
+  it twice), and every later recalculation warned that the strategy was not active. The
+  committed deactivation (an expiry, or a cancel you made) now switches the strategy off at
+  its committed date, before the game's own expiry check runs, so the game never expires it
+  a second time and nothing new is recorded. A strategy you activate again after that date,
+  and any expiry your committed timeline does not already have, expire and are recorded as
+  before.
 - **Mission Control: cancelling an active contract your committed timeline completes,
   fails or cancels later is now refused, and its Active-tab row says so.** Cancelling it
   used to charge the cancel penalty now and then either wipe out the later completion's
@@ -1422,6 +1511,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Timeline: the Archived toggle moved to the first row, as its last button.** It applies in
+  every view, so it no longer sits among one view's own buttons; the second row under
+  Rewind/FF and Re-Fly is now empty (kept at its height so the list does not move). Its hover
+  says what it does: `Lists archived flights, marked [archived], in all views. Same switch as
+  the recordings list's Archive filter.` - it adds the launch, separation, spawn and crew-loss
+  rows of recordings archived in the recordings list, and flipping it flips that list's
+  Archive filter too. Career rows are never archived, and a mission archived in the Missions
+  window is a separate setting that does not reach the Timeline.
+- **Career State: the Contracts heading counts slots with Mission Control's own forecast.**
+  `N of M slots free (a active, r reserved for later)` now reads the same slot forecast that
+  refuses a slot-starving accept at Mission Control, over stock's live contracts and limit
+  (when stock's contract state cannot be read, the same forecast runs over the window's own
+  ledger rows). Like stock, contracts the game accepts automatically hold no slot, so the
+  active count can be lower than the number of rows listed; a deadline frees its slot on the
+  deadline date and a committed Mission Control upgrade adds its slots when it happens. Free
+  slots never read below 0. The Strategies heading keeps the window's own count.
 - **Logistics: the `Cyc` column header now reads `Cycle`.** The 80px column fits the
   full word and its sort arrow.
 - **Timeline: the Custom range no longer repeats itself above the sliders.** The dim

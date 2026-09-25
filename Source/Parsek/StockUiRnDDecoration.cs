@@ -120,27 +120,42 @@ namespace Parsek
 
         /// <summary>
         /// <c>RDController.UpdatePanel</c> postfix: stock re-enables Research every time a
-        /// node is shown, so the block is re-applied after it.
+        /// node is shown, so the block is re-applied after it. Returns true when Parsek
+        /// disabled the button (the caller greys it, <see cref="SyncActionButtonGreyed"/>).
         /// </summary>
-        internal static void ApplyPanelBlock(RDController controller)
+        internal static bool ApplyPanelBlock(RDController controller)
         {
-            if (controller == null || controller.actionButton == null) return;
+            if (controller == null || controller.actionButton == null) return false;
             RDNode node = controller.node_selected;
             string techId = TechIdOf(node);
-            if (string.IsNullOrEmpty(techId)) return;
+            if (string.IsNullOrEmpty(techId)) return false;
             var d = StockUiLiveSnapshot.Current.Tech(techId);
             bool faded = node.state == RDNode.State.FADED;
             if (!ShouldDisableResearch(d.Blocked, node.IsResearched, faded))
-                return;
+                return false;
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose(Tag, "R&D Research button block bypassed for " + techId + " - action replay in progress");
-                return;
+                return false;
             }
             controller.actionButton.Enable(false);
             ParsekLog.InfoRateLimited(Tag, "rnd-research-disabled-" + techId,
                 "R&D Research button disabled for " + techId + " - committed future research ut="
                 + d.UT.ToString("F0", CultureInfo.InvariantCulture) + " why=\"" + d.Why + "\"");
+            return true;
+        }
+
+        /// <summary>
+        /// After every <c>RDController.UpdatePanel</c>: grey the side panel's action button
+        /// exactly when Parsek disabled it for the node on show (Research or purchase-all),
+        /// else give back the stock look Parsek saved. The button is a <c>UIStateButton</c>
+        /// whose research / purchase states draw no distinct disabled look, so a
+        /// Parsek-disabled button looked live without this.
+        /// </summary>
+        internal static void SyncActionButtonGreyed(RDController controller, bool disabledByParsek)
+        {
+            if (controller == null || controller.actionButton == null) return;
+            StockUiGreyedButton.Sync(controller.actionButton.Button, disabledByParsek, "R&D actionButton");
         }
 
         /// <summary>

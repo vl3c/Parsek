@@ -43,6 +43,18 @@ namespace Parsek
         // and must be undone by Parsek when an unblocked Offered contract is selected.
         private static bool acceptDisabledByParsek;
 
+        /// <summary>
+        /// The row status date: stock's date without the time of day, compacted
+        /// (<see cref="MissionControlStockAnnotation.CompactRowDate"/>), e.g. <c>Y1 D3</c>.
+        /// </summary>
+        internal static readonly Func<double, string> RowDateFormatter = ut =>
+        {
+            string stock;
+            try { stock = KSPUtil.PrintDateCompact(ut, false); }
+            catch { stock = null; }
+            return MissionControlStockAnnotation.CompactRowDate(stock);
+        };
+
         /// <summary>The Mission Control tab stock is showing.</summary>
         internal static string TabForDisplayMode(MissionControl.DisplayMode mode)
         {
@@ -91,7 +103,7 @@ namespace Parsek
                 + cleared.ToString(CultureInfo.InvariantCulture) + ")");
         }
 
-        internal static void OnScreenClosed()
+        internal static void OnScreenClosed(MissionControl mc = null)
         {
             if (passOpen)
             {
@@ -99,6 +111,9 @@ namespace Parsek
                 ResetPass();
             }
             acceptDisabledByParsek = false;
+            // Give Accept / Decline / Cancel their stock look back in case the screen object
+            // outlives the close (a destroyed one is dropped by StockUiGreyedButton itself).
+            SyncGreyedButtons(mc, default(StockUiDecoration));
             ParsekLog.Verbose(Tag, "MissionControl closed - Parsek owns no GameObject on it, nothing to strip");
         }
 
@@ -171,7 +186,7 @@ namespace Parsek
 
             if (!d.Marked)
                 return label;
-            return MissionControlStockAnnotation.ComposeRowLabel(label, contract.Title, d);
+            return MissionControlStockAnnotation.ComposeRowLabel(label, contract.Title, d, RowDateFormatter);
         }
 
         // ---------------------------------------------------------------- detail panel
@@ -211,12 +226,25 @@ namespace Parsek
         /// </summary>
         internal static void ApplyDetailPanel(MissionControl mc, Contract contract, string source)
         {
+            StockUiDecoration shown = default(StockUiDecoration);
+            try
+            {
+                shown = ApplyDetailPanelCore(mc, contract, source);
+            }
+            finally
+            {
+                SyncGreyedButtons(mc, shown);
+            }
+        }
+
+        private static StockUiDecoration ApplyDetailPanelCore(MissionControl mc, Contract contract, string source)
+        {
             if (mc == null || contract == null)
             {
                 // Stock and CC both call UpdateInfoPanelContract(null) to clear the panel.
                 ParsekLog.VerboseRateLimited(Tag, "mc-detail-null",
                     "MissionControl detail panel: no contract (" + (source ?? "?") + ") - nothing to annotate");
-                return;
+                return default(StockUiDecoration);
             }
 
             StockUiDecoration d = DecideNow(contract);
@@ -231,7 +259,7 @@ namespace Parsek
                 SetInteractable(mc.btnCancel, false);
                 ParsekLog.Verbose(Tag, "MissionControl detail panel: contract=" + d.Id
                     + " tab=" + d.Tab + " blocked - Cancel disabled, why appended (" + (source ?? "?") + ") why=\"" + d.Why + "\"");
-                return;
+                return d;
             }
 
             bool? acceptWrite = ResolveAcceptWrite(d, contract.ContractState, () => StockAcceptAllowed(contract));
@@ -249,7 +277,7 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, "MissionControl detail panel: contract=" + d.Id
                         + " tab=" + d.Tab + " not blocked - stock Accept/Decline state kept (" + (source ?? "?") + ")");
                 }
-                return;
+                return d;
             }
 
             SetInteractable(mc.btnAccept, false);
@@ -260,11 +288,12 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, "MissionControl detail panel: contract=" + d.Id
                     + " slot needed by a committed accept - Accept disabled, why appended (" + (source ?? "?")
                     + ") why=\"" + d.Why + "\"");
-                return;
+                return d;
             }
             SetInteractable(mc.btnDecline, false);
             ParsekLog.Verbose(Tag, "MissionControl detail panel: contract=" + d.Id
                 + " blocked - Accept and Decline disabled, why appended (" + (source ?? "?") + ") why=\"" + d.Why + "\"");
+            return d;
         }
 
         /// <summary>
@@ -274,6 +303,20 @@ namespace Parsek
         /// </summary>
         internal static bool ReapplyButtonsForSelection(MissionControl mc, string source)
         {
+            StockUiDecoration shown = default(StockUiDecoration);
+            try
+            {
+                return ReapplyButtonsForSelectionCore(mc, source, out shown);
+            }
+            finally
+            {
+                SyncGreyedButtons(mc, shown);
+            }
+        }
+
+        private static bool ReapplyButtonsForSelectionCore(MissionControl mc, string source, out StockUiDecoration d)
+        {
+            d = default(StockUiDecoration);
             Contract contract = mc != null && mc.selectedMission != null ? mc.selectedMission.contract : null;
             // Stock has just written btnAccept from its own slot rule, so any earlier
             // Parsek disable is gone unless it is re-applied below.
@@ -281,7 +324,7 @@ namespace Parsek
             if (contract == null)
                 return false;
 
-            StockUiDecoration d = DecideNow(contract);
+            d = DecideNow(contract);
             if (!d.Blocked)
                 return false;
 
@@ -334,14 +377,27 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, "MissionControl refresh (" + (reason ?? "?") + "): no MissionControl instance - skipped");
                 return;
             }
+            StockUiDecoration shown = default(StockUiDecoration);
+            try
+            {
+                RefreshOpenScreenCore(mc, reason, out shown);
+            }
+            finally
+            {
+                SyncGreyedButtons(mc, shown);
+            }
+        }
 
+        private static void RefreshOpenScreenCore(MissionControl mc, string reason, out StockUiDecoration d)
+        {
+            d = default(StockUiDecoration);
             RelabelRows(mc, "refresh:" + (reason ?? "?"));
 
             Contract selected = mc.selectedMission != null ? mc.selectedMission.contract : null;
             if (selected == null)
                 return;
 
-            StockUiDecoration d = DecideNow(selected);
+            d = DecideNow(selected);
             SetDetailText(mc, d);
             if (MissionControlStockAnnotation.BlocksCancel(d))
             {
@@ -456,7 +512,7 @@ namespace Parsek
                 decorations.Add(d);
                 string current = row.title.text;
                 string next = d.Marked
-                    ? MissionControlStockAnnotation.ComposeRowLabel(current, contract.Title, d)
+                    ? MissionControlStockAnnotation.ComposeRowLabel(current, contract.Title, d, RowDateFormatter)
                     : MissionControlStockAnnotation.StripRowStatus(current);
                 if (!string.Equals(current, next, StringComparison.Ordinal))
                 {
@@ -488,7 +544,7 @@ namespace Parsek
             StockUiDecoration d = DecideNow(contract);
             string current = row.title.text;
             string next = d.Marked
-                ? MissionControlStockAnnotation.ComposeRowLabel(current, contract.Title, d)
+                ? MissionControlStockAnnotation.ComposeRowLabel(current, contract.Title, d, RowDateFormatter)
                 : MissionControlStockAnnotation.StripRowStatus(current);
             if (!string.Equals(current, next, StringComparison.Ordinal))
                 row.title.text = next;
@@ -571,6 +627,24 @@ namespace Parsek
         }
 
         // ---------------------------------------------------------------- buttons
+
+        /// <summary>
+        /// Greys exactly the buttons Parsek disabled for the contract on show, and gives
+        /// every other one back its stock look (<see cref="StockUiGreyedButton"/>). Stock's
+        /// Accept / Decline / Cancel draw no disabled state, so without the grey a
+        /// Parsek-disabled button looked live. Run after every write of the detail panel,
+        /// <c>RefreshUIControls</c> and a timeline refresh, so the look follows the
+        /// selection and never carries onto the next contract.
+        /// </summary>
+        private static void SyncGreyedButtons(MissionControl mc, StockUiDecoration shown)
+        {
+            if (mc == null) return;
+            bool accept, decline, cancel;
+            MissionControlStockAnnotation.GreyedButtons(shown, out accept, out decline, out cancel);
+            StockUiGreyedButton.Sync(mc.btnAccept, accept, "MissionControl Accept");
+            StockUiGreyedButton.Sync(mc.btnDecline, decline, "MissionControl Decline");
+            StockUiGreyedButton.Sync(mc.btnCancel, cancel, "MissionControl Cancel");
+        }
 
         private static bool IsInteractable(Button button)
         {

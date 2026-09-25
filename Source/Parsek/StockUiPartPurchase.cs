@@ -305,24 +305,26 @@ namespace Parsek
 
         /// <summary>
         /// <c>RDController.UpdatePanel</c> postfix, researched node: disable the
-        /// purchase-all button when every part still to buy is blocked.
+        /// purchase-all button when every part still to buy is blocked. Returns true when
+        /// Parsek disabled it (the caller greys it).
         /// </summary>
-        internal static void ApplyPurchaseAllBlock(RDController controller)
+        internal static bool ApplyPurchaseAllBlock(RDController controller)
         {
-            if (controller == null || controller.actionButton == null) return;
+            if (controller == null || controller.actionButton == null) return false;
             var node = controller.node_selected;
-            if (node == null || !node.IsResearched || node.tech == null) return;
-            if (GameStateRecorder.IsReplayingActions) return;
+            if (node == null || !node.IsResearched || node.tech == null) return false;
+            if (GameStateRecorder.IsReplayingActions) return false;
             var decisions = UnpurchasedDecisions(node.tech);
             int blocked = 0;
             for (int i = 0; i < decisions.Count; i++)
                 if (decisions[i].Value.Blocked) blocked++;
-            if (!ShouldDisablePurchaseAll(decisions.Count, blocked)) return;
+            if (!ShouldDisablePurchaseAll(decisions.Count, blocked)) return false;
             controller.actionButton.Enable(false);
             ParsekLog.InfoRateLimited(Tag, "rnd-purchase-all-disabled-" + node.tech.techID,
                 "R&D purchase-all button disabled for " + node.tech.techID + " - all "
                 + decisions.Count.ToString(CultureInfo.InvariantCulture)
                 + " unpurchased part(s) have a committed future purchase");
+            return true;
         }
 
         internal static void ResetForTesting()

@@ -1083,7 +1083,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # name is a second spelling of StartRecording / StopRecording: those own the
         # auto-record tree that commits into the career, these own the parallel
         # ghost-only recorder behind the Gloops window's primary button.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 38)
+        # 39 / 5 after StockScreen, an ADDITION by one: the reserved envelope never
+        # carried a stock-screen verb.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 39)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -7087,6 +7089,12 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "PartEventFX": 6,
             "GhostLifecycle": 17,
         }),
+        # 2026-09-25 coverage wave 4: the D15 / D16 storage-and-timeline lane,
+        # pinned whole off reading run 2026-09-25_2043.
+        "ST-1-storage-timeline-ingame": ("FLIGHT", {
+            "Timeline": 1,
+            "Storage": 3,
+        }),
     }
 
     # Members whose split has NOT been measured yet, mirroring the two sibling
@@ -9449,6 +9457,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2316, attempt 1, 66 s, 11 PNG + 10 dumps). Three earlier runs are not the record: _2254 and _2255 read INVALID(driver-verdict-mismatch) on this lane's own `edit-not-drawn` (a recording inside a grouped display block, which `op=expand key=all` cannot open), and _2258 PASSED every contract with its dialog PNG hidden behind the full-width Logistics window. Owed: the ordinary promotion call.",
         "GUI-26-census-createroute-and-running-batch.toml":
                                        "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2305, attempt 1, 59 s, 2 PNG + 1 dump). Its first flight _2300 PASSED every contract with BOTH captures wrong (the modal hidden behind the Logistics window, and the runner photographed idle because the TrajectoryMath batch finished in 149 ms). The accepted run's PNG is the product of the running-batch label; the dump beside it was written 16 ms before BATCH_COMPLETE and is timing-dependent. Owed: the ordinary promotion call.",
+        # THE STOCK-SCREEN CENSUS, 2026-09-25. The first lane photographing Parsek's
+        # annotations on STOCK KSP screens, over a committed rewound-career fixture built for
+        # it and the StockScreen seam verb. Operator-tier by the CADENCE reason every census
+        # lane carries; it additionally moves the operator's cursor (a pointer lane).
+        "GUI-28-census-stock-screens.toml":
+                                       "tier=operator by CADENCE (capture host) and a POINTER lane: its hovers move the operator's cursor. Hosted on the committed `stock-screen-census` fixture (Source/Parsek.Tests/StockScreenCensusFixture.cs). READING RUN `2026-09-25_2055` PASS attempt 1 (72 s, 25 PNG; earlier PASS flights `_2035` / `_2046` shaped the editor settle, the control readback and the fixture's funds pool). Per-screen findings filed as STOCK-UI-CENSUS-GUI-28-FINDINGS; nothing is armed (report-only: no marked or blocked count is pinned). Owed: the overlay findings its PNGs name go to the overlay session; the ordinary promotion call.",
         "GUI-27-census-missions-include.toml":
                                        "tier=operator by CADENCE (capture host); FLOWN PASS 2026-09-22 (run _2304, attempt 1, 58 s, 3 PNG + 3 dumps) - the only lane of the wave whose FIRST flight is its record. Owed: the ordinary promotion call.",
     }
@@ -10208,7 +10222,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # re-flight (twice) plus negative control. What is left on this lane is the
         # ordinary operator -> nightly PROMOTION call, a cadence decision for a
         # human and not a review debt.
-        "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED and ARMED 2026-08-25; readings 1415 (empty, root-caused), 1502 (full measurement, doctrine anomaly red) and 1616 (clean PASS re-fly, anomaly counts identical 65/2/2, every composition facet equal and the histogram within 0.5 % bucket for bucket) flown. ARMED off the matching 1502+1616 PAIR - a histogram read once is a sample - with dwells {1,32}, unevaluable {max 500000}, requireSeamKinds [rigid, flexible-soi] and the suite's FIRST warpBuckets [warp100, warp1000], the key no other subject may ever declare (their clocks are instantaneous TimeJumps, 1x-only by construction). It is the RC-WARP lane and the last M-A7 Phase-3 debt, and that debt is now DISCHARGED IN FULL - the arming closed its measurement half and the discipline closed the rest. THE DISCIPLINE IS COMPLETE ACROSS SIX FLIGHTS: armed re-flight 1722 (PASS attempt 1, gating=True, zero mismatches) plus 1811, which was flown as the control, never armed (a substring edit hit a rationale comment quoting the same key) and therefore counts as a SECOND armed re-flight (PASS attempt 1, zero mismatches); then the genuine negative control 1925, PARSEK-FAIL(render-composition) attempt 1 on the single mismatch `RC-WARP [FAIL] warpBuckets.warpHigh` with every sibling verifier row clean and the run JSON's new `declared` field recording warpBuckets ['warpHigh'] - the audit fix proving its own control - reverted in the same change. Anomaly counts 65/2/2 to the integer on all four full PASS flights (66/2/2 on the control). Promotion past operator is now an open cadence call, not debt",
+        "V24W-duna-one-warp-stair.toml":    "operator by the calibration discipline (V1/V2 precedent); AUTHORED and ARMED 2026-08-25; readings 1415 (empty, root-caused), 1502 (full measurement, doctrine anomaly red) and 1616 (clean PASS re-fly, anomaly counts identical 65/2/2, every composition facet equal and the histogram within 0.5 % bucket for bucket) flown. ARMED off the matching 1502+1616 PAIR - a histogram read once is a sample - with dwells {1,32}, unevaluable {max 500000}, requireSeamKinds [rigid, flexible-soi] and the suite's FIRST warpBuckets [warp100, warp1000], the only above-1x buckets any subject may declare (the others' clocks are instantaneous TimeJumps, 1x-only by construction; V14M declares [warp1x] alone since 2026-09-25). It is the RC-WARP lane and the last M-A7 Phase-3 debt, and that debt is now DISCHARGED IN FULL - the arming closed its measurement half and the discipline closed the rest. THE DISCIPLINE IS COMPLETE ACROSS SIX FLIGHTS: armed re-flight 1722 (PASS attempt 1, gating=True, zero mismatches) plus 1811, which was flown as the control, never armed (a substring edit hit a rationale comment quoting the same key) and therefore counts as a SECOND armed re-flight (PASS attempt 1, zero mismatches); then the genuine negative control 1925, PARSEK-FAIL(render-composition) attempt 1 on the single mismatch `RC-WARP [FAIL] warpBuckets.warpHigh` with every sibling verifier row clean and the run JSON's new `declared` field recording warpBuckets ['warpHigh'] - the audit fix proving its own control - reverted in the same change. Anomaly counts 65/2/2 to the integer on all four full PASS flights (66/2/2 on the control). Promotion past operator is now an open cadence call, not debt",
         # THE TWO PHASE-4 / WAVE-B LANES, authored 2026-08-26 against the two fixtures
         # the route+park harvest landed. Both are operator-tier for the SAME
         # calibration-discipline reason V24W was and V8's iteration 1 was: a first flight
@@ -10775,6 +10789,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # Orbiting 1, pointCount total / largest 1 (the injected
                        # one-point shape survives the load and the save).
                        "EX-2-single-point-held-ghost.toml",
+                       # SS-1: `structure` + `points` armed 2026-09-26 off its reading
+                       # `2026-09-25_2102` (trees / committedTrees / recordings 2,
+                       # Landed 1 / Orbiting 1, spawnedVessels 1, vesselNames Situation
+                       # Hopper 1 / Low Perigee Probe 0, pointCount total 4 / largest 3).
+                       "SS-1-spawn-safety-corrections.toml",
                        # LF-1: `structure` armed 2026-09-23 off its reading run
                        # `2026-09-22_2350` (trees / committedTrees / recordings 1,
                        # Landed 1, and the new vessel census: spawnedVessels 1,
@@ -11452,9 +11471,10 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # ["rigid","flexible-soi"] (measured rigid 14 / flexible-soi 2). The two
         # floors are the anti-vacuity halves; the ceilings are runaway guards, not
         # pins, because dwell and endpoint counts move with frame timing.
-        # `warpBuckets` is NOT declared and never may be on this lane (every clock
-        # move is an instantaneous TimeJump, so the histogram is 1x-only by
-        # construction). Arming re-pinned NOTHING in the flown shape.
+        # No ABOVE-1x `warpBuckets` entry may ever be declared on this lane (every
+        # clock move is an instantaneous TimeJump, so the histogram is 1x-only by
+        # construction); `["warp1x"]` alone IS declared since 2026-09-25 for the D14
+        # `warp-1x` claim. Arming re-pinned NOTHING in the flown shape.
         # ONE PRICED-IN SHIFT: the sticky `mapRenderTracingOn` fix that landed in
         # the same pass removes this lane's spurious
         # `seam-data-unavailable-tracing-off`, so the next run reads 55 rather
@@ -12419,7 +12439,7 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         always did. See RENDERCOMPOSE_ARMED_SPECS for the cycle's run ids."""
         block = self._armed_block("V14M-ike-player-loop.toml")
         self.assertEqual({"gating", "dwells", "cycles", "unevaluable",
-                          "requireSeamKinds"}, set(block),
+                          "requireSeamKinds", "warpBuckets"}, set(block),
                          "a window was added to (or removed from) V14M's ARMED "
                          "render-composition block; every armed window needs its own "
                          "report-only reading run behind it")
@@ -12427,10 +12447,12 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         self.assertEqual({"min": 1, "max": 16}, block["cycles"])
         self.assertEqual({"max": 200}, block["unevaluable"])
         self.assertEqual(["rigid", "flexible-soi"], block["requireSeamKinds"])
-        # `warpBuckets` may NEVER be declared here: every clock move on this lane is
-        # an instantaneous TimeJump, so RC-WARP's histogram is 1x-only by
-        # construction and the key would pin the drive shape, not the product.
-        self.assertNotIn("warpBuckets", block)
+        # `warpBuckets` is EXACTLY ["warp1x"] (D14 `warp-1x`, supervisor ruling
+        # 2026-09-25): every clock move on this lane is an instantaneous TimeJump, so
+        # RC-WARP's histogram is 1x-only by construction (measured warp1x 173 / 177)
+        # and that 1x replay is the cell. No ABOVE-1x bucket may ever be named here -
+        # it would demand warped seam and hold traversals this drive cannot produce.
+        self.assertEqual(["warp1x"], block["warpBuckets"])
 
     def test_v8_declares_the_render_composition_block_armed_without_a_cycles_floor(self):
         """V8, ARMED 2026-08-25 off reading run `2026-08-25_0956`: dwells 2,
@@ -12499,13 +12521,17 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # Stated as its own assertion rather than left to the key-set pin: the list
         # above could grow this token without changing the KEY set at all.
         self.assertNotIn("warpHigh", block["warpBuckets"])
-        # And the suite property the pair of sibling pins states from the other side:
-        # exactly ONE armed block in the corpus declares warpBuckets, and it is this
-        # one. A second lane picking the key up is an arming decision of its own.
-        with_buckets = sorted(n for n in self.RENDERCOMPOSE_ARMED_SPECS
-                              if "warpBuckets" in self._armed_block(n))
+        # And the suite property the sibling pins state from the other side: exactly
+        # ONE armed block in the corpus names an ABOVE-1x warp bucket, and it is this
+        # one. (V14M declares ["warp1x"] alone since 2026-09-25, which RC-WARP reads
+        # as a 1x-only claim with no traversal clause.) A second lane naming an
+        # above-1x bucket is an arming decision of its own.
+        with_buckets = sorted(
+            n for n in self.RENDERCOMPOSE_ARMED_SPECS
+            if any(b in rendercompose.WARP_BUCKETS_ABOVE_1X
+                   for b in self._armed_block(n).get("warpBuckets", [])))
         self.assertEqual(["V24W-duna-one-warp-stair.toml"], with_buckets,
-                         "warpBuckets is armed on a lane other than the RC-WARP one; "
+                         "an above-1x warp bucket is armed on a lane other than the RC-WARP one; "
                          "every other committed subject moves the clock with "
                          "instantaneous TimeJumps, so its histogram is 1x-only BY "
                          "CONSTRUCTION and the key would pin the drive shape rather "
@@ -15301,6 +15327,95 @@ class SeamVerbTailRoleTests(unittest.TestCase):
                              hlib.seam_verb_tail_role(unknown), unknown)
 
 
+class StockScreenSourceSyncTests(unittest.TestCase):
+    """The StockScreen seam verb (the GUI census of Parsek's annotations on STOCK KSP
+    screens). Reads OUTSIDE harness/: the closed vocabularies a spec names are mirrored
+    from TestCommands/TestCommandStockScreen.cs, and a spelling one side changed alone
+    is a typed REJECTED after a whole KSP boot. Parsed from the comment-stripped source
+    by array NAME, in ORDER (the order is the C# enum's)."""
+
+    @staticmethod
+    def _cs_string_array(text, field_name):
+        marker = "%s =" % field_name
+        start = text.index(marker)
+        open_brace = text.index("{", start)
+        close_brace = text.index("};", open_brace)
+        out = []
+        for raw in text[open_brace + 1:close_brace].splitlines():
+            out.extend(re.findall(r'"([^"\\]*)"', strip_cs_line_comment(raw)))
+        return out
+
+    def _source(self):
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandStockScreen.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# StockScreen tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return fh.read()
+
+    def test_the_screen_act_and_pane_vocabularies_mirror_the_c_sharp_arrays(self):
+        text = self._source()
+        self.assertEqual(list(hlib.STOCKSCREEN_SCREEN_VALUES),
+                         self._cs_string_array(text, "ScreenTokens"))
+        self.assertEqual(list(hlib.STOCKSCREEN_ACT_VALUES),
+                         self._cs_string_array(text, "ActTokens"))
+        self.assertEqual(list(hlib.STOCKSCREEN_PANE_VALUES),
+                         self._cs_string_array(text, "PaneTokens"))
+
+    def test_the_reason_tokens_mirror_the_c_sharp_consts_and_are_all_mapped(self):
+        text = "\n".join(strip_cs_line_comment(l) for l in self._source().splitlines())
+        consts = dict(re.findall(
+            r'internal const string (\w+Reason) = "([a-z-]+)";', text))
+        self.assertEqual(len(hlib.STOCKSCREEN_REASONS), len(consts),
+                         "hlib reasons %r vs C# consts %r" % (hlib.STOCKSCREEN_REASONS, consts))
+        self.assertEqual(set(hlib.STOCKSCREEN_REASONS), set(consts.values()))
+        for reason in hlib.STOCKSCREEN_REASONS:
+            with self.subTest(reason=reason):
+                self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason),
+                              ("driver-arg", "driver-gate"))
+
+    def test_the_supported_matrix_mirrors_the_c_sharp_switch(self):
+        """Derived from TestCommandStockScreen.Supports' comment-free body: each `case
+        StockScreenKind.X:` owns the StockScreenAct members its return names."""
+        text = "\n".join(strip_cs_line_comment(l) for l in self._source().splitlines())
+        at = text.index("internal static bool Supports(")
+        body = text[at:text.index("default:", at)]
+        cs = {}
+        for kind, acts in re.findall(
+                r"case StockScreenKind\.(\w+):\s*return ([^;]*);", body):
+            cs[kind.lower()] = sorted(a.lower() for a in re.findall(
+                r"StockScreenAct\.(\w+)", acts))
+        py = {k: sorted(v) for k, v in hlib.STOCKSCREEN_SUPPORTED_ACTS.items()}
+        self.assertEqual(py, cs)
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        self.assertIn("StockScreen", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn("StockScreen", hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn("StockScreen", hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE["StockScreen"])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                         hlib.SEAM_VERB_POST_MISSION_ROLE["StockScreen"])
+        for key in ("screen", "act", "pane"):
+            with self.subTest(key=key):
+                self.assertEqual("StockScreen", hlib.VERB_SCOPED_CLOSED_ARGS[key][0])
+
+    def test_the_step_validator_mirrors_the_c_sharp_parse(self):
+        v = hlib.validate_stock_screen_step
+        self.assertEqual([], v(0, {"screen": "rnd", "act": "open"}))
+        self.assertEqual([], v(0, {"screen": "rnd", "act": "hover", "part": "probeCoreSphere.v2"}))
+        self.assertEqual([], v(0, {"screen": "missioncontrol", "act": "select",
+                                   "item": "x", "pane": "active"}))
+        self.assertEqual([], v(0, {"screen": "facilitymenu", "act": "hover"}))
+        self.assertEqual(2, len(v(0, {})))
+        self.assertIn("act-unsupported", v(0, {"screen": "crewdialog", "act": "close"})[0])
+        self.assertIn("item-arg-missing", v(0, {"screen": "editor", "act": "open"})[0])
+        self.assertIn("item-arg-missing", v(0, {"screen": "astronaut", "act": "hover"})[0])
+        self.assertIn("part-not-for-screen",
+                      v(0, {"screen": "astronaut", "act": "hover", "item": "k", "part": "p"})[0])
+        self.assertIn("pane-not-for-screen", v(0, {"screen": "rnd", "act": "open", "pane": "active"})[0])
+        # The closed spellings are the table's job, and it names the owner verb.
+        self.assertEqual("StockScreen", hlib.VERB_SCOPED_CLOSED_ARGS["screen"][0])
+
+
 class GuiCensusSeamVerbTests(unittest.TestCase):
     """The GUI-census pair (`CaptureScreenshot` + `UiAction`), whose harness-side
     surface is three tables and two step validators.
@@ -16487,6 +16602,37 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertTrue(
             any("select-unsupported-window" in e for e in errors), errors)
 
+    def test_uiaction_select_leg_key_is_a_single_key_with_a_direction(self):
+        """Coverage wave 6. `leg:` is a single key like `vessel:` - it REQUIRES a direction -
+        and its value half keeps the `/segN` / `@dockM` suffixes of an interval key."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions",
+                "key": "leg:a32f62f52dc84d6a94daf93460ec6548/seg1@dock1",
+                "include": "false"}))
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions", "key": "leg:abc"})
+        self.assertTrue(any("include-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions", "key": "leg:", "include": "true"})
+        self.assertTrue(any("<prefix>:<value>" in e for e in errors), errors)
+
+    def test_uiaction_clone_takes_the_missions_window_and_an_optional_mission(self):
+        """Coverage wave 6 (D11 `clone`): the Missions tab's Clone button."""
+        self.assertIn("clone", hlib.UIACTION_OP_VALUES)
+        self.assertIn("clone", hlib.UIACTION_OPS_NEEDING_WINDOW)
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "clone", "window": "missions"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "clone", "window": "missions", "mission": "${m.copy}"}))
+        errors = hlib.validate_ui_action_step(0, {"op": "clone"})
+        self.assertTrue(any("window-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "clone", "window": "timeline"})
+        self.assertTrue(any("clone-unsupported-window" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "missions", "mission": "x"})
+        self.assertTrue(any("op=clone read it" in e for e in errors), errors)
+
     def test_uiaction_include_arg_is_flagged_on_other_ops(self):
         errors = hlib.validate_ui_action_step(
             0, {"op": "open", "window": "missions", "include": "true"})
@@ -16667,7 +16813,13 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertIn("vessel", hlib.UIACTION_EXPAND_PREFIXES["missions"])
         self.assertIn('LinkKeyPrefix = "link"', text)
         self.assertEqual("link", hlib.UIACTION_SELECT_PREFIXES[1])
-        self.assertEqual(2, len(hlib.UIACTION_SELECT_PREFIXES))
+        # `leg` (coverage wave 6): ONE interval key, the interval checkbox's own body.
+        self.assertIn('LegKeyPrefix = "leg"', text)
+        self.assertEqual("leg", hlib.UIACTION_SELECT_PREFIXES[2])
+        # And the C# prefix ARRAY carries exactly these three, in this order.
+        self.assertRegex(text, r"SelectPrefixes = new\[\]\s*\{\s*VesselKeyPrefix, "
+                               r"LinkKeyPrefix, LegKeyPrefix,\s*\}")
+        self.assertEqual(3, len(hlib.UIACTION_SELECT_PREFIXES))
         # The bulk tokens are the SAME two op=expand uses, which is why a spec author does
         # not learn a second grammar for them.
         self.assertEqual(("all", "none"), hlib.UIACTION_EXPAND_BULK_KEYS)
