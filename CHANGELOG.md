@@ -19,7 +19,15 @@ _(unreleased — entries accumulate here per commit)_
   warp rule asks for seams crossed above 1x only when a lane claims an above-1x warp bucket. Retired:
   the proximity offset (removed from the code), crew auto-hire (never built; stand-ins replaced it)
   and the bare "situation" axis. The user guide no longer describes the proximity offset. Coverage
-  205 of 250 -> 214 of 247.
+  210 of 250 -> 219 of 247.
+- **Automated testing: five more coverage cells claimed off logs existing lanes already print.**
+  B4 now requires the parachute cut the game performs on splashdown (D7 `chute-cut`); GS-12
+  requires the whole-mission loop being switched on and the watch camera reading the mission's
+  shared clock (D11 `whole-mission-loop`); V15T requires the default mission the game creates on
+  load for a committed tree, and forbids the test seam creating it instead (D11 `default-mission`);
+  V18T requires the depot rendezvous constraint behind its supply route's relaunch schedule (D11
+  `station-phase-lock`, route-driven); V25M requires the arrival re-stitch of its re-aimed Duna
+  window (D11 `s4-arrival-restitch`). Coverage 205 -> 210 of 250.
 - **Dev: the GUI mirror says when a shown capture is not current.** A superseded, retired, old-layout or no-hover capture opened from a link or as a Compare BEFORE now carries a banner naming the run that is current, with a button to show it (`harness/tools/gui_mirror.py`).
 - **Automated testing: a lane loops a recorded mission and watches its copies relaunch, overlap and expire.**
   `GS-12-kerbalx-loop-cycles` flies GS-4's Kerbal X flight, rewinds and watches the first run, then loops
@@ -1023,6 +1031,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Buying a part no longer charges again for the identical parts the game gives you free.**
+  When you buy a part in the VAB/SPH or in R&D, the game also marks the part's identical
+  variants (same tech node) as purchased without charging for them. Parsek recorded each of
+  those as a paid purchase, so its funds history charged the entry cost once per variant
+  while the game charged it once. It now records what the game charged: the part you
+  bought at its entry cost, and each identical variant as a free purchase. The free record
+  still counts: after a rewind the variant is marked purchased again when its date passes,
+  and it cannot be bought before then, like the part you paid for. Purchases recorded
+  before this fix keep the amount they were recorded with.
 - **Real Spawn Control and the Log (Structure) window: column text now starts exactly under
   its header.** The header cells are boxes that inset their text 4px, while the body cells
   were plain labels with no inset, so every column's text sat 4px left of its header in

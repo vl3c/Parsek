@@ -340,8 +340,21 @@ steps = [
 #   an arrival epoch, it asserts no arrival geometry), D6 `ghost-map-presence` (the
 #   TS ProtoVessel lifecycle is H23/H28's contract), and D9 `fast-forward`
 #   (V4/V6M/V14M/V15M own it).
+# D11 `default-mission` (claimed 2026-09-25, coverage wave 1b): a committed tree gets its
+#   all-included default Mission automatically, through the PRODUCTION path. The fixture
+#   ships one committed tree and ZERO missions, so ParsekScenario.OnLoad's
+#   MissionStore.EnsureDefaultsForTrees (right after MissionStore.Load) creates it. Gated by
+#   one two-line regex, `[Mission] Loaded 0 mission(s)` immediately followed by
+#   `[Mission] EnsureDefaultsForTrees: created 1 default mission(s)` (the adjacency pins the
+#   OnLoad call site; the seam and the Missions tab call the same idempotent static), plus
+#   the FORBIDDEN `missionconfig seeded`: the MissionConfig arm then resolves that same
+#   OnLoad-created mission (named from the tree's root group, `mission='Kerbal X'`) and
+#   never seeds one itself. GS-12 is the counter-example: its tree is committed in flight
+#   and only the seam seeds.
 [dimensionsCovered]
-D11 = ["phase-lock"]
+# ARMED RE-FLIGHT `2026-09-25_1949` PASS attempt 1 (automation DLL `f506f059...`, origin/main `7c90492bd`);
+# negative control offline (hlib.evaluate_expectations over that log, a preloaded mission reds the adjacency, a seam seed hits the forbid).
+D11 = ["phase-lock", "default-mission"]
 D14 = ["gilly", "scene-ts", "sandbox"]
 
 [expectations]
@@ -473,6 +486,8 @@ count = { min = 1, max = 1 }
 #     reaches the lens (`evaluated=1 outsideSoi=0`); read V15M header section 2b for
 #     the rate-limiter gap that bounds even that reading.
 required  = [
+  "\\[Mission\\] Loaded 0 mission\\(s\\)\\r?\\n[^\\r\\n]*\\[Mission\\] EnsureDefaultsForTrees: created 1 default mission\\(s\\)",
+  "missionconfig applied: mission='Kerbal X' tree=355840bc81bf45f8868b7d2508ca6de4 loop=True",
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
   "startloopplayback initiated:",
@@ -495,6 +510,8 @@ required  = [
 # not a defect.
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
+  # D11 default-mission: the seam must find the OnLoad-created mission, never seed its own.
+  "missionconfig seeded",
   # The re-aim forbid trio - the falsifiable half of the same-parent routing claim, and
   # the reason this spec is not just "V5 with a different fixture". Measured 0/0/0.
   "\\[ReaimDiag\\]",

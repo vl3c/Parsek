@@ -501,8 +501,19 @@ steps = [
 #       run.
 #   D14 `warp-1x` / `warp-rails` - the histogram is 1x-only by construction (header
 #       section 5) and nothing in the bare block gates a bucket.
+# D11 `s4-arrival-restitch` (claimed 2026-09-25, coverage wave 1b): the re-aimed window's
+#   arrival chain is rotated about Duna's spin axis onto the re-aimed transfer's actual
+#   SOI-entry bearing, and the landing stays at the RECORDED site. Gated by
+#   `member=aa48920e43fb4bf483940e0d8191a1ce window=0 S4 restitch ENGAGED theta=`
+#   (ReaimPlaybackResolver: the engage detail is built at :775 and logged at Info at :669
+#   ONLY on the fully-successful assembly path, after ReplaceHeliocentricLeg, so the line
+#   can never precede a same-window decline-to-faithful; it prints only when the rotation
+#   is non-zero). Measured `theta=16.813deg` on all three 2026-08-26 logs; theta is not
+#   pinned (it is re-derivable from committed bytes, the rule for the headline pin below).
 [dimensionsCovered]
-D11 = ["heliocentric-parking-departure"]
+# ARMED RE-FLIGHT `2026-09-25_1950` PASS attempt 1 (automation DLL `f506f059...`, origin/main `7c90492bd`);
+# negative control offline (hlib.evaluate_expectations over that log, a declined restitch reds exactly this token; theta still 16.813).
+D11 = ["heliocentric-parking-departure", "s4-arrival-restitch"]
 D14 = ["duna", "scene-flight", "sandbox"]
 
 [expectations]
@@ -612,6 +623,7 @@ required  = [
   "ENGAGED re-aim Kerbin->Duna via Sun",
   "PhaseLock SKIPPED: mission=.*support=UnsupportedCrossParent",
   "plan\\.Supported=True .*ancestor=Sun parking=True",
+  "member=aa48920e43fb4bf483940e0d8191a1ce window=0 S4 restitch ENGAGED theta=-?[0-9]+\\.[0-9]{3}deg ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

@@ -239,18 +239,21 @@ namespace Parsek
         /// <summary>
         /// Builds the canonical PartPurchased event payload from stock KSP semantics:
         /// when bypass is on, the player pays 0; when bypass is off, the player pays
-        /// the part's <c>entryCost</c> (not its rollout/build <c>cost</c>).
-        /// Internal static for unit test coverage.
+        /// the part's <c>entryCost</c> (not its rollout/build <c>cost</c>), except for an
+        /// identical part stock buys alongside it (<paramref name="costsFunds"/> false),
+        /// which is free. Internal static for unit test coverage.
         /// </summary>
         internal static GameStateEvent CreatePartPurchasedEvent(
             string partName,
             float entryCost,
             bool bypassEntryPurchaseAfterResearch,
             double ut,
-            double currentFunds)
+            double currentFunds,
+            bool costsFunds = true)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            float chargedCost = bypassEntryPurchaseAfterResearch ? 0f : entryCost;
+            float chargedCost = ComputePartPurchaseChargedCost(
+                entryCost, costsFunds, bypassEntryPurchaseAfterResearch);
             return new GameStateEvent
             {
                 ut = ut,
