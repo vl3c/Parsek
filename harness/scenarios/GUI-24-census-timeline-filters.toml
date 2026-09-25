@@ -50,10 +50,11 @@ tier = "operator"
 # the only tab switches are the Career category views at the END, after the last source
 # write, so the gate never fires here.
 #
-# THE THREE-ROW FILTER AREA (2026-09-24, the preset-row revert). Row 1 is the view group
-# (`Overview`, `Details`, `Rewind/FF`, `Re-Fly`, `Career`) stretched over the full width;
-# row 2 is the selected view's context row (the three source toggles and `Archived` under
-# Overview / Details, the five career categories under Career); row 3 is the always-drawn
+# THE THREE-ROW FILTER AREA (2026-09-24, the preset-row revert; Archived moved to row 1
+# 2026-09-25). Row 1 is the view group (`Overview`, `Details`, `Rewind/FF`, `Re-Fly`,
+# `Career`) followed by the `Archived` toggle as its last cell; row 2 is the selected view's
+# context row (the three source toggles under Overview / Details, an empty button-high row
+# under Rewind/FF / Re-Fly, the five career categories under Career); row 3 is the always-drawn
 # preset row `Last Day` / `Last 7d` / `Last 30d` / `This Year` / `All` / `Custom` with
 # exactly one lit. `key=customRange` means Custom selected, i.e. the From / To sliders
 # shown (between PR #1792 and this revert it opened a Time fold). So

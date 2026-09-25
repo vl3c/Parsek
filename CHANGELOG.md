@@ -1013,6 +1013,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Kerbals and Career State windows: column text now starts exactly under its header.**
+  Their body cells were plain labels under boxed headers, so the text sat 4px left of the
+  header text (Kerbals Roster: header text at x=289, body at x=285). Every body cell now uses
+  the shared table cell style, including the label-styled link cells (Career row names,
+  Kerbals Last flight and Flights rows) and the fold rows and grey "No active ..." line
+  inside the tables.
 - **Real Spawn Control and the Log (Structure) window: column text now starts exactly under
   its header.** The header cells are boxes that inset their text 4px, while the body cells
   were plain labels with no inset, so every column's text sat 4px left of its header in
@@ -1398,6 +1404,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Timeline: the Archived toggle moved to the first row, as its last button.** It applies in
+  every view, so it no longer sits among one view's own buttons; the second row under
+  Rewind/FF and Re-Fly is now empty (kept at its height so the list does not move). Its hover
+  says what it does: `Lists archived flights, marked [archived], in all views. Same switch as
+  the recordings list's Archive filter.` - it adds the launch, separation, spawn and crew-loss
+  rows of recordings archived in the recordings list, and flipping it flips that list's
+  Archive filter too. Career rows are never archived, and a mission archived in the Missions
+  window is a separate setting that does not reach the Timeline.
+- **Career State: the Contracts heading counts slots with Mission Control's own forecast.**
+  `N of M slots free (a active, r reserved for later)` now reads the same slot forecast that
+  refuses a slot-starving accept at Mission Control, over stock's live contracts and limit
+  (when stock's contract state cannot be read, the same forecast runs over the window's own
+  ledger rows). Like stock, contracts the game accepts automatically hold no slot, so the
+  active count can be lower than the number of rows listed; a deadline frees its slot on the
+  deadline date and a committed Mission Control upgrade adds its slots when it happens. Free
+  slots never read below 0. The Strategies heading keeps the window's own count.
 - **Logistics: the `Cyc` column header now reads `Cycle`.** The 80px column fits the
   full word and its sort arrow.
 - **Timeline: the Custom range no longer repeats itself above the sliders.** The dim

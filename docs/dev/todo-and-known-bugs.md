@@ -1434,6 +1434,16 @@ overlay work's planned "C2 contract slots" item, whose shared free-slot query sh
 replace `ComputeSlotUsage` here (code comment at the call site). Re-flown PASS: GUI-15
 `2026-09-25_1718` (adds the closing and strategies-fold mock captures), GUI-5 `_1722_a2`.
 
+Follow-up DONE 2026-09-25 (branch `career-forecast-archived`): the contract slot block
+landed (PR #1824, `ContractSlotReservation`), and the Contracts heading now reads it -
+`ContractSlotReservation.ForecastNow()` in the live window, and when that is null (stock's
+contract state unreadable) the pure `Forecast` over the window's own ledger rows
+(`ForecastContractSlotsFromLedger`, holders with accept UT and deadline). Stock auto-accept
+contracts hold no slot, as in stock. The Strategies heading keeps `ComputeSlotUsage`
+(Administration's refusal is per strategy, with no shared count). Same branch: the Kerbals
+and Career body cells take `ParsekUI.GetTableCellStyle()` (text under header text, was 4 px
+left), and the Timeline's Archived toggle moved to the end of filter row 1.
+
 Open residue:
 1. No REAL host has pending contracts or strategies, so the fold's only picture is the
    gallery mock in GUI-15 (same need as GUI-CENSUS-CAREER-DIVERGENCE-NEEDS-A-REWOUND-HOST).
