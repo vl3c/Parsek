@@ -703,6 +703,12 @@ values = ["sidecar-prec", "sidecar-craft", "sidecar-pann",
 values = ["waterfall-swe-fallback", "restock", "persistent-rotation", "better-time-warp",
           "remotetech-commnet", "making-history"]
 
+# D18 `background-event-claims` (CLAIMED 2026-09-26 on CI-5-background-event-claim) is SCOPED
+# TO THE CHAIN-WALKER DECISION ON A BACKGROUND RECORDING: the claimed recording is a
+# synthetic, production-shaped one (the `background-claim` injected preset: a parentless,
+# branch-point-free background recording of a real loaded vessel with a trigger part
+# event), not a harvested flight. Supervisor ruling 2026-09-25, pending operator
+# confirmation. Why no harvest: todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED.
 [D18]  # ghost chains / paradox prevention
 values = ["committed-interaction-claiming", "ghost-conversion-quicksave",
           "intermediate-spawn-suppression", "chain-tip-original-pid",

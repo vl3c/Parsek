@@ -51,6 +51,10 @@
 # walker's claim line; that pid's `Chain built:` line; and the downstream effect, the flight
 # scene's ghoster despawning the real probe (`Vessel ghosted:`), read back through
 # `ListHandles kind=chains`.
+#
+# LIVE-PROVEN 2026-09-26 on automation DLL sha256 `e551eade...` (branch `cov-bgclaims`, an
+# origin/main build: no C# product change): reading `2026-09-25_2241` PASS attempt 1, every
+# witness on its first flight.
 
 schema = 1
 id = "CI-5-background-event-claim"
@@ -120,12 +124,23 @@ allowedAnomalies = []
 [expectations.recordings]
 count = { min = 2, max = 2 }
 
-# REPORT-ONLY until the reading run's facets are read.
+# ARMED 2026-09-26 off the reading run `2026-09-25_2241` (PASS attempt 1): the injected tree
+# survives the load and the save unchanged, and the produced save holds NO `Kerbal X Probe`
+# (the ghoster despawned it; the save keeps the focused Kerbal X and the four landed debris).
 [expectations.recordings.structure]
-trees          = { min = 1, max = 1 }
-committedTrees = { min = 1, max = 1 }
-recordings     = { min = 2, max = 2 }
-terminalStates = { Destroyed = { min = 1, max = 1 }, Orbiting = { min = 1, max = 1 } }
+gating          = true
+trees           = { min = 1, max = 1 }
+committedTrees  = { min = 1, max = 1 }
+recordings      = { min = 2, max = 2 }
+terminalStates  = { Destroyed = { min = 1, max = 1 }, Orbiting = { min = 1, max = 1 } }
+ghostChainNodes = { max = 0 }
+spawnedVessels  = { min = 0, max = 0 }
+vesselNames     = { "Kerbal X" = { min = 1, max = 1 }, "Kerbal X Probe" = { min = 0, max = 0 } }
+
+[expectations.recordings.points]
+gating  = true
+total   = { min = 3, max = 3 }
+largest = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required  = [
@@ -138,7 +153,12 @@ required  = [
   "\\[Ghoster\\] Ghosting vessel: pid=2614652043 name=Kerbal X Probe ",
   "\\[Ghoster\\] Vessel ghosted: pid=2614652043 name=Kerbal X Probe",
   "\\[Ghoster\\] Ghost chains evaluated: 1 chain\\(s\\), 1 vessel\\(s\\) ghosted",
-  # The readback.
+  # The chain's effect on playback: the background recording's own ghost is NOT skipped as an
+  # external vessel, because its real vessel is ghosted by the chain (GhostPlaybackLogic
+  # Phase 6b).
+  "\\[Ghoster\\] ShouldSkipExternalVesselGhost: vessel pid=2614652043 is ghosted by chain",
+  # The readback (read off `2026-09-25_2241`: count=1 digest=4abb9192).
+  "(?m)listhandles kind=chains count=1 truncated=false evaluated=true digest=4abb9192$",
   "(?m)listhandles chain index=0 pid=2614652043 links=1 trees=1 treeIds=tree-bg-claim-carrier-rec tip=bg-claim-probe-rec$",
 ]
 forbidden = [
