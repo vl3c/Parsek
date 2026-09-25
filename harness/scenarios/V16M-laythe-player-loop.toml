@@ -897,10 +897,18 @@ steps = [
 #   D6 `time-jump`, and `jool` on D14 - the jumps are the instrument rather than
 #       the subject, and although the recording's early ORBIT_SEGMENTs are
 #       Jool-framed nothing in THIS spec's contract gates a Jool-framed render.
+#   D14 `atmosphere` (CLAIMED 2026-09-25, branch `cov-wave1`, no new token; supervisor
+#       ruling 2026-09-25, pending operator confirmation, defined the cell as "a
+#       recording replays correctly around a non-Kerbin atmospheric body") <- the
+#       already-required `phase=body-orbit surface=ProtoOrbitLine .*body=Laythe`
+#       render line together with `faithful-parity summary` and `seam-endpoint summary
+#       ... outsideSoi=0`: the looped Laythe recording replayed and rendered around
+#       Laythe, an atmospheric body. SCOPE, stated so nobody over-reads it: the replay
+#       is ORBITAL around Laythe; nothing here descends into its atmosphere.
 [dimensionsCovered]
 D9  = ["fast-forward"]
 D11 = ["phase-lock"]
-D14 = ["laythe", "scene-flight", "sandbox"]
+D14 = ["laythe", "scene-flight", "sandbox", "atmosphere"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every

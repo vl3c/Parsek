@@ -82,15 +82,19 @@ report; headline values only here.
   heliocentric-parking departure, station phase-lock, multi-moon config
   hold, land+dock dual constraint, partner journey, S4 arrival re-stitch,
   fail-closed-to-faithful.
-- **D12 Crew / kerbals**: reservation + auto-hire, stand-ins, seat matching,
-  rescue marker, dead-crew strip, tombstone + rep penalty, missed-EndUT
-  auto-free, crew swap, hire/dismiss patches.
-- **D13 Spawn safety**: proximity offset, bbox block, trajectory walkback,
-  terrain correction, KSC exclusion, situation correction, surface orbit
-  reseed, PID dedup, 3-cycle abandon, terminal-orbit safety, Real Spawn
-  Control.
+- **D12 Crew / kerbals**: stand-ins, seat matching, rescue marker, crew death
+  in flight, dead-crew strip, tombstone + rep penalty, missed-EndUT auto-free,
+  crew swap, hire/dismiss patches. (Reservation + auto-hire was retired
+  2026-09-25: no auto-hire path exists; generated stand-ins replaced it.)
+- **D13 Spawn safety**: bbox block, trajectory walkback, terrain correction,
+  KSC exclusion (a flight ending there is retired), situation correction,
+  surface orbit reseed, PID dedup (tracking-station handoff), 3-cycle abandon,
+  terminal-orbit safety, Real Spawn Control. (Proximity offset was retired
+  2026-09-25: the code was replaced by bounding-box detection.)
 - **D14 Environment axes** (multipliers): body (Kerbin..Eeloo, Jool moons),
-  atmosphere, situation, SOI count, warp rate (1x / phys / rails / high),
+  atmosphere (a replay around a non-Kerbin atmospheric body), SOI count, warp
+  rate (1x = ghosts replayed at 1x in the render warp histogram / phys / rails /
+  high),
   scene (Flight / Map / TS / KSC / Editor), game mode (Career / Science /
   Sandbox), cold-load UT=0 hazard.
 - **D15 UI surfaces**: OUT OF SCOPE for automation (no layer can observe

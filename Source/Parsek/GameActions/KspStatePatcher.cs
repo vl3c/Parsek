@@ -70,7 +70,9 @@ namespace Parsek
             IDictionary<string, UnaffordableUnlockDrop> unaffordableTechDrops = null,
             StrategiesModule strategies = null,
             IReadOnlyList<GameAction> partPurchaseActions = null,
-            double? walkUtCutoff = null)
+            double? walkUtCutoff = null,
+            IReadOnlyCollection<string> committedTechUnlockIds = null,
+            double? committedTechUnlockLiveUt = null)
         {
             using (SuppressionGuard.ResourcesAndReplay())
             {
@@ -91,6 +93,9 @@ namespace Parsek
 
                 PatchScience(science, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
                 PatchTechTree(targetTechIds, techUtCutoff, techBaselineUt, unaffordableTechDrops);
+                // Add-only; the caller supplies a set only when it supplied no tech cutoff,
+                // so at most one of the two tech passes does anything.
+                PatchCommittedTechUnlocks(committedTechUnlockIds, committedTechUnlockLiveUt);
                 PatchPurchasedParts(partPurchaseActions, walkUtCutoff, techUtCutoff);
                 PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
                 PatchReputation(reputation, authoritativeReduction);
@@ -1054,6 +1059,188 @@ namespace Parsek
             }
         }
 
+        // ---------------- committed tech unlocks on a cutoff-less walk ----------------
+
+        /// <summary>Why <see cref="PlanCommittedTechUnlocksForPatch"/> planned nothing.</summary>
+        internal const string CommittedTechUnlockSkipTechCutoff = "tech-cutoff-supplied";
+        internal const string CommittedTechUnlockSkipClockNotReady = "clock-not-ready";
+        internal const string CommittedTechUnlockSkipRewindPending = "rewind-ut-adjustment-pending";
+
+        /// <summary>
+        /// The tech nodes the committed timeline has researched by <paramref name="cutoff"/>:
+        /// every affordable <see cref="GameActionType.ScienceSpending"/> row with a node id at
+        /// or before it. An unaffordable row did not pay, so it unlocks nothing (the same rule
+        /// <see cref="BuildTargetTechIdsForPatch"/> applies). Sorted, so the apply order and
+        /// its log are deterministic. Pure.
+        /// </summary>
+        internal static List<string> BuildCommittedTechUnlockIdsForPatch(
+            IReadOnlyList<GameAction> actions, double cutoff)
+        {
+            var ids = new SortedSet<string>(StringComparer.Ordinal);
+            if (actions != null)
+            {
+                for (int i = 0; i < actions.Count; i++)
+                {
+                    var a = actions[i];
+                    if (a == null || a.Type != GameActionType.ScienceSpending) continue;
+                    if (string.IsNullOrEmpty(a.NodeId)) continue;
+                    if (!a.Affordable) continue;
+                    if (a.UT > cutoff) continue;
+                    ids.Add(a.NodeId);
+                }
+            }
+            return new List<string>(ids);
+        }
+
+        /// <summary>
+        /// The tech nodes a recalculation WITHOUT a tech cutoff unlocks in stock, add-only.
+        ///
+        /// <para>A cutoff-less walk skips the two-direction <see cref="PatchTechTree"/> (#559:
+        /// its re-lock direction would clobber live unlocks the ledger does not carry). But the
+        /// KSC ledger cursor takes exactly that walk when the Space Center clock passes the
+        /// LAST committed row (<c>RecalculateAndPatchForLiveTimelineEvent</c> finds no row
+        /// after now), and so does every other "no future rows" recalculation, so a committed
+        /// unlock at that row would never reach stock while the walk still charges its
+        /// science. This pass closes that: it only ever unlocks, so the #559 guarantee
+        /// stands.</para>
+        ///
+        /// <para>Capped at the live clock, never later, so a future node is never unlocked and
+        /// a node unlocks exactly when its research block (<c>row.UT &gt; now</c>, same clock)
+        /// lifts. Null (skip, <paramref name="skipReason"/> says why) when a tech cutoff was
+        /// supplied (<see cref="PatchTechTree"/> owns the tree then, in both directions), when
+        /// the clock is not ready (a cold load reads UT 0), or while a rewind's UT adjustment
+        /// is pending (the clock is about to move back, and reading it now would unlock a node
+        /// the rewind just re-locked). Pure.</para>
+        /// </summary>
+        internal static List<string> PlanCommittedTechUnlocksForPatch(
+            IReadOnlyList<GameAction> actions, double? techPatchCutoff, double liveUT,
+            bool rewindUtAdjustmentPending, out string skipReason)
+        {
+            if (techPatchCutoff.HasValue)
+            {
+                skipReason = CommittedTechUnlockSkipTechCutoff;
+                return null;
+            }
+            if (rewindUtAdjustmentPending)
+            {
+                skipReason = CommittedTechUnlockSkipRewindPending;
+                return null;
+            }
+            if (double.IsNaN(liveUT) || double.IsInfinity(liveUT)
+                || !LedgerOrchestrator.IsCurrentUtReadyForCutoff(liveUT))
+            {
+                skipReason = CommittedTechUnlockSkipClockNotReady;
+                return null;
+            }
+            skipReason = null;
+            return BuildCommittedTechUnlockIdsForPatch(actions, liveUT);
+        }
+
+        /// <summary>
+        /// Applies <see cref="PlanCommittedTechUnlocksForPatch"/>'s set to stock R&amp;D: each
+        /// listed node that is not already Available gets the same proto node
+        /// <see cref="PatchTechTree"/>'s unlock branch writes (bypass-entry-purchase parts
+        /// rehydrated by <see cref="EnsureAvailableProtoTechNode"/>). Never re-locks and never
+        /// touches a node outside the set. Runs before <see cref="PatchPurchasedParts"/>, so a
+        /// committed purchase on a node unlocked here lands in the same pass. Null is a no-op.
+        /// </summary>
+        internal static void PatchCommittedTechUnlocks(
+            IReadOnlyCollection<string> unlockIds, double? liveUT)
+        {
+            if (unlockIds == null)
+                return;
+
+            if (unlockIds.Count == 0)
+            {
+                VerboseStablePatchState("patch-noop|tech-unlocks", "no-rows",
+                    "PatchCommittedTechUnlocks: no committed tech unlock at or before the live clock");
+                return;
+            }
+
+            if (ResearchAndDevelopment.Instance == null)
+            {
+                VerboseStablePatchState("patch-skip|tech-unlocks|rnd", "rnd-null",
+                    "PatchCommittedTechUnlocks: ResearchAndDevelopment.Instance is null - skipping " +
+                    "(the next recalc with R&D loaded applies it)");
+                return;
+            }
+
+            if (AssetBase.RnDTechTree == null || AssetBase.RnDTechTree.GetTreeTechs() == null)
+            {
+                VerboseStablePatchState("patch-skip|tech-unlocks|tree", "tree-unavailable",
+                    "PatchCommittedTechUnlocks: RnDTechTree unavailable - skipping");
+                return;
+            }
+
+            var wanted = new HashSet<string>(unlockIds, StringComparer.Ordinal);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var madeAvailableIds = new List<string>();
+            int alreadyAvailable = 0;
+            foreach (var tech in AssetBase.RnDTechTree.GetTreeTechs())
+            {
+                if (tech == null || string.IsNullOrEmpty(tech.techID) || !wanted.Contains(tech.techID))
+                    continue;
+
+                string techId = tech.techID;
+                seen.Add(techId);
+                ProtoTechNode proto = ResearchAndDevelopment.Instance.GetTechState(techId);
+                bool protoAvailable = proto != null && proto.state == RDTech.State.Available;
+                if (protoAvailable && tech.state == RDTech.State.Available)
+                {
+                    alreadyAvailable++;
+                    continue;
+                }
+
+                proto = EnsureAvailableProtoTechNode(tech, proto, out _, out _);
+                ResearchAndDevelopment.Instance.SetTechState(techId, proto);
+                tech.state = RDTech.State.Available;
+                madeAvailableIds.Add(techId);
+            }
+
+            var missingIds = new List<string>();
+            foreach (string techId in wanted)
+            {
+                if (!seen.Contains(techId))
+                    missingIds.Add(techId);
+            }
+
+            if (madeAvailableIds.Count == 0)
+            {
+                VerboseStablePatchState("patch-noop|tech-unlocks",
+                    wanted.Count.ToString(IC) + "|" + missingIds.Count.ToString(IC),
+                    $"PatchCommittedTechUnlocks: all {alreadyAvailable.ToString(IC)} committed unlock(s) " +
+                    $"already Available (missing={missingIds.Count.ToString(IC)})");
+            }
+            else
+            {
+                RefreshTechTreeUi();
+                string clockLabel = liveUT.HasValue ? liveUT.Value.ToString("R", IC) : "null";
+                ParsekLog.Info(Tag,
+                    $"PatchCommittedTechUnlocks: madeAvailable={madeAvailableIds.Count.ToString(IC)}, " +
+                    $"alreadyAvailable={alreadyAvailable.ToString(IC)}, " +
+                    $"missing={missingIds.Count.ToString(IC)}, liveUT={clockLabel}, " +
+                    $"madeAvailableIds=[{ComposeBoundedIdentitySample(madeAvailableIds, IdentitySampleCap)}]");
+
+                if (LedgerTrace.IsEnabled)
+                {
+                    foreach (string techId in madeAvailableIds)
+                    {
+                        LedgerTrace.EmitOnChange("tech-node", techId, "->available");
+                        bool actualAvailable =
+                            ResearchAndDevelopment.GetTechnologyState(techId) == RDTech.State.Available;
+                        if (LedgerTrace.IsTechNodePresenceMismatch(true, actualAvailable))
+                            LedgerTrace.EmitAnomaly("tech-node", techId, "ledger-vs-truth",
+                                "intendedAvailable=true actualAvailable=" + LedgerTrace.Bool(actualAvailable));
+                    }
+                }
+            }
+
+            if (missingIds.Count > 0)
+                ParsekLog.Verbose(Tag,
+                    $"PatchCommittedTechUnlocks: {missingIds.Count.ToString(IC)} committed unlock id(s) " +
+                    $"not in the tech tree: [{ComposeBoundedIdentitySample(missingIds, IdentitySampleCap)}]");
+        }
+
         // ---------------- part purchases (P1 state half) ----------------
 
         /// <summary>
@@ -1216,8 +1403,8 @@ namespace Parsek
         /// committed purchase row the walk has reached as purchased in stock, the way
         /// Contract Configurator's <c>UnlockPart</c> does (add the <c>AvailablePart</c> to
         /// its tech's <c>ProtoTechNode.partsPurchased</c>, then <c>SetTechState</c>). Runs
-        /// after <see cref="PatchTechTree"/> because a node that patch newly unlocks gets an
-        /// empty list. Only with bypass-entry-purchase OFF: with it on, stock rehydrates
+        /// after <see cref="PatchTechTree"/> and <see cref="PatchCommittedTechUnlocks"/>
+        /// because a node either newly unlocks gets an empty list. Only with bypass-entry-purchase OFF: with it on, stock rehydrates
         /// every part of a researched node (<see cref="EnsureAvailableProtoTechNode"/>).
         /// Writing the list fires no <c>OnPartPurchased</c>, so no ledger row and no funds
         /// change result (and <see cref="PatchAll"/>'s suppression covers the rest).
