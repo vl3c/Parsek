@@ -723,6 +723,10 @@ steps = [
 #       RC-WARP FAILs the run when the manifest counts zero 1x frames inside a dwell.
 #       Measured {warp1x: 173} (reading), 177 (armed re-flight `2026-08-25_1050`).
 #       This claims NOTHING about warped rendering; V24W owns the above-1x buckets.
+#       ARMED RE-FLIGHT WITH THE KEY `2026-09-25_2027` PASS attempt 1 (DLL sha256
+#       47e1b430): renderComposition gating PASS, warp1x 171, every other bucket 0.
+#       NEGATIVE CONTROL offline: that manifest with every `warp1x = N` zeroed reds
+#       `RC-WARP [FAIL] warpBuckets.warp1x` and nothing else.
 [dimensionsCovered]
 D9  = ["fast-forward"]
 D11 = ["phase-lock"]
@@ -1005,7 +1009,7 @@ terminalStates = { Orbiting = { min = 1 } }
 #
 # NOT DECLARED, on purpose:
 #   * any ABOVE-1x `warpBuckets` entry - the histogram is 1x-only by construction.
-#     Header §6, last paragraph.
+#     Header section 6, last paragraph.
 #   * any RC-CUT / RC-HOLD surface - this lane measured no loiter cut and no hold
 #     pair, so there is nothing here to arm (V8 owns the cut, and its own reading
 #     could not evaluate it either).

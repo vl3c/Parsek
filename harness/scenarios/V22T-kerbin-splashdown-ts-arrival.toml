@@ -280,6 +280,10 @@ steps = [
 #   sidecars decoded at load) and `Pannotations write OK: recordingId=... bytes=N`
 #   (:804, a `.pann` written after the trajectory commit). Read and write of the same
 #   sidecar format in one run; every archived V22T log carries both (7 reads / 3 writes).
+# ARMED RE-FLIGHT `2026-09-25_2026` PASS attempt 1 (DLL sha256 47e1b430, origin/main
+#   7c90492bd): the handoff line for #2 "Kerbal X" pid 2708531065, 7 reads, 3 writes.
+#   NEGATIVE CONTROL offline over that log: each token with a reversed literal, and
+#   the log with each token's matches removed, reds through `hlib.evaluate_expectations`.
 D13 = ["pid-dedup"]
 D14 = ["kerbin", "scene-ts", "sandbox"]
 D16 = ["sidecar-pann"]

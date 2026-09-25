@@ -15,6 +15,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave [FILED 2026-09-25, branch `cov-wave1`. OPEN]
+
+**Pending operator confirmation (supervisor rulings 2026-09-25, applied in the registry):**
+retire D13 `proximity-offset` (code removed, VesselSpawner.cs:19), D12 `reservation-auto-hire`
+(never produced; stand-ins replaced it) and D14 `situation` (an axis, not a behaviour); define
+D14 `atmosphere` ("a recording replays correctly around a non-Kerbin atmospheric body", claimed
+on V16M) and `warp-1x` ("ghosts replayed at 1x, seen in the render warp histogram", claimed on
+V14M); count EX-1's pad retirement as D13 `ksc-exclusion`; D13 `pid-dedup` is a separate cell
+from D6 `spawn-at-end-pid-dedup`. If any is overruled, revert that registry entry and the
+matching `[dimensionsCovered]` line.
+
+**Left uncovered on purpose:**
+- D16 `alias-mode` was proposed for retirement on the premise that the feature does not exist;
+  it does (`GhostSnapshotMode.AliasVessel`, Recording.cs:7; RecordingStore.cs:270), so it stays.
+  Its witness is `SaveRecordingFiles: ... ghostSnapshotMode=AliasVessel ... wroteGhost=False`
+  (RecordingSidecarStore.cs:1231), printed only by operator-local GUI census logs; a claim wants a
+  committed-fixture lane that prints it plus a save-parse check that no `_ghost.craft` exists.
+- D16 `deflate-snapshots`: every snapshot write is DeflateV1 (`SnapshotSidecarCodec.Write`), but
+  the log label is a constant and a successful load logs no encoding, and no archived lane writes
+  a snapshot and re-loads the same id. A load-side encoding line (or a save-parse magic check of
+  a written sidecar) would make it claimable.
+- D14 `atmosphere` is claimed on an ORBITAL Laythe replay; a replay descending into a non-Kerbin
+  atmosphere is not gated anywhere.
+
 ## STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing [FILED 2026-09-25 from the stock-UI reservation analysis. OPEN; owner rulings taken 2026-09-25 (D1, D2, D4, D5, D7, S1 ruled; D3, D6 out of scope); section 12 claims verified by unit cells]
 
 **Reference:** `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` is the single

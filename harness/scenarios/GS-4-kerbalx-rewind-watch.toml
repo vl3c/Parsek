@@ -290,6 +290,12 @@ D12 = ["crew-swap"]
 #   `[expectations.rewind]` block below: saveParse parses the produced save's
 #   ParsekScenario node, so a missing or unreadable node reds rewindPoints {1,1}.
 #   Write logged, read gated.
+# ARMED RE-FLIGHT for both claims `2026-09-25_2028` PASS attempt 1 (DLL sha256
+#   47e1b430, origin/main 7c90492bd): `Swapped 'Bill Kerman' -> 'Mafield Kerman' in part
+#   'Mk1 Command Pod'`, `Crew swap complete: 1 succeeded`, `OnSave: saving 1 committed
+#   tree(s)`, saveParse gating PASS. NEGATIVE CONTROL offline over the archived logs:
+#   each token with a reversed literal, and each log with the token's matches removed,
+#   reds through `hlib.evaluate_expectations`.
 D16 = ["sfs-scenario-node"]
 
 [expectations]
