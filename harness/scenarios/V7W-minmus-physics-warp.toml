@@ -1,0 +1,134 @@
+# V7W-minmus-physics-warp - ghosts replayed under PHYSICS warp (D14 `warp-phys`).
+#
+# WHAT IT PROVES. Every render manifest measured before this lane counted `warpPhys = 0`:
+# the rails lane V24W drives the RAILS ladder, and every other declarer moves the clock
+# with instantaneous TimeJumps. This lane drives stock physics warp (TimeWarp.Modes.LOW,
+# the 1x-4x ladder) through `WarpToUT ladder=phys` twice, over the V7M Minmus loop subject:
+#   1. across the cycle-1 Kerbin->Minmus SOI seam (predicted 1,345,212.6 off V7M's
+#      measured anchor 1,077,505.699), so a dwell-key transition happens WHILE the game
+#      is physics-warped - the RC-WARP `seamsAboveOneX` clause's evidence;
+#   2. inside watch mode at the cycle-1 park epoch (V7M measures the entry OK there), so
+#      the replay the camera is following runs under physics warp.
+# The witness is the render manifest's DWELL histogram: `warpBuckets = ["warpPhys"]`,
+# which RC-WARP reds on zero physics-warp frames inside a dwell.
+#
+# WHY `ladder=phys` EXISTS. WarpToUT originally drove whichever ladder stock was on, and
+# stock picks RAILS in vacuum. The additive `ladder=phys` arg writes TimeWarp.Mode = LOW,
+# selects against the physics ladder and ceiling, re-asserts LOW if stock switches back
+# at a low rung, and restores the starting mode at every terminal
+# (docs/dev/design-autotest-command-seam.md, `#### WarpToUT`).
+#
+# HOLDS. This subject carries no loop-arrival hold (V7M: `warp-hold-traversal-evidence-
+# absent`), so RC-WARP's hold half is a DEFINED unevaluable here, not a pass.
+#
+# The observer is the fixture's parked Kerbal X in Minmus orbit; physics warp in vacuum
+# is stable above rung 0 (stock switches LOW back to HIGH only at or below
+# maxModeSwitchRate_index, decompiled TimeWarp.Update).
+#
+# A run that ends inside watch mode can log V7M's known teardown NRE in
+# WatchModeController.RestoreCameraAfterWatchExit (filed; unityExceptions stays
+# report-only for the same reason as V7M).
+schema = 1
+id = "V7W-minmus-physics-warp"
+tier = "nightly"
+description = "Ghosts replayed under PHYSICS warp (D14 warp-phys): the V7M Minmus loop subject, cycle 1, with two `WarpToUT ladder=phys` spans - one across the Kerbin->Minmus SOI seam and one inside watch mode at the park epoch - so the render manifest's dwell histogram counts physics-warp frames (warpBuckets = [warpPhys]) and a seam is traversed while physics-warped."
+instanceProfile = "stock-minimal"
+tags = ["V7W", "player-loop", "watch-mode", "loop-playback", "physics-warp", "render-composition", "minmus", "moon"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/minmus-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "aa435745816e46b381cadb4fdcef7038", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "aa435745816e46b381cadb4fdcef7038" }, expect = "OK", budget = 300 },
+  # Cycle-1 approach: the same two forward jumps V7M takes (-177.6 / -57.6 s).
+  { cmd = "TimeJump", args = { ut = "1345035" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "1345155" }, expect = "OK", budget = 300 },
+  # PHYSICS-WARP SPAN 1: 80 game-seconds across the SOI seam (1,345,212.6) on the
+  # physics ladder, ~20-25 real seconds at 4x.
+  { cmd = "WarpToUT", args = { ut = "1345235", ladder = "phys" }, expect = "OK", budget = 300 },
+  # V7M's post-seam jump and its cycle-1 park epoch.
+  { cmd = "TimeJump", args = { ut = "1345355" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "1354406" }, expect = "OK", budget = 300 },
+  { cmd = "EnterWatchMode",                                                  expect = "OK" },
+  # PHYSICS-WARP SPAN 2: 60 game-seconds with the camera on the watched ghost.
+  { cmd = "WarpToUT", args = { ut = "1354466", ladder = "phys" }, expect = "OK", budget = 300 },
+  { cmd = "ExportRenderManifest",                                            expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["minmus", "scene-flight", "sandbox", "warp-phys"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 9, max = 9 }
+
+[expectations.logContracts]
+required = [
+  "missionconfig applied:",
+  "startloopplayback initiated:",
+  "PhaseLock APPLIED: mission=",
+  "enterwatchmode complete: index=",
+  # Each span: the start line naming the physics ladder, the rung-3 request answered on
+  # the LOW ladder (its `rate=` is the lerp's first frame, so it is not pinned), a
+  # sustained 4x progress sample on physics rung 3, and the OK terminal whose maxRate is
+  # the physics top rung. Reading `2026-09-25_2154` printed all of them.
+  "warptout start ut=1345235 .*ladder=phys",
+  "warptout rate requested=3 applied=3 rate=\\S+ mode=LOW ceilingIndex=3 clamped=false remaining=\\S+ ut=1345235",
+  "warptout progress ut=1345235 .*rate=4 rateIndex=3",
+  "warptout complete reachedUT=\\S+ ut=1345235 .*maxRate=4 ladder=phys",
+  "warptout start ut=1354466 .*ladder=phys",
+  "warptout rate requested=3 applied=3 rate=\\S+ mode=LOW ceilingIndex=3 clamped=false remaining=\\S+ ut=1354466",
+  "warptout progress ut=1354466 .*rate=4 rateIndex=3",
+  "warptout complete reachedUT=\\S+ ut=1354466 .*maxRate=4 ladder=phys",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "warptout refused",
+]
+
+# ARMED 2026-09-26 off report-only reading `2026-09-25_2154` (PARSEK-FAIL attempt 1 on
+# ONE log token of this spec's own - `rate=4` pinned on the rung-request line, which
+# prints the lerp's first frame `rate=1`; every other row green). Measured: warpBuckets
+# {warp1x 676, warpPhys 2025, rails 0}; dwells 1 closed + 1 open; the one transition is
+# the Kerbin->Minmus SOI seam at UT 1345212.596 (predicted 1345212.6), closing the Kerbin
+# dwell that carried 863 physics-warp frames, so seamsAboveOneX = 1; the open Minmus
+# dwell (the watched span) carried 1162; seamKinds {rigid 8, flexible-soi 1}; findings 2
+# INFO; holds absent (defined unevaluable).
+#   dwells           {1, 8}                   measured 1 closed; floor = anti-vacuity
+#   requireSeamKinds [rigid, flexible-soi]    measured 8 / 1
+#   warpBuckets      [warpPhys]               THE CELL (D14 warp-phys): RC-WARP reds on
+#                                             zero physics-warp frames, and - an above-1x
+#                                             bucket - on a seam never crossed while warped
+# NOT DECLARED: `unevaluable` (2373, 90 % of it SEAM_ENDPOINT decimation that scales with
+# session length, V26M's reason), `cycles` (0 closed: one cycle-1 visit).
+[expectations.renderComposition]
+gating = true
+dwells = { min = 1, max = 8 }
+requireSeamKinds = ["rigid", "flexible-soi"]
+warpBuckets = ["warpPhys"]
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

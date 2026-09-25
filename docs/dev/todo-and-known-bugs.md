@@ -256,15 +256,15 @@ from D6 `spawn-at-end-pid-dedup`. If any is overruled, revert that registry entr
 matching `[dimensionsCovered]` line.
 
 **Left uncovered on purpose:**
-- D16 `alias-mode` was proposed for retirement on the premise that the feature does not exist;
-  it does (`GhostSnapshotMode.AliasVessel`, Recording.cs:7; RecordingStore.cs:270), so it stays.
-  Its witness is `SaveRecordingFiles: ... ghostSnapshotMode=AliasVessel ... wroteGhost=False`
-  (RecordingSidecarStore.cs:1231), printed only by operator-local GUI census logs; a claim wants a
-  committed-fixture lane that prints it plus a save-parse check that no `_ghost.craft` exists.
-- D16 `deflate-snapshots`: every snapshot write is DeflateV1 (`SnapshotSidecarCodec.Write`), but
-  the log label is a constant and a successful load logs no encoding, and no archived lane writes
-  a snapshot and re-loads the same id. A load-side encoding line (or a save-parse magic check of
-  a written sidecar) would make it claimable.
+- ~~D16 `alias-mode`~~ DONE 2026-09-26 (coverage wave 5, branch `cov-wave5`): claimed on
+  `ST-3-snapshot-sidecars-bdock`. `bdock-recorded` carries a committed AliasVessel recording with
+  no `_ghost.craft`; the in-game `SnapshotSidecars` cell checks its files, the product alias
+  decision, and a scratch-id copy through the product save (pinned `SaveRecordingFiles: ...
+  ghostSnapshotMode=AliasVessel wroteVessel=True wroteGhost=False`) and load. Runs
+  `2026-09-25_2158` / `_2203`, PASS.
+- ~~D16 `deflate-snapshots`~~ DONE 2026-09-26 (same lane): instead of a load-side log line, the
+  cell probes every committed sidecar's DeflateV1 header, decodes it against the snapshot the
+  product loaded, and round-trips a live vessel snapshot through the product writer and reader.
 - D14 `atmosphere` is claimed on an ORBITAL Laythe replay; a replay descending into a non-Kerbin
   atmosphere is not gated anywhere.
 
