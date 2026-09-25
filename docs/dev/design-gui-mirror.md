@@ -1081,8 +1081,10 @@ branch without it - and are harmless only because later runs superseded them.
 | --- | --- | --- | --- |
 | `main` | 2026-09-22T18:41:11Z | #1755, 2026-09-22T19:16:54Z | GUI-1-census-ksc 2026-09-22_1841 |
 | `kerbals` | 2026-09-22T20:04:25Z | #1762, 2026-09-22T20:38:41Z | GUI-11-census-kerbals-crewed 2026-09-22_2004 |
-| `timeline` | 2026-09-25T17:25:59Z | #1818 (after #1809, #1792) | GUI-24-census-timeline-filters 2026-09-25_1725 |
+| `timeline` | 2026-09-25T18:38:07Z | #1828 (after #1818, #1809, #1792) | GUI-6-census-flight-playback 2026-09-25_1838 (Custom sliders: GUI-24 2026-09-25_1842) |
 | `career` | 2026-09-24T15:22:01Z | #1796, 2026-09-24T16:18:48Z | GUI-15-census-career-contracts 2026-09-24_1522 |
+| `spawncontrol` | 2026-09-25T18:38:07Z | #1828 | GUI-6-census-flight-playback 2026-09-25_1838 |
+| `structure` | 2026-09-25T18:39:56Z | #1828 | GUI-4-census-missions-docked 2026-09-25_1839 |
 
 Each boundary was checked against the captures' own chrome: every Timeline
 capture from 2026-09-23_2134 on draws the `Career` view toggle and the one
@@ -1096,4 +1098,8 @@ GUI-7, GUI-19). Re-flying GUI-6, GUI-7, GUI-9, GUI-10 and GUI-19 on the current
 build puts them back. The #1818 Timeline boundary is the view row's width: from
 2026-09-25_1725 on its five buttons are the same width as the preset row's six
 (158 px at the census's 1000 px window), and every earlier capture stretches them
-over the whole row.
+over the whole row. The #1828 Timeline boundary is the Custom range's readout line:
+from 2026-09-25_1838 on no `from - to` line draws above the From / To sliders. Its
+Real Spawn Control and Structure boundaries are the tables: from those runs on the
+pinned header row sits inside the same dark box as the rows, Spawn Control's header
+carries a `Warp` cell, and body text starts at the header text's x.

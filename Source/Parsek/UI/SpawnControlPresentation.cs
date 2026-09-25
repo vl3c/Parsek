@@ -44,6 +44,13 @@ namespace Parsek
     /// </summary>
     internal static class SpawnControlPresentation
     {
+        /// <summary>
+        /// The State cell of a craft that spawns and stays (no departure scheduled). A
+        /// dash rather than an empty cell, so the State column reads as answered on every
+        /// row - the same no-value mark the Kerbals and Structure tables use.
+        /// </summary>
+        internal const string NoDepartureStateText = "-";
+
         internal static List<NearbySpawnCandidate> SortCandidates(
             IReadOnlyList<NearbySpawnCandidate> candidates,
             SpawnControlSortColumn sortColumn,
@@ -99,7 +106,7 @@ namespace Parsek
             {
                 return new SpawnCandidateRowPresentation
                 {
-                    StateText = string.Empty,
+                    StateText = NoDepartureStateText,
                     StateTone = SpawnCandidateStateTone.None,
                     WarpButtonLabel = "Warp to Spawn",
                     WarpButtonEnabled = conditionsMet && candidate.endUT > currentUT,

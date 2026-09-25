@@ -1516,13 +1516,8 @@ namespace Parsek
             // above, so a click shows or hides them in the same frame).
             if (!hasRange || !IsCustomRangeLit(filter)) return;
 
-            // Active-range readout (a custom range; the lit Custom button names it).
-            if (filter.IsActive && filter.ActivePresetName == null)
-            {
-                string rangeLabel = TimeRangeFilterLogic.FormatSliderLabel(filter.MinUT ?? sliderBoundMin)
-                    + " \u2014 " + TimeRangeFilterLogic.FormatSliderLabel(filter.MaxUT ?? sliderBoundMax);
-                GUILayout.Label(rangeLabel, timelineDimStyle);
-            }
+            // No range readout line above the sliders: each slider prints its own value on
+            // its right, so the pair already reads as the whole range.
 
             // From slider - slider gets a vertical nudge so the track aligns
             // with the label baselines (IMGUI's default slider renders a few px

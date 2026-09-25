@@ -229,7 +229,7 @@ namespace Parsek.Tests.Logistics
     }
 
     /// <summary>
-    /// Pins <see cref="LogisticsWindowUI.FormatCycleCount"/>, the pure Cyc-column
+    /// Pins <see cref="LogisticsWindowUI.FormatCycleCount"/>, the pure Cycle-column
     /// formatter (QW5): completed deliveries plus a "/ N skipped" suffix only when
     /// cycles were blocked. InvariantCulture, so large counts carry no thousands
     /// separator. Unity-free, so exercised directly.

@@ -46,6 +46,8 @@ namespace Parsek
         private GUIStyle sharedTableHeaderRowStyle;
         private GUIStyle sharedTableBodyBoxStyle;
         private GUIStyle sharedTableSectionHeaderStyle;
+        private GUIStyle sharedTableCellStyle;
+        private GUIStyle sharedTableScrollViewStyle;
 
         // Map view markers: icon atlas, fallback texture, label style, hover/sticky
         // state all live in MapMarkerRenderer (shared with ParsekTrackingStation).
@@ -1613,7 +1615,9 @@ namespace Parsek
             if (sharedSectionHeaderStyle != null && sharedColumnHeaderStyle != null
                 && sharedTableRowStyle != null && sharedTableHeaderRowStyle != null
                 && sharedTableBodyBoxStyle != null
-                && sharedTableSectionHeaderStyle != null) return;
+                && sharedTableSectionHeaderStyle != null
+                && sharedTableCellStyle != null
+                && sharedTableScrollViewStyle != null) return;
 
             // Section header - bold label in a box, left-aligned, stretches full width.
             sharedSectionHeaderStyle = new GUIStyle(GUI.skin.box)
@@ -1667,6 +1671,38 @@ namespace Parsek
                     TableRowHorizontalInsetPx, TableRowHorizontalInsetPx, 4, 4)
             };
 
+            // Body cell label for a table whose header row uses the boxed column-header
+            // style: the header box insets its text by its own padding.left (KSP box
+            // padding L4), a bare GUI.skin.label does not, so a plain label cell drew its
+            // text 4px left of the header text above it even with both cell RECTS at the
+            // same x. The cell takes the header's HORIZONTAL padding and keeps the
+            // label's vertical padding, so row pitch is unchanged.
+            RectOffset hdrPad = sharedColumnHeaderStyle.padding;
+            RectOffset lblPad = GUI.skin.label.padding;
+            int[] cellPad = ComposeTableCellPadding(
+                hdrPad.left, hdrPad.right, lblPad.top, lblPad.bottom);
+            sharedTableCellStyle = new GUIStyle(GUI.skin.label)
+            {
+                padding = new RectOffset(cellPad[0], cellPad[1], cellPad[2], cellPad[3])
+            };
+            ParsekLog.Verbose("UI", string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                "Table cell style built: colHdr.padding=L{0}/R{1} label.padding=L{2}/R{3}/T{4}/B{5} "
+                + "cell.padding=L{6}/R{7}/T{8}/B{9}",
+                hdrPad.left, hdrPad.right, lblPad.left, lblPad.right, lblPad.top, lblPad.bottom,
+                cellPad[0], cellPad[1], cellPad[2], cellPad[3]));
+
+            // Background for a table's body scroll view when it sits INSIDE the body box
+            // together with the pinned header row: horizontal margin zeroed so the scroll
+            // view starts at the box's content edge exactly as the header row does
+            // (inside a zero-padding group a child's own margin.left would inset it).
+            sharedTableScrollViewStyle = new GUIStyle(GUI.skin.scrollView)
+            {
+                margin = new RectOffset(
+                    TableRowHorizontalInsetPx, TableRowHorizontalInsetPx,
+                    GUI.skin.scrollView.margin.top, GUI.skin.scrollView.margin.bottom)
+            };
+
             // Section bar sitting directly above a table: the shared section-header
             // style with the same zeroed horizontal margin the table row and body box
             // carry, so the bar spans exactly the table it labels.
@@ -1712,6 +1748,59 @@ namespace Parsek
         {
             EnsureSharedHeaderStyles();
             return sharedTableBodyBoxStyle;
+        }
+
+        /// <summary>
+        /// Body cell label for a table whose column headers use
+        /// <see cref="GetColumnHeaderStyle"/>: a label whose horizontal padding is the
+        /// header style's, so cell text starts at the same x as the header text above it
+        /// (the two cell rects already share an x through the shared row containers).
+        /// Tint it with <c>GUI.contentColor</c>, or derive a coloured copy from it; a bare
+        /// <c>GUI.skin.label</c> in a boxed-header table draws its text one box padding
+        /// left of the header text.
+        /// </summary>
+        public GUIStyle GetTableCellStyle()
+        {
+            EnsureSharedHeaderStyles();
+            return sharedTableCellStyle;
+        }
+
+        /// <summary>
+        /// Scroll-view background for a table body drawn inside the same
+        /// <see cref="GetTableBodyBoxStyle"/> box as its pinned header row: the skin's
+        /// scroll view with no horizontal margin, so the rows start where the header does.
+        /// </summary>
+        public GUIStyle GetTableScrollViewStyle()
+        {
+            EnsureSharedHeaderStyles();
+            return sharedTableScrollViewStyle;
+        }
+
+        /// <summary>
+        /// The body-cell padding rule, over already-read skin terms: left and right come
+        /// from the boxed column header (so cell text and header text share one text
+        /// inset), top and bottom from the label the cell is built on (so the row pitch
+        /// does not change). Returned as {left, right, top, bottom}. Split out so the rule
+        /// can be checked without a live skin.
+        /// </summary>
+        internal static int[] ComposeTableCellPadding(int headerPaddingLeft,
+            int headerPaddingRight, int labelPaddingTop, int labelPaddingBottom)
+        {
+            return new[]
+            {
+                headerPaddingLeft, headerPaddingRight, labelPaddingTop, labelPaddingBottom
+            };
+        }
+
+        /// <summary>
+        /// Horizontal distance from a column header's text to the text of the body cell
+        /// under it: each text starts at its cell's x plus its style's left padding (both
+        /// left-aligned). Zero is aligned; negative is body text left of the header text.
+        /// </summary>
+        internal static int HeaderToCellTextDeltaPx(int headerCellX, int headerPaddingLeft,
+            int bodyCellX, int bodyPaddingLeft)
+        {
+            return (bodyCellX + bodyPaddingLeft) - (headerCellX + headerPaddingLeft);
         }
 
         /// <summary>

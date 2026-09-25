@@ -1013,6 +1013,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Real Spawn Control and the Log (Structure) window: column text now starts exactly under
+  its header.** The header cells are boxes that inset their text 4px, while the body cells
+  were plain labels with no inset, so every column's text sat 4px left of its header in
+  Real Spawn Control (1px right in the Log window, whose hand-set indent was 5px). Body
+  cells now use one shared table cell style that takes the header's own padding, so the
+  measured header-to-cell text delta is 0px on every column. Both tables also draw their
+  pinned header row inside the same dark box as the rows, so the box no longer starts 4px
+  left of the header cells above it. In Real Spawn Control the row's warp button now has
+  its own `Warp` column header, and the `State` column shows `-` for a craft with no
+  departure instead of an empty cell.
 - **Dev: the GUI mirror's Timeline `Career` view button no longer jumps to the Career window.**
   The page's launcher rule sent any control whose text spelled a window's name to that
   window. Only the main window's controls launch windows now; elsewhere such a control is
@@ -1388,6 +1398,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Logistics: the `Cyc` column header now reads `Cycle`.** The 80px column fits the
+  full word and its sort arrow.
+- **Timeline: the Custom range no longer repeats itself above the sliders.** The dim
+  `from - to` line drawn over the From / To sliders is gone; each slider still shows its
+  value on its right.
 - **Timeline: every filter button is the same width, and the rows are left-aligned.** The
   five view buttons (Overview, Details, Rewind/FF, Re-Fly, Career) no longer stretch across
   the window; they take the same width as the buttons of the two rows below them (the cell

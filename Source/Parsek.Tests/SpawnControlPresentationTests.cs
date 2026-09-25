@@ -92,7 +92,8 @@ namespace Parsek.Tests
                 proximityRadius: Radius,
                 maxRelativeSpeed: MaxRelSpeed);
 
-            Assert.Equal(string.Empty, row.StateText);
+            Assert.Equal(SpawnControlPresentation.NoDepartureStateText, row.StateText);
+            Assert.Equal("-", row.StateText);
             Assert.Equal(SpawnCandidateStateTone.None, row.StateTone);
             Assert.Equal("Warp to Spawn", row.WarpButtonLabel);
             Assert.True(row.WarpButtonEnabled);

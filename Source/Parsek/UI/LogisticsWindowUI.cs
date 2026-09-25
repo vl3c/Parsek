@@ -556,7 +556,7 @@ namespace Parsek
         private const float ColW_Actions = 190f;   // fixed action cell so Name-expand is identical every row
         // L3: the Candidates section has its own purpose-built header (Name / Origin /
         // Destination / Would deliver / Transit / Actions); the route-only columns
-        // (Interval / Cyc / Next / Status / Delivery) do not apply to a candidate, so
+        // (Interval / Cycle / Next / Status / Delivery) do not apply to a candidate, so
         // they were dropped. The Would-deliver cell holds the per-cycle delivery
         // manifest text ("LiquidFuel 150.0, 2 inventory item(s)"), which can be long, so
         // it gets a wide cell. The candidates bubble is a separate box and does not have
@@ -577,7 +577,7 @@ namespace Parsek
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 8f;
         // L2: fixed columns now total ~1175px after dropping the 70px Transit column
-        // (Num 30 + Origin 95 + Destination 180 + Interval 150 + Cyc 80 + Next 90 +
+        // (Num 30 + Origin 95 + Destination 180 + Interval 150 + Cycle 80 + Next 90 +
         // Status 240 + Delivery 120 + Actions 190), so the window floor drops in step to
         // keep the expanding Name column a usable share without leaving the window wider
         // than its content. The remaining columns (Status / Destination) are candidates
@@ -1090,7 +1090,7 @@ namespace Parsek
 
         // L3: purpose-built static header for the Candidates section. A candidate is a
         // sealed-but-not-yet-promoted Supply Run, so the route-only columns (Interval /
-        // Cyc / Next / Status / Delivery) do not apply and used to render literal "-" /
+        // Cycle / Next / Status / Delivery) do not apply and used to render literal "-" /
         // "eligible" placeholders. This header carries only the columns that mean
         // something for a candidate: # / Name / Origin / Destination / Would deliver /
         // Transit / Actions. The "eligible" / sealed explanation that used to live in
@@ -1131,7 +1131,7 @@ namespace Parsek
             DrawRouteSortColumn("Origin", LogisticsRouteSortColumn.Origin, ColW_Origin, false);
             DrawRouteSortColumn("Destination", LogisticsRouteSortColumn.Destination, ColW_Destination, false);
             DrawRouteSortColumn("Interval", LogisticsRouteSortColumn.Interval, ColW_Interval, false);
-            DrawRouteSortColumn("Cyc", LogisticsRouteSortColumn.Cycles, ColW_Cycles, false);
+            DrawRouteSortColumn("Cycle", LogisticsRouteSortColumn.Cycles, ColW_Cycles, false);
             DrawRouteSortColumn("Next", LogisticsRouteSortColumn.NextDelivery, ColW_NextDelivery, false);
             DrawRouteSortColumn("Status", LogisticsRouteSortColumn.Status, ColW_Status, false);
             DrawRouteSortColumn("Delivery", LogisticsRouteSortColumn.Delivery, ColW_Badge, false);
@@ -3928,7 +3928,7 @@ namespace Parsek
             return string.Format(CultureInfo.InvariantCulture, "{0:F1}d", seconds / 21600.0); // Kerbin days
         }
 
-        // Cyc-column text (Phase QW5): completed deliveries, plus a "/ N skipped"
+        // Cycle-column text (Phase QW5): completed deliveries, plus a "/ N skipped"
         // suffix when any cycle was blocked (ghost flew, delivered nothing). When
         // nothing was skipped, just the completed count so the common case stays
         // compact. Both numbers format with InvariantCulture. Pure for unit testing.
