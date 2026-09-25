@@ -39,6 +39,9 @@ namespace Parsek.Tests
             public string HeaderMethod;
             public string RowMethod;
             public bool HeaderPinnedOutsideScrollView;
+            /// <summary>For a table whose pinned header and body scroll view share ONE
+            /// body box: the method that opens that box around both. Null otherwise.</summary>
+            public string BoxedTableMethod;
         }
 
         private static readonly TableSite[] Tables =
@@ -46,16 +49,18 @@ namespace Parsek.Tests
             new TableSite
             {
                 File = Path.Combine("UI", "SpawnControlUI.cs"),
-                HeaderMethod = "DrawSpawnControlWindow",
+                HeaderMethod = "DrawSpawnColumnHeader",
                 RowMethod = "DrawSpawnCandidateRows",
                 HeaderPinnedOutsideScrollView = true,
+                BoxedTableMethod = "DrawSpawnCandidateTable",
             },
             new TableSite
             {
                 File = Path.Combine("UI", "StructureListWindowUI.cs"),
-                HeaderMethod = "DrawWindow",
-                RowMethod = "DrawWindow",
+                HeaderMethod = "DrawColumnHeader",
+                RowMethod = "DrawStepRows",
                 HeaderPinnedOutsideScrollView = true,
+                BoxedTableMethod = "DrawStepTable",
             },
             new TableSite
             {
@@ -111,23 +116,7 @@ namespace Parsek.Tests
             {
                 string prepared = ReadPreparedSource(t.File);
                 string header = MethodBody(prepared, t.HeaderMethod, t.File);
-                string row = t.RowMethod == t.HeaderMethod
-                    ? header
-                    : MethodBody(prepared, t.RowMethod, t.File);
-
-                // A single-method table (the Structure window draws header AND rows in
-                // one method) is split at its BeginScrollView so the two halves can be
-                // compared; every other table has one method per half.
-                if (t.RowMethod == t.HeaderMethod)
-                {
-                    int cut = header.IndexOf("BeginScrollView", StringComparison.Ordinal);
-                    Assert.True(cut > 0,
-                        t.File + ": " + t.HeaderMethod
-                        + " draws header and rows in one method but has no BeginScrollView "
-                        + "to split them at - this cell can no longer tell the halves apart.");
-                    row = header.Substring(cut);
-                    header = header.Substring(0, cut);
-                }
+                string row = MethodBody(prepared, t.RowMethod, t.File);
 
                 List<string> headerWidths = OrderedWidthConstants(header);
                 List<string> rowWidths = OrderedWidthConstants(row);
@@ -154,16 +143,7 @@ namespace Parsek.Tests
             {
                 string prepared = ReadPreparedSource(t.File);
                 string header = MethodBody(prepared, t.HeaderMethod, t.File);
-                string row = t.RowMethod == t.HeaderMethod
-                    ? header
-                    : MethodBody(prepared, t.RowMethod, t.File);
-
-                if (t.RowMethod == t.HeaderMethod)
-                {
-                    int cut = header.IndexOf("BeginScrollView", StringComparison.Ordinal);
-                    row = header.Substring(cut);
-                    header = header.Substring(0, cut);
-                }
+                string row = MethodBody(prepared, t.RowMethod, t.File);
 
                 string expectedHeaderStyle = t.HeaderPinnedOutsideScrollView
                     ? "GetTableHeaderRowStyle()"
@@ -190,14 +170,136 @@ namespace Parsek.Tests
             foreach (string file in new[]
                      {
                          Path.Combine("UI", "SpawnControlUI.cs"),
+                         Path.Combine("UI", "StructureListWindowUI.cs"),
                          Path.Combine("UI", "CareerStateWindowUI.cs"),
                          Path.Combine("UI", "KerbalsWindowUI.cs"),
                      })
             {
                 string prepared = ReadPreparedSource(file);
                 Assert.DoesNotContain("GUILayout.BeginVertical(GUI.skin.box)", prepared);
-                Assert.Contains("GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle())", prepared);
+                // Prefix match: a box that also takes layout options is still this box.
+                Assert.Contains("GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle()", prepared);
             }
+        }
+
+        /// <summary>
+        /// Real Spawn Control and the Structure window keep their column header PINNED
+        /// (outside the body scroll view) but inside the SAME dark body box as the rows.
+        /// With the box around the rows only, the box's edge started 4px left of the
+        /// header cells above it (the 2026-09-24 census, run
+        /// 2026-09-24_2043_GUI-6-census-flight-playback: header cells from x=284, body
+        /// box from x=280), so the table read as two misaligned blocks. The order the
+        /// boxed-table method must keep: open the box, draw the header, open the scroll
+        /// view (on the zero-horizontal-margin table scroll style, so it starts where the
+        /// header row does), draw the rows, close the scroll view, close the box.
+        /// </summary>
+        [Fact]
+        public void BoxedPinnedTablesDrawHeaderAndScrollViewInsideOneBodyBox()
+        {
+            int boxed = 0;
+            foreach (TableSite t in Tables.Where(x => x.BoxedTableMethod != null))
+            {
+                boxed++;
+                string prepared = ReadPreparedSource(t.File);
+                string body = MethodBody(prepared, t.BoxedTableMethod, t.File);
+                string where = t.File + " / " + t.BoxedTableMethod;
+
+                int box = body.IndexOf("GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle()",
+                    StringComparison.Ordinal);
+                int head = body.IndexOf(t.HeaderMethod + "(", StringComparison.Ordinal);
+                int scroll = body.IndexOf("BeginScrollView(", StringComparison.Ordinal);
+                int rows = body.IndexOf(t.RowMethod + "(", StringComparison.Ordinal);
+                int endScroll = body.IndexOf("GUILayout.EndScrollView()", StringComparison.Ordinal);
+                int endBox = body.IndexOf("GUILayout.EndVertical()", StringComparison.Ordinal);
+
+                Assert.True(box >= 0, where + ": does not open the shared body box.");
+                Assert.True(head > box, where + ": the header is not drawn inside the body box.");
+                Assert.True(scroll > head, where + ": the scroll view does not follow the header.");
+                Assert.True(rows > scroll, where + ": the rows are not drawn inside the scroll view.");
+                Assert.True(endScroll > rows && endBox > endScroll,
+                    where + ": the scroll view and the box do not close after the rows, in that order.");
+
+                string scrollCall = body.Substring(scroll,
+                    body.IndexOf(';', scroll) - scroll);
+                Assert.Contains("parentUI.GetTableScrollViewStyle()", scrollCall);
+            }
+            Assert.Equal(2, boxed);
+        }
+
+        /// <summary>
+        /// Body cell TEXT, not just the cell rect, must start where its header's text does.
+        /// The header cells are box-styled (box padding L4), so a body cell drawn with a
+        /// bare <c>GUI.skin.label</c> (padding L0) put its text 4px left of the header text
+        /// even with both rects at x=284 - which is what the 2026-09-24 census measured in
+        /// Real Spawn Control on every column. Every label in these tables' row methods
+        /// must pass the cell style derived from <c>ParsekUI.GetTableCellStyle()</c>.
+        /// </summary>
+        [Fact]
+        public void BoxedPinnedTableRowsDrawEveryLabelWithTheSharedCellStyle()
+        {
+            var label = new Regex(@"GUILayout\.Label\((?<args>[^;]*)\)\s*;",
+                RegexOptions.Compiled | RegexOptions.Singleline);
+            foreach (TableSite t in Tables.Where(x => x.BoxedTableMethod != null))
+            {
+                string prepared = ReadPreparedSource(t.File);
+                string row = MethodBody(prepared, t.RowMethod, t.File);
+                MatchCollection labels = label.Matches(row);
+                Assert.True(labels.Count > 0, t.File + " / " + t.RowMethod
+                    + ": no labels found, this cell is vacuous.");
+                foreach (Match m in labels)
+                {
+                    Assert.True(Regex.IsMatch(m.Groups["args"].Value, @"\bcellStyle\b"),
+                        t.File + " / " + t.RowMethod + ": a body label does not pass the "
+                        + "shared cell style, so its text sits one box padding left of its "
+                        + "header: GUILayout.Label(" + m.Groups["args"].Value + ")");
+                }
+                // ... and that local really is the shared cell style (or a copy of it).
+                Assert.Contains("GetTableCellStyle()", prepared);
+            }
+        }
+
+        /// <summary>
+        /// The shared cell style takes the column header style's HORIZONTAL padding
+        /// through the pure rule, so the text inset cannot drift from the header's.
+        /// </summary>
+        [Fact]
+        public void TheSharedCellStyleTakesTheColumnHeaderHorizontalPadding()
+        {
+            string prepared = ReadPreparedSource("ParsekUI.cs");
+            string ensure = Regex.Replace(
+                MethodBody(prepared, "EnsureSharedHeaderStyles", "ParsekUI.cs"), @"\s+", " ");
+            Assert.Contains("RectOffset hdrPad = sharedColumnHeaderStyle.padding;", ensure);
+            Assert.Contains(
+                "ComposeTableCellPadding( hdrPad.left, hdrPad.right, lblPad.top, lblPad.bottom)",
+                ensure);
+            string cell = AssignmentBlock(prepared, "sharedTableCellStyle");
+            Assert.Contains("new GUIStyle(GUI.skin.label)", cell);
+            Assert.Contains("cellPad[0]", cell);
+        }
+
+        /// <summary>The padding rule itself: horizontal from the header, vertical from
+        /// the label, in {left, right, top, bottom} order.</summary>
+        [Fact]
+        public void ComposeTableCellPadding_TakesHeaderHorizontalAndLabelVertical()
+        {
+            Assert.Equal(new[] { 4, 4, 3, 3 }, ParsekUI.ComposeTableCellPadding(4, 4, 3, 3));
+            Assert.Equal(new[] { 6, 2, 0, 1 }, ParsekUI.ComposeTableCellPadding(6, 2, 0, 1));
+        }
+
+        /// <summary>
+        /// The text delta, on the numbers the 2026-09-24 census measured: header and body
+        /// cells both at x=284 (0px rect delta), the boxed header padding L4. A bare label
+        /// (L0) reads 4px left; the Structure window's old hand-set indent (L5) read 1px
+        /// right; the header-derived padding reads 0.
+        /// </summary>
+        [Fact]
+        public void HeaderToCellTextDelta_CensusNumbers()
+        {
+            const int cellX = 284, headerPad = 4;
+            Assert.Equal(-4, ParsekUI.HeaderToCellTextDeltaPx(cellX, headerPad, cellX, 0));
+            Assert.Equal(1, ParsekUI.HeaderToCellTextDeltaPx(cellX, headerPad, cellX, 5));
+            int derived = ParsekUI.ComposeTableCellPadding(headerPad, headerPad, 0, 0)[0];
+            Assert.Equal(0, ParsekUI.HeaderToCellTextDeltaPx(cellX, headerPad, cellX, derived));
         }
 
         /// <summary>

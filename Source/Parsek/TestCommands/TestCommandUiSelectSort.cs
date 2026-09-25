@@ -150,7 +150,7 @@ namespace Parsek.TestCommands
             NewColumn(ColumnOriginToken, 1),       // Origin       ("Origin")
             NewColumn(ColumnDestinationToken, 2),  // Destination  ("Destination")
             NewColumn(ColumnIntervalToken, 3),     // Interval     ("Interval")
-            NewColumn(ColumnCyclesToken, 4),       // Cycles       ("Cyc")
+            NewColumn(ColumnCyclesToken, 4),       // Cycles       ("Cycle")
             NewColumn(ColumnNextToken, 5),         // NextDelivery ("Next")
             NewColumn(ColumnStatusToken, 6),       // Status       ("Status")
             NewColumn(ColumnDeliveryToken, 7),     // Delivery     ("Delivery")

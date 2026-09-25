@@ -278,21 +278,6 @@ namespace Parsek
                 return;
             }
 
-            // Header row with sortable columns. Opened with the shared header-row
-            // container so the header and the scrolled body rows below share one
-            // horizontal inset, and so the header reserves exactly the vertical
-            // scrollbar the body's scroll view claims (the body forces that bar on).
-            // Contract: ParsekUI.TableRowHorizontalInsetPx.
-            GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle());
-            DrawSpawnSortableHeader("Craft", SpawnControlSortColumn.Name, true);
-            DrawSpawnSortableHeader("Dist", SpawnControlSortColumn.Distance, SpawnColW_Dist);
-            DrawSpawnSortableHeader("Rel Speed", SpawnControlSortColumn.RelativeSpeed, SpawnColW_RelSpeed);
-            DrawSpawnSortableHeader("Spawns at", SpawnControlSortColumn.SpawnTime, SpawnColW_SpawnTime);
-            DrawSpawnSortableHeader("In T-", SpawnControlSortColumn.SpawnTime, SpawnColW_Countdown);
-            GUILayout.Label("State", parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_State));
-            GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
-            GUILayout.EndHorizontal();
-
             // Re-sort when candidate list, sort state, or departure info changes
             int gen = flight.ProximityCheckGeneration;
             if (candidates.Count != cachedCandidateCount
@@ -309,25 +294,63 @@ namespace Parsek
                 cachedSortColumn = spawnSortColumn;
                 cachedSortAscending = spawnSortAscending;
             }
-            var sorted = cachedSortedCandidates;
 
-            DrawSpawnCandidateRows(sorted, currentUT, ic, flight);
+            DrawSpawnCandidateTable(cachedSortedCandidates, currentUT, ic, flight);
 
             DrawSpawnControlBottomBar(candidates, currentUT, flight);
         }
 
-        private void DrawSpawnCandidateRows(List<NearbySpawnCandidate> sorted,
+        /// <summary>
+        /// The candidate table: ONE dark body box holding the pinned column-header row and
+        /// the scroll view of candidate rows, so the header and the rows share one
+        /// container and the box frames both (a box around the rows alone started 4px
+        /// left of the header cells above it). The header row reserves the vertical
+        /// scrollbar gutter the scroll view below it forces on, and the body cells use
+        /// the shared table cell style, so every cell's text starts at its header's text
+        /// x. Contract: ParsekUI.TableRowHorizontalInsetPx / GetTableCellStyle.
+        /// </summary>
+        private void DrawSpawnCandidateTable(List<NearbySpawnCandidate> sorted,
             double currentUT, System.Globalization.CultureInfo ic, ParsekFlight flight)
         {
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle(), GUILayout.ExpandHeight(true));
+            DrawSpawnColumnHeader();
             // The vertical scrollbar is FORCED (alwaysShowVertical: true) so the gutter
             // the header reserved above is always actually taken; with auto scrollbars a
             // short list would show none and the rows would sit a scrollbar-width right
-            // of the headers (same reasoning as RecordingsTableUI / StructureListWindowUI).
+            // of the headers. The scroll view's own style carries no horizontal margin, so
+            // inside the zero-padding box it starts at the box's edge as the header does.
             spawnControlScrollPos = GUILayout.BeginScrollView(
-                spawnControlScrollPos, false, true, GUILayout.ExpandHeight(true));
-            // Dark list-area background (matches Career State / Recordings body look),
-            // without horizontal margin or padding so it adds no inset of its own.
-            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
+                spawnControlScrollPos, false, true,
+                GUI.skin.horizontalScrollbar, GUI.skin.verticalScrollbar,
+                parentUI.GetTableScrollViewStyle(), GUILayout.ExpandHeight(true));
+            DrawSpawnCandidateRows(sorted, currentUT, ic, flight);
+            GUILayout.EndScrollView();
+            GUILayout.EndVertical();
+        }
+
+        // Sortable column headers, then the two static ones. Every column the rows draw
+        // has a header: "State" over the departure text, "Warp" over the row's warp
+        // button. Opened with the header-row container (shared inset + scrollbar gutter).
+        private void DrawSpawnColumnHeader()
+        {
+            GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle());
+            DrawSpawnSortableHeader("Craft", SpawnControlSortColumn.Name, true);
+            DrawSpawnSortableHeader("Dist", SpawnControlSortColumn.Distance, SpawnColW_Dist);
+            DrawSpawnSortableHeader("Rel Speed", SpawnControlSortColumn.RelativeSpeed, SpawnColW_RelSpeed);
+            DrawSpawnSortableHeader("Spawns at", SpawnControlSortColumn.SpawnTime, SpawnColW_SpawnTime);
+            DrawSpawnSortableHeader("In T-", SpawnControlSortColumn.SpawnTime, SpawnColW_Countdown);
+            GUILayout.Label("State", parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_State));
+            GUILayout.Label(WarpColumnHeaderText, parentUI.GetColumnHeaderStyle(), GUILayout.Width(SpawnColW_Warp));
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>Header of the column holding each row's warp button.</summary>
+        internal const string WarpColumnHeaderText = "Warp";
+
+        private void DrawSpawnCandidateRows(List<NearbySpawnCandidate> sorted,
+            double currentUT, System.Globalization.CultureInfo ic, ParsekFlight flight)
+        {
+            GUIStyle cellStyle = parentUI.GetTableCellStyle();
             for (int i = 0; i < sorted.Count; i++)
             {
                 var cand = sorted[i];
@@ -340,7 +363,7 @@ namespace Parsek
 
                 // Same shared row container as the header row above (one inset).
                 GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
-                GUILayout.Label(cand.vesselName, GUILayout.ExpandWidth(true));
+                GUILayout.Label(cand.vesselName, cellStyle, GUILayout.ExpandWidth(true));
 
                 // Distance + Rel Speed share a green tint when both gates pass (FF button enable
                 // preconditions) so the user can read the window at a glance: green = warpable.
@@ -349,35 +372,31 @@ namespace Parsek
                     GUI.contentColor = new Color(0.55f, 1f, 0.55f);
                 GUILayout.Label(
                     string.Format(ic, "{0:F0}m", cand.distance),
-                    GUILayout.Width(SpawnColW_Dist));
+                    cellStyle, GUILayout.Width(SpawnColW_Dist));
                 GUILayout.Label(
                     SpawnControlPresentation.FormatRelativeSpeed(cand.relativeSpeed, ic),
-                    GUILayout.Width(SpawnColW_RelSpeed));
+                    cellStyle, GUILayout.Width(SpawnColW_RelSpeed));
                 GUI.contentColor = savedColor;
 
                 GUILayout.Label(
                     KSPUtil.PrintDateCompact(cand.endUT, true),
-                    GUILayout.Width(SpawnColW_SpawnTime));
+                    cellStyle, GUILayout.Width(SpawnColW_SpawnTime));
                 GUILayout.Label(
                     SelectiveSpawnUI.FormatCountdown(delta),
-                    GUILayout.Width(SpawnColW_Countdown));
+                    cellStyle, GUILayout.Width(SpawnColW_Countdown));
 
-                // State column: departure info
+                // State column: departure info, tinted while a departure is pending.
+                var prevColor = GUI.contentColor;
                 if (row.StateTone != SpawnCandidateStateTone.None)
                 {
-                    var prevColor = GUI.contentColor;
                     GUI.contentColor = row.StateTone == SpawnCandidateStateTone.DepartingNow
                         ? new Color(1f, 0.65f, 0.2f) // orange
                         : new Color(1f, 1f, 0.4f);    // yellow
-                    GUILayout.Label(row.StateText, GUILayout.Width(SpawnColW_State));
-                    GUI.contentColor = prevColor;
                 }
-                else
-                {
-                    GUILayout.Label("", GUILayout.Width(SpawnColW_State));
-                }
+                GUILayout.Label(row.StateText, cellStyle, GUILayout.Width(SpawnColW_State));
+                GUI.contentColor = prevColor;
 
-                // Warp button: "Warp to Depart" for departing, "Warp to Spawn" for normal
+                // Warp column: "Warp to Depart" for departing, "Warp to Spawn" for normal
                 GUI.enabled = row.WarpButtonEnabled;
                 bool warpClicked = GUILayout.Button(row.WarpButtonLabel, GUILayout.Width(SpawnColW_Warp));
                 // Row warp buttons carry no GUIContent tooltip at all, so out-of-range /
@@ -406,8 +425,6 @@ namespace Parsek
                 GUI.enabled = true;
                 GUILayout.EndHorizontal();
             }
-            GUILayout.EndVertical();
-            GUILayout.EndScrollView();
         }
 
         private void DrawSpawnControlBottomBar(List<NearbySpawnCandidate> candidates,

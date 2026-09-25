@@ -641,7 +641,8 @@ Career-view pictures (GUI-24 `2026-09-23_2134`): `ksc-timeline-contracts-advance
 `ksc-timeline-milestones-advanced`, `ksc-timeline-tech-advanced` and
 `ksc-timeline-milestones-thisyear-advanced` (then a fold closed with `Time: This Year` lit; since
 the preset-row revert, GUI-24 `2026-09-24_1942`, the `This Year` preset lit on row 3). The same
-re-fly adds `ksc-timeline-customlastday-advanced` (Custom over Last Day: readout plus moved thumbs)
+re-fly adds `ksc-timeline-customlastday-advanced` (Custom over Last Day: moved thumbs; the dim
+range readout it also showed above the sliders was removed 2026-09-25, each slider prints its own value)
 and `ksc-timeline-minwidth-advanced` (all three rows at the 610 px floor). The Contracts
 view is also the first picture of the grey `!IsEffective` row: the host's duplicate contract
 completions (the `ContractsModule` already-resolved arm) draw grey between the effective ones.
@@ -858,7 +859,7 @@ both sections share one sort state, `:118-119`):
 | 3 | Origin | 95 | `FormatOrigin` `:3664` |
 | 4 | Destination | 180 | cached `leg.DestinationText`; coords in the tooltip |
 | 5 | Interval | 150 | inline `[-] field [+] Nx` stepper (`:1163`); an EMPTY cell of the same width while Send-Once-armed (`:1012`) |
-| 6 | Cyc | 80 | `"3"` or `"3 / 1 skipped"` (`:3738`) |
+| 6 | Cycle | 80 | `"3"` or `"3 / 1 skipped"` (`:3738`) |
 | 7 | Next | 135 | bare `T-` countdown or `-` (`:3586`) |
 | 8 | Status | 240 | hold text or status reason, colour by `StatusStyleFor` `:3813` |
 | 9 | Delivery | 120 | Delivering / Flying, not delivering / New (not yet run) / Paused |
@@ -903,7 +904,12 @@ Opened by `OpenForMission` (`:83`, from the Missions tab `Log` button) or `OpenF
 open (`:107`). No complexity gate.
 
 Columns: `#` 28, `Time` 110, `Event` expand, `Status` 95, `Location` 185, `Vessel` 140, plus a
-reserved scrollbar gutter. Empty state is a single label (`Nothing to show.` for a mission
+reserved scrollbar gutter. Layout (2026-09-25): ONE dark body box holds the pinned header row
+and the forced-vertical-bar scroll view of step rows (`DrawStepTable`), so the box frames the
+header too, and the row labels are the shared table cell style (`ParsekUI.GetTableCellStyle`,
+the boxed header's own horizontal padding) with the vertical padding dropped for this log's
+compact pitch. Before, the rows had no box and a hand-set 5 px indent, so body text sat 1 px
+right of the header text (GUI-4 `2026-09-24_2041`, `bd-structure-mission-advanced`). Empty state is a single label (`Nothing to show.` for a mission
 target, `Nothing to show (source recording unavailable).` for a route) plus `Close`, then an
 early return that suppresses the header, the scroll view and the resize handle (`:223-232`).
 
@@ -953,8 +959,17 @@ selected one renders with `GUI.skin.box`). No picture: the null-settings fallbac
 Purpose: turn a recorded craft passing nearby into a real vessel. FLIGHT only, Basic-hidden
 (`ParsekUI.cs:771`, `UI/UiComplexityMode.cs:180`).
 
-Columns (`UI/SpawnControlUI.cs:56-60`, header `:242`): `Craft` expand, `Dist` 55, `Rel Speed`
-70, `Spawns at` 100, `In T-` 95, `State` 110 (not sortable), and an unheaded 118 px warp cell.
+Columns (`UI/SpawnControlUI.cs:56-60`, header `DrawSpawnColumnHeader`): `Craft` expand,
+`Dist` 55, `Rel Speed` 70, `Spawns at` 100, `In T-` 95, `State` 110 (not sortable) and `Warp`
+118 (not sortable; the row's `Warp to Spawn` / `Warp to Depart` button). `State` holds the
+departure text (`Departs T-..` / `Departing -> ..`, tinted) and `-` for a craft that spawns
+and stays (`SpawnControlPresentation.NoDepartureStateText`), so every header has a cell under
+it; until 2026-09-25 the warp button sat under an empty header cell and a non-departing row's
+State cell was blank. Layout (2026-09-25): ONE dark body box holds the pinned header row and
+the scroll view of rows (`DrawSpawnCandidateTable`), and the row labels use the shared table
+cell style (`ParsekUI.GetTableCellStyle`). Before, the box wrapped the rows only and started
+4 px left of the header cells, and every column's text sat 4 px left of its header's (GUI-6
+`2026-09-24_2043`, `play-spawncontrol-advanced`).
 Five headers sort; default is `Distance` ascending. Row model is one `NearbySpawnCandidate`
 wrapped by the pure `SpawnCandidateRowPresentation` (`UI/SpawnControlPresentation.cs:21-39`).
 
@@ -1597,7 +1612,7 @@ wave-6 lane plan, the grammar and refusals in
 | --- | --- | --- |
 | `op=state key=srcRecordings\|srcActions\|srcEvents` | the three source-OFF row-population branches, all reading `true` in every existing dump | Timeline |
 | `op=state key=archived` | the Archived toggle ON plus the `[archived]` row marker (zero hits program-wide today); the same flag from the Recordings tab's Archive checkbox | Timeline + Missions |
-| `op=state key=customRange` + `key=preset` | the Custom range (the window's only two sliders; between 2026-09-24 PR #1792 and the preset-row revert the key opened a Time fold), the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout | Timeline |
+| `op=state key=customRange` + `key=preset` | the Custom range (the window's only two sliders; between 2026-09-24 PR #1792 and the preset-row revert the key opened a Time fold), the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout (that readout was removed 2026-09-25) | Timeline |
 | `op=state key=scrollY` | the window's first scrolled PNG. Note the dump already carried below-fold content with full rects, so this buys the PICTURE, not the data | Timeline |
 | `op=state key=expandedStats` | the Info toggle's six extra columns (`MaxAlt` / `MaxSpd` / `Dist` / `Pts` / `Start` / `End`, in zero dumps) at +458 px - the largest single layout change in the window | Missions (Recordings tab) |
 | `op=state key=archivedMissions` | whole missions dropping out; the only way to exercise `DisplayBlockRendersAnything` and the corner-connector precedence table | Missions (Missions tab) |
@@ -1944,6 +1959,18 @@ reserves the scrollbar gutter as its own right padding (`GetTableHeaderRowStyle`
 `alwaysShowVertical: true` on the body) rather than as a trailing `GUILayout.Space` at each
 call site, so the width a pinned header reserves is the width the scroll view actually claims
 and the expanding column comes out equal on both halves.
+
+**Cell TEXT inset, not just the cell rect.** Equal cell rects are not equal text: the column
+header style is a box (padding L4/R4), so its text starts 4 px inside its rect, while a bare
+`GUI.skin.label` starts at its rect's edge. A body cell under a boxed header therefore uses
+`ParsekUI.GetTableCellStyle()` - a label whose horizontal padding is copied from the header
+style by the pure `ComposeTableCellPadding` (vertical padding stays the label's) - and the
+text delta is `ParsekUI.HeaderToCellTextDeltaPx` = 0. Built once per skin with a
+`Table cell style built: colHdr.padding=... cell.padding=...` Verbose line, which is the
+number a dump measurement adds to each rect's x. Real Spawn Control and the Structure window
+use it (pinned by `TableRowInsetAlignmentTests`); the Kerbals and Career tables still draw
+plain labels under boxed headers and so still read 4 px (measured on GUI-6
+`2026-09-24_2043`, `play-kerbals-roster-flight-advanced`: header ink x=289, body x=285).
 
 **The gutter itself is TWO skin terms, not the scrollbar width.** Both are read off the live
 skin by `ParsekUI.VerticalScrollbarFootprintWidth()` + `TableCellHorizontalMarginPx()`,
