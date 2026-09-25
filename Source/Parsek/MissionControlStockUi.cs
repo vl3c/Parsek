@@ -175,7 +175,7 @@ namespace Parsek
         /// </summary>
         internal static bool? ResolveAcceptWrite(StockUiDecoration decision, Contract.State state, Func<bool> stockAllows)
         {
-            if (decision.Blocked)
+            if (MissionControlStockAnnotation.BlocksAcceptAndDecline(decision))
             {
                 acceptDisabledByParsek = true;
                 return false;
@@ -188,11 +188,12 @@ namespace Parsek
 
         /// <summary>
         /// The <c>UpdateInfoPanelContract</c> postfix body: appends the explanation to the
-        /// stock detail text and greys out Accept and Decline for a committed accept. For
-        /// an unblocked contract stock's Decline state is kept (stock rewrites it here) and
-        /// Accept is restored to stock's rule only if Parsek greyed it for an earlier
-        /// selection (<see cref="ResolveAcceptWrite"/>). Under Contract Configurator its
-        /// select handler overwrites Accept right after this with the same rule.
+        /// stock detail text and greys out Accept and Decline for a committed accept, or
+        /// Cancel for a committed resolution. For an unblocked contract stock's Decline and
+        /// Cancel state is kept (stock rewrites both here) and Accept is restored to stock's
+        /// rule only if Parsek greyed it for an earlier selection (<see cref="ResolveAcceptWrite"/>).
+        /// Under Contract Configurator its select handler overwrites Accept right after this
+        /// with the same rule.
         /// </summary>
         internal static void ApplyDetailPanel(MissionControl mc, Contract contract, string source)
         {
@@ -206,6 +207,18 @@ namespace Parsek
 
             StockUiDecoration d = DecideNow(contract);
             SetDetailText(mc, d);
+
+            // An Active contract the committed timeline resolves later: Cancel greyed out.
+            // Stock sets btnCancel.interactable = CanBeCancelled() in this same method on
+            // every Active selection (KSP 1.12.5; RefreshUIControls never touches it), so an
+            // unblocked Active contract needs nothing restored here.
+            if (MissionControlStockAnnotation.BlocksCancel(d))
+            {
+                SetInteractable(mc.btnCancel, false);
+                ParsekLog.Verbose(Tag, "MissionControl detail panel: contract=" + d.Id
+                    + " tab=" + d.Tab + " blocked - Cancel disabled, why appended (" + (source ?? "?") + ") why=\"" + d.Why + "\"");
+                return;
+            }
 
             bool? acceptWrite = ResolveAcceptWrite(d, contract.ContractState, () => StockAcceptAllowed(contract));
             if (!d.Blocked)
@@ -249,6 +262,19 @@ namespace Parsek
             if (!d.Blocked)
                 return false;
 
+            if (MissionControlStockAnnotation.BlocksCancel(d))
+            {
+                // Stock RefreshUIControls does not write btnCancel; re-asserting it here
+                // keeps the block correct if a mod's refresh does.
+                bool cancelChanged = IsInteractable(mc.btnCancel);
+                SetInteractable(mc.btnCancel, false);
+                if (cancelChanged)
+                    ParsekLog.VerboseRateLimited(Tag, "mc-reapply-cancel-" + d.Id,
+                        "MissionControl " + (source ?? "?") + " re-enabled Cancel on committed-resolution contract="
+                        + d.Id + " - Cancel disabled again");
+                return cancelChanged;
+            }
+
             acceptDisabledByParsek = true;
             bool changed = IsInteractable(mc.btnAccept) || IsInteractable(mc.btnDecline);
             SetInteractable(mc.btnAccept, false);
@@ -284,12 +310,28 @@ namespace Parsek
 
             StockUiDecoration d = DecideNow(selected);
             SetDetailText(mc, d);
+            if (MissionControlStockAnnotation.BlocksCancel(d))
+            {
+                SetInteractable(mc.btnCancel, false);
+                ParsekLog.Verbose(Tag, "MissionControl refresh: selected contract=" + d.Id + " blocked - Cancel disabled");
+                return;
+            }
             if (d.Blocked)
             {
                 acceptDisabledByParsek = true;
                 SetInteractable(mc.btnAccept, false);
                 SetInteractable(mc.btnDecline, false);
                 ParsekLog.Verbose(Tag, "MissionControl refresh: selected contract=" + d.Id + " still blocked");
+                return;
+            }
+
+            if (selected.ContractState == Contract.State.Active)
+            {
+                // Stock's own Cancel rule (UpdateInfoPanelContract's Active branch).
+                bool cancel = selected.CanBeCancelled();
+                SetInteractable(mc.btnCancel, cancel);
+                ParsekLog.Verbose(Tag, "MissionControl refresh: selected contract=" + d.Id
+                    + " not blocked - stock Cancel state restored cancel=" + (cancel ? "true" : "false"));
                 return;
             }
 

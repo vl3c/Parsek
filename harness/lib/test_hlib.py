@@ -3975,7 +3975,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H42-claw-couple":           ("ClawCouple", 2, "FLIGHT"),
         "H43-terrain-clearance":     ("TerrainClearance", 6, "FLIGHT"),
         "H44-ghost-map-trackstation": ("GhostMap", 25, "TRACKSTATION"),
-        "H45-stock-ui-overlay":      ("StockUiOverlay", 9, "SPACECENTER"),
+        "H45-stock-ui-overlay":      ("StockUiOverlay", 10, "SPACECENTER"),
         "H46-settings":              ("Settings", 5, "FLIGHT"),
         "H71-resource-topbar-ksc":   ("ResourceTopBar", 2, "SPACECENTER"),
         "H47-map-view":              ("MapView", 4, "TRACKSTATION"),
@@ -4245,8 +4245,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # H45-stock-ui-overlay RE-ENTERED on 2026-09-25 (stock-UI overlays PR 2b and PR 2a):
     # the Mission Control badge cells were rewritten for the stock mechanisms (row label,
     # greyed Accept / Decline, Decline backstop) with a third cell added, and the four
-    # R&D / Astronaut Complex badge cells were replaced by six stock-mechanism cells, so
-    # the pin is `total=9` literal with the split regexed until the new cells' first flight.
+    # R&D / Astronaut Complex badge cells were replaced by six stock-mechanism cells; PR 3
+    # added the Active-row / Cancel-block cell (it skips on H45's host, which has no Active
+    # contract), so the pin is `total=10` literal with the split regexed until first flight.
     INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.

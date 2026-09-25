@@ -1043,6 +1043,18 @@ _(unreleased — entries accumulate here per commit)_
   committed date anyway, and the decline could still cost reputation. The refusal says when
   the contract becomes active. Contracts the committed timeline leaves alone decline as
   before.
+- **Mission Control: cancelling an active contract your committed timeline completes,
+  fails or cancels later is now refused, and its Active-tab row says so.** Cancelling it
+  used to charge the cancel penalty now and then either wipe out the later completion's
+  reward (with anything the committed timeline bought with it) or charge the committed
+  failure or cancellation penalty a second time. The row now reads, for example,
+  `Explore the Mun - completes on Y2 D114 on your committed timeline`, the contract
+  details end with `Cancel is unavailable` and the explanation (`Completes on Y2 D114 by
+  the committed flight 'Mun Lander 3'.`, the rule, and `It completes and frees its slot on
+  that date.`), and Cancel is greyed out; a cancel from anywhere else gets the same
+  explanation. A contract whose only future is its deadline stays cancellable, since
+  cancelling early for the smaller penalty is ordinary play, and the debug toolbar's
+  "regenerate contracts" still works.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as

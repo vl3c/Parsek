@@ -498,7 +498,7 @@ namespace Parsek.Tests
         [Fact]
         public void FilterCanAccept_OnlyEverTurnsTrueIntoFalseForABlockedContract()
         {
-            var blocked = new StockUiDecoration { Blocked = true };
+            var blocked = new StockUiDecoration { Blocked = true, Kind = StockUiDecorationKind.ContractAccept };
             var free = new StockUiDecoration { Blocked = false };
 
             Assert.False(ContractConfiguratorCompat.FilterCanAccept(true, blocked, false));
@@ -637,7 +637,7 @@ namespace Parsek.Tests
         /// Harmony binds a patch parameter by NAME (or <c>__N</c> by position) and refuses
         /// the whole class when one does not match. Mirror that binding here.
         /// </summary>
-        private static void AssertPatchBinds(Type patchClass, string patchMethodName, MethodBase target)
+        internal static void AssertPatchBinds(Type patchClass, string patchMethodName, MethodBase target)
         {
             MethodInfo patch = patchClass.GetMethod(patchMethodName,
                 BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
@@ -658,7 +658,7 @@ namespace Parsek.Tests
                     Assert.Equal(((MethodInfo)target).ReturnType, type);
                     continue;
                 }
-                if (p.Name == "__originalMethod")
+                if (p.Name == "__originalMethod" || p.Name == "__exception")
                     continue;
                 if (p.Name.StartsWith("__", StringComparison.Ordinal)
                     && int.TryParse(p.Name.Substring(2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int at))

@@ -115,24 +115,34 @@ namespace Parsek.Tests
         // ---------------- Mission Control ----------------
 
         [Fact]
-        public void ForMissionControl_DecoratesOnlyTheAvailableTab()
+        public void ForMissionControl_AcceptMarksOnlyTheAvailableTab_ResolutionMarksOnlyTheActiveTab()
         {
-            var index = Index(Accept(500, "c-offered"), Accept(500, "c-active"));
+            var index = Index(Accept(500, "c-offered"), Accept(500, "c-active"),
+                new GameAction { UT = 600, Type = GameActionType.ContractComplete, ContractId = "c-resolved" });
 
             var d = StockUiDecorationQuery.ForMissionControl(index, 100, new[]
             {
                 new StockUiItem("c-offered", "Available"),
                 new StockUiItem("c-active", "Active"),
-                new StockUiItem("c-other", "Available")
+                new StockUiItem("c-other", "Available"),
+                new StockUiItem("c-resolved", "Active"),
+                new StockUiItem("c-resolved", "Archive")
             }, Fmt);
 
             Assert.True(d.Single(x => x.Id == "c-offered").Marked);
             Assert.True(d.Single(x => x.Id == "c-offered").Blocked);
             Assert.Equal("Accepted on D5", d.Single(x => x.Id == "c-offered").Title);
-            // An already-active contract is not offered again: no mark (the Active-row
-            // annotation is a later PR).
+            // An already-active contract is not offered again: a committed accept alone
+            // marks nothing on the Active tab.
             Assert.False(d.Single(x => x.Id == "c-active").Marked);
             Assert.False(d.Single(x => x.Id == "c-other").Marked);
+            // A committed completion later marks the Active row and blocks its Cancel (PR 3).
+            var resolved = d.Single(x => x.Id == "c-resolved" && x.Tab == "Active");
+            Assert.True(resolved.Marked);
+            Assert.True(resolved.Blocked);
+            Assert.Equal(StockUiDecorationKind.ContractResolution, resolved.Kind);
+            Assert.Equal("Completes on D6", resolved.Title);
+            Assert.False(d.Single(x => x.Id == "c-resolved" && x.Tab == "Archive").Marked);
         }
 
         // ---------------- Astronaut Complex ----------------
