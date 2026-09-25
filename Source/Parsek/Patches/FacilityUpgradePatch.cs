@@ -22,7 +22,7 @@ namespace Parsek.Patches
             if (lvl <= currentLevel)
             {
                 ParsekLog.Verbose("FacilityUpgradePatch",
-                    $"Allowing facility level change: '{__instance.id}' level {currentLevel} → {lvl} (not an upgrade)");
+                    $"Allowing facility level change: '{__instance.id}' level {currentLevel} -> {lvl} (not an upgrade)");
                 return true;
             }
 
@@ -36,7 +36,9 @@ namespace Parsek.Patches
         /// true when the upgrade must be BLOCKED (and emits the log + blocked dialog as a
         /// side effect); false to allow. Funds affordability is intentionally NOT checked
         /// (stock's own CurrencyModifierQuery enforces it, and SetLevel does not receive
-        /// the cost) — this only blocks upgrades already committed on the timeline.
+        /// the cost); this only blocks a facility a committed future row still upgrades.
+        /// The block lifts once the clock passes the last committed upgrade of that
+        /// facility, so a later upgrade the committed timeline never made is allowed.
         /// </summary>
         internal static bool TryBlockFacilityUpgrade(UpgradeableFacility facility)
         {
@@ -48,31 +50,33 @@ namespace Parsek.Patches
             if (GameStateRecorder.IsReplayingActions)
             {
                 ParsekLog.Verbose("FacilityUpgradePatch",
-                    $"Bypassing block for '{facilityId}' — action replay in progress");
+                    $"Bypassing block for '{facilityId}' - action replay in progress");
                 return false;
             }
 
-            var committedFacilities = MilestoneStore.GetCommittedFacilityUpgrades();
-            if (!committedFacilities.Contains(facilityId))
+            var index = CommittedFutureIndexCache.Current;
+            double nowUT = CommittedFutureIndexCache.CurrentUT();
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            if (!StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, facilityId, nowUT))
             {
                 ParsekLog.Verbose("FacilityUpgradePatch",
-                    $"Allowing facility upgrade: '{facilityId}' — not in committed set ({committedFacilities.Count} committed)");
+                    $"Allowing facility upgrade: '{facilityId}' - no committed future upgrade " +
+                    $"(nowUT={nowUT.ToString("F0", ic)})");
                 return false;
             }
 
-            var ev = MilestoneStore.FindCommittedEvent(
-                GameStateEventType.FacilityUpgraded, facilityId);
-
-            string utStr = ev.HasValue
-                ? " at UT " + ev.Value.ut.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)
-                : "";
-
+            var future = index.FutureEntries(CommittedFutureKind.FacilityUpgrade, facilityId, nowUT);
+            var last = future[future.Count - 1];
             ParsekLog.Info("FacilityUpgradePatch",
-                $"Blocking facility upgrade: '{facilityId}' — already committed{utStr}");
+                $"Blocking facility upgrade: '{facilityId}' - {future.Count.ToString(ic)} committed future " +
+                $"upgrade(s), last ut={last.UT.ToString("F0", ic)} toLevel={last.FacilityToLevel.ToString(ic)} " +
+                $"nowUT={nowUT.ToString("F0", ic)}");
 
+            var text = StockUiReservationPredicates.ExplainFacilityUpgrade(
+                index, facilityId, nowUT, ReservationExplanation.DefaultDateFormatter);
             CommittedActionDialog.ShowBlocked(
-                "Cannot upgrade \"" + facilityId + "\"",
-                "This facility upgrade is already committed on your timeline" + utStr + ".",
+                "Cannot upgrade \"" + FacilityDisplayNames.ResolveBuildingDisplayName(facilityId) + "\"",
+                text.Body,
                 "");
 
             return true;

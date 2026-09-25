@@ -7234,6 +7234,7 @@ namespace Parsek
             OnRecordingCommittedPostSciencePersistFaultInjector = null;
             OnKspLoadAfterOldSaveEventReconcileForTesting = null;
             NowUtProviderForTesting = null;
+            CommittedFutureIndexCache.ResetForTesting();
             DeferOneFrameForTesting = null;
             KerbalsModule.LiveClockUTProviderForTesting = null;
             KerbalsModule.LoadedSaveUTProviderForTesting = null;

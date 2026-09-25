@@ -1024,6 +1024,38 @@ _(unreleased — entries accumulate here per commit)_
   Timeline view by its button's text, and a state by the one control its step changed
   where the capture shows it (`Info`, `Recordings off`, `Last Day`); every name comes from
   the captures, and the token stays in the tooltip and in every link and note key.
+- **Space Center: a refused research, contract accept, facility upgrade, hire or dismissal now
+  says why, and when the item frees up.** The "Action Blocked" dialog and the badge hovers on
+  the R&D, Astronaut Complex and Mission Control screens used to print a raw `UT 183420`. They
+  now say what your committed timeline does, on which calendar date and, where there is one,
+  by which committed flight (for example `Researched on Y2 D114 by the committed flight
+  'Mun Lander 3'.`), that committed history cannot happen earlier or twice, and when the item
+  frees up. A kerbal held by a committed flight says when he is free again, or that he is
+  free once the flight is recovered, or that its loop holds him. The hover and the refused
+  click now show the same text, and the facility dialog names the building instead of its
+  internal id.
+- **Space Center: facility upgrades no longer stay blocked after the committed upgrade has
+  happened.** After a rewind, a facility upgrade a committed flight made later refused every
+  upgrade of that facility for good, even long after that upgrade had taken place. The
+  block now lifts once the clock passes the last committed upgrade of that facility. The
+  research, contract and hire blocks (and their marks) likewise lift once the committed
+  date passes, and they only protect committed history: a flight still in progress never
+  blocks a Space Center action.
+- **Mission Control: a contract your committed timeline accepts later is marked on its own
+  row and explained in its details, with Accept and Decline greyed out.** The small blue
+  badge (hover-only, and gone after any tab switch) is replaced by the stock screen's own
+  parts: the row's title now reads, for example, `Explore the Mun - accepted on Y2 D114 on
+  your committed timeline`, the contract details end with `Accept and Decline are
+  unavailable` and the same explanation the refusal dialog gives, and both buttons are
+  disabled. All of it is re-applied whenever Mission Control rebuilds its list, so it
+  survives switching tabs and contracts being offered or completed. It also works with
+  Contract Configurator installed, whose own contract list and Accept button used to switch
+  the marking off.
+- **Mission Control: declining a contract your committed timeline accepts later is now
+  refused.** Declining it did nothing useful: the contract came back as active on the
+  committed date anyway, and the decline could still cost reputation. The refusal says when
+  the contract becomes active. Contracts the committed timeline leaves alone decline as
+  before.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
@@ -1282,6 +1314,21 @@ _(unreleased — entries accumulate here per commit)_
   the window; they take the same width as the buttons of the two rows below them (the cell
   of a six-button row), so the columns line up and each row leaves empty room on the right
   for later filters. The minimum window width is unchanged.
+
+- **R&D and the Astronaut Complex show Parsek's reservations with KSP's own controls instead
+  of Parsek's badge icons.** In R&D, a tech node your committed timeline researches later has a
+  gold-tinted icon, its hover tooltip and the side panel's description say when and by which
+  committed flight it is researched, and its Research button is greyed out (the "purchase all
+  parts" button on researched nodes is untouched). In the Astronaut Complex, a kerbal's row
+  says what the committed timeline does with him in the row's own status text (`Hired on Y2
+  D114`, `Reserved until Y2 D130`, `Lost`, `Retired`, `Dismissed on ...`), and the hire button
+  of a kerbal a committed flight hires later, and the dismiss button of a kerbal Parsek
+  manages, are locked the way KSP locks hiring at the crew limit, with the reason in the
+  kerbal's hover tooltip. This now also works in the Astronaut Complex opened from the
+  VAB/SPH crew dialog, which used to show nothing. The stock Dismiss button is now actually
+  refused for a kerbal Parsek manages: it went through a stock path Parsek did not guard.
+  Mission Control moved to the same stock mechanisms (see Fixed), so no Space Center screen
+  shows a Parsek badge any more.
 
 - **Timeline: the time-range presets are back on their own always-visible row.** This
   partly reverts the `Time: <range>` button from the two-row filter area above. The filter

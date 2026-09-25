@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Reflection;
 using Contracts;
 using KSP.UI;
@@ -10,54 +9,19 @@ using UnityEngine;
 
 namespace Parsek
 {
-    internal enum ApplicantOverlayKind
-    {
-        FutureHired,
-        FutureRetired,
-        ReservedActive,
-        ReservedRetired
-    }
-
-    internal struct TechNodeOverlayMark
-    {
-        public string TechId;
-        public double UT;
-        public string RecordingId;
-        public int AdditionalCommittedCount;
-        public string Tooltip;
-    }
-
-    internal struct ContractOverlayMark
-    {
-        public string ContractKey;
-        public double UT;
-        public string RecordingId;
-        public int AdditionalCommittedCount;
-        public string Tooltip;
-    }
-
-    internal struct ApplicantOverlayMark
-    {
-        public string KerbalName;
-        public ApplicantOverlayKind Kind;
-        public double UT;
-        public string RecordingId;
-        public int AdditionalCommittedCount;
-        public string Tooltip;
-    }
-
+    /// <summary>
+    /// Space Center host for the stock-screen reservation annotations. R&amp;D and the
+    /// Astronaut Complex are annotated by Harmony postfixes on the stock methods that build
+    /// their rows (<c>StockUiRnDDecoration</c>, <c>StockUiAstronautDecoration</c>); this
+    /// addon only re-runs those stock refreshes when the committed timeline changes while
+    /// a screen is open, and logs the R&amp;D pass once after the tree spawns. Mission
+    /// Control is annotated the same way (<c>MissionControlStockUi</c>). No screen gets a
+    /// Parsek-drawn badge.
+    /// </summary>
     [KSPAddon(KSPAddon.Startup.SpaceCentre, false)]
     internal sealed class StockUiOverlayController : MonoBehaviour
     {
         private const string Tag = "StockUiOverlay";
-        private const string TechOverlayName = "Parsek_TechOverlay";
-        private const string KerbalOverlayName = "Parsek_KerbalOverlay";
-        private const string ContractOverlayName = "Parsek_ContractOverlay";
-
-        private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
-        private static bool rdNodesWarned;
-        private static bool astronautListsWarned;
-        private static bool missionRowsWarned;
 
         private RDController currentRdController;
         private AstronautComplex currentAstronautComplex;
@@ -93,6 +57,8 @@ namespace Parsek
 
         private void OnTimelineDataChanged()
         {
+            CommittedFutureIndexCache.Invalidate("timeline changed");
+            StockUiLiveSnapshot.Invalidate();
             ScheduleRebuildAllVisible("timeline changed");
         }
 
@@ -119,12 +85,15 @@ namespace Parsek
 
         private void RebuildAllVisible()
         {
+            StockUiLiveSnapshot.Invalidate();
             if (rdOpen)
-                DecorateRnD(currentRdController ?? RDController.Instance);
+                RefreshRnD(currentRdController ?? RDController.Instance);
             if (astronautOpen)
-                DecorateAstronaut(currentAstronautComplex ?? UnityEngine.Object.FindObjectOfType<AstronautComplex>());
+                RefreshAstronaut(currentAstronautComplex ?? UnityEngine.Object.FindObjectOfType<AstronautComplex>());
             if (missionOpen)
-                DecorateMissionControl(currentMissionControl ?? UnityEngine.Object.FindObjectOfType<MissionControl>());
+                MissionControlStockUi.RefreshOpenScreen(
+                    currentMissionControl ?? MissionControl.Instance ?? UnityEngine.Object.FindObjectOfType<MissionControl>(),
+                    "timeline changed");
         }
 
         private string DescribeOpenScreens()
@@ -147,683 +116,143 @@ namespace Parsek
         {
             rdOpen = true;
             currentRdController = controller ?? RDController.Instance;
-            DecorateRnD(currentRdController);
+            StartCoroutine(LogRnDPassAfterNodesUpdate());
+        }
+
+        /// <summary>
+        /// Each node runs its first <c>UpdateGraphics</c> one frame after it registers, so
+        /// the spawn pass log waits two frames and then records what the tree shows.
+        /// </summary>
+        private IEnumerator LogRnDPassAfterNodesUpdate()
+        {
+            yield return null;
+            yield return null;
+            if (rdOpen)
+                StockUiRnDDecoration.LogPass(currentRdController ?? RDController.Instance, "tree spawn");
         }
 
         private void OnRdTreeDespawn(RDController controller)
         {
-            Transform root = (controller ?? currentRdController)?.transform;
-            int stripped = StripOverlays(root, TechOverlayName);
-            ParsekLog.Verbose(Tag, $"StockUiOverlay: R&D despawn — stripped overlayCount={stripped}");
+            ParsekLog.Verbose(Tag, "StockUiOverlay: R&D despawn");
             rdOpen = false;
             currentRdController = null;
+        }
+
+        /// <summary>
+        /// Re-runs stock's own tree refresh (every node's <c>UpdateGraphics</c>, then the
+        /// panel), so the annotation postfixes re-apply against the new timeline.
+        /// </summary>
+        private static void RefreshRnD(RDController controller)
+        {
+            if (controller == null || controller.techTree == null)
+            {
+                ParsekLog.Verbose(Tag, "StockUiOverlay: R&D refresh skipped - no controller or tech tree");
+                return;
+            }
+            try
+            {
+                controller.techTree.RefreshUI();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(Tag, "rnd-refresh-failed",
+                    "StockUiOverlay: R&D refresh after a timeline change failed (" + ex.GetType().Name + ": " + ex.Message + ")");
+            }
         }
 
         private void OnAstronautComplexSpawn()
         {
             astronautOpen = true;
             currentAstronautComplex = UnityEngine.Object.FindObjectOfType<AstronautComplex>();
-            StartCoroutine(DecorateAstronautNextFrame());
-        }
-
-        private IEnumerator DecorateAstronautNextFrame()
-        {
-            yield return null;
-            DecorateAstronaut(currentAstronautComplex ?? UnityEngine.Object.FindObjectOfType<AstronautComplex>());
+            ParsekLog.Verbose(Tag, "StockUiOverlay: Astronaut Complex spawn");
         }
 
         private void OnAstronautComplexDespawn()
         {
-            int stripped = StripOverlays(currentAstronautComplex != null ? currentAstronautComplex.transform : null, KerbalOverlayName);
-            ParsekLog.Verbose(Tag, $"StockUiOverlay: Astronaut despawn — stripped overlayCount={stripped}");
+            ParsekLog.Verbose(Tag, "StockUiOverlay: Astronaut Complex despawn");
             astronautOpen = false;
             currentAstronautComplex = null;
         }
 
+        private static MethodInfo updateCrewCountsMethod;
+        private static bool updateCrewCountsWarned;
+
+        /// <summary>
+        /// Re-runs stock's private <c>AstronautComplex.UpdateCrewCounts</c>, which re-sets
+        /// every applicant's lock; its postfix re-decorates every row.
+        /// </summary>
+        internal static void RefreshAstronaut(AstronautComplex complex)
+        {
+            if (complex == null)
+            {
+                ParsekLog.Verbose(Tag, "StockUiOverlay: Astronaut Complex refresh skipped - no complex");
+                return;
+            }
+            if (updateCrewCountsMethod == null)
+                updateCrewCountsMethod = typeof(AstronautComplex).GetMethod("UpdateCrewCounts",
+                    BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, Type.EmptyTypes, null);
+            if (updateCrewCountsMethod == null)
+            {
+                if (!updateCrewCountsWarned)
+                {
+                    updateCrewCountsWarned = true;
+                    ParsekLog.Warn(Tag,
+                        "StockUiOverlay: AstronautComplex.UpdateCrewCounts not found - rows re-annotate only when stock rebuilds them");
+                }
+                StockUiAstronautDecoration.DecorateAllRows(complex, "timeline changed");
+                return;
+            }
+            try
+            {
+                updateCrewCountsMethod.Invoke(complex, null);
+            }
+            catch (Exception ex)
+            {
+                Exception inner = ex.InnerException ?? ex;
+                ParsekLog.WarnRateLimited(Tag, "ac-refresh-failed",
+                    "StockUiOverlay: Astronaut Complex refresh after a timeline change failed (" + inner.GetType().Name + ": " + inner.Message + ")");
+            }
+        }
+
+        // Mission Control is annotated through stock mechanisms by the Harmony patches in
+        // Patches/MissionControlStockUiPatches.cs, which run on every row rebuild and panel
+        // fill. This controller only tracks that the screen is open, so a committed-timeline
+        // change can re-apply the annotations to the rows already on screen.
         private void OnMissionControlSpawn()
         {
             missionOpen = true;
-            currentMissionControl = UnityEngine.Object.FindObjectOfType<MissionControl>();
-            StartCoroutine(DecorateMissionControlNextFrame());
-        }
-
-        private IEnumerator DecorateMissionControlNextFrame()
-        {
-            yield return null;
-            DecorateMissionControl(currentMissionControl ?? UnityEngine.Object.FindObjectOfType<MissionControl>());
+            currentMissionControl = MissionControl.Instance ?? UnityEngine.Object.FindObjectOfType<MissionControl>();
+            MissionControlStockUi.OnScreenOpened();
         }
 
         private void OnMissionControlDespawn()
         {
-            int stripped = StripOverlays(currentMissionControl != null ? currentMissionControl.transform : null, ContractOverlayName);
-            ParsekLog.Verbose(Tag, $"StockUiOverlay: MissionControl despawn — stripped overlayCount={stripped}");
+            MissionControlStockUi.OnScreenClosed();
             missionOpen = false;
             currentMissionControl = null;
         }
 
-        private void DecorateRnD(RDController controller)
-        {
-            if (controller == null)
-                return;
-
-            StripOverlays(controller.transform, TechOverlayName);
-
-            var marks = BuildTechMarks();
-            ParsekLog.Verbose(Tag,
-                $"StockUiOverlay: R&D spawn — building tech marks committedTechCount={marks.Count}");
-
-            List<RDNode> nodes;
-            if (!TryGetRdNodes(controller, out nodes))
-                return;
-
-            int decorated = 0;
-            int total = nodes != null ? nodes.Count : 0;
-            if (nodes != null)
-            {
-                for (int i = 0; i < nodes.Count; i++)
-                {
-                    RDNode node = nodes[i];
-                    if (node == null || node.tech == null || string.IsNullOrEmpty(node.tech.techID))
-                        continue;
-
-                    TechNodeOverlayMark mark;
-                    if (!marks.TryGetValue(node.tech.techID, out mark))
-                        continue;
-
-                    AttachBadge(node.transform, TechOverlayName, "R&D", mark.TechId, mark.Tooltip,
-                        new Color(1.0f, 0.84f, 0.22f, 0.95f));
-                    decorated++;
-                }
-            }
-
-            ParsekLog.Info(Tag,
-                $"StockUiOverlay: R&D decorated nodeCount={decorated} of total={total}");
-        }
-
-        private void DecorateAstronaut(AstronautComplex complex)
-        {
-            if (complex == null)
-                return;
-
-            StripOverlays(complex.transform, KerbalOverlayName);
-
-            List<Transform> listRoots;
-            if (!TryGetAstronautListRoots(complex, out listRoots))
-                return;
-
-            var rosterNames = CollectRosterNames();
-            var rowItems = CollectCrewListItems(listRoots);
-            var candidateNames = new HashSet<string>(rosterNames, StringComparer.Ordinal);
-            for (int i = 0; i < rowItems.Count; i++)
-            {
-                string rowName = SafeGetCrewListItemName(rowItems[i]);
-                if (!string.IsNullOrEmpty(rowName))
-                    candidateNames.Add(rowName);
-            }
-
-            var marks = BuildApplicantMarks(candidateNames, ResolveReservationKind,
-                ResolveReservationSlotOwner, ResolveReservationIsPermanentLoss);
-            marks = SuppressFutureHiredApplicantsAlreadyInLiveRoster(marks, CollectActiveCrewOrTouristNames());
-            int reservedActive = CountApplicantMarks(marks, ApplicantOverlayKind.ReservedActive);
-            int reservedRetired = CountApplicantMarks(marks, ApplicantOverlayKind.ReservedRetired);
-            int futureHired = CountApplicantMarks(marks, ApplicantOverlayKind.FutureHired);
-            int futureRetired = CountApplicantMarks(marks, ApplicantOverlayKind.FutureRetired);
-
-            ParsekLog.Verbose(Tag,
-                $"StockUiOverlay: Astronaut spawn — building applicant marks reservedActive={reservedActive} reservedRetired={reservedRetired} futureHired={futureHired} futureRetired={futureRetired}");
-
-            int decorated = 0;
-            for (int i = 0; i < rowItems.Count; i++)
-            {
-                CrewListItem item = rowItems[i];
-                string name = SafeGetCrewListItemName(item);
-                if (string.IsNullOrEmpty(name))
-                    continue;
-
-                if (!rosterNames.Contains(name))
-                {
-                    ParsekLog.VerboseRateLimited(Tag, "applicant-row-name-" + name,
-                        $"StockUiOverlay: applicant row name '{name}' not found in CrewRoster — overlay skipped");
-                    continue;
-                }
-
-                ApplicantOverlayMark mark;
-                if (!marks.TryGetValue(name, out mark))
-                    continue;
-
-                AttachBadge(item.transform, KerbalOverlayName, "Astronaut", mark.KerbalName, mark.Tooltip,
-                    ColorForApplicantKind(mark.Kind));
-                decorated++;
-
-                string ut = mark.UT >= 0.0
-                    ? mark.UT.ToString("F0", IC)
-                    : "n/a";
-                ParsekLog.VerboseRateLimited(Tag, "applicant-decorated-" + name,
-                    $"StockUiOverlay: applicant decorated name={name} kind={mark.Kind} ut={ut}");
-            }
-
-            ParsekLog.Verbose(Tag,
-                $"StockUiOverlay: Astronaut decorated applicantCount={decorated}");
-        }
-
-        private void DecorateMissionControl(MissionControl missionControl)
-        {
-            if (missionControl == null)
-                return;
-
-            StripOverlays(missionControl.transform, ContractOverlayName);
-
-            var marks = BuildContractMarks();
-            ParsekLog.Verbose(Tag,
-                $"StockUiOverlay: MissionControl spawn — building contract marks futureAcceptedCount={marks.Count}");
-
-            MCListItem[] rows = missionControl.GetComponentsInChildren<MCListItem>(true);
-            var visibleKeys = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < rows.Length; i++)
-            {
-                MCListItem row = rows[i];
-                if (row == null)
-                    continue;
-
-                Contract contract;
-                if (!TryGetMissionControlRowContract(row, out contract))
-                    continue;
-
-                string key = contract.ContractGuid.ToString();
-                visibleKeys.Add(key);
-            }
-
-            var visibleMarks = FilterContractMarksToVisibleContracts(marks, visibleKeys);
-            visibleMarks = SuppressAlreadyActiveContractMarks(visibleMarks, CollectActiveContractKeys());
-
-            int decorated = 0;
-            for (int i = 0; i < rows.Length; i++)
-            {
-                MCListItem row = rows[i];
-                if (row == null)
-                    continue;
-
-                Contract contract;
-                if (!TryGetMissionControlRowContract(row, out contract))
-                    continue;
-
-                string key = contract.ContractGuid.ToString();
-                ContractOverlayMark mark;
-                if (!visibleMarks.TryGetValue(key, out mark))
-                    continue;
-
-                AttachBadge(row.transform, ContractOverlayName, "MissionControl", mark.ContractKey, mark.Tooltip,
-                    new Color(0.35f, 0.74f, 1.0f, 0.95f));
-                decorated++;
-            }
-
-            ParsekLog.Verbose(Tag,
-                $"StockUiOverlay: MissionControl decorated contractCount={decorated}");
-        }
-
-        internal static Dictionary<string, TechNodeOverlayMark> BuildTechMarks()
-        {
-            return BuildTechMarks(MilestoneStore.GetCommittedTechIds());
-        }
-
-        // Test-only shim for overlay/click-block predicate parity.
-        internal static Dictionary<string, TechNodeOverlayMark> BuildTechMarks_Candidates()
-        {
-            return BuildTechMarks();
-        }
-
-        internal static Dictionary<string, TechNodeOverlayMark> BuildTechMarks(HashSet<string> committedTechIds)
-        {
-            var marks = BuildEventMarks(committedTechIds, GameStateEventType.TechResearched);
-            var result = new Dictionary<string, TechNodeOverlayMark>(StringComparer.Ordinal);
-            foreach (var kvp in marks)
-            {
-                result[kvp.Key] = new TechNodeOverlayMark
-                {
-                    TechId = kvp.Key,
-                    UT = kvp.Value.UT,
-                    RecordingId = kvp.Value.RecordingId,
-                    AdditionalCommittedCount = kvp.Value.AdditionalCommittedCount,
-                    Tooltip = BuildCommittedTooltip("Committed at UT", kvp.Value)
-                };
-            }
-
-            return result;
-        }
-
-        internal static Dictionary<string, ContractOverlayMark> BuildContractMarks()
-        {
-            return BuildContractMarks(MilestoneStore.GetCommittedContractAcceptIds());
-        }
-
-        // Test-only shim for overlay/click-block predicate parity.
-        internal static Dictionary<string, ContractOverlayMark> BuildContractMarks_Candidates()
-        {
-            return BuildContractMarks();
-        }
-
-        internal static Dictionary<string, ContractOverlayMark> BuildContractMarks(HashSet<string> committedContractKeys)
-        {
-            var marks = BuildEventMarks(committedContractKeys, GameStateEventType.ContractAccepted);
-            var result = new Dictionary<string, ContractOverlayMark>(StringComparer.Ordinal);
-            foreach (var kvp in marks)
-            {
-                result[kvp.Key] = new ContractOverlayMark
-                {
-                    ContractKey = kvp.Key,
-                    UT = kvp.Value.UT,
-                    RecordingId = kvp.Value.RecordingId,
-                    AdditionalCommittedCount = kvp.Value.AdditionalCommittedCount,
-                    Tooltip = BuildCommittedTooltip("Will be accepted at UT", kvp.Value)
-                };
-            }
-
-            return result;
-        }
-
-        internal static Dictionary<string, ApplicantOverlayMark> BuildApplicantMarks(
-            IEnumerable<string> kerbalNames,
-            Func<string, KerbalReservationKind> reservationKindResolver)
-        {
-            return BuildApplicantMarks(kerbalNames, reservationKindResolver, null);
-        }
-
-        internal static Dictionary<string, ApplicantOverlayMark> BuildApplicantMarks(
-            IEnumerable<string> kerbalNames,
-            Func<string, KerbalReservationKind> reservationKindResolver,
-            Func<string, string> reservationSlotOwnerResolver)
-        {
-            return BuildApplicantMarks(kerbalNames, reservationKindResolver,
-                reservationSlotOwnerResolver, null);
-        }
-
-        /// <param name="permanentLossResolver">True for a kerbal whose reservation is
-        /// PERMANENT (a committed flight killed him), so his badge reads the Kerbals
-        /// window's <c>Lost</c> rather than <c>Reserved</c>. Null reads as "no loss".</param>
-        internal static Dictionary<string, ApplicantOverlayMark> BuildApplicantMarks(
-            IEnumerable<string> kerbalNames,
-            Func<string, KerbalReservationKind> reservationKindResolver,
-            Func<string, string> reservationSlotOwnerResolver,
-            Func<string, bool> permanentLossResolver)
-        {
-            var result = new Dictionary<string, ApplicantOverlayMark>(StringComparer.Ordinal);
-            if (kerbalNames == null)
-                return result;
-
-            var futureHires = BuildEventMarks(
-                MilestoneStore.GetCommittedKerbalHireNames(),
-                GameStateEventType.CrewHired);
-            var futureRetires = BuildEventMarks(
-                MilestoneStore.GetCommittedKerbalRetireNames(),
-                GameStateEventType.CrewRemoved);
-
-            foreach (string rawName in kerbalNames)
-            {
-                string name = rawName ?? "";
-                if (string.IsNullOrEmpty(name) || result.ContainsKey(name))
-                    continue;
-
-                EventOverlayMark eventMark;
-                if (futureHires.TryGetValue(name, out eventMark))
-                {
-                    result[name] = ToApplicantMark(name, ApplicantOverlayKind.FutureHired, eventMark, "Will be hired at UT");
-                    continue;
-                }
-
-                if (futureRetires.TryGetValue(name, out eventMark))
-                {
-                    result[name] = ToApplicantMark(name, ApplicantOverlayKind.FutureRetired, eventMark, "Will be retired at UT");
-                    continue;
-                }
-
-                var reservationKind = reservationKindResolver != null
-                    ? reservationKindResolver(name)
-                    : KerbalReservationKind.NotManaged;
-                if (reservationKind == KerbalReservationKind.ReservedActive)
-                {
-                    result[name] = new ApplicantOverlayMark
-                    {
-                        KerbalName = name,
-                        Kind = ApplicantOverlayKind.ReservedActive,
-                        UT = -1.0,
-                        RecordingId = null,
-                        Tooltip = permanentLossResolver != null && permanentLossResolver(name)
-                            ? LostOverlayTooltip
-                            : BuildReservedActiveTooltip(name, reservationSlotOwnerResolver)
-                    };
-                    continue;
-                }
-
-                if (reservationKind == KerbalReservationKind.ReservedRetired)
-                {
-                    result[name] = new ApplicantOverlayMark
-                    {
-                        KerbalName = name,
-                        Kind = ApplicantOverlayKind.ReservedRetired,
-                        UT = -1.0,
-                        RecordingId = null,
-                        Tooltip = RetiredStandInOverlayTooltip
-                    };
-                }
-            }
-
-            return result;
-        }
-
-        // Test-only shim for overlay/click-block predicate parity.
-        internal static Dictionary<string, ApplicantOverlayMark> BuildApplicantMarks_Candidates(
-            IEnumerable<string> kerbalNames,
-            Func<string, KerbalReservationKind> reservationKindResolver)
-        {
-            return BuildApplicantMarks(kerbalNames, reservationKindResolver);
-        }
-
-        // Test-only shim for overlay/click-block predicate parity.
-        internal static Dictionary<string, ApplicantOverlayMark> BuildApplicantMarks_Candidates(
-            IEnumerable<string> kerbalNames,
-            Func<string, KerbalReservationKind> reservationKindResolver,
-            Func<string, string> reservationSlotOwnerResolver)
-        {
-            return BuildApplicantMarks(kerbalNames, reservationKindResolver, reservationSlotOwnerResolver);
-        }
-
-        internal static Dictionary<string, ApplicantOverlayMark> SuppressFutureHiredApplicantsAlreadyInLiveRoster(
-            IDictionary<string, ApplicantOverlayMark> marks,
-            ISet<string> activeCrewOrTouristNames)
-        {
-            var result = new Dictionary<string, ApplicantOverlayMark>(StringComparer.Ordinal);
-            if (marks == null)
-                return result;
-
-            int suppressed = 0;
-            foreach (var kvp in marks)
-            {
-                if (kvp.Value.Kind == ApplicantOverlayKind.FutureHired
-                    && activeCrewOrTouristNames != null
-                    && activeCrewOrTouristNames.Contains(kvp.Key))
-                {
-                    suppressed++;
-                    continue;
-                }
-
-                result[kvp.Key] = kvp.Value;
-            }
-
-            if (suppressed > 0)
-                ParsekLog.VerboseRateLimited(Tag, "applicant-suppressed-already-live-future-hires",
-                    $"BuildApplicantMarks: suppressed already-live future hire count={suppressed}");
-
-            return result;
-        }
-
-        internal static Dictionary<string, ContractOverlayMark> SuppressAlreadyActiveContractMarks(
-            IDictionary<string, ContractOverlayMark> marks,
-            ISet<string> alreadyActiveContractKeys)
-        {
-            var result = new Dictionary<string, ContractOverlayMark>(StringComparer.Ordinal);
-            if (marks == null)
-                return result;
-
-            int suppressed = 0;
-            foreach (var kvp in marks)
-            {
-                if (alreadyActiveContractKeys != null && alreadyActiveContractKeys.Contains(kvp.Key))
-                {
-                    suppressed++;
-                    continue;
-                }
-
-                result[kvp.Key] = kvp.Value;
-            }
-
-            if (suppressed > 0)
-                ParsekLog.Verbose(Tag,
-                    $"BuildContractMarks: suppressed already-active committed contract count={suppressed}");
-
-            return result;
-        }
-
-        internal static Dictionary<string, ContractOverlayMark> FilterContractMarksToVisibleContracts(
-            IDictionary<string, ContractOverlayMark> marks,
-            ISet<string> visibleContractKeys)
-        {
-            var result = new Dictionary<string, ContractOverlayMark>(StringComparer.Ordinal);
-            if (marks == null)
-                return result;
-
-            int missing = 0;
-            foreach (var kvp in marks)
-            {
-                if (visibleContractKeys != null && visibleContractKeys.Contains(kvp.Key))
-                {
-                    result[kvp.Key] = kvp.Value;
-                    continue;
-                }
-
-                missing++;
-            }
-
-            if (missing > 0)
-                ParsekLog.Verbose(Tag,
-                    $"BuildContractMarks: suppressed missing offered contract count={missing}");
-
-            return result;
-        }
-
-        private static ApplicantOverlayMark ToApplicantMark(
-            string name,
-            ApplicantOverlayKind kind,
-            EventOverlayMark eventMark,
-            string prefix)
-        {
-            return new ApplicantOverlayMark
-            {
-                KerbalName = name,
-                Kind = kind,
-                UT = eventMark.UT,
-                RecordingId = eventMark.RecordingId,
-                AdditionalCommittedCount = eventMark.AdditionalCommittedCount,
-                Tooltip = BuildCommittedTooltip(prefix, eventMark)
-            };
-        }
-
-        /// <summary>The retired-stand-in badge's tooltip: the Kerbals window's
-        /// <c>Retired</c> status, qualified the way the overlay needs (the stock list does
-        /// not say the kerbal is a stand-in).</summary>
-        internal const string RetiredStandInOverlayTooltip = "Retired stand-in (Parsek)";
-
-        /// <summary>The badge's tooltip for a kerbal a committed flight killed: the Kerbals
-        /// window's <c>Lost</c> status. <c>GetReservationKind</c> answers ReservedActive for
-        /// a permanent reservation too, so without this the badge read "Reserved" on a kerbal
-        /// the window calls Lost.</summary>
-        internal const string LostOverlayTooltip = "Lost on a committed flight (Parsek)";
-
         /// <summary>
-        /// The reserved badge's tooltip, in the Kerbals window's vocabulary (the
-        /// 2026-09-22 review, recommendation 9): <c>Reserved</c> for a slot owner, and
-        /// <c>Reserved for &lt;owner&gt;</c> only for a stand-in reserved in SOMEONE
-        /// ELSE's slot. The old form read "Reserved by Parsek for slot 'Jebediah Kerman'"
-        /// on Jebediah himself - the self-reference the window's own status cell had
-        /// already dropped.
+        /// The live lookups the Astronaut Complex decoration and the dismissal refusal
+        /// read: the ledger's kerbal reservations, slots and dismissal predicate, and
+        /// whether a committed flight's chain loops.
         /// </summary>
-        internal static string BuildReservedActiveTooltip(
-            string name,
-            Func<string, string> reservationSlotOwnerResolver)
+        internal static AstronautComplexContext BuildLiveAstronautContext(ISet<string> liveCrewOrTourist)
         {
-            string slotOwner = reservationSlotOwnerResolver != null
-                ? reservationSlotOwnerResolver(name)
-                : null;
-            bool forSomeoneElse = !string.IsNullOrEmpty(slotOwner)
-                && !string.Equals(slotOwner, name, StringComparison.Ordinal);
-            return forSomeoneElse
-                ? "Reserved for " + slotOwner + " - held by a committed flight (Parsek)"
-                : "Reserved - held by a committed flight (Parsek)";
-        }
-
-        private static Dictionary<string, EventOverlayMark> BuildEventMarks(
-            HashSet<string> committedKeys,
-            GameStateEventType eventType)
-        {
-            var result = new Dictionary<string, EventOverlayMark>(StringComparer.Ordinal);
-            if (committedKeys == null || committedKeys.Count == 0)
-                return result;
-
-            var milestones = MilestoneStore.Milestones;
-            for (int i = 0; i < milestones.Count; i++)
+            return new AstronautComplexContext
             {
-                var milestone = milestones[i];
-                if (milestone == null || !milestone.Committed || milestone.Events == null)
-                    continue;
-
-                for (int j = milestone.LastReplayedEventIndex + 1; j < milestone.Events.Count; j++)
-                {
-                    GameStateEvent ev = milestone.Events[j];
-                    if (ev.eventType != eventType || string.IsNullOrEmpty(ev.key))
-                        continue;
-                    if (!committedKeys.Contains(ev.key))
-                        continue;
-                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(ev))
-                        continue;
-
-                    EventOverlayMark existing;
-                    string recordingId = !string.IsNullOrEmpty(ev.recordingId)
-                        ? ev.recordingId
-                        : milestone.RecordingId;
-                    if (!result.TryGetValue(ev.key, out existing))
-                    {
-                        result[ev.key] = new EventOverlayMark
-                        {
-                            Key = ev.key,
-                            UT = ev.ut,
-                            RecordingId = recordingId,
-                            AdditionalCommittedCount = 0
-                        };
-                    }
-                    else if (ev.ut < existing.UT)
-                    {
-                        // EventOverlayMark is a struct; carry the duplicate count into the replacement entry.
-                        existing.AdditionalCommittedCount++;
-                        result[ev.key] = new EventOverlayMark
-                        {
-                            Key = ev.key,
-                            UT = ev.ut,
-                            RecordingId = recordingId,
-                            AdditionalCommittedCount = existing.AdditionalCommittedCount
-                        };
-                    }
-                    else
-                    {
-                        // EventOverlayMark is a struct; write the incremented copy back into the dictionary.
-                        existing.AdditionalCommittedCount++;
-                        result[ev.key] = existing;
-                    }
-                }
-            }
-
-            return result;
-        }
-
-        private static string BuildCommittedTooltip(string prefix, EventOverlayMark mark)
-        {
-            string text = prefix + " " + mark.UT.ToString("F0", IC);
-            if (!string.IsNullOrEmpty(mark.RecordingId))
-            {
-                Recording rec = LedgerOrchestrator.FindRecordingById(mark.RecordingId);
-                if (rec != null && !string.IsNullOrEmpty(rec.VesselName))
-                    text += " — recording '" + rec.VesselName + "'";
-                else
-                    ParsekLog.Verbose(Tag,
-                        $"StockUiOverlay: recording '{mark.RecordingId}' not found for overlay tooltip — using UT-only text");
-            }
-
-            if (mark.AdditionalCommittedCount > 0)
-                text += " (+" + mark.AdditionalCommittedCount.ToString(IC) + " more committed)";
-            return text;
-        }
-
-        private static bool TryGetRdNodes(RDController controller, out List<RDNode> nodes)
-        {
-            nodes = null;
-            try
-            {
-                FieldInfo field = typeof(RDController).GetField("nodes", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (field == null)
-                    throw new MissingFieldException(typeof(RDController).FullName, "nodes");
-                nodes = field.GetValue(controller) as List<RDNode>;
-                if (nodes == null)
-                    throw new InvalidCastException("RDController.nodes was null or not List<RDNode>");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                if (!rdNodesWarned)
-                {
-                    rdNodesWarned = true;
-                    ParsekLog.Warn(Tag,
-                        $"StockUiOverlay: RDController.nodes reflection failed — tech overlays disabled this session ({ex.Message})");
-                }
-
-                return false;
-            }
-        }
-
-        private static bool TryGetAstronautListRoots(AstronautComplex complex, out List<Transform> roots)
-        {
-            roots = new List<Transform>();
-            string[] fieldNames =
-            {
-                "scrollListApplicants",
-                "scrollListAvailable",
-                "scrollListAssigned",
-                "scrollListKia"
+                ReservationKind = ResolveReservationKind,
+                Reservation = ResolveReservation,
+                SlotOwner = ResolveReservationSlotOwner,
+                DismissalBlocked = name => LedgerOrchestrator.Kerbals?.ShouldBlockDismissal(name) ?? false,
+                IsLoopingRecording = IsRecordingInLoopingChain,
+                LiveCrewOrTourist = liveCrewOrTourist
             };
-
-            try
-            {
-                for (int i = 0; i < fieldNames.Length; i++)
-                {
-                    FieldInfo field = typeof(AstronautComplex).GetField(
-                        fieldNames[i],
-                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    if (field == null)
-                        throw new MissingFieldException(typeof(AstronautComplex).FullName, fieldNames[i]);
-
-                    var component = field.GetValue(complex) as Component;
-                    if (component != null)
-                        roots.Add(component.transform);
-                }
-
-                if (roots.Count == 0)
-                    throw new InvalidOperationException("no AstronautComplex UIList roots resolved");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                if (!astronautListsWarned)
-                {
-                    astronautListsWarned = true;
-                    ParsekLog.Warn(Tag,
-                        $"StockUiOverlay: AstronautComplex list-field reflection failed — applicant overlays disabled this session ({ex.Message})");
-                }
-
-                return false;
-            }
         }
 
-        private static HashSet<string> CollectRosterNames()
-        {
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null)
-                return names;
-
-            AddRosterNames(names, roster.Crew);
-            AddRosterNames(names, roster.Applicants);
-            AddRosterNames(names, roster.Tourist);
-            return names;
-        }
-
-        private static HashSet<string> CollectActiveCrewOrTouristNames()
+        /// <summary>Names in the live Crew and Tourist lists (a committed future hire of one
+        /// of them is moot, so it is not marked).</summary>
+        internal static HashSet<string> CollectActiveCrewOrTouristNames()
         {
             var names = new HashSet<string>(StringComparer.Ordinal);
             var roster = HighLogic.CurrentGame?.CrewRoster;
@@ -847,59 +276,41 @@ namespace Parsek
             }
         }
 
-        private static List<CrewListItem> CollectCrewListItems(List<Transform> roots)
-        {
-            var result = new List<CrewListItem>();
-            var seen = new HashSet<CrewListItem>();
-            for (int i = 0; i < roots.Count; i++)
-            {
-                Transform root = roots[i];
-                if (root == null)
-                    continue;
-
-                CrewListItem[] items = root.GetComponentsInChildren<CrewListItem>(true);
-                for (int j = 0; j < items.Length; j++)
-                {
-                    if (items[j] != null && seen.Add(items[j]))
-                        result.Add(items[j]);
-                }
-            }
-
-            return result;
-        }
-
-        private static string SafeGetCrewListItemName(CrewListItem item)
-        {
-            if (item == null)
-                return null;
-
-            try
-            {
-                return item.GetName();
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.VerboseRateLimited(Tag, "crew-list-get-name-failed",
-                    $"StockUiOverlay: CrewListItem.GetName() failed — overlay skipped ({ex.Message})");
-                return null;
-            }
-        }
-
         private static KerbalReservationKind ResolveReservationKind(string name)
         {
             return LedgerOrchestrator.Kerbals?.GetReservationKind(name)
                 ?? KerbalReservationKind.NotManaged;
         }
 
-        private static bool ResolveReservationIsPermanentLoss(string name)
+        private static KerbalsModule.KerbalReservation ResolveReservation(string name)
         {
-            if (string.IsNullOrEmpty(name)) return false;
+            if (string.IsNullOrEmpty(name)) return null;
             var reservations = LedgerOrchestrator.Kerbals?.Reservations;
             KerbalsModule.KerbalReservation reservation;
-            return reservations != null
-                   && reservations.TryGetValue(name, out reservation)
-                   && reservation != null
-                   && reservation.IsPermanent;
+            return reservations != null && reservations.TryGetValue(name, out reservation)
+                ? reservation
+                : null;
+        }
+
+        /// <summary>
+        /// True when the committed recording, or any committed recording of its chain,
+        /// plays as a loop: the case KerbalsModule holds a chain's crew open-ended for.
+        /// </summary>
+        internal static bool IsRecordingInLoopingChain(string recordingId)
+        {
+            Recording rec = LedgerOrchestrator.FindRecordingById(recordingId);
+            if (rec == null) return false;
+            if (rec.LoopPlayback) return true;
+            if (string.IsNullOrEmpty(rec.ChainId)) return false;
+            var ers = EffectiveState.ComputeERS();
+            for (int i = 0; i < ers.Count; i++)
+            {
+                var other = ers[i];
+                if (other != null && other.LoopPlayback
+                    && string.Equals(other.ChainId, rec.ChainId, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
         }
 
         private static string ResolveReservationSlotOwner(string name)
@@ -928,166 +339,6 @@ namespace Parsek
             }
 
             return null;
-        }
-
-        private static int CountApplicantMarks(
-            Dictionary<string, ApplicantOverlayMark> marks,
-            ApplicantOverlayKind kind)
-        {
-            int count = 0;
-            foreach (var kvp in marks)
-            {
-                if (kvp.Value.Kind == kind)
-                    count++;
-            }
-
-            return count;
-        }
-
-        /// <summary>
-        /// The contract behind a Mission Control list row. Stock (KSP 1.12.5,
-        /// <c>MissionControl.AddItem</c>) stores a <c>MissionControl.MissionSelection</c>
-        /// wrapper in <c>UIListItem.Data</c>, whose <c>contract</c> field is the row's
-        /// contract; a bare <c>Contract</c> payload is accepted too so a build that stores
-        /// the contract directly keeps working. Shared with the in-game overlay cells so
-        /// the test reads rows exactly as the overlay does.
-        /// </summary>
-        internal static Contract ExtractMissionControlRowContract(MCListItem row)
-        {
-            object data = row != null && row.container != null ? row.container.Data : null;
-            if (data == null)
-                return null;
-            if (data is MissionControl.MissionSelection selection)
-                return selection.contract;
-            return data as Contract;
-        }
-
-        private static bool TryGetMissionControlRowContract(MCListItem row, out Contract contract)
-        {
-            contract = null;
-            if (row == null)
-                return false;
-
-            try
-            {
-                contract = ExtractMissionControlRowContract(row);
-                if (contract != null)
-                    return true;
-
-                if (!missionRowsWarned)
-                {
-                    missionRowsWarned = true;
-                    ParsekLog.Warn(Tag,
-                        "StockUiOverlay: MissionControl row contract lookup failed - contract overlays disabled for rows whose UIListItem.Data is neither a MissionSelection nor a Contract");
-                }
-            }
-            catch (Exception ex)
-            {
-                if (!missionRowsWarned)
-                {
-                    missionRowsWarned = true;
-                    ParsekLog.Warn(Tag,
-                        $"StockUiOverlay: MissionControl row contract lookup failed — contract overlays disabled for rows without UIListItem.Data Contract ({ex.Message})");
-                }
-            }
-
-            return false;
-        }
-
-        private static HashSet<string> CollectActiveContractKeys()
-        {
-            var result = new HashSet<string>(StringComparer.Ordinal);
-            var system = ContractSystem.Instance;
-            if (system == null || system.Contracts == null)
-                return result;
-
-            var contracts = system.Contracts;
-            for (int i = 0; i < contracts.Count; i++)
-            {
-                Contract contract = contracts[i];
-                if (contract != null && contract.ContractState == Contract.State.Active)
-                    result.Add(contract.ContractGuid.ToString());
-            }
-
-            return result;
-        }
-
-        private static void AttachBadge(
-            Transform parent,
-            string objectName,
-            string screen,
-            string itemName,
-            string tooltip,
-            Color color)
-        {
-            if (parent == null)
-                return;
-
-            var go = new GameObject(objectName);
-            go.transform.SetParent(parent, false);
-            var badge = go.AddComponent<OverlayBadge>();
-            badge.Configure(screen, itemName, tooltip, color);
-        }
-
-        private static Color ColorForApplicantKind(ApplicantOverlayKind kind)
-        {
-            switch (kind)
-            {
-                case ApplicantOverlayKind.FutureHired:
-                    return new Color(0.33f, 0.86f, 0.48f, 0.95f);
-                case ApplicantOverlayKind.FutureRetired:
-                    return new Color(0.62f, 0.62f, 0.62f, 0.95f);
-                case ApplicantOverlayKind.ReservedActive:
-                    return new Color(1.0f, 0.70f, 0.28f, 0.95f);
-                case ApplicantOverlayKind.ReservedRetired:
-                    return new Color(0.78f, 0.48f, 0.95f, 0.95f);
-                default:
-                    return Color.white;
-            }
-        }
-
-        private static int StripOverlays(Transform root, string overlayName)
-        {
-            if (root == null)
-                return 0;
-
-            int stripped = 0;
-            var toDestroy = new List<GameObject>();
-            CollectOverlayChildren(root, overlayName, toDestroy);
-            for (int i = 0; i < toDestroy.Count; i++)
-            {
-                if (toDestroy[i] == null)
-                    continue;
-                UnityEngine.Object.Destroy(toDestroy[i]);
-                stripped++;
-            }
-
-            return stripped;
-        }
-
-        private static void CollectOverlayChildren(Transform root, string overlayName, List<GameObject> result)
-        {
-            if (root == null)
-                return;
-
-            for (int i = root.childCount - 1; i >= 0; i--)
-            {
-                Transform child = root.GetChild(i);
-                if (child == null)
-                    continue;
-                if (child.gameObject != null && string.Equals(child.gameObject.name, overlayName, StringComparison.Ordinal))
-                    result.Add(child.gameObject);
-                else
-                    CollectOverlayChildren(child, overlayName, result);
-            }
-        }
-
-        private struct EventOverlayMark
-        {
-            public string Key;
-            public double UT;
-            public string RecordingId;
-            public int AdditionalCommittedCount;
         }
     }
 }

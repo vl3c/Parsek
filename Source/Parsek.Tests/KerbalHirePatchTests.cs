@@ -34,7 +34,10 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             GameStateRecorder.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
             ParsekSettings.CurrentOverrideForTesting = new ParsekSettings();
+            // Every committed row these cells seed sits at UT >= 12345, ahead of this clock.
+            CommittedFutureIndexCache.NowUtProviderForTesting = () => 0.0;
 
             CommittedActionDialog.TestHookForTesting = (action, reason, detail) =>
             {
@@ -60,7 +63,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Allows hire when not committed. Fails if the patch blocks applicants outside the committed helper set.
+        /// Allows hire when not committed. Fails if the patch blocks applicants with no committed future hire.
         /// </summary>
         [Fact]
         public void KerbalHirePatch_AllowsHireWhenNotCommitted_NoDialogLogAndReturnsTrue()
@@ -79,7 +82,7 @@ namespace Parsek.Tests
         [Fact]
         public void KerbalHirePatch_BlocksWhenCommitted_LogsAndReturnsFalse()
         {
-            AddMilestone(Event(GameStateEventType.CrewHired, "Future Kerman", ut: 12345.0));
+            AddCommittedRow(Event(GameStateEventType.CrewHired, "Future Kerman", ut: 12345.0));
 
             bool allowed = KerbalHirePatch.ShouldAllowHire("Future Kerman");
 
@@ -88,7 +91,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, line =>
                 line.Contains("[INFO][KerbalHirePatch]") &&
                 line.Contains("blocking hire for name=Future Kerman") &&
-                line.Contains("committed at UT 12345"));
+                line.Contains("committed future hire ut=12345"));
             Assert.Contains(logLines, line =>
                 line.Contains("[INFO][CommittedAction]") &&
                 line.Contains("Blocked action: Cannot hire \"Future Kerman\""));
@@ -100,7 +103,7 @@ namespace Parsek.Tests
         [Fact]
         public void KerbalHirePatch_BypassesWhenReplayingActions_LogsAndReturnsTrue()
         {
-            AddMilestone(Event(GameStateEventType.CrewHired, "Replay Kerman", ut: 23456.0));
+            AddCommittedRow(Event(GameStateEventType.CrewHired, "Replay Kerman", ut: 23456.0));
             GameStateRecorder.IsReplayingActions = true;
 
             bool allowed = KerbalHirePatch.ShouldAllowHire("Replay Kerman");
@@ -115,12 +118,12 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Invariant test for §3/§8.3. Fails if the patch uses KerbalsModule.IsManaged instead of GetCommittedKerbalHireNames.
+        /// Invariant test for §3/§8.3. Fails if the patch uses KerbalsModule.IsManaged instead of the committed-future hire rows.
         /// </summary>
         [Fact]
-        public void KerbalHirePatch_PredicateUsesCommittedKerbalHireNames_NotReservations()
+        public void KerbalHirePatch_PredicateUsesCommittedFutureHires_NotReservations()
         {
-            AddMilestone(Event(GameStateEventType.CrewHired, "Future Hire Kerman", ut: 34567.0));
+            AddCommittedRow(Event(GameStateEventType.CrewHired, "Future Hire Kerman", ut: 34567.0));
 
             var reservedOnlyRec = MakeRecording(
                 "Reservation Ship",
@@ -137,8 +140,9 @@ namespace Parsek.Tests
             Assert.False(futureHireAllowed);
             Assert.True(reservedOnlyAllowed);
             Assert.True(kerbals.IsManaged("Reserved Only Kerman"));
-            Assert.Contains(MilestoneStore.GetCommittedKerbalHireNames(), name => name == "Future Hire Kerman");
-            Assert.DoesNotContain(MilestoneStore.GetCommittedKerbalHireNames(), name => name == "Reserved Only Kerman");
+            var futureHires = CommittedFutureIndexCache.Current.FutureKeys(CommittedFutureKind.KerbalHire, 0.0);
+            Assert.Contains(futureHires, name => name == "Future Hire Kerman");
+            Assert.DoesNotContain(futureHires, name => name == "Reserved Only Kerman");
         }
 
         /// <summary>
@@ -204,15 +208,11 @@ namespace Parsek.Tests
             };
         }
 
-        private static void AddMilestone(GameStateEvent ev)
+        /// <summary>A committed KSC-origin ledger row, converted the way the KSC door converts
+        /// the captured event.</summary>
+        private static void AddCommittedRow(GameStateEvent ev)
         {
-            MilestoneStore.AddMilestoneForTesting(new Milestone
-            {
-                MilestoneId = Guid.NewGuid().ToString("N"),
-                Committed = true,
-                LastReplayedEventIndex = -1,
-                Events = new List<GameStateEvent> { ev }
-            });
+            Ledger.AddAction(GameStateEventConverter.ConvertEvent(ev, null));
         }
     }
 }

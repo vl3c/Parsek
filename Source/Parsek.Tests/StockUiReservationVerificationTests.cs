@@ -8,7 +8,8 @@ namespace Parsek.Tests
     /// (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md, section 12).
     /// Each cell pins TODAY's behavior of a claim the design doc makes. Cells whose
     /// name ends in "_DocumentsDefect" assert a known-wrong value on purpose: they
-    /// are the regression anchor the later fix PR flips, not an endorsement.
+    /// are the regression anchor the later fix PR flips, not an endorsement. A flipped
+    /// cell ends in "_Fixed" and asserts the corrected behavior.
     /// </summary>
     [Collection("Sequential")]
     public class StockUiReservationVerificationTests : System.IDisposable
@@ -25,11 +26,17 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            LedgerOrchestrator.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             RecalculationEngine.ClearModules();
         }
 
         public void Dispose()
         {
+            LedgerOrchestrator.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             RecalculationEngine.ClearModules();
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
@@ -66,51 +73,93 @@ namespace Parsek.Tests
             };
         }
 
-        [Fact]
-        public void F1_FreshlyCreatedMilestone_IsFullyReplayed_DoesNotBlock()
+        private static GameAction CommittedUpgrade(double ut, int toLevel)
         {
-            // CreateMilestone stamps LastReplayedEventIndex = Events.Count - 1, so on the
-            // timeline that recorded the upgrade nothing is in the committed slice.
-            MilestoneStore.AddMilestoneForTesting(MakeFacilityUpgradeMilestone(lastReplayedIndex: 0));
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.FacilityUpgrade,
+                FacilityId = LaunchPadId,
+                ToLevel = toLevel,
+                FacilityCost = 75000f
+            };
+        }
 
-            Assert.Empty(MilestoneStore.GetCommittedFacilityUpgrades());
+        /// <summary>The block the facility patches take, over the live cached index.</summary>
+        private static bool LaunchPadUpgradeBlockedAt(double nowUT)
+        {
+            return StockUiReservationPredicates.IsFacilityUpgradeBlocked(
+                CommittedFutureIndexCache.Current, LaunchPadId, nowUT);
         }
 
         [Fact]
-        public void F1_CommittedOneToTwoUpgrade_BlocksEveryLaterUpgradeOfThatFacility_AfterRewind_DocumentsDefect()
+        public void F1_CommittedOneToTwoUpgrade_AfterRewind_BlocksOnlyUntilItsUT_Fixed()
         {
-            // The committed 1->2 upgrade at UT 1000 was recorded after the rewind point.
+            // Was F1_..._DocumentsDefect. The committed 1->2 upgrade at UT 1000 was
+            // recorded after the rewind point: the ledger holds the row, and the milestone
+            // slice drops to -1 on the rewind load and stays there on every later save.
+            Ledger.AddAction(CommittedUpgrade(1000, 2));
             MilestoneStore.AddMilestoneForTesting(MakeFacilityUpgradeMilestone(lastReplayedIndex: 0));
-
-            // Rewind / revert: HandleRewindOnLoad restores MILESTONE_STATE from the
-            // rewind quicksave with resetUnmatched=true. The quicksave predates the
-            // milestone, so it has no state row for it and the index drops to -1.
-            var rewindScenario = new ConfigNode("SCENARIO");
-            MilestoneStore.RestoreMutableState(rewindScenario, resetUnmatched: true);
-            Assert.Equal(-1, MilestoneStore.Milestones[0].LastReplayedEventIndex);
-            Assert.Contains(LaunchPadId, MilestoneStore.GetCommittedFacilityUpgrades());
-
-            // The clock passes UT 1000 and the ledger replays the upgrade (the facility
-            // is now level 2). Nothing advances LastReplayedEventIndex: the only writers
-            // are CreateMilestone, RestoreMutableState and the removal decrements. The
-            // next save writes -1 and every later ordinary load restores -1.
+            MilestoneStore.RestoreMutableState(new ConfigNode("SCENARIO"), resetUnmatched: true);
             var laterSave = new ConfigNode("SCENARIO");
             MilestoneStore.SaveMutableState(laterSave);
             MilestoneStore.RestoreMutableState(laterSave);
             Assert.Equal(-1, MilestoneStore.Milestones[0].LastReplayedEventIndex);
 
-            // DEFECT (todo STOCK-UI-RESERVATION-OVERLAYS-2026-09-25, F1): the slice has
-            // no UT and no level. FacilityUpgradePatch.TryBlockFacilityUpgrade reads only
-            // facility.id against this set (and SetLevel's prefix only checks
-            // lvl > current), so a 2->3 upgrade long after UT 1000 is still refused.
-            // The fix (a UT-keyed index over the effective ledger) flips this assert.
-            Assert.Contains(LaunchPadId, MilestoneStore.GetCommittedFacilityUpgrades());
+            // FIXED: the block keys on the UT-keyed committed-future index, not the slice.
+            // Before the committed UT the 1->2 upgrade is protected ...
+            Assert.True(LaunchPadUpgradeBlockedAt(500));
+            // ... and once the clock passes it, a 2->3 upgrade the committed timeline never
+            // made is allowed, however stale the slice index is.
+            Assert.False(LaunchPadUpgradeBlockedAt(1500));
+        }
 
-            // The refusal dialog cites the replayed 1->2 event as the reason.
-            var ev = MilestoneStore.FindCommittedEvent(GameStateEventType.FacilityUpgraded, LaunchPadId);
-            Assert.True(ev.HasValue);
-            Assert.Equal(1000.0, ev.Value.ut);
-            Assert.Equal(0.5, ev.Value.valueAfter);
+        [Fact]
+        public void F1_BeforeTheCommittedUpgrade_Blocked()
+        {
+            Ledger.AddAction(CommittedUpgrade(1000, 2));
+            Assert.True(LaunchPadUpgradeBlockedAt(0));
+            Assert.True(LaunchPadUpgradeBlockedAt(999.9));
+        }
+
+        [Fact]
+        public void F1_AtAndAfterTheCommittedUpgrade_Allowed()
+        {
+            Ledger.AddAction(CommittedUpgrade(1000, 2));
+            // At the committed UT the walk (cutoff UT <= now) has already applied it.
+            Assert.False(LaunchPadUpgradeBlockedAt(1000));
+            Assert.False(LaunchPadUpgradeBlockedAt(5000));
+        }
+
+        [Fact]
+        public void F1_TwoCommittedUpgrades_BlockedUntilTheLaterOnePasses()
+        {
+            Ledger.AddAction(CommittedUpgrade(1000, 2));
+            Ledger.AddAction(CommittedUpgrade(2000, 3));
+
+            Assert.True(LaunchPadUpgradeBlockedAt(500));
+            Assert.True(LaunchPadUpgradeBlockedAt(1500));
+            Assert.False(LaunchPadUpgradeBlockedAt(2000));
+
+            // The refusal names both dates while both are ahead, then only the later one.
+            string Fmt(double ut) => "D" + ((long)(ut / 100)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var both = StockUiReservationPredicates.ExplainFacilityUpgrade(
+                CommittedFutureIndexCache.Current, LaunchPadId, 500, Fmt);
+            Assert.StartsWith("Upgraded to level 2 on D10 and to level 3 on D20 on your committed timeline.", both.Body);
+            var later = StockUiReservationPredicates.ExplainFacilityUpgrade(
+                CommittedFutureIndexCache.Current, LaunchPadId, 1500, Fmt);
+            Assert.StartsWith("Upgraded to level 3 on D20 on your committed timeline.", later.Body);
+        }
+
+        [Fact]
+        public void F1_AnotherFacilitysCommittedUpgrade_DoesNotBlock()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 1000, Type = GameActionType.FacilityUpgrade,
+                FacilityId = "SpaceCenter/VehicleAssemblyBuilding", ToLevel = 2
+            });
+            Assert.False(LaunchPadUpgradeBlockedAt(500));
         }
 
         // ================================================================
