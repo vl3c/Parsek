@@ -1075,6 +1075,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
+  While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
+  and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
+  [Max: 5]`, lock every applicant at the crew limit early and charge more for the next hire.
+  The active-crew count now treats the held kerbal and his active stand-in as one seat, so the
+  header, the hire limit, the hire cost (and the editor's auto-hire) read what they read before
+  the hold, and Parsek's ledger records the same hire cost stock charges. A retired or displaced
+  stand-in still counts, and the count returns to stock's own when the hold ends. The stand-in's
+  dismiss tooltip adds that it shares the owner's seat and does not count against the limit.
 - **Space Center: the Administration building keeps stock's own reason when stock already
   refuses a strategy, and a strategy Parsek refuses now looks refused.** With every strategy
   slot taken, all ten inactive strategies showed Parsek's "a committed activation needs this
