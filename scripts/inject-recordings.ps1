@@ -24,6 +24,8 @@ $injectFilterByPreset = @{
     "relative-loop"         = "InjectRelativeLoopAnchor"
     "single-point-hold"     = "InjectSinglePointHold"
     "spawn-safety"          = "InjectSpawnSafety"
+    "spawn-control-target"  = "InjectSpawnControlTarget"
+    "drill-harvest-route"   = "InjectDrillHarvestRoute"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -40,6 +42,8 @@ $defaultSaveByPreset = @{
     "relative-loop"         = "relative-loop-fixture"
     "single-point-hold"     = "single-point-hold-fixture"
     "spawn-safety"          = "spawn-safety-fixture"
+    "spawn-control-target"  = "spawn-control-target-fixture"
+    "drill-harvest-route"   = "drill-harvest-route-fixture"
 }
 
 $ErrorActionPreference = "Stop"

@@ -15,6 +15,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## HARVEST-PROVENANCE-CLAIMED-ON-A-SYNTHETIC-DRILL: D10 `harvest-provenance` rests on the M2 synthetic drill tree, not on a flown drill [FILED 2026-09-25 by coverage wave 2 (branch `cov-wave2`). OPEN, low; an operator confirmation, not a defect]
+
+`HV-1-harvest-route-analysis` claims the cell SCOPED to "the route planner treats drilled
+cargo as its own origin" (supervisor ruling 2026-09-25): the synthetic tree
+`tree-drill-harvest-m2` (two witnessed harvest windows on an undocked-start Minmus run)
+makes `RouteAnalysisEngine.AnalyzeTree` take its harvest-origin branch in-game
+(`undocked start fully harvest-covered -> harvest origin originRec=m2-drill-root`,
+`harvestOrigin=1`), and `HarvestRoute_AnalyzesEligible_FromSyntheticRecording` passes
+(armed `2026-09-25_2143`). What it does NOT show: a live drill writing those harvest
+windows into a recording that a route is then built from. The capture half has its own
+evidence (H38's `Harvest funnel consumed at transition` token; the catch-up cell still
+self-skips for want of a drill rig landed on ore).
+
+**Owed:** the operator confirms the scoped claim, or rules that the cell needs the
+live-drill flight (a drill rig landed on ore, recorded, docked at a depot, committed, then
+the route built from it - the supply-route hand-off). Also measured on the same run and
+NOT claimed: the drill tree's synthetic `m2-drill-delivery` window lets
+`RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` pass on this host (41 / 6 against
+H38's 39 / 8); that is a shape check over a synthetic window, not a recorded dock capture.
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 
 **Evidence.** The Astronaut Complex shows Jebediah as `Reserved` with the hover text `Flies
@@ -4913,7 +4932,7 @@ copy-on-write host), so the dialog never draws. BDOCK-1's spec shape is unchange
 `StopRecording` mitigation is explicitly NOT to be added; the optional ~36 min
 `AnswerMergeDialog choice=merge` measurement is skipped.
 
-## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. DEFINED 2026-09-15, register B5; the clone spec and its one flight remain]
+## ~~D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness~~ [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. DEFINED 2026-09-15, register B5. **CLOSED 2026-09-25 (coverage wave 2, branch `cov-wave2`)**: the clone spec is `MC-4-making-history-desert` (GS-4's `kx_rewind_watch` with `launchSite = "Desert_Launch_Site"`, operator tier). Reading `2026-09-25_2132` and armed `_2146` both PASS attempt 1, MISSION-OK: `Start location captured: ... launchSite=Desert Launch Site`, the produced save carries `launchSiteName = Desert Launch Site`, and after the Rewind-to-Launch the replayed Kerbal X ghost first appears `zone=Physics dist=22m` from the watcher on the Desert pad and is watched from it. D17 `making-history` claimed]
 
 **DEFINED 2026-09-15, not flown:** alt-site launch capture on stock-minimal, a GS-4 clone
 with `launchSite = "Desert_Launch_Site"`, `tier = "operator"`, one reading flight, ranked

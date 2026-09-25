@@ -3105,6 +3105,20 @@ committed spec that drives `op=mock` until `gui_mirror.py` reads the dump's `moc
 without that, a mocked capture files under a real fixture's name and can pair against a real
 capture in Compare.
 
+**`op=warp` - the Real Spawn Control row button (2026-09-25).** `UiAction op=warp
+window=spawncontrol` presses the candidate table's FIRST row warp button (first in the
+window's current sort order, which `op=sort` sets) through the button's own click body,
+`SpawnControlUI.ExecuteRowWarp`; the drawn button and the op share that one method, so the
+`Real Spawn Control: warp to ...` line and the `WarpToRecordingEnd` / `WarpToDeparture` jump
+are the player's. It needs the window OPEN (`OpRequiresWindowOpen`), is one-phase (the jump
+is synchronous; the spawn that follows is the playback loop's and is asserted by log
+contracts), and refuses without pressing on `warp-no-candidate-row`, on
+`warp-button-disabled` (the row is drawn greyed - outside the 250 m / 2 m/s gates or past
+its UT - and a greyed button cannot be clicked; the refusal carries the button's own
+disabled-hover text), and on `warp-unsupported-window` for any other window
+(`TestCommandUiAction.WindowHasRowWarpButton`, mirrored by `hlib.UIACTION_WARP_WINDOWS`).
+It adds no arg key. First consumer: `RSC-1-real-spawn-control-warp`.
+
 **First consumers.** `GUI-1-census-ksc` (nine KSC windows, 22 captures across Advanced and
 Basic) and `GUI-2-census-flight` (the flight-only windows plus the flight form of the main
 window). Both on an OPERATOR-LOCAL fixture, both never flown; see

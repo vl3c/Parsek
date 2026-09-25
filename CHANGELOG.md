@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: three new lanes for Real Spawn Control, drilled-cargo routes and Making History launch sites.**
+  `RSC-1` presses Real Spawn Control's "Warp to Spawn" on a ghost parked near the pad and requires the time jump
+  and the vessel that spawns; a new test command, `UiAction op=warp`, runs the button's own click code and
+  refuses when the button is greyed out. `HV-1` runs the Logistics tests with a synthetic drill mission present,
+  so the check that a route treats drilled cargo as its own origin runs instead of skipping. `MC-4` launches the
+  staged Kerbal X from the Making History Desert pad and requires the recording to name the site, save it, and
+  replay there. Two new injection presets supply the subjects. Coverage 231 -> 234 of 247.
 - **Automated testing: ghosts are checked under physics warp, and snapshot files are checked for
   their compressed format and for ghost snapshots that reuse the vessel snapshot.** The test warp
   command can now hold the game in physics warp (1x to 4x) for a whole span instead of taking
