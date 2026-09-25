@@ -1411,6 +1411,58 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("Unknown GameActionType"));
         }
 
+        [Fact]
+        public void KerbalExperienceRow_RendersHumanizedInAssignmentBucket_NoWarning()
+        {
+            // A recovery's career-log row used to fall to MapGameActionType's default:
+            // a raw "KerbalExperience" LegacyEvent row plus a WARN on every build.
+            var xp = new GameAction
+            {
+                UT = 348.08,
+                Type = GameActionType.KerbalExperience,
+                RecordingId = "rec1",
+                KerbalName = "Jebediah Kerman",
+                KerbalRole = "Pilot",
+                KerbalCareerEntries = "0,Land,Kerbin|0,Flight,Kerbin|0,Recover,"
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(), new List<GameAction> { xp }, new List<Milestone>(), _ => true);
+
+            Assert.Single(result);
+            Assert.Equal(TimelineEntryType.KerbalAssignment, result[0].Type);
+            Assert.Equal(TimelineSource.GameAction, result[0].Source);
+            Assert.Equal("XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin, Recovered)", result[0].DisplayText);
+            Assert.DoesNotContain(logLines, l => l.Contains("Unknown GameActionType"));
+        }
+
+        [Fact]
+        public void KerbalExperienceDescription_WithoutEntries_NamesTheKerbal()
+        {
+            var xp = new GameAction { Type = GameActionType.KerbalExperience, KerbalName = "Bill Kerman" };
+            Assert.Equal("XP: Bill Kerman", GameActionDisplay.GetKerbalExperienceDescription(xp));
+        }
+
+        [Fact]
+        public void RouteRows_HaveNoTimelineEntry_AndLogOneSummary()
+        {
+            // Timeline design 3.3: the route action types have no timeline entry.
+            var actions = new List<GameAction>
+            {
+                new GameAction { UT = 10, Type = GameActionType.RouteDispatched },
+                new GameAction { UT = 11, Type = GameActionType.RoutePaused },
+                new GameAction { UT = 12, Type = GameActionType.FundsEarning, FundsAwarded = 100f },
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(), actions, new List<Milestone>(), _ => true);
+
+            Assert.Single(result);
+            Assert.Equal(TimelineEntryType.FundsEarning, result[0].Type);
+            Assert.Contains(logLines, l => l.Contains("[Timeline]") && l.Contains("Filtered 2 route action(s)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Unknown GameActionType"));
+        }
+
         // ================================================================
         // 25. Recording with StartUT == EndUT produces valid entries
         // ================================================================

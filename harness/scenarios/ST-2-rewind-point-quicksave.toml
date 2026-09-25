@@ -1,0 +1,76 @@
+schema = 1
+id = "ST-2-rewind-point-quicksave"
+tier = "nightly"
+# WHAT THIS IS. D16 `rp-quicksaves` on a quicksave the product writes IN THIS RUN. CI-1's
+# road: StartRecording on the orbiting Kerbal X, EvaExit so the EVA split leaves two
+# controllable vessels, and ParsekFlight.TryAuthorRewindPointForSplit authors a real
+# rewind point - RewindPointAuthor saves to the save root and SafeMoves the file into
+# Parsek/RewindPoints/<rpId>.sfs, logging `[RewindSave] Wrote rp=... path=... bytes=N`.
+# Then RunTests drives the `Storage` category, whose RewindPointQuicksavesOnDisk cell
+# reads every live RP's quicksave back: present at the production path, non-empty,
+# parses as a KSP save with a GAME / FLIGHTSTATE and at least one VESSEL, its UT within
+# 5 s of the RP's UT, and no `Parsek_TempRP_<id>.sfs` left in the save root. The path
+# cell also validates the live RP id. The mirror cell self-skips (this sandbox save has
+# no committed recording); ST-1 runs it on the earned career.
+#
+# WHY A SECOND LANE. ST-1's host (`career-earned-pad`) cannot author an RP: its pad pod
+# has no decoupler, and stock spawnEVA refuses the Parsek stand-in sitting in it (ST-1
+# runs `2026-09-25_2039` / `_2043`: `evaexit refused reason=eva-refused (spawnEVA
+# returned null)`, with the vessel already unpacked on the second). `eva2-lko-crewed`
+# is CI-1's host, whose EVA split has authored an RP on every flight.
+#
+# READING RUN `2026-09-25_2051` (DLL sha256 ea2d667b..., PASS attempt 1) measured the
+# pins: one RP (`bytes=315449`, which varies per flight and stays a regex), `vessels=8`
+# (the save's other craft ride in the quicksave), three recordings (the Kerbal X tree:
+# parent + EVA child + ship), the mirror cell skipped.
+description = "Author a rewind point through an EVA split on the orbiting Kerbal X, then run the Storage in-game category: the RP quicksave is read back from Parsek/RewindPoints/<rpId>.sfs, loads as a KSP save at the RP's UT with no temp file left, and the live RP id passes path validation."
+instanceProfile = "stock-minimal"
+tags = ["ST-2", "ingame-batch", "storage", "rewind", "eva", "kerbin", "sandbox"]
+
+[fixture]
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK" },
+  { cmd = "EvaExit",        args = { release = "true", settleSeconds = "10" },       expect = "OK", budget = 120 },
+  { cmd = "RunTests",       args = { category = "Storage" },                         expect = "OK", budget = 540 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+D16 = ["rp-quicksaves"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  "Tree branch created: type=EVA",
+  "\\[RewindSave\\] Wrote rp=rp_[0-9a-f]{32} path=Parsek/RewindPoints[\\\\/]rp_[0-9a-f]{32}\\.sfs bytes=[1-9][0-9]*",
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=Storage scene=FLIGHT",
+  "rewind point quicksaves: checked=1 vessels=8 bytes=[1-9][0-9]*",
+  "path validation on live save: rejected=47 invalidCharIds=39 acceptedRecordings=0 resolvedOnDisk=0 acceptedRewindPoints=1",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

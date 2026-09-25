@@ -140,7 +140,10 @@ The spec block
   and only in the run JSON rather than in any declaration.
 - ``warpBuckets`` (list of bucket names from ``WARP_BUCKETS``) - each named
   bucket must carry a non-zero frame count. Consumed by RC-WARP, which is INFO
-  when the block is unarmed and FAIL when it is armed (design RC-WARP).
+  when the block is unarmed and FAIL when it is armed (design RC-WARP). The
+  ``seamsAboveOneX`` / ``holdsAboveOneX`` traversal clauses apply only when the
+  list names an ABOVE-1x bucket (``WARP_BUCKETS_ABOVE_1X``); ``["warp1x"]`` alone
+  asserts only that 1x frames were observed (D14 ``warp-1x``, 2026-09-25).
 - ``requireSeamKinds`` (list of tokens from ``SEAM_KINDS_REQUIRABLE``) - each
   named seam kind must appear at least once in the chain records. Consumed by
   RC-SEAM. The validation vocabulary is NARROWER than the parse vocabulary
@@ -3735,11 +3738,23 @@ def _rule_warp(ctx: _Ctx) -> None:
                         "spec declared warp bucket %r and the manifest counted "
                         "zero frames in it - the run did not visit that warp "
                         "regime" % (name,))
+    # The two traversal clauses below are the anti-vacuity half of an ABOVE-1x
+    # claim: a lane that declares warp100 must also have crossed a seam (and a hold)
+    # while warped, or its PASS says nothing about warped rendering. They are scoped
+    # to a declaration that NAMES an above-1x bucket. A declaration of `warp1x` alone
+    # (supervisor ruling 2026-09-25, D14 `warp-1x`: "ghosts replayed at 1x, seen in
+    # the render warp histogram") makes no above-1x claim, so demanding an above-1x
+    # seam of it would red every honest 1x-only lane by construction. What such a
+    # declaration proves is only the bucket clause above: the manifest counted
+    # non-zero 1x frames inside a dwell. Every lane that names an above-1x bucket
+    # evaluates exactly as before (V24W, the only one, replayed offline 2026-09-25).
+    declared_above = ([n for n in declared if str(n) in WARP_BUCKETS_ABOVE_1X]
+                      if isinstance(declared, (list, tuple)) else [])
     above = [d for d in snap.dwells if d.frames_above_1x > 0]
     seam_uts = [t.ut for t in snap.transitions if _finite(t.ut)]
     seams_above = _uts_inside(above, seam_uts)
     ctx.metrics["seamsAboveOneX"] = seams_above
-    if declared and seam_uts and seams_above == 0:
+    if declared_above and seam_uts and seams_above == 0:
         ctx.add(RULE_WARP, level, "seamsAboveOneX",
                 "%d transition(s) observed and none of them fell inside a dwell "
                 "that carried an above-1x frame; a composition PASS from a "
@@ -3755,7 +3770,7 @@ def _rule_warp(ctx: _Ctx) -> None:
         return
     holds_above = _uts_inside(above, hold_uts)
     ctx.metrics["holdsAboveOneX"] = holds_above
-    if declared and holds_above == 0:
+    if declared_above and holds_above == 0:
         ctx.add(RULE_WARP, level, "holdsAboveOneX",
                 "%d hold event(s) observed and none of them fell inside a dwell "
                 "that carried an above-1x frame; a composition PASS from a 1x-only "
