@@ -374,7 +374,7 @@ The namespace is `KSP.UI`, not `KSP.UI.Screens`.
 | `Patches/FacilityRepairCapturePatches.cs` | `SpaceCenterBuilding.RepairFacility(bool)`, `ResetStructures` | Prefix/Postfix |
 | `StockUiOverlayController.cs` (no Harmony) | subscribes to `RDController.OnRDTreeSpawn/Despawn`, `onGUIAstronautComplexSpawn/Despawn`, `onGUIMissionControlSpawn/Despawn`, `LedgerOrchestrator.OnTimelineDataChanged`; reflects `RDController.nodes` and the four AC `scrollList*` fields; reads `MCListItem.container.Data` as `MissionSelection`/`Contract` (`ExtractMissionControlRowContract`, `:955`) | decorate-after-spawn badges |
 
-- No Parsek patch touches `RDNode`, `RDController`, `Administration`, `KSCFacilityContextMenu`, `PartListTooltip`, `CrewListItem`, `TooltipController_CrewAC`, `Contract.CanBe*`, `Decline` / `Cancel`, or `MissionControl.AddItem` / `UpdateInfoPanelContract`.
+- No Parsek patch touches `RDNode`, `RDController`, `Administration`, `KSCFacilityContextMenu`, `PartListTooltip`, `CrewListItem`, `TooltipController_CrewAC`, `Contract.CanBe*`, `Decline` / `Cancel`, or `MissionControl.AddItem` / `UpdateInfoPanelContract`. (As of 2026-09-25 PR 5, `Strategy.CanBeActivated`, `Administration.SetSelectedStrategy` and `Administration.BtnInputAccept` are patched: `Patches/StrategyReservationPatch.cs`.)
 - Parsek listens to `GameEvents.OnPartPurchased` for capture only (`GameStateRecorder.cs:316`).
 
 **"One-shot Warn on patch target resolution failure":** there is NO shared helper. The convention is:

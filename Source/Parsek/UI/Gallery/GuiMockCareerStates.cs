@@ -54,14 +54,14 @@ namespace Parsek.UI.Gallery
             // The split layout IS the divergent banner's own layout - a career with
             // pending contracts draws both at once - so one state carries both.
             into.Add(New("career.contracts.closing", ContractsTab,
-                "Contracts active now that the recorded timeline completes, fails or "
-                + "cancels before its end - the Timeline-end column, with the failure in "
-                + "the alert colour.",
+                "Contracts active now that the recorded timeline completes, fails, lets "
+                + "expire or cancels before its end - the Timeline-end column, with the "
+                + "failure and the expiry in the alert colour.",
                 new[] { "GameActionType.ContractComplete", "GameActionType.ContractFail",
                         "GameActionType.ContractCancel",
                         "ContractRow.IsClosingByTimelineEnd",
                         "TimelineEndKind.Completed", "TimelineEndKind.Failed",
-                        "TimelineEndKind.Cancelled" },
+                        "TimelineEndKind.Expired", "TimelineEndKind.Cancelled" },
                 () => Build(ContractsClosing())));
 
             into.Add(New("career.contracts.deadline-none", ContractsTab,
@@ -72,8 +72,10 @@ namespace Parsek.UI.Gallery
 
             into.Add(New("career.banner.divergent", ContractsTab,
                 "The whole point of the window, and no capture has it: 'Career mode - <date> "
-                + " (timeline ends <date>)' over the 'Active now: N of M slots' rows and the "
-                + "in-table 'Pending in timeline (K) - ...' fold - one career produces both.",
+                + " (timeline ends <date>)' over the 'F of M slots free (A active, R reserved "
+                + "for later)' heading and the in-table 'Accepted later by your recorded "
+                + "flights (K)' fold - one career produces both. A contract active now "
+                + "completes before the first later accept, so the two share one slot.",
                 new[] { "CareerBanner.Divergent", "GameActionType.ContractAccept",
                         "ContractRow.IsPendingAccept" },
                 () => Build(ContractsPendingSplit())));
@@ -209,8 +211,10 @@ namespace Parsek.UI.Gallery
                 // Mission Control L2 (7 slots): a real career cannot hold more contracts
                 // than its limit, and the heading prints "N of M slots" from the real walk.
                 Upgrade("MissionControl", 2, 60_000.0),
-                Accept("ctr-mun-flyby", 120_000.0, "Perform a flyby of the Mun", 900_000.0),
-                Accept("ctr-minmus-sci", 240_000.0, "Transmit science from Minmus", 1_200_000.0),
+                // Deadlines past the pending split's last accept: the walk expires a
+                // contract whose deadline passes before the timeline's end.
+                Accept("ctr-mun-flyby", 120_000.0, "Perform a flyby of the Mun", 2_600_000.0),
+                Accept("ctr-minmus-sci", 240_000.0, "Transmit science from Minmus", 3_200_000.0),
                 Accept("ctr-rescue-1", 300_000.0, "Rescue Dilbert Kerman from orbit of Kerbin",
                        double.NaN),
             };
@@ -218,6 +222,9 @@ namespace Parsek.UI.Gallery
         private static List<GameAction> ContractsPendingSplit()
         {
             var actions = ContractsActive();
+            // The rescue completes before the first later accept, which takes the slot it
+            // frees: three active now, four held at once at the peak, so one reserved.
+            actions.Add(Contract(GameActionType.ContractComplete, "ctr-rescue-1", 1_300_000.0));
             actions.Add(Accept("ctr-duna-survey", 1_400_000.0,
                                "Survey the surface of Duna", 4_000_000.0));
             actions.Add(Accept("ctr-eve-probe", 1_800_000.0,
@@ -234,7 +241,13 @@ namespace Parsek.UI.Gallery
                 Accept("ctr-mun-flyby", 120_000.0, "Perform a flyby of the Mun", 900_000.0),
                 Contract(GameActionType.ContractComplete, "ctr-mun-flyby", 800_000.0),
                 Accept("ctr-minmus-sci", 240_000.0, "Transmit science from Minmus", 1_200_000.0),
-                Contract(GameActionType.ContractFail, "ctr-minmus-sci", 1_250_000.0),
+                // Before its deadline: a real failure.
+                Contract(GameActionType.ContractFail, "ctr-minmus-sci", 1_100_000.0),
+                Accept("ctr-kerbin-temp", 280_000.0,
+                       "Report the temperature near the launch site", 1_050_000.0),
+                // Stock's DeadlineExpired row: the same fail event, recorded just after
+                // the deadline, so the walk reads it as an expiry.
+                Contract(GameActionType.ContractFail, "ctr-kerbin-temp", 1_050_020.0),
                 Accept("ctr-tourist-2", 300_000.0, "Take Dilbert Kerman on a suborbital hop",
                        1_000_000.0),
                 Contract(GameActionType.ContractCancel, "ctr-tourist-2", 700_000.0),

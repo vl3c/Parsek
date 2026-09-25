@@ -2690,6 +2690,10 @@ namespace Parsek
         {
             Initialize();
 
+            // A strategy patch still waiting for stock's strategy list belongs to an older
+            // walk; this walk re-requests one if (and only if) it patches KSP state.
+            StrategyStatePatcher.CancelPendingPatch("new-recalc");
+
             // Seed initial balances for career mode (per-resource, idempotent).
             // Baselines can represent legitimate zero science/rep values; once such
             // a seed exists it must not be upgraded later from future live state.
@@ -2947,7 +2951,8 @@ namespace Parsek
                 techBaselineUt: techBaselineUt,
                 suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings,
                 authoritativeReduction: authoritativeReduction,
-                unaffordableTechDrops: unaffordableTechDrops);
+                unaffordableTechDrops: unaffordableTechDrops,
+                strategies: strategiesModule);
 
             // LedgerTrace Tier-A: emit ONE structural snapshot per recalc, here (after
             // PatchAll), never inside a Patch* (that would emit 7x). Built from data

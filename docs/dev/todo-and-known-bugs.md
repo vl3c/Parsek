@@ -33,10 +33,34 @@ program.
 
 **Holes found by the block audit** (section 4; each blocks its screen's annotation under the
 pairing rule):
-- S1 strategies: no block; setup cost charged per activation; stock `StrategySystem` never
+- ~~S1 strategies: no block; setup cost charged per activation; stock `StrategySystem` never
   patched from the ledger, so a committed activation after a rewind is charged but never
   switched on; the design doc's "UT=0 reservation blocks new strategy activations" is not
-  implemented.
+  implemented.~~ Fixed by PR 5 (branch `stock-ui-strategies`): `StrategyReservationPredicates`
+  refuses an activation the committed timeline makes later, one that leaves no slot for a
+  committed activation (peak model with committed deactivations and Administration
+  upgrades), or one that would make stock's conflict rule
+  (`StrategySystem.HasConflictingActiveStrategies`, mirrored line for line including its
+  index quirk) refuse a committed activation while the new strategy is still active, and a
+  player deactivation while a committed row for the strategy is still ahead. Hooks: a `Strategy.CanBeActivated` postfix (stock greys the row and prints the
+  reason), an `Administration.SetSelectedStrategy` postfix (Cancel disabled, reason in the
+  description) and a `BtnInputAccept` backstop dialog; `CanBeDeactivated` stays unpatched so
+  KSPCF auto-expiry still runs and is captured as a StrategyDeactivate row.
+  `KspStatePatcher.PatchStrategies` (`StrategyStatePatcher.cs`) writes the ledger's active
+  set into `StrategySystem` via `Strategy.Load` / `Unregister` (no charge, no refund, no
+  capture), leaving strategies the ledger never activated alone. Stock fills its strategy
+  list a frame after `StrategySystem.OnLoad` (a coroutine), after the ksp-load recalc, so a
+  patch that finds no loaded list waits and a `StrategySystem.LoadStrategies` postfix runs it
+  once the list exists (Career only; dropped by a newer recalc, a scene change or another
+  save). A ledger state stock's
+  conflict rule would not allow is applied as the ledger has it and warned once, never
+  resolved by switching one off. The setup-cost double
+  charge is prevented by the activation block, not by a walk change: the walk still
+  overwrites and charges a duplicate activation row
+  (`S1_SecondActivationOfTheSameStrategy_OverwritesAndChargesSetupAgain_DocumentsHole`
+  stands). The design doc's UT=0 claim is corrected. Not covered, filed separately:
+  `STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW` (a KSPCF expiry that replays after a
+  rewind appends a second StrategyDeactivate row; predates PR 5).
 - C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
   accepts over a full Mission Control.
 - ~~C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.~~
@@ -158,6 +182,51 @@ pairing rule):
 - The loop hold is released by turning the loop off only for a Recovered end.
 - The CC Mission Control bypass is code-read only: it needs a live Mission Control with CC
   installed.
+
+---
+
+## STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW: a stock strategy expiry that replays after a rewind appends a second StrategyDeactivate row, and every later walk warns [FILED 2026-09-25 from the stock-UI strategies PR (PR 5, branch `stock-ui-strategies`); OPEN, low; predates PR 5; KSPCommunityFixes installs only]
+
+**What happens.** Stock strategy auto-expiry exists only with KSPCommunityFixes'
+`StrategyDuration` fix (installed in the dev and harness instances; in pure stock both
+duration getters return 0 and the expiry is dead code). With it, `Strategy.Update()` calls
+`Deactivate()` once `dateActivated + LongestDuration <= now` (decompiled `Strategy.cs`, the
+`LongestDuration != 0` branch of `Update`). `StrategyDeactivatePatch` captures that like any
+deactivation: `GameStateRecorder.OnStrategyDeactivated` forwards a KSC-side
+StrategyDeactivate row through `LedgerOrchestrator.OnKscSpending` (or tags it to the live
+recording in flight). After a rewind to a UT before the expiry, the loaded save has the
+strategy active again with its original activation date, so when the clock passes the
+expiry KSPCF expires it a second time and a second StrategyDeactivate row is appended at
+about the same UT. The committed row already switched the strategy off in the walk, so
+`StrategiesModule.ProcessDeactivate` (`GameActions/StrategiesModule.cs`, the
+`Deactivate: strategyId='<id>' not currently active, ignoring` Warn) warns on the second
+row, on every recalculation from then on. Each further rewind-and-replay across the expiry
+adds another row. No resource changes (StrategyDeactivate has no resource impact), but the
+Timeline shows the deactivation twice and the WRN surface the log validator reads grows.
+
+**Repro shape.** At the KSC with KSPCF installed: activate a strategy at T0 (row
+StrategyActivate@T0); let the clock pass T0 + its longest duration so it expires (row
+StrategyDeactivate@T_exp); have a rewind point at T1 with T0 < T1 < T_exp (any committed
+flight launched in that window); rewind to it; warp past T_exp at the KSC. Expect a second
+StrategyDeactivate row for the same id at about T_exp and the Warn above in `KSP.log` on
+each later recalculation. Not reproducible without KSPCF.
+
+**Why PR 5 does not cause or fix it.** Before PR 5 the rewind save already carried the
+strategy active, so the replayed expiry and its row happened the same way. PR 5's player
+deactivation refusal keeps the PLAYER from cancelling the strategy before the committed
+T_exp, but deliberately never blocks the expiry (blocking `CanBeDeactivated` would freeze
+the expiry and re-post its message every frame), and its state patch never undoes an
+expiry.
+
+**Fix options (not chosen):** (a) at capture, recognise a deactivation the committed
+timeline already made (the ledger has the strategy inactive at now after its latest
+activation) and log it instead of appending a row; (b) in the walk, log a deactivation of
+an already-inactive strategy at Verbose instead of Warn; (c) have the state patch switch the
+strategy off at the committed deactivation's UT before KSPCF's `Update` does. Option (a)
+changes what the ledger records and needs an owner ruling (the D4 / D5 "no silent dedupe"
+line was about player actions; an automatic replay may differ).
+
+Cross-reference: `STOCK-UI-RESERVATION-OVERLAYS-2026-09-25` (S1).
 
 ---
 
@@ -1287,6 +1356,24 @@ autotest-status). Found on the way and fixed: five gallery career states held mo
 contracts or strategies than their own slot limit (the heading read `3 of 2 slots`); they
 now carry the Mission Control / Administration upgrade that allows it, pinned by
 `GuiMockCatalogueTests.EveryCareerStateFitsItsOwnSlotLimits`.
+
+Follow-up DONE 2026-09-25 (branch `career-contracts-slots`, the queued "Career contracts"
+PR, owner decisions 1-4): ~~the heading and fold wording~~ - the heading reads free first
+(`4 of 7 slots free (2 active, 1 reserved for later)`, `No slot limit (2 active)`), where
+"reserved" is the PEAK the recorded future holds at once beyond now
+(`CareerStateWindowUI.ComputeSlotUsage`; a day-50 completion and a day-60 accept share one
+slot), and the fold reads `Accepted later by your recorded flights (n)` / `Activated later
+...` with the timeline-end slots in its hover. ~~Expiry read as failure~~ - a contract whose
+deadline runs out reads `expires <deadline>` in the Career window and `Expired: <name>` in
+the Timeline, judged by the ledger's own deadline test (stock fires the same `onFailed` for
+both, so no new field; old rows classify correctly). Found while verifying: NOTHING stops a
+player accepting a contract or activating a strategy beyond the slots the recorded future
+reserves - stock counts only what is active now, and Parsek's one accept block
+(`ContractAcceptPatch`) refuses only a contract already committed later. The heading's hover
+states the ledger count without claiming stock refuses; the block itself is the stock-UI
+overlay work's planned "C2 contract slots" item, whose shared free-slot query should then
+replace `ComputeSlotUsage` here (code comment at the call site). Re-flown PASS: GUI-15
+`2026-09-25_1718` (adds the closing and strategies-fold mock captures), GUI-5 `_1722_a2`.
 
 Open residue:
 1. No REAL host has pending contracts or strategies, so the fold's only picture is the

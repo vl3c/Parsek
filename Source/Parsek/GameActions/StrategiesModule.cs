@@ -11,10 +11,12 @@ namespace Parsek
     /// between first-tier modules (Science, Milestones, Contracts, Kerbals) and
     /// second-tier modules (Funds, Reputation).
     ///
-    /// UT=0 reservation: once activated anywhere on the timeline, a strategy
-    /// consumes its Administration slot from UT=0 until deactivated.
-    /// <see cref="GetActiveStrategyCount"/> returns the count of all strategies
-    /// that have been activated and not yet deactivated, regardless of current UT.
+    /// The active set is the walk's state at its cutoff: a strategy is active from its
+    /// StrategyActivate row until a matching StrategyDeactivate row, and a walk cut off at
+    /// the current UT leaves exactly the strategies active now. Nothing here reserves a
+    /// slot from UT=0; the committed-timeline slot check lives at the stock control
+    /// (<c>StrategyReservationPredicates</c>), and <c>KspStatePatcher.PatchStrategies</c>
+    /// writes this set into stock <c>StrategySystem</c>.
     ///
     /// Pure computation — no KSP state access.
     /// Design doc: section 11 (Strategies Module).
@@ -27,10 +29,17 @@ namespace Parsek
         /// <summary>
         /// Active strategies on the timeline. Key = strategyId, Value = activation state.
         /// A strategy is "active" from its StrategyActivate action until a matching
-        /// StrategyDeactivate action. All active strategies are reserved from UT=0.
+        /// StrategyDeactivate action.
         /// </summary>
         private readonly Dictionary<string, StrategyState> activeStrategies
             = new Dictionary<string, StrategyState>();
+
+        /// <summary>
+        /// Every strategy id the walk saw a StrategyActivate row for, active or not. The
+        /// state patch only deactivates a stock strategy the ledger manages: one activated
+        /// before Parsek had a ledger has no row here and is left alone.
+        /// </summary>
+        private readonly HashSet<string> everActivated = new HashSet<string>();
 
         /// <summary>
         /// Administration building slot limit. Determined by building level:
@@ -60,6 +69,7 @@ namespace Parsek
         {
             int previousCount = activeStrategies.Count;
             activeStrategies.Clear();
+            everActivated.Clear();
             ParsekLog.Verbose(Tag, $"Reset: cleared {previousCount} active strategies");
         }
 
@@ -116,6 +126,7 @@ namespace Parsek
             };
 
             activeStrategies[id] = state;
+            everActivated.Add(id);
 
             ParsekLog.Info(Tag,
                 $"Activate: strategyId='{id}' source={action.SourceResource} " +
@@ -185,8 +196,8 @@ namespace Parsek
         // ================================================================
 
         /// <summary>
-        /// Returns the number of strategies currently active on the timeline.
-        /// Active means activated and not yet deactivated — reserved from UT=0.
+        /// Returns the number of strategies active at the walk's cutoff: activated and not
+        /// yet deactivated.
         /// </summary>
         internal int GetActiveStrategyCount()
         {
@@ -199,6 +210,33 @@ namespace Parsek
         internal int GetAvailableSlots()
         {
             return maxSlots - activeStrategies.Count;
+        }
+
+        /// <summary>
+        /// The ids of the strategies active at the walk's cutoff, sorted ordinally.
+        /// </summary>
+        internal List<string> GetActiveStrategyIds()
+        {
+            var ids = new List<string>(activeStrategies.Keys);
+            ids.Sort(System.StringComparer.Ordinal);
+            return ids;
+        }
+
+        /// <summary>
+        /// True when the walk saw a StrategyActivate row for this id, whether or not it is
+        /// still active. False for a strategy the ledger never activated.
+        /// </summary>
+        internal bool IsManagedStrategy(string strategyId)
+        {
+            return everActivated.Contains(strategyId ?? "");
+        }
+
+        /// <summary>Every id <see cref="IsManagedStrategy"/> answers true for, sorted ordinally.</summary>
+        internal List<string> GetManagedStrategyIds()
+        {
+            var ids = new List<string>(everActivated);
+            ids.Sort(System.StringComparer.Ordinal);
+            return ids;
         }
 
         /// <summary>

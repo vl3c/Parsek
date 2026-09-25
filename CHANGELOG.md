@@ -1056,6 +1056,23 @@ _(unreleased — entries accumulate here per commit)_
   committed date anyway, and the decline could still cost reputation. The refusal says when
   the contract becomes active. Contracts the committed timeline leaves alone decline as
   before.
+- **Space Center: the Administration building explains and refuses strategy actions that
+  conflict with your committed timeline.** A strategy your committed timeline activates later
+  can no longer be activated early (which also charged its setup cost a second time); nor can
+  one whose activation would take a slot a committed activation needs, or one that stock's own
+  conflict rule would not allow beside a strategy your committed timeline activates while it
+  is still running. An active strategy your committed timeline deactivates or re-activates
+  later can no longer be cancelled before then. Stock greys the row or the Cancel button and
+  prints why in its own orange reason line, for example `Activated on Y2 D114 on your
+  committed timeline.`, with the date it frees up.
+  Stock's own strategy expiry is never blocked.
+- **Space Center: committed strategy activations and deactivations now take effect in the
+  stock game.** After a rewind, a strategy your committed timeline activated was charged its
+  setup cost but never switched on, and one it deactivated stayed on. The stock strategy list
+  now follows the committed timeline at each ledger recalculation, including the one when a
+  save loads (applied as soon as the game has loaded its strategy list, a frame later),
+  without charging or refunding anything again. Strategies activated before the save used
+  Parsek are left alone.
 - **Mission Control: cancelling an active contract your committed timeline completes,
   fails or cancels later is now refused, and its Active-tab row says so.** Cancelling it
   used to charge the cancel penalty now and then either wipe out the later completion's
@@ -1402,17 +1419,34 @@ _(unreleased — entries accumulate here per commit)_
   still physically exists in your save (for example because you never left it) is kept as it
   is. Rewinding to before the end brings the rule back into play the next time the clock
   passes it.
+- **The Career window counts the slots your recorded flights will need, and tells an
+  expired contract from a failed one.** Each tab's heading now reads free slots first:
+  `4 of 7 slots free (2 active, 1 reserved for later)`, `5 of 7 slots free (2 active)` when
+  nothing is reserved, `No slot limit (2 active)` at Mission Control level 3. "Reserved" is
+  the most contracts (or strategies) the recorded future holds at once beyond today's: a
+  contract that completes on day 50 frees the slot a flight's day-60 accept then takes, so
+  only overlapping ones count. The hover says why
+  (`Contracts your recorded flights accept later need 1 more slot at peak, so only 4 are free
+  for a new one.`). This is Parsek's count only: stock Mission Control and Administration
+  still count just what is active now and do not stop an accept or activation beyond it.
+  The fold row now reads `Accepted later by your recorded flights (1)` (Strategies:
+  `Activated later ...`), with the slots free at the timeline end in its hover. A contract
+  whose deadline runs out now reads `expires <deadline>` in the Timeline-end column (amber,
+  like a failure: stock charges the same penalties) instead of `FAILS <date>`, and the
+  Timeline's Contracts view shows `Expired: <name>` for it. Stock reports an expiry with
+  the same failure event, so Parsek tells them apart by the accepted deadline, exactly as
+  its ledger already does; older recordings read correctly with no new data. A contract
+  whose deadline passes before the recorded timeline ends also reads as expired, as the
+  ledger treats it.
 - **The Career window is now the state view of your contracts and strategies, and links
   into the Timeline for their history.** It keeps two tabs, Contracts and Strategies: the
   two slot-limited things whose recorded future has consequences. The Facilities and
   Milestones tabs are gone. A building's level is shown at the Space Center, and dated
   facility and milestone history (including repeat world records, which the old tab left
-  out) is in the Timeline's Career view. Each tab now opens with ONE heading line,
-  `Active now: 2 of 2 slots`, or `Active now: 4 (no slot limit)` at stock's unlimited level (hover it for the Mission Control or Administration level
-  behind the limit), then one column header and the rows. The contracts or strategies the
-  recorded timeline adds later sit under a fold row inside the same table,
-  `Pending in timeline (1) - 3 of 3 slots at timeline end`, so both groups share one set of
-  columns. The old title bar and group label (`Mission Control L1 - slots 2/2 now, ...` over
+  out) is in the Timeline's Career view. Each tab now opens with ONE heading line (its
+  slot wording is the entry above), then one column header and the rows. The contracts or
+  strategies the recorded timeline adds later sit under a fold row inside the same table,
+  so both groups share one set of columns. The old title bar and group label (`Mission Control L1 - slots 2/2 now, ...` over
   `Active (2)`) are gone. A tab with nothing in it is one grey line (`No active contracts.`).
   Clicking a contract or strategy name opens the Timeline on that category, scrolled to it.
   The `Career` launcher now shows only in Career mode: Science mode has no contracts or

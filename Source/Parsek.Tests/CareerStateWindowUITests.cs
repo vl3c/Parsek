@@ -648,6 +648,116 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Build_Contracts_AFailAtOrAfterTheDeadlineIsAnExpiry()
+        {
+            // catches: stock's DeadlineExpired (it fires the same onFailed event as a
+            // failure, so the ledger row is a plain ContractFail) reading "FAILS". The
+            // row carries no reason; the accepted deadline decides, as in ContractsModule.
+            var (c, s) = Modules();
+            var actions = new List<GameAction>
+            {
+                AcceptWithDeadline("late", ut: 100.0, deadlineUT: 400.0),
+                AcceptWithDeadline("early", ut: 110.0, deadlineUT: 900.0),
+                AcceptWithDeadline("edge", ut: 120.0, deadlineUT: 500.0),
+                ContractEnd(GameActionType.ContractFail, "early", 300.0),
+                // Recorded when Contract.Update noticed, a little after the deadline.
+                ContractEnd(GameActionType.ContractFail, "late", 400.5),
+                // Exactly at the deadline counts as passed (ContractsModule's boundary).
+                ContractEnd(GameActionType.ContractFail, "edge", 500.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, FakeDate);
+
+            var byId = vm.Contracts.CurrentRows.ToDictionary(r => r.ContractId);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Failed, byId["early"].EndKind);
+            Assert.Equal("FAILS D300", byId["early"].TimelineEndText);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Expired, byId["late"].EndKind);
+            // Dated at the deadline, not at the row that reported it.
+            Assert.Equal(400.0, byId["late"].EndUT);
+            Assert.Equal("expires D400", byId["late"].TimelineEndText);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Expired, byId["edge"].EndKind);
+            Assert.Equal(0, vm.Contracts.ProjectedActive);
+            Assert.Contains(logLines, l => l.Contains("rebuilt VM") && l.Contains("contractsExpired=2"));
+        }
+
+        [Fact]
+        public void Build_Contracts_ADeadlinePassingWithNoRowExpiresAtTheDeadline()
+        {
+            // The ledger expires a contract whose deadline passes before its last action
+            // even with no fail row (ContractsModule.PrePass injects one); the window says
+            // so rather than showing the contract still active at the timeline end.
+            var (c, s) = Modules();
+            var actions = new List<GameAction>
+            {
+                AcceptWithDeadline("quiet", ut: 100.0, deadlineUT: 350.0),
+                AcceptWithDeadline("open", ut: 110.0, deadlineUT: 5_000.0),
+                Accept("later", ut: 600.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, FakeDate);
+
+            var byId = vm.Contracts.CurrentRows.ToDictionary(r => r.ContractId);
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Expired, byId["quiet"].EndKind);
+            Assert.Equal(350.0, byId["quiet"].EndUT);
+            // A deadline after the timeline's last action is not reached.
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.None, byId["open"].EndKind);
+            Assert.Equal(new[] { "open", "later" },
+                vm.Contracts.ProjectedRows.Select(r => r.ContractId));
+            // The expiry frees the slot the later accept takes: nothing reserved.
+            Assert.Equal("0 of 2 slots free (2 active)", vm.Contracts.GroupHeadingText);
+        }
+
+        [Fact]
+        public void Build_Contracts_AnImplausibleDeadlineNeverExpires()
+        {
+            // A deadline at or before the accept was never a UT (ContractsModule's guard):
+            // a fail after it is a failure, and no row expires on it.
+            var (c, s) = Modules();
+            var actions = new List<GameAction>
+            {
+                AcceptWithDeadline("dur", ut: 100.0, deadlineUT: 50.0),
+                ContractEnd(GameActionType.ContractFail, "dur", 400.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, FakeDate);
+
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Failed,
+                vm.Contracts.CurrentRows.Single().EndKind);
+        }
+
+        [Fact]
+        public void Build_Contracts_AFutureAcceptThatExpiresIsAPendingExpiry()
+        {
+            var (c, s) = Modules();
+            var actions = new List<GameAction>
+            {
+                AcceptWithDeadline("brief", ut: 300.0, deadlineUT: 450.0),
+                ContractEnd(GameActionType.ContractFail, "brief", 452.0),
+            };
+
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, FakeDate);
+
+            var row = vm.Contracts.PendingRows.Single();
+            Assert.Equal(CareerStateWindowUI.TimelineEndKind.Expired, row.EndKind);
+            Assert.Equal("expires D450", row.TimelineEndText);
+        }
+
+        [Fact]
+        public void IsDeadlineExpiryFail_UsesTheLedgersDeadlineTest()
+        {
+            Assert.True(ContractsModule.IsDeadlineExpiryFail(400.0, 400.0, 100.0));
+            Assert.True(ContractsModule.IsDeadlineExpiryFail(401.0, 400.0, 100.0));
+            Assert.False(ContractsModule.IsDeadlineExpiryFail(399.0, 400.0, 100.0));
+            // Open-ended and implausible deadlines never expire.
+            Assert.False(ContractsModule.IsDeadlineExpiryFail(1e9, double.NaN, 100.0));
+            Assert.False(ContractsModule.IsDeadlineExpiryFail(1e9, 50.0, 100.0));
+        }
+
+        [Fact]
         public void Build_Contracts_PendingRows_IncludeContractsAcceptedAndClosedInTheFuture()
         {
             // catches: a contract the recorded future both accepts and completes being in
@@ -855,6 +965,7 @@ namespace Parsek.Tests
         [InlineData((int)CareerStateWindowUI.TimelineEndKind.None, "", false)]
         [InlineData((int)CareerStateWindowUI.TimelineEndKind.Completed, "completes D7", false)]
         [InlineData((int)CareerStateWindowUI.TimelineEndKind.Failed, "FAILS D7", true)]
+        [InlineData((int)CareerStateWindowUI.TimelineEndKind.Expired, "expires D7", true)]
         [InlineData((int)CareerStateWindowUI.TimelineEndKind.Cancelled, "cancelled D7", false)]
         [InlineData((int)CareerStateWindowUI.TimelineEndKind.Deactivated, "deactivates D7", false)]
         public void FormatTimelineEnd_NamesTheOutcomeAndItsDate(
@@ -964,38 +1075,194 @@ namespace Parsek.Tests
         // Heading line, pending fold, empty state
         // ──────────────────────────────────────────────────────────────────
 
+        private static CareerStateWindowUI.SlotUsage Usage(
+            int active, int limit, params CareerStateWindowUI.SlotChange[] changes)
+            => CareerStateWindowUI.ComputeSlotUsage(active, limit, changes);
+
         [Fact]
-        public void FormatSlotCount_PluralisesOnTheLimit()
+        public void FormatFreeSlots_PluralisesOnTheLimit()
         {
-            Assert.Equal("2 of 2 slots", CareerStateWindowUI.FormatSlotCount(2, 2));
-            Assert.Equal("0 of 3 slots", CareerStateWindowUI.FormatSlotCount(0, 3));
-            Assert.Equal("1 of 1 slot", CareerStateWindowUI.FormatSlotCount(1, 1));
-            Assert.Equal("0 of 1 slot", CareerStateWindowUI.FormatSlotCount(0, 1));
+            Assert.Equal("2 of 2 slots free", CareerStateWindowUI.FormatFreeSlots(2, 2));
+            Assert.Equal("0 of 3 slots free", CareerStateWindowUI.FormatFreeSlots(0, 3));
+            Assert.Equal("1 of 1 slot free", CareerStateWindowUI.FormatFreeSlots(1, 1));
+            Assert.Equal("0 of 1 slot free", CareerStateWindowUI.FormatFreeSlots(0, 1));
         }
 
         [Fact]
-        public void FormatActiveHeading_IsOneLineWithTheSlotsNow()
+        public void FormatSlotHeading_FreeFirstThenActiveThenReserved()
         {
-            Assert.Equal("Active now: 2 of 2 slots", CareerStateWindowUI.FormatActiveHeading(2, 2));
-            Assert.Equal("Active now: 1 of 1 slot", CareerStateWindowUI.FormatActiveHeading(1, 1));
+            // The owner's three shapes: a reservation, none, and an unlimited building.
+            Assert.Equal("4 of 7 slots free (2 active, 1 reserved for later)",
+                CareerStateWindowUI.FormatSlotHeading(
+                    Usage(2, 7, CareerStateWindowUI.SlotChange.Occupy(300.0))));
+            Assert.Equal("5 of 7 slots free (2 active)",
+                CareerStateWindowUI.FormatSlotHeading(Usage(2, 7)));
+            Assert.Equal("No slot limit (2 active)",
+                CareerStateWindowUI.FormatSlotHeading(
+                    Usage(2, 999, CareerStateWindowUI.SlotChange.Occupy(300.0))));
+            // Singular on a one-slot building, both ways round.
+            Assert.Equal("1 of 1 slot free (0 active)",
+                CareerStateWindowUI.FormatSlotHeading(Usage(0, 1)));
+            Assert.Equal("0 of 1 slot free (0 active, 1 reserved for later)",
+                CareerStateWindowUI.FormatSlotHeading(
+                    Usage(0, 1, CareerStateWindowUI.SlotChange.Occupy(300.0))));
+            // Over-subscribed (a downgrade, or a rewound career): nothing free, no negatives.
+            Assert.Equal("0 of 2 slots free (3 active)",
+                CareerStateWindowUI.FormatSlotHeading(Usage(3, 2)));
         }
 
         [Fact]
-        public void FormatSlotLimitTooltip_NamesTheLevelAndAnUpgradeBeforeTheEnd()
+        public void ComputeSlotUsage_ACompletionBeforeALaterAcceptSharesOneSlot()
         {
+            // catches: counting every committed future accept as holding a slot now. An
+            // active contract that completes on day 50 frees the slot a flight's day-60
+            // accept then takes, so nothing is reserved.
+            var u = Usage(2, 2,
+                CareerStateWindowUI.SlotChange.Release(50.0),
+                CareerStateWindowUI.SlotChange.Occupy(60.0));
+            Assert.Equal(2, u.PeakNeed);
+            Assert.Equal(0, u.Reserved);
+            Assert.Equal(0, u.Free);
+        }
+
+        [Fact]
+        public void ComputeSlotUsage_OverlappingAcceptsAddUpAtThePeak()
+        {
+            // Two later accepts overlap (the first ends only after the second starts), a
+            // third comes after both ended: the peak is two above now, not three.
+            var u = Usage(1, 7,
+                CareerStateWindowUI.SlotChange.Occupy(60.0),
+                CareerStateWindowUI.SlotChange.Occupy(70.0),
+                CareerStateWindowUI.SlotChange.Release(80.0),
+                CareerStateWindowUI.SlotChange.Release(90.0),
+                CareerStateWindowUI.SlotChange.Occupy(100.0));
+            Assert.Equal(3, u.PeakNeed);
+            Assert.Equal(2, u.Reserved);
+            Assert.Equal(4, u.Free);
+            Assert.Equal(7, u.Free + u.Active + u.Reserved);
+        }
+
+        [Fact]
+        public void ComputeSlotUsage_AReleaseAndAnAcceptOnOneTickShareTheSlot()
+        {
+            // Input order puts the accept first; the walk still frees before it occupies.
+            var u = Usage(2, 2,
+                CareerStateWindowUI.SlotChange.Occupy(50.0),
+                CareerStateWindowUI.SlotChange.Release(50.0));
+            Assert.Equal(2, u.PeakNeed);
+            Assert.Equal(0, u.Reserved);
+        }
+
+        [Fact]
+        public void ComputeSlotUsage_ALaterUpgradeCountsAgainstTodaysLimit()
+        {
+            // Two slots now, seven from day 40: the upgrade adds five, so four held after
+            // it need 4 - 5 of today's two - fewer than the one active now already holds.
+            var u = Usage(1, 2,
+                CareerStateWindowUI.SlotChange.Limit(40.0, 7),
+                CareerStateWindowUI.SlotChange.Occupy(50.0),
+                CareerStateWindowUI.SlotChange.Occupy(60.0),
+                CareerStateWindowUI.SlotChange.Occupy(70.0));
+            Assert.Equal(1, u.PeakNeed);
+            Assert.Equal(0, u.Reserved);
+            Assert.Equal(1, u.Free);
+
+            // An accept BEFORE the upgrade still needs today's slot.
+            u = Usage(1, 2,
+                CareerStateWindowUI.SlotChange.Occupy(30.0),
+                CareerStateWindowUI.SlotChange.Limit(40.0, 7));
+            Assert.Equal(2, u.PeakNeed);
+            Assert.Equal(1, u.Reserved);
+            Assert.Equal(0, u.Free);
+
+            // No limit from day 40: nothing held after it crowds out today.
+            u = Usage(1, 2,
+                CareerStateWindowUI.SlotChange.Limit(40.0, 999),
+                CareerStateWindowUI.SlotChange.Occupy(50.0),
+                CareerStateWindowUI.SlotChange.Occupy(60.0));
+            Assert.Equal(1, u.PeakNeed);
+            Assert.Equal(1, u.Free);
+        }
+
+        [Fact]
+        public void FormatSlotHeadingTooltip_SaysWhyFewerAreFreeWithoutClaimingStockRefuses()
+        {
+            var reserved = Usage(2, 7, CareerStateWindowUI.SlotChange.Occupy(300.0));
+            Assert.Equal("Contracts your recorded flights accept later need 1 more slot at peak, "
+                + "so only 4 are free for a new one.",
+                CareerStateWindowUI.FormatSlotHeadingTooltip(
+                    CareerStateWindowUI.SlotTab.Contracts, reserved, 2, 2));
+            var strategies = Usage(1, 3,
+                CareerStateWindowUI.SlotChange.Occupy(300.0),
+                CareerStateWindowUI.SlotChange.Occupy(400.0));
+            Assert.Equal("Strategies your recorded flights activate later need 2 more slots at "
+                + "peak, so only 0 are free for a new one.",
+                CareerStateWindowUI.FormatSlotHeadingTooltip(
+                    CareerStateWindowUI.SlotTab.Strategies, strategies, 2, 2));
+            var one = Usage(0, 2, CareerStateWindowUI.SlotChange.Occupy(300.0));
+            Assert.EndsWith("so only 1 is free for a new one.",
+                CareerStateWindowUI.FormatSlotHeadingTooltip(
+                    CareerStateWindowUI.SlotTab.Contracts, one, 1, 1));
+
+            // No reservation: the building level behind the limit, as before.
             Assert.Equal("Slot limit from Mission Control L1.",
-                CareerStateWindowUI.FormatSlotLimitTooltip("Mission Control", 1, 1));
+                CareerStateWindowUI.FormatSlotHeadingTooltip(
+                    CareerStateWindowUI.SlotTab.Contracts, Usage(1, 2), 1, 1));
             Assert.Equal("Slot limit from Administration L2 (L3 at timeline end).",
-                CareerStateWindowUI.FormatSlotLimitTooltip("Administration", 2, 3));
+                CareerStateWindowUI.FormatSlotHeadingTooltip(
+                    CareerStateWindowUI.SlotTab.Strategies, Usage(1, 3), 2, 3));
+            Assert.Equal("No slot limit at Mission Control L3.",
+                CareerStateWindowUI.FormatSlotHeadingTooltip(
+                    CareerStateWindowUI.SlotTab.Contracts,
+                    Usage(2, 999, CareerStateWindowUI.SlotChange.Occupy(300.0)), 3, 3));
         }
 
         [Fact]
-        public void FormatPendingFold_CountsAndSlotsAtTheTimelineEnd()
+        public void FormatPendingFold_NamesWhoAddsTheRows()
         {
-            Assert.Equal("Pending in timeline (1) - 3 of 3 slots at timeline end",
-                CareerStateWindowUI.FormatPendingFold(1, 3, 3));
-            Assert.Equal("Pending in timeline (2) - 1 of 1 slot at timeline end",
-                CareerStateWindowUI.FormatPendingFold(2, 1, 1));
+            Assert.Equal("Accepted later by your recorded flights (1)",
+                CareerStateWindowUI.FormatPendingFold(CareerStateWindowUI.SlotTab.Contracts, 1));
+            Assert.Equal("Activated later by your recorded flights (2)",
+                CareerStateWindowUI.FormatPendingFold(CareerStateWindowUI.SlotTab.Strategies, 2));
+        }
+
+        [Fact]
+        public void FormatPendingFoldTooltip_SlotsFreeAtTheTimelineEnd()
+        {
+            Assert.Equal("Not active yet. At the end of the recorded timeline: 4 of 7 slots free.",
+                CareerStateWindowUI.FormatPendingFoldTooltip(3, 7));
+            Assert.Equal("Not active yet. At the end of the recorded timeline: 0 of 1 slot free.",
+                CareerStateWindowUI.FormatPendingFoldTooltip(1, 1));
+            Assert.Equal("Not active yet. At the end of the recorded timeline: 0 of 2 slots free.",
+                CareerStateWindowUI.FormatPendingFoldTooltip(3, 2));
+            Assert.Equal("Not active yet. At the end of the recorded timeline: no slot limit.",
+                CareerStateWindowUI.FormatPendingFoldTooltip(12, 999));
+        }
+
+        [Fact]
+        public void SlotHoverTexts_FitTheHelpStrip()
+        {
+            // The heading and fold hovers are runtime strings, so the literal-tooltip scan
+            // in TooltipEchoBudgetTests cannot see them; budget their longest forms here.
+            int budget = TooltipEchoBudgetTests.BudgetChars(
+                CareerStateWindowUI.DefaultWindowWidth, TooltipEchoBox.SingleLine);
+            var worst = new[]
+            {
+                CareerStateWindowUI.FormatSlotHeadingTooltip(CareerStateWindowUI.SlotTab.Contracts,
+                    new CareerStateWindowUI.SlotUsage { Active = 10, Limit = 99, Reserved = 88, Free = 11 },
+                    3, 3),
+                CareerStateWindowUI.FormatSlotHeadingTooltip(CareerStateWindowUI.SlotTab.Strategies,
+                    new CareerStateWindowUI.SlotUsage { Active = 10, Limit = 99, Reserved = 88, Free = 11 },
+                    3, 3),
+                CareerStateWindowUI.FormatSlotHeadingTooltip(CareerStateWindowUI.SlotTab.Contracts,
+                    Usage(1, 7), 2, 3),
+                CareerStateWindowUI.FormatPendingFoldTooltip(1, 998),
+            };
+            foreach (string tip in worst)
+            {
+                Assert.DoesNotContain("\n", tip);
+                Assert.True(tip.Length <= budget, tip.Length + " > " + budget + ": " + tip);
+            }
         }
 
         [Fact]
@@ -1026,23 +1293,109 @@ namespace Parsek.Tests
             var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
                 Game.Modes.CAREER, c, s, FakeDate);
 
-            Assert.Equal("Active now: 1 of 7 slots", vm.Contracts.GroupHeadingText);
-            Assert.Equal("Slot limit from Mission Control L2 (L3 at timeline end).",
-                vm.Contracts.GroupHeadingTooltip);
-            Assert.Equal("Pending in timeline (1) - 2 at timeline end (no slot limit)",
+            // The later accept lands before the upgrade, so it holds one of today's seven.
+            Assert.Equal("5 of 7 slots free (1 active, 1 reserved for later)",
+                vm.Contracts.GroupHeadingText);
+            Assert.Equal("Contracts your recorded flights accept later need 1 more slot at peak, "
+                + "so only 5 are free for a new one.", vm.Contracts.GroupHeadingTooltip);
+            Assert.Equal("Accepted later by your recorded flights (1)",
                 vm.Contracts.PendingFoldText);
-            Assert.Equal("Active now: 0 of 1 slot", vm.Strategies.GroupHeadingText);
+            Assert.Equal("Not active yet. At the end of the recorded timeline: no slot limit.",
+                vm.Contracts.PendingFoldTooltip);
+            Assert.Equal("1 of 1 slot free (0 active)", vm.Strategies.GroupHeadingText);
             Assert.Equal("Slot limit from Administration L1.", vm.Strategies.GroupHeadingTooltip);
             Assert.True(vm.HasDivergence);
         }
 
-        [Theory]
-        [InlineData(4, 999, "Active now: 4 (no slot limit)")]
-        [InlineData(2, 7, "Active now: 2 of 7 slots")]
-        [InlineData(0, 1, "Active now: 0 of 1 slot")]
-        public void FormatActiveHeading_ShowsNoLimitAtStockUnlimited(int used, int max, string expected)
+        [Fact]
+        public void Build_SlotHeading_MissionControlL3ReadsNoSlotLimit()
         {
-            Assert.Equal(expected, CareerStateWindowUI.FormatActiveHeading(used, max));
+            var (c, s) = Modules();
+            var actions = new List<GameAction>
+            {
+                Upgrade("SpaceCenter/MissionControl", 3, ut: 50.0),
+                Accept("a", ut: 100.0),
+                Accept("b", ut: 110.0),
+                Accept("later", ut: 300.0),
+            };
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, FakeDate);
+            Assert.Equal("No slot limit (2 active)", vm.Contracts.GroupHeadingText);
+            Assert.Equal("No slot limit at Mission Control L3.", vm.Contracts.GroupHeadingTooltip);
+        }
+
+        [Fact]
+        public void Build_SlotHeading_ACompletionFreesTheSlotALaterAcceptTakes()
+        {
+            // The day-50 / day-60 case through the real walk: two active now at Mission
+            // Control L1 (two slots), one completes, then a flight accepts another.
+            var (c, s) = Modules();
+            var actions = new List<GameAction>
+            {
+                Accept("a", ut: 100.0),
+                Accept("b", ut: 110.0),
+                Complete("a", ut: 500.0),
+                Accept("c", ut: 600.0),
+            };
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, FakeDate);
+            Assert.Equal(2, vm.Contracts.Slots.PeakNeed);
+            Assert.Equal("0 of 2 slots free (2 active)", vm.Contracts.GroupHeadingText);
+            Assert.Equal("Slot limit from Mission Control L1.", vm.Contracts.GroupHeadingTooltip);
+
+            // Overlapping instead: the later accept comes before the completion.
+            (c, s) = Modules();
+            actions = new List<GameAction>
+            {
+                Accept("a", ut: 100.0),
+                Accept("c", ut: 400.0),
+                Complete("a", ut: 500.0),
+            };
+            vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, FakeDate);
+            Assert.Equal("0 of 2 slots free (1 active, 1 reserved for later)",
+                vm.Contracts.GroupHeadingText);
+        }
+
+        [Fact]
+        public void Build_SlotHeading_StrategiesCountActivationsAndDeactivations()
+        {
+            var (c, s) = Modules();
+            var actions = new List<GameAction>
+            {
+                Upgrade("SpaceCenter/Administration", 2, ut: 50.0),
+                Activate("A", ut: 100.0),
+                Activate("B", ut: 300.0),
+                Deactivate("A", ut: 400.0),
+                Activate("C", ut: 500.0),
+            };
+            var vm = CareerStateWindowUI.Build(actions, liveUT: 200.0,
+                Game.Modes.CAREER, c, s, FakeDate);
+            Assert.Equal("1 of 3 slots free (1 active, 1 reserved for later)",
+                vm.Strategies.GroupHeadingText);
+            Assert.StartsWith("Strategies your recorded flights activate later need 1 more slot",
+                vm.Strategies.GroupHeadingTooltip, StringComparison.Ordinal);
+            Assert.Equal("Activated later by your recorded flights (2)",
+                vm.Strategies.PendingFoldText);
+            Assert.Equal("Not active yet. At the end of the recorded timeline: 1 of 3 slots free.",
+                vm.Strategies.PendingFoldTooltip);
+        }
+
+        [Fact]
+        public void Build_LogsTheSlotNumbersOncePerRebuild()
+        {
+            var (c, s) = Modules();
+            var actions = new List<GameAction>
+            {
+                Accept("a", ut: 100.0),
+                Accept("later", ut: 300.0),
+            };
+            logLines.Clear();
+            CareerStateWindowUI.Build(actions, liveUT: 200.0, Game.Modes.CAREER, c, s, FakeDate);
+            Assert.Single(logLines, l => l.Contains("[UI]") && l.Contains("rebuilt VM")
+                && l.Contains("contractSlots=active=1/limit=2/peak=2/reserved=1/free=0")
+                && l.Contains("strategySlots=active=0/limit=1/peak=0/reserved=0/free=1")
+                && l.Contains("contractsExpired=0"));
         }
 
         [Fact]
@@ -1303,8 +1656,7 @@ namespace Parsek.Tests
             Assert.Equal("D100", row.AcceptText);
             Assert.StartsWith("D10000 (in ", row.DeadlineText, StringComparison.Ordinal);
             Assert.False(row.DeadlineOverdue);
-            Assert.StartsWith("Active now: 1 of ", vm.Contracts.GroupHeadingText,
-                StringComparison.Ordinal);
+            Assert.Equal("1 of 2 slots free (1 active)", vm.Contracts.GroupHeadingText);
 
             var near = new List<GameAction>
             {

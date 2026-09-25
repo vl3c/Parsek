@@ -150,7 +150,7 @@ tier = "operator"
 #     minimum duration, and a pending row needs a strategy activated in a recording's
 #     future, which this vessel-less host has no way to author cheaply.
 # FLOWN 2026-09-24 `2026-09-24_1818`, PASS attempt 1, 108 s, 19 PNGs + 19 dumps. The
-# Career tab reads `Active now: 1 of 1 slot` over `Outsourced R&D | Y1, D01, 00:07 |
+# Career tab reads `Active now: 1 of 1 slot` (since 2026-09-25 `0 of 1 slot free (1 active)`) over `Outsourced R&D | Y1, D01, 00:07 |
 # Funds -> Science @ 5.0%`; the Timeline reads `Activate: Outsourced R&D (5 % Funds->
 # Science)`. The seam line reads `factor=0.05 slots=1/1 setupFunds=76100 fundsDelta=-76100`.
 description = "GUI census wave 2, the populated career host: photograph both Career State tabs, both Kerbals tabs, five Timeline views (the four filter modes plus the Milestones career view) and the Missions and Recordings tabs over a committed EARNED career with fifteen ledger actions, real milestone rewards, non-round pools and nine OFFERED (not accepted) contracts, plus one attempt at a populated tooltip echo strip; then activate one stock strategy (Outsourced R&D) through the seam and photograph the Career Strategies tab and the Timeline Strategies view with it."

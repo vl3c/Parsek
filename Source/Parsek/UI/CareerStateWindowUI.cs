@@ -117,7 +117,7 @@ namespace Parsek
         // minimum and left no room for a second row.
         internal const float NameCellMinWidth = 80f;
 
-        // Transient fold state for the Contracts / Strategies "Pending in timeline" folds.
+        // Transient fold state for the Contracts / Strategies "Accepted / Activated later" folds.
         // Default-unfolded means we only store names that are currently folded. Tab switches
         // do NOT clear this set - folds persist across the window's lifetime.
         internal readonly HashSet<string> foldedGroups = new HashSet<string>(StringComparer.Ordinal);
@@ -250,6 +250,42 @@ namespace Parsek
             Failed,
             Cancelled,
             Deactivated,
+            // The contract's deadline passes before the recorded timeline completes it:
+            // stock's Contract.State.DeadlineExpired (it fires the same onFailed event as
+            // a failure, so the ledger tells the two apart by the accepted deadline -
+            // ContractsModule.IsDeadlineExpiryFail). Appended last so no member renumbers.
+            Expired,
+        }
+
+        /// <summary>
+        /// One change the recorded timeline makes to a tab's slot usage after live UT:
+        /// a contract accepted (+1) or closed (-1, at its deadline for an expiry), a
+        /// strategy activated or deactivated, or the building behind the limit upgraded
+        /// (<see cref="NewLimit"/>; -1 when the limit does not change).
+        /// </summary>
+        internal struct SlotChange
+        {
+            public double UT;
+            public int Delta;
+            public int NewLimit;
+
+            internal static SlotChange Occupy(double ut) => new SlotChange { UT = ut, Delta = 1, NewLimit = -1 };
+            internal static SlotChange Release(double ut) => new SlotChange { UT = ut, Delta = -1, NewLimit = -1 };
+            internal static SlotChange Limit(double ut, int newLimit) => new SlotChange { UT = ut, Delta = 0, NewLimit = newLimit };
+        }
+
+        /// <summary>
+        /// A tab's slots NOW, read against the recorded future (<see cref="ComputeSlotUsage"/>):
+        /// <c>Free + Active + Reserved == Limit</c> whenever the limit is not over-subscribed.
+        /// </summary>
+        internal struct SlotUsage
+        {
+            public int Active;       // active at live UT
+            public int Limit;        // the slot limit at live UT
+            public bool Unlimited;   // Limit >= UnlimitedSlotThreshold
+            public int PeakNeed;     // most slots the recorded future holds at once, against today's limit
+            public int Reserved;     // PeakNeed - Active, never negative
+            public int Free;         // Limit - PeakNeed, never negative
         }
 
         internal struct ContractsTabVM
@@ -264,16 +300,19 @@ namespace Parsek
             // Active at the timeline's terminal UT (drives the "at timeline end" slot count).
             public List<ContractRow> ProjectedRows;
             // Every contract the recorded timeline ACCEPTS after live UT, including the ones
-            // it also completes / fails / cancels before its end - the "Pending in timeline"
+            // it also completes / fails / cancels before its end - the "Accepted later"
             // fold. A superset of ProjectedRows' pending entries: a contract accepted and
             // closed in the future is in neither CurrentRows nor ProjectedRows.
             public List<ContractRow> PendingRows;
-            // "Active now: 2 of 2 slots", its hover text (the building level behind the
-            // limit), and the fold row "Pending in timeline (1) - 3 of 3 slots at timeline
-            // end" (FillDisplayText).
+            // Slots now against the recorded future (the heading's numbers).
+            public SlotUsage Slots;
+            // "4 of 7 slots free (2 active, 1 reserved for later)", its hover text, and
+            // the fold row "Accepted later by your recorded flights (1)" with its hover
+            // (FillDisplayText).
             public string GroupHeadingText;
             public string GroupHeadingTooltip;
             public string PendingFoldText;
+            public string PendingFoldTooltip;
         }
 
         internal struct ContractRow
@@ -307,9 +346,11 @@ namespace Parsek
             // Every strategy the recorded timeline activates after live UT (see
             // ContractsTabVM.PendingRows).
             public List<StrategyRow> PendingRows;
+            public SlotUsage Slots;
             public string GroupHeadingText;
             public string GroupHeadingTooltip;
             public string PendingFoldText;
+            public string PendingFoldTooltip;
         }
 
         internal struct StrategyRow
@@ -414,6 +455,11 @@ namespace Parsek
             // the row that is true now still ends at that first removal.
             var currentContractEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
             var currentStrategyEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
+            // Every slot change after the current snapshot, for the heading's peak count.
+            var contractSlotChanges = new List<SlotChange>();
+            var strategySlotChanges = new List<SlotChange>();
+            var expiredScratch = new List<string>();
+            int expiredCount = 0;
 
             // Mode gating (design doc E1/E2): contracts and strategies exist in Career only.
             bool careerVisible = ModeShowsCareerState(mode);
@@ -445,6 +491,15 @@ namespace Parsek
 
                 if (a.UT > terminalUT) terminalUT = a.UT;
 
+                // Deadlines first, as ContractsModule.ProcessAction runs CheckDeadlines
+                // before it dispatches: a contract whose deadline has passed by this
+                // action's UT expired AT its deadline. Stock's own DeadlineExpired fail
+                // row (recorded at or after the deadline) then finds the contract already
+                // closed as Expired and leaves it so.
+                expiredCount += ExpireContractDeadlines(a.UT, liveUT, snapshotTaken,
+                    activeContractsTerm, contractEnds, currentContractEnds,
+                    contractSlotChanges, expiredScratch);
+
                 // Snapshotting follows the full future action stream because the
                 // current-vs-projected split is defined by exact `<= liveUT`
                 // classification across all actions. The cache-expiry boundary is
@@ -475,6 +530,8 @@ namespace Parsek
                             // round-trip left to undo.
                             DeadlineUT = a.DeadlineUT
                         };
+                        if (snapshotTaken && !activeContractsTerm.ContainsKey(cid))
+                            contractSlotChanges.Add(SlotChange.Occupy(a.UT));
                         activeContractsTerm[cid] = acc;
                         if (a.UT > liveUT)
                             pendingContracts[cid] = acc;
@@ -493,8 +550,20 @@ namespace Parsek
                         {
                             string rid = a.ContractId ?? "";
                             ContractAcc removed;
+                            bool wasActive = activeContractsTerm.TryGetValue(rid, out removed);
+                            EndAcc priorEnd;
+                            if (!wasActive
+                                && contractEnds.TryGetValue(rid, out priorEnd)
+                                && priorEnd.Kind == TimelineEndKind.Expired)
+                            {
+                                // The deadline already closed this contract; a later
+                                // fail / cancel row for it is stock reporting that expiry.
+                                break;
+                            }
+                            if (snapshotTaken && wasActive)
+                                contractSlotChanges.Add(SlotChange.Release(a.UT));
                             if (a.UT > liveUT
-                                && activeContractsTerm.TryGetValue(rid, out removed)
+                                && wasActive
                                 && removed.AcceptUT <= liveUT
                                 && !currentContractEnds.ContainsKey(rid))
                             {
@@ -529,6 +598,8 @@ namespace Parsek
                             TargetResource = a.TargetResource,
                             Commitment = a.Commitment
                         };
+                        if (snapshotTaken && !activeStrategiesTerm.ContainsKey(sid))
+                            strategySlotChanges.Add(SlotChange.Occupy(a.UT));
                         activeStrategiesTerm[sid] = sacc;
                         if (a.UT > liveUT)
                             pendingStrategies[sid] = sacc;
@@ -544,8 +615,12 @@ namespace Parsek
                         {
                             string rsid = a.StrategyId ?? "";
                             StrategyAcc removedStrategy;
+                            bool strategyWasActive =
+                                activeStrategiesTerm.TryGetValue(rsid, out removedStrategy);
+                            if (snapshotTaken && strategyWasActive)
+                                strategySlotChanges.Add(SlotChange.Release(a.UT));
                             if (a.UT > liveUT
-                                && activeStrategiesTerm.TryGetValue(rsid, out removedStrategy)
+                                && strategyWasActive
                                 && removedStrategy.ActivateUT <= liveUT
                                 && !currentStrategyEnds.ContainsKey(rsid))
                             {
@@ -572,8 +647,16 @@ namespace Parsek
                             LogSkip("FacilityUpgrade", "Ineffective", a);
                             break;
                         }
-                        facilityLevelsTerm[FacilityDisplayNames.FacilityIdForBuilding(a.FacilityId)] =
-                            a.ToLevel;
+                        {
+                            string upgradedId = FacilityDisplayNames.FacilityIdForBuilding(a.FacilityId);
+                            facilityLevelsTerm[upgradedId] = a.ToLevel;
+                            if (snapshotTaken && upgradedId == MissionControlFacilityId)
+                                contractSlotChanges.Add(SlotChange.Limit(
+                                    a.UT, LedgerOrchestrator.GetContractSlots(a.ToLevel)));
+                            else if (snapshotTaken && upgradedId == AdministrationFacilityId)
+                                strategySlotChanges.Add(SlotChange.Limit(
+                                    a.UT, LedgerOrchestrator.GetStrategySlots(a.ToLevel)));
+                        }
                         break;
 
                     default:
@@ -619,6 +702,15 @@ namespace Parsek
                 liveUT,
                 careerVisible);
 
+            // Slots now against the recorded future. A hidden tab carries no rows, so it
+            // reads its bare limit rather than a future its rows do not show.
+            // When the stock-UI overlay work's shared "free slots for a new accept now"
+            // query (over CommittedFutureIndex) lands, the heading should read that query.
+            contractsVM.Slots = ComputeSlotUsage(contractsVM.CurrentActive,
+                contractsVM.CurrentMaxSlots, careerVisible ? contractSlotChanges : null);
+            strategiesVM.Slots = ComputeSlotUsage(strategiesVM.CurrentActive,
+                strategiesVM.CurrentMaxSlots, careerVisible ? strategySlotChanges : null);
+
             // --- Divergence (either tab where current != projected). ---
             bool divergence =
                 contractsVM.CurrentActive != contractsVM.ProjectedActive
@@ -653,6 +745,9 @@ namespace Parsek
                 + $"contractsPending={contractsVM.PendingRows.Count} "
                 + $"strategies={strategiesVM.CurrentActive}/{strategiesVM.ProjectedActive} "
                 + $"strategiesPending={strategiesVM.PendingRows.Count} "
+                + $"contractsExpired={expiredCount} "
+                + "contractSlots=" + FormatSlotUsageForLog(contractsVM.Slots) + " "
+                + "strategySlots=" + FormatSlotUsageForLog(strategiesVM.Slots) + " "
                 + $"missionControl=L{missionControlLevelCur}/L{missionControlLevelTerm} "
                 + $"administration=L{adminLevelCur}/L{adminLevelTerm} "
                 + "refresh=" + vm.RefreshSeconds.ToString("F0", CultureInfo.InvariantCulture) + "s");
@@ -673,6 +768,117 @@ namespace Parsek
                 case GameActionType.ContractCancel: return TimelineEndKind.Cancelled;
                 default: return TimelineEndKind.None;
             }
+        }
+
+        /// <summary>
+        /// Closes every active contract whose deadline has passed by <paramref name="ut"/>
+        /// (<see cref="ContractsModule.HasContractDeadlineElapsed"/>, the ledger's own
+        /// test) as <see cref="TimelineEndKind.Expired"/> AT its deadline. After the
+        /// current snapshot the expiry is a future slot release, and for a contract active
+        /// now it is also that row's ending. Returns how many expired.
+        /// </summary>
+        private static int ExpireContractDeadlines(
+            double ut, double liveUT, bool snapshotTaken,
+            Dictionary<string, ContractAcc> activeContracts,
+            Dictionary<string, EndAcc> contractEnds,
+            Dictionary<string, EndAcc> currentContractEnds,
+            List<SlotChange> slotChanges,
+            List<string> scratch)
+        {
+            if (activeContracts.Count == 0) return 0;
+            scratch.Clear();
+            foreach (var kvp in activeContracts)
+            {
+                if (ContractsModule.HasContractDeadlineElapsed(
+                        ut, kvp.Value.DeadlineUT, kvp.Value.AcceptUT))
+                    scratch.Add(kvp.Key);
+            }
+            for (int i = 0; i < scratch.Count; i++)
+            {
+                string id = scratch[i];
+                ContractAcc acc = activeContracts[id];
+                activeContracts.Remove(id);
+                var end = new EndAcc { Kind = TimelineEndKind.Expired, UT = acc.DeadlineUT };
+                contractEnds[id] = end;
+                if (!snapshotTaken) continue;
+                slotChanges.Add(SlotChange.Release(acc.DeadlineUT));
+                if (acc.AcceptUT <= liveUT && !currentContractEnds.ContainsKey(id))
+                    currentContractEnds[id] = end;
+            }
+            return scratch.Count;
+        }
+
+        /// <summary>
+        /// A tab's slots now, read against the recorded future. Walks the future
+        /// <paramref name="changes"/> in UT order from <paramref name="activeNow"/>
+        /// (a release before an occupy at the same UT: a slot a completion frees is free
+        /// for an accept on the same tick) and keeps the PEAK number held at once. A
+        /// contract that ends on day 50 and one a flight accepts on day 60 share one slot;
+        /// two accepts that overlap need two. A later upgrade of the building counts
+        /// against today's limit: the need at a moment is what is held then minus how many
+        /// slots the upgrade has added by then.
+        /// </summary>
+        internal static SlotUsage ComputeSlotUsage(int activeNow, int limitNow,
+                                                  IList<SlotChange> changes)
+        {
+            var usage = new SlotUsage
+            {
+                Active = activeNow,
+                Limit = limitNow,
+                Unlimited = limitNow >= UnlimitedSlotThreshold,
+                PeakNeed = activeNow
+            };
+            if (changes != null && changes.Count > 0)
+            {
+                var sorted = new List<KeyValuePair<int, SlotChange>>(changes.Count);
+                for (int i = 0; i < changes.Count; i++)
+                    sorted.Add(new KeyValuePair<int, SlotChange>(i, changes[i]));
+                sorted.Sort(CompareSlotChanges);
+                int held = activeNow;
+                int limit = limitNow;
+                for (int i = 0; i < sorted.Count; i++)
+                {
+                    SlotChange c = sorted[i].Value;
+                    held += c.Delta;
+                    if (c.NewLimit >= 0) limit = c.NewLimit;
+                    // No limit at that moment: nothing held then can crowd out today.
+                    if (limit >= UnlimitedSlotThreshold) continue;
+                    int need = held - (limit - limitNow);
+                    if (need > usage.PeakNeed) usage.PeakNeed = need;
+                }
+            }
+            usage.Reserved = Math.Max(0, usage.PeakNeed - activeNow);
+            usage.Free = Math.Max(0, limitNow - usage.PeakNeed);
+            return usage;
+        }
+
+        // UT order; at one UT releases, then limit changes, then occupies; then input
+        // order, so the sort is stable.
+        private static int CompareSlotChanges(KeyValuePair<int, SlotChange> x,
+                                              KeyValuePair<int, SlotChange> y)
+        {
+            int byUt = x.Value.UT.CompareTo(y.Value.UT);
+            if (byUt != 0) return byUt;
+            int byRank = SlotChangeRank(x.Value).CompareTo(SlotChangeRank(y.Value));
+            if (byRank != 0) return byRank;
+            return x.Key.CompareTo(y.Key);
+        }
+
+        private static int SlotChangeRank(SlotChange c)
+        {
+            if (c.Delta < 0) return 0;
+            if (c.Delta == 0) return 1;
+            return 2;
+        }
+
+        internal static string FormatSlotUsageForLog(SlotUsage u)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return "active=" + u.Active.ToString(ic)
+                + "/limit=" + (u.Unlimited ? "none" : u.Limit.ToString(ic))
+                + "/peak=" + u.PeakNeed.ToString(ic)
+                + "/reserved=" + u.Reserved.ToString(ic)
+                + "/free=" + u.Free.ToString(ic);
         }
 
         // A facility with no upgrade in the ledger is at level 1.
@@ -885,7 +1091,8 @@ namespace Parsek
                     MissionControlLevel = 1,
                     ProjectedMissionControlLevel = 1,
                     CurrentMaxSlots = LedgerOrchestrator.GetContractSlots(1),
-                    ProjectedMaxSlots = LedgerOrchestrator.GetContractSlots(1)
+                    ProjectedMaxSlots = LedgerOrchestrator.GetContractSlots(1),
+                    Slots = ComputeSlotUsage(0, LedgerOrchestrator.GetContractSlots(1), null)
                 },
                 Strategies = new StrategiesTabVM
                 {
@@ -895,7 +1102,8 @@ namespace Parsek
                     AdminLevel = 1,
                     ProjectedAdminLevel = 1,
                     CurrentMaxSlots = LedgerOrchestrator.GetStrategySlots(1),
-                    ProjectedMaxSlots = LedgerOrchestrator.GetStrategySlots(1)
+                    ProjectedMaxSlots = LedgerOrchestrator.GetStrategySlots(1),
+                    Slots = ComputeSlotUsage(0, LedgerOrchestrator.GetStrategySlots(1), null)
                 },
                 Mode = mode,
                 LiveUT = liveUT,
@@ -1323,7 +1531,7 @@ namespace Parsek
 
             // Amber marks a CELL that needs attention (an overdue deadline, a recorded
             // failure). Rows that are merely in the future are not coloured: they already
-            // sit under the "Pending in timeline" fold, and a second marker on every such
+            // sit under the "Accepted later" fold, and a second marker on every such
             // row would bury the warnings.
             alertStyle = new GUIStyle(GUI.skin.label)
             {
@@ -1471,24 +1679,24 @@ namespace Parsek
             bool secondResolution = false;
 
             var c = vm.Contracts;
-            c.GroupHeadingText = FormatActiveHeading(c.CurrentActive, c.CurrentMaxSlots);
-            c.GroupHeadingTooltip = FormatSlotLimitTooltip(
-                "Mission Control", c.MissionControlLevel, c.ProjectedMissionControlLevel);
-            c.PendingFoldText = FormatPendingFold(
-                c.PendingRows != null ? c.PendingRows.Count : 0,
-                c.ProjectedActive, c.ProjectedMaxSlots);
+            c.GroupHeadingText = FormatSlotHeading(c.Slots);
+            c.GroupHeadingTooltip = FormatSlotHeadingTooltip(SlotTab.Contracts, c.Slots,
+                c.MissionControlLevel, c.ProjectedMissionControlLevel);
+            c.PendingFoldText = FormatPendingFold(SlotTab.Contracts,
+                c.PendingRows != null ? c.PendingRows.Count : 0);
+            c.PendingFoldTooltip = FormatPendingFoldTooltip(c.ProjectedActive, c.ProjectedMaxSlots);
             secondResolution |= FillContractText(c.CurrentRows, vm.LiveUT, formatDate);
             secondResolution |= FillContractText(c.ProjectedRows, vm.LiveUT, formatDate);
             secondResolution |= FillContractText(c.PendingRows, vm.LiveUT, formatDate);
             vm.Contracts = c;
 
             var st = vm.Strategies;
-            st.GroupHeadingText = FormatActiveHeading(st.CurrentActive, st.CurrentMaxSlots);
-            st.GroupHeadingTooltip = FormatSlotLimitTooltip(
-                "Administration", st.AdminLevel, st.ProjectedAdminLevel);
-            st.PendingFoldText = FormatPendingFold(
-                st.PendingRows != null ? st.PendingRows.Count : 0,
-                st.ProjectedActive, st.ProjectedMaxSlots);
+            st.GroupHeadingText = FormatSlotHeading(st.Slots);
+            st.GroupHeadingTooltip = FormatSlotHeadingTooltip(SlotTab.Strategies, st.Slots,
+                st.AdminLevel, st.ProjectedAdminLevel);
+            st.PendingFoldText = FormatPendingFold(SlotTab.Strategies,
+                st.PendingRows != null ? st.PendingRows.Count : 0);
+            st.PendingFoldTooltip = FormatPendingFoldTooltip(st.ProjectedActive, st.ProjectedMaxSlots);
             FillStrategyText(st.CurrentRows, formatDate);
             FillStrategyText(st.ProjectedRows, formatDate);
             FillStrategyText(st.PendingRows, formatDate);
@@ -1568,52 +1776,99 @@ namespace Parsek
 
         // ---- Heading and fold text (pure, InvariantCulture, testable) ----
 
-        /// <summary>
-        /// A slot count: <c>2 of 2 slots</c>, singular when the limit is one
-        /// (<c>1 of 1 slot</c>).
-        /// </summary>
         /// <summary>A slot limit at or above this is stock's "no limit" (Mission Control L3 = 999).</summary>
         internal const int UnlimitedSlotThreshold = 999;
 
-        internal static string FormatSlotCount(int used, int max)
+        /// <summary>Which tab a slot text is for: the two differ only in their verbs.</summary>
+        internal enum SlotTab
         {
-            var ic = CultureInfo.InvariantCulture;
-            if (max >= UnlimitedSlotThreshold)
-                return used.ToString(ic) + " (no slot limit)";
-            return used.ToString(ic) + " of " + max.ToString(ic)
-                + (max == 1 ? " slot" : " slots");
-        }
-
-        /// <summary>The one heading line of a tab: <c>Active now: 2 of 2 slots</c>.</summary>
-        internal static string FormatActiveHeading(int activeNow, int maxSlotsNow)
-        {
-            return "Active now: " + FormatSlotCount(activeNow, maxSlotsNow);
+            Contracts,
+            Strategies,
         }
 
         /// <summary>
-        /// The heading's hover text: the building level the slot limit comes from, and
-        /// the level at the timeline end when the recorded timeline upgrades it.
+        /// <c>4 of 7 slots free</c>: free first, the noun agreeing with the limit
+        /// (<c>1 of 1 slot free</c>).
         /// </summary>
-        internal static string FormatSlotLimitTooltip(string building, int levelNow, int levelAtEnd)
+        internal static string FormatFreeSlots(int free, int max)
         {
             var ic = CultureInfo.InvariantCulture;
-            string text = "Slot limit from " + building + " L" + levelNow.ToString(ic);
+            return free.ToString(ic) + " of " + max.ToString(ic)
+                + (max == 1 ? " slot free" : " slots free");
+        }
+
+        /// <summary>
+        /// The one heading line of a tab, free first, then active, then reserved:
+        /// <c>4 of 7 slots free (2 active, 1 reserved for later)</c>, <c>5 of 7 slots free
+        /// (2 active)</c> when the recorded future reserves none, <c>No slot limit (2
+        /// active)</c> at an unlimited building.
+        /// </summary>
+        internal static string FormatSlotHeading(SlotUsage u)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string active = u.Active.ToString(ic) + " active";
+            if (u.Unlimited)
+                return "No slot limit (" + active + ")";
+            string text = FormatFreeSlots(u.Free, u.Limit) + " (" + active;
+            if (u.Reserved > 0)
+                text += ", " + u.Reserved.ToString(ic) + " reserved for later";
+            return text + ")";
+        }
+
+        /// <summary>
+        /// The heading's hover text. With a reservation it says why fewer slots are free
+        /// than the active count leaves: <c>Contracts your recorded flights accept later need 1 more
+        /// slot at peak, so only 4 are free for a new one.</c> It states the ledger's
+        /// count and nothing more: stock Mission Control / Administration count only what
+        /// is active now and do not refuse an accept or activation over it. Without one it
+        /// names the building level the limit comes from (and the level at the timeline
+        /// end when the recorded timeline upgrades it).
+        /// </summary>
+        internal static string FormatSlotHeadingTooltip(SlotTab tab, SlotUsage u,
+                                                        int levelNow, int levelAtEnd)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (!u.Unlimited && u.Reserved > 0)
+            {
+                string subject = tab == SlotTab.Strategies
+                    ? "Strategies your recorded flights activate later"
+                    : "Contracts your recorded flights accept later";
+                return subject + " need " + u.Reserved.ToString(ic)
+                    + (u.Reserved == 1 ? " more slot" : " more slots")
+                    + " at peak, so only " + u.Free.ToString(ic)
+                    + (u.Free == 1 ? " is" : " are") + " free for a new one.";
+            }
+            string building = tab == SlotTab.Strategies ? "Administration" : "Mission Control";
+            string text = (u.Unlimited ? "No slot limit at " : "Slot limit from ")
+                + building + " L" + levelNow.ToString(ic);
             if (levelAtEnd != levelNow)
                 text += " (L" + levelAtEnd.ToString(ic) + " at timeline end)";
             return text + ".";
         }
 
         /// <summary>
-        /// The fold row that opens the pending group inside the table:
-        /// <c>Pending in timeline (1) - 3 of 3 slots at timeline end</c>.
+        /// The fold row that opens the group of rows the recorded flights add later:
+        /// <c>Accepted later by your recorded flights (1)</c> /
+        /// <c>Activated later by your recorded flights (1)</c>.
         /// </summary>
-        internal static string FormatPendingFold(int pendingCount, int activeAtEnd, int maxSlotsAtEnd)
+        internal static string FormatPendingFold(SlotTab tab, int pendingCount)
         {
-            var ic = CultureInfo.InvariantCulture;
-            string head = "Pending in timeline (" + pendingCount.ToString(ic) + ") - ";
+            return (tab == SlotTab.Strategies ? "Activated" : "Accepted")
+                + " later by your recorded flights ("
+                + pendingCount.ToString(CultureInfo.InvariantCulture) + ")";
+        }
+
+        /// <summary>
+        /// The fold row's hover text: <c>Not active yet. At the end of the recorded
+        /// timeline: 3 of 7 slots free.</c> (<c>... timeline: no slot limit.</c> at an
+        /// unlimited building).
+        /// </summary>
+        internal static string FormatPendingFoldTooltip(int activeAtEnd, int maxSlotsAtEnd)
+        {
+            const string head = "Not active yet. At the end of the recorded timeline: ";
             if (maxSlotsAtEnd >= UnlimitedSlotThreshold)
-                return head + activeAtEnd.ToString(ic) + " at timeline end (no slot limit)";
-            return head + FormatSlotCount(activeAtEnd, maxSlotsAtEnd) + " at timeline end";
+                return head + "no slot limit.";
+            return head + FormatFreeSlots(Math.Max(0, maxSlotsAtEnd - activeAtEnd), maxSlotsAtEnd) + ".";
         }
 
         /// <summary>
@@ -1673,9 +1928,6 @@ namespace Parsek
         private const string TimelineEndTooltip =
             "What the recorded timeline does to this row before it ends.";
 
-        private const string PendingFoldTooltip =
-            "Rows your recorded flights still add after now; click to fold.";
-
         // Both tabs share one layout: the heading line (slots now), ONE column header, and
         // one body box holding the rows active now and - only when the recorded timeline
         // adds rows - a fold row with the pending rows under it, so both groups sit under
@@ -1698,7 +1950,8 @@ namespace Parsek
             for (int i = 0; i < tab.CurrentRows.Count; i++)
                 DrawContractRow(tab.CurrentRows[i], liveUT, showEnd);
             if (tab.PendingRows.Count > 0
-                && DrawPendingFold(GroupKey_ContractsPending, tab.PendingFoldText))
+                && DrawPendingFold(GroupKey_ContractsPending, tab.PendingFoldText,
+                                   tab.PendingFoldTooltip))
             {
                 for (int i = 0; i < tab.PendingRows.Count; i++)
                     DrawContractRow(tab.PendingRows[i], liveUT, showEnd);
@@ -1707,14 +1960,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Draws one "Pending in timeline (n) - ..." fold row inside a table body and
-        /// returns whether its group is expanded. Both tabs share it.
+        /// Draws one "Accepted later by your recorded flights (n)" fold row inside a table
+        /// body and returns whether its group is expanded. Both tabs share it.
         /// </summary>
-        private bool DrawPendingFold(string foldKey, string text)
+        private bool DrawPendingFold(string foldKey, string text, string tooltip)
         {
             bool expanded = !foldedGroups.Contains(foldKey);
             bool newExpanded = GUILayout.Toggle(expanded,
-                new GUIContent(text ?? "", PendingFoldTooltip),
+                new GUIContent(text ?? "", tooltip ?? ""),
                 toggleButtonStyle,
                 GUILayout.ExpandWidth(true));
             if (newExpanded != expanded)
@@ -1799,7 +2052,8 @@ namespace Parsek
             for (int i = 0; i < tab.CurrentRows.Count; i++)
                 DrawStrategyRow(tab.CurrentRows[i], showEnd);
             if (tab.PendingRows.Count > 0
-                && DrawPendingFold(GroupKey_StrategiesPending, tab.PendingFoldText))
+                && DrawPendingFold(GroupKey_StrategiesPending, tab.PendingFoldText,
+                                   tab.PendingFoldTooltip))
             {
                 for (int i = 0; i < tab.PendingRows.Count; i++)
                     DrawStrategyRow(tab.PendingRows[i], showEnd);
@@ -1903,16 +2157,18 @@ namespace Parsek
             {
                 case TimelineEndKind.Completed: return "completes " + FormatDateCell(endUT, formatDate);
                 case TimelineEndKind.Failed: return "FAILS " + FormatDateCell(endUT, formatDate);
+                case TimelineEndKind.Expired: return "expires " + FormatDateCell(endUT, formatDate);
                 case TimelineEndKind.Cancelled: return "cancelled " + FormatDateCell(endUT, formatDate);
                 case TimelineEndKind.Deactivated: return "deactivates " + FormatDateCell(endUT, formatDate);
                 default: return "";
             }
         }
 
-        /// <summary>Whether a Timeline-end cell is drawn in the alert colour.</summary>
+        /// <summary>Whether a Timeline-end cell is drawn in the alert colour: a failure, and
+        /// an expiry, which costs the same failure penalties in stock.</summary>
         internal static bool IsTimelineEndAlert(TimelineEndKind kind)
         {
-            return kind == TimelineEndKind.Failed;
+            return kind == TimelineEndKind.Failed || kind == TimelineEndKind.Expired;
         }
 
         // ---- Per-column contract helpers ----
