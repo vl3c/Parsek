@@ -82,7 +82,11 @@ namespace Parsek.TestCommands
                 try
                 {
                     ConfigNode craftNode = ConfigNode.Load(craftPath);
-                    expectedShip = craftNode != null ? craftNode.GetValue("ship") : null;
+                    // Stock craft name themselves with a localization tag
+                    // (`ship = #autoLOC_501232`); the editor's ShipConstruct carries the
+                    // localized name, so compare against the formatted string.
+                    string header = craftNode != null ? craftNode.GetValue("ship") : null;
+                    expectedShip = string.IsNullOrEmpty(header) ? null : KSP.Localization.Localizer.Format(header);
                 }
                 catch (Exception ex)
                 {
@@ -182,7 +186,9 @@ namespace Parsek.TestCommands
                     TestCommandDiagnostics.Timeout(completionId, completionVerb, elapsed, TestCommandEditorRoute.GoNotSettledReason);
                     FinishGoToEditor(p, "ERROR", TestCommandEditorRoute.GoNotSettledReason
                         + " scene=" + HighLogic.LoadedScene + " editorUp=" + Bool(editorUp)
-                        + " loadIssued=" + Bool(p.LoadIssued) + " parts=" + Int(parts), elapsed);
+                        + " loadIssued=" + Bool(p.LoadIssued) + " parts=" + Int(parts)
+                        + " ship=" + (editor != null && editor.ship != null ? (editor.ship.shipName ?? "-").Replace(' ', '_') : "-")
+                        + " expected=" + (p.ExpectedShipName ?? "-").Replace(' ', '_'), elapsed);
                     return;
                 default:
                     FinishGoToEditor(p, "OK", null, elapsed);

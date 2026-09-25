@@ -5088,8 +5088,13 @@ class SharedShipOverlayStagingTests(unittest.TestCase):
         ok, name, subkind = self._stage()
         self.assertTrue(ok)
         self.assertEqual("", subkind)
-        self.assertFalse(os.path.isdir(os.path.join(self.instance, "saves", name, "Ships")),
-                         "an unlisted save must stage exactly as a verbatim copytree")
+        # A verbatim copytree plus the two EMPTY craft folders stock creates for every
+        # save (new game / Main Menu resume) - no craft is overlaid.
+        ships = os.path.join(self.instance, "saves", name, "Ships")
+        self.assertEqual(["SPH", "VAB"], sorted(os.listdir(ships)))
+        for sub in ("SPH", "VAB"):
+            self.assertEqual([], os.listdir(os.path.join(ships, sub)),
+                             "an unlisted save must receive no overlaid craft")
 
     def test_a_missing_manifest_fails_closed(self):
         # This used to assert the opposite - that a missing manifest "degrades to
