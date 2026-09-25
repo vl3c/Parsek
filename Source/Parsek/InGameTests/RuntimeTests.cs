@@ -20408,6 +20408,7 @@ namespace Parsek.InGameTests
         private const string StockUiOverlayTechObjectName = "Parsek_TechOverlay";
         private const string StockUiOverlayKerbalObjectName = "Parsek_KerbalOverlay";
         private const string StockUiOverlayContractObjectName = "Parsek_ContractOverlay";
+        private const string StockUiParsekObjectPrefix = "Parsek_";
 
         [InGameTest(Category = "ResourceTopBar", Scene = GameScenes.SPACECENTER,
             Description = "Game-state UI overlays §5.4: top resource singletons match ledger modules after RecalculateAndPatch and emit one public change event per resource delta.")]
@@ -20732,8 +20733,8 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
-            Description = "Game-state UI overlays §8.6: Mission Control decorates a committed-future accepted offered contract.")]
-        public IEnumerator MissionControlOverlayDecoratesCommittedContract()
+            Description = "Stock-UI overlays PR 2b: an Offered contract a committed future accepts carries the Parsek status on its own stock row label (full stock title kept), the label survives a tab switch and a list rebuild, and lifts when the committed accept goes away.")]
+        public IEnumerator MissionControlAvailableRowLabelSurvivesTabSwitchAndRebuild()
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
             yield return WaitForStockUiOverlayController(5f);
@@ -20745,14 +20746,11 @@ namespace Parsek.InGameTests
             }
             if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
             {
-                InGameAssert.Skip($"Mission Control overlay verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                InGameAssert.Skip($"Mission Control annotation verification is career-only (mode={HighLogic.CurrentGame.Mode})");
                 yield break;
             }
-            // Drain any Mission Control canvas left mid-teardown by a prior test
-            // before entering.
             yield return WaitForMissionControlClosed(8f);
 
-            bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
             Recording recording = null;
             string recordingId = null;
             try
@@ -20769,36 +20767,216 @@ namespace Parsek.InGameTests
                     yield break;
                 }
 
-                recordingId = "phase5-mission-" + System.Guid.NewGuid().ToString("N");
+                recordingId = "stockui-mc-label-" + System.Guid.NewGuid().ToString("N");
                 recording = AddCommittedOverlayFixture(
                     recordingId,
                     GameStateEventType.ContractAccepted,
                     contractPick.ContractKey,
                     "contractTitle=" + contractPick.ContractTitle);
 
+                // Timeline change on an open screen: the rows already listed are relabelled in place.
                 NotifyTimelineDataChangedForOverlayTest();
-                yield return WaitForMissionControlRowOverlay(contractPick.ContractKey, StockUiOverlayContractObjectName,
-                    $"offered contract '{contractPick.ContractTitle}' should get a committed-future accept overlay", 8f);
+                yield return WaitForMissionControlRowLabel(contractPick.ContractKey, true,
+                    $"offered contract '{contractPick.ContractTitle}' should carry the committed-accept row status after a timeline change", 8f);
+                AssertMissionControlRowLabelKeepsStockTitle(contractPick.ContractKey, contractPick.ContractTitle);
 
-                MCListItem row = FindMissionControlRowByContractKey(
-                    Object.FindObjectOfType<MissionControl>(),
-                    contractPick.ContractKey);
-                InGameAssert.IsNotNull(row,
-                    $"Mission Control row for offered contract '{contractPick.ContractTitle}' should still exist after overlay wait");
-                InGameAssert.AreEqual(1, CountNamedChildren(row.transform, StockUiOverlayContractObjectName),
-                    "Mission Control committed contract row should have exactly one Parsek_ContractOverlay child");
+                // Tab switch: stock RebuildContractList destroys every row and AddItem rebuilds them.
+                MissionControl mc = MissionControl.Instance ?? Object.FindObjectOfType<MissionControl>();
+                InGameAssert.IsNotNull(mc, "MissionControl should still be open before the tab switch");
+                mc.SetDisplayModeActive();
+                InGameAssert.IsNull(FindMissionControlRowByContractKey(mc, contractPick.ContractKey),
+                    "the Offered contract should not be listed on the Active tab");
+                mc.SetDisplayModeAvailable();
+                yield return WaitForMissionControlRowLabel(contractPick.ContractKey, true,
+                    "the row status should be re-applied when the Available tab is rebuilt after a tab switch", 3f);
+                AssertMissionControlRowLabelKeepsStockTitle(contractPick.ContractKey, contractPick.ContractTitle);
+
+                // A plain rebuild (what stock runs on every contract-list change).
+                mc.RebuildContractList();
+                yield return WaitForMissionControlRowLabel(contractPick.ContractKey, true,
+                    "the row status should survive MissionControl.RebuildContractList", 3f);
+
+                // Only the committed-accept row is marked by this fixture.
+                InGameAssert.AreEqual(0, CountWronglyMarkedMissionControlRows(mc, contractPick.ContractKey),
+                    "no other offered row should gain a status from this fixture");
+
+                // Lift the committed accept: the status leaves the row it was on.
+                RemoveCommittedOverlayFixture(recordingId, recording);
+                recording = null;
+                recordingId = null;
+                NotifyTimelineDataChangedForOverlayTest();
+                yield return WaitForMissionControlRowLabel(contractPick.ContractKey, false,
+                    "the row status should be stripped once the committed accept is removed", 8f);
             }
             finally
             {
                 RemoveCommittedOverlayFixture(recordingId, recording);
-                RestoreCommittedOverlaySetting(settings, priorSetting, settingCaptured);
                 CloseMissionControlForOverlayTest();
             }
 
-            yield return WaitForGlobalOverlayCount(StockUiOverlayContractObjectName, 0,
-                "Mission Control close should strip committed-future contract overlays", 5f);
-            // Confirm the canvas is fully gone so the next building test enters clean.
             yield return WaitForMissionControlClosed(8f);
+        }
+
+        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
+            Description = "Stock-UI overlays PR 2b: selecting a committed-accept Offered contract greys out Accept and Decline and appends the why to the stock detail text; a RefreshUIControls pass and a tab switch plus re-select keep both disabled; Contract.Decline is refused with the same text.")]
+        public IEnumerator MissionControlDetailPanelDisablesAcceptAndDeclineWithReason()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+            yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"Mission Control annotation verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            yield return WaitForMissionControlClosed(8f);
+
+            Recording recording = null;
+            string recordingId = null;
+            string dialogReason = null;
+            int dialogCount = 0;
+            System.Action<string, string, string> priorHook = CommittedActionDialog.TestHookForTesting;
+            try
+            {
+                if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
+                    yield break;
+
+                yield return WaitForMissionControl(8f);
+                var contractPick = new MissionControlContractRowPick();
+                yield return WaitForMissionControlOfferedContractRow(contractPick, 8f);
+                if (!contractPick.Found)
+                {
+                    InGameAssert.Skip(contractPick.SkipReason);
+                    yield break;
+                }
+
+                recordingId = "stockui-mc-panel-" + System.Guid.NewGuid().ToString("N");
+                recording = AddCommittedOverlayFixture(
+                    recordingId,
+                    GameStateEventType.ContractAccepted,
+                    contractPick.ContractKey,
+                    "contractTitle=" + contractPick.ContractTitle);
+                NotifyTimelineDataChangedForOverlayTest();
+                yield return WaitForMissionControlRowLabel(contractPick.ContractKey, true,
+                    "the committed-accept row should be marked before it is selected", 8f);
+
+                MissionControl mc = MissionControl.Instance ?? Object.FindObjectOfType<MissionControl>();
+                InGameAssert.IsNotNull(mc, "MissionControl should be open");
+                InGameAssert.IsTrue(SelectMissionControlRowForTest(mc, contractPick.ContractKey, out Contract contract),
+                    "the committed-accept row should be selectable (MissionSelection payload)");
+                string why = MissionControlStockUi.DecideNow(contract).Why;
+                InGameAssert.IsTrue(!string.IsNullOrEmpty(why), "the decision should carry the committed-accept explanation");
+                AssertMissionControlPanelBlocked(mc, why, "after selecting the row");
+
+                // Stock RefreshUIControls rewrites btnAccept from the slot count after every list change.
+                MethodInfo refreshUi = AccessTools.Method(typeof(MissionControl), "RefreshUIControls");
+                InGameAssert.IsNotNull(refreshUi, "MissionControl.RefreshUIControls should resolve");
+                refreshUi.Invoke(mc, null);
+                AssertMissionControlPanelBlocked(mc, why, "after RefreshUIControls");
+
+                // Tab switch and re-select: the rebuilt row is a new object; the block re-applies.
+                mc.SetDisplayModeActive();
+                mc.SetDisplayModeAvailable();
+                InGameAssert.IsTrue(SelectMissionControlRowForTest(mc, contractPick.ContractKey, out contract),
+                    "the committed-accept row should be selectable again after a tab switch");
+                AssertMissionControlPanelBlocked(mc, why, "after a tab switch and re-select");
+
+                // The backstop: Decline itself refuses, with the text the panel shows.
+                CommittedActionDialog.TestHookForTesting = (action, reason, detail) =>
+                {
+                    dialogCount++;
+                    dialogReason = reason;
+                };
+                bool declined = contract.Decline();
+                InGameAssert.IsFalse(declined, "Contract.Decline should be refused for a committed-accept contract");
+                InGameAssert.AreEqual(Contract.State.Offered, contract.ContractState,
+                    "a refused Decline must leave the contract Offered");
+                InGameAssert.AreEqual(1, dialogCount, "the refused Decline should explain itself once");
+                InGameAssert.AreEqual(why, dialogReason,
+                    "the Decline refusal should say exactly what the detail panel says");
+            }
+            finally
+            {
+                CommittedActionDialog.TestHookForTesting = priorHook;
+                RemoveCommittedOverlayFixture(recordingId, recording);
+                ClearMissionControlSelectionForTest();
+                CloseMissionControlForOverlayTest();
+            }
+
+            yield return WaitForMissionControlClosed(8f);
+        }
+
+        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
+            Description = "Stock-UI overlays PR 2b / E16: the Mission Control annotations are stock text and button state only - no Parsek GameObject appears under the screen and none is left alive across repeated open/close cycles.")]
+        public IEnumerator MissionControlStockAnnotationsLeakNothingOverOpenCloseCycles()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+            yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"Mission Control annotation verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            yield return WaitForMissionControlClosed(8f);
+
+            int parsekObjectsBefore = CountGlobalTransformsWithNamePrefix(StockUiParsekObjectPrefix);
+            for (int cycle = 0; cycle < 2; cycle++)
+            {
+                Recording recording = null;
+                string recordingId = null;
+                try
+                {
+                    if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
+                        yield break;
+
+                    yield return WaitForMissionControl(8f);
+                    var contractPick = new MissionControlContractRowPick();
+                    yield return WaitForMissionControlOfferedContractRow(contractPick, 8f);
+                    if (!contractPick.Found)
+                    {
+                        InGameAssert.Skip(contractPick.SkipReason);
+                        yield break;
+                    }
+
+                    recordingId = "stockui-mc-cycle-" + cycle + "-" + System.Guid.NewGuid().ToString("N");
+                    recording = AddCommittedOverlayFixture(
+                        recordingId,
+                        GameStateEventType.ContractAccepted,
+                        contractPick.ContractKey,
+                        "contractTitle=" + contractPick.ContractTitle);
+                    NotifyTimelineDataChangedForOverlayTest();
+                    yield return WaitForMissionControlRowLabel(contractPick.ContractKey, true,
+                        $"cycle {cycle + 1}: the committed-accept row should be marked", 8f);
+
+                    MissionControl mc = MissionControl.Instance ?? Object.FindObjectOfType<MissionControl>();
+                    InGameAssert.AreEqual(0, CountTransformsWithNamePrefix(mc != null ? mc.transform : null, StockUiParsekObjectPrefix),
+                        $"cycle {cycle + 1}: Parsek must add no GameObject under Mission Control");
+                    InGameAssert.AreEqual(0, CountGlobalNamedTransforms(StockUiOverlayContractObjectName),
+                        $"cycle {cycle + 1}: the retired Parsek_ContractOverlay badge must not come back");
+                }
+                finally
+                {
+                    RemoveCommittedOverlayFixture(recordingId, recording);
+                    CloseMissionControlForOverlayTest();
+                }
+
+                yield return WaitForMissionControlClosed(8f);
+                int parsekObjectsAfter = CountGlobalTransformsWithNamePrefix(StockUiParsekObjectPrefix);
+                InGameAssert.IsTrue(parsekObjectsAfter <= parsekObjectsBefore,
+                    $"cycle {cycle + 1}: Parsek_* objects should not accumulate over Mission Control open/close " +
+                    $"(before={parsekObjectsBefore} after={parsekObjectsAfter})");
+            }
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
@@ -21015,77 +21193,6 @@ namespace Parsek.InGameTests
                     "Science widget should resolve a non-degenerate screen rect");
                 InGameAssert.IsGreaterThan(sciRect.width, 1.0, "Science widget screen rect width should be > 1px");
                 InGameAssert.IsGreaterThan(sciRect.height, 1.0, "Science widget screen rect height should be > 1px");
-            }
-        }
-
-        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
-            Description = "Game-state UI overlays §8.6 / E16: Mission Control despawn strips Parsek_ContractOverlay objects across repeated open/close cycles.")]
-        public IEnumerator MissionControlOverlaysClearedOnDespawn()
-        {
-            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
-            yield return WaitForStockUiOverlayController(5f);
-
-            if (HighLogic.CurrentGame == null)
-            {
-                InGameAssert.Skip("HighLogic.CurrentGame is null");
-                yield break;
-            }
-            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
-            {
-                InGameAssert.Skip($"Mission Control overlay verification is career-only (mode={HighLogic.CurrentGame.Mode})");
-                yield break;
-            }
-            // Drain any Mission Control canvas left mid-teardown by a prior test
-            // before entering.
-            yield return WaitForMissionControlClosed(8f);
-
-            bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
-            try
-            {
-                for (int cycle = 0; cycle < 2; cycle++)
-                {
-                    Recording recording = null;
-                    string recordingId = null;
-                    try
-                    {
-                        if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
-                            yield break;
-
-                        yield return WaitForMissionControl(8f);
-                        var contractPick = new MissionControlContractRowPick();
-                        yield return WaitForMissionControlOfferedContractRow(contractPick, 8f);
-                        if (!contractPick.Found)
-                        {
-                            InGameAssert.Skip(contractPick.SkipReason);
-                            yield break;
-                        }
-
-                        recordingId = "phase5-mission-despawn-" + cycle + "-" + System.Guid.NewGuid().ToString("N");
-                        recording = AddCommittedOverlayFixture(
-                            recordingId,
-                            GameStateEventType.ContractAccepted,
-                            contractPick.ContractKey,
-                            "contractTitle=" + contractPick.ContractTitle);
-
-                        NotifyTimelineDataChangedForOverlayTest();
-                        yield return WaitForMissionControlRowOverlay(contractPick.ContractKey, StockUiOverlayContractObjectName,
-                            $"Mission Control despawn cycle {cycle + 1} should create one contract overlay before close", 8f);
-                    }
-                    finally
-                    {
-                        RemoveCommittedOverlayFixture(recordingId, recording);
-                        CloseMissionControlForOverlayTest();
-                    }
-
-                    yield return WaitForGlobalOverlayCount(StockUiOverlayContractObjectName, 0,
-                        $"Mission Control despawn cycle {cycle + 1} should leave no Parsek_ContractOverlay objects alive", 5f);
-                    // Confirm the canvas is gone before the next cycle re-enters.
-                    yield return WaitForMissionControlClosed(8f);
-                }
-            }
-            finally
-            {
-                RestoreCommittedOverlaySetting(settings, priorSetting, settingCaptured);
             }
         }
 
@@ -21696,27 +21803,134 @@ namespace Parsek.InGameTests
             return false;
         }
 
-        private static IEnumerator WaitForMissionControlRowOverlay(
+        private static IEnumerator WaitForMissionControlRowLabel(
             string contractKey,
-            string overlayName,
+            bool expectMarked,
             string failureMessage,
             float timeoutSeconds)
         {
-            // Realtime deadline: the facility pause freezes Time.time (see
-            // WaitUntilTrue), so a Time.time deadline would hang the suite with the
-            // player stuck inside the paused Mission Control building.
+            // Realtime deadline: the facility pause freezes Time.time (see WaitUntilTrue).
             float deadline = Time.realtimeSinceStartup + timeoutSeconds;
             while (Time.realtimeSinceStartup < deadline)
             {
                 MCListItem row = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
-                if (row != null && CountNamedChildren(row.transform, overlayName) == 1)
+                if (row != null && row.title != null
+                    && MissionControlStockAnnotation.HasRowStatus(row.title.text) == expectMarked)
                     yield break;
                 yield return null;
             }
 
             MCListItem finalRow = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
-            int actual = finalRow != null ? CountNamedChildren(finalRow.transform, overlayName) : -1;
-            InGameAssert.Fail($"{failureMessage}; rowFound={finalRow != null} overlayCount={actual}");
+            string label = finalRow != null && finalRow.title != null ? finalRow.title.text : "(no row)";
+            InGameAssert.Fail($"{failureMessage}; expectMarked={expectMarked} rowFound={finalRow != null} label=\"{label}\"");
+        }
+
+        private static void AssertMissionControlRowLabelKeepsStockTitle(string contractKey, string contractTitle)
+        {
+            MCListItem row = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
+            InGameAssert.IsNotNull(row, "the committed-accept row should be listed");
+            string label = row.title != null ? row.title.text : "";
+            InGameAssert.IsTrue(label.StartsWith(MissionControlStockAnnotation.StockDefaultLabel(contractTitle), System.StringComparison.Ordinal),
+                $"the row label should keep stock's full coloured title; label=\"{label}\"");
+            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusTail),
+                $"the row label should say the accept is on the committed timeline; label=\"{label}\"");
+        }
+
+        private static int CountWronglyMarkedMissionControlRows(MissionControl mc, string contractKey)
+        {
+            if (mc == null) return 0;
+            int count = 0;
+            MCListItem[] rows = mc.GetComponentsInChildren<MCListItem>(true);
+            for (int i = 0; i < rows.Length; i++)
+            {
+                MCListItem row = rows[i];
+                if (row == null || row.title == null) continue;
+                if (string.Equals(ExtractMissionControlRowContractKeyForTest(row), contractKey, System.StringComparison.Ordinal))
+                    continue;
+                // A host whose committed timeline already accepts another offered contract
+                // marks that row too; only rows marked by nothing committed count.
+                Contract other = ExtractMissionControlRowContractForTest(row);
+                if (other != null && MissionControlStockUi.DecideNow(other).Marked)
+                    continue;
+                if (MissionControlStockAnnotation.HasRowStatus(row.title.text))
+                    count++;
+            }
+            return count;
+        }
+
+        // Mirrors stock MissionControl.OnSelectContract (KSP 1.12.5): show the panel, take the
+        // row's MissionSelection as the selection, fill the panel from its contract.
+        private static bool SelectMissionControlRowForTest(MissionControl mc, string contractKey, out Contract contract)
+        {
+            contract = null;
+            MCListItem row = FindMissionControlRowByContractKey(mc, contractKey);
+            var selection = row != null && row.container != null
+                ? row.container.Data as MissionControl.MissionSelection
+                : null;
+            if (selection == null || selection.contract == null)
+                return false;
+            mc.panelView.gameObject.SetActive(true);
+            mc.selectedMission = selection;
+            mc.UpdateInfoPanelContract(selection.contract);
+            contract = selection.contract;
+            return true;
+        }
+
+        private static void ClearMissionControlSelectionForTest()
+        {
+            try
+            {
+                MissionControl mc = MissionControl.Instance ?? Object.FindObjectOfType<MissionControl>();
+                if (mc == null) return;
+                mc.selectedMission = null;
+                mc.ClearInfoPanel();
+                mc.panelView.gameObject.SetActive(false);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("TestRunner", $"Mission Control selection clear helper threw: {ex}");
+            }
+        }
+
+        private static void AssertMissionControlPanelBlocked(MissionControl mc, string why, string when)
+        {
+            InGameAssert.IsFalse(mc.btnAccept.interactable, $"Accept should be disabled {when}");
+            InGameAssert.IsFalse(mc.btnDecline.interactable, $"Decline should be disabled {when}");
+            string text = mc.contractText != null ? mc.contractText.text : "";
+            InGameAssert.IsTrue(text.Contains(MissionControlStockAnnotation.DetailHeading),
+                $"the detail text should name the disabled buttons {when}");
+            InGameAssert.IsTrue(text.Contains(why), $"the detail text should carry the why {when}");
+            int headings = text.Split(new[] { MissionControlStockAnnotation.DetailHeading }, System.StringSplitOptions.None).Length - 1;
+            InGameAssert.AreEqual(1, headings, $"the why should be appended exactly once {when}");
+        }
+
+        private static int CountTransformsWithNamePrefix(Transform root, string prefix)
+        {
+            if (root == null) return 0;
+            int count = 0;
+            Transform[] children = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < children.Length; i++)
+            {
+                Transform child = children[i];
+                if (child != null && child.gameObject != null
+                    && child.gameObject.name.StartsWith(prefix, System.StringComparison.Ordinal))
+                    count++;
+            }
+            return count;
+        }
+
+        private static int CountGlobalTransformsWithNamePrefix(string prefix)
+        {
+            int count = 0;
+            Transform[] all = Resources.FindObjectsOfTypeAll<Transform>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Transform t = all[i];
+                if (t != null && t.gameObject != null
+                    && t.gameObject.name.StartsWith(prefix, System.StringComparison.Ordinal))
+                    count++;
+            }
+            return count;
         }
 
         private static MCListItem FindMissionControlRowByContractKey(MissionControl missionControl, string contractKey)
@@ -21750,7 +21964,7 @@ namespace Parsek.InGameTests
             {
                 // The production reader: stock wraps the contract in a
                 // MissionControl.MissionSelection, which a bare `as Contract` never sees.
-                return StockUiOverlayController.ExtractMissionControlRowContract(row);
+                return MissionControlStockUi.ExtractRowContract(row);
             }
             catch (System.Exception ex)
             {

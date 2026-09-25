@@ -1028,6 +1028,21 @@ _(unreleased — entries accumulate here per commit)_
   research, contract and hire blocks (and their marks) likewise lift once the committed
   date passes, and they only protect committed history: a flight still in progress never
   blocks a Space Center action.
+- **Mission Control: a contract your committed timeline accepts later is marked on its own
+  row and explained in its details, with Accept and Decline greyed out.** The small blue
+  badge (hover-only, and gone after any tab switch) is replaced by the stock screen's own
+  parts: the row's title now reads, for example, `Explore the Mun - accepted on Y2 D114 on
+  your committed timeline`, the contract details end with `Accept and Decline are
+  unavailable` and the same explanation the refusal dialog gives, and both buttons are
+  disabled. All of it is re-applied whenever Mission Control rebuilds its list, so it
+  survives switching tabs and contracts being offered or completed. It also works with
+  Contract Configurator installed, whose own contract list and Accept button used to switch
+  the marking off.
+- **Mission Control: declining a contract your committed timeline accepts later is now
+  refused.** Declining it did nothing useful: the contract came back as active on the
+  committed date anyway, and the decline could still cost reputation. The refusal says when
+  the contract becomes active. Contracts the committed timeline leaves alone decline as
+  before.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as

@@ -39,7 +39,13 @@ pairing rule):
   implemented.
 - C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
   accepts over a full Mission Control.
-- C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.
+- ~~C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.~~
+  Fixed by PR 2b (branch `stock-ui-mc`): `ContractDeclinePatch` prefixes the non-virtual
+  `Contract.Decline()` and refuses (with the accept explanation) exactly where
+  `StockUiReservationPredicates.IsContractAcceptBlocked` holds for an Offered contract; the
+  Mission Control detail panel greys Decline out from the same decision. No automatic stock
+  path calls `Decline()` (whole-assembly IL scan: `MissionControl.OnClickDecline` and two
+  debug-toolbar buttons only), so nothing that must succeed is refused.
 - C4 Cancel of a contract the committed future completes / fails / cancels: the completion is
   zeroed (possible committed tech-spend cascade), or the penalty is charged twice.
 - P1 part purchases (verified, bypass-entry-purchase off only): no block, and no state patch.
@@ -54,9 +60,23 @@ pairing rule):
 - K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.
 
 **Defects in the existing PR #721 layer:**
-- The Mission Control badges are lost on a tab switch.
-- Contract Configurator disables the Mission Control overlay and bypasses the Accept
-  pre-block (read from source).
+- ~~The Mission Control badges are lost on a tab switch.~~ Fixed by PR 2b: the badge is gone;
+  a prefix on `MissionControl.AddItem(Contract, bool, string label)` supplies the row label
+  (full stock title plus a short status) on every `RebuildContractList`, a postfix on
+  `UpdateInfoPanelContract` appends the explanation to `contractText` and greys Accept and
+  Decline, and a `RefreshUIControls` postfix re-asserts Accept for the selection.
+- ~~Contract Configurator disables the Mission Control overlay and bypasses the Accept
+  pre-block (read from source).~~ Fixed by PR 2b, from CC's source (not reproduced in game;
+  CC is not installed on any Parsek instance): rows are read through CC's
+  `ContractContainer.contract` field; `MissionControlUI.SetContractTitle` and the
+  `OnClickAvailable` / `OnClickAll` rebuilds are postfixed for the row label; a postfix on
+  `ContractConfigurator.CanAccept(Contract)` keeps Accept greyed after CC's select handler
+  overwrites it; CC's select handler calls stock `UpdateInfoPanelContract`, so the detail
+  text and the greyed Decline apply unchanged, and CC's Decline handler reaches the
+  `Contract.Decline` backstop. Remaining under CC: CC's Decline handler clears the info
+  panel BEFORE calling `Decline()`, so if anything re-enabled the button and it were
+  clicked, the refusal would leave an empty panel over a still-Offered row (cosmetic). The
+  CC row label is not applied to CC's contract-TYPE rows (no contract behind them).
 - The Astronaut Complex opened from the editor is undecorated.
 - ~~Marks and blocks go stale after a rewind: the `MilestoneStore` unreplayed slice
   never advances. F1 verified: after a rewind the committed facility upgrade blocks

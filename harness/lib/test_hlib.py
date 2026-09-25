@@ -3975,7 +3975,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H42-claw-couple":           ("ClawCouple", 2, "FLIGHT"),
         "H43-terrain-clearance":     ("TerrainClearance", 6, "FLIGHT"),
         "H44-ghost-map-trackstation": ("GhostMap", 25, "TRACKSTATION"),
-        "H45-stock-ui-overlay":      ("StockUiOverlay", 6, "SPACECENTER"),
+        "H45-stock-ui-overlay":      ("StockUiOverlay", 7, "SPACECENTER"),
         "H46-settings":              ("Settings", 5, "FLIGHT"),
         "H71-resource-topbar-ksc":   ("ResourceTopBar", 2, "SPACECENTER"),
         "H47-map-view":              ("MapView", 4, "TRACKSTATION"),
@@ -4241,7 +4241,12 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # never-flown `GUI-` lane gets registered here again, because CLAUDE.md names this
     # set as the place a never-flown lane's loose pin is registered, and splitting that
     # register in two would be worse than one honest cross-reference.
-    INTERIM_PIN_IDS: set = set()
+    #
+    # H45-stock-ui-overlay RE-ENTERED on 2026-09-25 (stock-UI overlays PR 2b): the two
+    # Mission Control badge cells were rewritten for the stock mechanisms (row label,
+    # greyed Accept / Decline, Decline backstop) and a third cell added, so the pin is
+    # `total=7` literal with the split regexed until the new cells' first flight.
+    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

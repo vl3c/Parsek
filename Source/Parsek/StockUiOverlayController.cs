@@ -15,11 +15,9 @@ namespace Parsek
         private const string Tag = "StockUiOverlay";
         private const string TechOverlayName = "Parsek_TechOverlay";
         private const string KerbalOverlayName = "Parsek_KerbalOverlay";
-        private const string ContractOverlayName = "Parsek_ContractOverlay";
 
         private static bool rdNodesWarned;
         private static bool astronautListsWarned;
-        private static bool missionRowsWarned;
 
         private RDController currentRdController;
         private AstronautComplex currentAstronautComplex;
@@ -87,7 +85,9 @@ namespace Parsek
             if (astronautOpen)
                 DecorateAstronaut(currentAstronautComplex ?? UnityEngine.Object.FindObjectOfType<AstronautComplex>());
             if (missionOpen)
-                DecorateMissionControl(currentMissionControl ?? UnityEngine.Object.FindObjectOfType<MissionControl>());
+                MissionControlStockUi.RefreshOpenScreen(
+                    currentMissionControl ?? MissionControl.Instance ?? UnityEngine.Object.FindObjectOfType<MissionControl>(),
+                    "timeline changed");
         }
 
         private string DescribeOpenScreens()
@@ -143,23 +143,20 @@ namespace Parsek
             currentAstronautComplex = null;
         }
 
+        // Mission Control is annotated through stock mechanisms by the Harmony patches in
+        // Patches/MissionControlStockUiPatches.cs, which run on every row rebuild and panel
+        // fill. This controller only tracks that the screen is open, so a committed-timeline
+        // change can re-apply the annotations to the rows already on screen.
         private void OnMissionControlSpawn()
         {
             missionOpen = true;
-            currentMissionControl = UnityEngine.Object.FindObjectOfType<MissionControl>();
-            StartCoroutine(DecorateMissionControlNextFrame());
-        }
-
-        private IEnumerator DecorateMissionControlNextFrame()
-        {
-            yield return null;
-            DecorateMissionControl(currentMissionControl ?? UnityEngine.Object.FindObjectOfType<MissionControl>());
+            currentMissionControl = MissionControl.Instance ?? UnityEngine.Object.FindObjectOfType<MissionControl>();
+            MissionControlStockUi.OnScreenOpened();
         }
 
         private void OnMissionControlDespawn()
         {
-            int stripped = StripOverlays(currentMissionControl != null ? currentMissionControl.transform : null, ContractOverlayName);
-            ParsekLog.Verbose(Tag, $"StockUiOverlay: MissionControl despawn - stripped overlayCount={stripped}");
+            MissionControlStockUi.OnScreenClosed();
             missionOpen = false;
             currentMissionControl = null;
         }
@@ -290,59 +287,6 @@ namespace Parsek
             }
         }
 
-        private void DecorateMissionControl(MissionControl missionControl)
-        {
-            if (missionControl == null)
-                return;
-
-            StripOverlays(missionControl.transform, ContractOverlayName);
-
-            MCListItem[] rowItems = missionControl.GetComponentsInChildren<MCListItem>(true);
-            var rows = new List<StockUiItem>();
-            var rowsByKey = new Dictionary<string, List<MCListItem>>(StringComparer.Ordinal);
-            var seenKeys = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < rowItems.Length; i++)
-            {
-                MCListItem row = rowItems[i];
-                if (row == null)
-                    continue;
-
-                Contract contract;
-                if (!TryGetMissionControlRowContract(row, out contract))
-                    continue;
-
-                string key = contract.ContractGuid.ToString();
-                List<MCListItem> forKey;
-                if (!rowsByKey.TryGetValue(key, out forKey))
-                {
-                    forKey = new List<MCListItem>();
-                    rowsByKey[key] = forKey;
-                }
-                forKey.Add(row);
-                if (seenKeys.Add(key))
-                    rows.Add(new StockUiItem(key, MissionControlTabFor(contract.ContractState)));
-            }
-
-            var decorations = StockUiDecorationQuery.ForMissionControl(
-                CommittedFutureIndexCache.Current,
-                CommittedFutureIndexCache.CurrentUT(),
-                rows,
-                ReservationExplanation.DefaultDateFormatter);
-            StockUiDecorationQuery.LogPass(StockUiScreen.MissionControl,
-                new[] { StockUiDecorationQuery.MissionControlAvailableTab }, decorations);
-
-            for (int i = 0; i < decorations.Count; i++)
-            {
-                var d = decorations[i];
-                List<MCListItem> forKey;
-                if (!d.Marked || !rowsByKey.TryGetValue(d.Id, out forKey))
-                    continue;
-                for (int j = 0; j < forKey.Count; j++)
-                    AttachBadge(forKey[j].transform, ContractOverlayName, "MissionControl", d.Id, d.Why,
-                        new Color(0.35f, 0.74f, 1.0f, 0.95f));
-            }
-        }
-
         private static readonly string[] AstronautTabs =
         {
             StockUiDecorationQuery.AstronautApplicantsTab,
@@ -350,20 +294,6 @@ namespace Parsek
             StockUiDecorationQuery.AstronautAssignedTab,
             StockUiDecorationQuery.AstronautKiaTab
         };
-
-        /// <summary>The Mission Control tab a contract's row belongs to.</summary>
-        internal static string MissionControlTabFor(Contract.State state)
-        {
-            switch (state)
-            {
-                case Contract.State.Offered:
-                    return StockUiDecorationQuery.MissionControlAvailableTab;
-                case Contract.State.Active:
-                    return StockUiDecorationQuery.MissionControlActiveTab;
-                default:
-                    return StockUiDecorationQuery.MissionControlArchiveTab;
-            }
-        }
 
         /// <summary>
         /// The live lookups the Astronaut Complex decoration and the dismissal refusal
@@ -570,56 +500,6 @@ namespace Parsek
             }
 
             return null;
-        }
-
-        /// <summary>
-        /// The contract behind a Mission Control list row. Stock (KSP 1.12.5,
-        /// <c>MissionControl.AddItem</c>) stores a <c>MissionControl.MissionSelection</c>
-        /// wrapper in <c>UIListItem.Data</c>, whose <c>contract</c> field is the row's
-        /// contract; a bare <c>Contract</c> payload is accepted too so a build that stores
-        /// the contract directly keeps working. Shared with the in-game overlay cells so
-        /// the test reads rows exactly as the overlay does.
-        /// </summary>
-        internal static Contract ExtractMissionControlRowContract(MCListItem row)
-        {
-            object data = row != null && row.container != null ? row.container.Data : null;
-            if (data == null)
-                return null;
-            if (data is MissionControl.MissionSelection selection)
-                return selection.contract;
-            return data as Contract;
-        }
-
-        private static bool TryGetMissionControlRowContract(MCListItem row, out Contract contract)
-        {
-            contract = null;
-            if (row == null)
-                return false;
-
-            try
-            {
-                contract = ExtractMissionControlRowContract(row);
-                if (contract != null)
-                    return true;
-
-                if (!missionRowsWarned)
-                {
-                    missionRowsWarned = true;
-                    ParsekLog.Warn(Tag,
-                        "StockUiOverlay: MissionControl row contract lookup failed - contract overlays disabled for rows whose UIListItem.Data is neither a MissionSelection nor a Contract");
-                }
-            }
-            catch (Exception ex)
-            {
-                if (!missionRowsWarned)
-                {
-                    missionRowsWarned = true;
-                    ParsekLog.Warn(Tag,
-                        $"StockUiOverlay: MissionControl row contract lookup failed - contract overlays disabled for rows without UIListItem.Data Contract ({ex.Message})");
-                }
-            }
-
-            return false;
         }
 
         private static void AttachBadge(
