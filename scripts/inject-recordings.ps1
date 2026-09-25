@@ -23,6 +23,7 @@ $injectFilterByPreset = @{
     "pending-limbo-tree"    = "InjectPendingLimboTree"
     "relative-loop"         = "InjectRelativeLoopAnchor"
     "single-point-hold"     = "InjectSinglePointHold"
+    "spawn-safety"          = "InjectSpawnSafety"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -38,6 +39,7 @@ $defaultSaveByPreset = @{
     "pending-limbo-tree"    = "pending-limbo-tree-fixture"
     "relative-loop"         = "relative-loop-fixture"
     "single-point-hold"     = "single-point-hold-fixture"
+    "spawn-safety"          = "spawn-safety-fixture"
 }
 
 $ErrorActionPreference = "Stop"

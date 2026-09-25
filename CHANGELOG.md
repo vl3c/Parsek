@@ -10,6 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: two lanes check the Timeline against the ledger and three storage formats
+  on live saves.** `ST-1-storage-timeline-ingame` boots the earned career and runs two new in-game
+  categories: `Timeline` checks that every effective-ledger action is exactly one Timeline row with
+  its own display text (or a route row, which the design leaves out), in time order; `Storage` checks
+  recording-id path validation on the save's real ids and that the readable `.prec.txt` mirrors are
+  removed with the setting off and rewritten faithfully with it on. `ST-2-rewind-point-quicksave`
+  splits a kerbal off an orbiting ship, which writes a rewind-point quicksave, and checks the file is
+  on disk under `Parsek/RewindPoints/`, loads as a save at the rewind point's time, and left no
+  temporary file behind.
 - **Automated testing: a GUI census lane photographs Parsek's annotations on the stock KSP screens.**
   `GUI-28-census-stock-screens` visits R&D, the Astronaut Complex (from the Space Center and from the
   VAB), Mission Control, Administration, the Tracking Station's right-click menu, the launch-site crew
@@ -129,6 +138,13 @@ _(unreleased — entries accumulate here per commit)_
   `REJECTED tab-hidden-in-game-mode` naming the mode, and `key=customRange` now opens the
   Time fold. `GUI-24-census-timeline-filters` photographs the Contracts, Milestones and
   Tech views on its host and Milestones under a This Year range.
+- **Automated testing: a lane checks two spawn-safety guards on a real spawn.**
+  `SS-1-spawn-safety-corrections` injects two recordings that end during a time warp. One
+  landed on the grass near the Space Center but its saved state still said "flying"; it
+  spawns after the warp with that state corrected to landed. The other ends in an orbit
+  that dips to 60 km, inside the 75 km safety margin over Kerbin's atmosphere; its spawn is
+  held while the orbit is low, and once the orbit climbs back out it is refused, because the
+  low point would still drag it down. Test-side only: a new `spawn-safety` injection preset.
 - **Automated testing: a lane watches a ghost wait past its end for a blocked spawn.**
   `EX-2-single-point-held-ghost` injects a one-point recording that ends in orbit on top of
   another loaded vessel. At the recording's end the spawn is blocked and, with only one
@@ -1041,6 +1057,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
+  Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
+  kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name
+  as its text and logged an "Unknown GameActionType" warning every time the Timeline rebuilt. It now
+  shows in the crew bucket, beside `Recovered: <name>`, naming the logged entries. Supply-route ledger
+  rows, which the Timeline design gives no row, are now skipped instead of taking the same fallback.
 - **A committed tech unlock now reaches the R&D tree when the Space Center clock passes it as
   the last committed event.** When the clock caught up with a committed research (for example
   after a rewind to before it) and that research was the last thing on the committed timeline,
