@@ -1128,6 +1128,16 @@ _(unreleased — entries accumulate here per commit)_
   save loads (applied as soon as the game has loaded its strategy list, a frame later),
   without charging or refunding anything again. Strategies activated before the save used
   Parsek are left alone.
+- **After a rewind, a strategy's committed expiry no longer records a second deactivation.**
+  With KSPCommunityFixes installed, stock strategies expire when their duration runs out.
+  After a rewind to before a committed expiry, the game expired the strategy again when the
+  clock passed that date, Parsek recorded a second deactivation of it (the Timeline showed
+  it twice), and every later recalculation warned that the strategy was not active. The
+  committed deactivation (an expiry, or a cancel you made) now switches the strategy off at
+  its committed date, before the game's own expiry check runs, so the game never expires it
+  a second time and nothing new is recorded. A strategy you activate again after that date,
+  and any expiry your committed timeline does not already have, expire and are recorded as
+  before.
 - **Mission Control: cancelling an active contract your committed timeline completes,
   fails or cancels later is now refused, and its Active-tab row says so.** Cancelling it
   used to charge the cancel penalty now and then either wipe out the later completion's

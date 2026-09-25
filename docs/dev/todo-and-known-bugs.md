@@ -113,7 +113,8 @@ pairing rule):
   (`S1_SecondActivationOfTheSameStrategy_OverwritesAndChargesSetupAgain_DocumentsHole`
   stands). The design doc's UT=0 claim is corrected. Not covered, filed separately:
   `STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW` (a KSPCF expiry that replays after a
-  rewind appends a second StrategyDeactivate row; predates PR 5).
+  rewind appends a second StrategyDeactivate row; predates PR 5; fixed 2026-09-25 by a
+  `Strategy.Update()` prefix, option c).
 - ~~C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
   accepts over a full Mission Control.~~
   Fixed by PR 4 (branch `stock-ui-slots`): `ContractSlotReservation.Forecast` (pure, next to
@@ -318,7 +319,7 @@ pairing rule):
 
 ---
 
-## STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW: a stock strategy expiry that replays after a rewind appends a second StrategyDeactivate row, and every later walk warns [FILED 2026-09-25 from the stock-UI strategies PR (PR 5, branch `stock-ui-strategies`); OPEN, low; predates PR 5; KSPCommunityFixes installs only]
+## ~~STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW: a stock strategy expiry that replays after a rewind appends a second StrategyDeactivate row, and every later walk warns~~ [FILED 2026-09-25 from the stock-UI strategies PR (PR 5, branch `stock-ui-strategies`); FIXED 2026-09-25, branch `strategy-expiry-replay`, option (c) chosen by the owner the same day; predates PR 5; KSPCommunityFixes installs only]
 
 **What happens.** Stock strategy auto-expiry exists only with KSPCommunityFixes'
 `StrategyDuration` fix (installed in the dev and harness instances; in pure stock both
@@ -351,13 +352,44 @@ T_exp, but deliberately never blocks the expiry (blocking `CanBeDeactivated` wou
 the expiry and re-post its message every frame), and its state patch never undoes an
 expiry.
 
-**Fix options (not chosen):** (a) at capture, recognise a deactivation the committed
+**Fix options considered:** (a) at capture, recognise a deactivation the committed
 timeline already made (the ledger has the strategy inactive at now after its latest
 activation) and log it instead of appending a row; (b) in the walk, log a deactivation of
 an already-inactive strategy at Verbose instead of Warn; (c) have the state patch switch the
 strategy off at the committed deactivation's UT before KSPCF's `Update` does. Option (a)
 changes what the ledger records and needs an owner ruling (the D4 / D5 "no silent dedupe"
 line was about player actions; an automatic replay may differ).
+
+**Fix (option c, owner ruling 2026-09-25).** The ledger stays append-only: nothing is
+deduped at capture and the walk is unchanged; the committed deactivation happens first, so
+stock never produces the duplicate event. The state patch cannot do it alone: it runs only
+on a recalculation, and a committed expiry row's UT is the frame UT at which stock expired
+it, so stock's per-frame `Strategy.Update()` reaches the expiry before (or in the same frame
+as) any recalculation. Decompiled (KSP 1.12.5): `StrategySystem.Update` calls
+`Strategy.Update()` on each active strategy every frame, and `Update` itself checks
+`dateActivated + LongestDuration <= Planetarium.fetch.time`, posts the expiry message and
+calls `Deactivate()`. KSPCF's `StrategyDuration` patches the two duration getters
+(prefixes), `CanBeDeactivated` and `SendStateMessage` (transpilers), never `Update`, so a
+Parsek prefix on `Strategy.Update()` (`StrategyUpdateExpiryPatch`, glue
+`StrategyExpiryGate`) runs before the expiry decision. Pure decision
+`StrategyReservationPredicates.DecideStockUpdate` over the strategy's committed rows
+(`StrategyCommittedRows`, built once per strategy per committed-future index instance by
+`CommittedFutureIndex.StrategyRows`, binary-searched per frame): when the latest
+committed row at or before now is a deactivation later than stock's activation date, the
+prefix switches the strategy off through the state patch's own no-charge, no-capture path
+(`StrategyStatePatcher.SwitchOffWithoutCapture`, under `SuppressionGuard.ResourcesAndReplay`),
+logs it at Info and skips stock's `Update`; this also applies a committed player cancel on
+time. When stock's expiry is due but the committed timeline still has the strategy on and
+its next committed row is a deactivation (a replay frame landing between stock's threshold
+and the original run's expiry frame), the expiry is held until that UT, running the rest
+of `Update` (`OnUpdate` and the effects, empty in stock). Anything else (a strategy the
+committed timeline never activated, a stock activation dated at or after the committed
+deactivation, a genuine expiry the committed timeline does not have) is stock's, captured
+as before. The hold and the state patch's FutureDeactivation read one predicate
+(`StrategyCommittedRows.NextRowIsDeactivation`), so the two cannot fight. Cells:
+`StrategyExpiryReplayTests.cs`. Residual: a strategy activated before the save used Parsek
+(no committed activation row) is left to stock by the unmanaged rule, so its replayed
+expiry is still recorded twice.
 
 Cross-reference: `STOCK-UI-RESERVATION-OVERLAYS-2026-09-25` (S1).
 
