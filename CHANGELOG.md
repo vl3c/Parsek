@@ -164,8 +164,9 @@ _(unreleased — entries accumulate here per commit)_
   itself is retired.
 - **Automated testing: a lane rewinds a mission while its loop is on.**
   `LF-2-loop-armed-rewind-first-run-real` turns the mission loop on first, runs three loops,
-  then rewinds to launch twice. The first rewind is reloaded into flight, where the first run's
-  vessel comes back in flight; the second lets the Space Center clock pass the recording's end,
+  then rewinds to launch twice. The first rewind is reloaded into flight and plays at normal
+  speed, so the first run's ghost is drawn, its vessel comes back at the end, and the first loop
+  copy follows; the second lets the Space Center clock pass the recording's end,
   and the vessel comes back exactly once and keeps its id through a reload and two more loops.
   Before the fix the same lane ended with no vessel at all. Like LF-1, it now records the
   runway rover rather than a vessel on the pad.
@@ -1200,6 +1201,15 @@ _(unreleased — entries accumulate here per commit)_
   is turned back into an ordinary quickload stash, so a later quicksave and quickload cannot
   put it back on the launched craft either. The same fix stops an F9 pressed right after a
   scene loads from being taken for a switch.
+- **A looped mission's first run is drawn again.** With a mission loop on, a Rewind to Launch
+  showed nothing for the whole first run: the loop's copies only start after the recorded flight
+  has ended, and until then the looped mission's vessels were simply skipped. The real vessel
+  appeared at the end, then the copies began. Now, until its first copy starts, a looped mission
+  plays exactly like one that does not loop, in flight, at the Space Center and in the Tracking
+  Station: its ghosts fly the first run, the map shows them, the watch camera can follow them,
+  and the flight's end brings the real vessel back through the ordinary spawn. The copies take
+  over from there with one ghost, not two. A loop turned on after the first run (the usual case)
+  is unchanged, and later loops stay ghost-only.
 - **A looping recording's first run is real again: its vessel comes back after a rewind even
   while the loop is on.** A looped mission (or a recording with its own loop toggle) replays
   on its loop clock, and that path never reached the spawn at the end of the recording. So a

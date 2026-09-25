@@ -23,6 +23,59 @@ namespace Parsek
         internal static bool SuppressLogging;
 
         /// <summary>
+        /// The per-frame unit set a scene publishes: <paramref name="built"/> minus every unit still
+        /// before its first loop instance (<see cref="GhostPlaybackLogic.LoopUnitSet.LiveAt"/>), so a
+        /// looped mission's first run plays as an ordinary recording until its anchor (operator
+        /// ruling 2026-09-24). Logs once per change of the published view (an anchor crossing, a
+        /// rewind back before one, or a rebuild), never per frame: the view is memoized, so an
+        /// unchanged frame returns the same reference as <paramref name="previousLive"/>.
+        /// </summary>
+        internal static GhostPlaybackLogic.LoopUnitSet ResolveLiveUnits(
+            string scene,
+            GhostPlaybackLogic.LoopUnitSet built,
+            GhostPlaybackLogic.LoopUnitSet previousLive,
+            double currentUT)
+        {
+            if (built == null)
+                built = GhostPlaybackLogic.LoopUnitSet.Empty;
+            GhostPlaybackLogic.LoopUnitSet live = built.LiveAt(currentUT);
+            if (ReferenceEquals(live, previousLive) || built.Count == 0)
+                return live;
+
+            int pending = built.Count - live.Count;
+            if (pending == 0 && (previousLive == null || previousLive.Count == live.Count))
+                return live;
+
+            var ic = CultureInfo.InvariantCulture;
+            var sb = new System.Text.StringBuilder();
+            sb.Append("Loop units live at UT=").Append(currentUT.ToString("F2", ic))
+              .Append(" scene=").Append(scene ?? "?")
+              .Append(": live=").Append(live.Count.ToString(ic))
+              .Append(" beforeFirstInstance=").Append(pending.ToString(ic));
+            if (pending > 0)
+            {
+                sb.Append(" [");
+                bool first = true;
+                foreach (var kv in built.UnitsByOwner)
+                {
+                    if (!GhostPlaybackLogic.IsLoopUnitBeforeFirstInstance(currentUT, kv.Value))
+                        continue;
+                    if (!first) sb.Append(", ");
+                    first = false;
+                    sb.Append("owner=#").Append(kv.Key.ToString(ic))
+                      .Append(" members=").Append((kv.Value.MemberIndices?.Length ?? 0).ToString(ic))
+                      .Append(" span=[").Append(kv.Value.SpanStartUT.ToString("F2", ic))
+                      .Append(',').Append(kv.Value.SpanEndUT.ToString("F2", ic))
+                      .Append("] anchor=").Append(kv.Value.PhaseAnchorUT.ToString("F2", ic));
+                }
+                sb.Append("] (first run plays as an ordinary recording until the anchor)");
+            }
+            if (!SuppressLogging)
+                ParsekLog.Info("MissionLoopFirstRun", sb.ToString());
+            return live;
+        }
+
+        /// <summary>
         /// Builds the LoopUnitSet for every looping Mission (one unit per Mission). Multiple Missions
         /// loop concurrently - at most one per tree (enforced by MissionStore), so their committed
         /// indices are disjoint and each Mission owns its own span clock. Returns
@@ -290,6 +343,9 @@ namespace Parsek
             //       so this is a no-op; it only bites a NaN anchor or a future-dated recording (e.g.
             //       after a career rewind, whose faithful window can otherwise fall before the launch),
             //       where it stops the loop from playing the mission before it ever actually flew.
+            //       Before the anchor the members are not loop-driven at all: every scene publishes
+            //       the LIVE view (ResolveLiveUnits / LoopUnitSet.LiveAt), which leaves this unit out,
+            //       so the first run renders and spawns as an ordinary recording.
             double firstPlayEndUT = spanEndUT;
             baseAnchorUT = Math.Max(baseAnchorUT, firstPlayEndUT);
 

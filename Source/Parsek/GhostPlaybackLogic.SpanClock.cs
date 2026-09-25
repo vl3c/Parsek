@@ -636,6 +636,98 @@ namespace Parsek
                 unit = default;
                 return false;
             }
+
+            // LiveAt memo: the owners of the units still before their first loop instance at the
+            // last call (in this set's own enumeration order, which is stable because the set is
+            // immutable) and the view built for them. The view only changes when the clock crosses
+            // an anchor, or a rewind moves it back before one.
+            private List<int> liveViewPendingOwners;
+            private LoopUnitSet liveView;
+
+            /// <summary>
+            /// The units that are LIVE at <paramref name="currentUT"/>: this set minus every unit
+            /// still before its first loop instance (<see cref="IsLoopUnitBeforeFirstInstance"/>).
+            /// Operator ruling 2026-09-24: the first run of a looped mission is the real flight and
+            /// plays as a normal ghost; the loop copies begin after it. Every scene publishes this
+            /// view as its per-frame unit set, so before the anchor a member is not loop-driven
+            /// anywhere (flight engine, KSC, Tracking Station, map presence, watch) and plays as an
+            /// ordinary recording, spawn and camera included; from the anchor on the unit owns it.
+            /// Returns this same instance when every unit has started (the steady state, no
+            /// allocation) and a memoized filtered set otherwise, rebuilt only when the pending
+            /// subset changes. Pure: no logging.
+            /// </summary>
+            internal LoopUnitSet LiveAt(double currentUT)
+            {
+                if (unitsByOwner.Count == 0)
+                    return this;
+
+                int pendingCount = 0;
+                bool sameAsMemo = liveViewPendingOwners != null;
+                foreach (var kv in unitsByOwner)
+                {
+                    if (!IsLoopUnitBeforeFirstInstance(currentUT, kv.Value))
+                        continue;
+                    if (sameAsMemo
+                        && (pendingCount >= liveViewPendingOwners.Count
+                            || liveViewPendingOwners[pendingCount] != kv.Key))
+                        sameAsMemo = false;
+                    pendingCount++;
+                }
+
+                if (pendingCount == 0)
+                    return this;
+                if (sameAsMemo && pendingCount == liveViewPendingOwners.Count)
+                    return liveView;
+
+                var pendingOwners = new List<int>(pendingCount);
+                var liveUnits = new Dictionary<int, LoopUnit>(unitsByOwner.Count);
+                foreach (var kv in unitsByOwner)
+                {
+                    if (IsLoopUnitBeforeFirstInstance(currentUT, kv.Value))
+                        pendingOwners.Add(kv.Key);
+                    else
+                        liveUnits.Add(kv.Key, kv.Value);
+                }
+                var liveOwnerByIndex = new Dictionary<int, int>(ownerByIndex.Count);
+                foreach (var kv in ownerByIndex)
+                {
+                    if (liveUnits.ContainsKey(kv.Value))
+                        liveOwnerByIndex.Add(kv.Key, kv.Value);
+                }
+
+                liveViewPendingOwners = pendingOwners;
+                liveView = new LoopUnitSet(liveUnits, liveOwnerByIndex);
+                return liveView;
+            }
+
+            /// <summary>
+            /// Number of units in this set still before their first loop instance at
+            /// <paramref name="currentUT"/> (the ones <see cref="LiveAt"/> leaves out). Pure.
+            /// </summary>
+            internal int CountBeforeFirstInstance(double currentUT)
+            {
+                int n = 0;
+                foreach (var kv in unitsByOwner)
+                    if (IsLoopUnitBeforeFirstInstance(currentUT, kv.Value))
+                        n++;
+                return n;
+            }
+        }
+
+        /// <summary>
+        /// True while a loop unit has not reached its first loop instance. The span clock starts
+        /// at <see cref="LoopUnit.PhaseAnchorUT"/> (the loop-enable UT floored at the span end, so
+        /// the first real play always completes first, or a schedule's first launch), so before it
+        /// no copy exists and the members' own first run is the only thing to render. A degenerate
+        /// span or an unset anchor never counts as pending (such a unit keeps its loop handling).
+        /// Pure.
+        /// </summary>
+        internal static bool IsLoopUnitBeforeFirstInstance(double currentUT, LoopUnit unit)
+        {
+            return unit.SpanEndUT > unit.SpanStartUT
+                && !double.IsNaN(unit.PhaseAnchorUT)
+                && !double.IsNaN(currentUT)
+                && currentUT < unit.PhaseAnchorUT;
         }
 
         /// <summary>

@@ -88,8 +88,10 @@ namespace Parsek
         // Built from the SAME MissionLoopUnitBuilder.Build the flight engine consumes, so a looped
         // Mission replays as one unit in the tracking station identically to flight. Empty
         // (LoopUnitSet.Empty) means no Mission loops, which keeps the feature dormant. Rebuilt only
-        // when the cheap signature changes (cachedLoopUnits + lastLoopUnitSignature), then assigned
-        // to currentLoopUnits every frame so the per-recording loop just reads the cached set.
+        // when the cheap signature changes (cachedLoopUnits + lastLoopUnitSignature); every frame
+        // currentLoopUnits takes its LIVE view (MissionLoopUnitBuilder.ResolveLiveUnits: a unit still
+        // before its first loop instance is left out, so its first run plays as an ordinary
+        // recording), and the per-recording loop just reads that.
         private GhostPlaybackLogic.LoopUnitSet currentLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
         private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
         private string lastLoopUnitSignature;
@@ -961,7 +963,8 @@ namespace Parsek
             // inside NotePlan. Instant no-op when the manifest env gate is unarmed.
             Parsek.MapRender.RenderCompositionRecorder.NotePlan(
                 "KSC", signature, cachedLoopUnits, committed, unioned);
-            currentLoopUnits = cachedLoopUnits;
+            currentLoopUnits = MissionLoopUnitBuilder.ResolveLiveUnits(
+                "KSC", cachedLoopUnits, currentLoopUnits, routeSelectUT);
         }
 
         /// <summary>
