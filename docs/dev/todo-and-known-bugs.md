@@ -15,6 +15,62 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show [FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`)]
+
+The first real-game look at the annotations: 25 PNGs on the committed `stock-screen-census`
+fixture, each capture logged with its decision records (`[StockUiOverlay] record label=...`)
+and the stock controls' state (`[StockUiOverlay] control label=... interactable=`). Present and
+correct: the R&D node tint, node tooltip and side-panel reason; both part tooltips' greyout
+reason with a dimmed Purchase; Mission Control's row labels and all three detail-panel
+headings with their reasons; both Administration reason lines; the Tracking Station Upgrade
+dimmed with its reason tooltip; `Reserved until Y1, D07, 00:08` on the held kerbal and the hold /
+hire reasons in the Astronaut Complex (KSC and VAB), the launch-site picker and the VAB crew
+panel; reserved kerbals greyed in both crew lists. The findings, none fixed here:
+
+1. **Disabled but not greyed.** R&D's Research (`state=research`) and `Purchase 1 Part`
+   (`state=purchase`), Mission Control's Accept / Decline (committed accept, slot block) and
+   Cancel (committed completion), and Administration's Accept / Cancel all read
+   `interactable=false` and look exactly like an enabled button: these stock buttons
+   (`UIStateButton` and the Mission Control `Button`s) draw no disabled state, so the reason
+   text beside them is the only visible cue. The facility menu's Upgrade and the part
+   tooltip's Purchase do render dimmed.
+2. **Future hire has no row mark.** The applicant `Verhat Kerman` (hired later) keeps stock's
+   trait line (`Engineer`) on its row; the `Hired on Y1, D04, 01:26` mark appears only in the
+   hover tooltip. The record says `kind=KerbalHire marked=true`.
+3. **Stand-in dismissal block without a record text.** The active stand-ins (Jeb's `Debwig`,
+   Bill's generated stand-in) read `blocked=true kind=None why=""` in the decoration query,
+   while their drawn tooltip carries `Managed by Parsek - This kerbal is a stand-in in a
+   reserved kerbal's replacement chain.` and their row keeps stock's `Available for next
+   mission`. The screen explains the block; the decision the pass logs (and a mirror's pairing
+   check reads) does not.
+4. **Facility tooltip is one unwrapped line.** The Upgrade tooltip draws the whole reason on a
+   single ~1170 px line that starts far left of the menu (the Parsek-added
+   `TooltipController_Text` with a copied prefab has no width constraint).
+5. **Mission Control row labels are clipped** by the row's three-line limit: `... on your
+   committed time...` (Available) and `... on your committ...` (Active). The date survives.
+6. **The C2 slot reason names a shared title.** `Your committed timeline accepts the contract
+   'Conduct a focused observational survey of Kerbin.'` - three Offered rows carry that title
+   (different agents), so only the row label says which one.
+7. **Strategy reason over a full stock slot.** With Administration at 1 of 1 active strategy
+   (stock itself refuses every activation now), Parsek's `CanBeActivated` postfix still writes
+   its future-slot reason (`A committed activation of 'Outsourced R&D' on Y1, D08, 02:26 needs
+   this slot`) over stock's own on all ten inactive strategies. Section 4 S1 says an overflow at
+   now is stock's own check; whether the Parsek reason should then stand aside is for the
+   overlay program to rule.
+
+Two kerbal-side readings the same captures show, outside the overlay code:
+
+8. **A hold the fixture's own history already ended.** Jeb reads `Reserved` with no date and
+   `Free once 'Jumping Flea' is recovered.` - but that vessel WAS recovered (UT 348.08:
+   recovery funds and `FirstCrewToSurvive`). The base career (`C2CareerPostFix`, harvested
+   2026-08-20) predates the `KerbalRecovered` row, so no recovery closure ends his Aboard hold.
+   Every host derived from it (`career-earned-ksc`, `career-earned-pad`, this fixture) carries it.
+9. **A stand-in hired over the Astronaut Complex cap.** Bill's hold creates a stand-in and the
+   complex reads `Active Kerbals: 6 [Max: 5]` (orange) at level 1.
+
+Harness note, not a finding: the kRPC server window (provisioned `mainWindowVisible = True`)
+covers the top-left of every census capture, including the VAB part list.
+
 ## STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing [FILED 2026-09-25 from the stock-UI reservation analysis. OPEN; owner rulings taken 2026-09-25 (D1, D2, D4, D5, D7, S1 ruled; D3, D6 out of scope); section 12 claims verified by unit cells]
 
 **Reference:** `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` is the single

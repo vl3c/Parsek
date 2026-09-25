@@ -10,6 +10,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a GUI census lane photographs Parsek's annotations on the stock KSP screens.**
+  `GUI-28-census-stock-screens` visits R&D, the Astronaut Complex (from the Space Center and from the
+  VAB), Mission Control, Administration, the Tracking Station's right-click menu, the launch-site crew
+  picker, the VAB part list and its crew panel, and photographs each greyed control and stock tooltip. Its
+  host is a new committed fixture, `stock-screen-census`: a rewound career whose committed timeline
+  researches a node, accepts an offered contract, completes an active one, hires an applicant, holds a
+  kerbal on a future flight, upgrades a building, buys a part and swaps strategies after the clock (built
+  by a test, never hand-edited). A new automation-only test command, `StockScreen`, opens those screens
+  through their own buildings, selects rows and hovers controls without pressing anything, and every
+  screenshot now also logs what Parsek decided for each stock screen open at that moment.
 - **Dev: the GUI mirror says when a shown capture is not current.** A superseded, retired, old-layout or no-hover capture opened from a link or as a Compare BEFORE now carries a banner naming the run that is current, with a button to show it (`harness/tools/gui_mirror.py`).
 - **Automated testing: a lane loops a recorded mission and watches its copies relaunch, overlap and expire.**
   `GS-12-kerbalx-loop-cycles` flies GS-4's Kerbal X flight, rewinds and watches the first run, then loops

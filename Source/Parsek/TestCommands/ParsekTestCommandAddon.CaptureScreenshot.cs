@@ -212,6 +212,10 @@ namespace Parsek.TestCommands
                 + $"bytes={bytes.ToString(CultureInfo.InvariantCulture)} "
                 + $"superSize={Int(superSize)} overwrote={Bool(overwrote)} "
                 + $"elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+            // The decoration records of every STOCK screen open in this frame, beside the
+            // photograph (StockScreenRecords; one "screens=none" line when none is open), so
+            // a mirror can show what Parsek decided for the stock controls it annotates.
+            StockScreenRecords.LogForCapture(label);
             EmitExecutedTerminal(id, seq, verb, "OK",
                 TestCommandCaptureScreenshot.BuildPayload(label, bytes, superSize, overwrote),
                 null, dequeueHead: true);

@@ -252,6 +252,12 @@ namespace Parsek.TestCommands
         // not pin it as ASCII.)
         void GloopsStart(ParsedCommand cmd);
         void GloopsStop(ParsedCommand cmd);
+
+        // ----- StockScreen (the GUI census of Parsek's annotations on STOCK screens) -----
+        // Opens, selects on and hovers the stock KSP screens (R&D, Astronaut Complex,
+        // Mission Control, Administration, a facility menu, the launch-site picker, the
+        // VAB and its crew panel) through their own entry points; changes no career state.
+        void StockScreen(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -465,6 +471,11 @@ namespace Parsek.TestCommands
                 // read-back of an EXISTING Gloops guard's decision, never a new rule.
                 ["GloopsStart"] = VerbSceneRequirement.RequiresFlight,
                 ["GloopsStop"] = VerbSceneRequirement.RequiresFlight,
+                // StockScreen. RequiresGameLoaded, the UiAction row: the stock screens it
+                // drives live at the Space Center AND in the VAB, so RequiresFlight would
+                // defer every call to its budget. Which scene each (screen, act) needs is
+                // the verb's own typed REJECTED (stockscreen-wrong-scene), not a defer.
+                ["StockScreen"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
