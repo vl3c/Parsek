@@ -536,13 +536,15 @@ and six floor cells plus margins and chrome are 608 px.
 
 Filter area (2026-09-24, `DrawFilterBar` + `DrawTimeRangeFilterBar`). Row 1 is the
 one-at-a-time view group `Overview` / `Details` / `Rewind/FF` / `Re-Fly` / `Career` (four in
-Sandbox). Every filter button has the grid cell's width and every row is left-aligned, so a
+Sandbox) followed by the `Archived` filter as the last cell (owner ruling 2026-09-25: it
+applies in every view, so it is not a context control). Every filter button has the grid cell's width and every row is left-aligned, so a
 row of fewer than six buttons leaves its unused cells empty on the right (room for later
 filters; owner ruling 2026-09-25) rather than stretching. Row 2 is the
 selected view's context row, always drawn and always one button tall so the list never moves
-(`ResolveContextRow`): the source toggles `Recordings` / `Actions` / `Events` plus `Archived`
-under Overview and Details; `Archived` alone under Rewind/FF and Re-Fly (the sources are
-forced or inert there, so they are hidden rather than greyed); the category buttons
+(`ResolveContextRow`): the source toggles `Recordings` / `Actions` / `Events` under Overview
+and Details; an EMPTY button-high row under Rewind/FF and Re-Fly (the sources are forced or
+inert there, so they are hidden rather than greyed; `GUILayoutUtility.GetRect` reserves the
+height); the category buttons
 `Contracts` / `Strategies` / `Facilities` / `Milestones` / `Tech` under Career (single-select;
 `Career` reopens the last one used). The Career cell and the category set read the GAME mode,
 never the UI complexity mode: Career mode draws all five, Science draws Facilities /
@@ -633,9 +635,17 @@ comes from `WarpToTimeMath.DecideWarpPlan` (`:547`) and the confirmation is a st
 the next Space Center arrival (`WarpToTimeController.cs:133-143`) so the scene-exit merge
 dialog handles the live recording first.
 
-The `Archived` toggle (`:876`) writes the INVERSE of `GroupHierarchyStore.HideActive`, the same
-single flag the Recordings tab's Archive header checkbox writes - and because that tab is
-Basic-hidden, this toggle is **the only archive control a Basic player can reach** (`:870-874`).
+The `Archived` toggle (`DrawArchivedToggle`, row 1) writes the INVERSE of
+`GroupHierarchyStore.HideActive`, the same single flag the Recordings tab's Archive header
+checkbox writes - and because that tab is Basic-hidden, this toggle is **the only archive
+control a Basic player can reach**. What it governs: whether recordings with
+`Recording.Hidden` set (the recordings list's per-row and per-group Archive boxes) contribute
+their flight rows (launch, separation, spawn, crew death), each marked `[archived]`
+(`TimelineBuilder.CollectRecordingEntries`). It is in force in every view; the Career views
+list ledger rows only, which archiving never hides, so there it changes nothing. The Missions
+window's own Archive box (`Mission.Archived` / `MissionStore.HideArchived`) is a different
+flag and does not reach the Timeline. Hover: "Lists archived flights, marked [archived], in
+all views. Same switch as the recordings list's Archive filter."
 
 Career-view pictures (GUI-24 `2026-09-23_2134`): `ksc-timeline-contracts-advanced`,
 `ksc-timeline-milestones-advanced`, `ksc-timeline-tech-advanced` and
@@ -696,6 +706,14 @@ gone (a retiree with no slot is now an ordinary row); the Flights tab's row unit
 MISSION rather than the recorded segment; and `DefaultWindowWidth` went 410 -> 760 with
 `MinWindowWidth` 280 -> 700 (the arithmetic for both is in that document's section 5).
 
+Body text alignment (2026-09-25): every body cell of both tables - the tinted status labels,
+the Roster `Last flight` cell and the Flights row cells (label-styled buttons), and the fold
+rows inside the bodies (the plain-kerbals fold and each Flights group) - draws with a style
+built on `ParsekUI.GetTableCellStyle()`, so body text starts at its header's text x. The
+2026-09-25 census measured the Roster header text at x=289 and the body text at x=285 before
+this. Gated by `TableRowInsetAlignmentTests.TintedTableRowsDrawEveryCellWithACellStyleBuiltOnTheSharedOne`
+and `...TintedTableBodyFoldAndEmptyLinesUseTheSharedCellStyle`.
+
 ---
 
 *The 2026-09-11 measurement of the pre-rebuild window follows.*
@@ -755,20 +773,26 @@ collapsed to ONE heading and ONE header:
 - the heading line, free first, then active, then reserved (bold, `FormatSlotHeading`
   over `SlotUsage`; 2026-09-25): `4 of 7 slots free (2 active, 1 reserved for later)`,
   `5 of 7 slots free (2 active)` with no reservation, `No slot limit (2 active)` at Mission
-  Control L3 (999), `1 of 1 slot free` singular. Reserved = the PEAK the recorded future holds
-  at once minus what is active now (`ComputeSlotUsage` walks the post-snapshot accept /
-  complete / fail / cancel / expiry / activate / deactivate / upgrade changes in UT order,
-  releases before occupies on one tick; a later upgrade counts against today's limit), so a
-  completion on day 50 and a flight's accept on day 60 share one slot. Its hover
+  Control L3 (999), `1 of 1 slot free` singular. CONTRACTS (2026-09-25) read the shared
+  Mission Control slot forecast (`ContractSlotReservation`, PR #1824 - the query that also
+  refuses a slot-starving accept at Mission Control): `ForecastNow()` over stock's live
+  contracts and limit when stock's contract state is readable, else the pure `Forecast`
+  over the window's own ledger rows (`ForecastContractSlotsFromLedger`: holders with accept
+  UT and deadline); `SlotUsageFromForecast` maps it (free clamped at 0; peak against today's
+  limit = limit - raw free; reserved = that peak - active). Deadlines release a slot at the
+  deadline, a committed Mission Control upgrade adds its slots at its UT, and stock
+  auto-accept contracts hold no slot (stock's `GetActiveContractCount` skips them), so the
+  heading's active count can be below the number of rows listed. STRATEGIES keep this
+  window's own walk (`ComputeSlotUsage` over activate / deactivate / Administration upgrade
+  changes in UT order, releases before occupies on one tick; a later upgrade counts against
+  today's limit). Either way a slot freed on day 50 and a flight's accept on day 60 share one
+  slot. Its hover
   (`FormatSlotHeadingTooltip`) with a reservation: `Contracts your recorded flights accept
   later need 1 more slot at peak, so only 4 are free for a new one.` (Strategies: `activate
   later`); without one it names the building behind the limit (`Slot limit from Mission
-  Control L1.`, plus `(L2 at timeline end)`; `No slot limit at Mission Control L3.`). The
-  count is Parsek's ledger view only: stock Mission Control / Administration count what is
-  active now, and no Parsek block stops an accept or activation beyond it (the only accept
-  block, `ContractAcceptPatch`, refuses a contract already committed later). The
-  stock-UI-overlay work's shared "free slots for a new accept now" query is meant to replace
-  `ComputeSlotUsage` here when it lands;
+  Control L1.`, plus `(L2 at timeline end)`; `No slot limit at Mission Control L3.`).
+  Administration's own slot refusal (`StrategyReservationPredicates.EvaluateActivation`) is a
+  per-strategy decision with no shared count, so the strategies heading keeps its own walk;
 - ONE column header;
 - one body box holding the rows active now and, only when the recorded timeline adds rows,
   a full-width fold row `Accepted later by your recorded flights (1)` / `Activated later by
@@ -799,6 +823,12 @@ no row expires at the deadline too, as `ContractsModule.CheckDeadlines` does. `D
 one marker; amber is kept for cells that need attention. Fold keys `Contracts.Pending` /
 `Strategies.Pending`; seam wire values `pending:contracts` / `pending:strategies`.
 
+Body text alignment (2026-09-25): every body cell - the plain and amber labels, the grey
+`No active contracts.` line inside the body, and the label-styled name-link buttons - draws
+with a style built on `ParsekUI.GetTableCellStyle()` (the boxed column header's horizontal
+padding), so its text starts at its header's text x (was 4 px left). Gated by
+`TableRowInsetAlignmentTests.TintedTableRowsDrawEveryCellWithACellStyleBuiltOnTheSharedOne`.
+
 The name cell is a label-styled button (the Kerbals `Last flight` pattern): clicking it calls
 `TimelineWindowUI.ScrollToCareerSubject(Contracts|Strategies, id)` with the ledger contract id
 / strategy id, which is exactly the `CareerSubjectId` the Timeline stamps on that subject's
@@ -813,7 +843,7 @@ read only for the Mission Control and Administration levels. Before each action 
 every active contract whose deadline has passed by that action's UT (dated at the deadline),
 mirroring `ContractsModule.ProcessAction`. The rebuild's Verbose line carries
 `contractsExpired=` and `contractSlots=` / `strategySlots=`
-(`active=/limit=/peak=/reserved=/free=`). Every cell's text is formatted
+(`active=/limit=/peak=/reserved=/free=`; the contract one ends `/source=live|ledger|none`). Every cell's text is formatted
 once per rebuild, and the rebuild runs once per game minute, or once per second while a
 deadline is within two minutes of now.
 
@@ -823,6 +853,12 @@ with it), the milestone list (it kept only each id's first credit, so repeat wor
 never showed; the Timeline's Milestones view shows every credit), their seven gallery
 states, and the Science-mode tab subsets.
 
+Pictures of the shared-forecast heading and the cell-text alignment (2026-09-25, PR #1834):
+GUI-15 `2026-09-25_2021`, GUI-5 `_2023`. The GUI-15 host's stock `CONTRACTS` node is empty
+(its two contracts exist only in the ledger), so the LIVE forecast reads `2 of 2 slots free
+(0 active)` over its two rows (`contractSlots=.../source=live`), which is what Mission
+Control would allow on that save; the gallery mock captures read the ledger fallback
+(`source=ledger`) and keep `3 of 7 slots free (3 active, 1 reserved for later)`.
 Pictures of the slots / expiry wording (2026-09-25): GUI-15 `2026-09-25_1718` (`cc-career-contracts-pendingfold-advanced`: `3 of 7 slots free (3 active, 1 reserved for later)` over `Accepted later by your recorded flights (2)`; `cc-career-contracts-closing-advanced`: `completes` / `FAILS` / `expires` / `cancelled`; `cc-career-strategies-pendingfold-advanced`: `0 of 3 slots free (2 active, 1 reserved for later)` over `Activated later by your recorded flights (1)`), GUI-5 `2026-09-25_1722_a2` (`0 of 1 slot free (1 active)` over Outsourced R&D). Earlier pictures, with the old wording (2026-09-24 re-flights): GUI-15 `2026-09-24_1528`
 `cc-career-contracts-active-advanced` (`Active now: 2 of 2 slots`, two rows),
 `cc-career-contracts-pendingfold-advanced` (the fold over the gallery's

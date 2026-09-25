@@ -136,10 +136,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Predicate_ZeroCostRowCapturedUnderBypass_ReservesNothing()
+        public void Predicate_ZeroCostRow_BlocksLikeAPaidOne_AndStaysInertUnderBypass()
         {
+            // A zero-cost row with bypass off is an identical part stock bought free with a
+            // paid sibling: the timeline acquires it at that UT, so buying it now would pay
+            // an entry cost the timeline never pays.
             var index = Index(Purchase(500, Pod, 0f));
-            Assert.False(StockUiReservationPredicates.IsPartPurchaseBlocked(index, Pod, 100, false, false));
+            Assert.True(StockUiReservationPredicates.IsPartPurchaseBlocked(index, Pod, 100, false, false));
+            Assert.False(StockUiReservationPredicates.IsPartPurchaseBlocked(index, Pod, 500, false, false));
+            Assert.False(StockUiReservationPredicates.IsPartPurchaseBlocked(index, Pod, 100, true, false));
+        }
+
+        [Fact]
+        public void IdenticalPurchase_FromCapture_ChargesOnce_PatchesBoth_BlocksBoth()
+        {
+            // One editor / R&D purchase of mk1pod.v2 whose identicalParts names mk1pod:
+            // stock fires the paid part, then the identical one with costsFunds false.
+            const string Identical = "mk1pod";
+            var rows = new[]
+            {
+                GameStateEventConverter.ConvertEvent(
+                    GameStateRecorder.CreatePartPurchasedEvent(Pod, 1600f, false, 500, 48400), null),
+                GameStateEventConverter.ConvertEvent(
+                    GameStateRecorder.CreatePartPurchasedEvent(Identical, 1600f, false, 500, 48400,
+                        costsFunds: false), null)
+            };
+
+            // Funds: the one entry cost stock deducted.
+            Assert.Equal(1600f, rows.Sum(r => r.FundsSpent));
+
+            // State: both parts were purchased in stock, so both are re-applied at the UT.
+            Assert.Equal(new[] { Identical, Pod }.OrderBy(n => n, StringComparer.Ordinal),
+                KspStatePatcher.BuildPurchasedPartNamesForPatch(rows, 500).OrderBy(n => n, StringComparer.Ordinal));
+
+            // Block: before the UT neither can be bought now; at it both lift.
+            var index = Index(rows);
+            Assert.True(StockUiReservationPredicates.IsPartPurchaseBlocked(index, Pod, 100, false, false));
+            Assert.True(StockUiReservationPredicates.IsPartPurchaseBlocked(index, Identical, 100, false, false));
+            Assert.False(StockUiReservationPredicates.IsPartPurchaseBlocked(index, Identical, 500, false, false));
         }
 
         [Fact]
@@ -325,7 +359,8 @@ namespace Parsek.Tests
                 Purchase(301, Free, 100f),
                 Purchase(50, "", 10f),
                 build,
-                // A zero-cost row (captured under bypass) still means the purchase happened.
+                // A zero-cost row (captured under bypass, or an identical part bought free)
+                // still means the purchase happened.
                 Purchase(20, "zeroCost", 0f)
             };
 

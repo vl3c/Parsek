@@ -97,7 +97,10 @@ namespace Parsek
     /// stock) goes through <c>Strategy.Deactivate()</c> gated on <c>CanBeDeactivated</c>,
     /// which Parsek does not patch. The deactivation refusal is wired only to the
     /// Administration player path, so an expiry still deactivates and is captured as a
-    /// StrategyDeactivate row like any other deactivation.</para>
+    /// StrategyDeactivate row like any other deactivation. The one exception is an expiry
+    /// the committed timeline already made (a replay after a rewind):
+    /// <see cref="DecideStockUpdate"/> lets the <c>Strategy.Update()</c> prefix apply the
+    /// committed deactivation first, so stock never expires it a second time.</para>
     /// </summary>
     internal static class StrategyReservationPredicates
     {
@@ -388,6 +391,205 @@ namespace Parsek
                 s += " count=" + decision.CountAtOverflow.ToString(ic)
                      + " limit=" + decision.LimitAtOverflow.ToString(ic);
             return s;
+        }
+
+        /// <summary>
+        /// What the <c>Strategy.Update()</c> prefix does with one stock-active strategy this
+        /// frame (todo STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW, option c). Pure.
+        ///
+        /// <para>With KSPCommunityFixes' StrategyDuration fix, stock <c>Strategy.Update()</c>
+        /// calls <c>Deactivate()</c> on the first frame with
+        /// <c>DateActivated + LongestDuration &lt;= now</c>, and the capture postfix records
+        /// it. After a rewind the loaded save has the strategy active with its original
+        /// activation date, so that expiry would replay and record a second deactivation of
+        /// a strategy the committed timeline already switches off. This decision lets the
+        /// committed timeline act first, so stock never produces the duplicate:</para>
+        /// <list type="number">
+        /// <item><see cref="StrategyStockUpdateAction.ApplyCommittedDeactivation"/>: the
+        /// latest committed row at or before now is a deactivation (so it comes after the
+        /// latest committed activation), and it is later than stock's own activation date.
+        /// The caller switches the strategy off without a capture and skips stock's Update.
+        /// This also applies a committed player deactivation on time.</item>
+        /// <item><see cref="StrategyStockUpdateAction.HoldExpiryUntilCommittedDeactivation"/>:
+        /// the committed timeline has the strategy on at now, stock's expiry is due, and the
+        /// strategy's next committed row is a deactivation. A committed expiry row carries
+        /// the frame UT at which the original run expired it, which is at or after stock's
+        /// threshold, and a replayed run's frames fall at other UTs; without the hold the
+        /// replay could expire it a frame early and still record the duplicate. The caller
+        /// skips stock's expiry until the committed UT, where case 1 applies.</item>
+        /// <item><see cref="StrategyStockUpdateAction.RunStock"/> otherwise: a strategy the
+        /// committed timeline never activated (unmanaged), a stock activation dated at or
+        /// after the committed deactivation (a newer activation the committed timeline does
+        /// not end), or a committed timeline that keeps it on with no committed deactivation
+        /// next (a genuine expiry in the new timeline, captured as before).</item>
+        /// </list>
+        /// A committed activation and deactivation at the same UT read deactivation first
+        /// (as <see cref="FirstFutureRow"/> does), so the state after the tie is on, and a
+        /// stock activation dated at the deactivation's UT is never switched off: an
+        /// ambiguous case leaves the strategy on.
+        /// </summary>
+        internal static StrategyStockUpdateDecision DecideStockUpdate(
+            StrategyCommittedRows rows,
+            bool stockActive,
+            double stockDateActivated,
+            bool stockExpiryDue,
+            double nowUT)
+        {
+            if (!stockActive)
+                return StrategyStockUpdateDecision.Run("not-active");
+            if (rows == null || !rows.HasActivation)
+                return StrategyStockUpdateDecision.Run("unmanaged");
+
+            int last = rows.LastAtOrBefore(nowUT);
+            if (last >= 0 && !rows.IsActivation(last))
+            {
+                double offUT = rows.UTAt(last);
+                if (offUT > stockDateActivated)
+                {
+                    return new StrategyStockUpdateDecision
+                    {
+                        Action = StrategyStockUpdateAction.ApplyCommittedDeactivation,
+                        CommittedUT = offUT,
+                        Reason = "committed-off"
+                    };
+                }
+                return StrategyStockUpdateDecision.Run("activated-after-committed-off");
+            }
+
+            if (!stockExpiryDue)
+                return StrategyStockUpdateDecision.Run("committed-on");
+            if (last < 0)
+                return StrategyStockUpdateDecision.Run("no-committed-activation-at-now");
+
+            int next = rows.FirstAfter(nowUT);
+            if (next < 0)
+                return StrategyStockUpdateDecision.Run("no-committed-row-ahead");
+            if (rows.IsActivation(next))
+                return StrategyStockUpdateDecision.Run("committed-activation-ahead");
+            return new StrategyStockUpdateDecision
+            {
+                Action = StrategyStockUpdateAction.HoldExpiryUntilCommittedDeactivation,
+                CommittedUT = rows.UTAt(next),
+                Reason = "held-for-committed-deactivation"
+            };
+        }
+    }
+
+    /// <summary>What the <c>Strategy.Update()</c> prefix does this frame.</summary>
+    internal enum StrategyStockUpdateAction
+    {
+        /// <summary>Stock's Update runs (a genuine expiry included, captured as before).</summary>
+        RunStock,
+        /// <summary>The committed timeline has the strategy off at now: switch it off
+        /// without a capture and skip stock's Update.</summary>
+        ApplyCommittedDeactivation,
+        /// <summary>Stock's expiry is due but the committed deactivation is still ahead:
+        /// skip the expiry until the committed UT.</summary>
+        HoldExpiryUntilCommittedDeactivation
+    }
+
+    /// <summary>The prefix decision, the committed row behind it and a log reason.</summary>
+    internal struct StrategyStockUpdateDecision
+    {
+        internal StrategyStockUpdateAction Action;
+        /// <summary>The committed deactivation's UT (applied or awaited); NaN for RunStock.</summary>
+        internal double CommittedUT;
+        internal string Reason;
+
+        internal static StrategyStockUpdateDecision Run(string reason)
+        {
+            return new StrategyStockUpdateDecision
+            {
+                Action = StrategyStockUpdateAction.RunStock,
+                CommittedUT = double.NaN,
+                Reason = reason
+            };
+        }
+    }
+
+    /// <summary>
+    /// One strategy's committed StrategyActivate / StrategyDeactivate UTs, ascending, a
+    /// deactivation before an activation at the same UT (the order
+    /// <c>StrategyReservationPredicates.FirstFutureRow</c> reads). Built once per strategy
+    /// per committed-future index instance (<c>CommittedFutureIndex.StrategyRows</c>), so a
+    /// new index (a ledger change) brings new rows; the per-frame reads are binary searches.
+    /// Deliberately references no ledger or index type: it is plain data.
+    /// </summary>
+    internal sealed class StrategyCommittedRows
+    {
+        private readonly double[] uts;
+        private readonly bool[] activation;
+
+        /// <summary>True when the committed timeline activates the strategy at least once
+        /// (the prefix leaves a strategy it never activated alone).</summary>
+        internal bool HasActivation { get; }
+        internal int Count => uts.Length;
+
+        internal StrategyCommittedRows(IEnumerable<double> activationUTs, IEnumerable<double> deactivationUTs)
+        {
+            var rows = new List<KeyValuePair<double, bool>>();
+            if (activationUTs != null)
+                foreach (double ut in activationUTs) rows.Add(new KeyValuePair<double, bool>(ut, true));
+            if (deactivationUTs != null)
+                foreach (double ut in deactivationUTs) rows.Add(new KeyValuePair<double, bool>(ut, false));
+            // UT ascending, deactivation (false) before activation (true) at a tie.
+            rows.Sort((a, b) =>
+            {
+                int c = a.Key.CompareTo(b.Key);
+                return c != 0 ? c : a.Value.CompareTo(b.Value);
+            });
+            uts = new double[rows.Count];
+            activation = new bool[rows.Count];
+            bool any = false;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                uts[i] = rows[i].Key;
+                activation[i] = rows[i].Value;
+                any |= rows[i].Value;
+            }
+            HasActivation = any;
+        }
+
+        internal double UTAt(int i) => uts[i];
+        internal bool IsActivation(int i) => activation[i];
+
+        /// <summary>The index of the first row still ahead of <paramref name="nowUT"/>, or
+        /// <see cref="Count"/> when none. A row is ahead when its UT is strictly greater than
+        /// now: the boundary of <c>CommittedFutureIndex.IsFuture</c>, restated here so this
+        /// data type stays free of the index (a cell pins the two agree).</summary>
+        private int InsertionPoint(double nowUT)
+        {
+            int lo = 0, hi = uts.Length;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (uts[mid] > nowUT) hi = mid;
+                else lo = mid + 1;
+            }
+            return lo;
+        }
+
+        /// <summary>The last row at or before <paramref name="nowUT"/>, or -1.</summary>
+        internal int LastAtOrBefore(double nowUT)
+        {
+            return InsertionPoint(nowUT) - 1;
+        }
+
+        /// <summary>The first row still ahead of <paramref name="nowUT"/>, or -1.</summary>
+        internal int FirstAfter(double nowUT)
+        {
+            int i = InsertionPoint(nowUT);
+            return i < uts.Length ? i : -1;
+        }
+
+        /// <summary>True when the first committed row still ahead of
+        /// <paramref name="nowUT"/> is a deactivation: the committed timeline keeps the
+        /// strategy on until then. The state patch's FutureDeactivation and the
+        /// <c>Strategy.Update()</c> prefix's hold read this one predicate.</summary>
+        internal bool NextRowIsDeactivation(double nowUT)
+        {
+            int next = FirstAfter(nowUT);
+            return next >= 0 && !activation[next];
         }
     }
 }
