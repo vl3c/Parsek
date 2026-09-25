@@ -64,6 +64,16 @@ id = "LF-2-loop-armed-rewind-first-run-real"
 # The loop seams remain the fallback for a clock that jumps straight past the anchor (xUnit
 # `LoopFirstRunVisibleTests` / `LoopFirstRunSpawnTests`); two new forbidden tokens keep
 # them off both rewinds here.
+# LIVE-PROVEN 2026-09-25 (branch `loop-first-run-visible`): reading `2026-09-25_1710`
+# (DLL sha256 `70f4f585...`, PARSEK-FAIL on exactly the interim first-run token, re-cut:
+# ghostlife's playbackUT equals currentUT for unit members too, and the completion reads
+# ghostWasActive=False because of the asteroid focus, see the token comment); armed
+# `2026-09-25_1727` PASS attempt 1 on the review fix-up DLL `d3e13f0c...` (commit
+# `3a80ffedb`); negative control `2026-09-25_1733` on the pre-fix DLL `de61d103...` (base
+# `3c11b4ca2`): PARSEK-FAIL on exactly the four new tokens (both first-run required tokens,
+# and both forbidden loop-seam tokens, since the pre-fix build spawned both first runs
+# through the seams). LF-1 re-flown green on `d3e13f0c...` as the loop-armed-after mirror
+# (`2026-09-25_1731`).
 # Each rewind strips the vessel (`pid-0 spawned-false`) and re-arms exactly one attempt;
 # rewind #2's save predates both spawns, so the census reads exactly ONE rover at the end
 # (plus the untouched pad Rig of the fixture). The single-spawn guard is per leg: none
@@ -78,7 +88,7 @@ id = "LF-2-loop-armed-rewind-first-run-real"
 # mid-session (MISSIONCONFIG-UNKNOWN-TREE-AFTER-MID-SESSION-COMMIT; GUI-17's sequence).
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "D18 loop-first-run-is-real, full scope: the mission loop armed BEFORE the rewind. In-run subject on pad-runway-pair's runway rover (rover fuel 0, 59.7 m from the runway threshold, outside the KSC exclusion zone that now retires a flight ending there), focused through a Space Center save + reload (StartRecording, StopRecording, CommitTree), arm the loop through the Missions window, three StartLoopPlayback cycles, loop-armed Rewind-to-Launch #1 reloaded into FLIGHT before EndUT (the flight engine seam fires and materializes the first run in flight), loop-armed Rewind-to-Launch #2 re-spawns the vessel once at the Space Center (the KSC seam), then a reload and two more cycles; the produced save must hold exactly one real rover behind the spawn. MOVED off the logi-cargo-pad pad probe 2026-09-23 by the KSC retirement ruling; LIVE-PROVEN on the rover by reading 2026-09-23_1814."
+description = "D18 loop-first-run-is-real, full scope: the mission loop armed BEFORE the rewind. In-run subject on pad-runway-pair's runway rover (rover fuel 0, 59.7 m from the runway threshold, outside the KSC exclusion zone that now retires a flight ending there), focused through a Space Center save + reload (StartRecording, StopRecording, CommitTree), arm the loop through the Missions window, three StartLoopPlayback cycles, loop-armed Rewind-to-Launch #1 reloaded into FLIGHT before EndUT, where 1x time plays the first run as an ordinary ghost (the loop unit is not live before its anchor), its ordinary completion re-spawns the rover and the first loop copy follows at the anchor, loop-armed Rewind-to-Launch #2 re-spawns the vessel once at the Space Center through the ordinary spawn, then a reload and two more cycles; the produced save must hold exactly one real rover behind the spawn. MOVED off the logi-cargo-pad pad probe 2026-09-23 by the KSC retirement ruling; LIVE-PROVEN on the rover by reading 2026-09-23_1814."
 instanceProfile = "stock-minimal"
 tags = ["LF-2", "D18", "loop-playback", "rewind-to-launch", "spawn", "first-run-is-real",
         "R10", "runtime-handles"]
