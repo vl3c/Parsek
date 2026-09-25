@@ -23,6 +23,8 @@ $injectFilterByPreset = @{
     "pending-limbo-tree"    = "InjectPendingLimboTree"
     "relative-loop"         = "InjectRelativeLoopAnchor"
     "single-point-hold"     = "InjectSinglePointHold"
+    "spawn-control-target"  = "InjectSpawnControlTarget"
+    "drill-harvest-route"   = "InjectDrillHarvestRoute"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -38,6 +40,8 @@ $defaultSaveByPreset = @{
     "pending-limbo-tree"    = "pending-limbo-tree-fixture"
     "relative-loop"         = "relative-loop-fixture"
     "single-point-hold"     = "single-point-hold-fixture"
+    "spawn-control-target"  = "spawn-control-target-fixture"
+    "drill-harvest-route"   = "drill-harvest-route-fixture"
 }
 
 $ErrorActionPreference = "Stop"

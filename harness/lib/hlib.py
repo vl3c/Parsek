@@ -176,7 +176,25 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # refuses a target save at another UT.
                                         # No RP. Consumer:
                                         # EX-2-single-point-held-ghost.
-                                        "single-point-hold")
+                                        "single-point-hold",
+                                        # spawn-control-target: ONE committed,
+                                        # stationary, Landed recording ~130 m
+                                        # from the Launch Pad, in progress at the
+                                        # save's UT with a future EndUT, so a pad
+                                        # vessel sees it as a Real Spawn Control
+                                        # candidate with "Warp to Spawn" ENABLED.
+                                        # `--filter InjectSpawnControlTarget`. No
+                                        # RP. Consumer:
+                                        # RSC-1-real-spawn-control-warp.
+                                        "spawn-control-target",
+                                        # drill-harvest-route: the M2 synthetic
+                                        # drill-run tree `tree-drill-harvest-m2`
+                                        # ALONE (all-synthetic carries it too,
+                                        # beside dozens of recordings that would
+                                        # move the Logistics roster). `--filter
+                                        # InjectDrillHarvestRoute`. No RP.
+                                        # Consumer: HV-1-harvest-route-analysis.
+                                        "drill-harvest-route")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -2217,7 +2235,12 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # form names no window; the apply and clear forms DO require one, which is checked by
     # the per-op branch in validate_uiaction_step below (mirroring the seam, which checks
     # it in the applier for the same reason).
-    "mock")
+    "mock",
+    # `warp` presses the Real Spawn Control table's FIRST row warp button through the
+    # button's own click body (SpawnControlUI.ExecuteRowWarp), and refuses when the table
+    # has no row or the button is drawn disabled. Takes `window=` (only `spawncontrol`,
+    # UIACTION_WARP_WINDOWS) and no other arg; `op=sort` picks which row is first.
+    "warp")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
@@ -2602,7 +2625,12 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
 # three take `popup=` instead (UIACTION_POPUP_KEY).
 UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
     "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run",
-    "state", "sort", "select", "edit")
+    "state", "sort", "select", "edit", "warp")
+
+# The windows `op=warp` is defined for, mirroring TestCommandUiAction.WindowHasRowWarpButton:
+# the one window whose table rows carry a warp button. Any other window answers
+# `warp-unsupported-window`.
+UIACTION_WARP_WINDOWS: Tuple[str, ...] = ("spawncontrol",)
 
 # The four rect args, all REQUIRED together on `op=rect`: a partial rect mixes a
 # commanded position with a stale size, so the capture it produces is not reproducible.
@@ -2954,6 +2982,16 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "step is op=%s -- the arg would be silently ignored (the RunTests VERB reads "
             "the same key, which is what makes this easy to misplace)"
             % (index, UIACTION_RUN_CATEGORY_KEY, op))
+
+    if op == "warp":
+        window_name = str(window) if window is not None else None
+        if (window_name in UIACTION_WINDOW_VALUES
+                and window_name not in UIACTION_WARP_WINDOWS):
+            errors.append(
+                "driver.steps[%d].args.%s: window %r has no row warp button, so op=warp "
+                "answers REJECTED warp-unsupported-window. The ones that do are %s"
+                % (index, UIACTION_WINDOW_KEY, window_name,
+                   ", ".join(UIACTION_WARP_WINDOWS)))
 
     if op not in ("expand", "playback", "state") and UIACTION_STATE_KEY in step_args:
         errors.append(

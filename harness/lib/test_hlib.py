@@ -4718,6 +4718,12 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # measures them on landed rovers. AUTHORED 2026-09-02, NEVER FLOWN, so the
         # split is INTERIM (see INTERIM_PIN_IDS).
         "H56-route-dock-capture-landed": ("RouteDockCapture", 6),
+        # H38's host plus ONE injected subject, the M2 synthetic drill tree
+        # (`drill-harvest-route` preset), so the one Logistics cell every committed host
+        # skips on a missing subject - HarvestRoute_AnalyzesEligible_FromSyntheticRecording
+        # - executes. Same (category, scene), so the same derivation; the split is a
+        # fixture property and is INTERIM until the reading run (see INTERIM_PIN_IDS).
+        "HV-1-harvest-route-analysis": ("Logistics", 47),
         # TIER B ITEM 4, AND A DIFFERENT CATEGORY IN THE SAME SOURCE FILE. The
         # `RouteStartDockedOrigin` cells reuse the `RouteDockCapture` rig (the
         # CellContext / PartnerRig machinery is a private nested type, so moving them
@@ -4862,7 +4868,15 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # The arg still does real work - it is the only way to run the capture cell at all -
     # but one cell of margin is what makes its tally non-discriminating, which is a
     # separate declaration (TALLY_CANNOT_DISCRIMINATE_IDS).
+    # Isolated members that boot an EMPTY template and inject ONE subject the batch
+    # needs: id -> (preset, recordings the subject carries). HV-1's subject is the M2
+    # synthetic drill tree, two metadata-only recordings (they write no `.prec` at
+    # inject; the produced-save count is measured by the reading run).
+    INJECTED_SUBJECT_IDS = {"HV-1-harvest-route-analysis": ("drill-harvest-route", 2)}
+
     PARTLY_BATCH_DISABLED_IDS = {"R7a-rewind-session-absent",
+                                 # HV-1: H38's host and category, same 8-vs-46.
+                                 "HV-1-harvest-route-analysis",
                                  "H38-logistics-isolated",
                                  "H39-logistics-isolated-bdock",
                                  "H40-logistics-isolated-depot-route",
@@ -5345,7 +5359,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # THE HEADER PREDICTIONS: H69 and H70 held cell for cell and string for string; H68
     # was REFUTED TWICE, which is what writing a prediction down is for. Both refutations
     # are recorded in its MEASURED_SKIPPED entry below and in the spec's own header.
-    INTERIM_PIN_IDS: set = set()
+    #
+    # HV-1 (2026-09-25): authored, NEVER FLOWN - `total=47` pinned exactly, the rest
+    # regexed until its reading run measures the split.
+    INTERIM_PIN_IDS: set = {"HV-1-harvest-route-analysis"}
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -6427,6 +6444,17 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                                        "Parsek", "Recordings")
                 staged = ([f for f in os.listdir(rec_dir) if f.endswith(".prec")]
                           if os.path.isdir(rec_dir) else [])
+                if not staged and sid in self.INJECTED_SUBJECT_IDS:
+                    # An EMPTY template plus ONE injected subject: the preset is named,
+                    # and the band may not exceed the recordings that subject carries,
+                    # so a leaked tree or a failed baseline revert still reds.
+                    preset, subject_recordings = self.INJECTED_SUBJECT_IDS[sid]
+                    self.assertEqual(preset, fixture.get("injectedRecordings"), sid)
+                    self.assertLessEqual(count.get("max", 10 ** 9), subject_recordings,
+                                         "%s injects a %d-recording subject; a wider "
+                                         "band would accept a leaked tree"
+                                         % (sid, subject_recordings))
+                    continue
                 if not staged:
                     self.assertEqual("none", fixture.get("injectedRecordings"), sid)
                     self.assertEqual(
@@ -9427,6 +9455,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE D17 MAKING-HISTORY LANE, 2026-09-25.
+        "MC-4-making-history-desert.toml": "tier=operator BY THE REGISTRY'S OWN DEFINITION of the cell (D17 comment, operator ruling B5: a GS-4 clone, operator tier, one reading flight), NOT debt: it is a reading-run lane whose GREEN / INVALID readings are named in its header (a MechJeb ascent failure from the Desert is driver-INVALID). What is owed is the flight, which the lane itself is",
         # THE G3b RENDER-SURFACE LANE, 2026-09-07, same shape as H59 below.
         "V27M-rover-route-endpoint-substituted-map-lines.toml": "tier=operator on the calibration-discipline shape, NOT debt: reading run `2026-09-07_1858`, armed re-flight `_1902` PASS attempt 1, negative control `_1903` red on exactly the inverted `Route line build ... legs=1` token, `[expectations.routes]` GATING - roadmap gap G3b closed by it the same day; it stays operator because its subject is a liveState-patched fixture whose value is the one-off class answer (no render surface consults a rebound endpoint), not a regression floor worth a nightly slot. Claim-gap wave 2026-09-10: armed `2026-09-10_1748` + control `_1752`, D3 `absolute` claimed off its KSC `branch=absolute` token.",
         # THE D11 CENSUS LANE, 2026-09-02, same reading-run shape as the four below.
@@ -15943,6 +15973,36 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual([], hlib.validate_ui_action_step(
             2, {"op": "find", "window": "settings", "text": "Close", "ctrl": "button",
                 "index": "2"}))
+
+    # ---- op=warp: the Real Spawn Control row warp button ----
+
+    def test_the_warp_op_mirrors_the_c_sharp_tables(self):
+        """Reads OUTSIDE harness/. The op token, the one window it is defined for, and the
+        two press refusals the SpawnControlUI half answers - each renamed on one side alone
+        would validate here and REJECT after a whole KSP boot."""
+        op_path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiAction.cs")
+        with open(op_path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        self.assertIn('WarpOpToken = "warp"', text)
+        self.assertIn('WarpUnsupportedWindowReason = "warp-unsupported-window"', text)
+        self.assertIn("=> window == SpawnControlWindow;", text)
+        self.assertEqual(("spawncontrol",), hlib.UIACTION_WARP_WINDOWS)
+        ui_path = os.path.join(PARSEK_SOURCE_DIR, "UI", "SpawnControlUI.cs")
+        with open(ui_path, encoding="utf-8-sig") as fh:
+            ui_text = fh.read()
+        self.assertIn('WarpRefusalNoRow = "warp-no-candidate-row"', ui_text)
+        self.assertIn('WarpRefusalButtonDisabled = "warp-button-disabled"', ui_text)
+
+    def test_warp_needs_the_spawncontrol_window_and_nothing_else(self):
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "warp", "window": "spawncontrol"}))
+        errors = hlib.validate_ui_action_step(1, {"op": "warp"})
+        self.assertTrue(any("window-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(2, {"op": "warp", "window": "missions"})
+        self.assertTrue(any("warp-unsupported-window" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            3, {"op": "warp", "window": "spawncontrol", "tab": "missions"})
+        self.assertTrue(any("only op=tab reads it" in e for e in errors), errors)
 
     # ---- op=mock: the GUI state gallery primitive (P1) ----
 

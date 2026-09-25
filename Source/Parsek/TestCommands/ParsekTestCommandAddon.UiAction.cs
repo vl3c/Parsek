@@ -422,6 +422,9 @@ namespace Parsek.TestCommands
                 case UiActionOp.Edit:
                     UiActionEditOp(cmd, ui, spec);
                     return;
+                case UiActionOp.Warp:
+                    UiActionWarpOp(ui, spec);
+                    return;
                 default:
                     UiActionRectOp(cmd, handle, spec);
                     return;

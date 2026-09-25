@@ -1,0 +1,117 @@
+schema = 1
+id = "MC-4-making-history-desert"
+tier = "operator"
+# D17 `making-history`, AS THE REGISTRY DEFINES IT (operator ruling B5, 2026-09-15): ALT-SITE
+# LAUNCH CAPTURE on stock-minimal. Making History is not a modded-compat distinguisher - it
+# ships as a stock asset payload junctioned into every provisioned instance by the CLONE
+# phase (`provlib.STOCK_JUNCTION_GAMEDATA`, SquadExpansion/MakingHistory) - so the cell is
+# hosted here. A recording rolled out from an MH site must capture that site into
+# `Recording.LaunchSiteName` HUMANIZED (`FlightRecorder.HumanizeLaunchSiteName`, which
+# turns MH's underscore names into spaces), persist it, and replay there.
+#
+# THE LANE IS A GS-4 CLONE, as the definition asks: mission `kx_rewind_watch`, whose
+# `params.launchSite` reaches kRPC `SpaceCenter.launch_vessel`, with
+# `launchSite = "Desert_Launch_Site"` for BOTH the Kerbal X rollout and the post-rewind
+# Jumping Flea watcher (the mission puts both on one site by design - the watcher has to
+# stand where the recorded flight did, or the ghost replays out of sight). Everything
+# else is GS-4's, step for step.
+#
+# WHAT GATES THE CELL:
+#   - CAPTURE: `Start location captured: body=Kerbin, ... launchSite=Desert Launch Site`
+#     (FlightRecorder.CaptureStartLocation, Verbose - this lane runs verboseLogging=true).
+#     The humanized form is the proof: a site name that never went through
+#     ResolveLaunchSiteName would read `Desert_Launch_Site` or `Launch Pad`.
+#   - REPLAY THERE: after the Rewind-to-Launch the watcher stands on the Desert pad, and
+#     the replayed Kerbal X ghost must MeshSpawn and be watched from it
+#     (`enterwatchmode complete`). A ghost replaying at the KSC pad, ~1100 km east, would
+#     be far outside the watch range and the flight-scene mesh zone.
+#   - PERSISTENCE is read from the produced save (`launchSiteName = Desert Launch Site`
+#     on the committed tree's recordings) and recorded in the status row; the harness has
+#     no save-parse facet for that key.
+#
+# A MechJeb ascent failure from the Desert is driver-INVALID, never PARSEK-FAIL (the
+# mission-vs-Parsek orthogonality rule).
+#
+# COUNTS ARE GS-4's AS FLOORS, NOT PINS, UNTIL THE READING RUN: the same craft sheds the
+# same stages, but the Desert pad's latitude and altitude are not the KSC pad's, so the
+# destroyed/sub-orbital split may move. The report-only blocks stay report-only (a new
+# spec may not arm a saveParse block the allowlist does not name).
+description = "D17 making-history, the registry definition: a GS-4 clone (kx_rewind_watch) with launchSite=Desert_Launch_Site - the staged Kerbal X rolls out from the Making History Desert pad, the recorder captures the humanized site name, the tree commits, Rewind-to-Launch puts a Jumping Flea on the same Desert pad, and the replayed ghost spawns and is watched there."
+instanceProfile = "stock-minimal"
+tags = ["MC4", "making-history", "alt-launch-site", "rewind-to-launch", "watch-mode", "GS4-clone"]
+
+# Every block below is GS-4-kerbalx-rewind-watch's; see that spec for the reasoning behind
+# each token. Only the launch site, the floors and the report-only switches differ.
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 1600 },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "Desert_Launch_Site"
+watcherCraftName = "Jumping Flea"
+
+[dimensionsCovered]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 12 }
+
+[expectations.logContracts]
+required  = ["Start location captured: body=Kerbin, [^\\r\\n]*launchSite=Desert Launch Site",
+             "Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
+             "Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+             "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
+             "Rewind-to-Launch initiated to UT",
+             "RewindPoints carried across rewind: installed=1 ",
+             "invokerewindtolaunch complete rec=",
+             "entermapview ok mapOpen=true",
+             "exitmapview ok mapOpen=false",
+             "enterwatchmode complete: index=",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=(?:watch hold expired|playback completed|auto-followed)",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2 }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
