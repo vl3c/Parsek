@@ -1,0 +1,150 @@
+schema = 1
+id = "EVA-5-ground-science-place-pickup"
+# COVERAGE WAVE 10 (D7 `inventory-place-remove`). NEVER FLOWN: every token below is
+# pre-registered from the decompile and the source, and the reading flight pins them.
+#
+# THE SUBJECT. The recorder hooks exactly two stock events for this family,
+# GameEvents.onGroundSciencePartDeployed / onGroundSciencePartRemoved
+# (ParsekFlight.OnGroundSciencePartDeployed / Removed -> RecordInventoryPlacementEvent,
+# `Part event captured: InventoryPartPlaced|InventoryPartRemoved '<part>' pid=<pid> via
+# <event>`). Decompiled KSP 1.12.5: the Deployed event fires from the NEW ground vessel's
+# ModuleGroundSciencePart.OnStart (landed, not a DroppedPart, no ModuleGroundExpControl,
+# DeployedScience.Instance live, ControlUnitId == 0 - so NOT for the Central Station),
+# and the Removed event fires from inside ModuleGroundPart.RetrievePart (and again from
+# its OnRetractCompleted), the part's own "Pick Up" PAW button.
+#
+# THE DRIVER. kRPC 0.5.4 has no inventory or construction API, so the lane is seam-driven
+# through the new EvaGroundScience verb, which fires NO GameEvent itself:
+#   action=place  - ModuleInventoryPart.DeployInventoryItem(slot), the inventory PAW slot
+#                   icon's own call (UIPartActionInventory.StartPartPlacement), then ONE
+#                   frame of GameSettings.EVA_Jump, the binding ModuleInventoryPart.OnUpdate
+#                   confirms a placement with (a scoped Harmony prefix on
+#                   KeyBinding.GetKeyDown, installed only for the press). Stock then runs
+#                   DeployGroundPart -> HighLogic.CurrentGame.AddVessel, and the new vessel's
+#                   OnStart fires the Deployed event. faceAway=true first turns the kerbal
+#                   away from the pod: a kerbal just off the ladder faces the hull, and stock
+#                   puts the preview straight ahead of it.
+#   action=pickup - the ground part's RetrievePart KSPEvent invoked through its BaseEvent,
+#                   exactly as the PAW button does.
+#
+# THE FIXTURE. gloops-airshow (EVA-1's pod: Jebediah, PRELAUNCH on the pad, SANDBOX so the
+# part is available) with ONE [[fixture.crewInventory]] patch: Jebediah's roster inventory
+# becomes `evaChute,DeployedSeismicSensor` in stock's own compact form (STOREDPARTS dropped,
+# so ModuleInventoryPart.OnLoad builds both snapshots from the prefabs, the form the
+# stock-shipped Butterfly Rover craft uses). The jetpack is the part that goes: the kerbal's
+# 40 L cap holds chute 10 + seismometer 25 but not jetpack 17 + seismometer 25. The place
+# step's `start ... inventory=` line is the proof the patch landed, because stock silently
+# drops an unavailable CSV name.
+#
+# THE GHOST EVIDENCE, and what it can and cannot say. After the commit the tree's mission
+# loop is armed and StartLoopPlayback replays it; TimeJump steps walk the clock across both
+# events so the kerbal ghost's cursor consumes them and GhostPartEventApplyLog writes one
+# `apply family=InventoryPart... surface=inventory` line each. Stock places the part as its
+# OWN vessel, so the pid the recorder captured on the kerbal's recording is never a part of
+# the kerbal's ghost: the honest outcome is `no-info-for-part`, and this wave changed the
+# applier to REPORT that (it previously reported `applied` unconditionally, a visual write
+# that did not happen). The lane therefore proves the replay DISPATCHED both events on the
+# kerbal's ghost and pins that no visual exists - todo
+# EVA-GROUND-SCIENCE-PLACEMENT-HAS-NO-GHOST - rather than claiming a ghost seismometer.
+tier = "nightly"
+description = "Ground EVA on the pad with a Breaking Ground seismometer in the kerbal's inventory: exit, place it through the stock inventory slot + confirm key, pick it back up through its own Pick Up event, board, commit, then replay the tree's mission loop. The recorder's InventoryPartPlaced / InventoryPartRemoved captures (same pid as the placed part) and the replay's inventory-surface apply lines are required."
+instanceProfile = "stock-minimal"
+tags = ["eva", "inventory", "ground-science", "breaking-ground", "loop-playback", "D7"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[[fixture.crewInventory]]
+kerbal    = "Jebediah Kerman"
+inventory = "evaChute,DeployedSeismicSensor"
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                       expect = "OK" },
+  { cmd = "MissionMark",      args = { label = "eva5 exit" },                     expect = "OK" },
+  { cmd = "EvaExit",          args = { release = "true" },                        expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" }, expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "pickup", part = "DeployedSeismicSensor" }, expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",                                                             expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "CommitTree",                                                           expect = "OK", budget = 120 },
+  { cmd = "ListHandles",      args = { kind = "committed" }, label = "c0",        expect = "OK" },
+  { cmd = "UiAction",         args = { op = "complexity", mode = "advanced" },    expect = "OK" },
+  { cmd = "UiAction",         args = { op = "open", window = "main" },            expect = "OK" },
+  { cmd = "UiAction",         args = { op = "open", window = "missions" },        expect = "OK" },
+  { cmd = "UiAction",         args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "MissionConfig",    args = { tree = "${c0.rec0tree}", loop = "true" },  expect = "OK" },
+  { cmd = "UiAction",         args = { op = "close", window = "missions" },       expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "${c0.rec0tree}" },                expect = "OK", budget = 300 },
+  { cmd = "MissionMark",      args = { label = "eva5 replay" },                   expect = "OK" },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "TimeJump",         args = { deltaSeconds = "10" },                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[dimensionsCovered]
+D7  = ["inventory-place-remove"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# EVA-1's topology (root pod 1, + 2 for the EVA split, + 1 for the board merge). The
+# placed seismometer is a separate vessel outside the tree and must not add one.
+count = { min = 4, max = 4 }
+
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  "Tree branch created: type=EVA",
+  # The patch landed: the kerbal carries the seismometer in slot 1.
+  "evagroundscience place start kerbal=Jebediah Kerman part=DeployedSeismicSensor slot=1 inventory=0:evaChute,1:DeployedSeismicSensor",
+  "evagroundscience place confirmed part=DeployedSeismicSensor presses=[1-9]",
+  # THE RECORDER WITNESS, tied to the placed part by pid across the stock event, the place
+  # completion, the pick-up and the Removed capture.
+  "Part event captured: InventoryPartPlaced 'DeployedSeismicSensor' pid=([0-9]+) via onGroundSciencePartDeployed[\\s\\S]*evagroundscience place complete part=DeployedSeismicSensor partPid=\\1 [\\s\\S]*evagroundscience pickup start kerbal=Jebediah Kerman part=DeployedSeismicSensor partPid=\\1 [\\s\\S]*Part event captured: InventoryPartRemoved 'DeployedSeismicSensor' pid=\\1 via onGroundSciencePartRemoved",
+  "evagroundscience pickup complete part=DeployedSeismicSensor",
+  "Tree board merge completed",
+  "committree committed=true",
+  "missionconfig applied: .* loop=True .*unitBuilt=True",
+  "startloopplayback complete:",
+  # THE GHOST EVIDENCE: the replay consumed both events on the kerbal's ghost, and the
+  # applier reports that the ghost carries no such part.
+  "MISSIONMARK label=eva5 replay[\\s\\S]*\\[GhostPartEvents\\] apply family=InventoryPartPlaced surface=inventory rec=[0-9]+ pid=[0-9]+ applied=0 skipped=[1-9][0-9]* reason=no-info-for-part",
+  "MISSIONMARK label=eva5 replay[\\s\\S]*\\[GhostPartEvents\\] apply family=InventoryPartRemoved surface=inventory rec=[0-9]+ pid=[0-9]+ applied=0 skipped=[1-9][0-9]* reason=no-info-for-part",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evagroundscience failed",
+  "evagroundscience refused",
+  # The pre-wave vacuous report: an `applied` inventory line for a pid the ghost lacks.
+  "apply family=InventoryPart(?:Placed|Removed) surface=inventory rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+]
+
+[runtime]
+# 300 LoadGame + 120 EvaExit + 2 x 120 EvaGroundScience + 120 EvaBoard + 120 CommitTree
+# + 300 StartLoopPlayback + 12 fast TimeJumps + the single-phase verbs + margin.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -522,6 +522,155 @@ def declared_live_state(fixture: Any) -> List[Dict]:
 
 
 # ---------------------------------------------------------------------------
+# The crew-inventory spec surface: `[[fixture.crewInventory]]`.
+# ---------------------------------------------------------------------------
+
+# `[[fixture.crewInventory]]` - one table per KERBAL whose personal inventory the
+# lane needs to start from something other than the fixture's:
+#
+#     [[fixture.crewInventory]]
+#     kerbal    = "Jebediah Kerman"
+#     inventory = "evaChute,DeployedSeismicSensor"
+#
+# WHY A THIRD SURFACE. A kerbal's personal inventory is not a vessel's: it lives in
+# `GAME / ROSTER / KERBAL / INVENTORY`, a sibling of FLIGHTSTATE, and KSP loads it
+# into the EVA kerbal's `ModuleInventoryPart` when the kerbal leaves the vessel. So
+# it is neither `liveState` (FLIGHTSTATE-only by contract) nor `career` (one key in
+# one SCENARIO), and it gets its own key, validator and applier.
+#
+# THE WRITTEN FORM IS STOCK'S OWN COMPACT FORM, which is what makes it
+# production-shaped rather than hand-authored: the patch sets the node's
+# `inventory = <csv>` and DROPS its `STOREDPARTS` child. Decompiled
+# `ModuleInventoryPart.OnLoad` (KSP 1.12.5) builds stored parts from `STOREDPARTS`
+# when that node carries any `STOREDPART`, and otherwise - with nothing stored -
+# walks the `inventory` CSV and calls `StoreCargoPartAtSlot(prefab, FirstEmptySlot())`
+# for each name, so KSP itself builds every part snapshot from the part prefab. The
+# stock-shipped Serenity craft (`Butterfly Rover.craft`) carries its deployables in
+# exactly this form. Nothing here authors a PART snapshot by hand.
+#
+# WHAT STOCK SILENTLY DROPS, and why the lane must witness the result: a CSV name
+# that is not an available cargo part is skipped with no error, and names beyond
+# the kerbal's slot count never land. The patch cannot see either (it has no part
+# database), so a lane using this surface asserts the inventory its seam step
+# reads back (the EvaGroundScience `start ... inventory=` line) rather than
+# trusting the declaration.
+CREW_INVENTORY_KEY = "crewInventory"
+CREW_INVENTORY_ENTRY_KEYS = ("kerbal", "inventory")
+
+
+def validate_crew_inventory(fixture: Any) -> List[str]:
+    """Validate the `[[fixture.crewInventory]]` spec surface. Pure; pre-launch.
+    Shape only: whether the kerbal exists and carries an INVENTORY node is the
+    applier's assertion against the bytes."""
+    errs: List[str] = []
+    if not isinstance(fixture, dict) or CREW_INVENTORY_KEY not in fixture:
+        return errs
+    entries = fixture[CREW_INVENTORY_KEY]
+    where0 = "fixture.%s" % CREW_INVENTORY_KEY
+    if not isinstance(entries, list):
+        return ["%s: must be an array of tables ([[%s]])" % (where0, where0)]
+    if not entries:
+        return ["%s: declared but empty; omit the key instead" % where0]
+    seen: Dict[str, int] = {}
+    for i, entry in enumerate(entries):
+        where = "%s[%d]" % (where0, i)
+        if not isinstance(entry, dict):
+            errs.append("%s: must be a table" % where)
+            continue
+        unknown = sorted(k for k in entry if k not in CREW_INVENTORY_ENTRY_KEYS)
+        if unknown:
+            errs.append("%s: unknown key(s) %s (accepted: %s)"
+                        % (where, unknown, list(CREW_INVENTORY_ENTRY_KEYS)))
+        kerbal = entry.get("kerbal")
+        if not isinstance(kerbal, str) or not kerbal.strip():
+            errs.append("%s.kerbal: %r must be a non-empty roster name" % (where, kerbal))
+        elif kerbal in seen:
+            errs.append("%s.kerbal: %r is already declared by entry %d"
+                        % (where, kerbal, seen[kerbal]))
+        else:
+            seen[kerbal] = i
+        inventory = entry.get("inventory")
+        if not isinstance(inventory, str) or not inventory:
+            errs.append("%s.inventory: %r must be a non-empty comma-separated part list"
+                        % (where, inventory))
+        else:
+            names = inventory.split(",")
+            if any(not n or n != n.strip() or " " in n for n in names):
+                errs.append("%s.inventory: %r must be part names separated by bare commas "
+                            "(no blanks, no spaces) - stock splits on ',' alone"
+                            % (where, inventory))
+    return errs
+
+
+def declared_crew_inventory(fixture: Any) -> List[Dict]:
+    """The declared entries, or [] when the key is absent. Called after validation."""
+    if not isinstance(fixture, dict):
+        return []
+    entries = fixture.get(CREW_INVENTORY_KEY)
+    if not isinstance(entries, list):
+        return []
+    return [e for e in entries if isinstance(e, dict)]
+
+
+def apply_crew_inventory(text: str, entries: Sequence[Dict]) -> Tuple[str, List[str]]:
+    """Apply the declared `[[fixture.crewInventory]]` entries to a save's text. Pure.
+
+    Returns (patchedText, notes). No entries returns the text UNCHANGED. Fails closed
+    on a save without exactly one ROSTER, a kerbal named zero or several times, a
+    kerbal with no (or several) INVENTORY nodes, or an INVENTORY without an
+    `inventory` key to rewrite."""
+    if not entries:
+        return text, []
+    crlf = "\r\n" in text
+    lines = text.replace("\r\n", "\n").split("\n")
+    notes: List[str] = []
+    for entry in entries:
+        kerbal = entry["kerbal"]
+        csv = entry["inventory"]
+        roster = find_node(lines, "ROSTER")
+        if roster is None or find_node(lines, "ROSTER", roster[1]) is not None:
+            raise LiveStatePatchError(
+                "crewInventory: the save must carry exactly one ROSTER node")
+        matches = [k for k in child_nodes(lines, roster, "KERBAL")
+                   if get_value(lines, k, "name") == kerbal]
+        if len(matches) != 1:
+            raise LiveStatePatchError(
+                "crewInventory: ROSTER names kerbal %r %d time(s), expected exactly 1"
+                % (kerbal, len(matches)))
+        inv_nodes = child_nodes(lines, matches[0], "INVENTORY")
+        if len(inv_nodes) != 1:
+            raise LiveStatePatchError(
+                "crewInventory: kerbal %r carries %d INVENTORY node(s), expected exactly 1"
+                % (kerbal, len(inv_nodes)))
+        inv = inv_nodes[0]
+        before = get_value(lines, inv, "inventory")
+        if before is None:
+            raise LiveStatePatchError(
+                "crewInventory: kerbal %r's INVENTORY carries no `inventory` key to rewrite"
+                % kerbal)
+        stored = child_nodes(lines, inv, "STOREDPARTS")
+        # Bottom-up so an earlier splice cannot shift a later span.
+        for span in reversed(stored):
+            del lines[span[0]:span[1]]
+        inv = child_nodes(lines, _roster_kerbal_node(lines, kerbal), "INVENTORY")[0]
+        if not set_value(lines, inv, "inventory", csv):
+            raise LiveStatePatchError(
+                "crewInventory: kerbal %r's `inventory` key could not be rewritten" % kerbal)
+        notes.append("kerbal=%r inventory %s->%s storedPartsDropped=%d"
+                     % (kerbal, before, csv, len(stored)))
+    return ("\r\n" if crlf else "\n").join(lines), notes
+
+
+def _roster_kerbal_node(lines: List[str], kerbal: str) -> Tuple[int, int]:
+    """The (single) ROSTER KERBAL span named ``kerbal``, re-read after a splice."""
+    roster = find_node(lines, "ROSTER")
+    for k in child_nodes(lines, roster, "KERBAL"):
+        if get_value(lines, k, "name") == kerbal:
+            return k
+    raise LiveStatePatchError("crewInventory: kerbal %r vanished during the patch" % kerbal)
+
+
+# ---------------------------------------------------------------------------
 # The per-fixture inventory layout.
 # ---------------------------------------------------------------------------
 

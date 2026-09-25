@@ -52,6 +52,7 @@ namespace Parsek.Tests
         [InlineData("GloopsStart")]
         [InlineData("GloopsStop")]
         [InlineData("StockScreen")]
+        [InlineData("EvaGroundScience")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -156,7 +157,9 @@ namespace Parsek.Tests
             // window's primary button.
             // StockScreen is ADDITIVE once more (38 -> 39; reserved unchanged at 5): the
             // reserved envelope never carried a stock-screen verb.
-            Assert.Equal(39, TestCommandVerbs.ImplementedVerbNames.Count);
+            // EvaGroundScience is ADDITIVE (39 -> 40; reserved unchanged at 5): the reserved
+            // envelope never carried an inventory verb.
+            Assert.Equal(40, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

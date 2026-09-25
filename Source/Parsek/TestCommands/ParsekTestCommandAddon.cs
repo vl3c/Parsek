@@ -987,6 +987,13 @@ namespace Parsek.TestCommands
                 TryCompleteEvaChuteDeploy(now);
                 return;
             }
+            // Coverage wave 10: the EVA ground-science place / pick-up, in the
+            // ParsekTestCommandAddon.EvaGroundScience.cs partial.
+            if (completionVerb == "EvaGroundScience")
+            {
+                TryCompleteEvaGroundScience(now);
+                return;
+            }
             // R12: the driven FLIGHT -> SPACECENTER exit, in the
             // ParsekTestCommandAddon.ExitToSpaceCenter.cs partial. Same bounded-completion
             // contract as LoadGame (it is the same scene-settle question).
@@ -1131,6 +1138,8 @@ namespace Parsek.TestCommands
             mergeAnswerApplied = false;
             mergeAnswerResult = null;
             mergeAnswerDrivePending = false;
+            // The EvaGroundScience key press must never outlive its command.
+            EvaJumpKeyPressInjection.Remove();
             // A multi-category RunTests that ends by TIMEOUT or by a completion
             // exception must not leave its token queue armed for the next RunTests to
             // inherit; the sequence is over the moment the two-phase state is.
@@ -1380,6 +1389,7 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.EvaBoard(ParsedCommand cmd) => EvaBoardImpl(cmd);
         void ITestCommandExecutor.PlantFlag(ParsedCommand cmd) => PlantFlagImpl(cmd);
         void ITestCommandExecutor.EvaChuteDeploy(ParsedCommand cmd) => EvaChuteDeployImpl(cmd);
+        void ITestCommandExecutor.EvaGroundScience(ParsedCommand cmd) => EvaGroundScienceImpl(cmd);
 
         // R12 scene routing: the ExitToSpaceCenter body + its two-phase completion live in
         // the sibling ParsekTestCommandAddon.ExitToSpaceCenter.cs partial.
@@ -1514,6 +1524,7 @@ namespace Parsek.TestCommands
                 case "EvaBoard": exec.EvaBoard(cmd); break;
                 case "PlantFlag": exec.PlantFlag(cmd); break;
                 case "EvaChuteDeploy": exec.EvaChuteDeploy(cmd); break;
+                case "EvaGroundScience": exec.EvaGroundScience(cmd); break;
                 case "ExitToSpaceCenter": exec.ExitToSpaceCenter(cmd); break;
                 case "SimulateStockSwitchClick": exec.SimulateStockSwitchClick(cmd); break;
                 case "MissionConfig": exec.MissionConfig(cmd); break;

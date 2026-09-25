@@ -1204,7 +1204,10 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # fixed only so the log reads the same way every run.
     live_state = savepatch.declared_live_state(fixture)
     career_state = savepatch.declared_career_state(fixture)
-    if live_state or career_state:
+    # `[[fixture.crewInventory]]` (coverage wave 10) rides the same read / patch /
+    # write, third: it touches only GAME / ROSTER, disjoint from both of the above.
+    crew_inventory = savepatch.declared_crew_inventory(fixture)
+    if live_state or career_state or crew_inventory:
         sfs_path = os.path.join(target_save, "persistent.sfs")
         if not _is_strictly_inside(sfs_path, saves_dir) or not os.path.isfile(sfs_path):
             logger.error("Stage", "liveState: staged save %s has no readable "
@@ -1213,6 +1216,7 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
             return False, run_save_name, "staging"
         live_notes: List[str] = []
         career_notes: List[str] = []
+        crew_notes: List[str] = []
         try:
             with open(sfs_path, "rb") as fh:
                 sfs_text = fh.read().decode("utf-8")
@@ -1220,6 +1224,8 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                 sfs_text, live_state, run_save_name)
             patched_text, career_notes = savepatch.apply_career_state(
                 patched_text, career_state)
+            patched_text, crew_notes = savepatch.apply_crew_inventory(
+                patched_text, crew_inventory)
             with open(sfs_path, "wb") as fh:
                 fh.write(patched_text.encode("utf-8"))
         except savepatch.LiveStatePatchError as ex:
@@ -1234,6 +1240,8 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
             logger.info("Stage", "liveState patched %s" % note)
         for note in career_notes:
             logger.info("Stage", "career patched %s" % note)
+        for note in crew_notes:
+            logger.info("Stage", "crewInventory patched %s" % note)
 
     # (4) stage craft files.
     craft = fixture.get("craft", []) or []

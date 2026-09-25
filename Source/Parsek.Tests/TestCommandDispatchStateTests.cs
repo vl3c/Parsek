@@ -57,6 +57,7 @@ namespace Parsek.Tests
             public void GloopsStart(ParsedCommand cmd) => Calls.Add("GloopsStart");
             public void GloopsStop(ParsedCommand cmd) => Calls.Add("GloopsStop");
             public void StockScreen(ParsedCommand cmd) => Calls.Add("StockScreen");
+            public void EvaGroundScience(ParsedCommand cmd) => Calls.Add("EvaGroundScience");
         }
 
         [Fact]
@@ -93,6 +94,7 @@ namespace Parsek.Tests
         [InlineData("EvaBoard", "RequiresFlight")]
         [InlineData("PlantFlag", "RequiresFlight")]
         [InlineData("EvaChuteDeploy", "RequiresFlight")]
+        [InlineData("EvaGroundScience", "RequiresFlight")]
         [InlineData("ExitToSpaceCenter", "RequiresFlight")]
         [InlineData("SimulateStockSwitchClick", "RequiresFlight")]
         // The arrival-validation lane's promotion arms mission loop state on a
@@ -212,6 +214,7 @@ namespace Parsek.Tests
             fake.GloopsStart(cmd);
             fake.GloopsStop(cmd);
             fake.StockScreen(cmd);
+            fake.EvaGroundScience(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

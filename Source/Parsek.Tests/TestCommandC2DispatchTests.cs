@@ -132,6 +132,32 @@ namespace Parsek.Tests
             Assert.Equal(DispatchDecision.Execute, r.Decision);
         }
 
+        // ----- EvaGroundScience (coverage wave 10): the same not-eva defer -----
+
+        [Fact]
+        public void EvaGroundScience_OutsideFlight_Defers_NotInFlight()
+        {
+            AssertDefer(TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=EvaGroundScience action=place part=DeployedSeismicSensor"), MainMenu()),
+                "not-in-flight");
+        }
+
+        [Fact]
+        public void EvaGroundScience_ActiveNotEva_Defers_NotEva()
+        {
+            AssertDefer(TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=EvaGroundScience action=pickup part=DeployedSeismicSensor"), FlightEvaReady()),
+                "not-eva");
+        }
+
+        [Fact]
+        public void EvaGroundScience_OnEva_Executes()
+        {
+            var r = TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=EvaGroundScience action=place part=DeployedSeismicSensor"), FlightOnEva());
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
         // ----- EvaBoard -----
 
         [Fact]
