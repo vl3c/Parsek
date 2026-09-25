@@ -15,7 +15,8 @@ namespace Parsek
     /// their rows (<c>StockUiRnDDecoration</c>, <c>StockUiAstronautDecoration</c>); this
     /// addon only re-runs those stock refreshes when the committed timeline changes while
     /// a screen is open, and logs the R&amp;D pass once after the tree spawns. Mission
-    /// Control is annotated the same way (<c>MissionControlStockUi</c>). No screen gets a
+    /// Control is annotated the same way (<c>MissionControlStockUi</c>), and so is the KSC
+    /// facility context menu (<c>StockUiFacilityDecoration</c>). No screen gets a
     /// Parsek-drawn badge.
     /// </summary>
     [KSPAddon(KSPAddon.Startup.SpaceCentre, false)]
@@ -38,10 +39,12 @@ namespace Parsek
             GameEvents.onGUIAstronautComplexDespawn.Add(OnAstronautComplexDespawn);
             GameEvents.onGUIMissionControlSpawn.Add(OnMissionControlSpawn);
             GameEvents.onGUIMissionControlDespawn.Add(OnMissionControlDespawn);
+            GameEvents.onFacilityContextMenuSpawn.Add(OnFacilityMenuSpawn);
+            GameEvents.onFacilityContextMenuDespawn.Add(OnFacilityMenuDespawn);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
 
             ParsekLog.Info(Tag,
-                "StockUiOverlay: initialised, listening for R&D / Astronaut / MissionControl spawns + LedgerOrchestrator.OnTimelineDataChanged");
+                "StockUiOverlay: initialised, listening for R&D / Astronaut / MissionControl / facility menu spawns + LedgerOrchestrator.OnTimelineDataChanged");
         }
 
         private void OnDestroy()
@@ -52,6 +55,8 @@ namespace Parsek
             GameEvents.onGUIAstronautComplexDespawn.Remove(OnAstronautComplexDespawn);
             GameEvents.onGUIMissionControlSpawn.Remove(OnMissionControlSpawn);
             GameEvents.onGUIMissionControlDespawn.Remove(OnMissionControlDespawn);
+            GameEvents.onFacilityContextMenuSpawn.Remove(OnFacilityMenuSpawn);
+            GameEvents.onFacilityContextMenuDespawn.Remove(OnFacilityMenuDespawn);
             LedgerOrchestrator.OnTimelineDataChanged -= OnTimelineDataChanged;
         }
 
@@ -94,22 +99,17 @@ namespace Parsek
                 MissionControlStockUi.RefreshOpenScreen(
                     currentMissionControl ?? MissionControl.Instance ?? UnityEngine.Object.FindObjectOfType<MissionControl>(),
                     "timeline changed");
+            StockUiFacilityDecoration.RefreshOpenMenus("timeline changed");
         }
 
         private string DescribeOpenScreens()
         {
-            if (rdOpen)
-            {
-                if (astronautOpen)
-                    return missionOpen ? "R&D, Astronaut, MissionControl" : "R&D, Astronaut";
-
-                return missionOpen ? "R&D, MissionControl" : "R&D";
-            }
-
-            if (astronautOpen)
-                return missionOpen ? "Astronaut, MissionControl" : "Astronaut";
-
-            return missionOpen ? "MissionControl" : "";
+            var open = new List<string>();
+            if (rdOpen) open.Add("R&D");
+            if (astronautOpen) open.Add("Astronaut");
+            if (missionOpen) open.Add("MissionControl");
+            if (StockUiFacilityDecoration.OpenMenuCount > 0) open.Add("FacilityMenu");
+            return string.Join(", ", open.ToArray());
         }
 
         private void OnRdTreeSpawn(RDController controller)
@@ -223,6 +223,20 @@ namespace Parsek
             missionOpen = true;
             currentMissionControl = MissionControl.Instance ?? UnityEngine.Object.FindObjectOfType<MissionControl>();
             MissionControlStockUi.OnScreenOpened();
+        }
+
+        // The facility menu is decorated by FacilityMenuUpgradeBlockPatch on every stock
+        // button fill; the spawn event fires before that fill, so here it is only tracked.
+        private void OnFacilityMenuSpawn(KSCFacilityContextMenu menu)
+        {
+            StockUiFacilityDecoration.OnMenuSpawned(menu);
+            ParsekLog.Verbose(Tag, "StockUiOverlay: facility menu spawn (" + (menu != null ? menu.name : "null") + ")");
+        }
+
+        private void OnFacilityMenuDespawn(KSCFacilityContextMenu menu)
+        {
+            StockUiFacilityDecoration.OnMenuDespawned(menu);
+            ParsekLog.Verbose(Tag, "StockUiOverlay: facility menu despawn");
         }
 
         private void OnMissionControlDespawn()

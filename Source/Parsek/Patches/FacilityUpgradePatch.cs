@@ -43,8 +43,16 @@ namespace Parsek.Patches
         internal static bool TryBlockFacilityUpgrade(UpgradeableFacility facility)
         {
             if (facility == null) return false;
+            return TryBlockFacilityUpgradeById(facility.id);
+        }
 
-            string facilityId = facility.id;
+        /// <summary>
+        /// The refusal over a facility id (<c>SpaceCenter/LaunchPad</c>): the decision the
+        /// facility menu's greyed Upgrade button also reads, through
+        /// <see cref="StockUiDecorationQuery.ForFacilityMenu"/> (the pairing rule).
+        /// </summary>
+        internal static bool TryBlockFacilityUpgradeById(string facilityId)
+        {
             if (string.IsNullOrEmpty(facilityId)) return false;
 
             if (GameStateRecorder.IsReplayingActions)
@@ -74,12 +82,15 @@ namespace Parsek.Patches
 
             var text = StockUiReservationPredicates.ExplainFacilityUpgrade(
                 index, facilityId, nowUT, ReservationExplanation.DefaultDateFormatter);
-            CommittedActionDialog.ShowBlocked(
-                "Cannot upgrade \"" + FacilityDisplayNames.ResolveBuildingDisplayName(facilityId) + "\"",
-                text.Body,
-                "");
+            CommittedActionDialog.ShowBlocked(BlockedDialogTitle(facilityId), text.Body, "");
 
             return true;
+        }
+
+        /// <summary>The refusal dialog's title: the building's stock name, never the raw id.</summary>
+        internal static string BlockedDialogTitle(string facilityId)
+        {
+            return "Cannot upgrade \"" + FacilityDisplayNames.ResolveBuildingDisplayName(facilityId) + "\"";
         }
     }
 }

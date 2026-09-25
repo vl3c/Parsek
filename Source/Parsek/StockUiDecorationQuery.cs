@@ -11,7 +11,9 @@ namespace Parsek
         AstronautComplex,
         MissionControl,
         /// <summary>The VAB/SPH crew assignment dialog (<c>BaseCrewAssignmentDialog</c>).</summary>
-        CrewAssignment
+        CrewAssignment,
+        /// <summary>The KSC facility context menu (the building right-click menu).</summary>
+        FacilityMenu
     }
 
     /// <summary>Why a stock item is decorated. <see cref="None"/> is an undecorated item.</summary>
@@ -32,7 +34,10 @@ namespace Parsek
         KerbalRetire,
         KerbalOnFlight,
         KerbalLost,
-        KerbalRetiredStandIn
+        KerbalRetiredStandIn,
+        /// <summary>A facility a committed row upgrades later: the facility menu's greyed
+        /// Upgrade button and the upgrade refusal.</summary>
+        FacilityUpgrade
     }
 
     /// <summary>One stock item as the screen lists it: a stable id and the tab it sits in.</summary>
@@ -266,6 +271,8 @@ namespace Parsek
         internal const string AstronautKiaTab = "Kia";
         /// <summary>The crew assignment dialog's available-crew list (<c>scrollListAvail</c>).</summary>
         internal const string CrewAssignmentAvailableTab = "Available";
+        /// <summary>The facility menu has no tabs; its one decorated control is Upgrade.</summary>
+        internal const string FacilityMenuTab = "Upgrade";
 
         /// <summary>The retired stand-in's text: the Kerbals window's <c>Retired</c>
         /// status, qualified because the stock list does not say he is a stand-in.</summary>
@@ -446,6 +453,66 @@ namespace Parsek
                 result.Add(d);
             }
             return result;
+        }
+
+        /// <summary>
+        /// KSC facility context menu: a facility a committed row upgrades later is marked
+        /// and its Upgrade button refused, over
+        /// <see cref="StockUiReservationPredicates.IsFacilityUpgradeBlocked"/>, the same
+        /// predicate and text the <c>FacilityUpgradeSpendPatch</c> /
+        /// <c>FacilityUpgradePatch</c> refusal reads. While
+        /// <paramref name="replaying"/> the refusal is bypassed, so the menu is left stock
+        /// too (the pairing rule holds in both states). A null or empty id (a building with
+        /// no upgradeable facility) is undecorated.
+        /// </summary>
+        internal static StockUiDecoration ForFacilityMenu(
+            CommittedFutureIndex index,
+            double currentUT,
+            string facilityId,
+            bool replaying,
+            Func<double, string> formatDate)
+        {
+            var d = Undecorated(StockUiScreen.FacilityMenu, FacilityMenuTab, facilityId);
+            if (string.IsNullOrEmpty(facilityId) || replaying)
+                return d;
+            if (!StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, facilityId, currentUT))
+                return d;
+            var text = StockUiReservationPredicates.ExplainFacilityUpgrade(index, facilityId, currentUT, formatDate);
+            Mark(ref d, StockUiDecorationKind.FacilityUpgrade, text,
+                index.FirstFuture(CommittedFutureKind.FacilityUpgrade, facilityId, currentUT).UT);
+            d.Blocked = true;
+            return d;
+        }
+
+        /// <summary>The facility menu's one Info line per decoration:
+        /// <c>decorate screen=FacilityMenu facility=&lt;id&gt; marked=&lt;b&gt; blocked=&lt;b&gt;</c>.</summary>
+        internal static string FormatFacilityMenuLine(StockUiDecoration d)
+        {
+            return "decorate screen=" + StockUiScreen.FacilityMenu
+                   + " facility=" + (string.IsNullOrEmpty(d.Id) ? "<none>" : d.Id)
+                   + " marked=" + (d.Marked ? "true" : "false")
+                   + " blocked=" + (d.Blocked ? "true" : "false");
+        }
+
+        /// <summary>
+        /// Logs one facility menu decoration: the Info line, then one Verbose line with the
+        /// why (the explanation for a marked facility, else the reason it is left stock).
+        /// </summary>
+        internal static void LogFacilityMenu(StockUiDecoration d, bool replaying, string reason)
+        {
+            ParsekLog.Info(Tag, FormatFacilityMenuLine(d));
+            string why;
+            if (d.Marked)
+                why = "why=\"" + (d.Why ?? "") + "\"";
+            else if (string.IsNullOrEmpty(d.Id))
+                why = "unmarked: the building has no upgradeable facility";
+            else if (replaying)
+                why = "unmarked: action replay in progress (the upgrade refusal is bypassed too)";
+            else
+                why = "unmarked: no committed future upgrade of this facility";
+            ParsekLog.Verbose(Tag, "decorate screen=" + StockUiScreen.FacilityMenu
+                + " facility=" + (string.IsNullOrEmpty(d.Id) ? "<none>" : d.Id)
+                + " (" + (reason ?? "refresh") + ") " + why);
         }
 
         private static void Mark(ref StockUiDecoration d, StockUiDecorationKind kind, ReservationText text, double ut)
