@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: one lane checks the Timeline against the ledger and three storage formats on
+  a live save.** `ST-1-storage-timeline-ingame` boots the earned career, splits a kerbal off the pad
+  pod (which writes a rewind-point quicksave) and runs two new in-game categories. `Timeline` checks
+  that every effective-ledger action is exactly one Timeline row or a design exclusion, in time order,
+  with its own display text. `Storage` checks recording-id path validation on the save's real ids, that
+  the readable `.prec.txt` mirrors are removed with the setting off and rewritten faithfully with it on,
+  and that the rewind point's quicksave is on disk under `Parsek/RewindPoints/` and loads.
 - **Dev: the GUI mirror says when a shown capture is not current.** A superseded, retired, old-layout or no-hover capture opened from a link or as a Compare BEFORE now carries a banner naming the run that is current, with a button to show it (`harness/tools/gui_mirror.py`).
 - **Automated testing: a lane loops a recorded mission and watches its copies relaunch, overlap and expire.**
   `GS-12-kerbalx-loop-cycles` flies GS-4's Kerbal X flight, rewinds and watches the first run, then loops
@@ -1013,6 +1020,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
+  Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
+  kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name
+  as its text and logged an "Unknown GameActionType" warning every time the Timeline rebuilt. It now
+  shows in the crew bucket, beside `Recovered: <name>`, naming the logged entries. Supply-route ledger
+  rows, which the Timeline design gives no row, are now skipped instead of taking the same fallback.
 - **Real Spawn Control and the Log (Structure) window: column text now starts exactly under
   its header.** The header cells are boxes that inset their text 4px, while the body cells
   were plain labels with no inset, so every column's text sat 4px left of its header in

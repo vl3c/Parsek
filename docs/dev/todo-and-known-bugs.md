@@ -15,6 +15,46 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~TIMELINE-KERBAL-EXPERIENCE-RAW-ROW: a kerbal's career-log (XP) ledger row rendered in the Timeline as the raw word "KerbalExperience" and warned on every rebuild~~ [FILED and FIXED 2026-09-25, coverage wave 4, branch `cov-ingame`]
+
+**Symptom.** `KerbalExperience` (type 31, written by a crewed recovery's career-log correlation) had no
+arm in `TimelineEntryDisplay.MapGameActionType` or `GameActionDisplay.GetDescription`, so every such
+row fell to the defaults: a `LegacyEvent`-typed Timeline row whose text was `KerbalExperience`, plus
+`[Timeline] Unknown GameActionType 'KerbalExperience' - mapping to LegacyEvent` on every Timeline
+build (22 such WARN lines across the existing harness results logs; `career-earned-pad`'s ledger
+carries one such row). The eight supply-route types had the same fallback. Found by the new D15
+`timeline-projection` in-game cell (`TimelineProjectionTests`), whose first flight on the pre-fix DLL
+is the natural negative control.
+
+**Rule (timeline design section 3.3, now written out there).** Every non-route `GameActionType`
+renders as its own Timeline row with its own display text; only the route action types have no
+Timeline entry ("the route action types have no timeline entry"), and the builder skips them with
+one counted Verbose summary. `KerbalExperience` is non-route and is NOT excluded by the design or any
+ruling, so it renders.
+
+**Fix.** `KerbalExperience` maps to the `KerbalAssignment` bucket (the same bucket as
+`KerbalRecovered`'s `Recovered: <name>`) and reads `XP: <name> (<entries>)` from its encoded
+career-log entries (`GameActionDisplay.GetKerbalExperienceDescription`), e.g.
+`XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin, Recovered)`; the ledger stores the entries, not
+an XP amount, so the row names what was logged. `TimelineBuilder.IsRouteOnlyActionType` skips route
+rows. The in-game cell encodes the same rule: its exclusion set is route types only, and it fails any
+action row typed `LegacyEvent` or whose text is the raw enum name. Unit cells in
+`TimelineBuilderTests`.
+
+## SAFE-WRITE-CRASH-AFTER-TEMP-HAS-NO-LANE: D16 `safe-write` needs a crash hook between the temp write and the swap [FILED 2026-09-25, coverage wave 4, branch `cov-ingame`; OPEN, harness + small C#]
+
+Catalog item F5 asks for a driven witness that a crash after `FileIOUtils.SafeWriteConfigNode` wrote
+`<path>.tmp` but before `ReplaceDestination` swapped it leaves the previous file intact and the next
+load recovers. The brief modelled it on the `CrashAfterJournalPhase` seam verb, but that verb is
+RESERVED (recognized, `not-implemented-v1`) in `TestCommandVerbs.ReservedVerbs`, so there is no crash
+hook to copy. The work is: a one-shot test hook in `FileIOUtils` that throws (or `Application.Quit`s
+hard) after the temp write for one named path, a seam verb to arm it, a lane that runs two boots of
+one save (the harness has no relaunch-after-kill step today) and a next-load check that the
+destination still parses and the orphan `.tmp` is swept (`RecordingStore.OrphanCleanup` sweeps sidecar
+`.tmp` files; other callers do not). Estimated well over the 150-line budget the wave allowed, so
+skipped. The pure ordering contract (`ReplaceDestination` never loses the previous file) is covered
+headlessly by the FileIOUtils xUnit cells.
+
 ## STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing [FILED 2026-09-25 from the stock-UI reservation analysis. OPEN; owner rulings taken 2026-09-25 (D1, D2, D4, D5, D7, S1 ruled; D3, D6 out of scope); section 12 claims verified by unit cells]
 
 **Reference:** `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` is the single
