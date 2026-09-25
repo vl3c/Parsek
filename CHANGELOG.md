@@ -1064,6 +1064,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Stock screens: a button Parsek blocks now looks disabled.** The R&D Research and
+  purchase-all button and Mission Control's Accept, Decline and Cancel draw no disabled state
+  of their own, so a blocked one looked clickable and only the reason text said otherwise.
+  They are now greyed while Parsek blocks them (a button whose own style has a disabled look
+  keeps using it), and get their exact stock look back when the block lifts or another,
+  unblocked contract or node is selected.
+- **KSC facility menu: the Upgrade explanation wraps.** The tooltip on a blocked Upgrade
+  button drew as one very long line to the left of the menu; it now wraps to short lines.
+- **Mission Control: row labels fit.** A contract the committed timeline accepts or resolves
+  reads e.g. "- accepted Y1 D3" or "- completes Y2 D114" after its title, instead of a long
+  status the three-line row cut off; the detail panel still gives the full explanation.
+- **Mission Control: the slot refusal names the contract's agent.** When several offers share
+  a title, "Accept is unavailable" now says which one the committed timeline accepts, e.g.
+  "'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics".
 - **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
   Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
   kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name

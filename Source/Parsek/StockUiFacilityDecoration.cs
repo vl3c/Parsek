@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text;
 using HarmonyLib;
 using KSP.UI.Screens;
 using KSP.UI.TooltipTypes;
@@ -54,6 +55,54 @@ namespace Parsek
         {
             if (!d.Blocked) return default(UpgradeButtonDecision);
             return new UpgradeButtonDecision { DisableUpgrade = true, Reason = d.Why };
+        }
+
+        /// <summary>
+        /// The widest tooltip line, in characters. The stock <c>Tooltip_Text</c> prefab the
+        /// Upgrade tooltip borrows sizes itself to its text with no maximum width, and
+        /// neither <c>TooltipController_Text</c> nor <c>Tooltip_Text</c> exposes one (KSP
+        /// 1.12.5, decompiled), so a one-paragraph explanation drew as a single ~1170 px
+        /// line far to the left of the menu (first in-game census, 2026-09-25). Breaking
+        /// the text into lines is the one layout the prefab honours whatever its settings.
+        /// </summary>
+        internal const int TooltipLineChars = 60;
+
+        /// <summary>
+        /// Greedy word wrap at <paramref name="maxChars"/> per line: existing line breaks
+        /// are kept, words are never split (a longer word gets a line of its own), and the
+        /// break replaces the space. Pure.
+        /// </summary>
+        internal static string WrapTooltipText(string text, int maxChars = TooltipLineChars)
+        {
+            if (string.IsNullOrEmpty(text) || maxChars <= 0 || text.Length <= maxChars) return text;
+            var sb = new StringBuilder(text.Length + 8);
+            string[] paragraphs = text.Split('\n');
+            for (int p = 0; p < paragraphs.Length; p++)
+            {
+                if (p > 0) sb.Append('\n');
+                string[] words = paragraphs[p].Split(' ');
+                int lineLength = 0;
+                for (int w = 0; w < words.Length; w++)
+                {
+                    string word = words[w];
+                    if (lineLength == 0)
+                    {
+                        sb.Append(word);
+                        lineLength = word.Length;
+                    }
+                    else if (lineLength + 1 + word.Length <= maxChars)
+                    {
+                        sb.Append(' ').Append(word);
+                        lineLength += 1 + word.Length;
+                    }
+                    else
+                    {
+                        sb.Append('\n').Append(word);
+                        lineLength = word.Length;
+                    }
+                }
+            }
+            return sb.ToString();
         }
 
         /// <summary>
@@ -296,7 +345,7 @@ namespace Parsek
             if (tip != null && tip.prefab != null)
             {
                 tip.RequireInteractable = false;
-                tip.SetText(ComposeTooltipText(state.TooltipOwned, state.StockTooltipText, why));
+                tip.SetText(ComposeTooltipText(state.TooltipOwned, state.StockTooltipText, WrapTooltipText(why)));
                 tip.enabled = true;
                 RemoveDescriptionReason(menu, state);
                 return "stock tooltip";

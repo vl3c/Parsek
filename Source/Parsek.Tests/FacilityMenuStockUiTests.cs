@@ -231,6 +231,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void WrapTooltipText_BreaksTheCensusReasonIntoShortLines_AndLosesNoWord()
+        {
+            // First in-game census (2026-09-25): this text drew as one ~1170 px line.
+            const string why = "Upgraded to level 2 on Y1, D05, 01:00 on your committed timeline. Parsek's timeline is "
+                + "fixed once committed, so this cannot happen earlier or twice. The upgrade happens on that date.";
+
+            string wrapped = StockUiFacilityDecoration.WrapTooltipText(why);
+
+            string[] lines = wrapped.Split('\n');
+            Assert.True(lines.Length >= 3, "expected several lines, got " + lines.Length);
+            foreach (var line in lines)
+            {
+                Assert.True(line.Length <= StockUiFacilityDecoration.TooltipLineChars, "line too long: '" + line + "'");
+                Assert.False(line.StartsWith(" ") || line.EndsWith(" "), "untrimmed line: '" + line + "'");
+            }
+            Assert.Equal(why, wrapped.Replace('\n', ' '));
+        }
+
+        [Theory]
+        [InlineData(null, null)]
+        [InlineData("", "")]
+        [InlineData("short", "short")]
+        [InlineData("aaaa bbbb cccc", "aaaa bbbb\ncccc")]
+        [InlineData("aaaa bbbb cc\ndd ee ff", "aaaa bbbb\ncc\ndd ee ff")]
+        [InlineData("averyveryverylongword x", "averyveryverylongword\nx")]
+        public void WrapTooltipText_KeepsBreaksAndNeverSplitsAWord(string text, string expected)
+        {
+            Assert.Equal(expected, StockUiFacilityDecoration.WrapTooltipText(text, 9));
+        }
+
+        [Fact]
         public void ComposeTooltipText_OwnedShowsTheWhyAlone_AStockControllerKeepsItsTextOnce()
         {
             Assert.Equal("why", StockUiFacilityDecoration.ComposeTooltipText(true, "ignored", "why"));
