@@ -51,6 +51,10 @@ namespace Parsek.Tests
             StrategyReservationGate.ActiveStrategyIdsProviderForTesting = () => new List<string>();
             StrategyReservationGate.SlotLimitProviderForTesting = () => 1;
             StrategyReservationGate.StrategyTitleProviderForTesting = id => "Title of " + id;
+            // Stock's own CanBeActivated / CanBeDeactivated allow unless a cell says otherwise.
+            StrategyReservationGate.StockCanBeActivatedProviderForTesting = id => true;
+            StrategyReservationGate.StockCanBeDeactivatedProviderForTesting = id => true;
+            StockUiAdministrationDecoration.ResetForTesting();
             CommittedActionDialog.TestHookForTesting = (action, reason, detail) => dialogBodies.Add(reason);
         }
 
@@ -389,9 +393,13 @@ namespace Parsek.Tests
             Ledger.AddAction(On(400.0, "D"));
             Ledger.AddAction(On(20.0, "G"));
             Ledger.AddAction(On(200.0, "I"));
+            // J: a committed later activation too, but stock's own CanBeActivated already
+            // refuses it, so stock keeps its result and reason: neither marked nor blocked.
+            Ledger.AddAction(On(500.0, "J"));
             var activeNow = new HashSet<string> { "B", "G" };
             StrategyReservationGate.ActiveStrategyIdsProviderForTesting = () => activeNow;
             StrategyReservationGate.SlotLimitProviderForTesting = () => 2;
+            StrategyReservationGate.StockCanBeActivatedProviderForTesting = id => id != "J";
             StrategyReservationGate.StockStrategiesProviderForTesting = () => new List<StrategyTagInfo>
             {
                 new StrategyTagInfo("H", new[] { "Basic", "A" }),
@@ -406,7 +414,7 @@ namespace Parsek.Tests
 
             var marks = new List<string>();
             var blocks = new List<string>();
-            foreach (string id in new[] { "A", "B", "C", "D", "E", "G", "H", "I" })
+            foreach (string id in new[] { "A", "B", "C", "D", "E", "G", "H", "I", "J" })
             {
                 bool isActive = activeNow.Contains(id);
                 ReservationText text;
@@ -424,6 +432,178 @@ namespace Parsek.Tests
             Assert.Equal(7, dialogBodies.Count);
             Assert.Contains(logLines, l => l.Contains("activation refused strategy=H")
                 && l.Contains("kind=ConflictsWithCommitted") && l.Contains("committedKey=I"));
+        }
+
+        // ================================================================
+        // Stock-first precedence (GUI-28 finding F7, ruling 2026-09-25)
+        // ================================================================
+
+        [Fact]
+        public void Precedence_StockAlreadyRefusesActivation_KeepsStocksResultAndReason()
+        {
+            Ledger.AddAction(On(300.0, "A"));
+            StrategyReservationGate.StockCanBeActivatedProviderForTesting = id => false;
+
+            ReservationText text;
+            // The postfix passes stock's __result: false means Parsek leaves result and reason.
+            Assert.False(StrategyReservationGate.TryRefuseActivation("A", false, out text));
+            Assert.True(string.IsNullOrEmpty(text.Body));
+            // The live-probing overload (census, look pass, backstop) reads the same verdict.
+            Assert.False(StrategyReservationGate.TryRefuseActivation("A", out text));
+            // The click is left to stock: no Parsek dialog.
+            Assert.True(AdministrationButtonBackstopPatch.ShouldAllow("accept", false, "A", "A"));
+            Assert.Empty(dialogBodies);
+            Assert.Contains(logLines, l => l.Contains("[StrategyReservation]")
+                && l.Contains("activation left to stock strategy=A"));
+            Assert.DoesNotContain(logLines, l => l.Contains("activation refused strategy=A"));
+        }
+
+        [Fact]
+        public void Precedence_StockAllows_ParsekRefusesWithItsOwnReason()
+        {
+            Ledger.AddAction(On(300.0, "A"));
+
+            ReservationText text;
+            Assert.True(StrategyReservationGate.TryRefuseActivation("A", true, out text));
+            Assert.StartsWith("Activated on ", text.Body);
+            Assert.False(AdministrationButtonBackstopPatch.ShouldAllow("accept", false, "A", "A"));
+            Assert.Single(dialogBodies);
+        }
+
+        /// <summary>
+        /// The census case: 1 of 1 slots used, a committed activation of another strategy
+        /// later. Stock's slot check refuses every inactive strategy itself; before the
+        /// precedence rule Parsek's "a committed activation needs this slot" replaced stock's
+        /// slot-full reason on all of them.
+        /// </summary>
+        [Fact]
+        public void Precedence_SlotsFullNow_StocksSlotReasonStands_OnEveryInactiveStrategy()
+        {
+            Ledger.AddAction(On(10.0, "Appreciation"));
+            Ledger.AddAction(Off(150.0, "Appreciation"));
+            Ledger.AddAction(On(160.0, "Outsourced"));
+            var activeNow = new HashSet<string> { "Appreciation" };
+            StrategyReservationGate.ActiveStrategyIdsProviderForTesting = () => activeNow;
+            StrategyReservationGate.SlotLimitProviderForTesting = () => 1;
+            // Stock: the one slot is taken, so every inactive strategy is refused by stock.
+            StrategyReservationGate.StockCanBeActivatedProviderForTesting = id => activeNow.Count < 1;
+
+            foreach (string id in new[] { "Fundraising", "OpenSource", "Outsourced", "Patents" })
+            {
+                ReservationText text;
+                Assert.False(StrategyReservationGate.TryRefuseActivation(id, false, out text));
+                Assert.False(StrategyReservationGate.TryRefuseActivation(id, out text));
+                Assert.True(AdministrationButtonBackstopPatch.ShouldAllow("accept", false, id, id));
+            }
+            Assert.Empty(dialogBodies);
+
+            // Parsek's own reasons still exist behind stock's: with a free slot they apply.
+            ReservationText own;
+            Assert.True(StrategyReservationGate.TryRefuseActivation("Outsourced", true, out own));
+            Assert.True(StrategyReservationGate.TryRefuseActivation("Fundraising", true, out own));
+        }
+
+        [Fact]
+        public void Precedence_StockAlreadyRefusesDeactivation_KeepsStocksReason_AndTheClickIsStocks()
+        {
+            Ledger.AddAction(On(10.0, "B"));
+            Ledger.AddAction(Off(300.0, "B"));
+            StrategyReservationGate.StockCanBeDeactivatedProviderForTesting = id => false;
+
+            ReservationText text;
+            Assert.False(StrategyReservationGate.TryRefuseDeactivation("B", false, out text));
+            Assert.False(StrategyReservationGate.TryRefuseDeactivation("B", out text));
+            Assert.True(AdministrationButtonBackstopPatch.ShouldAllow("cancel", true, "B", "B"));
+            Assert.Empty(dialogBodies);
+            Assert.Contains(logLines, l => l.Contains("deactivation left to stock strategy=B"));
+
+            Assert.True(StrategyReservationGate.TryRefuseDeactivation("B", true, out text));
+        }
+
+        // ================================================================
+        // Administration Accept / Cancel greyed look (GUI-28 finding F1)
+        // ================================================================
+
+        [Theory]
+        [InlineData(true, false, false, "Grey")]
+        [InlineData(true, false, true, "None")]
+        [InlineData(false, true, true, "RestoreStock")]
+        [InlineData(false, false, true, "RestoreStock")]
+        [InlineData(false, true, false, "None")]
+        [InlineData(false, false, false, "None")]
+        // A Parsek refusal on a button that is somehow still live is never greyed: a mark on a
+        // live control misleads.
+        [InlineData(true, true, false, "None")]
+        [InlineData(true, true, true, "RestoreStock")]
+        public void ButtonLook_Decision(bool parsekBlocked, bool interactable, bool greyed, string expected)
+        {
+            Assert.Equal(expected, StockUiAdministrationDecoration.DecideLook(parsekBlocked, interactable, greyed).ToString());
+        }
+
+        [Fact]
+        public void ButtonLook_GreyUsesTheButtonsOwnDisabledColour_OrHalfAlphaWhenNeutral()
+        {
+            var stock = new UnityEngine.Color(0.2f, 0.8f, 0.4f, 1f);
+            var unityDefaultDisabled = new UnityEngine.Color(0.784f, 0.784f, 0.784f, 0.502f);
+            var g = StockUiAdministrationDecoration.GreyedColor(stock, unityDefaultDisabled);
+            Assert.Equal(0.2 * 0.784, (double)g.r, 4);
+            Assert.Equal(0.8 * 0.784, (double)g.g, 4);
+            Assert.Equal(0.502, (double)g.a, 4);
+
+            var neutral = StockUiAdministrationDecoration.GreyedColor(stock, UnityEngine.Color.white);
+            Assert.Equal(0.2, (double)neutral.r, 4);
+            Assert.Equal(0.5, (double)neutral.a, 4);
+        }
+
+        /// <summary>
+        /// Leak proof: blocked selection -> grey; another blocked selection keeps the grey
+        /// without re-capturing it as the stock colour; stock re-enables the button for an
+        /// unblocked selection -> the exact original colour; further unblocked selections
+        /// touch nothing.
+        /// </summary>
+        [Fact]
+        public void ButtonLook_StepSequence_RestoresTheExactStockColour_AndNeverCapturesTheGrey()
+        {
+            var state = new StockUiAdministrationDecoration.ButtonLookState();
+            var stock = new UnityEngine.Color(0.1f, 0.9f, 0.3f, 1f);
+            var disabledTint = UnityEngine.Color.white;
+            AdministrationButtonLookAction action;
+
+            var grey = StockUiAdministrationDecoration.Step(state, true, false, stock, disabledTint, out action);
+            Assert.Equal(AdministrationButtonLookAction.Grey, action);
+            Assert.True(grey.HasValue);
+            Assert.NotEqual(stock, grey.Value);
+
+            var again = StockUiAdministrationDecoration.Step(state, true, false, grey.Value, disabledTint, out action);
+            Assert.Equal(AdministrationButtonLookAction.None, action);
+            Assert.False(again.HasValue);
+
+            // Stock's SetSelectedStrategy re-enabled the button for an unblocked strategy.
+            var restored = StockUiAdministrationDecoration.Step(state, false, true, grey.Value, disabledTint, out action);
+            Assert.Equal(AdministrationButtonLookAction.RestoreStock, action);
+            Assert.Equal(stock, restored.Value);
+            Assert.False(state.Greyed);
+
+            var idle = StockUiAdministrationDecoration.Step(state, false, true, stock, disabledTint, out action);
+            Assert.Equal(AdministrationButtonLookAction.None, action);
+            Assert.False(idle.HasValue);
+        }
+
+        [Fact]
+        public void Target_Administration_UpdateStrategyStats_Resolves()
+        {
+            var m = AdministrationUpdateStrategyStatsPatch.ResolveTargetMethodForTesting();
+            Assert.NotNull(m);
+            Assert.Equal(typeof(Administration), m.DeclaringType);
+            Assert.Empty(m.GetParameters());
+        }
+
+        [Fact]
+        public void Target_Administration_ButtonMembersTheLookReads_Exist()
+        {
+            Assert.NotNull(typeof(KSP.UI.UIStateButton).GetProperty("Image"));
+            Assert.NotNull(typeof(KSP.UI.UIStateButton).GetProperty("Button"));
+            Assert.NotNull(typeof(KSP.UI.UIStateButton).GetMethod("Enable"));
         }
 
         // ================================================================

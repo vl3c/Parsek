@@ -151,15 +151,17 @@ namespace Parsek.Tests
             Func<string, KerbalReservationKind> kind = null,
             Func<string, KerbalsModule.KerbalReservation> reservation = null,
             Func<string, string> owner = null,
-            Func<string, bool> dismissal = null,
-            ISet<string> live = null)
+            Func<string, string> refusal = null,
+            ISet<string> live = null,
+            Func<string, string> standInOwner = null)
         {
             return new AstronautComplexContext
             {
                 ReservationKind = kind,
                 Reservation = reservation,
                 SlotOwner = owner,
-                DismissalBlocked = dismissal,
+                DismissalRefusal = refusal,
+                ActiveStandInOwner = standInOwner,
                 IsLoopingRecording = id => false,
                 LiveCrewOrTourist = live
             };
@@ -200,7 +202,7 @@ namespace Parsek.Tests
             });
             var d = StockUiDecorationQuery.ForAstronautComplex(index, 100,
                 new[] { new StockUiItem("Retiree Kerman", "Available") },
-                Context(dismissal: _ => true), Fmt).Single();
+                Context(refusal: _ => "refused"), Fmt).Single();
 
             Assert.Equal(StockUiDecorationKind.KerbalRetire, d.Kind);
             Assert.True(d.Marked);
@@ -224,7 +226,7 @@ namespace Parsek.Tests
             var d = StockUiDecorationQuery.ForAstronautComplex(index, 100,
                 new[] { new StockUiItem("Jeb", "Assigned") },
                 Context(kind: _ => KerbalReservationKind.ReservedActive, reservation: _ => reservation,
-                    owner: n => n, dismissal: _ => true), Fmt).Single();
+                    owner: n => n, refusal: _ => "refused"), Fmt).Single();
 
             Assert.Equal(StockUiDecorationKind.KerbalOnFlight, d.Kind);
             Assert.True(d.Marked);
@@ -264,15 +266,78 @@ namespace Parsek.Tests
             var d = StockUiDecorationQuery.ForAstronautComplex(CommittedFutureIndex.Empty, 100,
                 new[] { new StockUiItem("Lars Kerman", "Available"), new StockUiItem("Chain Kerman", "Available") },
                 Context(kind: n => n == "Lars Kerman" ? KerbalReservationKind.ReservedRetired : KerbalReservationKind.NotManaged,
-                    dismissal: _ => true), Fmt);
+                    refusal: _ => "refused"), Fmt);
 
             var lars = d.Single(x => x.Id == "Lars Kerman");
             Assert.Equal(StockUiDecorationKind.KerbalRetiredStandIn, lars.Kind);
             Assert.Equal(StockUiDecorationQuery.RetiredStandInText, lars.Why);
-            // A stand-in in a replacement chain is refused dismissal with no mark today.
+            // A chain member who is not the ACTIVE stand-in (displaced, or no owner resolves)
+            // gets no label, but the record carries the refusal the dismiss tooltip draws.
             var chain = d.Single(x => x.Id == "Chain Kerman");
             Assert.False(chain.Marked);
             Assert.True(chain.Blocked);
+            Assert.Equal(StockUiDecorationKind.None, chain.Kind);
+            Assert.Equal("refused", chain.Why);
+        }
+
+        /// <summary>
+        /// GUI-28 finding F3: an active stand-in logged <c>kind=None marked=false why=""</c>
+        /// while its row drew "Managed by Parsek / This kerbal is a stand-in ...". The record
+        /// now names the kind, the Kerbals window's status and the dismissal refusal text.
+        /// </summary>
+        [Fact]
+        public void ForAstronautComplex_ActiveStandIn_IsMarkedStandInFor_WithTheDismissalRefusalAsWhy()
+        {
+            string standInRefusal = KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged);
+            var d = StockUiDecorationQuery.ForAstronautComplex(CommittedFutureIndex.Empty, 100,
+                new[]
+                {
+                    new StockUiItem("Leoly Kerman", "Available"),
+                    new StockUiItem("Bob Kerman", "Available")
+                },
+                Context(refusal: n => n == "Leoly Kerman" ? standInRefusal : null,
+                    standInOwner: n => n == "Leoly Kerman" ? "Bill Kerman" : null), Fmt);
+
+            var leoly = d.Single(x => x.Id == "Leoly Kerman");
+            Assert.Equal(StockUiDecorationKind.KerbalStandIn, leoly.Kind);
+            Assert.True(leoly.Marked);
+            Assert.True(leoly.Blocked);
+            Assert.Equal("Stand-in for Bill Kerman", leoly.Title);
+            Assert.Equal(standInRefusal, leoly.Why);
+
+            var bob = d.Single(x => x.Id == "Bob Kerman");
+            Assert.Equal(StockUiDecorationKind.None, bob.Kind);
+            Assert.False(bob.Marked);
+            Assert.False(bob.Blocked);
+            Assert.Null(bob.Why);
+        }
+
+        [Fact]
+        public void ForAstronautComplex_StandInOwnerWithoutADismissalBlock_IsNotMarked()
+        {
+            // Pairing: the stand-in label rides on the dismissal block; a row the dismissal
+            // predicate lets go is never labelled a stand-in.
+            var d = StockUiDecorationQuery.ForAstronautComplex(CommittedFutureIndex.Empty, 100,
+                new[] { new StockUiItem("Leoly Kerman", "Available") },
+                Context(refusal: _ => null, standInOwner: _ => "Bill Kerman"), Fmt).Single();
+
+            Assert.Equal(StockUiDecorationKind.None, d.Kind);
+            Assert.False(d.Marked);
+            Assert.False(d.Blocked);
+        }
+
+        [Fact]
+        public void ForAstronautComplex_ReservedStandIn_ReadsReservedNotStandIn()
+        {
+            // A stand-in a committed flight now holds is ReservedActive first (Kerbals
+            // window: "Reserved for <owner>"), never "Stand-in for".
+            var reservation = new KerbalsModule.KerbalReservation { KerbalName = "Leoly Kerman", ReservedUntilUT = 13000 };
+            var d = StockUiDecorationQuery.ForAstronautComplex(CommittedFutureIndex.Empty, 100,
+                new[] { new StockUiItem("Leoly Kerman", "Available") },
+                Context(kind: _ => KerbalReservationKind.ReservedActive, reservation: _ => reservation,
+                    owner: _ => "Bill Kerman", refusal: _ => "refused", standInOwner: _ => "Bill Kerman"), Fmt).Single();
+
+            Assert.Equal(StockUiDecorationKind.KerbalOnFlight, d.Kind);
         }
 
         /// <summary>
