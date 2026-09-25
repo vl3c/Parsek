@@ -29,10 +29,13 @@ window, both tabs, no Basic-specific variant.
 
 1. The window stays **read-only**. The rebuild is a restructuring inside an existing
    window, which is not a new player-facing surface. **AMENDED 2026-09-22 (owner
-   re-ruling): the window is visible in Basic too.** It is the only surface that explains
-   why a reserved kerbal is missing from stock crew assignment (the `CrewDialogFilter`
-   patch removes him silently), and it is read-only, so showing it costs a Basic player
-   nothing he could break. It was Advanced-only from the 2026-09-15 rebuild until then.
+   re-ruling): the window is visible in Basic too.** When ruled, it was the only surface
+   that explained why a reserved kerbal was missing from stock crew assignment (the
+   `CrewDialogFilter` patch removed him silently), and it is read-only, so showing it costs
+   a Basic player nothing he could break. Since 2026-09-25 (stock-UI overlays PR 6) the
+   VAB/SPH crew dialog lists that kerbal greyed out with the reason in his tooltip
+   instead of hiding him; whether that moves the window back to Advanced is the open
+   decision D3 in `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md`. It was Advanced-only from the 2026-09-15 rebuild until then.
 2. Both tabs are **column tables** with ONE shared inset: header row and body rows inside the
    same container, through `ParsekUI.GetTableRowStyle` / `GetTableBodyBoxStyle`, so header and
    cells align with zero delta (the house pattern from PRs #1679 / #1680).

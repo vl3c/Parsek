@@ -165,6 +165,38 @@ namespace Parsek
             };
         }
 
+        /// <summary>The way out of a slot-refused accept.</summary>
+        internal const string ContractSlotWayOut = "A slot frees when one of your active contracts ends.";
+
+        /// <summary>
+        /// Accepting a contract now would leave no Mission Control slot for a committed
+        /// accept (section 4 "C2"). <paramref name="starvedAccept"/> is the earliest
+        /// committed accept that would find no slot; its flight and contract title are named
+        /// when the row carries them. The Mission Control detail panel, the Accept backstop
+        /// and Contract Configurator's refusal all read this text.
+        /// </summary>
+        internal static ReservationText ContractSlot(CommittedFutureEntry starvedAccept, Func<double, string> formatDate)
+        {
+            string date = FormatDate(starvedAccept != null ? starvedAccept.UT : 0.0, formatDate);
+            string who;
+            if (starvedAccept != null && starvedAccept.RecordingName != null)
+                who = "The committed flight '" + starvedAccept.RecordingName + "'";
+            else if (starvedAccept != null && starvedAccept.RecordingId == null)
+                who = "Your committed timeline";
+            else
+                who = "A committed flight";
+            string what = starvedAccept != null && starvedAccept.Title != null
+                ? "the contract '" + starvedAccept.Title + "'"
+                : "a contract";
+            return new ReservationText
+            {
+                Title = "Slot needed on " + date,
+                Fact = who + " accepts " + what + " on " + date + " and needs this slot.",
+                Rule = TimelineRule,
+                WayOut = ContractSlotWayOut
+            };
+        }
+
         /// <summary>
         /// The facility-upgrade explanation over every committed upgrade of the facility
         /// still ahead (UT ascending). The block lifts once the clock passes the last one,
@@ -230,6 +262,98 @@ namespace Parsek
             return entry != null && entry.FacilityToLevel > 0
                 ? " to level " + entry.FacilityToLevel.ToString(CultureInfo.InvariantCulture)
                 : "";
+        }
+
+        /// <summary>
+        /// Activating a strategy the committed timeline activates later. The Administration
+        /// reason field and the refused-click dialog both show this.
+        /// </summary>
+        internal static ReservationText StrategyActivation(CommittedFutureEntry entry, Func<double, string> formatDate)
+        {
+            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
+            return new ReservationText
+            {
+                Title = "Activated on " + date,
+                Fact = "Activated on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
+                Rule = TimelineRule,
+                WayOut = "It becomes active on that date."
+            };
+        }
+
+        /// <summary>
+        /// Activating a strategy now would leave no free slot for a committed activation.
+        /// <paramref name="committedTitle"/> names the strategy that activation switches on,
+        /// or null when it is unknown.
+        /// </summary>
+        internal static ReservationText StrategySlot(
+            CommittedFutureEntry entry, string committedTitle, Func<double, string> formatDate)
+        {
+            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
+            string what = string.IsNullOrEmpty(committedTitle)
+                ? "A committed activation"
+                : "A committed activation of '" + committedTitle + "'";
+            return new ReservationText
+            {
+                Title = "Slot needed on " + date,
+                Fact = what + " on " + date + " needs this slot.",
+                Rule = TimelineRule,
+                WayOut = "A slot frees when one of your active strategies ends."
+            };
+        }
+
+        /// <summary>
+        /// Activating a strategy now would make stock's conflict rule refuse a committed
+        /// activation of another strategy. The way-out line is given only when the committed
+        /// timeline also deactivates that strategy (<paramref name="conflictEnd"/>); otherwise
+        /// nothing honest can be said about when it frees.
+        /// </summary>
+        internal static ReservationText StrategyConflict(
+            CommittedFutureEntry committedActivation, CommittedFutureEntry conflictEnd,
+            string otherTitle, Func<double, string> formatDate)
+        {
+            string date = FormatDate(committedActivation != null ? committedActivation.UT : 0.0, formatDate);
+            string name = !string.IsNullOrEmpty(otherTitle)
+                ? otherTitle
+                : (committedActivation != null ? committedActivation.Key : "another strategy");
+            return new ReservationText
+            {
+                Title = "Conflicts with '" + name + "'",
+                Fact = "Conflicts with '" + name + "', which is activated on " + date + " "
+                       + SourcePhrase(committedActivation?.RecordingName) + ".",
+                Rule = TimelineRule,
+                WayOut = conflictEnd != null
+                    ? "The conflict ends when '" + name + "' is deactivated on "
+                      + FormatDate(conflictEnd.UT, formatDate) + "."
+                    : null
+            };
+        }
+
+        /// <summary>
+        /// Deactivating a strategy the committed timeline changes later.
+        /// <paramref name="entry"/> is the strategy's earliest committed row still ahead:
+        /// a deactivation (it stays active until then) or a re-activation.
+        /// </summary>
+        internal static ReservationText StrategyDeactivation(CommittedFutureEntry entry, Func<double, string> formatDate)
+        {
+            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
+            string source = SourcePhrase(entry?.RecordingName);
+            if (entry != null && entry.Kind == CommittedFutureKind.StrategyActivate)
+            {
+                return new ReservationText
+                {
+                    Title = "Activated again on " + date,
+                    Fact = "Activated again on " + date + " " + source + ".",
+                    Rule = TimelineRule,
+                    WayOut = "It can be deactivated after that date."
+                };
+            }
+            return new ReservationText
+            {
+                Title = "Deactivated on " + date,
+                Fact = "Deactivated on " + date + " " + source + ".",
+                Rule = TimelineRule,
+                WayOut = "It stays active until that date."
+            };
         }
 
         internal static ReservationText KerbalHire(CommittedFutureEntry entry, Func<double, string> formatDate)
@@ -327,6 +451,28 @@ namespace Parsek
                 Fact = fact,
                 Rule = CrewRule,
                 WayOut = wayOut
+            };
+        }
+
+        /// <summary>
+        /// A retired stand-in (the Kerbals window's <c>Retired</c>): he stood in for a
+        /// reserved owner on a committed flight, and that owner is free again
+        /// (<c>KerbalsModule.ComputeRetiredSet</c>: displaced, flew a committed recording,
+        /// not reserved now). <c>KerbalsModule.ShouldFilterFromCrewDialog</c> keeps him off
+        /// new crews. No player action is known to bring him back, so there is no way-out
+        /// sentence rather than an invented one.
+        /// </summary>
+        internal static ReservationText KerbalRetiredStandIn(string slotOwner)
+        {
+            bool hasOwner = !string.IsNullOrEmpty(slotOwner);
+            return new ReservationText
+            {
+                Title = "Retired",
+                Fact = hasOwner
+                    ? "Stood in for " + slotOwner + " on a committed flight."
+                    : "Stood in for a reserved kerbal on a committed flight.",
+                Rule = (hasOwner ? slotOwner + " is" : "That kerbal is")
+                       + " free again, so Parsek has retired this stand-in and they cannot join a new crew."
             };
         }
 

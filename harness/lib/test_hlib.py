@@ -3975,7 +3975,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H42-claw-couple":           ("ClawCouple", 2, "FLIGHT"),
         "H43-terrain-clearance":     ("TerrainClearance", 6, "FLIGHT"),
         "H44-ghost-map-trackstation": ("GhostMap", 25, "TRACKSTATION"),
-        "H45-stock-ui-overlay":      ("StockUiOverlay", 11, "SPACECENTER"),
+        "H45-stock-ui-overlay":      ("StockUiOverlay", 12, "SPACECENTER"),
         "H46-settings":              ("Settings", 5, "FLIGHT"),
         "H71-resource-topbar-ksc":   ("ResourceTopBar", 2, "SPACECENTER"),
         "H47-map-view":              ("MapView", 4, "TRACKSTATION"),

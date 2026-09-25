@@ -790,6 +790,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when a mission-loop member's slot holds a ghost that no loop path created: every
+        /// unit / overlap spawn stamps its cycle (&gt;= 0) at creation, so a state still at the
+        /// default -1 is the member's ORDINARY first-run ghost, left over from the frames before the
+        /// unit's anchor (<see cref="GhostPlaybackLogic.LoopUnitSet.LiveAt"/>). Pure.
+        /// </summary>
+        internal static bool ShouldRetireOrdinaryStateAtUnitHandover(GhostPlaybackState state)
+        {
+            return state != null && state.loopCycleIndex < 0;
+        }
+
+        /// <summary>
         /// Diagnostic-only lookup: walks <see cref="ghostStates"/> for a ghost
         /// whose stamped <c>recordingId</c> matches and returns its current
         /// <c>transform.position</c>. Used by the separation-event playback
@@ -2240,6 +2251,24 @@ namespace Parsek
 
             if (GhostPlaybackLogic.UnitMemberOverlaps(unit))
             {
+                // Handover from the first run: before its anchor the unit is not published
+                // (LoopUnitSet.LiveAt), so the slot may still hold the member's ORDINARY first-run
+                // ghost. UpdateOverlapPlayback would demote it as an overlap copy of a cycle the
+                // loop schedule never has (-1) and replay it beside the new cycle-0 primary, so it
+                // is retired here. (The span-clock branch retires it at its cycle-change rebuild.)
+                if (ShouldRetireOrdinaryStateAtUnitHandover(state))
+                {
+                    ParsekLog.Info("Engine",
+                        "Loop first-run handover: #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " \"" + (traj.VesselName ?? "?") + "\" UT="
+                        + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " anchor=" + unit.PhaseAnchorUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " - retiring the first run's ordinary ghost before the self-overlap copies");
+                    DestroyGhost(i, traj, f, reason: "first run handed to the loop unit");
+                    state = null;
+                    ghostActive = false;
+                }
+
                 double memberDuration = memberEndUT - memberStartUT;
                 if (memberDuration <= 0)
                 {

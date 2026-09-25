@@ -15,9 +15,10 @@ namespace Parsek.Patches
     /// kerbals remain at Available status (by design — changing rosterStatus
     /// caused tug-of-war bugs), so they get auto-assigned into the manifest.
     ///
-    /// The existing CrewDialogFilterPatch removes reserved kerbals from the
-    /// "available crew" list, but by that point they're already assigned to
-    /// seats and appear in the vessel crew panel.
+    /// The available-crew list shows reserved kerbals greyed and refused
+    /// (<see cref="StockUiCrewDialogDecoration"/>, <see cref="CrewDialogAvailItemPatch"/>),
+    /// but a kerbal already written into a seat by the manifest never passes
+    /// through that list, so the seat itself is fixed here.
     ///
     /// This patch intercepts RefreshCrewLists (called before UI list creation)
     /// and walks the VesselCrewManifest to replace any reserved crew with their
@@ -160,7 +161,7 @@ namespace Parsek.Patches
             // reached a Recovered flight's end since the last walk, re-walk first so the
             // returning owner is offered (and not swapped out) and his stand-in's
             // displacement is applied. A no-op compare otherwise. RefreshCrewLists runs
-            // before CreateAvailList, so CrewDialogFilterPatch sees the fresh walk too.
+            // before CreateAvailList, so the available-list decoration sees the fresh walk too.
             try
             {
                 LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(
@@ -189,8 +190,10 @@ namespace Parsek.Patches
             var kerbals = LedgerOrchestrator.Kerbals;
             if (kerbals == null) return;
 
+            // No early return on an empty replacement map: a reserved kerbal with no
+            // stand-in must still leave his seat (DecideSlotAction answers Clear), or a
+            // saved craft that names him launches him.
             var replacements = CrewReservationManager.CrewReplacements;
-            if (replacements.Count == 0) return;
 
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null) return;

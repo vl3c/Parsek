@@ -364,7 +364,7 @@ The namespace is `KSP.UI`, not `KSP.UI.Screens`.
 | `Patches/KerbalHirePatch.cs` `KerbalHirePatch` | `KerbalRoster.HireApplicant(ProtoCrewMember)` | Prefix |
 | same file, `AstronautComplexHireRecruitPatch` | `AstronautComplex.HireRecruit(UIList, UIList, UIListItem)` | Prefix |
 | `Patches/KerbalDismissalPatch.cs` | `KerbalRoster.Remove(ProtoCrewMember)` | Prefix |
-| `Patches/CrewDialogFilterPatch.cs` | `BaseCrewAssignmentDialog.AddAvailItem(PCM, UIList, ButtonTypes)` (3-argument, NOT the `out` overload) | Prefix returning false (hides the row) |
+| `Patches/CrewDialogFilterPatch.cs` (deleted in PR 6; replaced by `Patches/CrewDialogReservationPatches.cs`: `AddAvailItem` `out` overload and `CreateAvailList` postfixes, `MoveCrewToEmptySeat` / `DropOnCrewList` / `ButtonFill` prefixes) | `BaseCrewAssignmentDialog.AddAvailItem(PCM, UIList, ButtonTypes)` (3-argument, NOT the `out` overload) | Prefix returning false (hides the row) |
 | `Patches/CrewAutoAssignPatch.cs` | `BaseCrewAssignmentDialog.RefreshCrewLists(VesselCrewManifest, bool, bool, Func<PartCrewManifest,bool>)` | Prefix (stand-in swap) |
 | `Patches/StrategyLifecyclePatch.cs` | `Strategy.Activate()` / `Strategy.Deactivate()` | Postfix (ledger capture, filters `__result`) |
 | `Patches/TechResearchPatch.cs` | `RDTech.UnlockTech` | Prefix |
@@ -374,7 +374,7 @@ The namespace is `KSP.UI`, not `KSP.UI.Screens`.
 | `Patches/FacilityRepairCapturePatches.cs` | `SpaceCenterBuilding.RepairFacility(bool)`, `ResetStructures` | Prefix/Postfix |
 | `StockUiOverlayController.cs` (no Harmony) | subscribes to `RDController.OnRDTreeSpawn/Despawn`, `onGUIAstronautComplexSpawn/Despawn`, `onGUIMissionControlSpawn/Despawn`, `LedgerOrchestrator.OnTimelineDataChanged`; reflects `RDController.nodes` and the four AC `scrollList*` fields; reads `MCListItem.container.Data` as `MissionSelection`/`Contract` (`ExtractMissionControlRowContract`, `:955`) | decorate-after-spawn badges |
 
-- No Parsek patch touches `RDNode`, `RDController`, `Administration`, `KSCFacilityContextMenu`, `PartListTooltip`, `CrewListItem`, `TooltipController_CrewAC`, `Contract.CanBe*`, `Decline` / `Cancel`, or `MissionControl.AddItem` / `UpdateInfoPanelContract`.
+- No Parsek patch touches `RDNode`, `RDController`, `Administration`, `KSCFacilityContextMenu`, `PartListTooltip`, `CrewListItem`, `TooltipController_CrewAC`, `Contract.CanBe*`, `Decline` / `Cancel`, or `MissionControl.AddItem` / `UpdateInfoPanelContract`. (As of 2026-09-25 PR 5, `Strategy.CanBeActivated`, `Administration.SetSelectedStrategy` and `Administration.BtnInputAccept` are patched: `Patches/StrategyReservationPatch.cs`.)
 - Parsek listens to `GameEvents.OnPartPurchased` for capture only (`GameStateRecorder.cs:316`).
 
 **"One-shot Warn on patch target resolution failure":** there is NO shared helper. The convention is:

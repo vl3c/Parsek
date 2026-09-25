@@ -1823,7 +1823,8 @@ namespace Parsek
         /// selectable.
         ///
         /// This is narrower than IsManaged, which also returns true for active stand-ins.
-        /// Used by CrewDialogFilterPatch.
+        /// The crew dialog's refusal predicate: StockUiCrewDialogDecoration greys these rows
+        /// and every seat-placing path refuses them; CrewAutoAssignPatch clears their seats.
         ///
         /// <para>Phase 7 of Rewind-to-Staging (design §3.3.1 kerbal dual-residence
         /// carve-out): when a re-fly session is active and the kerbal is
@@ -2283,11 +2284,12 @@ namespace Parsek
         /// dict for SwapReservedCrewInFlight.
         ///
         /// Reserved kerbals are left at their natural rosterStatus (typically
-        /// Available). CrewDialogFilterPatch prevents them from appearing in the
-        /// VAB/SPH crew assignment dialog. KerbalDismissalPatch prevents dismissal.
+        /// Available). The VAB/SPH crew assignment dialog lists them greyed and refuses
+        /// every seat placement (StockUiCrewDialogDecoration). KerbalDismissalPatch
+        /// prevents dismissal.
         ///
         /// MIA Respawn: If KSP respawns a Dead kerbal to Available, the crew
-        /// dialog filter still hides them (they remain in the reservations dict).
+        /// dialog still refuses them (they remain in the reservations dict).
         /// No rosterStatus manipulation needed.
         ///
         /// Must be called AFTER PostWalk().
@@ -2589,7 +2591,7 @@ namespace Parsek
                 }
 
                 // Step 3: Populate crewReplacements bridge (no rosterStatus changes —
-                // CrewDialogFilterPatch handles crew dialog filtering)
+                // the crew dialog's refusal handles assignment)
                 CrewReservationManager.ClearReplacementsInternal();
 
                 int reservedNow = 0;

@@ -33,12 +33,49 @@ program.
 
 **Holes found by the block audit** (section 4; each blocks its screen's annotation under the
 pairing rule):
-- S1 strategies: no block; setup cost charged per activation; stock `StrategySystem` never
+- ~~S1 strategies: no block; setup cost charged per activation; stock `StrategySystem` never
   patched from the ledger, so a committed activation after a rewind is charged but never
   switched on; the design doc's "UT=0 reservation blocks new strategy activations" is not
-  implemented.
-- C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
-  accepts over a full Mission Control.
+  implemented.~~ Fixed by PR 5 (branch `stock-ui-strategies`): `StrategyReservationPredicates`
+  refuses an activation the committed timeline makes later, one that leaves no slot for a
+  committed activation (peak model with committed deactivations and Administration
+  upgrades), or one that would make stock's conflict rule
+  (`StrategySystem.HasConflictingActiveStrategies`, mirrored line for line including its
+  index quirk) refuse a committed activation while the new strategy is still active, and a
+  player deactivation while a committed row for the strategy is still ahead. Hooks: a `Strategy.CanBeActivated` postfix (stock greys the row and prints the
+  reason), an `Administration.SetSelectedStrategy` postfix (Cancel disabled, reason in the
+  description) and a `BtnInputAccept` backstop dialog; `CanBeDeactivated` stays unpatched so
+  KSPCF auto-expiry still runs and is captured as a StrategyDeactivate row.
+  `KspStatePatcher.PatchStrategies` (`StrategyStatePatcher.cs`) writes the ledger's active
+  set into `StrategySystem` via `Strategy.Load` / `Unregister` (no charge, no refund, no
+  capture), leaving strategies the ledger never activated alone. Stock fills its strategy
+  list a frame after `StrategySystem.OnLoad` (a coroutine), after the ksp-load recalc, so a
+  patch that finds no loaded list waits and a `StrategySystem.LoadStrategies` postfix runs it
+  once the list exists (Career only; dropped by a newer recalc, a scene change or another
+  save). A ledger state stock's
+  conflict rule would not allow is applied as the ledger has it and warned once, never
+  resolved by switching one off. The setup-cost double
+  charge is prevented by the activation block, not by a walk change: the walk still
+  overwrites and charges a duplicate activation row
+  (`S1_SecondActivationOfTheSameStrategy_OverwritesAndChargesSetupAgain_DocumentsHole`
+  stands). The design doc's UT=0 claim is corrected. Not covered, filed separately:
+  `STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW` (a KSPCF expiry that replays after a
+  rewind appends a second StrategyDeactivate row; predates PR 5).
+- ~~C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
+  accepts over a full Mission Control.~~
+  Fixed by PR 4 (branch `stock-ui-slots`): `ContractSlotReservation.Forecast` (pure, next to
+  `CommittedFutureIndex`) walks the committed timeline from now (actives held until their
+  committed resolution or their deadline, committed accepts added until theirs, committed
+  auto-accept rows skipped, removals first on a UT tie, the limit raised by committed Mission
+  Control upgrades), and an Offered contract the committed timeline does not accept is refused
+  when a new accept now, held until its own deadline, would leave a committed accept without
+  a slot.
+  One decision (`MissionControlStockAnnotation.Decide`, kind `ContractSlot`) greys Accept in
+  the detail panel with the reason, refuses in the `Contract.Accept` / `OnClickAccept`
+  backstops and in the CC `CanAccept` postfix; there is no row mark (the section 4 C2
+  pairing interpretation). `ContractsModule.GetAvailableSlots` still has no caller, and
+  `PatchContracts` still restores committed accepts without a slot check: with the block in
+  place only a committed history that was already over the limit can reach it.
 - ~~C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.~~
   Fixed by PR 2b (branch `stock-ui-mc`): `ContractDeclinePatch` prefixes the non-virtual
   `Contract.Decline()` and refuses (with the accept explanation) exactly where
@@ -123,6 +160,23 @@ pairing rule):
   on an open menu; a clock that passes the committed UT while the menu stays open is picked
   up on the next fill or open (the refusal reads the live clock either way). The raw
   facility id appears in no player-facing string (the refusal's title and body are pinned).
+- ~~The VAB/SPH crew dialog hides reserved kerbals silently (`CrewDialogFilterPatch`).~~
+  Fixed by PR 6 (branch `stock-ui-crew-dialog`, reference section 10 step 7, owner ruling R3):
+  the hiding prefix is deleted. A postfix on
+  `BaseCrewAssignmentDialog.AddAvailItem(PCM, out CrewListItem, UIList, ButtonTypes)` gives a
+  kerbal `KerbalsModule.ShouldFilterFromCrewDialog` refuses (the old filter's own predicate)
+  stock's `crew.inactive` look plus `SetButtonEnabled(false, title, why)`; a postfix on the
+  private `CreateAvailList` re-derives every row per build (grey, or restore a look Parsek set)
+  and logs `decorate screen=CrewAssignment tab=Available ...`. Every seat path reads the same
+  predicate: `MoveCrewToEmptySeat` (click, Fill) and `DropOnCrewList` (drag from the list)
+  prefixes refuse with the `CommittedActionDialog`; a `ButtonFill` prefix fills from the
+  first assignable row when a refused one is listed (stock always takes the top row). A
+  saved or auto-assigned manifest stays `CrewAutoAssignPatch`'s swap, which no longer skips
+  the walk when no stand-in exists at all (a reserved kerbal used to stay seated then).
+  Code: `StockUiCrewDialogDecoration.cs`, `Patches/CrewDialogReservationPatches.cs`; cells in
+  `StockUiCrewDialogTests.cs`. Not covered in game: `NoEditorSceneTestsExistContract` forbids
+  EDITOR-scene cells (DiskOnly isolation), and a timeline change while the dialog is open
+  re-marks only at the next stock rebuild. D3 (the Kerbals window back to Advanced) stays open.
 - In-game coverage: the rewritten `StockUiOverlay` cells (six R&D / Astronaut
   Complex from PR 2a, three Mission Control from PR 2b, the Active-row / Cancel cell from
   PR 3 and the facility menu cell from PR 7) have not flown; H45 pins `total=11`
@@ -155,6 +209,51 @@ pairing rule):
 - The loop hold is released by turning the loop off only for a Recovered end.
 - The CC Mission Control bypass is code-read only: it needs a live Mission Control with CC
   installed.
+
+---
+
+## STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW: a stock strategy expiry that replays after a rewind appends a second StrategyDeactivate row, and every later walk warns [FILED 2026-09-25 from the stock-UI strategies PR (PR 5, branch `stock-ui-strategies`); OPEN, low; predates PR 5; KSPCommunityFixes installs only]
+
+**What happens.** Stock strategy auto-expiry exists only with KSPCommunityFixes'
+`StrategyDuration` fix (installed in the dev and harness instances; in pure stock both
+duration getters return 0 and the expiry is dead code). With it, `Strategy.Update()` calls
+`Deactivate()` once `dateActivated + LongestDuration <= now` (decompiled `Strategy.cs`, the
+`LongestDuration != 0` branch of `Update`). `StrategyDeactivatePatch` captures that like any
+deactivation: `GameStateRecorder.OnStrategyDeactivated` forwards a KSC-side
+StrategyDeactivate row through `LedgerOrchestrator.OnKscSpending` (or tags it to the live
+recording in flight). After a rewind to a UT before the expiry, the loaded save has the
+strategy active again with its original activation date, so when the clock passes the
+expiry KSPCF expires it a second time and a second StrategyDeactivate row is appended at
+about the same UT. The committed row already switched the strategy off in the walk, so
+`StrategiesModule.ProcessDeactivate` (`GameActions/StrategiesModule.cs`, the
+`Deactivate: strategyId='<id>' not currently active, ignoring` Warn) warns on the second
+row, on every recalculation from then on. Each further rewind-and-replay across the expiry
+adds another row. No resource changes (StrategyDeactivate has no resource impact), but the
+Timeline shows the deactivation twice and the WRN surface the log validator reads grows.
+
+**Repro shape.** At the KSC with KSPCF installed: activate a strategy at T0 (row
+StrategyActivate@T0); let the clock pass T0 + its longest duration so it expires (row
+StrategyDeactivate@T_exp); have a rewind point at T1 with T0 < T1 < T_exp (any committed
+flight launched in that window); rewind to it; warp past T_exp at the KSC. Expect a second
+StrategyDeactivate row for the same id at about T_exp and the Warn above in `KSP.log` on
+each later recalculation. Not reproducible without KSPCF.
+
+**Why PR 5 does not cause or fix it.** Before PR 5 the rewind save already carried the
+strategy active, so the replayed expiry and its row happened the same way. PR 5's player
+deactivation refusal keeps the PLAYER from cancelling the strategy before the committed
+T_exp, but deliberately never blocks the expiry (blocking `CanBeDeactivated` would freeze
+the expiry and re-post its message every frame), and its state patch never undoes an
+expiry.
+
+**Fix options (not chosen):** (a) at capture, recognise a deactivation the committed
+timeline already made (the ledger has the strategy inactive at now after its latest
+activation) and log it instead of appending a row; (b) in the walk, log a deactivation of
+an already-inactive strategy at Verbose instead of Warn; (c) have the state patch switch the
+strategy off at the committed deactivation's UT before KSPCF's `Update` does. Option (a)
+changes what the ledger records and needs an owner ruling (the D4 / D5 "no silent dedupe"
+line was about player actions; an automatic replay may differ).
+
+Cross-reference: `STOCK-UI-RESERVATION-OVERLAYS-2026-09-25` (S1).
 
 ---
 
@@ -1245,7 +1344,7 @@ spawns once, later replays ghost-only), or is a chain with any looped phase a pu
 A mission loop over a chain-split tree is NOT affected: mission loops set no per-recording
 toggle, so its tip takes the first-run spawn like a standalone recording.
 
-## LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED: with a mission loop armed, a Rewind-to-Launch shows no ghost for the whole first run [FILED 2026-09-24 from the #1808 review. OPEN; PRODUCT DEFECT, operator ruling]
+## ~~LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED: with a mission loop armed, a Rewind-to-Launch shows no ghost for the whole first run~~ [FILED 2026-09-24 from the #1808 review. PRODUCT DEFECT, operator ruling. **FIXED 2026-09-25** on branch `loop-first-run-visible`; see "Fix" below]
 
 **What the player sees.** Loop a mission, then Rewind to Launch. The first run after the rewind (the real flight, which #1778 already makes spawn its vessel at the end) draws no ghost at all; the first thing that appears is the first loop copy, after the recorded span has ended.
 
@@ -1253,7 +1352,13 @@ toggle, so its tip takes the first-run spawn like a standalone recording.
 
 **Ruling (2026-09-24).** The first run plays as a normal ghost, because it is the real flight, and the loop copies begin after it.
 
-**Workaround in place.** `GS-12-kerbalx-loop-cycles` arms the loop only after the first run's PLAYBACK-WAIT. The fix is a separate session; when it lands, a lane (or GS-12 variant) that arms the loop before the first run should require the first run's MeshSpawned and the loop copies after it.
+**Workaround (retired).** `GS-12-kerbalx-loop-cycles` arms the loop only after the first run's PLAYBACK-WAIT. It keeps that order as the mirror shape (a loop armed after its first run is live from the arm UT, so the fix leaves it byte-identical); its header now says so.
+
+**Fix (2026-09-25).** Before its phase anchor a loop unit does not exist for playback. `LoopUnitSet.LiveAt(ut)` returns the set minus every unit still before its first loop instance (`GhostPlaybackLogic.IsLoopUnitBeforeFirstInstance`: non-degenerate span, set anchor, `ut < PhaseAnchorUT`), memoized so it allocates only when the clock crosses an anchor and returns the build itself in the steady state. Each scene publishes that view as its per-frame unit set through `MissionLoopUnitBuilder.ResolveLiveUnits` (flight `DriveMissionLoopUnits`, which feeds the engine, map view, polyline and watch; KSC; the Tracking Station's per-frame pass and its startup ProtoVessel pass), which logs `[MissionLoopFirstRun] Loop units live at UT=... live=N beforeFirstInstance=M` once per change. So before the anchor a member is an ordinary recording everywhere: the engine renders its first run and takes the ordinary past-end completion (spawn, explosion, watch hold or switch), KSC takes the ordinary timeline-complete spawn, and the map / TS sample seam reads it at the live UT. At the anchor the engine's unit path retires the slot's ordinary ghost (it carries `loopCycleIndex = -1`): the span-clock branch at its cycle-change rebuild, the self-overlap branch explicitly (`ShouldRetireOrdinaryStateAtUnitHandover`, `Loop first-run handover:` Info line; without it the overlap path demoted the ordinary ghost into a phantom cycle -1 copy beside the new primary, found by the PR review), so there is no double ghost; the gap after the first run is the loop's own schedule (the anchor is the loop-enable UT, floored at the span end, possibly phase-locked later). The #1778 seams (`TryQueueLoopFirstRunSpawn`, `TryLoopFirstRunSpawnKsc`) stay as the fallback for a clock that jumps straight past the anchor; the Missions window builds its own full set, so its countdown is unchanged. Unit tests: `LoopFirstRunVisibleTests` (predicate, view and memo, the log line, the engine seam before / past the anchor, the map sample seam before / after); six of its cells red with `LiveAt` returning the full build.
+
+**Live proof.** `LF-2-loop-armed-rewind-first-run-real` extended with a 1x FLIGHT leg after rewind #1 (the first run's ordinary ghost and completion, the handover, the first copy) and an ordinary KSC spawn after rewind #2: reading `2026-09-25_1710`, armed `2026-09-25_1727` PASS (DLL `d3e13f0c...`), negative control `2026-09-25_1733` on the pre-fix DLL red on exactly the four new tokens; `LF-1-loop-first-run-real` (loop armed after the first run) re-flown green `2026-09-25_1731`. The fixture's post-strip focus is an asteroid ~6.15e9 m away, so distance LOD hides the ghost the frame it is built; the witness is the engine building it on the first run's ordinary clock, which the pre-fix engine never did.
+
+**Stated limits.** When the anchor equals the recorded span's end (a loop armed during or before its first run floors there), the member ending at the span end has no ordinary past-end frame: the first live frame is already past its end, so the loop path retires its ghost and the #1778 loop seam spawns the vessel (spawn correct; a Destroyed terminal's end explosion is not played). A first-run ghost still held by the policy at the anchor (a watch hold on a member ending exactly at the anchor, or a blocked spawn's retry hold) is rebuilt by the loop path; the policy's later release of that hold can tear the copy's ghost down for one frame before the engine rebuilds it.
 
 ## ~~MISSIONCONFIG-UNKNOWN-TREE-AFTER-MID-SESSION-COMMIT: the seam's MissionConfig refuses a tree committed earlier in the same game session until the Missions window has drawn once~~ [FILED 2026-09-23 from LF-1's first two readings. **FIXED 2026-09-24** (branch `gs12-loop`): `MissionConfigImpl` calls the idempotent `MissionStore.EnsureDefaultsForTrees` before resolving `tree=` and logs `missionconfig seeded N default mission(s)` when it created any. Live-proven on GS-12 (commit in-run, Rewind-to-Launch, then MissionConfig with no Missions window): `missionconfig seeded 1 default mission(s)` on all three flights, now a required token there. `StartLoopPlayback` is unchanged (it refuses `loop-not-armed` before it could need a mission, and MissionConfig always runs first).]
 
@@ -1284,6 +1389,24 @@ autotest-status). Found on the way and fixed: five gallery career states held mo
 contracts or strategies than their own slot limit (the heading read `3 of 2 slots`); they
 now carry the Mission Control / Administration upgrade that allows it, pinned by
 `GuiMockCatalogueTests.EveryCareerStateFitsItsOwnSlotLimits`.
+
+Follow-up DONE 2026-09-25 (branch `career-contracts-slots`, the queued "Career contracts"
+PR, owner decisions 1-4): ~~the heading and fold wording~~ - the heading reads free first
+(`4 of 7 slots free (2 active, 1 reserved for later)`, `No slot limit (2 active)`), where
+"reserved" is the PEAK the recorded future holds at once beyond now
+(`CareerStateWindowUI.ComputeSlotUsage`; a day-50 completion and a day-60 accept share one
+slot), and the fold reads `Accepted later by your recorded flights (n)` / `Activated later
+...` with the timeline-end slots in its hover. ~~Expiry read as failure~~ - a contract whose
+deadline runs out reads `expires <deadline>` in the Career window and `Expired: <name>` in
+the Timeline, judged by the ledger's own deadline test (stock fires the same `onFailed` for
+both, so no new field; old rows classify correctly). Found while verifying: NOTHING stops a
+player accepting a contract or activating a strategy beyond the slots the recorded future
+reserves - stock counts only what is active now, and Parsek's one accept block
+(`ContractAcceptPatch`) refuses only a contract already committed later. The heading's hover
+states the ledger count without claiming stock refuses; the block itself is the stock-UI
+overlay work's planned "C2 contract slots" item, whose shared free-slot query should then
+replace `ComputeSlotUsage` here (code comment at the call site). Re-flown PASS: GUI-15
+`2026-09-25_1718` (adds the closing and strategies-fold mock captures), GUI-5 `_1722_a2`.
 
 Open residue:
 1. No REAL host has pending contracts or strategies, so the fold's only picture is the
