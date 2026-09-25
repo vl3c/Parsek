@@ -147,6 +147,23 @@ pairing rule):
   with a pre-UI prefix on `AstronautComplex.Xbutton_AvailableCrew` and a `SackAvailable`
   backstop over the same predicate (`KerbalDismissalPatch.ShouldAllowDismissal`); the
   Astronaut Complex greys that button for the same set.
+- ~~The VAB/SPH crew dialog hides reserved kerbals silently (`CrewDialogFilterPatch`).~~
+  Fixed by PR 6 (branch `stock-ui-crew-dialog`, reference section 10 step 7, owner ruling R3):
+  the hiding prefix is deleted. A postfix on
+  `BaseCrewAssignmentDialog.AddAvailItem(PCM, out CrewListItem, UIList, ButtonTypes)` gives a
+  kerbal `KerbalsModule.ShouldFilterFromCrewDialog` refuses (the old filter's own predicate)
+  stock's `crew.inactive` look plus `SetButtonEnabled(false, title, why)`; a postfix on the
+  private `CreateAvailList` re-derives every row per build (grey, or restore a look Parsek set)
+  and logs `decorate screen=CrewAssignment tab=Available ...`. Every seat path reads the same
+  predicate: `MoveCrewToEmptySeat` (click, Fill) and `DropOnCrewList` (drag from the list)
+  prefixes refuse with the `CommittedActionDialog`; a `ButtonFill` prefix fills from the
+  first assignable row when a refused one is listed (stock always takes the top row). A
+  saved or auto-assigned manifest stays `CrewAutoAssignPatch`'s swap, which no longer skips
+  the walk when no stand-in exists at all (a reserved kerbal used to stay seated then).
+  Code: `StockUiCrewDialogDecoration.cs`, `Patches/CrewDialogReservationPatches.cs`; cells in
+  `StockUiCrewDialogTests.cs`. Not covered in game: `NoEditorSceneTestsExistContract` forbids
+  EDITOR-scene cells (DiskOnly isolation), and a timeline change while the dialog is open
+  re-marks only at the next stock rebuild. D3 (the Kerbals window back to Advanced) stays open.
 - In-game coverage: the rewritten `StockUiOverlay` cells (six R&D / Astronaut
   Complex from PR 2a, three Mission Control from PR 2b) have not flown; H45 pins `total=9`
   INTERIM until its reading run. The editor-opened complex has no in-game cell (no

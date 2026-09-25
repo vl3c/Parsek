@@ -8731,7 +8731,7 @@ namespace Parsek.InGameTests
                 if (!onVessel && kerbals.ShouldFilterFromCrewDialog(pcm.name))
                 {
                     problems.Add($"'{pcm.name}' is Assigned but not on any vessel " +
-                        "(should be Available, filtered via CrewDialogFilterPatch)");
+                        "(should be Available, refused by the crew dialog)");
                 }
             }
 
