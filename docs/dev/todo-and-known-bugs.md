@@ -11855,6 +11855,20 @@ goes INTO the 1.25 m section of the stack (it is a structural section, not a
 nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
 is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
 
+## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. OPERATOR CONFIRMATION PENDING on the supervisor's ruling]
+
+The registry names the road (roadmap routing roads: a rendezvous mission relaunched against
+the station's live orbit). V18T is the only lane whose extraction emits a `VesselOrbital`
+constraint (`ExtractConstraints: ... VesselOrbital(3620499050@Kerbin) P=2433.78... off=15853.66`,
+the Depot's own park orbit), and the solver consumes it (`PhaseLock APPLIED ...
+method=joint-best-fit ... zeroDrift=yes`: the zero-drift per-window reschedule exists only
+because that constraint is incommensurate with `Rotation(Kerbin)`). Both lines are required
+and read on 13 of the 14 archived logs plus the armed re-flight `2026-09-25_1947`. The mission
+is `Route: Kerbin -> Kerbin`, the route's backing mission, so a player-armed rendezvous loop
+(MissionConfig on a tree that docks with a station) is not what this gates. If the operator
+rules the cell needs the player-armed road, the claim moves to a lane that arms such a loop and
+V18T keeps the tokens as a route-side witness.
+
 ## GS6-CHUTE-TWO-PHASE-NEEDS-A-DESCENT-VARIANT: the sweep craft carries parachutes and the harness has arm/deploy/cut verbs, but `kx_rewind_watch` commits at the top of a sub-orbital coast and never re-enters, so D7 `chute-two-phase` and `chute-cut` stay unreachable [FOUND BY READING 2026-09-02 while preparing the GS-6 revision-2 craft. MISSION-SHAPE NOTE, REPORT-ONLY - not a defect in the product, the craft or the driver]
 
 WHAT IS ALREADY IN PLACE: `Parachute.arm()` / `.deploy()` / `.cut()` are all on the
@@ -11902,6 +11916,14 @@ LANDING, so the variant also inherits GS-1's touchdown-survival arithmetic (cras
 tolerances, descent mass under canopy count) - and if it does not survive, the
 terminal state changes from SubOrbital to Destroyed and the lane's own
 `[expectations.recordings.structure]` moves with it.
+
+UPDATE 2026-09-25 (coverage wave 1b): D7 `chute-cut` is CLAIMED on `B4-reentry-splashdown`, not on
+a GS-6 descent variant. B4 already lands under the pod's `parachuteLarge`, and stock
+`ModuleParachute` cuts a deployed canopy itself once the vessel is LandedOrSplashed
+(decompiled), about 0.3 s after splashdown; the recorder logs the Deployed -> Cut transition
+(`Part event: ParachuteCut 'parachuteLarge' pid=`), now required on B4 (armed re-flight
+`2026-09-25_1959`). `chute-two-phase` was already claimed. What stays open here is only the
+GS-6 sweep's own chute trio, which no cell needs any more.
 
 ## GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER: five part-event families cannot be fired from a scripted timeline at all, so no sweep craft will ever reach them [FOUND BY READING 2026-09-02 against the installed kRPC 0.5.4 client surface. SCOPE NOTE, REPORT-ONLY - not a defect in anything]
 

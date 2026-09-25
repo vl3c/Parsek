@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: five more coverage cells claimed off logs existing lanes already print.**
+  B4 now requires the parachute cut the game performs on splashdown (D7 `chute-cut`); GS-12
+  requires the whole-mission loop being switched on and the watch camera reading the mission's
+  shared clock (D11 `whole-mission-loop`); V15T requires the default mission the game creates on
+  load for a committed tree, and forbids the test seam creating it instead (D11 `default-mission`);
+  V18T requires the depot rendezvous constraint behind its supply route's relaunch schedule (D11
+  `station-phase-lock`, route-driven); V25M requires the arrival re-stitch of its re-aimed Duna
+  window (D11 `s4-arrival-restitch`). Coverage 205 -> 210 of 250.
 - **Dev: the GUI mirror says when a shown capture is not current.** A superseded, retired, old-layout or no-hover capture opened from a link or as a Compare BEFORE now carries a banner naming the run that is current, with a button to show it (`harness/tools/gui_mirror.py`).
 - **Automated testing: a lane loops a recorded mission and watches its copies relaunch, overlap and expire.**
   `GS-12-kerbalx-loop-cycles` flies GS-4's Kerbal X flight, rewinds and watches the first run, then loops

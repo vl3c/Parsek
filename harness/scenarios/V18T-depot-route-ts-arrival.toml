@@ -568,7 +568,20 @@ steps = [
 [dimensionsCovered]
 D10 = ["route-map-lines"]
 D14 = ["kerbin", "scene-ts", "sandbox"]
-D11 = ["phase-lock", "zero-drift-schedule"]  # ROUND 2: gated on `PhaseLock APPLIED ... method=joint-best-fit ... zeroDrift=yes`
+D11 = ["phase-lock", "zero-drift-schedule", "station-phase-lock"]  # ROUND 2: gated on `PhaseLock APPLIED ... method=joint-best-fit ... zeroDrift=yes`
+# D11 `station-phase-lock` (claimed 2026-09-25, coverage wave 1b; supervisor ruling 2026-09-25,
+# operator confirmation pending): a rendezvous mission relaunched against the station's LIVE
+# orbit. THIS CLAIM IS ROUTE-DRIVEN: the mission is the supply route's backing mission
+# (`Route: Kerbin -> Kerbin`), not a player-armed Missions-tab loop. Gated by TWO required
+# tokens read together: `ExtractConstraints: ... VesselOrbital(3620499050@Kerbin) ...` (the
+# extraction emitted the Depot rendezvous constraint off the Depot's own orbit,
+# MissionPeriodicity.cs:79) and the `PhaseLock APPLIED ... method=joint-best-fit ...
+# zeroDrift=yes` line (the solver consumed it: the zero-drift per-window reschedule exists
+# only because the VesselOrbital constraint is incommensurate with Rotation(Kerbin); header
+# section 2b). Read on 13 of the 14 archived logs; the fourteenth (`2026-09-07_0117`) printed
+# neither line.
+# ARMED RE-FLIGHT `2026-09-25_1947` PASS attempt 1 (automation DLL `f506f059...`, origin/main `7c90492bd`);
+# negative control offline (hlib.evaluate_expectations over that log, a Rotation-only extraction reds exactly the ExtractConstraints token).
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING (hlib.validate_spec rejects a bare allowedAnomalies written
@@ -665,6 +678,8 @@ required  = [
   "loadgame trackstation route: booting to TRACKSTATION save=",
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
   "ParsekTrackingStation initialized: created [1-9][0-9]* ghost vessel\\(s\\)",
+  # ---- 2026-09-25 (coverage wave 1b): D11 station-phase-lock, the Depot rendezvous constraint ----
+  "ExtractConstraints: tree=c9ef80ee91b34de2b3717a4fb8bd1226 members=5 launchBody=Kerbin ut0=1420\\.246738452149 support=Supported constraints=2 \\[Rotation\\(Kerbin\\) P=21549\\.425183089825 off=0; VesselOrbital\\(3620499050@Kerbin\\) P=2433\\.78[0-9]* off=15853\\.655958258181\\]",
   # ---- ROUND 2 (2026-09-07): G1 subject (3), the route-owned cadence, off four identical logs ----
   "PhaseLock APPLIED: mission='Route: .*' tree=c9ef80ee91b34de2b3717a4fb8bd1226 anchor 17478\\.268634212287->22969\\.671921541973 P=21904\\.0302[0-9]* method=joint-best-fit cadence 16058\\.021895760137->21549\\.4251830898 fixedCadenceResidual=354\\.605[0-9]* fixedCadenceWithinTol=no zeroDrift=yes firstLaunch=22969\\.671921541973 minInterval=21549\\.4251830898 scheduleWithinTol=yes",
   "MissionLoopUnit: mission='Route: .*' tree=c9ef80ee91b34de2b3717a4fb8bd1226 members=5 foreignMembers=0 skipped=0 span=\\[1420\\.246738452149,17478\\.268634212287\\] spanDur=16058\\.021895760137 unit=Sec cadence=21549\\.4251830898 overlapCadence=21549\\.4251830898 overlaps=no owner=9 scheduled=yes phaseAnchor=22969\\.671921541973",
