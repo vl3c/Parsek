@@ -1013,6 +1013,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A committed tech unlock now reaches the R&D tree when the Space Center clock passes it as
+  the last committed event.** When the clock caught up with a committed research (for example
+  after a rewind to before it) and that research was the last thing on the committed timeline,
+  the ledger recalculated without a time limit, and that kind of recalculation leaves the tech
+  tree alone so it cannot re-lock anything. The node's science was charged but the node stayed
+  locked, and once its research block lifted it could be bought a second time. Those
+  recalculations now also unlock every committed node at or before the current time. They only
+  unlock, never re-lock, never unlock a node whose research is still ahead, and wait while a
+  rewind is still moving the clock. A committed part purchase on that node now applies in the
+  same pass.
+
 - **Real Spawn Control and the Log (Structure) window: column text now starts exactly under
   its header.** The header cells are boxes that inset their text 4px, while the body cells
   were plain labels with no inset, so every column's text sat 4px left of its header in
