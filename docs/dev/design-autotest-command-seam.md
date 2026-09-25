@@ -3417,6 +3417,62 @@ REJECTED; `-open-failed` and `-not-settled` are ERROR. hlib mirrors the vocabula
 (`STOCKSCREEN_*`, pinned by `StockScreenSourceSyncTests`) and `validate_stock_screen_step`
 catches a missing or mis-scoped arg pre-launch.
 
+#### EvaGroundScience (additive; EVA ground-science place and pick-up)
+
+**Why.** The recorder's two inventory part-event families (`InventoryPartPlaced` /
+`InventoryPartRemoved`) hook only `GameEvents.onGroundSciencePartDeployed` / `Removed`, and
+kRPC 0.5.4 has no inventory or construction API, so nothing unattended could reach them.
+The verb drives the stock player actions that make stock fire those events. It fires no
+GameEvent itself.
+
+**Grammar.** `cmd=EvaGroundScience action=<place|pickup> part=<name> [faceAway=true]`.
+`part` is the cfg part name (underscores become the runtime dots).
+
+**Place** (decompiled KSP 1.12.5). The inventory PAW slot icon calls
+`UIPartActionInventory.StartPartPlacement`, which calls the public
+`ModuleInventoryPart.DeployInventoryItem(slot)`; that builds the placement preview straight
+ahead of the kerbal. `ModuleInventoryPart.OnUpdate` then places the part only when
+`GameSettings.EVA_Jump.GetKeyDown()` reads true and the preview is on terrain, inside the
+ground-offset cap and collision-free. The verb (1) waits for stock's own `AbleToPlaceParts`
+(EVA, landed, active, no preview up), a standing kerbal and the inventory UI controller;
+(2) with `faceAway=true`, turns the kerbal about its up axis away from the nearest other
+loaded vessel (a kerbal off a ladder faces the hull, and the preview would land on it);
+(3) opens the kerbal's part window when its inventory control is not built, as a
+right-click does - stock's placement cooldown calls `grid.pawInventory.ResetPlacePartIcons`
+about a second after the placement with no null check; (4) calls `DeployInventoryItem`;
+(5) once the preview is built and placeable, presses the EVA jump key for exactly ONE frame
+through a Harmony prefix on `KeyBinding.GetKeyDown` scoped to the `EVA_Jump` instance,
+which honours the binding's input lock and is installed only for the press (never a
+`[HarmonyPatch]` class, so it is absent from every other run); up to five presses 10 frames
+apart. Stock then runs `DeployGroundPart` -> `HighLogic.CurrentGame.AddVessel`, and the new
+vessel's `ModuleGroundSciencePart.OnStart` fires `onGroundSciencePartDeployed` (not for a
+Central Station). OK once the preview is gone, the slot is empty and the new vessel is
+loaded, held 30 frames; payload `action part partPid vesselPid slot presses distance`.
+
+**Pick up.** The nearest loaded ground part named `part` within its `RetrievePart` event's
+`unfocusedRange` (4 m), with a free kerbal inventory slot (stock's own conditions for
+showing the button), gets its `RetrievePart` KSPEvent invoked through its `BaseEvent`, as
+the PAW button does. Stock fires `onGroundSciencePartRemoved` inside it (and again from
+`OnRetractCompleted`), then kills the ground vessel. OK once the vessel is gone and the
+inventory holds the part again, held 30 frames.
+
+**Phases.** TWO-PHASE on a 120 s budget (the EvaExit size), NOT a `DEFERRED_SEAM_VERB`;
+`RequiresFlight` plus the EVA family's `not-eva` defer. hlib tail role world-mutating,
+post-mission role `outcome`.
+
+**Refusals.** REJECTED `bad-action`, `missing-part`, `not-eva`, `no-inventory`,
+`part-not-in-inventory`, `not-deployable`, `no-ground-part`, `no-retrieve-event`,
+`out-of-range`, `inventory-full`; ERROR `place-gate-timeout`, `inventory-window-timeout`,
+`placement-mode-refused`, `key-injection-unavailable`, `placement-not-accepted`,
+`placement-timeout`, `preview-timeout`, `placed-vessel-timeout`, `pickup-threw`,
+`pickup-timeout`, `kerbal-lost`, each with an `evagroundscience failed reason=` Error line.
+
+**Known product consequence.** The recorder keys the Placed event to the placed part's pid,
+which is its OWN vessel, so the kerbal's recording carries a pid its snapshot lacks
+(analyzer `INV4-PARTEVENT-PID unresolved-pid`) and the ghost never shows the part. Lane
+`EVA-5-ground-science-place-pickup` is EXPECTED-FAIL on todo
+EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
