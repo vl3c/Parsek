@@ -60,6 +60,22 @@ instanceProfile = "stock-minimal"
 #   EDITOR), `listhandles kind=committed count=9` at the Space Center and in the
 #   editor, and the ledger saves `actions=16` from the loop fast-forward on - the
 #   value the ledger-unchanged pins below hold across the editor walk.
+#
+# READING RUN 2 (`2026-09-25_2334`, on the fix, PASS attempt 1 on every verifier but
+# one): PARSEK-FAIL(expectations) on EXACTLY the ghost-created-after-launch token, and
+# the log says why - an EPOCH miss, not a replay defect. StartLoopPlayback lands the
+# clock 15 s ahead of the departure (`FastForwardToEventUT: jumping to UT=21569.0 ...
+# eventUT=21584.0`), the whole lane then spends only ~5 game-seconds (the editor does
+# not advance the clock), and the run quit at UT 21574 - so every loop member read
+# `GuardSkip ... reason=historical-not-replayed` and the replay window never opened.
+# The flight loop unit WAS rebuilt after the editor walk (`MissionLoopUnit: ...
+# members=3` on the FLIGHT load, before the launch completed). Every other token
+# matched: the committed count 9 at the Space Center, in the editor and in flight,
+# the ledger at 16 across the walk, `Committed tree 'Kerbal X' (1 recordings). Total
+# committed: 10 recordings, 2 trees`, and the saveParse structure trees /
+# committedTrees 2, recordings 10. THE FIX IS THE EPOCH: a TimeJump to UT 21600
+# after the launch, 16 s into the replayed ascent from the pad next to the Runway,
+# before StartRecording. The structure block is armed on those measured facets.
 # =====================================================================================
 description = "Coverage wave 12 (D14 scene-editor): on kerbin-splashdown-recorded with its mission looping (ghosts replaying), boot to the Space Center, walk into the SPH through the building's own click and load the stock Kerbal X through the craft browser (new GoToEditor), press Launch (new LaunchFromEditor), then record and commit on the Runway. The committed recordings survive both transitions unchanged, ghosts replay after the launch, and the new flight commits as a second tree."
 tags = ["SE1", "scene-editor", "editor-route", "loop-playback", "coverage-wave-12"]
@@ -89,6 +105,7 @@ steps = [
   { cmd = "ListHandles", args = { kind = "committed" },                      expect = "OK" },
   { cmd = "LaunchFromEditor",                                                expect = "OK", budget = 180 },
   { cmd = "ListHandles", args = { kind = "committed" },                      expect = "OK" },
+  { cmd = "TimeJump",   args = { ut = "21600" },                            expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                  expect = "OK" },
   { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
   { cmd = "RecordingState",                                                  expect = "OK" },
@@ -155,7 +172,9 @@ forbidden = [
 ]
 
 [expectations.recordings.structure]
-# REPORT-ONLY until the reading run: one fixture tree plus the new launch's own tree.
+# ARMED 2026-09-26 off reading run 2 (`2026-09-25_2334`): one fixture tree plus the
+# new launch's own tree, measured trees 2 / committedTrees 2 / recordings 10.
+gating = true
 trees          = { min = 2, max = 2 }
 committedTrees = { min = 2, max = 2 }
 recordings     = { min = 10, max = 10 }
