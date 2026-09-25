@@ -20772,6 +20772,183 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
+            Description = "Stock-UI overlays PR 4 (C2): committed accepts of contracts not on offer fill every free Mission Control slot; selecting an ordinary Offered contract then greys out Accept only (Decline stays stock's), appends 'Accept is unavailable' and the slot reason, carries no row mark, survives RefreshUIControls, and the Contract.Accept backstop decision refuses with the same text; removing the committed accepts gives Accept back. Skips when no slot is free now (stock's own rule) or the limit is unlimited. Changes no stock contract state: the only mutation is committed ledger fixture rows it removes again, and the backstop is asked for its decision rather than calling Contract.Accept.")]
+        public IEnumerator MissionControlSlotNeededByCommittedAcceptGreysAcceptWithReason()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+            yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"Mission Control annotation verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            yield return WaitForMissionControlClosed(8f);
+
+            var fixtures = new List<KeyValuePair<string, Recording>>();
+            string dialogReason = null;
+            int dialogCount = 0;
+            System.Action<string, string, string> priorHook = CommittedActionDialog.TestHookForTesting;
+            try
+            {
+                if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
+                    yield break;
+
+                yield return WaitForMissionControl(8f);
+                var contractPick = new MissionControlContractRowPick();
+                yield return WaitForMissionControlOfferedContractRow(contractPick, 8f);
+                if (!contractPick.Found)
+                {
+                    InGameAssert.Skip(contractPick.SkipReason);
+                    yield break;
+                }
+
+                ContractSlotForecast before = ContractSlotReservation.ForecastNow();
+                if (before == null)
+                {
+                    InGameAssert.Skip("the live contract-slot forecast is unavailable (no ContractSystem / GameVariables)");
+                    yield break;
+                }
+                if (before.ActiveNow >= before.LimitNow)
+                {
+                    InGameAssert.Skip("no Mission Control slot is free now, so stock's own rule greys Accept (" + before.Describe() + ")");
+                    yield break;
+                }
+                if (before.BlocksNewAcceptNow)
+                {
+                    InGameAssert.Skip("the host's own committed timeline already needs every free slot (" + before.Describe() + ")");
+                    yield break;
+                }
+                // Committed accepts of contracts that are not on offer (fresh guids), added
+                // one at a time until they fill every free slot at their UT, without touching
+                // any listed contract. The limit cap keeps an unlimited Mission Control out.
+                ContractSlotForecast filled = before;
+                const int maxFixtures = 8;
+                while (!filled.BlocksNewAcceptNow && fixtures.Count < maxFixtures)
+                {
+                    string rid = "stockui-mc-slot-" + System.Guid.NewGuid().ToString("N");
+                    // Tracked before it is created, so the finally removes it even if the
+                    // fixture helper throws halfway.
+                    int slot = fixtures.Count;
+                    fixtures.Add(new KeyValuePair<string, Recording>(rid, null));
+                    Recording rec = AddCommittedOverlayFixture(
+                        rid,
+                        GameStateEventType.ContractAccepted,
+                        System.Guid.NewGuid().ToString(),
+                        "contractTitle=Slot fixture " + (slot + 1).ToString(CultureInfo.InvariantCulture));
+                    fixtures[slot] = new KeyValuePair<string, Recording>(rid, rec);
+                    filled = ContractSlotReservation.ForecastNow();
+                    InGameAssert.IsNotNull(filled, "the forecast should still be available");
+                }
+                if (!filled.BlocksNewAcceptNow)
+                {
+                    InGameAssert.Skip(maxFixtures.ToString(CultureInfo.InvariantCulture)
+                        + " committed accepts did not fill the free slots (unlimited Mission Control?) (" + filled.Describe() + ")");
+                    yield break;
+                }
+                // The picked contract holds its slot only until its own deadline; one that would
+                // expire before the fixtures' accept is legitimately not refused.
+                double pickRelease = ContractSlotReservation.NewAcceptReleaseUT(
+                    contractPick.Contract, CommittedFutureIndexCache.CurrentUT());
+                if (!filled.BlocksNewAccept(pickRelease))
+                {
+                    InGameAssert.Skip("the picked Offered contract's deadline (release UT "
+                        + pickRelease.ToString("F0", CultureInfo.InvariantCulture)
+                        + ") comes before the fixtures' committed accept (" + filled.Describe() + ")");
+                    yield break;
+                }
+                ParsekLog.Info("TestRunner", "MissionControlSlotNeededByCommittedAcceptGreysAcceptWithReason: "
+                    + fixtures.Count.ToString(CultureInfo.InvariantCulture) + " committed accept fixture(s) fill the slots - "
+                    + filled.Describe());
+                NotifyTimelineDataChangedForOverlayTest();
+
+                MissionControl mc = MissionControl.Instance ?? Object.FindObjectOfType<MissionControl>();
+                InGameAssert.IsNotNull(mc, "MissionControl should be open");
+                yield return WaitForMissionControlRowLabel(contractPick.ContractKey, false,
+                    "a slot refusal carries no row mark", 4f);
+                InGameAssert.IsTrue(SelectMissionControlRowForTest(mc, contractPick.ContractKey, out Contract contract),
+                    "the Offered row should be selectable (MissionSelection payload)");
+                StockUiDecoration d = MissionControlStockUi.DecideNow(contract);
+                InGameAssert.AreEqual(StockUiDecorationKind.ContractSlot, d.Kind, "the decision should be the slot block");
+                InGameAssert.IsFalse(d.Marked, "a slot refusal is not a row mark");
+                InGameAssert.IsTrue(!string.IsNullOrEmpty(d.Why) && d.Why.Contains(ReservationExplanation.ContractSlotWayOut),
+                    "the slot refusal should say when a slot frees; why=\"" + d.Why + "\"");
+                AssertMissionControlPanelSlotBlocked(mc, contract, d.Why, "after selecting the row");
+
+                // Stock RefreshUIControls rewrites btnAccept from its own slot count.
+                MethodInfo refreshUi = AccessTools.Method(typeof(MissionControl), "RefreshUIControls");
+                InGameAssert.IsNotNull(refreshUi, "MissionControl.RefreshUIControls should resolve");
+                refreshUi.Invoke(mc, null);
+                AssertMissionControlPanelSlotBlocked(mc, contract, d.Why, "after RefreshUIControls");
+
+                // The backstop's decision, asked without calling Contract.Accept (a refused call
+                // changes nothing, but a wrongly allowed one would accept a real contract).
+                CommittedActionDialog.TestHookForTesting = (action, reason, detail) =>
+                {
+                    dialogCount++;
+                    dialogReason = reason;
+                };
+                bool allowed = Patches.ContractAcceptPatch.ShouldAllowAccept(
+                    contractPick.ContractKey, contract.Title, contract.ContractState, contract.AutoAccept, true,
+                    ContractSlotReservation.NewAcceptReleaseUT(contract, CommittedFutureIndexCache.CurrentUT()));
+                InGameAssert.IsFalse(allowed, "the Contract.Accept backstop should refuse while the slots are reserved");
+                InGameAssert.AreEqual(1, dialogCount, "the refused accept should explain itself once");
+                InGameAssert.AreEqual(d.Why, dialogReason, "the refusal should say exactly what the detail panel says");
+                InGameAssert.AreEqual(Contract.State.Offered, contract.ContractState, "the contract should still be Offered");
+
+                // Remove the committed accepts: the open screen re-evaluates and gives Accept back.
+                for (int i = 0; i < fixtures.Count; i++)
+                    RemoveCommittedOverlayFixture(fixtures[i].Key, fixtures[i].Value ?? LedgerOrchestrator.FindRecordingById(fixtures[i].Key));
+                fixtures.Clear();
+                NotifyTimelineDataChangedForOverlayTest();
+                float deadline = Time.realtimeSinceStartup + 4f;
+                while (Time.realtimeSinceStartup < deadline
+                       && mc.contractText != null
+                       && mc.contractText.text.Contains(MissionControlStockAnnotation.SlotDetailHeading))
+                    yield return null;
+                string text = mc.contractText != null ? mc.contractText.text : "";
+                InGameAssert.IsFalse(text.Contains(MissionControlStockAnnotation.SlotDetailHeading),
+                    "the slot reason should leave the detail text once the committed accepts are gone");
+                if (MissionControlSlotFreeForTest(out string slotReason))
+                    InGameAssert.IsTrue(mc.btnAccept.interactable,
+                        "Accept should come back under stock's slot rule once the block lifts (" + slotReason + ")");
+                else
+                    ParsekLog.Info("TestRunner",
+                        "MissionControlSlotNeededByCommittedAcceptGreysAcceptWithReason: Accept-restore check skipped - " + slotReason);
+            }
+            finally
+            {
+                CommittedActionDialog.TestHookForTesting = priorHook;
+                for (int i = 0; i < fixtures.Count; i++)
+                    RemoveCommittedOverlayFixture(fixtures[i].Key, fixtures[i].Value ?? LedgerOrchestrator.FindRecordingById(fixtures[i].Key));
+                if (fixtures.Count > 0)
+                    NotifyTimelineDataChangedForOverlayTest();
+                ClearMissionControlSelectionForTest();
+                CloseMissionControlForOverlayTest();
+            }
+
+            yield return WaitForMissionControlClosed(8f);
+        }
+
+        private static void AssertMissionControlPanelSlotBlocked(MissionControl mc, Contract contract, string why, string when)
+        {
+            InGameAssert.IsFalse(mc.btnAccept.interactable, $"Accept should be disabled {when}");
+            InGameAssert.AreEqual(contract.CanBeDeclined(), mc.btnDecline.interactable,
+                $"Decline should stay stock's own state for a slot refusal {when}");
+            string text = mc.contractText != null ? mc.contractText.text : "";
+            InGameAssert.IsFalse(text.Contains(MissionControlStockAnnotation.DetailHeading),
+                $"a slot refusal should not say Decline is unavailable {when}");
+            InGameAssert.IsTrue(text.Contains(why), $"the detail text should carry the slot reason {when}");
+            int headings = text.Split(new[] { MissionControlStockAnnotation.SlotDetailHeading }, System.StringSplitOptions.None).Length - 1;
+            InGameAssert.AreEqual(1, headings, $"the slot reason should be appended exactly once {when}");
+        }
+
+        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
             Description = "Stock-UI overlays PR 3 (C4): an Active contract the committed timeline completes later carries 'completes on <date> on your committed timeline' on its own stock row label (surviving a tab switch), selecting it greys out Cancel and appends the why, and Contract.Cancel is refused with the same text; removing the committed completion lifts all three. Needs a career host with an Active contract and skips without one: it changes no stock contract state (the only mutation is a committed ledger fixture row it removes again), because a SPACECENTER batch restores persistent.sfs on disk only.")]
         public IEnumerator MissionControlActiveRowLabelAndCancelBlockedWithReason()
         {

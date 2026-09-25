@@ -1087,6 +1087,21 @@ _(unreleased — entries accumulate here per commit)_
   explanation. A contract whose only future is its deadline stays cancellable, since
   cancelling early for the smaller penalty is ordinary play, and the debug toolbar's
   "regenerate contracts" still works.
+- **Mission Control: accepting a contract is now refused, with a reason, when a contract
+  your committed timeline accepts later needs that slot.** Accepting it used to fill the
+  slot the committed accept relies on, so the committed timeline ended up over the Mission
+  Control limit. Accept is now greyed out on every contract the committed timeline does not
+  accept itself, and the details end with `Accept is unavailable` and the explanation (`The
+  committed flight 'Mun Lander 3' accepts the contract 'Rescue Bill' on Y2 D114 and needs
+  this slot.`, the rule, and `A slot frees when one of your active contracts ends.`); an
+  accept from anywhere else, including Contract Configurator's Accept, gets the same answer.
+  The count follows the committed timeline to its end: contracts active now hold their slot
+  until a committed completion, failure or cancellation, or until their deadline, committed
+  accepts add theirs until their own resolution or deadline (auto-accepted contracts, which
+  stock does not count, are left out), and a committed Mission Control upgrade raises the
+  limit from its date. A contract whose own deadline ends before the committed accept that
+  needs the slot is not refused. Decline stays available, and when stock already shows every
+  slot full nothing extra is said.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
