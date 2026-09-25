@@ -10,6 +10,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: ghosts are checked under physics warp, and snapshot files are checked for
+  their compressed format and for ghost snapshots that reuse the vessel snapshot.** The test warp
+  command can now hold the game in physics warp (1x to 4x) for a whole span instead of taking
+  whichever warp the game picks. `V7W-minmus-physics-warp` replays the Minmus loop under physics
+  warp, once across the Kerbin-to-Minmus boundary and once while watching the ghost, and requires
+  the render record to count physics-warp frames. `ST-3-snapshot-sidecars-bdock` runs a new in-game
+  category on a save with a recording whose ghost snapshot is its vessel snapshot: every snapshot
+  file must be in the compressed format and read back correctly, a snapshot of the live vessel must
+  survive a write and read, and saving such a recording must write no separate ghost file while
+  loading it must restore the ghost from the vessel snapshot.
 - **Automated testing: two lanes check the Timeline against the ledger and three storage formats
   on live saves.** `ST-1-storage-timeline-ingame` boots the earned career and runs two new in-game
   categories: `Timeline` checks that every effective-ledger action is exactly one Timeline row with
