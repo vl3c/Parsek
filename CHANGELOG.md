@@ -1040,6 +1040,26 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Space Center: the Administration building keeps stock's own reason when stock already
+  refuses a strategy, and a strategy Parsek refuses now looks refused.** With every strategy
+  slot taken, all ten inactive strategies showed Parsek's "a committed activation needs this
+  slot" instead of stock's own slot-full reason. Parsek now adds its reason only where stock
+  would allow the activation (or the Cancel); when stock refuses for its own reason (slots,
+  a conflict, the cost, a minimum duration), stock's greyed state and stock's text stand
+  untouched, and the Accept / Cancel click is left to stock. The Accept / Cancel button used
+  to look fully enabled while Parsek had disabled it (stock gives that button no disabled
+  picture, for its own refusals too); it is now dimmed while a Parsek refusal disables it and
+  gets its exact stock look back when you select a strategy Parsek does not refuse.
+- **Astronaut Complex: an applicant your committed timeline hires later shows "Hired on
+  <date>" on its row.** The date was written to the row's status line, which applicant rows
+  never display (stock's own "For Hire" is hidden there too), so the row kept showing only the
+  trait and the date was in the hover tooltip alone. It now replaces the trait line under the
+  applicant's name (the trait stays in the tooltip) and the stock line returns once the hire is
+  no longer ahead.
+- **Astronaut Complex: a stand-in's row reads "Stand-in for Bill Kerman".** An active stand-in
+  kept stock's "Available for next mission" although his dismiss button was locked as managed
+  by Parsek; the row now says whose seat he is covering, in the Kerbals window's wording, and
+  the lock's reason is unchanged.
 - **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
   Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
   kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name
@@ -1134,7 +1154,8 @@ _(unreleased — entries accumulate here per commit)_
   is still running. An active strategy your committed timeline deactivates or re-activates
   later can no longer be cancelled before then. Stock greys the row or the Cancel button and
   prints why in its own orange reason line, for example `Activated on Y2 D114 on your
-  committed timeline.`, with the date it frees up.
+  committed timeline.`, with the date it frees up. Where stock itself already refuses the
+  action, stock's own reason is the one shown.
   Stock's own strategy expiry is never blocked.
 - **Space Center: committed strategy activations and deactivations now take effect in the
   stock game.** After a rewind, a strategy your committed timeline activated was charged its
