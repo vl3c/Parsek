@@ -1201,6 +1201,23 @@ contracts or strategies than their own slot limit (the heading read `3 of 2 slot
 now carry the Mission Control / Administration upgrade that allows it, pinned by
 `GuiMockCatalogueTests.EveryCareerStateFitsItsOwnSlotLimits`.
 
+Follow-up DONE 2026-09-25 (branch `career-contracts-slots`, the queued "Career contracts"
+PR, owner decisions 1-4): ~~the heading and fold wording~~ - the heading reads free first
+(`4 of 7 slots free (2 active, 1 reserved for later)`, `No slot limit (2 active)`), where
+"reserved" is the PEAK the recorded future holds at once beyond now
+(`CareerStateWindowUI.ComputeSlotUsage`; a day-50 completion and a day-60 accept share one
+slot), and the fold reads `Accepted later by your recorded flights (n)` / `Activated later
+...` with the timeline-end slots in its hover. ~~Expiry read as failure~~ - a contract whose
+deadline runs out reads `expires <deadline>` in the Career window and `Expired: <name>` in
+the Timeline, judged by the ledger's own deadline test (stock fires the same `onFailed` for
+both, so no new field; old rows classify correctly). Found while verifying: NOTHING stops a
+player accepting a contract or activating a strategy beyond the slots the recorded future
+reserves - stock counts only what is active now, and Parsek's one accept block
+(`ContractAcceptPatch`) refuses only a contract already committed later. The heading's hover
+states the ledger count without claiming stock refuses; the block itself is the stock-UI
+overlay work's planned "C2 contract slots" item, whose shared free-slot query should then
+replace `ComputeSlotUsage` here (code comment at the call site).
+
 Open residue:
 1. No REAL host has pending contracts or strategies, so the fold's only picture is the
    gallery mock in GUI-15 (same need as GUI-CENSUS-CAREER-DIVERGENCE-NEEDS-A-REWOUND-HOST).

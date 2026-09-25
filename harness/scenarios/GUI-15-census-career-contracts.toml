@@ -41,8 +41,11 @@ tier = "operator"
 #
 # THE 2026-09-24 STATE-VIEW REWORK (Career keeps Contracts and Strategies only; the
 # Timeline's Career view owns dated history) reshaped every capture here: no title bar,
-# ONE heading line `Active now: N of M slots` (its hover names the Mission Control
-# level), ONE column header, and the pending group as a fold row INSIDE the same table.
+# ONE heading line (since 2026-09-25 `F of M slots free (A active, R reserved for later)`),
+# ONE column header, and the pending group as a fold row INSIDE the same table
+# (`Accepted later by your recorded flights (N)`). The 2026-09-25 slots PR added the two
+# mock captures after the fold: the four Timeline-end outcomes (incl. `expires <date>`)
+# and the Strategies fold.
 # The old `cc-career-milestones-advanced` capture went with the Milestones tab.
 #
 # THE PENDING FOLD, BY MOCK. The fold only draws when the recorded timeline accepts a
@@ -110,6 +113,16 @@ steps = [
   { cmd = "UiAction", args = { op = "mock", window = "career", mockState = "career.banner.divergent" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "cc-career-contracts-pendingfold-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "cc-career-contracts-pendingfold-advanced" }, expect = "OK" },
+  # --- THE FOUR ENDINGS, over the gallery's closing state: completes / FAILS / expires /
+  # cancelled, the expiry being a fail row recorded just after the accepted deadline.
+  { cmd = "UiAction", args = { op = "mock", window = "career", mockState = "career.contracts.closing" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cc-career-contracts-closing-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cc-career-contracts-closing-advanced" }, expect = "OK" },
+  # --- THE STRATEGIES FOLD and its reserved-slot heading, over the gallery's
+  # strategies pending split (the mock selects the Strategies tab).
+  { cmd = "UiAction", args = { op = "mock", window = "career", mockState = "career.strategies.pending-split" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cc-career-strategies-pendingfold-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cc-career-strategies-pendingfold-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "mock", window = "career", mockState = "none" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
 
@@ -154,6 +167,8 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-contracts-minsize-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-strategies-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-contracts-pendingfold-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-contracts-closing-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-career-strategies-pendingfold-advanced .*patched=17/17",
 ]
 forbidden = []
 

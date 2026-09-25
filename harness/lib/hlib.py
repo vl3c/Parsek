@@ -2360,7 +2360,7 @@ UIACTION_EXPAND_PREFIXES: Dict[str, Tuple[str, ...]] = {
     "missions": ("group", "chain", "vessel", "leg", "digest"),
     "logistics": ("row",),
     "kerbals": ("roster", "flights"),
-    # The Career window's two `Pending in timeline` folds, under ONE prefix because the
+    # The Career window's two `Accepted later` / `Activated later` folds, under ONE prefix because the
     # window keeps ONE fold collection. The wire VALUES are the TAB the fold belongs to
     # (`pending:contracts` / `pending:strategies`), not the dotted
     # production key (`Contracts.Pending`) the collection is keyed by: a spec author
