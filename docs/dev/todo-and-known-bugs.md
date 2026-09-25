@@ -46,8 +46,19 @@ pairing rule):
   Mission Control detail panel greys Decline out from the same decision. No automatic stock
   path calls `Decline()` (whole-assembly IL scan: `MissionControl.OnClickDecline` and two
   debug-toolbar buttons only), so nothing that must succeed is refused.
-- C4 Cancel of a contract the committed future completes / fails / cancels: the completion is
-  zeroed (possible committed tech-spend cascade), or the penalty is charged twice.
+- ~~C4 Cancel of a contract the committed future completes / fails / cancels: the completion is
+  zeroed (possible committed tech-spend cascade), or the penalty is charged twice.~~
+  Fixed by PR 3 (branch `stock-ui-cancel`): `ContractCancelPatch` prefixes the non-virtual
+  `Contract.Cancel()` and refuses an Active contract (with the resolution explanation)
+  exactly where `StockUiReservationPredicates.CommittedContractResolutionAfter` finds a later
+  committed ContractComplete / Fail / Cancel row (X1-X3); derived deadline expiry is not a
+  row, so X4 stays cancellable. The Active-tab row label and the greyed Cancel in the
+  detail panel read the same helper. Whole-assembly IL scan of `Cancel()` callers:
+  `MissionControl.OnClickCancel` and two debug-toolbar buttons (player actions, refused)
+  plus `ContractSystem.RebuildContracts()` (the debug toolbar's regenerate, which clears
+  and rebuilds the whole list right after), let through by
+  `ContractSystemRebuildContractsScopePatch`. The unconditional double penalty itself is
+  the ledger bug below and stays open.
 - P1 part purchases (verified, bypass-entry-purchase off only): no block, and no state patch.
   After a rewind a committed purchase is charged at its UT but never applied, and buying the
   part again charges the entry cost twice. The fix needs the block AND an additive

@@ -186,7 +186,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
 | `SpawnTerminalOrbit` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue wants autostrut parts in range) | B |
-| `StockUiOverlay` | 7 | 0 | 7 | 0 | 0 | 7 | H45 (2026-09-25, stock-UI overlays PR 2b: the two Mission Control badge cells rewritten for the stock mechanisms and a third added, 7 declarations, pin `total=7` with the split regexed and the id back in `INTERIM_PIN_IDS` until the new cells fly. EARLIER: RE-HOSTED to `career-earned-ksc` 2026-09-08 and now executes 6 of 6 - the whole category at SPACECENTER with zero skips, run `2026-09-08_1039`. PRIOR: flown 2026-08-28 on `career-contract-pad` at 4 of 6, with the 2 Mission Control cells skipping `rows=0, contractRows=0`, re-measured 2026-09-07 (census CEN-2, run `2026-09-07_2017`) on `career-earned-ksc` at the same 4 of 6 with `rows=9, contractRows=0`. THE SECOND READING - "the rows populate only with the Mission Control BUILDING UI open" - WAS WRONG, and the `rows=9` half was the refutation nobody followed through: nine rows were walked, so the building UI WAS open, and what failed was the row-to-contract lookup. Stock (`MissionControl.AddItem`, KSP 1.12.5) stores a `MissionControl.MissionSelection` wrapper in `UIListItem.Data`; Parsek's overlay and the test both cast it `as Contract`, got null, and disabled themselves, so the Mission Control contract overlays had never decorated a row on any install. `StockUiOverlayController.ExtractMissionControlRowContract` now unwraps the wrapper (a bare `Contract` payload still accepted) and the cells read rows through the same helper. Census CEN-11 (scratch, run `2026-09-08_1034`) on the fixed DLL: 6 of 6, with the production overlay logging `MissionControl decorated contractCount=1`. `career-contract-pad` stays L5's host; its one contract is Active, so it puts no Offered row in front of the screen and could not have shown this either way) | A |
+| `StockUiOverlay` | 8 | 0 | 8 | 0 | 0 | 8 | H45 (2026-09-25, stock-UI overlays PR 3: an eighth cell, the Active-row label and Cancel block (`MissionControlActiveRowLabelAndCancelBlockedWithReason`), pin `total=8`, still interim. PR 2b: the two Mission Control badge cells rewritten for the stock mechanisms and a third added, 7 declarations, pin `total=7` with the split regexed and the id back in `INTERIM_PIN_IDS` until the new cells fly. EARLIER: RE-HOSTED to `career-earned-ksc` 2026-09-08 and now executes 6 of 6 - the whole category at SPACECENTER with zero skips, run `2026-09-08_1039`. PRIOR: flown 2026-08-28 on `career-contract-pad` at 4 of 6, with the 2 Mission Control cells skipping `rows=0, contractRows=0`, re-measured 2026-09-07 (census CEN-2, run `2026-09-07_2017`) on `career-earned-ksc` at the same 4 of 6 with `rows=9, contractRows=0`. THE SECOND READING - "the rows populate only with the Mission Control BUILDING UI open" - WAS WRONG, and the `rows=9` half was the refutation nobody followed through: nine rows were walked, so the building UI WAS open, and what failed was the row-to-contract lookup. Stock (`MissionControl.AddItem`, KSP 1.12.5) stores a `MissionControl.MissionSelection` wrapper in `UIListItem.Data`; Parsek's overlay and the test both cast it `as Contract`, got null, and disabled themselves, so the Mission Control contract overlays had never decorated a row on any install. `StockUiOverlayController.ExtractMissionControlRowContract` now unwraps the wrapper (a bare `Contract` payload still accepted) and the cells read rows through the same helper. Census CEN-11 (scratch, run `2026-09-08_1034`) on the fixed DLL: 6 of 6, with the production overlay logging `MissionControl decorated contractCount=1`. `career-contract-pad` stays L5's host; its one contract is Active, so it puts no Offered row in front of the screen and could not have shown this either way) | A |
 | `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `StrategyLifecycle` | 10 | 0 | 10 | 0 | 0 | 10 | L3 | A |
 | `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-4, run `2026-09-07_2010`) at 2 of 2 - the whole category with zero skips - over `depot-route-recorded`, and the flight measured that line exactly. MOVED OUT OF LT-1 in the same commit: LT-1's injected corpus carries no committed route, so its route structure-list cell skipped there and the category read 1 of 2. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below) | A |
@@ -208,8 +208,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **114 categories / 631 declarations**. Buckets **A 87 categories
-(352 declarations)**, **B 26 categories (274 declarations)**, **C 1 category (5
+Totals, re-derived: **114 categories / 632 declarations**. Buckets **A 87 categories
+(353 declarations)**, **B 26 categories (274 declarations)**, **C 1 category (5
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes). All re-derived
 mechanically by counting the table's
@@ -312,9 +312,9 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **113 of 114 categories**, covering **626 of 631
+Driven by a committed spec: **113 of 114 categories**, covering **627 of 632
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 631 declarations in
+Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 632 declarations in
 114 categories over `Source/Parsek`. The 2026-09-08 reading was 112 of 112; the GUI-tree
 dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on
 2026-09-11; the GUI state gallery's P1 opened a 114th on 2026-09-22 and left it
@@ -1168,7 +1168,7 @@ DIFFERENT instance profile. `WaterfallCompat` in particular is where the pristin
 fallback lives; both runs are detailed in `docs/dev/autotest-status.md`,
 "Modded-compat instance (D17), R14".
 
-**B3 - reachable only at SPACECENTER, and thin.** `Ledger` (4), `StockUiOverlay` (7),
+**B3 - reachable only at SPACECENTER, and thin.** `Ledger` (4), `StockUiOverlay` (8),
 `ResourceTopBar` (2), `Optimizer` (2), `Recording` (1),
 `ResourceReconciliation` (1), `WarpToTime` (1). `StrategyLifecycle` LEFT this bucket
 2026-08-18: the strategy-currency-conversion lane gave it a third declaration with a
