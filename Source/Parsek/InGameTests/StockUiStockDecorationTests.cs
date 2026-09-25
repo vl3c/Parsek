@@ -617,7 +617,9 @@ namespace Parsek.InGameTests
         private static string RowLabel(CrewListItem row)
         {
             if (row == null) return "";
-            return StockUiText.Get(StockUiText.LabelField(row, typeof(CrewListItem), "label")) ?? "";
+            // The line the player reads: an applicant row's status line is hidden by its
+            // prefab, so its status is on the trait line (GUI-28 F2).
+            return StockUiAstronautDecoration.ShownStatusText(row);
         }
 
         private static string TooltipText(CrewListItem row)
