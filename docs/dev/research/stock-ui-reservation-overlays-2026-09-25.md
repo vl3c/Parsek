@@ -191,6 +191,24 @@ Not worth it:
 - **Science subjects:** SAFE via the cap walk (Sc1); nothing to block, so nothing to mark.
 - **Game modes:** Science mode has no contracts or strategies, so only R&D, Astronaut Complex, VAB and facility annotations apply. Sandbox has no committed career state.
 
+### 5.1 Hook corrections from the decompile pass (2026-09-25)
+
+Every hook above and in section 7.4 was re-checked against the KSP 1.12.5 decompile and the local CC / KSPCF source. The per-member record is `docs/dev/research/stock-ui-hooks-decompile-2026-09-25.md`. Where it disagrees with the table above, it wins. The changes that alter the plan:
+
+1. **Decline / Cancel button state goes in `MissionControl.UpdateInfoPanelContract`, not on `Contract.CanBeDeclined` / `CanBeCancelled`.** Fourteen stock contract types (FinePrint, Sentinel, the construction and repair contracts) override both without calling base, and `ExplorationContract` refuses both outright, so a base-method postfix misses most contracts. `UpdateInfoPanelContract` is the only stock reader and CC's select handler calls it too. The backstop prefixes on the non-virtual `Contract.Decline()` / `Cancel()` stay. `ContractSystem.RebuildContracts()` also calls `Cancel()`, so the Cancel prefix must not refuse that path.
+2. **The per-contract Accept block goes in the same `UpdateInfoPanelContract` postfix.** `RefreshUIControls` sets `btnAccept` from the slot count for all contracts and does not run on row selection; its postfix only re-applies the block for the selected contract.
+3. **Stock strategy auto-expiry is dead code without KSPCF.** Stock's duration getters read fields that are never set and return 0; expiry and the minimum-duration gate exist only through KSPCF's `StrategyDuration` fix (installed in the dev and harness instances). Refuse deactivation on the PLAYER path only: a postfix on `Administration.SetSelectedStrategy` plus a prefix on the cancel-confirm path. `Strategy.Load(ConfigNode)` activates without charging and can serve the ledger-to-stock state patch.
+4. **CC rows never go through `MissionControl.AddItem`.** The `label` prefix covers stock rows only, and a non-empty label replaces the whole title (colour and Archive prefixes included), so the prefix must build the full title. CC also removes the stock button listeners, so `MissionControlAcceptPatch` never runs under CC.
+5. **An editor part purchase bypasses `RDTech.PurchasePart`.** The P1 backstop is `PartListTooltipController.onPurchase` plus the R&D "purchase all" branch of `RDController.ActionButtonClick`.
+
+Smaller corrections:
+- `AstronautComplex.AddItem_*` return `void`.
+- The Astronaut Complex tooltip append hooks `TooltipController_CrewAC.SetTooltip` and sets `showTooltip = true`, because `SetButtonEnabled` rebuilds the text through the controller.
+- R&D `actionButton` doubles as "purchase all parts" on researched nodes, so the `UpdatePanel` postfix checks the node state.
+- A tint on a FADED node survives the next refresh, so the postfix resets the colour when the mark clears.
+- A `TooltipController_Text` added from code has no `prefab` and draws nothing until one is copied from a stock controller.
+- There is no shared "one-shot Warn on target resolution failure" helper: each patch's `TargetMethod()` warns and returns null, and `ParsekHarmony.Awake` logs per patch class.
+
 ## 6. The "why" text: fact + rule + way out
 
 **Finding: for most blocks, the obvious way out does not exist.**
