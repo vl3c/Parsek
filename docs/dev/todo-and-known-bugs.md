@@ -15,6 +15,44 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## STOCK-UI-RESERVATION-OVERLAYS-2026-09-25: explain paradox-prevention blocks on the stock screens, and close the blocks that are missing [FILED 2026-09-25 from the stock-UI reservation analysis. OPEN; owner decisions D1-D7 pending]
+
+**Reference:** `docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md` is the single
+planning reference (it supersedes #640's v2 list and re-scopes #430). Its section 10 is the
+PR sequence and section 11 the decision register.
+
+**Holes found by the block audit** (section 4; each blocks its screen's annotation under the
+pairing rule):
+- S1 strategies: no block; setup cost charged per activation; stock `StrategySystem` never
+  patched from the ledger, so a committed activation after a rewind is charged but never
+  switched on; the design doc's "UT=0 reservation blocks new strategy activations" is not
+  implemented.
+- C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
+  accepts over a full Mission Control.
+- C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.
+- C4 Cancel of a contract the committed future completes / fails / cancels: the completion is
+  zeroed (possible committed tech-spend cascade), or the penalty is charged twice.
+- P1 part purchases (inferred): no block; a double charge after a rewind.
+
+**Ledger / flight defects with no stock control to mark:**
+- Contract fail / cancel penalties are charged unconditionally, so an already-resolved
+  contract is charged again (C4 X2/X3, C6, and a world-driven failure).
+- F3: a facility repair row charges even when nothing is destroyed.
+- K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.
+
+**Defects in the existing PR #721 layer:**
+- The Mission Control badges are lost on a tab switch.
+- Contract Configurator disables the Mission Control overlay and bypasses the Accept
+  pre-block (read from source).
+- The Astronaut Complex opened from the editor is undecorated.
+- Marks and blocks never go stale-free after a rewind: the `MilestoneStore` unreplayed slice
+  never advances. A facility is probably over-blocked at the next level (inferred).
+- The tooltips use raw UT and em dashes.
+
+**Still to verify in game or with a unit cell:** section 12 of the reference.
+
+---
+
 ## ~~B4-CHUTE-ROW-READ-THE-DEPLOY-COMMAND: B4's chute assertion passed on the machine's own "deploy sent" latch, and the flight it guarded could not open its chute~~ [FILED and FIXED 2026-09-24, branch `b4-chute`; known-gate 7 in `autotest-status.md`]
 
 **What was wrong.** `B4-reentry-splashdown` reported "chute splashdown INTACT" off

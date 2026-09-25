@@ -125,7 +125,8 @@ Verdicts:
 | C2 | Accept other contracts until the slots the future needs are full | **HOLE** | See "C2" below |
 | C3 | Decline an offer the future accepts | **HOLE** | Silently overridden; section 7.2 |
 | C4 | Cancel a contract the future completes, fails or cancels | **HOLE** | Completion zeroed with a possible cascade; penalties charged twice; section 7.3 |
-| C5 | Complete now (another flight) a contract the future completes | SAFE | Earliest wins; the later completion is `Effective=false` (`ContractsModule.cs:396-429`) |
+| C6 | Complete now (a present-day flight) a contract the future fails or cancels | **HOLE** (world-driven, not blockable) | The completion is credited now, and the committed fail or cancel penalty is still charged later, because penalties are unconditional; the 7.5 ledger defect |
+| C5 | Complete now (another flight) a contract the future completes | SAFE | Earliest wins; the later completion is `Effective=false` (`ContractsModule.cs:393-450`) |
 | F1 | Upgrade a facility the future upgrades | BLOCKED, probably over-blocked | By facility id at any level, never lifted (section 3 item 6) |
 | F2 | Downgrade | SAFE | `FacilityDowngraded` is not a ledger action; `FacilityStatePatcher` re-writes the ledger level |
 | F3 | Repair a facility the future repairs | state SAFE, **funds HOLE** | Every repair row charges `FacilityCost` (`FundsModule.cs:165`) without checking the building was destroyed |
@@ -153,7 +154,7 @@ Verdicts:
 
 **What this means for overlays:**
 - **Blocks that must ship with their overlays:** S1, C2, C3, C4, and P1 if a part overlay is wanted.
-- **Ledger or flight defects with no control to mark:** F3 and K2, plus the unconditional double penalty behind C4 (section 7.5). File these as bugs.
+- **Ledger or flight defects with no control to mark:** F3 and K2, plus the unconditional double penalty behind C4 and C6 (section 7.5). File these as bugs.
 - **Cheapest alternative, decision D5:** where the walk can make a duplicate harmless (earliest wins, no double charge), no block and no explanation is needed. Candidates are P1, F3 and the S1 setup cost.
 
 ## 5. Where each annotation goes, screen by screen
@@ -167,9 +168,9 @@ Common technique:
 | Screen | Mark | Why | Block at the control | Reference | Difficulty |
 |---|---|---|---|---|---|
 | **R&D tech tree** | postfix `RDNode.UpdateGraphics`, tint via `graphics.SetIconColor` (runs after `SetButtonState`, which resets the colour) | postfix private `RDNode.GetTooltipCaption`, append to the stock node tooltip | postfix `RDController.UpdatePanel`: `actionButton.Enable(false)` + reason (it re-enables Research whenever a node is shown) | RP-1 `Harmony/RDNode.cs`, `RDController.cs`. `RDController.nodes` is public, so the current reflection is unneeded | easy |
-| **Administration** | stock greys the row (`#bdbdbd`, state "na") | stock prints the reason in orange atop the description | ONE postfix on `Strategies.Strategy.CanBeActivated(out string reason)`, mirrored on `CanBeDeactivated`. It also refuses `Activate()`, which checks `CanBeActivated`. Bypass while `GameStateRecorder.IsReplayingActions` is set | Strategia `CanActivate(ref reason)`; RP-1 `Harmony/Administration.cs` | easy; needs the S1 predicate |
-| **Mission Control: Available** | postfix `MissionControl.AddItem`, decorate the row just built (fixes the tab-switch loss). For CC: a cheap row-count change check while open, resolving `Data` as `MissionSelection`, then `Contract`, then any object with a `Contract`-typed `contract` field | postfix `UpdateInfoPanelContract`, append to `contractText` (as KSPCF `ShowContractFinishDates` does) | Accept: postfix `RefreshUIControls`, `btnAccept.interactable = false`; slot reason (C2). Decline: section 7.4 | CC `MissionControlUI.cs`; RP-1 `Harmony/MissionControl.cs` | moderate |
-| **Mission Control: Active** | the same `AddItem` postfix: `Completes / Fails / Cancelled on <date> on your committed timeline` | the same detail-panel postfix | Cancel: section 7.4 | - | moderate |
+| **Administration** | stock greys the row (`#bdbdbd`, state "na") | stock prints the reason in orange atop the description | ONE postfix on `Strategies.Strategy.CanBeActivated(out string reason)`; it also refuses `Activate()`, which checks `CanBeActivated`. Bypass while `GameStateRecorder.IsReplayingActions` is set. **Deactivation needs care:** stock `Strategy.Update()` auto-expires an active strategy once `dateActivated + LongestDuration <= now` by calling `Deactivate()`, which is gated on `CanBeDeactivated` (`Strategy.cs:1289`, `:1609`). A blanket `CanBeDeactivated` postfix would stop the expiry and re-post the stock expiry message every frame. Refuse only on the player path (Administration's button state and its deactivate confirmation), or bypass whenever the stock expiry condition holds | Strategia `CanActivate(ref reason)`; RP-1 `Harmony/Administration.cs` | easy; needs the S1 predicate |
+| **Mission Control: Available** | the row's own stock label: a prefix on `MissionControl.AddItem(Contract, bool, string label)` supplies `label` (drawn by `MCListItem.Setup`), so every rebuild re-applies it (fixes the tab-switch loss). For CC: a cheap row-count change check while open, resolving `Data` as `MissionSelection`, then `Contract`, then any object with a `Contract`-typed `contract` field | postfix `UpdateInfoPanelContract`, append to `contractText` (as KSPCF `ShowContractFinishDates` does) | Accept: postfix `RefreshUIControls`, `btnAccept.interactable = false`; slot reason (C2). **Under CC this is not enough:** CC's `OnSelectContract` calls `UpdateInfoPanelContract` and then OVERWRITES `btnAccept.interactable = ContractConfigurator.CanAccept(...) && ...` (`MissionControlUI.cs:1268-1271`), so also postfix `ContractConfigurator.CanAccept(Contract)` when CC is loaded. Decline: section 7.4 | CC `MissionControlUI.cs`; RP-1 `Harmony/MissionControl.cs` | moderate |
+| **Mission Control: Active** | the same `label` prefix: `Completes / Fails / Cancelled on <date> on your committed timeline` | the same detail-panel postfix | Cancel: section 7.4 | - | moderate |
 | **Astronaut Complex** | postfix `AddItem_Applicants` / `_Available` / `_Assigned` / `_Kia`: `CrewListItem.SetLabel("Reserved until Y2 D114")` | postfix `CrewListItem.SetTooltip`, append to `TooltipController_CrewAC.descriptionString` | `SetButtonEnabled(false, title, caption)` (stock "locked with reason"); re-apply in a postfix on `UpdateCrewCounts`, which re-unlocks applicants. Also covers the EDITOR-opened complex (defect 5) | RP-1 `Harmony/AstronautComplex.cs`, `CrewListItem.cs`; Crew R&R `SetLabel`. Hazard: Enhanced Astronaut Complex clones rows | easy-moderate |
 | **VAB/SPH crew dialog** (owner: show marked) | replace `CrewDialogFilterPatch`'s hiding with a postfix on the `AddAvailItem(pcm, out CrewListItem, ...)` overload, applying stock's `crew.inactive` look: `disabledCrewListSprite`, greyed name, `UIDragPanel.dragEnabled = false`, `MouseoverEnabled = false` | `SetButtonEnabled(false, "Reserved", "<why>")` | keep `CrewAutoAssignPatch`'s swap, so a reserved kerbal never lands in a seat | RP-1 `Harmony/BaseCrewAssignmentDialog.cs`. Do NOT copy Crew R&R's `rosterStatus = 9001` trick | moderate |
 | **KSC facility menu** | - | attach a stock `TooltipController_Text` with `RequireInteractable = false` | postfix protected `KSCFacilityContextMenu.OnFacilityValuesModified` (re-runs on structure events): `UpgradeButton.interactable = false` (private; `AccessTools.FieldRefAccess`). `onFacilityContextMenuSpawn` fires before the buttons fill, so do not decorate there. Fix the raw facility id via `FacilityDisplayNames` | RP-1 `Harmony/KSCFacilityContextMenu.cs` | easy |
@@ -272,16 +273,17 @@ The same layering as the Accept block:
   - Cancel uses a new pure helper over the effective ledger: the contract's committed resolution after now (type + UT + recording), cached, keyed by UT, and so free of the stale slice.
   - The Active-row annotation reads the SAME helper.
 - **Button state.** Postfix `Contract.CanBeDeclined` / `CanBeCancelled`, plus CC's `ConfiguredContract` overrides when CC is loaded, because a patch on the base method does not cover an override. The reason goes in via the `UpdateInfoPanelContract` postfix.
-- **Backstop.** Prefixes on the non-virtual `Contract.Decline()` / `Cancel()`, which CC's handlers call too, refusing with the section 6 text. Bypass while `IsReplayingActions` is set. `PatchContracts` writes state directly and calls neither (`KspStatePatcher.cs:2501`).
+- **Backstop.** Prefixes on the non-virtual `Contract.Decline()` / `Cancel()`, which CC's handlers call too, refusing with the section 6 text. Bypass while `IsReplayingActions` is set. `PatchContracts` writes state directly and calls neither (`KspStatePatcher.cs:2506`).
 - **Tests.**
   - E18-style pairing cells: decline vs the accept mark, cancel vs the Active-row annotation.
   - A pure cell for each of X1-X4.
-  - A CC-override target-resolution cell.
+  - A CC-override target-resolution cell, and a cell that the CC `CanAccept` postfix resolves.
+- **Strategy tests (step 5)** include a cell that stock auto-expiry still deactivates a strategy the committed timeline keeps active.
 
 ### 7.5 Not covered by this decision
 
 - **A world-driven failure now:** a present-day flight loses the vessel a committed completion relied on, and stock fires `Contract.Fail`. This cannot be blocked. It takes the X1 path. Record it as the one known path where present play overrides a committed contract outcome, and point the "possible bug or data corruption" Warn at this cause.
-- **The unconditional double penalty** (X2, X3, and the world-driven path) is a ledger defect in its own right. A fail or cancel on an already-resolved contract should not charge again.
+- **The unconditional double penalty** is a ledger defect in its own right. It covers X2, X3, the world-driven failure path above, and C6: a present-day completion followed by a committed fail or cancel. A fail or cancel on an already-resolved contract should not charge again.
 
 ## 8. What leaves the Parsek windows
 
@@ -323,7 +325,7 @@ The window is `UI/CareerStateWindowUI.cs`, PR #1796, inventory section 3.5.
    - Available rows: mark, reason, and Accept + Decline blocked.
    - Active rows: annotated, with Cancel blocked per section 7.3.
    - The C2 slot reason on Accept.
-   - All of it survives tab switches and CC.
+   - All of it survives tab switches and CC, including CC's own Accept state (the `ContractConfigurator.CanAccept` postfix).
 2. **Administration:**
    - `CanBeActivated` / `CanBeDeactivated` reasons.
    - Stock strategy state patched from the ledger.
@@ -359,15 +361,18 @@ Proposed addition:
 > block on that exact control. It may use only stock's own mechanisms:
 > - the control's disabled or greyed state
 > - text appended to that control's existing stock tooltip or description
-> - stock's own reason field (`CanBeActivated` reason, `CrewListItem.SetButtonEnabled` caption, `SetLabel` status line)
+> - stock's own reason field (`CanBeActivated` reason, `CrewListItem.SetButtonEnabled` caption)
+> - the row's own stock status or label text (`CrewListItem.SetLabel`, the `MissionControl.AddItem` label)
 > - a tint of the control's existing icon
 >
-> Every annotation is paired with a click-block that reads the same predicate. There are no Parsek-drawn boxes, badges,
-> counters or panels on stock screens.
+> An annotation on a CLICKABLE action is paired with a click-block that reads the same predicate. An informational
+> annotation (a committed completion on an Active contract, a lost or stand-in kerbal) is allowed only on the row's own
+> status or label text. There are no Parsek-drawn boxes, badges, counters or panels on stock screens.
 
 **Consequences:**
 - `OverlayBadge`, a custom icon with a Parsek-drawn IMGUI box, does not meet the amended rule. Migrate it rather than grandfather it.
-- The Active-row contract annotation and the Astronaut Complex status labels for lost or retired stand-ins are informational kinds that no stock button acts on. They are allowed because they annotate an existing stock row's own status text. The pairing rule applies to clickable kinds, as in the v1 plan.
+- The Active-row contract annotation and the Astronaut Complex status labels for lost or retired stand-ins are informational kinds that no stock button acts on. They are allowed on the row's own label text; the pairing rule applies to clickable kinds, as in the v1 plan.
+- `CurrencyReservationOverlay` draws its own IMGUI hover over the stock funds and science widgets and explains an advisory reservation, not a block. It is outside this exception. D1 decides whether it stays as the one existing Parsek-drawn hover or is removed. Extending it to the EDITOR (section 10 step 8) depends on that ruling.
 - The rule text itself is changed only in `.claude/CLAUDE.md` + `AGENTS.md` (byte-identical) and only on the owner's ruling (D1).
 
 ## 10. Sequencing
@@ -378,8 +383,8 @@ Each step is one PR; each pairs a mark with its block.
    - The `ReservationExplanation` builder (section 6) feeds the dialog and the existing badges.
    - Replace the stale `MilestoneStore` slice with a UT-keyed committed-future index over the effective ledger, read by BOTH the marks and the blocks.
    - Verify and fix the facility over-block (F1).
-2. **Migrate R&D, the Astronaut Complex and Mission Control to stock mechanisms.** This fixes defects 2-5.
-3. **Mission Control Decline / Cancel blocks + Active-row annotations** (section 7). Closes C3 and C4.
+2. **Migrate R&D, the Astronaut Complex and Mission Control to stock mechanisms.** This fixes defects 2-5. The Decline block (section 7.2, C3) ships in this step, because the Available-row mark it re-draws is otherwise a marked row with a live Decline, which breaks the pairing rule. The CC Accept hook ships here too.
+3. **Mission Control Cancel block + Active-row annotations** (section 7.3). Closes C4.
 4. **Contract slots:** a committed-slot predicate on Accept (C2).
 5. **Strategies:**
    - the S1 predicate + `CanBeActivated` / `CanBeDeactivated`
@@ -387,7 +392,7 @@ Each step is one PR; each pairs a mark with its block.
    - correct the design-doc claim
 6. **Retire the Career window** (section 8.1).
 7. **VAB/SPH crew dialog: show marked** (section 5). Then re-rule the Kerbals window's Basic visibility (D3).
-8. **KSC facility menu** (section 5). Currency tooltip in the EDITOR.
+8. **KSC facility menu** (section 5). Currency tooltip in the EDITOR, subject to D1 (section 9).
 9. **Only if wanted:** a P1 part-purchase block + `PartListTooltip`, or the ledger-side dedupe (D4 / D5).
 10. **Bugs, independent of the UI:**
     - the unconditional contract penalty double charge (7.5)
