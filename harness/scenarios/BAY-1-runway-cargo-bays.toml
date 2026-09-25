@@ -1,0 +1,337 @@
+schema = 1
+id = "BAY-1-runway-cargo-bays"
+# -------------------------------------------------------------------------------------
+# D7 `bays`: CARGO-BAY DOORS ANIMATE ON THE GHOST. Coverage wave 7 (2026-09-26).
+#
+# Supervisor ruling 2026-09-25, pending operator confirmation: a runway bay toggle on an
+# unflown plane may claim `bays`, because the bay animation is the subject, not the
+# flight. This lane is that toggle.
+#
+# THE ROAD.
+#   1. MISSION `bay1_runway_bays` (kRPC, raw): roll the stock KSP 1.12 `Mallard` out onto
+#      the Runway (craft committed physically in this fixture's Ships/VAB, `ship =` line
+#      de-localized to the literal `Mallard` because kRPC never localizes), stage it
+#      where it stands with brakes on and throttle zero - Parsek's own
+#      first-staging-on-the-pad trigger, which reads PRELAUNCH and a runway rollout IS
+#      PRELAUNCH, so `Auto-record started (first staging on pad` opens the recording -
+#      then open every cargo bay (kRPC `CargoBay.open`: mk3CargoBayM, mk3CargoBayL and
+#      the mk3CargoRamp), hold 20 frames, close them, hold 20 frames. The plane never
+#      moves.
+#   2. SEAM: StopRecording, CommitTree, StopRecording (CommitTree re-adopts a recorder
+#      on the still-active vessel, H58 flight 1), then InvokeRewindToLaunch: the Mallard
+#      is stripped and the scene lands in the SPACE CENTER 15 s before the recording's
+#      StartUT, keeping the committed tree as a future ghost.
+#   3. Inert RecordingState steps (~0.25 s each) let 1x Space Center time run through
+#      StartUT, the open, the close and EndUT. `ParsekKSC` replays the recording as a
+#      KSC ghost on the runway (well inside its 25 km cull range) and runs the SAME
+#      `GhostPlaybackLogic.ApplyPartEvents` the flight scene runs, so the applier's
+#      `apply family=CargoBayOpened / CargoBayClosed surface=deployable` lines are the
+#      replay witness.
+#
+# #1783 KSC END-OF-FLIGHT RETIREMENT. The Mallard ends its recording parked at the
+# runway spawn point, which is where the runway-threshold exclusion circle sits, so at
+# EndUT the spawn call may RETIRE the recording (no vessel). That is expected and is NOT
+# what this lane reads: every gating token below is a GHOST fact (the KSC ghost entered
+# range, the applier moved its bay doors), never a spawn.
+#
+# WHY THE SPACE CENTER AND NOT A FLIGHT RELOAD (EX-1's road). This fixture's VESSEL
+# index 0 is an asteroid, and a Space Center save reloads into FLIGHT focused on index 0:
+# every ghost would then be LOD-hidden 6e9 m away (the LF-2 post-strip trap). The KSC
+# scene needs no focus vessel and replays through the same applier.
+#
+# THE DEPLOY LIMIT, AND WHY THE FIXTURE CRAFT DIFFERS FROM STOCK HERE. The stock Mallard ships its
+# three bays with `deployPercent = 44 / 45 / 51` (ModuleAnimateGeneric `allowDeployLimit`), so
+# the doors stop part-way. The recorder's open test (`ClassifyCargoBayState`) wants the
+# animation at its far end, so a deploy-limited bay records NO CargoBayOpened and NO
+# CargoBayClosed at all: reading run `2026-09-25_2214` flew MISSION-OK, kRPC opened and shut all
+# three bays, and the recorder logged not one bay event (todo
+# CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING). The fixture copy therefore sets all three to
+# `deployPercent = 100`; this lane gates a full door cycle, and the partial-deploy gap is filed,
+# not hidden.
+#
+# THE HOST FIXTURE. gs1-two-stage-pad (GS-1..GS-12's pad world): its pre-placed GS1
+# Auto-Chute Booster sits on the LAUNCH PAD, so a Runway rollout recovers nothing, and
+# Bill / Bob are Available for the Mk3 cockpit's default crew. The Mallard is this
+# fixture's third physically committed craft and its only consumer is this lane.
+# -------------------------------------------------------------------------------------
+tier = "operator"  # calibration discipline; reading `2026-09-25_2218` PASS, armed `2026-09-25_2230` PASS
+description = "D7 bays: roll the stock Mallard out onto the Runway, stage it in place (Parsek's first-staging auto-record trigger), cycle its three Mk3 cargo bays open and shut, commit, Rewind-to-Launch, and let the Space Center replay the recording as a KSC ghost; the applier's CargoBayOpened / CargoBayClosed surface=deployable lines are the witness that the ghost's bay doors animated."
+instanceProfile = "stock-minimal"
+tags = ["BAY1", "part-events", "cargo-bay", "ghost-render", "applier", "rewind-to-launch", "ksc-ghost", "D7"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "bay1_runway_bays"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+# verboseLogging=true is load-bearing: the applier and recorder part-event lines are
+# VERBOSE. It is set before the recording starts, so the rewind quicksave carries it.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 600 },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "CommitTree",                                                           expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                     expect = "OK", budget = 300 },
+  { cmd = "MissionMark",  args = { label = "bay1-rewound" },                      expect = "OK" },
+  # 1x Space Center time through the replay: StartUT lands 15 s after the rewind,
+  # the open ~4 s after StartUT, the close ~10 s after that, EndUT ~10 s later.
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "bay1-dwell-done" },                   expect = "OK" },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+craftName          = "Mallard"
+expectedVesselName = "Mallard"
+launchSite         = "Runway"
+recordSettleFrames = 8
+bayHoldFrames      = 20
+
+[dimensionsCovered]
+# CLAIMED 2026-09-26 off reading run `2026-09-25_2218` (PASS attempt 1, mismatches=0; armed
+# re-flight `2026-09-25_2230` PASS attempt 1, the same four applier lines). The
+# recorder logged all six edges (CargoBayOpened / CargoBayClosed on mk3CargoRamp, mk3CargoBayM
+# and mk3CargoBayL), the KSC ghost entered range at StartUT (targetUT=29.9, recUT=[29.9,55.3]),
+# and the applier moved the doors IN REAL TIME, 9 s and 12 s after the ghost spawned rather than
+# in a spawn-frame catch-up: `apply family=CargoBayOpened surface=deployable ... applied=1
+# skipped=0` (the ramp) then `applied=2 skipped=0` (the two bays), and the same two lines for
+# CargoBayClosed. `bays` rides the two applier tokens; the forbidden pair below makes a skipped
+# bay or a jettison-panel fallback red rather than silently present beside the passing lines.
+D7  = ["bays"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+[expectations.logContracts]
+required  = ["Auto-record started \\(first staging on pad",
+             "Part event: CargoBayOpened '[^']+' pid=[0-9]+",
+             "Part event: CargoBayClosed '[^']+' pid=[0-9]+",
+             "committree committed=true",
+             "invokerewindtolaunch complete rec=",
+             "\\[KSCGhost\\] Ghost #[0-9]+ \"Mallard\" entered range",
+             "\\[GhostPartEvents\\] apply family=CargoBayOpened surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+             "\\[GhostPartEvents\\] apply family=CargoBayClosed surface=deployable rec=[0-9]+ pid=[0-9]+ applied=[1-9]"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "apply family=CargoBay(?:Opened|Closed) surface=[a-z-]+ rec=[0-9]+ pid=[0-9]+ applied=[0-9]+ skipped=[1-9]",
+             "apply family=CargoBay(?:Opened|Closed) surface=jettison-panel"]
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -117,9 +117,12 @@ namespace Parsek.Tests
                                             "mock",
                                             // Coverage wave 6: the Missions tab's Clone
                                             // button (MissionStore.Clone).
-                                            "clone" })
+                                            "clone",
+                                            // Presses the Real Spawn Control row warp
+                                            // button through its own click body.
+                                            "warp" })
                 Assert.Contains(token, listed.Split(','));
-            Assert.Equal(22, listed.Split(',').Length);
+            Assert.Equal(23, listed.Split(',').Length);
         }
 
         [Theory]
@@ -139,9 +142,65 @@ namespace Parsek.Tests
         [InlineData(14, false)]  // raise - a uGUI popup; it takes popup=, not window=
         [InlineData(15, false)]  // dismiss - the same
         [InlineData(22, true)]   // clone - the Missions tab's Clone button
+        [InlineData(23, true)]   // warp - the spawncontrol row button
         public void OpNeedsWindow_MatchesTheOpsThatNameOne(int op, bool needs)
         {
             Assert.Equal(needs, TestCommandUiAction.OpNeedsWindow((UiActionOp)op));
+        }
+
+        // ----- op=warp -----
+
+        [Fact]
+        public void Warp_ParsesRoundTrips_AndIsOnePhase()
+        {
+            Assert.True(TestCommandUiAction.TryParseOp("warp", out UiActionOp op, out string reject));
+            Assert.Null(reject);
+            Assert.Equal(UiActionOp.Warp, op);
+            Assert.Equal("warp", TestCommandUiAction.OpToken(UiActionOp.Warp));
+            // The warp is synchronous inside the button body, so there is no read-back
+            // frame to hold the FIFO head for.
+            Assert.False(TestCommandUiAction.OpIsTwoPhase(UiActionOp.Warp));
+        }
+
+        [Fact]
+        public void Warp_RequiresItsWindowOpen_BecauseOnlyADrawnButtonCanBeClicked()
+        {
+            Assert.True(TestCommandUiAction.OpRequiresWindowOpen(UiActionOp.Warp));
+        }
+
+        [Fact]
+        public void Warp_IsDefinedOnlyForSpawnControl()
+        {
+            Assert.True(TestCommandUiAction.WindowHasRowWarpButton("spawncontrol"));
+            foreach (var spec in TestCommandUiAction.Windows)
+                if (spec.Name != "spawncontrol")
+                    Assert.False(TestCommandUiAction.WindowHasRowWarpButton(spec.Name), spec.Name);
+            Assert.False(TestCommandUiAction.WindowHasRowWarpButton(null));
+        }
+
+        [Fact]
+        public void PressFirstRowWarp_WithNoCandidateTable_RefusesAndPressesNothing()
+        {
+            var window = new SpawnControlUI(null);
+            bool pressed = window.TryPressFirstRowWarpForTesting(null,
+                out NearbySpawnCandidate cand, out SpawnCandidateRowPresentation row,
+                out string refusal, out string disabledReason);
+            Assert.False(pressed);
+            Assert.Equal(SpawnControlUI.WarpRefusalNoRow, refusal);
+            Assert.Equal("warp-no-candidate-row", refusal);
+            Assert.Null(disabledReason);
+            Assert.Null(cand.vesselName);
+        }
+
+        [Fact]
+        public void BuildWarpPayload_EchoesWindowVesselIndexAndWarpKind()
+        {
+            var payload = TestCommandUiAction.BuildWarpPayload(
+                "spawncontrol", "Spawn Control Target", 3, departure: false);
+            Assert.Equal(new[] { "op", "window", "vessel", "recording", "departure" },
+                payload.Select(kv => kv.Key).ToArray());
+            Assert.Equal(new[] { "warp", "spawncontrol", "Spawn Control Target", "3", "false" },
+                payload.Select(kv => kv.Value).ToArray());
         }
 
         // ----- window table -----

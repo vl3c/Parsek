@@ -76,10 +76,35 @@ namespace Parsek
         public bool captured;
     }
 
+    /// <summary>
+    /// Where a ghost engine's particle systems came from, decided once at build time.
+    /// <see cref="EffectsNode"/> means at least one system was cloned from the part's
+    /// EFFECTS node (on-disk pristine EFFECTS included); <see cref="Supplement"/> means
+    /// every system is a Parsek-injected fallback prefab; <see cref="Legacy"/> means the
+    /// PART-level <c>fx_*</c> children path. Read only by the ignition witness line.
+    /// </summary>
+    internal enum EngineFxSource
+    {
+        None,
+        Legacy,
+        EffectsNode,
+        Supplement,
+    }
+
     internal class EngineGhostInfo
     {
         public uint partPersistentId;
         public int moduleIndex;
+        /// <summary>Runtime part name (dot form), carried for the ignition witness line.</summary>
+        public string partName;
+        public EngineFxSource fxSource;
+        /// <summary>
+        /// Systems cloned from EFFECTS-node entries. They are appended FIRST, so they are the
+        /// leading <c>effectsNodeSystemCount</c> entries of <see cref="particleSystems"/>.
+        /// </summary>
+        public int effectsNodeSystemCount;
+        public int supplementSystemCount;
+        public int legacySystemCount;
         public List<ParticleSystem> particleSystems = new List<ParticleSystem>();
         public List<KspEmitterRef> kspEmitters = new List<KspEmitterRef>();
         /// <summary>S1 baselines, index-parallel to <see cref="particleSystems"/>. Empty until captured.</summary>

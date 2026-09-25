@@ -15,6 +15,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## HARVEST-PROVENANCE-CLAIMED-ON-A-SYNTHETIC-DRILL: D10 `harvest-provenance` rests on the M2 synthetic drill tree, not on a flown drill [FILED 2026-09-25 by coverage wave 2 (branch `cov-wave2`). OPEN, low; an operator confirmation, not a defect]
+
+`HV-1-harvest-route-analysis` claims the cell SCOPED to "the route planner treats drilled
+cargo as its own origin" (supervisor ruling 2026-09-25): the synthetic tree
+`tree-drill-harvest-m2` (two witnessed harvest windows on an undocked-start Minmus run)
+makes `RouteAnalysisEngine.AnalyzeTree` take its harvest-origin branch in-game
+(`undocked start fully harvest-covered -> harvest origin originRec=m2-drill-root`,
+`harvestOrigin=1`), and `HarvestRoute_AnalyzesEligible_FromSyntheticRecording` passes
+(armed `2026-09-25_2143`). What it does NOT show: a live drill writing those harvest
+windows into a recording that a route is then built from. The capture half has its own
+evidence (H38's `Harvest funnel consumed at transition` token; the catch-up cell still
+self-skips for want of a drill rig landed on ore).
+
+**Owed:** the operator confirms the scoped claim, or rules that the cell needs the
+live-drill flight (a drill rig landed on ore, recorded, docked at a depot, committed, then
+the route built from it - the supply-route hand-off). Also measured on the same run and
+NOT claimed: the drill tree's synthetic `m2-drill-delivery` window lets
+`RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` pass on this host (41 / 6 against
+H38's 39 / 8); that is a shape check over a synthetic window, not a recorded dock capture.
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 
 **Evidence.** The Astronaut Complex shows Jebediah as `Reserved` with the hover text `Flies
@@ -38,7 +57,22 @@ Leave the fixtures and document that Jeb reads held on them. No migration or loa
 ledgers: the recording schema policy (CLAUDE.md, "Recording schema") is one current contract, and a
 missing capture row is not something load code should synthesize.
 
-## STAND-INS-EXCEED-THE-CREW-LIMIT: a generated stand-in counts against stock's active-crew limit, so a hold can push the Astronaut Complex over its cap [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F9); OPEN, design decision needed]
+## ~~STAND-INS-EXCEED-THE-CREW-LIMIT: a generated stand-in counts against stock's active-crew limit, so a hold can push the Astronaut Complex over its cap~~ [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F9); FIXED 2026-09-26, branch `standin-crew-cap`, owner ruling 2026-09-26: option (a)]
+
+**Fix.** `Patches/ActiveCrewCountPatch.cs` postfixes `KerbalRoster.GetActiveCrewCount()` and
+subtracts one per slot whose owner and ACTIVE stand-in (`KerbalsModule.ResolveActiveChainIndex`,
+the rule behind `FindActiveStandInOwner`) are both counted by stock's own rule (type Crew, status
+Assigned / Available / Missing, mirrored in `StandInSeatCount.IsCountedByStock`). A kerbal is in at
+most one pair, the result is clamped at 0, and a displaced or retired member, a permanently-gone
+owner, a released hold and a pair either half of which stock does not count are left as stock
+counts them. Pure decision `StandInSeatCount.CollectSeatSharingPairs`; cells in
+`StandInSeatCountTests`. The count reaches the complex header and hire lock (`UpdateCrewCounts`),
+the editor auto-hire and its cost, and the int argument of `OnCrewmemberHired` / `Sacked` /
+`LeftForDead`; stock's `Funding.onCrewHired` and Parsek's recorded HireCost both price from that
+one argument (IL cell). No replay bypass: the count is a view, not a refusal. The active stand-in's
+dismiss tooltip adds one sentence (it shares the owner's seat and does not count against the
+limit) under the same predicate. Not covered by an in-game cell yet: the next GUI-28 census
+re-flight should read `Active Kerbals: 5 [Max: 5]` on `stk-ac-ksc.png`.
 
 **Evidence.** `stk-ac-ksc.png` shows `Active Kerbals: 6 [Max: 5]` at Astronaut Complex level 1. The
 roster is Jebediah, Bill, Bob, Valentina plus two stand-ins: Debwig (Jeb's, already in the base) and
@@ -4930,7 +4964,7 @@ copy-on-write host), so the dialog never draws. BDOCK-1's spec shape is unchange
 `StopRecording` mitigation is explicitly NOT to be added; the optional ~36 min
 `AnswerMergeDialog choice=merge` measurement is skipped.
 
-## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. DEFINED 2026-09-15, register B5; the clone spec and its one flight remain]
+## ~~D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness~~ [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. DEFINED 2026-09-15, register B5. **CLOSED 2026-09-25 (coverage wave 2, branch `cov-wave2`)**: the clone spec is `MC-4-making-history-desert` (GS-4's `kx_rewind_watch` with `launchSite = "Desert_Launch_Site"`, operator tier). Reading `2026-09-25_2132` and armed `_2146` both PASS attempt 1, MISSION-OK: `Start location captured: ... launchSite=Desert Launch Site`, the produced save carries `launchSiteName = Desert Launch Site`, and after the Rewind-to-Launch the replayed Kerbal X ghost first appears `zone=Physics dist=22m` from the watcher on the Desert pad and is watched from it. D17 `making-history` claimed]
 
 **DEFINED 2026-09-15, not flown:** alt-site launch capture on stock-minimal, a GS-4 clone
 with `launchSite = "Desert_Launch_Site"`, `tier = "operator"`, one reading flight, ranked
@@ -11845,6 +11879,13 @@ is aboard and its ignition IS recorded, but an applier line's `pid=` is the
 tally's representative rather than an enumeration, so the replay cannot be proved
 per-pid - see the GS-6 spec header).
 
+BOTH RESIDUES CLOSED 2026-09-26 (coverage wave 7). `engine-fx-effects`: a per-engine ignition
+witness now closes the representative-pid gap - `[GhostPartEvents] engine-fx start part=... source=...`,
+one line per ignition edge per engine, naming the build-time FX source and how many EFFECTS-node
+systems are playing. GS-6 reading `2026-09-25_2205` read the Ant as `source=effects-node
+effectsSystems=1 ... effectsPlaying=1`, and GS-6 now requires it. `bays`: `BAY-1-runway-cargo-bays`
+on the stock Mallard (see GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL). The chute trio stays open.
+
 THE FIX IS ONE PURPOSE-BUILT CRAFT, and the roadmap entry (Tier A item 1) already
 specifies the hard part of it: legacy vs EFFECTS engine FX needs BOTH populations
 aboard, and stock's only EFFECTS liquid engines are the Ant / Spark / Twitch v2 family
@@ -12253,7 +12294,7 @@ reading was taken while the two `spotLight1` lamps were still being dropped at l
 (the entry above), so it must be RE-TAKEN on the fixed craft before anything is
 concluded about lamps specifically.
 
-## GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL: the GS-6 sweep craft cannot carry a cargo bay, so D7 `bays` stays unreachable until a `ServiceBay.125.v2` tail is harvested from a live VAB session [FOUND BY READING 2026-09-02 while building the revision-2 craft. CRAFT-AUTHORING CONSTRAINT, REPORT-ONLY - not a product defect, not a driver gap]
+## ~~GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL~~: the GS-6 sweep craft cannot carry a cargo bay, so D7 `bays` stays unreachable until a `ServiceBay.125.v2` tail is harvested from a live VAB session [FOUND BY READING 2026-09-02 while building the revision-2 craft. CRAFT-AUTHORING CONSTRAINT, REPORT-ONLY - not a product defect, not a driver gap. CLOSED 2026-09-26 (coverage wave 7) by a different host, not by the harvest: `BAY-1-runway-cargo-bays` flies the stock Mallard, whose three Mk3 bays need no lifted tail because the whole stock craft file is committed. The GS-6 craft still carries no bay; see BAY-1 and CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING below]
 
 THE DRIVER IS NOT THE PROBLEM: kRPC 0.5.4 exposes `CargoBay.open`, and it is wired
 as `mlib.ACTION_SET_CARGO_BAYS` with `bays-open` / `bays-close` step names. The
@@ -12289,6 +12330,30 @@ THE FIX IS ONE HARVEST, not a design: open the VAB once, place a
 goes INTO the 1.25 m section of the stack (it is a structural section, not a
 nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
 is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
+
+## CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. PRODUCT GAP, OPEN]
+
+THE MEASUREMENT. The stock `Mallard` ships its three Mk3 bays with `ModuleAnimateGeneric`
+`allowDeployLimit = true` and `deployPercent = 44 / 45 / 51`. BAY-1's first reading run flew
+MISSION-OK: kRPC `CargoBay.open` opened, then shut, all three (`set open=True on 3 cargo bay(s)`,
+`set open=False ...`), the recorder's census listed them (`Visual coverage [CargoBay] 3:
+mk3CargoBayM[pid=2989664037](deployIdx=0,closed=1.00), ...`), and the recording carried NO
+CargoBay event at all. The Space Center ghost then replayed every other family it recorded
+(gear, robotic, engine) and left the doors shut.
+
+THE CAUSE (read, not flown). `FlightRecorder.ClassifyCargoBayState` calls a bay open only at the
+far end of its animation (`animTime <= 0.01` when `closedPosition = 1`). A deploy-limited bay
+stops at `animTime = 1 - deployPercent / 100` (0.56 for the Mallard's medium bay), which is
+neither end, so every poll lands in the skip branch, `openCargoBays` is never set, and the close
+is not an edge either.
+
+THE FIX DIRECTION, for whoever takes it: read the open end from the deploy limit (the settled
+stop at `1 - deployPercent/100` for `closedPosition = 1`, the mirror for 0), or classify "left
+the closed end and stopped moving" as open. The ghost side then needs the matching partial pose
+(today `ApplyDeployableStateWithOutcome` interpolates to the fully deployed sample), so this is
+a recorder AND applier change. BAY-1 sidesteps it: its fixture copy of the Mallard sets all three
+bays to `deployPercent = 100`, so the lane gates a full door cycle and this gap stays visible
+here rather than being flown away.
 
 ## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. OPERATOR CONFIRMATION PENDING on the supervisor's ruling]
 

@@ -17,7 +17,22 @@ _(unreleased — entries accumulate here per commit)_
   replays a recorded Minmus mission through a warp across the Kerbin-to-Minmus crossing and a
   warp while watching the ghost in orbit, and requires that difference to stay under 0.05 degrees
   on every frame while the ghost turns more than 90 degrees. Both flights measured 0.000 degrees
-  on about 830 frames while the ghost turned 157 degrees. Coverage 231 -> 232 of 247.
+  on about 830 frames while the ghost turned 157 degrees. Coverage 236 -> 237 of 247.
+- **Automated testing: replayed ghosts are now checked for engine flames defined in a part's
+  EFFECTS node, and for cargo-bay doors that open and close.** A ghost engine now logs one line
+  each time it ignites on replay, naming the part, where its flame effects came from (the part's
+  EFFECTS node, its legacy `fx_*` effects, or a Parsek stand-in) and how many are playing. GS-6
+  now requires that line for its Ant, the only EFFECTS-node engine it carries. The new lane
+  `BAY-1-runway-cargo-bays` rolls the stock Mallard out onto the runway, stages it where it stands
+  so recording starts, opens and closes its three cargo bays, commits, rewinds to launch and lets
+  the Space Center replay it; it requires the ghost's bay doors to open and close.
+- **Automated testing: three new lanes for Real Spawn Control, drilled-cargo routes and Making History launch sites.**
+  `RSC-1` presses Real Spawn Control's "Warp to Spawn" on a ghost parked near the pad and requires the time jump
+  and the vessel that spawns; a new test command, `UiAction op=warp`, runs the button's own click code and
+  refuses when the button is greyed out. `HV-1` runs the Logistics tests with a synthetic drill mission present,
+  so the check that a route treats drilled cargo as its own origin runs instead of skipping. `MC-4` launches the
+  staged Kerbal X from the Making History Desert pad and requires the recording to name the site, save it, and
+  replay there. Two new injection presets supply the subjects. Coverage 231 -> 234 of 247.
 - **Automated testing: ghosts are checked under physics warp, and snapshot files are checked for
   their compressed format and for ghost snapshots that reuse the vessel snapshot.** The test warp
   command can now hold the game in physics warp (1x to 4x) for a whole span instead of taking
@@ -1083,6 +1098,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
+  While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
+  and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
+  [Max: 5]`, lock every applicant at the crew limit early and charge more for the next hire.
+  The active-crew count now treats the held kerbal and his active stand-in as one seat, so the
+  header, the hire limit, the hire cost (and the editor's auto-hire) read what they read before
+  the hold, and Parsek's ledger records the same hire cost stock charges. A retired or displaced
+  stand-in still counts, and the count returns to stock's own when the hold ends. The stand-in's
+  dismiss tooltip adds that it shares the owner's seat and does not count against the limit.
 - **Space Center: the Administration building keeps stock's own reason when stock already
   refuses a strategy, and a strategy Parsek refuses now looks refused.** With every strategy
   slot taken, all ten inactive strategies showed Parsek's "a committed activation needs this

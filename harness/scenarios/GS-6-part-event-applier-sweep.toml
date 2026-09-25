@@ -200,7 +200,7 @@ id = "GS-6-part-event-applier-sweep"
 # that have never once been measured - Gear*, Converter*, FairingJettisoned,
 # LightOn/Off on real lamps, and EngineIgnited on the EFFECTS-node Ant.
 tier = "nightly"  # PROMOTED 2026-09-08 by operator decision (was "operator", the calibration discipline; the three-run discipline is discharged, see the status row)
-description = "Part-event applier sweep: a scripted part-event timeline (RCS, deployable antenna, engine throttle) fired during a recorded Kerbal X flight, committed, Rewound-to-Launch and WATCHED, with the applier's per-family [GhostPartEvents] apply lines gated per family against the replay. Since 2026-09-15 it also pins the colour-changer surface (both light directions applying, and the defect-state reason no-family-state FORBIDDEN) and the recorder-side pose-animation gate lines, both pinned off run 2026-09-15_1604."
+description = "Part-event applier sweep: a scripted part-event timeline (RCS, deployable antenna, engine throttle) fired during a recorded Kerbal X flight, committed, Rewound-to-Launch and WATCHED, with the applier's per-family [GhostPartEvents] apply lines gated per family against the replay. Since 2026-09-15 it also pins the colour-changer surface (both light directions applying, and the defect-state reason no-family-state FORBIDDEN) and the recorder-side pose-animation gate lines, both pinned off run 2026-09-15_1604. Since 2026-09-26 it also pins the per-engine ignition witness (engine-fx start ... source=effects-node on the Ant) and claims D7 engine-fx-effects."
 instanceProfile = "stock-minimal"
 tags = ["GS6", "part-events", "ghost-render", "applier", "rewind-to-launch", "watch-mode", "ghost-lifecycle"]
 
@@ -306,7 +306,7 @@ D6 = ["basic-playback", "mesh-lifecycle-derender"]
 #               two spotLight1 lamps plus the ladder bay's light.
 #   `fairing` <- family=FairingJettisoned surface=fairing, applied=1, the istg=3
 #               jettison the ascent's third booster-pair drop fires.
-# NOT claimed even though it was measured: `engine-fx-effects`. The Ant's ignition
+# HISTORY (claimed below since 2026-09-26): `engine-fx-effects` was measured but NOT claimed. The Ant's ignition
 # IS in the log - the recorder's `Part event: EngineIgnited 'microEngine.v2'
 # pid=900501233` is a REQUIRED token below - but the APPLIER cannot prove the replay
 # of it in isolation: an applier line's `pid=` is the tally's REPRESENTATIVE (the
@@ -319,7 +319,18 @@ D6 = ["basic-playback", "mesh-lifecycle-derender"]
 # a family this sweep never planned to fire. It is REQUIRED below as evidence and
 # noted here, but D7 has no robotics value and inventing one under a re-pin is the
 # growth rule's job, not a token pass.
-D7 = ["decouple-stage-destroy", "engine-fx-legacy", "panels-antennas-radiators", "rcs", "shroud", "gear", "lights", "fairing"]
+# CLAIMED 2026-09-26 (coverage wave 7): `engine-fx-effects`, off the per-engine ignition
+# witness `[GhostPartEvents] engine-fx start` that closes the representative-pid gap above.
+# It is written once per ignition EDGE per engine and names the part and the build-time FX
+# source; reading run `2026-09-25_2205` measured, for the Ant at the sweep's throttle-up:
+#   engine-fx start part='microEngine.v2' pid=900501233 midx=0 source=effects-node
+#     effectsSystems=1 supplementSystems=1 legacySystems=0 effectsPlaying=1 playing=2
+#     emitters=1 power=0.250
+# (the EFFECTS-node system is `Squad/FX/Monoprop_small`; the supplement is Parsek's Twitch
+# plume stand-in). The token requires source=effects-node AND an EFFECTS-node system PLAYING,
+# so a supplement-only plume cannot satisfy it. The legacy engines read `source=legacy`, which
+# is now also required as a second backing for `engine-fx-legacy`.
+D7 = ["decouple-stage-destroy", "engine-fx-legacy", "engine-fx-effects", "panels-antennas-radiators", "rcs", "shroud", "gear", "lights", "fairing"]
 D9 = ["rewind-to-launch"]
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
 
@@ -397,6 +408,11 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "\\[GhostPartEvents\\] apply family=RoboticMotionStarted surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=RoboticMotionStopped surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "Part event: EngineIgnited 'microEngine.v2' pid=[0-9]+",
+             # PINNED 2026-09-26 off reading run `2026-09-25_2205` (coverage wave 7): the per-engine
+             # ignition witness. D7 `engine-fx-effects` rides the first; the second backs
+             # `engine-fx-legacy` with a playing legacy plume.
+             "\\[GhostPartEvents\\] engine-fx start part='microEngine\\.v2' pid=[0-9]+ midx=[0-9]+ source=effects-node effectsSystems=[1-9][0-9]* [^\\r\\n]*effectsPlaying=[1-9]",
+             "\\[GhostPartEvents\\] engine-fx start part='[^']+' pid=[0-9]+ midx=[0-9]+ source=legacy effectsSystems=0 supplementSystems=0 legacySystems=[1-9][0-9]* effectsPlaying=0 playing=[1-9]",
              # PINNED 2026-09-15 off run `2026-09-15_1604` (PASS attempt 1, 534 s), the first
              # flight of the GS6-GHOST-HAS-NO-COLORCHANGER-STATE fix. BEFORE it both directions
              # read `applied=0 skipped=5 reason=no-family-state`: the ghost carried no

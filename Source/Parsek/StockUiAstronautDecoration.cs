@@ -107,7 +107,11 @@ namespace Parsek
             {
                 r.DisableButton = true;
                 r.DisabledTitle = d.Marked && !string.IsNullOrEmpty(d.Title) ? d.Title : DismissBlockedTitle;
-                r.DisabledCaption = dismissalRefusal;
+                // An active stand-in's why is the refusal plus, when it shares its owner's
+                // seat in the active-crew count, the one seat sentence (ForAstronautComplex).
+                r.DisabledCaption = d.Kind == StockUiDecorationKind.KerbalStandIn && !string.IsNullOrEmpty(d.Why)
+                    ? d.Why
+                    : dismissalRefusal;
                 r.BlockKind = "dismiss";
             }
             return r;

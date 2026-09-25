@@ -1,0 +1,100 @@
+schema = 1
+id = "HV-1-harvest-route-analysis"
+tier = "nightly"
+# D10 `harvest-provenance`: a route whose cargo was drilled en route counts that drill as
+# its ORIGIN, rather than rejecting the run as an undocked start with no source.
+#
+# THE SUBJECT IS SYNTHETIC, AND THE CLAIM IS SCOPED TO IT. Supervisor ruling 2026-09-25,
+# pending operator confirmation: the M2 synthetic drill mission (`tree-drill-harvest-m2`,
+# SyntheticRecordingTests.DrillHarvestRouteTree - an undocked-start Minmus mining run whose
+# 120 harvested Ore is witnessed by TWO harvest windows on the root leg, delivering 100 Ore
+# through one completed dock window) may stand in, scoped to "the route PLANNER treats
+# drilled cargo as its own origin". It does NOT prove that a live drill writes those harvest
+# windows (that is H38's `Harvest funnel consumed at transition` cell and the HarvestCapture
+# catch-up cell, which still needs a drill rig landed on ore); a live-drill flight stays
+# optional operator work.
+#
+# THE HOST IS H38's, PLUS ONE TREE. `logi-cargo-pad` runs the 47-declaration Logistics
+# category through the isolated entry point; H38 measured it at 39 passed / 8 skipped, and
+# ONE of those skips is `HarvestRoute_AnalyzesEligible_FromSyntheticRecording` ("Synthetic
+# drill tree 'tree-drill-harvest-m2' is not in this save", run `2026-08-28_1833`). The
+# `drill-harvest-route` preset injects that tree and NOTHING else (the all-synthetic corpus
+# also carries the multi-stop and multi-origin route trees, which would move other cells),
+# so the PREDICTED split was 40 / 7. H38 itself is this lane's negative control: the same
+# host without the tree skips the cell by name.
+#
+# MEASURED 41 / 6, NOT 40 / 7 (reading run `2026-09-25_2127`, PASS attempt 1). TWO cells
+# moved, and the log names both: the harvest cell, and
+# `LogisticsRouteProofRuntimeTests.RouteProof_ActiveAsTargetDockWindow_HasEndpointProof`,
+# which H38 skipped for want of any committed dock route window with endpoint proof - the
+# drill tree's `m2-drill-delivery` window is one. That second pass is a SYNTHETIC window
+# satisfying a shape check, not a recorded dock capture, so no dock-window cell is claimed
+# off it. The six skips are the two RouteOriginProof producer cells, the active-as-
+# initiator and cross-tree dock-window cells, the HarvestCapture catch-up cell (no drill on
+# the rig) and the SPACECENTER-scoped InterBodyRoute cell (the scene filter).
+#
+# THE PRODUCTION WITNESS is `RouteAnalysisEngine.AnalyzeTree`'s own Info line on the
+# harvest-origin branch, `RouteAnalysis: undocked start fully harvest-covered -> harvest
+# origin originRec=m2-drill-root`, plus the eligible summary's `harvestOrigin=1`. The cell
+# calls the production entry point read-only; whoever else analyzes the tree (the
+# Logistics candidate finder) writes the same line through the same code.
+#
+# PINNED WHOLE off the reading run; `skipped=6` is declared in
+# IsolatedBatchWiringGroupTests.MEASURED_SKIPPED.
+description = "D10 harvest-provenance (synthetic subject, scoped): H38's isolated Logistics batch over logi-cargo-pad plus the drill-harvest-route preset (the M2 synthetic drill-run tree alone), so HarvestRoute_AnalyzesEligible_FromSyntheticRecording PASSES instead of skipping and the route planner's own harvest-origin line prints."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "logistics", "harvest", "HV-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/logi-cargo-pad"
+injectedRecordings = "drill-harvest-route"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Logistics", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# D10 claimed SCOPED to the route planner (supervisor ruling 2026-09-25, operator
+# confirmation pending): the harvest cell PASSES and the planner's own harvest-origin
+# branch prints, over the synthetic drill tree. A live-drill flight stays optional.
+D10 = ["harvest-provenance"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+# The count facet counts `.prec` sidecars, and the drill tree's two recordings are
+# metadata-only (no trajectory, so the injector writes no sidecar). MEASURED 0 on the
+# reading run: the produced save writes none either, and a leaked tree from any of the
+# cells that build real ones mid-batch would make it non-zero.
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required  = [
+  "runtests start category=Logistics isolated=true",
+  "Using batch baseline slot .* for 38 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=47 passed=41 failed=0 skipped=6 category=Logistics scene=FLIGHT",
+  "PASSED: LogisticsHarvestRuntimeTests\\.HarvestRoute_AnalyzesEligible_FromSyntheticRecording",
+  "HarvestRoute_AnalyzesEligible: PASS tree=tree-drill-harvest-m2 status=Eligible harvestedOre=120 deliveredOre=100 originBody=Minmus",
+  "\\[Parsek\\]\\[INFO\\]\\[Route\\] RouteAnalysis: undocked start fully harvest-covered -> harvest origin originRec=m2-drill-root",
+  "\\[Parsek\\]\\[INFO\\]\\[Route\\] RouteAnalysis eligible: source=[^ ]+ window=m2-drill-delivery .*harvestOrigin=1",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "SKIPPED: LogisticsHarvestRuntimeTests\\.HarvestRoute_AnalyzesEligible_FromSyntheticRecording"]
+
+[runtime]
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
