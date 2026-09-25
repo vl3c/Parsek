@@ -1,6 +1,6 @@
 # Explaining paradox-prevention blocks on the stock KSP screens
 
-**Date:** 2026-09-25. **Status:** owner rulings taken 2026-09-25 (section 11); the section 12 claims are settled by unit cells in `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`. Section 10 step 1 (PR 1, branch `stock-ui-predicates`) is implemented: see the status notes in sections 3, 10 and 12. Nothing later is.
+**Date:** 2026-09-25. **Status:** owner rulings taken 2026-09-25 (section 11); the section 12 claims are settled by unit cells in `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`. Section 10 step 1 (PR 1, branch `stock-ui-predicates`) and step 5 (PR 5, branch `stock-ui-strategies`) are implemented: see the status notes in sections 3, 4, 10 and 12.
 
 **This document is the single reference for:**
 - where Parsek explains a reservation or block to the player
@@ -125,7 +125,7 @@ Verdicts:
 |---|---|---|---|
 | T1 | Research the same tech node | BLOCKED | `TechResearchPatch` |
 | T2 | Research a different prerequisite path | SAFE | `PatchTechTree` unlocks the committed node at its UT regardless |
-| S1 | Activate a strategy the future activates; deactivate one it relies on; fill slots it needs | **HOLE** | See "S1" below |
+| S1 | Activate a strategy the future activates; deactivate one it relies on; fill slots it needs | BLOCKED (PR 5) | `StrategyCanBeActivatedPatch`, `AdministrationSetSelectedStrategyPatch`, `AdministrationButtonBackstopPatch`; see "S1" below |
 | C1 | Accept the same contract | BLOCKED | `ContractAcceptPatch` |
 | C2 | Accept other contracts until the slots the future needs are full | **HOLE** | See "C2" below |
 | C3 | Decline an offer the future accepts | **HOLE** | Silently overridden; section 7.2 |
@@ -149,6 +149,12 @@ Verdicts:
 - No production code writes stock `StrategySystem` or calls `Strategy.Activate()` / `Deactivate()`. The only caller is the automation-only command seam (`TestCommandKscAction.cs:982`, `:1040`, armed by `PARSEK_TEST_COMMANDS`). So after a rewind a committed activation is charged, but the stock strategy never switches on.
 - `docs/parsek-game-actions-and-resources-recorder-design.md:322/340` claims a "UT=0 reservation ... blocks new strategy activations entirely", which no code does.
 - All four bullets were re-checked 2026-09-25. The overwrite and the double setup charge are pinned by `S1_SecondActivationOfTheSameStrategy_OverwritesAndChargesSetupAgain_DocumentsHole`.
+- **Status: fixed by PR 5** (branch `stock-ui-strategies`). The walk is unchanged (the cell above stands); the duplicate activation is refused at the stock control. Rules, in `StrategyReservationPredicates.cs`:
+  - Activation of S is refused when a committed StrategyActivate row for S is still ahead, or when a peak walk (stock's active set now + S, then the committed future activations and deactivations of every strategy in UT order, deactivations first at one UT, the limit raised at each committed Administration upgrade) exceeds the slot limit at a committed activation. An overflow at now alone is stock's own check.
+  - A PLAYER deactivation of S is refused while a committed StrategyActivate or StrategyDeactivate row for S is still ahead. No other committed row depends on S being active: `StrategiesModule.TransformContractReward` is an identity no-op and the conversion rows replay as captured, without a strategy id.
+  - `KspStatePatcher.PatchStrategies` (`StrategyStatePatcher.cs`) writes the walk's active set into `StrategySystem` through `Strategy.Load` / `Unregister` + `isActive` (no charge, refund or capture), leaves strategies the ledger never activated alone, and does not apply an activation dated after now or a deactivation the committed timeline makes only later.
+  - KSPCF auto-expiry is not blocked (`CanBeDeactivated` is unpatched) and is captured as a StrategyDeactivate row, so the patch never re-activates an expired strategy the ledger has recorded.
+  - Not covered: a committed activation of a strategy that conflicts (stock group tags) with one activated now; a KSPCF expiry that replays after a rewind appends a second StrategyDeactivate row the walk ignores with a Warn (pre-existing).
 
 **C2: contract slots.**
 - `ContractsModule.GetAvailableSlots` has no caller.
@@ -167,7 +173,7 @@ Verdicts:
 - `ScienceSubjectPatch` reads the cutoff walk and does not see future credits. It is not the safety mechanism.
 
 **What this means for overlays:**
-- **Blocks that must ship with their overlays:** S1, C2, C3, C4 and P1. P1 also needs a state patch (section 10 step 9).
+- **Blocks that must ship with their overlays:** S1 (shipped in PR 5), C2, C3, C4 and P1. P1 also needs a state patch (section 10 step 9).
 - **Ledger or flight defects with no control to mark:** F3 and K2, plus the unconditional double penalty behind C4 and C6 (section 7.5). File these as bugs.
 - **Silent ledger dedupe is rejected** (D4 / D5, owner ruling 2026-09-25). The ledger is an append-only record that is recalculated, and whether a duplicate is legitimate depends on WHEN it happened. So P1 gets a visible block at the stock control, like T1. F3 and the double penalties stay ledger bugs outside this program.
 
@@ -348,7 +354,7 @@ The window is `UI/CareerStateWindowUI.cs`, PR #1796, inventory section 3.5.
 | `Active now: N of M` (strategies) | **yes**: `Administration.activeStratCount` (`#autoLOC_439627`) | the `CanBeActivated` reason names a held slot | no |
 | `Activated` date | no (stock keeps `Strategy.DateActivated` but does not show it) | no | **yes** |
 | `Flow` | **yes**: the Administration description | - | no |
-| `Timeline end` on an active strategy | no | the `CanBeDeactivated` reason + description text | **yes** |
+| `Timeline end` on an active strategy | no | the deactivation reason in the description, Cancel disabled (PR 5: `SetSelectedStrategy` postfix, not `CanBeDeactivated`) | **yes** |
 | Pending fold: strategies the future activates | no | the `CanBeActivated` reason | **yes** |
 | Mode banner `(timeline ends <date>)` | no | - | **yes**: rows after the "now" divider |
 | Available in FLIGHT | stock screens are KSC-only | - | **yes**; no contract or strategy decision is taken in flight |
@@ -364,8 +370,8 @@ The window is `UI/CareerStateWindowUI.cs`, PR #1796, inventory section 3.5.
    - Active rows: annotated, with Cancel blocked per section 7.3.
    - The C2 slot reason on Accept.
    - All of it survives tab switches and CC, including CC's own Accept state (the `ContractConfigurator.CanAccept` postfix).
-2. **Administration:**
-   - `CanBeActivated` / `CanBeDeactivated` reasons.
+2. **Administration:** (shipped in PR 5)
+   - `CanBeActivated` reason; the deactivation reason on the player path.
    - Stock strategy state patched from the ledger.
 3. **The Timeline's Career view stays as it is.**
 4. **One retirement PR** after 1 and 2. It removes:
@@ -431,6 +437,7 @@ Each step is one PR; each pairs a mark with its block.
    - the S1 predicate + `CanBeActivated` / `CanBeDeactivated`
    - a `KspStatePatcher` strategy-state patch
    - correct the design-doc claim
+   - **Status: done in PR 5** (branch `stock-ui-strategies`). `StrategyReservationPredicates.cs` (activation / slot-peak / deactivation predicates), `ReservationExplanation.StrategyActivation` / `StrategySlot` / `StrategyDeactivation`, `Patches/StrategyReservationPatch.cs` (a `Strategy.CanBeActivated` postfix; the deactivation refusal on the player path only, as an `Administration.SetSelectedStrategy` postfix plus a `BtnInputAccept` backstop, never on `CanBeDeactivated`), `GameActions/StrategyStatePatcher.cs` (the state patch, last in `PatchAll`). Cells: `StrategyReservationTests.cs`. The design doc's UT=0 claim is corrected (the reputation-reservation note, Layer 3, and the Strategies Module's 11.3 / 11.6 / 11.7 subsections).
 6. **Retire the Career window** (section 8.1).
 7. **VAB/SPH crew dialog: show marked** (section 5). Then re-rule the Kerbals window's Basic visibility (D3).
 8. **KSC facility menu** (section 5). Currency tooltip in the EDITOR, subject to D1 (section 9).
@@ -475,7 +482,7 @@ All cells live in `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`. 
 | Turning a loop off releases a looping chain's kerbal hold | section 6 | **Partly.** A Recovered hold drops to the flight's EndUT on the next ledger walk. An Aboard or Unknown hold stays `+inf` until a recovery closure. The toggle itself runs no recalc | `LoopHold_TurningLoopOff_ReleasesARecoveredHoldOnTheNextWalk`, `LoopHold_TurningLoopOff_LeavesAnAboardHoldOpenEnded`; `KerbalsModule.cs:673,783,808-812`, `RecordingsTableUI.cs:2354` |
 | X1 cascade reaches a refused committed tech unlock | section 7.3 | **Confirmed.** The completion goes `Effective=false` ("explicitly resolved"). The tech unlock it funded is refused (`Affordable=false`, `UnaffordableRunningScience=0`, WARN "possible bug or data corruption"), so it is left out of `BuildTargetTechIdsForPatch`'s target set and lands in the re-lock-refusal map. A committed vessel build funded by the reward also goes unaffordable | `X1_CancelBeforeCommittedCompletion_ZeroesTheCompletionAndRefusesTheLaterTechAndBuild`, control `X1_Control_CommittedCompletionFundsTheLaterTechAndBuild`; `ContractsModule.cs:414`, `ScienceModule.cs:294-321` |
 | X2 / X3 double penalty | sections 7.3, 7.5 | **Confirmed.** `FundsModule.ProcessContractPenalty` is unconditional | `X2X3_CancelNowPlusCommittedFailOrCancel_ChargesBothPenalties_DocumentsDefect`; `FundsModule.cs:461` |
-| S1 bullets (second activation overwrites and charges setup again; `GetAvailableSlots` has no caller; nothing writes stock `StrategySystem`) | section 4 "S1" | **Confirmed.** The only `Strategy.Activate` / `Deactivate` caller is the automation-only command seam | `S1_SecondActivationOfTheSameStrategy_OverwritesAndChargesSetupAgain_DocumentsHole`; `StrategiesModule.cs:103-107,199`, `ContractsModule.cs:567`, `FundsModule.cs:171,514`, `TestCommandKscAction.cs:982,1040` |
+| S1 bullets (second activation overwrites and charges setup again; `GetAvailableSlots` has no caller; nothing writes stock `StrategySystem`) | section 4 "S1" | **Confirmed.** The only `Strategy.Activate` / `Deactivate` caller is the automation-only command seam. **PR 5:** the duplicate activation is now refused at the stock control (the walk cell stands, pinning the walk), and `StrategyStatePatcher` writes `StrategySystem`; see `StrategyReservationTests.cs` | `S1_SecondActivationOfTheSameStrategy_OverwritesAndChargesSetupAgain_DocumentsHole`; `StrategiesModule.cs:103-107,199`, `ContractsModule.cs:567`, `FundsModule.cs:171,514`, `TestCommandKscAction.cs:982,1040` |
 
 ## Sources
 

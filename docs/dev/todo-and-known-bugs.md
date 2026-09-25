@@ -33,10 +33,27 @@ program.
 
 **Holes found by the block audit** (section 4; each blocks its screen's annotation under the
 pairing rule):
-- S1 strategies: no block; setup cost charged per activation; stock `StrategySystem` never
+- ~~S1 strategies: no block; setup cost charged per activation; stock `StrategySystem` never
   patched from the ledger, so a committed activation after a rewind is charged but never
   switched on; the design doc's "UT=0 reservation blocks new strategy activations" is not
-  implemented.
+  implemented.~~ Fixed by PR 5 (branch `stock-ui-strategies`): `StrategyReservationPredicates`
+  refuses an activation the committed timeline makes later, or one that leaves no slot for a
+  committed activation (peak model with committed deactivations and Administration
+  upgrades), and a player deactivation while a committed row for the strategy is still
+  ahead. Hooks: a `Strategy.CanBeActivated` postfix (stock greys the row and prints the
+  reason), an `Administration.SetSelectedStrategy` postfix (Cancel disabled, reason in the
+  description) and a `BtnInputAccept` backstop dialog; `CanBeDeactivated` stays unpatched so
+  KSPCF auto-expiry still runs and is captured as a StrategyDeactivate row.
+  `KspStatePatcher.PatchStrategies` (`StrategyStatePatcher.cs`) writes the ledger's active
+  set into `StrategySystem` via `Strategy.Load` / `Unregister` (no charge, no refund, no
+  capture), leaving strategies the ledger never activated alone. The setup-cost double
+  charge is prevented by the activation block, not by a walk change: the walk still
+  overwrites and charges a duplicate activation row
+  (`S1_SecondActivationOfTheSameStrategy_OverwritesAndChargesSetupAgain_DocumentsHole`
+  stands). The design doc's UT=0 claim is corrected. Not covered: a committed activation of
+  a strategy that conflicts (stock group tags) with one activated now is not refused, and a
+  KSPCF expiry that replays after a rewind appends a second StrategyDeactivate row the walk
+  ignores with a Warn (pre-existing).
 - C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
   accepts over a full Mission Control.
 - C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.

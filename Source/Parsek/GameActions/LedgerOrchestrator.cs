@@ -2947,7 +2947,8 @@ namespace Parsek
                 techBaselineUt: techBaselineUt,
                 suppressSuspiciousDrawdownWarnings: suppressSuspiciousDrawdownWarnings,
                 authoritativeReduction: authoritativeReduction,
-                unaffordableTechDrops: unaffordableTechDrops);
+                unaffordableTechDrops: unaffordableTechDrops,
+                strategies: strategiesModule);
 
             // LedgerTrace Tier-A: emit ONE structural snapshot per recalc, here (after
             // PatchAll), never inside a Patch* (that would emit 7x). Built from data

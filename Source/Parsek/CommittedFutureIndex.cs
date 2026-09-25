@@ -359,6 +359,24 @@ namespace Parsek
             return EntriesOf(kind, key);
         }
 
+        /// <summary>Every committed row of this kind still ahead of
+        /// <paramref name="currentUT"/>, across all keys, UT ascending.</summary>
+        internal List<CommittedFutureEntry> FutureEntriesOfKind(CommittedFutureKind kind, double currentUT)
+        {
+            var result = new List<CommittedFutureEntry>();
+            Dictionary<string, List<CommittedFutureEntry>> perKey;
+            if (!byKind.TryGetValue(kind, out perKey)) return result;
+            foreach (var list in perKey.Values)
+                for (int i = 0; i < list.Count; i++)
+                    if (IsFuture(list[i].UT, currentUT)) result.Add(list[i]);
+            result.Sort((x, y) =>
+            {
+                int c = x.UT.CompareTo(y.UT);
+                return c != 0 ? c : string.CompareOrdinal(x.Key, y.Key);
+            });
+            return result;
+        }
+
         /// <summary>The committed rows of this kind and key still ahead of
         /// <paramref name="currentUT"/>, UT ascending.</summary>
         internal List<CommittedFutureEntry> FutureEntries(

@@ -195,6 +195,71 @@ namespace Parsek
                 : "";
         }
 
+        /// <summary>
+        /// Activating a strategy the committed timeline activates later. The Administration
+        /// reason field and the refused-click dialog both show this.
+        /// </summary>
+        internal static ReservationText StrategyActivation(CommittedFutureEntry entry, Func<double, string> formatDate)
+        {
+            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
+            return new ReservationText
+            {
+                Title = "Activated on " + date,
+                Fact = "Activated on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
+                Rule = TimelineRule,
+                WayOut = "It becomes active on that date."
+            };
+        }
+
+        /// <summary>
+        /// Activating a strategy now would leave no free slot for a committed activation.
+        /// <paramref name="committedTitle"/> names the strategy that activation switches on,
+        /// or null when it is unknown.
+        /// </summary>
+        internal static ReservationText StrategySlot(
+            CommittedFutureEntry entry, string committedTitle, Func<double, string> formatDate)
+        {
+            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
+            string what = string.IsNullOrEmpty(committedTitle)
+                ? "A committed activation"
+                : "A committed activation of '" + committedTitle + "'";
+            return new ReservationText
+            {
+                Title = "Slot needed on " + date,
+                Fact = what + " on " + date + " needs this slot.",
+                Rule = TimelineRule,
+                WayOut = "A slot frees when one of your active strategies ends."
+            };
+        }
+
+        /// <summary>
+        /// Deactivating a strategy the committed timeline changes later.
+        /// <paramref name="entry"/> is the strategy's earliest committed row still ahead:
+        /// a deactivation (it stays active until then) or a re-activation.
+        /// </summary>
+        internal static ReservationText StrategyDeactivation(CommittedFutureEntry entry, Func<double, string> formatDate)
+        {
+            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
+            string source = SourcePhrase(entry?.RecordingName);
+            if (entry != null && entry.Kind == CommittedFutureKind.StrategyActivate)
+            {
+                return new ReservationText
+                {
+                    Title = "Activated again on " + date,
+                    Fact = "Activated again on " + date + " " + source + ".",
+                    Rule = TimelineRule,
+                    WayOut = "It can be deactivated after that date."
+                };
+            }
+            return new ReservationText
+            {
+                Title = "Deactivated on " + date,
+                Fact = "Deactivated on " + date + " " + source + ".",
+                Rule = TimelineRule,
+                WayOut = "It stays active until that date."
+            };
+        }
+
         internal static ReservationText KerbalHire(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
             string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
