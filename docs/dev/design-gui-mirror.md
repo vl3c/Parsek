@@ -1078,7 +1078,7 @@ branch without it - and are harmless only because later runs superseded them.
 | --- | --- | --- | --- |
 | `main` | 2026-09-22T18:41:11Z | #1755, 2026-09-22T19:16:54Z | GUI-1-census-ksc 2026-09-22_1841 |
 | `kerbals` | 2026-09-22T20:04:25Z | #1762, 2026-09-22T20:38:41Z | GUI-11-census-kerbals-crewed 2026-09-22_2004 |
-| `timeline` | 2026-09-24T19:42:55Z | #1809 (after #1792) | GUI-24-census-timeline-filters 2026-09-24_1942 |
+| `timeline` | 2026-09-25T17:25:59Z | #1818 (after #1809, #1792) | GUI-24-census-timeline-filters 2026-09-25_1725 |
 | `career` | 2026-09-24T15:22:01Z | #1796, 2026-09-24T16:18:48Z | GUI-15-census-career-contracts 2026-09-24_1522 |
 
 Each boundary was checked against the captures' own chrome: every Timeline
@@ -1090,4 +1090,7 @@ epochs take 32 states off the rail that no current capture covers: 21 of the mai
 window (the GUI-10 dialogs, the GUI-9 map-scope states, the GUI-7 recording
 states, the GUI-6 playback states), 5 of Kerbals (GUI-6) and 6 of Timeline (GUI-6,
 GUI-7, GUI-19). Re-flying GUI-6, GUI-7, GUI-9, GUI-10 and GUI-19 on the current
-build puts them back.
+build puts them back. The #1818 Timeline boundary is the view row's width: from
+2026-09-25_1725 on its five buttons are the same width as the preset row's six
+(158 px at the census's 1000 px window), and every earlier capture stretches them
+over the whole row.
