@@ -102,9 +102,10 @@ namespace Parsek.Patches
 
         static void Postfix(RDController __instance)
         {
+            bool disabledByParsek = false;
             try
             {
-                StockUiRnDDecoration.ApplyPanelBlock(__instance);
+                disabledByParsek |= StockUiRnDDecoration.ApplyPanelBlock(__instance);
             }
             catch (Exception ex)
             {
@@ -114,12 +115,23 @@ namespace Parsek.Patches
             try
             {
                 // On a researched node the same button is "purchase all parts" (P1).
-                StockUiPartPurchase.ApplyPurchaseAllBlock(__instance);
+                disabledByParsek |= StockUiPartPurchase.ApplyPurchaseAllBlock(__instance);
             }
             catch (Exception ex)
             {
                 ParsekLog.WarnRateLimited("StockUiOverlay", "rnd-purchase-all-block-failed",
                     "R&D purchase-all button block failed (" + ex.GetType().Name + ": " + ex.Message + ")");
+            }
+            try
+            {
+                // Every UpdatePanel re-derives the greyed look from this node's block, so a
+                // node shown after a blocked one gets its stock look back.
+                StockUiRnDDecoration.SyncActionButtonGreyed(__instance, disabledByParsek);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited("StockUiOverlay", "rnd-greyed-sync-failed",
+                    "R&D action button greyed state failed (" + ex.GetType().Name + ": " + ex.Message + ")");
             }
         }
     }
