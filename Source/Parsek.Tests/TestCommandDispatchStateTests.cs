@@ -57,6 +57,8 @@ namespace Parsek.Tests
             public void GloopsStart(ParsedCommand cmd) => Calls.Add("GloopsStart");
             public void GloopsStop(ParsedCommand cmd) => Calls.Add("GloopsStop");
             public void StockScreen(ParsedCommand cmd) => Calls.Add("StockScreen");
+            public void GoToEditor(ParsedCommand cmd) => Calls.Add("GoToEditor");
+            public void LaunchFromEditor(ParsedCommand cmd) => Calls.Add("LaunchFromEditor");
         }
 
         [Fact]
@@ -163,6 +165,10 @@ namespace Parsek.Tests
         // StockScreen drives stock screens at the Space Center and in the VAB, so it waits
         // for a loaded game only; the per-(screen, act) scene is its own typed REJECTED.
         [InlineData("StockScreen", "RequiresGameLoaded")]
+        // The editor scene route: each verb is valid in one scene, refused typed in any
+        // other, so the dispatch row only waits for a loaded game.
+        [InlineData("GoToEditor", "RequiresGameLoaded")]
+        [InlineData("LaunchFromEditor", "RequiresGameLoaded")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -212,6 +218,8 @@ namespace Parsek.Tests
             fake.GloopsStart(cmd);
             fake.GloopsStop(cmd);
             fake.StockScreen(cmd);
+            fake.GoToEditor(cmd);
+            fake.LaunchFromEditor(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

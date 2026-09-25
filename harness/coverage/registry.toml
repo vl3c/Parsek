@@ -644,6 +644,17 @@ values = ["bbox-block", "trajectory-walkback", "terrain-correction",
 # 177). A 1x-only histogram claims NOTHING about warped rendering: RC-WARP's
 # seam/hold traversal clauses apply only to declarations naming an above-1x bucket
 # (V24W, `warp-rails`).
+#
+# COVERAGE WAVE 12 (2026-09-26, branch `cov-editor`):
+#
+# `scene-editor` IS DEFINED (supervisor ruling 2026-09-25, pending operator
+# confirmation) as: a player with committed recordings whose ghosts are pending goes to
+# the VAB/SPH mid-timeline, then returns or launches; afterwards the timeline and ghosts
+# are intact - no recordings lost or duplicated, ghosts still replay, the ledger is
+# unchanged - and the new launch records into a NEW tree. DECLARER:
+# SE-1-editor-round-trip, on the two scene-route verbs added with it (`GoToEditor`: the
+# building's own OnLeftClick plus the craft browser's load; `LaunchFromEditor`: the
+# editor's Launch button).
 values = ["kerbin", "mun", "minmus", "moho", "eve", "gilly", "duna", "ike", "dres",
           "jool", "laythe", "vall", "tylo", "bop", "pol", "eeloo",
           "atmosphere", "soi-count",

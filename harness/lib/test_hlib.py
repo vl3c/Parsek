@@ -1085,7 +1085,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # ghost-only recorder behind the Gloops window's primary button.
         # 39 / 5 after StockScreen, an ADDITION by one: the reserved envelope never
         # carried a stock-screen verb.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 39)
+        # 41 / 5 after the editor scene route (GoToEditor / LaunchFromEditor), an
+        # ADDITION by two: the reserved envelope never carried a scene-route verb.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 41)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -15292,6 +15294,72 @@ class SeamVerbTailRoleTests(unittest.TestCase):
         for unknown in ("StopPlayback", "SomeFutureVerb", ""):
             self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                              hlib.seam_verb_tail_role(unknown), unknown)
+
+
+class EditorRouteSourceSyncTests(unittest.TestCase):
+    """The editor scene-route verbs (GoToEditor / LaunchFromEditor, D14 scene-editor).
+    Reads OUTSIDE harness/: the facility vocabulary and the reason tokens are mirrored
+    from TestCommands/TestCommandEditorRoute.cs, parsed from the comment-stripped
+    source, so a spelling one side changed alone reds here instead of after a boot."""
+
+    def _source(self):
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandEditorRoute.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# editor-route tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return "\n".join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_the_facility_vocabulary_mirrors_the_c_sharp_array(self):
+        text = self._source()
+        start = text.index("FacilityTokens =")
+        body = text[text.index("{", start) + 1:text.index("};", start)]
+        self.assertEqual(list(hlib.EDITORROUTE_FACILITY_VALUES), re.findall(r'"([^"]*)"', body))
+
+    def test_the_reasons_partition_the_c_sharp_consts(self):
+        consts = set(re.findall(r'internal const string \w+Reason = "([a-z-]+)";', self._source()))
+        refusals = set(hlib.EDITORROUTE_REFUSAL_REASONS)
+        post_act = set(hlib.EDITORROUTE_POST_ACT_REASONS)
+        self.assertFalse(refusals & post_act)
+        self.assertEqual(consts, refusals | post_act)
+
+    def test_refusals_are_mapped_and_post_click_terminals_are_not(self):
+        for reason in hlib.EDITORROUTE_REFUSAL_REASONS:
+            with self.subTest(reason=reason):
+                self.assertIn(hlib.classify_seam_refusal_subkind(reason + "%20detail"),
+                              ("driver-arg", "driver-gate"))
+        for reason in hlib.EDITORROUTE_POST_ACT_REASONS:
+            with self.subTest(reason=reason):
+                self.assertEqual("", hlib.classify_seam_refusal_subkind(reason))
+
+    def test_both_verbs_carry_every_per_verb_row(self):
+        for verb in (hlib.EDITORROUTE_GO_VERB, hlib.EDITORROUTE_LAUNCH_VERB):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+                self.assertIn(verb, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS)
+                self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.seam_verb_tail_role(verb))
+        self.assertEqual(120.0, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS["GoToEditor"])
+        self.assertEqual(180.0, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS["LaunchFromEditor"])
+
+    def test_go_to_editor_step_shape(self):
+        self.assertEqual([], hlib.validate_go_to_editor_step(0, {"facility": "SPH", "craft": "Kerbal X"}))
+        self.assertEqual([], hlib.validate_go_to_editor_step(0, {"facility": "VAB"}))
+        missing = hlib.validate_go_to_editor_step(3, {"craft": "Kerbal X"})
+        self.assertEqual(1, len(missing))
+        self.assertIn("goeditor-facility-arg-missing", missing[0])
+        for bad in ("../persistent", "VAB/Kerbal X", "a\\b", "C:x", " "):
+            with self.subTest(craft=bad):
+                errs = hlib.validate_go_to_editor_step(0, {"facility": "VAB", "craft": bad})
+                self.assertTrue(any("goeditor-craft-arg-invalid" in e for e in errs), errs)
+
+    def test_facility_spelling_is_checked_by_the_step_validator(self):
+        # KscAction owns the `facility` row of VERB_SCOPED_CLOSED_ARGS, so the editor
+        # route's spelling check lives in its own validator.
+        self.assertNotIn(hlib.EDITORROUTE_FACILITY_KEY, hlib.VERB_SCOPED_CLOSED_ARGS)
+        for bad in ("vab", "Hangar", "SpaceCenter/VehicleAssemblyBuilding"):
+            with self.subTest(facility=bad):
+                errs = hlib.validate_go_to_editor_step(0, {"facility": bad})
+                self.assertTrue(any("goeditor-facility-arg-invalid" in e for e in errs), errs)
 
 
 class StockScreenSourceSyncTests(unittest.TestCase):
