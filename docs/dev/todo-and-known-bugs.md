@@ -39,7 +39,13 @@ pairing rule):
   implemented.
 - C2 contract slots: `GetAvailableSlots` has no caller; `PatchContracts` restores committed
   accepts over a full Mission Control.
-- C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.
+- ~~C3 Decline of an offer the committed future accepts: silently overridden at the accept UT.~~
+  Fixed by PR 2b (branch `stock-ui-mc`): `ContractDeclinePatch` prefixes the non-virtual
+  `Contract.Decline()` and refuses (with the accept explanation) exactly where
+  `StockUiReservationPredicates.IsContractAcceptBlocked` holds for an Offered contract; the
+  Mission Control detail panel greys Decline out from the same decision. No automatic stock
+  path calls `Decline()` (whole-assembly IL scan: `MissionControl.OnClickDecline` and two
+  debug-toolbar buttons only), so nothing that must succeed is refused.
 - C4 Cancel of a contract the committed future completes / fails / cancels: the completion is
   zeroed (possible committed tech-spend cascade), or the penalty is charged twice.
 - P1 part purchases (verified, bypass-entry-purchase off only): no block, and no state patch.
@@ -54,9 +60,23 @@ pairing rule):
 - K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.
 
 **Defects in the existing PR #721 layer:**
-- The Mission Control badges are lost on a tab switch.
-- Contract Configurator disables the Mission Control overlay and bypasses the Accept
-  pre-block (read from source).
+- ~~The Mission Control badges are lost on a tab switch.~~ Fixed by PR 2b: the badge is gone;
+  a prefix on `MissionControl.AddItem(Contract, bool, string label)` supplies the row label
+  (full stock title plus a short status) on every `RebuildContractList`, a postfix on
+  `UpdateInfoPanelContract` appends the explanation to `contractText` and greys Accept and
+  Decline, and a `RefreshUIControls` postfix re-asserts Accept for the selection.
+- ~~Contract Configurator disables the Mission Control overlay and bypasses the Accept
+  pre-block (read from source).~~ Fixed by PR 2b, from CC's source (not reproduced in game;
+  CC is not installed on any Parsek instance): rows are read through CC's
+  `ContractContainer.contract` field; `MissionControlUI.SetContractTitle` and the
+  `OnClickAvailable` / `OnClickAll` rebuilds are postfixed for the row label; a postfix on
+  `ContractConfigurator.CanAccept(Contract)` keeps Accept greyed after CC's select handler
+  overwrites it; CC's select handler calls stock `UpdateInfoPanelContract`, so the detail
+  text and the greyed Decline apply unchanged, and CC's Decline handler reaches the
+  `Contract.Decline` backstop. Remaining under CC: CC's Decline handler clears the info
+  panel BEFORE calling `Decline()`, so if anything re-enabled the button and it were
+  clicked, the refusal would leave an empty panel over a still-Offered row (cosmetic). The
+  CC row label is not applied to CC's contract-TYPE rows (no contract behind them).
 - ~~The Astronaut Complex opened from the editor is undecorated.~~ Fixed by PR 2a (branch
   `stock-ui-rnd-ac`): the Astronaut Complex annotations are Harmony postfixes on the stock
   row builders (`AstronautComplex.AddItem_*`, `UpdateCrewCounts`,
@@ -67,17 +87,18 @@ pairing rule):
   (`RDNode.GetTooltipCaption`) and the side-panel description (`RDController.ShowNodePanel`)
   and disables Research (`RDController.UpdatePanel`, research state only); the Astronaut
   Complex sets the row label and stock's locked-with-reason button
-  (`CrewListItem.SetButtonEnabled`) and appends to the crew tooltip. Mission Control still
-  uses `OverlayBadge` (its migration is the sibling PR 2b; `OverlayBadge.cs` goes once both
-  land).
+  (`CrewListItem.SetButtonEnabled`) and appends to the crew tooltip. Mission Control moved
+  to stock mechanisms in PR 2b; with both merged no screen uses a badge, and `OverlayBadge.cs`
+  is deleted.
 - ~~The Astronaut Complex Dismiss button was never refused.~~ Found in PR 2a: stock's
   Available-row dismiss calls `KerbalRoster.SackAvailable` (the kerbal becomes an applicant),
   which never reaches `KerbalRoster.Remove`, so `KerbalDismissalPatch` did not see it. Fixed
   with a pre-UI prefix on `AstronautComplex.Xbutton_AvailableCrew` and a `SackAvailable`
   backstop over the same predicate (`KerbalDismissalPatch.ShouldAllowDismissal`); the
   Astronaut Complex greys that button for the same set.
-- In-game coverage: the six rewritten `StockUiOverlay` cells have not flown; H45 pins
-  `total=8` INTERIM until its reading run. The editor-opened complex has no in-game cell (no
+- In-game coverage: the rewritten `StockUiOverlay` cells (six R&D / Astronaut
+  Complex from PR 2a, three Mission Control from PR 2b) have not flown; H45 pins `total=9`
+  INTERIM until its reading run. The editor-opened complex has no in-game cell (no
   lane runs `StockUiOverlay` in the EDITOR), and a timeline change while that complex is open
   re-annotates only on the next stock rebuild (the refresh hook lives in the SpaceCentre-only
   `StockUiOverlayController`).

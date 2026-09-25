@@ -285,7 +285,7 @@ namespace Parsek.Tests
         [InlineData(Contracts.Contract.State.Completed, "Archive")]
         public void MissionControlTabFor_MapsTheContractState(Contracts.Contract.State state, string tab)
         {
-            Assert.Equal(tab, StockUiOverlayController.MissionControlTabFor(state));
+            Assert.Equal(tab, MissionControlStockAnnotation.TabFor(state));
         }
 
         // ---------------- logging ----------------

@@ -107,6 +107,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Whether the crew tooltip postfix touches this kerbal's tooltip at all. The same
+        /// <c>TooltipController_CrewAC</c> serves the VAB/SPH crew assignment dialog, so a
+        /// kerbal without a clickable-kind mark keeps stock's tooltip exactly (text and
+        /// <c>showTooltip</c>) in every screen.
+        /// </summary>
+        internal static bool ShouldAnnotateCrewTooltip(StockUiDecoration d)
+        {
+            return d.Marked && AppendsTooltip(d.Kind) && !string.IsNullOrEmpty(d.Why);
+        }
+
+        /// <summary>
         /// Appends the explanation to a stock crew tooltip in stock's own reason format
         /// (<c>"\n\n&lt;b&gt;title&lt;/b&gt;\ncaption"</c>, the same block stock appends for
         /// the crew-limit lock). Idempotent.
@@ -297,7 +308,7 @@ namespace Parsek
         {
             if (tooltip == null || pcm == null || string.IsNullOrEmpty(pcm.name)) return;
             var d = StockUiLiveSnapshot.Current.Kerbal(pcm.name, null);
-            if (!d.Marked || !AppendsTooltip(d.Kind)) return;
+            if (!ShouldAnnotateCrewTooltip(d)) return;
             string next = AppendTooltip(tooltip.descriptionString, d.Title, d.Why);
             if (!string.Equals(next, tooltip.descriptionString, StringComparison.Ordinal))
             {

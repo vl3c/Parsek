@@ -447,19 +447,30 @@ namespace Parsek.InGameTests
             return count;
         }
 
-        /// <summary>Parsek-created objects on the R&amp;D and Astronaut Complex screens: the
-        /// legacy badge children and any live <c>OverlayBadge</c> under those screens.</summary>
+        /// <summary>
+        /// Parsek-created GameObjects on the open R&amp;D and Astronaut Complex screens: any
+        /// transform named with the <c>Parsek_</c> prefix under either screen, plus the
+        /// retired badge names anywhere. The annotation writes only stock state, so this is 0.
+        /// </summary>
         private static int CountParsekStockScreenObjects()
         {
             int count = CountGlobalNamedTransforms(StockUiOverlayTechObjectName)
                 + CountGlobalNamedTransforms(StockUiOverlayKerbalObjectName);
-            OverlayBadge[] badges = Object.FindObjectsOfType<OverlayBadge>();
-            for (int i = 0; i < badges.Length; i++)
+            var roots = new List<Transform>();
+            RDController rd = RDController.Instance ?? Object.FindObjectOfType<RDController>();
+            if (rd != null) roots.Add(rd.transform);
+            AstronautComplex ac = Object.FindObjectOfType<AstronautComplex>();
+            if (ac != null) roots.Add(ac.transform);
+            for (int r = 0; r < roots.Count; r++)
             {
-                if (badges[i] == null) continue;
-                if (badges[i].GetComponentInParent<RDController>() != null
-                    || badges[i].GetComponentInParent<AstronautComplex>() != null)
-                    count++;
+                Transform[] all = roots[r].GetComponentsInChildren<Transform>(true);
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (all[i] != null && all[i].name.StartsWith("Parsek_", System.StringComparison.Ordinal)
+                        && all[i].name != StockUiOverlayTechObjectName
+                        && all[i].name != StockUiOverlayKerbalObjectName)
+                        count++;
+                }
             }
             return count;
         }

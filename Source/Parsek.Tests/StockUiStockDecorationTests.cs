@@ -363,6 +363,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldAnnotateCrewTooltip_LeavesUnreservedKerbalsStock()
+        {
+            // The postfix also runs for the VAB/SPH crew dialog's rows: an unmarked kerbal,
+            // or one with only an informational mark, must keep stock's tooltip (no forced
+            // showTooltip).
+            Assert.False(StockUiAstronautDecoration.ShouldAnnotateCrewTooltip(
+                Deco(StockUiDecorationKind.None, null, null)));
+            Assert.False(StockUiAstronautDecoration.ShouldAnnotateCrewTooltip(
+                Deco(StockUiDecorationKind.KerbalRetiredStandIn, "Retired", "Retired stand-in (Parsek)")));
+            Assert.False(StockUiAstronautDecoration.ShouldAnnotateCrewTooltip(
+                Deco(StockUiDecorationKind.KerbalLost, "Lost", "Lost on the committed flight 'X'.")));
+            Assert.True(StockUiAstronautDecoration.ShouldAnnotateCrewTooltip(
+                Deco(StockUiDecorationKind.KerbalHire, "Hired on D5", "why")));
+            Assert.True(StockUiAstronautDecoration.ShouldAnnotateCrewTooltip(
+                Deco(StockUiDecorationKind.KerbalOnFlight, "Reserved", "why")));
+        }
+
+        [Fact]
         public void AppendTooltip_UsesStocksReasonBlock_AndIsIdempotent()
         {
             string once = StockUiAstronautDecoration.AppendTooltip("Pilot skills", "Hired on D5", "Hired on D5 because.");
