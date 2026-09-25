@@ -171,6 +171,23 @@ pairing rule):
   Rows captured before the fix keep their recorded amount (no migration).
 
 **Ledger / flight defects with no stock control to mark:**
+- ~~A committed tech unlock (a `ScienceSpending` row with a `NodeId`) at the LAST committed
+  row never reached stock when the Space Center clock passed it: the KSC ledger cursor
+  (`ParsekKSC.AdvanceCareerLedgerForKscUT`) recalculates through
+  `LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent`, which finds no row after now and
+  runs the cutoff-less `RecalculateAndPatch()`; with no tech cutoff `PatchTechTree` is skipped
+  (#559), so the walk charged the science and the node stayed locked (and, the research block
+  lifted, could be bought again). Every "no future rows" recalculation (ksp-load, reservation
+  release, post-marker-clear) had the same gap.~~ Fixed (branch `ksc-cursor-tech-unlock`): a
+  cutoff-less recalculation now runs an ADD-ONLY pass, `KspStatePatcher.PlanCommittedTechUnlocksForPatch`
+  -> `PatchCommittedTechUnlocks`, that unlocks every affordable committed `ScienceSpending` node
+  at or before the live clock (`CommittedFutureIndexCache.CurrentUT`, the clock the research
+  block reads). It never re-locks (the #559 guarantee stands; `PatchTechTree` and its
+  two-direction semantics are untouched and still own every walk with a tech cutoff), never
+  unlocks a future node, and skips while the clock is not ready or
+  `RecordingStore.RewindUTAdjustmentPending`. It runs before `PatchPurchasedParts`, so a committed
+  purchase on the node lands in the same pass. Pinned by `CommittedTechUnlockPatchTests`
+  (drives the cursor's own decisions into the real orchestrator path). Not proven in game.
 - Contract fail / cancel penalties are charged unconditionally, so an already-resolved
   contract is charged again (C4 X2/X3, C6, and a world-driven failure).
 - F3: a facility repair row charges even when nothing is destroyed.
