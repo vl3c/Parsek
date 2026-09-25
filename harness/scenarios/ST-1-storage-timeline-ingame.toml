@@ -2,35 +2,44 @@ schema = 1
 id = "ST-1-storage-timeline-ingame"
 tier = "nightly"
 # WHAT THIS IS. The storage / timeline lane: one seam run on the earned career that
-# first AUTHORS a Rewind-to-Separation quicksave through the product (a pad EVA split
-# of the crewed Mk1 pod, two controllable children), then drives two in-game
-# categories as ONE multi-category batch:
+# drives two in-game categories as ONE multi-category batch:
 #
 #   Timeline  TimelineProjectionTests.TimelineProjectsEffectiveLedger - builds the
 #             timeline from the Timeline window's exact inputs (ERS, ELS, milestones,
 #             legacy visibility, live game mode) and checks it against the ELS: every
-#             action is one row or a named design exclusion, no row lacks a ledger
-#             action, UT-sorted, ineffective rows never T1.  (D15 timeline-projection)
+#             action is one row or a named design exclusion (route types only), no row
+#             lacks a ledger action, UT-sorted, ineffective rows never T1, and every
+#             action row is humanized into its own bucket (never LegacyEvent, never the
+#             raw enum name).  (D15 timeline-projection)
 #   Storage   StorageRuntimeTests - recording-id path validation on the live save's
-#             ids (D16 path-validation); the readable `.prec.txt` mirrors removed and
+#             ids (D16 path-validation) and the readable `.prec.txt` mirrors removed and
 #             rewritten by the product's own reconcile pass, decoded back to the
-#             recording's shape (D16 txt-mirrors); every live rewind point's quicksave
-#             on disk at Parsek/RewindPoints/<rpId>.sfs, loadable, no temp file left
-#             (D16 rp-quicksaves).
+#             recording's shape (D16 txt-mirrors). Its third cell, the rewind-point
+#             quicksave read-back, self-skips here (this save has no RP) and runs on
+#             ST-2-rewind-point-quicksave, which authors one.
 #
 # WHY THIS HOST. `career-earned-pad` (L4's host) is the richest committed ledger with a
-# focusable FLIGHT craft: 16 ledger rows across science, funds, milestones, contracts,
-# crew and one KerbalExperience row, plus two committed recordings whose sidecars and
-# mirrors are on disk. Its PRELAUNCH Mk1 pod carries Jebediah, so EvaExit splits two
-# controllable vessels and ParsekFlight.TryAuthorRewindPointForSplit authors a real RP
-# in-run: the `[RewindSave] Wrote rp=` line below is the product write, the Storage
-# cell then reads the file back.
+# focusable FLIGHT craft: 16 ELS rows across science, funds, milestones, contracts, crew
+# and one KerbalExperience row, plus two committed recordings whose sidecars and mirrors
+# are on disk.
+#
+# NEGATIVE CONTROL, FLOWN. Run `2026-09-25_2039` (attempt 1) booted this host on the
+# PRE-FIX DLL (sha256 69e5403b..., the same cells without the Timeline fix): the Timeline
+# cell FAILED on exactly the defect it was written for - `unhumanizedRows=1`,
+# `KerbalExperience@348.08 as LegacyEvent 'KerbalExperience'`, with the product's
+# `Unknown GameActionType 'KerbalExperience'` WARN beside it - so its batch line read
+# `total=1 passed=0 failed=1`, which the pin below rejects. (That run's own verdict was
+# INVALID on an EvaExit step this spec no longer carries: stock spawnEVA refuses the
+# Parsek stand-in on this pad, so the RP subject moved to ST-2.)
+#
+# READING RUN `2026-09-25_2043` (fix DLL sha256 ea2d667b..., same INVALID EvaExit step,
+# batch executed whole) measured every token below; the pins are those numbers.
 #
 # writeReadableSidecarMirrors is set explicitly: the harness settings baseline leaves
 # that key to the fixture, and the mirror cell restores whatever value it found.
-description = "Author a rewind-point quicksave through a pad EVA split on the earned career, then run the Timeline and Storage in-game categories: timeline rows project the effective ledger, recording-id path validation on live ids, readable .txt mirrors reconciled off and on, and the RP quicksave read back from disk."
+description = "Run the Timeline and Storage in-game categories on the earned career: the timeline projects the effective ledger (every action one humanized row or a route exclusion, UT-sorted), recording-id path validation on the save's live ids, and the readable .txt mirrors reconciled off and on and decoded back."
 instanceProfile = "stock-minimal"
-tags = ["ST-1", "ingame-batch", "multi-category", "storage", "timeline", "rewind", "eva", "career"]
+tags = ["ST-1", "ingame-batch", "multi-category", "storage", "timeline", "career"]
 
 [fixture]
 saveTemplate = "fixtures/saves/career-earned-pad"
@@ -42,42 +51,38 @@ kind = "seam"
 steps = [
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },            expect = "OK", budget = 300 },
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
-  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },           expect = "OK" },
   { cmd = "SetSetting",     args = { name = "writeReadableSidecarMirrors", value = "true" }, expect = "OK" },
   { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },             expect = "OK" },
-  { cmd = "StartRecording",                                                                 expect = "OK" },
-  { cmd = "EvaExit",        args = { release = "true", settleSeconds = "10" },              expect = "OK", budget = 120 },
   { cmd = "RunTests",       args = { category = "Timeline,Storage" },                       expect = "OK", budget = 540 },
-  { cmd = "StopRecording",                                                                  expect = "OK" },
   { cmd = "FlushAndQuit",                                                                   expect = "OK" },
 ]
 
 [dimensionsCovered]
 D15 = ["timeline-projection"]
-D16 = ["path-validation", "txt-mirrors", "rp-quicksaves"]
+D16 = ["path-validation", "txt-mirrors"]
 D14 = ["career", "scene-flight"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 2, max = 6 }
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required = [
-  "Tree branch created: type=EVA",
-  "\\[RewindSave\\] Wrote rp=rp_[0-9a-f]{32} path=Parsek/RewindPoints[\\\\/]rp_[0-9a-f]{32}\\.sfs bytes=[1-9][0-9]*",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Timeline scene=FLIGHT",
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Storage scene=FLIGHT",
-  "timeline projection: els=[0-9]+",
-  "path validation on live save: rejected=[0-9]+",
-  "readable mirror round trip: recordings=[0-9]+",
-  "rewind point quicksaves: checked=[0-9]+",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=Timeline scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=Storage scene=FLIGHT",
+  "timeline projection: els=16 expected=16 entries=19 actionRows=16 matched=16 foldedFacility=0 foldedMilestone=0 excludedRoute=0 excludedModeSeed=0 excludedZeroSpend=0 excludedEvaCrew=0 missing=0 unmatchedRows=0 orderBreaks=0 demotionBreaks=0 unhumanizedRows=0 mode=CAREER",
+  "path validation on live save: rejected=47 invalidCharIds=39 acceptedRecordings=2 resolvedOnDisk=2 acceptedRewindPoints=0",
+  "readable mirror round trip: recordings=2 deletedWhenOff=2 writtenWhenOn=2 roundTripped=2 vesselMirrors=2 settingRestored=True",
 ]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Unknown GameActionType",
+]
 
 [runtime]
-budgetSeconds = 900
+budgetSeconds = 720
 
 [retry]
 policy = "once"

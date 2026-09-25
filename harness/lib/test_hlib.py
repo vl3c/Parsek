@@ -7056,7 +7056,8 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "PartEventFX": 6,
             "GhostLifecycle": 17,
         }),
-        # 2026-09-25 coverage wave 4: the D15 / D16 storage-and-timeline lane.
+        # 2026-09-25 coverage wave 4: the D15 / D16 storage-and-timeline lane,
+        # pinned whole off reading run 2026-09-25_2043.
         "ST-1-storage-timeline-ingame": ("FLIGHT", {
             "Timeline": 1,
             "Storage": 3,
@@ -7069,7 +7070,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     # for every constituent. It must stay a set LITERAL of ids (or `set()` when
     # empty, NEVER a `{}` literal, which would be an empty DICT and make every
     # membership read False).
-    INTERIM_PIN_IDS: set = {"ST-1-storage-timeline-ingame"}
+    INTERIM_PIN_IDS: set = set()
 
     # PER-CONSTITUENT NARROWING of INTERIM_PIN_IDS. A member listed here has only
     # the named constituents interim, and every OTHER constituent must stay pinned
