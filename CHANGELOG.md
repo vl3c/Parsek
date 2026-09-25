@@ -128,6 +128,13 @@ _(unreleased — entries accumulate here per commit)_
   `REJECTED tab-hidden-in-game-mode` naming the mode, and `key=customRange` now opens the
   Time fold. `GUI-24-census-timeline-filters` photographs the Contracts, Milestones and
   Tech views on its host and Milestones under a This Year range.
+- **Automated testing: a lane checks two spawn-safety guards on a real spawn.**
+  `SS-1-spawn-safety-corrections` injects two recordings that end during a time warp. One
+  landed on the grass near the Space Center but its saved state still said "flying"; it
+  spawns after the warp with that state corrected to landed. The other ends in an orbit
+  that dips to 60 km, inside the 75 km safety margin over Kerbin's atmosphere; its spawn is
+  held while the orbit is low, and once the orbit climbs back out it is refused, because the
+  low point would still drag it down. Test-side only: a new `spawn-safety` injection preset.
 - **Automated testing: a lane watches a ghost wait past its end for a blocked spawn.**
   `EX-2-single-point-held-ghost` injects a one-point recording that ends in orbit on top of
   another loaded vessel. At the recording's end the spawn is blocked and, with only one
