@@ -5,9 +5,9 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for KerbalsModule.ShouldFilterFromCrewDialog — the decision method
-    /// used by CrewDialogFilterPatch to hide reserved/retired kerbals from the
-    /// VAB/SPH crew assignment dialog.
+    /// Tests for KerbalsModule.ShouldFilterFromCrewDialog - the refusal predicate the
+    /// VAB/SPH crew assignment dialog greys reserved/retired kerbals by and every
+    /// seat-placing path refuses them by (StockUiCrewDialogDecoration).
     /// </summary>
     [Collection("Sequential")]
     public class CrewDialogFilterTests : System.IDisposable
