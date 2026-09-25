@@ -3916,5 +3916,404 @@ class SimplifiedChromeTests(unittest.TestCase):
         self.assertTrue(after.split("\n")[1].startswith('<div id="statenote">'))
 
 
+
+# --------------------------------------------------------------------------
+# stock screens: photographs of stock KSP screens, with Parsek's decorations
+# --------------------------------------------------------------------------
+
+def _stock_line(level, body):
+    return "[LOG 00:00:00] [Parsek][%s][StockUiOverlay] %s" % (level, body)
+
+
+LOG_STOCK = "\n".join([
+    "[LOG 00:00:01] [Parsek][INFO][TestCommands] uiaction describe "
+    "scene=SPACECENTER complexity=advanced windows=0 open=0 openWindows=-",
+    # an older Mission Control pass: superseded by the next one
+    _stock_line("INFO", "decorate screen=MissionControl tab=Available items=3 "
+                        "marked=1 blocked=1"),
+    _stock_line("VERBOSE", "decorate screen=MissionControl tab=Available "
+                           "item=c-old kind=ContractAccept marked=true "
+                           "blocked=true why=\"stale pass\""),
+    # the nearest pass before the capture
+    _stock_line("INFO", "decorate screen=MissionControl tab=Available items=3 "
+                        "marked=2 blocked=2"),
+    _stock_line("VERBOSE", "decorate screen=MissionControl tab=Available "
+                           "item=c-101 kind=ContractAccept marked=true "
+                           "blocked=true why=\"Accepted on Y1 D9 on your "
+                           "committed timeline.\""),
+    _stock_line("VERBOSE", "decorate screen=MissionControl tab=Available "
+                           "item=c-102 kind=ContractAccept marked=true "
+                           "blocked=false why=\"a mark with no block\""),
+    _stock_line("VERBOSE", "decorate screen=MissionControl kind=ContractSlot "
+                           "blocked=4 marked=0 why=\"every slot is needed\""),
+    "[LOG 00:00:04] [Parsek][INFO][TestCommands] capturescreenshot ok "
+    "label=stk-mc-available-detail bytes=10 superSize=1 overwrote=false elapsed=0.1s",
+    # after the capture: not part of what it photographed
+    _stock_line("VERBOSE", "decorate screen=MissionControl tab=Available "
+                           "item=c-late kind=ContractAccept marked=false "
+                           "blocked=true why=\"too late\""),
+    # the lane's own per-capture records win over any pass
+    _stock_line("INFO", "decorate screen=AstronautComplex tab=Applicants items=2 "
+                        "marked=0 blocked=0"),
+    _stock_line("INFO", "record label=stk-ac-ksc screen=AstronautComplex "
+                        "tab=Applicants kind=KerbalHire id=Valentina Kerman "
+                        "marked=true blocked=true why=\"Hired later\""),
+    _stock_line("INFO", "record label=stk-ac-ksc screen=AstronautComplex "
+                        "tab=Available kind=None id=Bob Kerman marked=false "
+                        "blocked=true why=\"\""),
+    _stock_line("INFO", "record label=stk-ac-ksc screen=AstronautComplex "
+                        "tab=Available kind=KerbalLost id=Bill Kerman "
+                        "marked=true blocked=false why=\"Lost on a flight\""),
+    "[LOG 00:00:05] [Parsek][INFO][TestCommands] capturescreenshot ok label=stk-ac-ksc",
+    # a hover the IMGUI tooltip cannot see: must not read as "hover not captured"
+    "[LOG 00:00:06] [Parsek][INFO][TestCommands] uiaction pointer at=400,300 "
+    "park=false tooltip=- tooltipFrame=1",
+    "[LOG 00:00:07] [Parsek][INFO][TestCommands] capturescreenshot ok "
+    "label=stk-rnd-node-hover",
+    # a screen no decoration line names
+    "[LOG 00:00:08] [Parsek][INFO][TestCommands] capturescreenshot ok "
+    "label=stk-admin-strategy",
+])
+
+
+def make_stock_shots(root, name="2026-09-12_0600_SYN-2-census-stock_shots",
+                     log=LOG_STOCK, labels=("stk-mc-available-detail",
+                                            "stk-ac-ksc", "stk-rnd-node-hover",
+                                            "stk-admin-strategy"),
+                     rgb=(30, 60, 90), mtime=1757656800, size=(64, 48)):
+    """A stock census run: PNGs only (no control tree can see a uGUI screen),
+    built in memory at a small size, plus the run's KSP.log."""
+    path = os.path.join(root, name)
+    os.makedirs(path, exist_ok=True)
+    with open(os.path.join(path, "KSP.log"), "a", encoding="utf-8") as fh:
+        fh.write(log + "\n")
+    for label in labels:
+        png = os.path.join(path, label + ".png")
+        tiny_png(png, w=size[0], h=size[1], rgb=rgb)
+        os.utime(png, (mtime, mtime))
+    return path
+
+
+class StockLabelTests(unittest.TestCase):
+    def test_the_stk_host_marks_a_stock_capture(self):
+        self.assertTrue(gmi.is_stock_label("stk-rnd-node-hover"))
+        self.assertTrue(gmi.is_stock_label("stk-crewdialog"))
+        self.assertFalse(gmi.is_stock_label("stk"))
+        self.assertFalse(gmi.is_stock_label("ksc-career-contracts-advanced"))
+
+    def test_the_second_token_is_the_screen_and_the_rest_the_state(self):
+        self.assertEqual(gmi.stock_facets("stk-mc-available-detail"),
+                         ("stk-mc", "mc", "available-detail"))
+        self.assertEqual(gmi.stock_facets("stk-launchpicker"),
+                         ("stk-launchpicker", "launchpicker", ""))
+
+    def test_a_dump_with_no_parsek_root_is_a_stock_capture(self):
+        foreign = {("kRPC", (10, 10, 200, 100))}
+        cap = {"label": "odd-frame", "log": {},
+               "dump": {"roots": [{"text": "kRPC", "rect": [10, 10, 200, 100]}]}}
+        self.assertFalse(gmi.is_stock_capture(cap))           # label alone
+        self.assertTrue(gmi.is_stock_capture(cap, foreign))
+        cap["dump"]["roots"].append({"text": "Parsek", "rect": [0, 0, 300, 300]})
+        self.assertFalse(gmi.is_stock_capture(cap, foreign))
+        # the seam naming an open window, or a standing dialog, is Parsek on screen
+        empty = {"label": "odd-frame", "dump": {"roots": []},
+                 "log": {"openWindows": ["main"]}}
+        self.assertFalse(gmi.is_stock_capture(empty, foreign))
+        empty["log"] = {"dialog": {"title": "x", "buttons": []}}
+        self.assertFalse(gmi.is_stock_capture(empty, foreign))
+
+
+class StockDecorationParseTests(unittest.TestCase):
+    def setUp(self):
+        self.parsed = gmi.parse_stock_log(LOG_STOCK)
+
+    def test_an_item_id_keeps_its_spaces_and_the_why_its_words(self):
+        f = gmi.parse_stock_line("record label=stk-ac-ksc screen=AstronautComplex "
+                                 "tab=Available kind=KerbalHire id=Valentina Kerman "
+                                 "marked=true blocked=true why=\"Hired on Y2 D3 = soon\"")
+        self.assertEqual(f["id"], "Valentina Kerman")
+        self.assertEqual(f["why"], "Hired on Y2 D3 = soon")
+        self.assertEqual((f["marked"], f["blocked"]), ("true", "true"))
+
+    def test_the_nearest_pass_before_the_capture_is_the_fallback(self):
+        dec = gmi.stock_decoration(self.parsed, "stk-mc-available-detail", "mc")
+        self.assertEqual(dec["source"], "pass")
+        self.assertEqual(dec["screen"], "MissionControl")
+        ids = [r["id"] for r in dec["rows"]]
+        self.assertNotIn("c-old", ids, "an earlier pass leaked into the capture")
+        self.assertNotIn("c-late", ids, "a line logged after the capture leaked in")
+        self.assertEqual(sorted(i for i in ids if i), ["c-101", "c-102"])
+        self.assertEqual(dec["summaries"], [{"tab": "Available", "items": 3,
+                                             "marked": 2, "blocked": 2}])
+
+    def test_the_slot_aggregate_is_one_row_that_counts_its_items(self):
+        dec = gmi.stock_decoration(self.parsed, "stk-mc-available-detail", "mc")
+        slot = [r for r in dec["rows"] if r["kind"] == "ContractSlot"][0]
+        self.assertEqual(slot["count"], 4)
+        self.assertEqual((slot["marked"], slot["blocked"]), (False, True))
+        self.assertEqual(slot["pairing"], "block only")
+        self.assertFalse(slot["problem"])
+
+    def test_the_captures_own_record_lines_win_over_a_pass(self):
+        dec = gmi.stock_decoration(self.parsed, "stk-ac-ksc", "ac")
+        self.assertEqual(dec["source"], "record")
+        self.assertEqual(dec["screen"], "AstronautComplex")
+        self.assertEqual({r["id"] for r in dec["rows"]},
+                         {"Valentina Kerman", "Bob Kerman", "Bill Kerman"})
+        self.assertEqual(dec["summaries"], [])
+
+    def test_no_line_for_the_screen_says_so_instead_of_guessing(self):
+        dec = gmi.stock_decoration(self.parsed, "stk-admin-strategy", "admin")
+        self.assertIsNone(dec["source"])
+        self.assertEqual(dec["rows"], [])
+        self.assertEqual(dec["matched"], [])
+        self.assertIn("MissionControl", dec["logScreens"])
+        # a screen with no pass before the capture (R&D logged none here)
+        dec2 = gmi.stock_decoration(self.parsed, "stk-rnd-node-hover", "rnd")
+        self.assertIsNone(dec2["source"])
+        # no log at all
+        dec3 = gmi.stock_decoration(None, "stk-mc-x", "mc")
+        self.assertIsNone(dec3["source"])
+        self.assertEqual(dec3["logScreens"], [])
+
+    def test_a_pass_after_the_capture_is_never_used(self):
+        log = "\n".join([
+            "[LOG] [Parsek][INFO][TestCommands] capturescreenshot ok label=stk-rnd-tree",
+            _stock_line("INFO", "decorate screen=RnD tab=RnD items=90 marked=1 blocked=1"),
+        ])
+        dec = gmi.stock_decoration(gmi.parse_stock_log(log), "stk-rnd-tree", "rnd")
+        self.assertIsNone(dec["source"])
+        self.assertEqual(dec["matched"], ["RnD"])
+
+    def test_one_pass_prints_one_summary_per_tab_on_adjacent_lines(self):
+        log = "\n".join([
+            _stock_line("INFO", "decorate screen=AstronautComplex tab=Applicants "
+                                "items=4 marked=0 blocked=0"),
+            _stock_line("INFO", "decorate screen=AstronautComplex tab=Available "
+                                "items=5 marked=1 blocked=1"),
+            _stock_line("INFO", "decorate screen=AstronautComplex tab=Assigned "
+                                "items=2 marked=0 blocked=0"),
+            _stock_line("VERBOSE", "decorate screen=AstronautComplex tab=Available "
+                                   "item=Jebediah Kerman kind=KerbalOnFlight "
+                                   "marked=true blocked=true why=\"on a flight\""),
+            # the next refresh of the same screen is a new pass
+            _stock_line("INFO", "decorate screen=AstronautComplex tab=Applicants "
+                                "items=4 marked=0 blocked=0"),
+            "[LOG] [Parsek][INFO][TestCommands] capturescreenshot ok label=stk-ac-x",
+        ])
+        parsed = gmi.parse_stock_log(log)
+        self.assertEqual(len(parsed["passes"]), 2)
+        self.assertEqual([s["tab"] for s in parsed["passes"][0]["summaries"]],
+                         ["Applicants", "Available", "Assigned"])
+        self.assertEqual(parsed["passes"][0]["rows"][0]["id"], "Jebediah Kerman")
+        dec = gmi.stock_decoration(parsed, "stk-ac-x", "ac")
+        self.assertEqual(dec["rows"], [], "the capture's pass is the newer one")
+
+    def test_the_facility_menu_lines_make_one_item_with_its_why(self):
+        log = "\n".join([
+            _stock_line("INFO", "decorate screen=FacilityMenu "
+                                "facility=SpaceCenter/LaunchPad marked=true blocked=true"),
+            _stock_line("VERBOSE", "decorate screen=FacilityMenu "
+                                   "facility=SpaceCenter/LaunchPad (menu open) "
+                                   "why=\"Upgraded on Y1 D40\""),
+            _stock_line("INFO", "decorate screen=FacilityMenu "
+                                "facility=SpaceCenter/VehicleAssemblyBuilding "
+                                "marked=false blocked=false"),
+            _stock_line("VERBOSE", "decorate screen=FacilityMenu "
+                                   "facility=SpaceCenter/VehicleAssemblyBuilding "
+                                   "(menu open) unmarked: no committed future "
+                                   "upgrade of this facility"),
+            "[LOG] [Parsek][INFO][TestCommands] capturescreenshot ok "
+            "label=stk-facility-menu",
+        ])
+        parsed = gmi.parse_stock_log(log)
+        self.assertEqual(parsed["passes"][0]["rows"][0]["why"], "Upgraded on Y1 D40")
+        dec = gmi.stock_decoration(parsed, "stk-facility-menu", "facility")
+        self.assertEqual(dec["source"], "pass")
+        self.assertEqual([r["id"] for r in dec["rows"]],
+                         ["SpaceCenter/VehicleAssemblyBuilding"])
+        self.assertTrue(dec["rows"][0]["why"].startswith("unmarked: no committed"))
+        self.assertEqual(dec["rows"][0]["pairing"], "stock")
+
+    def test_the_label_token_is_matched_to_the_log_screen_without_a_table(self):
+        pairs = {"rnd": "RnD", "mc": "MissionControl", "ac": "AstronautComplex",
+                 "crewdialog": "CrewAssignment", "facility": "FacilityMenu"}
+        screens = list(pairs.values())
+        for tok, want in pairs.items():
+            got = [s for s in screens if gmi.stock_screen_matches(tok, s)]
+            self.assertEqual(got, [want], tok)
+        for tok in ("admin", "part", "launchpicker"):
+            self.assertEqual([s for s in screens if gmi.stock_screen_matches(tok, s)],
+                             [], tok)
+
+
+class StockPairingTests(unittest.TestCase):
+    def test_the_four_cases(self):
+        self.assertEqual(gmi.stock_pairing("TechResearch", True, True), ("paired", False))
+        self.assertEqual(gmi.stock_pairing("None", False, False), ("stock", False))
+        self.assertEqual(gmi.stock_pairing("ContractAccept", True, False),
+                         ("marked, not blocked", True))
+        self.assertEqual(gmi.stock_pairing("None", False, True),
+                         ("blocked, not marked", True))
+
+    def test_the_exempt_kinds_are_not_problems(self):
+        for kind in gmi.STOCK_INFORMATIONAL_KINDS:
+            self.assertEqual(gmi.stock_pairing(kind, True, False),
+                             ("informational", False))
+        for kind in gmi.STOCK_BLOCK_ONLY_KINDS:
+            self.assertEqual(gmi.stock_pairing(kind, False, True), ("block only", False))
+        # an exemption covers its own direction only
+        self.assertTrue(gmi.stock_pairing(gmi.STOCK_BLOCK_ONLY_KINDS[0], True, False)[1])
+        self.assertTrue(gmi.stock_pairing(gmi.STOCK_INFORMATIONAL_KINDS[0], False, True)[1])
+
+    def test_problems_are_counted_and_lead_the_table(self):
+        parsed = gmi.parse_stock_log(LOG_STOCK)
+        dec = gmi.stock_decoration(parsed, "stk-mc-available-detail", "mc")
+        self.assertEqual(dec["problems"], 1)
+        self.assertEqual(dec["rows"][0]["id"], "c-102")
+        self.assertEqual(dec["rows"][0]["pairing"], "marked, not blocked")
+        ac = gmi.stock_decoration(parsed, "stk-ac-ksc", "ac")
+        by_id = {r["id"]: r for r in ac["rows"]}
+        self.assertEqual(by_id["Bob Kerman"]["pairing"], "blocked, not marked")
+        self.assertEqual(by_id["Bill Kerman"]["pairing"], "informational")
+        self.assertEqual(ac["problems"], 1)
+
+    def test_the_exempt_kinds_are_members_of_the_csharp_enum(self):
+        # Source-sync: a renamed or removed StockUiDecorationKind member would
+        # otherwise turn its exemption silently into a reported problem.
+        src_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "..", "Source", "Parsek",
+                                "StockUiDecorationQuery.cs")
+        with open(src_path, encoding="utf-8") as fh:
+            src = fh.read()
+        src = re.sub(r"//[^\n]*", "", src.replace("\r\n", "\n"))
+        m = re.search(r"enum\s+StockUiDecorationKind\s*\{([^}]*)\}", src)
+        self.assertIsNotNone(m, "StockUiDecorationKind not found")
+        members = {t.strip() for t in m.group(1).split(",") if t.strip()}
+        for kind in gmi.STOCK_INFORMATIONAL_KINDS + gmi.STOCK_BLOCK_ONLY_KINDS:
+            self.assertIn(kind, members)
+
+
+class StockScreenEndToEndTests(unittest.TestCase):
+    """A census corpus with a Parsek lane and a stock-screen lane."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.shots = make_shots(self.root)
+        self.scen = make_scenarios(self.root)
+        make_scenarios(self.root, spec_id="SYN-2-census-stock",
+                       template="fixtures/saves/syn-career")
+        self.stock = make_stock_shots(self.root)
+        self.model = gmi.build_model([self.shots, self.stock], self.scen)
+        self.html = gmi.render_html(self.model)
+        self.stk = {c["label"]: c for c in self.model["captures"] if c.get("stock")}
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_every_stk_png_is_a_capture_grouped_by_screen(self):
+        self.assertEqual(sorted(self.stk), ["stk-ac-ksc", "stk-admin-strategy",
+                                            "stk-mc-available-detail",
+                                            "stk-rnd-node-hover"])
+        self.assertEqual(sorted(self.model["stockWindows"]),
+                         ["stk-ac", "stk-admin", "stk-mc", "stk-rnd"])
+        cap = self.stk["stk-mc-available-detail"]
+        self.assertEqual((cap["window"], cap["state"], cap["tab"], cap["mode"]),
+                         ("stk-mc", "available-detail", None, None))
+        self.assertEqual(cap["roots"], [])
+        names = {w["token"]: w["name"] for w in self.model["windows"] if w.get("stock")}
+        self.assertEqual(names["stk-rnd"], "rnd")
+        self.assertIn("stk-rnd", self.model["railRows"])
+
+    def test_the_stage_is_the_whole_png_never_a_redraw(self):
+        cap = self.stk["stk-rnd-node-hover"]
+        self.assertTrue(cap["photo"]["src"].startswith("data:image/png;base64,"))
+        self.assertEqual((cap["photo"]["pw"], cap["photo"]["ph"]), (64, 48))
+        self.assertEqual(cap["screen"], [64, 48])
+        self.assertIn("if (cap.stock) return renderStockPhoto(cap, host, opts);",
+                      self.html)
+
+    def test_a_stock_photo_is_never_subsampled_by_the_budget(self):
+        model = gmi.build_model([self.shots, self.stock], self.scen, budget=1)
+        stk = [c for c in model["captures"] if c.get("stock")][0]
+        own = [c for c in model["captures"] if not c.get("stock")][0]
+        self.assertEqual(stk["photo"]["pw"], 64)
+        self.assertLess(own["photo"]["pw"], own["photo"]["w"],
+                        "the budget ladder did not reach the subsampling step")
+
+    def test_a_uGUI_hover_is_not_read_as_an_empty_imgui_tooltip(self):
+        cap = self.stk["stk-rnd-node-hover"]
+        self.assertEqual(cap["pointer"]["tooltip"], "-")
+        self.assertNotIn("hoverEmpty", cap)
+        # and no two tree-less stock frames are each other's "twin"
+        self.assertFalse(any(c.get("hoverEmpty") for c in self.stk.values()))
+
+    def test_the_decoration_travels_with_the_capture(self):
+        dec = self.stk["stk-mc-available-detail"]["stock"]["decor"]
+        self.assertEqual(dec["source"], "pass")
+        self.assertEqual(dec["problems"], 1)
+        self.assertIsNone(self.stk["stk-admin-strategy"]["stock"]["decor"]["source"])
+        self.assertIn("'no decoration lines logged for this screen'", self.html)
+
+    def test_the_parsek_captures_are_untouched_by_a_stock_lane(self):
+        alone = gmi.build_model([self.shots], self.scen)
+        mine = [c for c in self.model["captures"] if not c.get("stock")]
+        self.assertEqual(json.dumps(alone["captures"], sort_keys=True),
+                         json.dumps(mine, sort_keys=True))
+        self.assertEqual(alone["defaultFixture"], self.model["defaultFixture"])
+        self.assertEqual([w for w in alone["windows"]],
+                         [w for w in self.model["windows"] if not w.get("stock")])
+        self.assertEqual(alone["railRows"],
+                         {k: v for k, v in self.model["railRows"].items()
+                          if k not in self.model["stockWindows"]})
+
+    def test_a_later_run_supersedes_and_compare_pairs_the_two(self):
+        newer = make_stock_shots(
+            self.root, name="2026-09-13_0600_SYN-2-census-stock_shots",
+            labels=("stk-mc-available-detail",), rgb=(90, 60, 30),
+            mtime=1757743200)
+        model = gmi.build_model([self.shots, self.stock, newer], self.scen)
+        caps = [c for c in model["captures"]
+                if c["label"] == "stk-mc-available-detail"]
+        self.assertEqual(len(caps), 2)
+        old = [c for c in caps if c["runId"].startswith("2026-09-12")][0]
+        new = [c for c in caps if c["runId"].startswith("2026-09-13")][0]
+        self.assertEqual(old["supersededBy"], new["id"])
+        self.assertTrue(gmi.is_stale(old))
+        info = model["keys"][new["key"]]
+        self.assertEqual((info["before"], info["after"]), (old["id"], new["id"]))
+        self.assertTrue(info["changed"], "two different frames read as unchanged")
+        self.assertIsNone(info["measured"])
+        self.assertFalse(info["stockMeasured"]["photoSame"])
+
+    def test_the_rail_puts_stock_screens_under_their_own_heading(self):
+        rail = self.html[self.html.index("function buildRail(){"):]
+        rail = rail[:rail.index("\nfunction showView(")]
+        self.assertIn("'Stock screens (' + stockCaps + ' captures)'", rail)
+        self.assertIn("own.forEach(railWindow);", rail)
+        self.assertIn("stk.forEach(railWindow);", rail)
+        self.assertLess(rail.index("own.forEach(railWindow);"),
+                        rail.index("stk.forEach(railWindow);"))
+        self.assertIn("c.stock.decor.problems + ' pairing'", rail)
+        # the Parsek heading counts Parsek's captures and states only
+        self.assertIn("(M.captures.length - stockCaps) + ' captures'", rail)
+        self.assertIn("return !(byId[M.keys[k].after] || {}).stock; }).length;", rail)
+
+    def test_compare_and_the_panel_cover_a_stock_screen(self):
+        self.assertIn("if (M.seamWindows.indexOf(win) < 0 && !isStockWin(win)){",
+                      self.html)
+        self.assertIn("if (r.info.stockMeasured) sec.appendChild(", self.html)
+        self.assertIn('<div id="decorwrap" class="hidden"></div>', self.html)
+        self.assertIn("['id', 'kind', 'marked', 'blocked', 'why', 'pairing']", self.html)
+        self.assertIn("body.bare #decorwrap{display:none}", self.html)
+        self.assertEqual(self.model["stockWindows"],
+                         gmi._page_model(self.model)["stockWindows"])
+
+    def test_the_index_counts_the_stock_screens(self):
+        idx = gmi.build_index(self.model)
+        self.assertEqual(idx["windows"]["stk-mc"]["captures"], 1)
+        self.assertEqual(idx["stockCaptureCount"], 4)
+
+
 if __name__ == "__main__":
     unittest.main()

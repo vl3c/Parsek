@@ -10,6 +10,7 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the GUI mirror shows stock KSP screens as photographs, with Parsek's decorations beside them.** A census capture labelled `stk-<screen>-<state>` (or one with no Parsek window in it) is listed under a `Stock screens` rail heading, one group per screen, and shown as the frame the census took, never redrawn; a PNG with no control-tree dump is enough. Beside it a panel lists what Parsek decorated on that screen, read from the run's `KSP.log`: the lane's own `record label=` lines, else the nearest `decorate` pass for that screen before the capture, else a line saying none was logged. Each row shows id, kind, marked, blocked and why, and a mark without its block (or a block without its mark) on a kind the pairing rule covers is highlighted and badged in the rail. Superseded / retired flags, notes and Compare pairs work as for Parsek's windows (`harness/tools/gui_mirror.py`; `docs/dev/design-gui-mirror.md` section 18).
 - **Dev: the GUI mirror says when a shown capture is not current.** A superseded, retired, old-layout or no-hover capture opened from a link or as a Compare BEFORE now carries a banner naming the run that is current, with a button to show it (`harness/tools/gui_mirror.py`).
 - **Automated testing: a lane loops a recorded mission and watches its copies relaunch, overlap and expire.**
   `GS-12-kerbalx-loop-cycles` flies GS-4's Kerbal X flight, rewinds and watches the first run, then loops
