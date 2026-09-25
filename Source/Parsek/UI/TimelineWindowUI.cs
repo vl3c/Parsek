@@ -50,6 +50,17 @@ namespace Parsek
             Tech
         }
 
+        /// <summary>The three rows of the filter area, top to bottom.</summary>
+        internal enum TimelineFilterRow
+        {
+            /// <summary>Row 1: Overview, Details, Rewind/FF, Re-Fly, Career.</summary>
+            View,
+            /// <summary>Row 2: the context row of the selected view.</summary>
+            Context,
+            /// <summary>Row 3: the time-range presets, All and Custom.</summary>
+            TimeRange
+        }
+
         /// <summary>What filter row 2 holds for the selected view.</summary>
         internal enum TimelineContextRow
         {
@@ -128,10 +139,11 @@ namespace Parsek
         }
 
         private const float DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth;
-        // The filter area is three rows (DrawFilterBar, DrawTimeRangeFilterBar). The view
-        // row stretches its five cells over the width; the context row and the preset
-        // row are six-cell grids (GetResponsiveButtonWidth), so they set the floor. Their
-        // widest labels are ten characters ("Recordings", "Strategies", "Milestones"),
+        // The filter area is three rows (DrawFilterBar, DrawTimeRangeFilterBar). Every
+        // button in them has one width, the cell of a six-cell grid over the window
+        // (FilterRowCellWidth), and every row is left-aligned: a row of fewer than six
+        // buttons leaves its unused cells empty on the right, room for later filters.
+        // The widest labels are ten characters ("Recordings", "Strategies", "Milestones"),
         // about 75 px in the button style, well inside the 93 px cell floor. Six floor
         // cells plus the 28 px margin budget and 22 px window chrome is 608, so the window
         // floor is 610 and no row has to widen the window past its own drag minimum.
@@ -145,7 +157,7 @@ namespace Parsek
 
         // Floor of the cell width for the top zone: the view row, the context row
         // (sources, Archived or the career categories) and the time-range preset row.
-        // The two six-cell rows share one width so their columns align.
+        // All three rows share one width so their columns align.
         private const float FilterButtonWidth = 93f;
 
         // Bottom "hovered control help text" strip. See TooltipEchoBox for why it is a
@@ -659,7 +671,7 @@ namespace Parsek
             // Toggle button: "on" state reuses the button's own rounded-corner texture
             // but tints it darker via the on-state background color trick. Explicit
             // 4px horizontal margin gives adjacent buttons a visible gap (inter-button
-            // gap = 4px after IMGUI's max-collapse); the GetResponsiveButtonWidth math
+            // gap = 4px after IMGUI's max-collapse); the ComputeFilterCellWidth math
             // below accounts for this exact margin budget. Vertical margin inherits
             // from GUI.skin.button so the L toggle vertically aligns with the R /
             // FF / GoTo buttons (which use plain GUI.skin.button) in entry rows.
@@ -686,20 +698,27 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Cell width for a top-zone row of <paramref name="cells"/> buttons that fills the
-        /// window width: the context row and the preset row are six-cell grids (so their
-        /// columns line up), the view row divides the width among its own buttons so it
-        /// has no empty cell. Computed each frame from the current window width. Floored
-        /// at FilterButtonWidth so buttons never shrink below the legibility width.
+        /// Width of every button in filter row <paramref name="row"/>, computed each frame
+        /// from the current window width.
         /// </summary>
-        private float GetResponsiveButtonWidth(int cells = GridCells)
-            => ComputeFilterCellWidth(timelineWindowRect.width, cells);
+        private float GetFilterCellWidth(TimelineFilterRow row)
+            => FilterRowCellWidth(row, timelineWindowRect.width);
 
-        /// <summary>Cells in the context row and the preset row.</summary>
+        /// <summary>Cells in the filter grid: a full row spans the window width.</summary>
         internal const int GridCells = 6;
 
         /// <summary>
-        /// Pure form of <see cref="GetResponsiveButtonWidth"/>. The toggle style's
+        /// Button width of a filter row. Every row answers the same six-cell grid width,
+        /// so all filter buttons are one size and their columns line up; a row with fewer
+        /// buttons is left-aligned and leaves the rest of the grid empty rather than
+        /// stretching. Floored at FilterButtonWidth so buttons never shrink below the
+        /// legibility width.
+        /// </summary>
+        internal static float FilterRowCellWidth(TimelineFilterRow row, float windowWidth)
+            => ComputeFilterCellWidth(windowWidth, GridCells);
+
+        /// <summary>
+        /// Cell width of an n-cell grid that spans the window. The toggle style's
         /// margin is (4,4) and IMGUI collapses adjacent margins to the larger one, so a row
         /// of n cells spends 4 px outside each end plus 4 px per gap: 4 * (n + 1). That and
         /// the window chrome come off before dividing, so a full row spans the width exactly.
@@ -1047,18 +1066,19 @@ namespace Parsek
             // Rows 1 and 2 of the filter area (row 3, the time-range presets, is
             // DrawTimeRangeFilterBar).
             //   Row 1: the one-at-a-time view group (Overview, Details, Rewind/FF, Re-Fly,
-            //          Career), its buttons stretched over the whole width.
-            //   Row 2: the context row for the selected view (ResolveContextRow) on the
-            //          six-cell grid, ALWAYS drawn and always one button tall, so switching
-            //          views never moves the list.
+            //          Career).
+            //   Row 2: the context row for the selected view (ResolveContextRow), ALWAYS
+            //          drawn and always one button tall, so switching views never moves
+            //          the list.
+            // Both rows sit on the shared six-cell grid (FilterRowCellWidth), left-aligned.
             // Nothing here reads the UI complexity mode: Basic and Advanced draw the same
             // controls. The Career cell reads the GAME mode (absent in Sandbox; Science
             // shows only Facilities, Milestones and Tech).
             Game.Modes? gameMode = GetCurrentGameMode();
             EnsureViewAvailableInMode(gameMode);
             bool drawCareer = ShouldDrawCareerViewButton(gameMode);
-            float viewW = GetResponsiveButtonWidth(ViewRowCellCount(drawCareer));
-            float btnW = GetResponsiveButtonWidth();
+            float viewW = GetFilterCellWidth(TimelineFilterRow.View);
+            float btnW = GetFilterCellWidth(TimelineFilterRow.Context);
 
             GUILayout.BeginHorizontal();
             DrawViewToggle(TimelineTierFilterMode.Overview,
@@ -1092,7 +1112,7 @@ namespace Parsek
                     ParsekLog.Verbose("UI", $"Timeline filter: Career ({category})");
                 }
             }
-            // Sandbox: no Career cell, and the four remaining views share the width.
+            // Sandbox: no Career cell; the four remaining views keep their width.
             GUILayout.EndHorizontal();
 
             bool actionFilterMode = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward
@@ -1334,9 +1354,6 @@ namespace Parsek
                 : ViewOfCategory(fallback);
         }
 
-        /// <summary>Cells in the view row: five, or four where no Career cell draws.</summary>
-        internal static int ViewRowCellCount(bool drawCareer) => drawCareer ? 5 : 4;
-
         /// <summary>The Custom button's label in the time-range preset row.</summary>
         internal const string CustomRangeButtonName = "Custom";
 
@@ -1448,9 +1465,9 @@ namespace Parsek
             bool hasRange = sliderBoundMax - sliderBoundMin > 1f;
 
             // Row 3, always drawn: the four presets, All and Custom on the six-cell grid
-            // shared with row 2, exactly one of them lit (ResolveLitTimeRangeButton), so
-            // the range in force is always on screen.
-            float btnW = GetResponsiveButtonWidth();
+            // shared with rows 1 and 2, exactly one of them lit (ResolveLitTimeRangeButton),
+            // so the range in force is always on screen.
+            float btnW = GetFilterCellWidth(TimelineFilterRow.TimeRange);
             string lit = LitTimeRangeButton(filter);
             GUILayout.Space(2);
             GUILayout.BeginHorizontal();

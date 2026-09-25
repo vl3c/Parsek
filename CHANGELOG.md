@@ -1011,6 +1011,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: the GUI mirror's Timeline `Career` view button no longer jumps to the Career window.**
+  The page's launcher rule sent any control whose text spelled a window's name to that
+  window. Only the main window's controls launch windows now; elsewhere such a control is
+  routed as a view or state of its own window, or says there is no capture for it
+  (`harness/tools/gui_mirror.py`, `routeClick`).
+- **Dev: the GUI mirror names windows, tabs and states by what the game draws.** The rail,
+  headers, Compare and the notes list showed seam tokens (`structure`, `rewindff`,
+  `expandedstats`), so a window whose token is not its title could not be found. A window
+  now reads by its own title without the `Parsek - ` prefix (the structure window by the
+  title it draws with no mission or route open, its other titles in the tooltip), a
+  Timeline view by its button's text, and a state by the one control its step changed
+  where the capture shows it (`Info`, `Recordings off`, `Last Day`); every name comes from
+  the captures, and the token stays in the tooltip and in every link and note key.
+
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
   soon as it had sent the deploy command. It now reads the parachute's own state and
@@ -1263,10 +1277,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Timeline: every filter button is the same width, and the rows are left-aligned.** The
+  five view buttons (Overview, Details, Rewind/FF, Re-Fly, Career) no longer stretch across
+  the window; they take the same width as the buttons of the two rows below them (the cell
+  of a six-button row), so the columns line up and each row leaves empty room on the right
+  for later filters. The minimum window width is unchanged.
+
 - **Timeline: the time-range presets are back on their own always-visible row.** This
   partly reverts the `Time: <range>` button from the two-row filter area above. The filter
-  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career)
-  stretched across the full width, the view's own toggles (unchanged), and Last Day /
+  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career),
+  the view's own toggles (unchanged), and Last Day /
   Last 7d / Last 30d / This Year / All / Custom. Exactly one of those six is lit, so the
   range in force is always on screen (All by default). Custom shows the From / To sliders;
   dragging a slider lights Custom, picking a preset turns Custom off and hides the sliders,

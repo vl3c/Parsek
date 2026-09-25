@@ -53,8 +53,11 @@ Two consequences are worth stating because they are the point of the design:
   from, which is the honest answer.
 * **A click with no capture behind it does nothing but say so.** The state graph
   has an edge only where the destination capture exists. Everything else flashes
-  the control and writes `no capture for this state yet` in the status line. The
-  page never invents a screen, because a plausible invented screen is worse than a
+  the control and writes `no capture for this state yet` in the status line. Only
+  the home window (the seam's first window, `M.seamWindows[0]`, the one the close
+  affordance returns to) launches other windows; elsewhere a control whose text
+  spells a window's name, such as the Timeline's `Career` view button, is routed
+  as a tab or state of its own window or flashed. The page never invents a screen, because a plausible invented screen is worse than a
   gap: a gap sends you to fly a lane, an invention sends you to fix a bug that is
   not there.
 
@@ -311,6 +314,32 @@ names none) - so reading down a tab shows the window filling in. Basic comes
 before Advanced on a tie, then the label, so the order is total. A window with
 more than one group gets a thin header per tab, named by the tab's display name,
 which folds away with its rows when all of them are hidden.
+
+### What the rail calls things
+
+The rail, the stage header, Compare and the notes list name a window, a tab and a
+state by what the game draws, never by the seam token alone (owner, 2026-09-25: a
+window whose token is not its title could not be found). All three names are
+derived from the dumps, so nothing is typed; the token stays the key of every
+link, note and lookup, and the row tooltips carry it.
+
+* **A window** reads by its own title minus the product prefix
+  (`window_display_names`). The prefix is `display_title_prefix`: the leading
+  words most titles share, because one window of another product family breaks
+  the all-titles `title_prefix` the record vocabulary uses. A window titled by its
+  subject (the structure window, titled by its mission or route) reads by the one
+  title that spells its token and lists the rest in its tooltip; two windows that
+  would read the same carry their tokens. Only seam windows are named.
+* **A tab** reads by its selection grid's text, else - for a tab row made of
+  toggles (the Timeline's views) - by the toggle that tab alone lights
+  (`toggle_tab_names`); a grouping toggle lit under several tabs names none.
+* **A state** reads by the control its step changed where the capture's own tree
+  shows it (`state_display_names`): among the current captures of its window,
+  tab and mode, the one toggle it lights (or unlights, read "off") or the one
+  button whose text differs from its peers (a glyph swap), asked first of the
+  controls every peer agrees on and then of those most do. A count-bearing
+  button never names a state, and a name two states would share, or a state that
+  differs in several controls, keeps the token.
 
 ## 6. The three photo modes
 

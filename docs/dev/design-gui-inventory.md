@@ -529,14 +529,16 @@ Hosts: `ParsekFlight.cs:2133` and `ParsekKSC.cs:255`; not the Tracking Station. 
 
 Structure: a three-row filter area (below), the From / To sliders while `Custom` is lit, the
 entry scroll view with a "now" divider, a warp row, the single-line echo strip, `Close`,
-resize handle, drag. Minimum size 610x150 (`MinWindowWidth`): rows 2 and 3 are six-cell grids
-on `GetResponsiveButtonWidth` (`ComputeFilterCellWidth`), their widest labels (`Recordings`,
-`Strategies`, `Milestones`) fit the 93 px cell floor, and six floor cells plus margins and
-chrome are 608 px.
+resize handle, drag. Minimum size 610x150 (`MinWindowWidth`): all three filter rows sit on one
+six-cell grid (`FilterRowCellWidth` over `ComputeFilterCellWidth`, the same width for every
+row), the widest labels (`Recordings`, `Strategies`, `Milestones`) fit the 93 px cell floor,
+and six floor cells plus margins and chrome are 608 px.
 
 Filter area (2026-09-24, `DrawFilterBar` + `DrawTimeRangeFilterBar`). Row 1 is the
-one-at-a-time view group `Overview` / `Details` / `Rewind/FF` / `Re-Fly` / `Career`, its cells
-stretched over the full width (`ViewRowCellCount`: five, four in Sandbox). Row 2 is the
+one-at-a-time view group `Overview` / `Details` / `Rewind/FF` / `Re-Fly` / `Career` (four in
+Sandbox). Every filter button has the grid cell's width and every row is left-aligned, so a
+row of fewer than six buttons leaves its unused cells empty on the right (room for later
+filters; owner ruling 2026-09-25) rather than stretching. Row 2 is the
 selected view's context row, always drawn and always one button tall so the list never moves
 (`ResolveContextRow`): the source toggles `Recordings` / `Actions` / `Events` plus `Archived`
 under Overview and Details; `Archived` alone under Rewind/FF and Re-Fly (the sources are
