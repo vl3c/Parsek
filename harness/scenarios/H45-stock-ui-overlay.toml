@@ -85,9 +85,9 @@ tier = "nightly"
 # Their guards are the same pair as before (career mode, an Offered contract row), so
 # the prediction on this host is 7 of 7. The R&D and Astronaut Complex cells move to
 # stock mechanisms in a sibling PR, which changes this pin again.
-description = "FLOWN: the in-game StockUiOverlay category unattended on a career host with contracts on offer, all six cells executing - Parsek's decorations on the live stock R&D, Astronaut Complex and Mission Control screens, and their removal on despawn."
+description = "INTERIM (re-opened 2026-09-25, the rewritten cells not yet flown): the in-game StockUiOverlay category unattended on a career host with contracts on offer, seven cells, pin total=7 with the split regexed - Parsek's annotations on the live stock R&D, Astronaut Complex and Mission Control screens (Mission Control on stock mechanisms: row label, detail-panel why, greyed Accept / Decline, Decline backstop) and their cleanup on close. Earlier shape flown 6 of 6 on 2026-09-08."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45", "flown"]
+tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45", "reading-run"]
 
 [fixture]
 # career-earned-ksc (career-contract-pad until 2026-09-08), and BOTH properties are
