@@ -125,12 +125,13 @@ namespace Parsek.Patches
 
         /// <summary>
         /// The CanAccept postfix decision: a true CC answer becomes false for a contract the
-        /// committed future accepts. Replay bypasses. Pure over its inputs.
+        /// committed future accepts. Replay bypasses. Only the accept block counts: an Active
+        /// contract's Cancel block says nothing about accepting. Pure over its inputs.
         /// </summary>
         internal static bool FilterCanAccept(bool ccResult, StockUiDecoration decision, bool replaying)
         {
             if (!ccResult || replaying) return ccResult;
-            return !decision.Blocked;
+            return !MissionControlStockAnnotation.BlocksAcceptAndDecline(decision);
         }
     }
 

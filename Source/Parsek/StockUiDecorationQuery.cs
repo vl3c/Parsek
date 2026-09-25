@@ -20,6 +20,9 @@ namespace Parsek
         None,
         TechResearch,
         ContractAccept,
+        /// <summary>An Active contract a committed row completes, fails or cancels later:
+        /// the Active-row label and the Cancel block.</summary>
+        ContractResolution,
         KerbalHire,
         KerbalRetire,
         KerbalOnFlight,
@@ -97,6 +100,50 @@ namespace Parsek
         internal static bool IsContractAcceptBlocked(CommittedFutureIndex index, string contractKey, double currentUT)
         {
             return index != null && index.HasFuture(CommittedFutureKind.ContractAccept, contractKey, currentUT);
+        }
+
+        /// <summary>
+        /// The committed resolution of a contract still ahead of <paramref name="currentUT"/>:
+        /// the earliest explicit <c>ContractComplete</c> / <c>ContractFail</c> /
+        /// <c>ContractCancel</c> row (type, UT and recording), or null. Derived deadline
+        /// expiry is not a committed row, so it never appears here (owner ruling D7, case
+        /// X4). The Cancel block, the Cancel backstop, the Active-row label and the detail
+        /// panel all read this one helper (the pairing rule). A UT tie between kinds
+        /// resolves Complete, then Fail, then Cancel, so the answer is deterministic.
+        /// </summary>
+        internal static CommittedFutureEntry CommittedContractResolutionAfter(
+            CommittedFutureIndex index, string contractKey, double currentUT)
+        {
+            if (index == null || string.IsNullOrEmpty(contractKey)) return null;
+            CommittedFutureEntry best = null;
+            foreach (var kind in ContractResolutionKinds)
+            {
+                var entry = index.FirstFuture(kind, contractKey, currentUT);
+                if (entry != null && (best == null || entry.UT < best.UT))
+                    best = entry;
+            }
+            return best;
+        }
+
+        private static readonly CommittedFutureKind[] ContractResolutionKinds =
+        {
+            CommittedFutureKind.ContractComplete,
+            CommittedFutureKind.ContractFail,
+            CommittedFutureKind.ContractCancel
+        };
+
+        /// <summary>The Cancel block: the committed timeline completes, fails or cancels
+        /// this contract after <paramref name="currentUT"/> (cases X1-X3).</summary>
+        internal static bool IsContractCancelBlocked(CommittedFutureIndex index, string contractKey, double currentUT)
+        {
+            return CommittedContractResolutionAfter(index, contractKey, currentUT) != null;
+        }
+
+        internal static ReservationText ExplainContractCancel(
+            CommittedFutureIndex index, string contractKey, double currentUT, Func<double, string> formatDate)
+        {
+            return ReservationExplanation.ContractResolution(
+                CommittedContractResolutionAfter(index, contractKey, currentUT), formatDate);
         }
 
         /// <summary>
@@ -250,9 +297,9 @@ namespace Parsek
 
         /// <summary>
         /// Mission Control: an Offered contract (the Available tab) a committed future
-        /// accepts is marked and its Accept and Decline are refused. Rows on the Active and
-        /// Archive tabs are listed undecorated (the Active-row annotation and the Cancel
-        /// block are a later PR).
+        /// accepts is marked and its Accept and Decline are refused; an Active contract
+        /// (the Active tab) a committed row later completes, fails or cancels is marked
+        /// and its Cancel is refused. Archive rows are listed undecorated.
         /// </summary>
         internal static List<StockUiDecoration> ForMissionControl(
             CommittedFutureIndex index,
@@ -277,6 +324,20 @@ namespace Parsek
                     d.Why = text.Body;
                     d.Title = text.Title;
                     d.UT = index.FirstFuture(CommittedFutureKind.ContractAccept, row.Id, currentUT).UT;
+                }
+                else if (tab == MissionControlActiveTab)
+                {
+                    var resolution = StockUiReservationPredicates.CommittedContractResolutionAfter(index, row.Id, currentUT);
+                    if (resolution != null)
+                    {
+                        var text = ReservationExplanation.ContractResolution(resolution, formatDate);
+                        d.Kind = StockUiDecorationKind.ContractResolution;
+                        d.Marked = true;
+                        d.Blocked = true;
+                        d.Why = text.Body;
+                        d.Title = text.Title;
+                        d.UT = resolution.UT;
+                    }
                 }
                 result.Add(d);
             }

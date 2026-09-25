@@ -6,13 +6,16 @@ namespace Parsek
 {
     /// <summary>
     /// Pure text and decision helpers for the Mission Control stock-control annotations
-    /// (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md, sections 5 and 7.2).
+    /// (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md, sections 5, 7.2 and 7.3).
     /// An Offered contract a committed future accepts gets: the row's own stock label
     /// extended with a short status, the committed-accept explanation appended to the
-    /// stock detail text, and Accept + Decline greyed out. Every one of those reads
-    /// <see cref="Decide"/>, which reads <see cref="StockUiDecorationQuery.ForMissionControl"/>,
-    /// which reads <see cref="StockUiReservationPredicates.IsContractAcceptBlocked"/>: the
-    /// same predicate the Accept and Decline click-blocks read (the pairing rule).
+    /// stock detail text, and Accept + Decline greyed out. An Active contract a committed
+    /// row later completes, fails or cancels gets the same label and detail treatment and
+    /// a greyed Cancel. Every one of those reads <see cref="Decide"/>, which reads
+    /// <see cref="StockUiDecorationQuery.ForMissionControl"/>, which reads
+    /// <see cref="StockUiReservationPredicates.IsContractAcceptBlocked"/> (Available) or
+    /// <see cref="StockUiReservationPredicates.CommittedContractResolutionAfter"/> (Active):
+    /// the same predicates the Accept, Decline and Cancel click-blocks read (the pairing rule).
     /// No Unity calls here, so the xUnit suite drives every branch.
     /// </summary>
     internal static class MissionControlStockAnnotation
@@ -31,8 +34,11 @@ namespace Parsek
         /// block; <see cref="StripDetail"/> cuts there.</summary>
         internal const string DetailMarker = "\n\n<b><color=#" + StatusColor + ">";
 
-        /// <summary>The heading of the detail-panel block: says what is greyed out.</summary>
+        /// <summary>The heading of the detail-panel block for a committed accept: says what is greyed out.</summary>
         internal const string DetailHeading = "Accept and Decline are unavailable";
+
+        /// <summary>The heading of the detail-panel block for a committed resolution.</summary>
+        internal const string CancelDetailHeading = "Cancel is unavailable";
 
         /// <summary>The row tail after the reservation title.</summary>
         internal const string RowStatusTail = " on your committed timeline";
@@ -68,7 +74,10 @@ namespace Parsek
         /// The one decision every Mission Control annotation and block reads: the
         /// decoration of one contract row, over the committed-future index. Marked and
         /// Blocked are both true exactly when the contract is Offered and a committed
-        /// future row accepts it after <paramref name="currentUT"/>.
+        /// future row accepts it after <paramref name="currentUT"/> (kind
+        /// <see cref="StockUiDecorationKind.ContractAccept"/>), or the contract is Active and
+        /// a committed row completes, fails or cancels it after <paramref name="currentUT"/>
+        /// (kind <see cref="StockUiDecorationKind.ContractResolution"/>).
         /// </summary>
         internal static StockUiDecoration Decide(
             CommittedFutureIndex index,
@@ -95,9 +104,28 @@ namespace Parsek
             return one[0];
         }
 
+        /// <summary>True when the decision greys out Accept and Decline (a committed accept).</summary>
+        internal static bool BlocksAcceptAndDecline(StockUiDecoration decoration)
+        {
+            return decoration.Blocked && decoration.Kind == StockUiDecorationKind.ContractAccept;
+        }
+
+        /// <summary>True when the decision greys out Cancel (a committed resolution).</summary>
+        internal static bool BlocksCancel(StockUiDecoration decoration)
+        {
+            return decoration.Blocked && decoration.Kind == StockUiDecorationKind.ContractResolution;
+        }
+
+        /// <summary>The detail-panel heading naming the buttons a decision greys out.</summary>
+        internal static string DetailHeadingFor(StockUiDecorationKind kind)
+        {
+            return kind == StockUiDecorationKind.ContractResolution ? CancelDetailHeading : DetailHeading;
+        }
+
         /// <summary>
         /// The row status: the reservation title with a lower-case first letter plus
-        /// <see cref="RowStatusTail"/>, e.g. <c>accepted on Y2, D114 on your committed timeline</c>.
+        /// <see cref="RowStatusTail"/>, e.g. <c>accepted on Y2, D114 on your committed timeline</c>
+        /// or <c>completes on Y2, D114 on your committed timeline</c>.
         /// </summary>
         internal static string RowStatus(string reservationTitle)
         {
@@ -158,7 +186,7 @@ namespace Parsek
             string baseText = StripDetail(stockText);
             if (!decoration.Blocked || string.IsNullOrEmpty(decoration.Why))
                 return baseText;
-            return baseText + DetailMarker + DetailHeading + "</color></b>\n" + decoration.Why;
+            return baseText + DetailMarker + DetailHeadingFor(decoration.Kind) + "</color></b>\n" + decoration.Why;
         }
     }
 }

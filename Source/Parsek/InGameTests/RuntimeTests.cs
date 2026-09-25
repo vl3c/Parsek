@@ -20772,6 +20772,143 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
+            Description = "Stock-UI overlays PR 3 (C4): an Active contract the committed timeline completes later carries 'completes on <date> on your committed timeline' on its own stock row label (surviving a tab switch), selecting it greys out Cancel and appends the why, and Contract.Cancel is refused with the same text; removing the committed completion lifts all three. Needs a career host with an Active contract and skips without one: it changes no stock contract state (the only mutation is a committed ledger fixture row it removes again), because a SPACECENTER batch restores persistent.sfs on disk only.")]
+        public IEnumerator MissionControlActiveRowLabelAndCancelBlockedWithReason()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+            yield return WaitForStockUiOverlayController(5f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+            if (HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
+            {
+                InGameAssert.Skip($"Mission Control annotation verification is career-only (mode={HighLogic.CurrentGame.Mode})");
+                yield break;
+            }
+            yield return WaitForMissionControlClosed(8f);
+
+            Recording recording = null;
+            string recordingId = null;
+            string dialogReason = null;
+            int dialogCount = 0;
+            System.Action<string, string, string> priorHook = CommittedActionDialog.TestHookForTesting;
+            try
+            {
+                if (!TryEnterSpaceCenterBuilding<MissionControlBuilding>("Mission Control", out _))
+                    yield break;
+
+                yield return WaitForMissionControl(8f);
+                MissionControl mc = MissionControl.Instance ?? Object.FindObjectOfType<MissionControl>();
+                InGameAssert.IsNotNull(mc, "MissionControl should be open");
+
+                Contract active = FindActiveContractForOverlayTest();
+                if (active == null)
+                {
+                    // Deliberately no fallback that accepts an Offered contract: a SPACECENTER
+                    // batch runs under DiskOnly isolation (persistent.sfs restored on disk, no
+                    // in-memory reload), so an Accept() would leak into the live career.
+                    InGameAssert.Skip("needs a career host with an Active contract (a non-empty title) in ContractSystem; " +
+                        "this host has none (" + DescribeContractStatesForOverlayTest() + ")");
+                    yield break;
+                }
+
+                string key = active.ContractGuid.ToString();
+                string title = active.Title;
+                mc.SetDisplayModeActive();
+                InGameAssert.IsNotNull(FindMissionControlRowByContractKey(mc, key),
+                    $"the Active contract '{title}' should be listed on the Active tab");
+
+                recordingId = "stockui-mc-cancel-" + System.Guid.NewGuid().ToString("N");
+                recording = AddCommittedOverlayFixture(
+                    recordingId,
+                    GameStateEventType.ContractCompleted,
+                    key,
+                    "title=" + title + ";fundsReward=1000;repReward=1;sciReward=0");
+                NotifyTimelineDataChangedForOverlayTest();
+                yield return WaitForMissionControlRowLabel(key, true,
+                    $"active contract '{title}' should carry the committed-completion row status after a timeline change", 8f);
+                AssertMissionControlActiveRowLabel(key, title);
+
+                // Tab switch: stock RebuildContractList destroys every row and AddItem rebuilds them.
+                mc.SetDisplayModeAvailable();
+                InGameAssert.IsNull(FindMissionControlRowByContractKey(mc, key),
+                    "the Active contract should not be listed on the Available tab");
+                mc.SetDisplayModeActive();
+                yield return WaitForMissionControlRowLabel(key, true,
+                    "the row status should be re-applied when the Active tab is rebuilt after a tab switch", 3f);
+                AssertMissionControlActiveRowLabel(key, title);
+
+                InGameAssert.IsTrue(SelectMissionControlRowForTest(mc, key, out Contract contract),
+                    "the Active row should be selectable (MissionSelection payload)");
+                string why = MissionControlStockUi.DecideNow(contract).Why;
+                InGameAssert.IsTrue(!string.IsNullOrEmpty(why) && why.StartsWith("Completes on ", System.StringComparison.Ordinal),
+                    $"the decision should carry the committed-completion explanation; why=\"{why}\"");
+                AssertMissionControlCancelBlocked(mc, why, "after selecting the row");
+
+                MethodInfo refreshUi = AccessTools.Method(typeof(MissionControl), "RefreshUIControls");
+                InGameAssert.IsNotNull(refreshUi, "MissionControl.RefreshUIControls should resolve");
+                refreshUi.Invoke(mc, null);
+                AssertMissionControlCancelBlocked(mc, why, "after RefreshUIControls");
+
+                mc.SetDisplayModeAvailable();
+                mc.SetDisplayModeActive();
+                InGameAssert.IsTrue(SelectMissionControlRowForTest(mc, key, out contract),
+                    "the Active row should be selectable again after a tab switch");
+                AssertMissionControlCancelBlocked(mc, why, "after a tab switch and re-select");
+
+                // The backstop: Cancel itself refuses, with the text the panel shows.
+                CommittedActionDialog.TestHookForTesting = (action, reason, detail) =>
+                {
+                    dialogCount++;
+                    dialogReason = reason;
+                };
+                // Guard the one call that could mutate stock state: without the Parsek prefix
+                // (or with the block gone) a real Cancel would charge the penalty and end the
+                // contract in the live career, which DiskOnly isolation does not undo.
+                MethodBase cancelTarget = Patches.ContractCancelPatch.ResolveTargetMethodForTesting();
+                HarmonyLib.Patches cancelPatches = cancelTarget != null ? Harmony.GetPatchInfo(cancelTarget) : null;
+                bool prefixInstalled = cancelPatches != null && cancelPatches.Prefixes.Any(pp =>
+                    pp.PatchMethod != null && pp.PatchMethod.DeclaringType == typeof(Patches.ContractCancelPatch));
+                InGameAssert.IsTrue(prefixInstalled,
+                    "ContractCancelPatch must be installed on Contract.Cancel() before the backstop is exercised");
+                InGameAssert.IsTrue(MissionControlStockUi.DecideNow(contract).Blocked,
+                    "the contract must still be Cancel-blocked before Contract.Cancel() is called");
+                bool cancelled = contract.Cancel();
+                InGameAssert.IsFalse(cancelled, "Contract.Cancel should be refused for a contract the committed timeline completes");
+                InGameAssert.AreEqual(Contract.State.Active, contract.ContractState,
+                    "a refused Cancel must leave the contract Active");
+                InGameAssert.AreEqual(1, dialogCount, "the refused Cancel should explain itself once");
+                InGameAssert.AreEqual(why, dialogReason,
+                    "the Cancel refusal should say exactly what the detail panel says");
+
+                // Lift the committed completion: label, panel block and button state go back to stock.
+                RemoveCommittedOverlayFixture(recordingId, recording);
+                recording = null;
+                recordingId = null;
+                NotifyTimelineDataChangedForOverlayTest();
+                yield return WaitForMissionControlRowLabel(key, false,
+                    "the row status should be stripped once the committed completion is removed", 8f);
+                InGameAssert.AreEqual(contract.CanBeCancelled(), mc.btnCancel.interactable,
+                    "Cancel should return to stock's own CanBeCancelled state once the block lifts");
+                string text = mc.contractText != null ? mc.contractText.text : "";
+                InGameAssert.IsFalse(text.Contains(MissionControlStockAnnotation.CancelDetailHeading),
+                    "the detail text should lose the Cancel block once it lifts");
+            }
+            finally
+            {
+                CommittedActionDialog.TestHookForTesting = priorHook;
+                RemoveCommittedOverlayFixture(recordingId, recording);
+                ClearMissionControlSelectionForTest();
+                CloseMissionControlForOverlayTest();
+            }
+
+            yield return WaitForMissionControlClosed(8f);
+        }
+
+        [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
             Description = "Stock-UI overlays PR 2b / E16: the Mission Control annotations are stock text and button state only - no Parsek GameObject appears under the screen and none is left alive across repeated open/close cycles.")]
         public IEnumerator MissionControlStockAnnotationsLeakNothingOverOpenCloseCycles()
         {
@@ -21528,6 +21665,61 @@ namespace Parsek.InGameTests
                 $"the detail text should name the disabled buttons {when}");
             InGameAssert.IsTrue(text.Contains(why), $"the detail text should carry the why {when}");
             int headings = text.Split(new[] { MissionControlStockAnnotation.DetailHeading }, System.StringSplitOptions.None).Length - 1;
+            InGameAssert.AreEqual(1, headings, $"the why should be appended exactly once {when}");
+        }
+
+        private static string DescribeContractStatesForOverlayTest()
+        {
+            ContractSystem system = ContractSystem.Instance;
+            if (system == null || system.Contracts == null)
+                return "ContractSystem not available";
+            int offered = 0, active = 0, other = 0;
+            for (int i = 0; i < system.Contracts.Count; i++)
+            {
+                Contract c = system.Contracts[i];
+                if (c == null) continue;
+                if (c.ContractState == Contract.State.Offered) offered++;
+                else if (c.ContractState == Contract.State.Active) active++;
+                else other++;
+            }
+            return $"contracts={system.Contracts.Count} offered={offered} active={active} other={other}";
+        }
+
+        private static Contract FindActiveContractForOverlayTest()
+        {
+            ContractSystem system = ContractSystem.Instance;
+            if (system == null || system.Contracts == null)
+                return null;
+            for (int i = 0; i < system.Contracts.Count; i++)
+            {
+                Contract c = system.Contracts[i];
+                if (c != null && c.ContractState == Contract.State.Active && !string.IsNullOrEmpty(c.Title))
+                    return c;
+            }
+            return null;
+        }
+
+        private static void AssertMissionControlActiveRowLabel(string contractKey, string contractTitle)
+        {
+            MCListItem row = FindMissionControlRowByContractKey(Object.FindObjectOfType<MissionControl>(), contractKey);
+            InGameAssert.IsNotNull(row, "the committed-completion row should be listed");
+            string label = row.title != null ? row.title.text : "";
+            InGameAssert.IsTrue(label.StartsWith(MissionControlStockAnnotation.StockDefaultLabel(contractTitle), System.StringComparison.Ordinal),
+                $"the row label should keep stock's full coloured title; label=\"{label}\"");
+            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusMarker + "completes on "),
+                $"the row label should say when the committed timeline completes it; label=\"{label}\"");
+            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusTail),
+                $"the row label should say the completion is on the committed timeline; label=\"{label}\"");
+        }
+
+        private static void AssertMissionControlCancelBlocked(MissionControl mc, string why, string when)
+        {
+            InGameAssert.IsFalse(mc.btnCancel.interactable, $"Cancel should be disabled {when}");
+            string text = mc.contractText != null ? mc.contractText.text : "";
+            InGameAssert.IsTrue(text.Contains(MissionControlStockAnnotation.CancelDetailHeading),
+                $"the detail text should name the disabled Cancel {when}");
+            InGameAssert.IsTrue(text.Contains(why), $"the detail text should carry the why {when}");
+            int headings = text.Split(new[] { MissionControlStockAnnotation.CancelDetailHeading }, System.StringSplitOptions.None).Length - 1;
             InGameAssert.AreEqual(1, headings, $"the why should be appended exactly once {when}");
         }
 

@@ -1011,6 +1011,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Dev: the GUI mirror's Timeline `Career` view button no longer jumps to the Career window.**
+  The page's launcher rule sent any control whose text spelled a window's name to that
+  window. Only the main window's controls launch windows now; elsewhere such a control is
+  routed as a view or state of its own window, or says there is no capture for it
+  (`harness/tools/gui_mirror.py`, `routeClick`).
+- **Dev: the GUI mirror names windows, tabs and states by what the game draws.** The rail,
+  headers, Compare and the notes list showed seam tokens (`structure`, `rewindff`,
+  `expandedstats`), so a window whose token is not its title could not be found. A window
+  now reads by its own title without the `Parsek - ` prefix (the structure window by the
+  title it draws with no mission or route open, its other titles in the tooltip), a
+  Timeline view by its button's text, and a state by the one control its step changed
+  where the capture shows it (`Info`, `Recordings off`, `Last Day`); every name comes from
+  the captures, and the token stays in the tooltip and in every link and note key.
 - **Space Center: a refused research, contract accept, facility upgrade, hire or dismissal now
   says why, and when the item frees up.** The "Action Blocked" dialog and the badge hovers on
   the R&D, Astronaut Complex and Mission Control screens used to print a raw `UT 183420`. They
@@ -1043,6 +1056,18 @@ _(unreleased — entries accumulate here per commit)_
   committed date anyway, and the decline could still cost reputation. The refusal says when
   the contract becomes active. Contracts the committed timeline leaves alone decline as
   before.
+- **Mission Control: cancelling an active contract your committed timeline completes,
+  fails or cancels later is now refused, and its Active-tab row says so.** Cancelling it
+  used to charge the cancel penalty now and then either wipe out the later completion's
+  reward (with anything the committed timeline bought with it) or charge the committed
+  failure or cancellation penalty a second time. The row now reads, for example,
+  `Explore the Mun - completes on Y2 D114 on your committed timeline`, the contract
+  details end with `Cancel is unavailable` and the explanation (`Completes on Y2 D114 by
+  the committed flight 'Mun Lander 3'.`, the rule, and `It completes and frees its slot on
+  that date.`), and Cancel is greyed out; a cancel from anywhere else gets the same
+  explanation. A contract whose only future is its deadline stays cancellable, since
+  cancelling early for the smaller penalty is ordinary play, and the debug toolbar's
+  "regenerate contracts" still works.
 
 - **Automated testing: the reentry lane now checks that the parachute really opened, and
   flies a reentry where it can.** `B4-reentry-splashdown` used to pass its chute check as
@@ -1296,6 +1321,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Timeline: every filter button is the same width, and the rows are left-aligned.** The
+  five view buttons (Overview, Details, Rewind/FF, Re-Fly, Career) no longer stretch across
+  the window; they take the same width as the buttons of the two rows below them (the cell
+  of a six-button row), so the columns line up and each row leaves empty room on the right
+  for later filters. The minimum window width is unchanged.
+
 - **R&D and the Astronaut Complex show Parsek's reservations with KSP's own controls instead
   of Parsek's badge icons.** In R&D, a tech node your committed timeline researches later has a
   gold-tinted icon, its hover tooltip and the side panel's description say when and by which
@@ -1313,17 +1344,17 @@ _(unreleased — entries accumulate here per commit)_
 - **VAB/SPH crew dialog: kerbals your committed timeline reserves are shown greyed out with
   the reason, instead of being hidden.** A kerbal a committed flight holds, lost on a
   committed flight, or retired as a stand-in used to vanish from the available crew list
-  without a word. He is now listed the way KSP lists an inactive kerbal (greyed, cannot be
-  dragged), and his hover tooltip says why and, for a kerbal a committed flight holds, when
-  he is free again (the same text the Astronaut Complex shows). He cannot reach a seat by
-  dragging, clicking or Fill (Fill skips him and seats the next kerbal), and a refused
-  placement shows the same explanation. A saved craft that names a reserved kerbal still gets its seat
-  swapped to his stand-in or emptied; that now also happens when no stand-in exists yet at
+  without a word. They are now listed the way KSP lists an inactive kerbal (greyed, cannot be
+  dragged), and their hover tooltip says why and, for a kerbal a committed flight holds, when
+  they are free again (the same text the Astronaut Complex shows). They cannot reach a seat by
+  dragging, clicking or Fill (Fill skips them and seats the next kerbal), and a refused
+  placement shows the same explanation. A saved craft that names a reserved kerbal still gets that seat
+  swapped to their stand-in or emptied; that now also happens when no stand-in exists yet at
   all, where the kerbal used to stay seated.
 - **Timeline: the time-range presets are back on their own always-visible row.** This
   partly reverts the `Time: <range>` button from the two-row filter area above. The filter
-  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career)
-  stretched across the full width, the view's own toggles (unchanged), and Last Day /
+  area is now three rows: the five views (Overview, Details, Rewind/FF, Re-Fly, Career),
+  the view's own toggles (unchanged), and Last Day /
   Last 7d / Last 30d / This Year / All / Custom. Exactly one of those six is lit, so the
   range in force is always on screen (All by default). Custom shows the From / To sliders;
   dragging a slider lights Custom, picking a preset turns Custom off and hides the sliders,

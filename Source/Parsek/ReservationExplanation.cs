@@ -130,6 +130,42 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The explanation for an Active contract the committed timeline resolves later
+        /// (owner ruling D7, section 7.3): the Cancel refusal, the Mission Control detail
+        /// panel and the Active-row label read the same text. The verb follows the
+        /// committed row's kind (completes / fails / cancelled, the Timeline's contract
+        /// verbs); any other kind reads as a completion.
+        /// </summary>
+        internal static ReservationText ContractResolution(CommittedFutureEntry entry, Func<double, string> formatDate)
+        {
+            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
+            string verb;
+            string wayOut;
+            switch (entry != null ? entry.Kind : CommittedFutureKind.ContractComplete)
+            {
+                case CommittedFutureKind.ContractFail:
+                    verb = "Fails";
+                    wayOut = "It fails and frees its slot on that date.";
+                    break;
+                case CommittedFutureKind.ContractCancel:
+                    verb = "Cancelled";
+                    wayOut = "It is cancelled and frees its slot on that date.";
+                    break;
+                default:
+                    verb = "Completes";
+                    wayOut = "It completes and frees its slot on that date.";
+                    break;
+            }
+            return new ReservationText
+            {
+                Title = verb + " on " + date,
+                Fact = verb + " on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
+                Rule = TimelineRule,
+                WayOut = wayOut
+            };
+        }
+
+        /// <summary>
         /// The facility-upgrade explanation over every committed upgrade of the facility
         /// still ahead (UT ascending). The block lifts once the clock passes the last one,
         /// so every date is listed.
