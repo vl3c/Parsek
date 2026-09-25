@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the Missions tab's leg trim and Clone button are driven by a lane.**
+  Two test-seam additions reach the last two Missions-tab authoring actions no lane could: a
+  `leg:` key for the include op unticks ONE interval of a vessel, through the interval
+  checkbox's own code, and a `clone` op runs the Clone button's code. The new lane
+  `MS-1-mission-leg-trim-clone` loops a recorded two-vessel mission, unticks the main vessel's
+  launch interval and reads the loop shrinking to start at the separation, then clones the
+  mission and reads the copy carrying the trim. Coverage 210 -> 212 of 250 (D11 complete).
 - **Automated testing: five more coverage cells claimed off logs existing lanes already print.**
   B4 now requires the parachute cut the game performs on splashdown (D7 `chute-cut`); GS-12
   requires the whole-mission loop being switched on and the watch camera reading the mission's

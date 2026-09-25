@@ -15,6 +15,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`]
+
+`Mission.Clone` copies `LoopPlayback` (with the period, unit and anchor) and
+`MissionStore.Clone` inserts the copy without running the one-loop-per-tree clear that
+`MissionStore.SetLoopEnabled` runs on an enable. So the Missions tab's Clone button on a
+LOOPING mission leaves two looping missions over the same tree. Observed in
+`MS-1-mission-leg-trim-clone`: right after `Cloned mission 'Kerbal X' -> 'Kerbal X copy'` the
+flight engine builds the copy's unit and warns `MissionLoopUnit: mission='Kerbal X copy' ...
+owner index 1 already owned by another looping unit; skipping (expected one loop per tree)` on
+every rebuild; `NormalizeOneLoopPerTree` clears the copy's loop only at the next load. Nothing
+renders twice (the builder skips the second unit), so the cost is a WRN per rebuild and a
+copy whose Loop toggle reads on while it does nothing. Fix options, a product call: clone with
+`LoopPlayback = false` (the copy exists to carry a second include set / period, and arming it
+is a separate click), or run `ClearLoopsConflictingWith` on the copy. MS-1 deliberately does
+not pin the clone payload's `loop=` so either fix leaves it green.
+
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect]
 
 **What the map shows** (`python scripts/arch/archview.py --check`, canaries in
@@ -2017,8 +2033,13 @@ the raise. NEEDS, if it is ever to be automatic: an `op=raise` post-settle that 
 when a non-`main` window's rect covers the dialog's own rect, which nothing computes
 today.
 
-**7. `" (partial)"` INCLUSION IS NOT REACHABLE THROUGH `op=select`**
-(`GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT`). A CORRECTION to the
+**7. ~~`" (partial)"` INCLUSION IS NOT REACHABLE THROUGH `op=select`~~**
+(`GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT`). **CLOSED 2026-09-25
+(coverage wave 6):** `op=select key=leg:<intervalKey>` writes ONE interval key through the
+interval checkbox's own body (`MissionsWindowUI.ApplyIntervalInclusion`), and
+`MS-1-mission-leg-trim-clone` reads `inclusion=Partial` off it (run `2026-09-25_2120`). No
+census capture of the suffix is taken yet; a census lane can now ask for one. The original
+finding follows. A CORRECTION to the
 wave-6 lane plan, which asked for the suffix by driving ONE of a vessel's own interval
 keys with `include=false`. The op cannot express that: `TryParseSelectKey` yields a
 `vessel:<value>` pair, the applier RESOLVES A ROW from it (`FindVesselRow` matches

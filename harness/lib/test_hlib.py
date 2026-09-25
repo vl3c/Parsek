@@ -16424,6 +16424,37 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertTrue(
             any("select-unsupported-window" in e for e in errors), errors)
 
+    def test_uiaction_select_leg_key_is_a_single_key_with_a_direction(self):
+        """Coverage wave 6. `leg:` is a single key like `vessel:` - it REQUIRES a direction -
+        and its value half keeps the `/segN` / `@dockM` suffixes of an interval key."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions",
+                "key": "leg:a32f62f52dc84d6a94daf93460ec6548/seg1@dock1",
+                "include": "false"}))
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions", "key": "leg:abc"})
+        self.assertTrue(any("include-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "select", "window": "missions", "key": "leg:", "include": "true"})
+        self.assertTrue(any("<prefix>:<value>" in e for e in errors), errors)
+
+    def test_uiaction_clone_takes_the_missions_window_and_an_optional_mission(self):
+        """Coverage wave 6 (D11 `clone`): the Missions tab's Clone button."""
+        self.assertIn("clone", hlib.UIACTION_OP_VALUES)
+        self.assertIn("clone", hlib.UIACTION_OPS_NEEDING_WINDOW)
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "clone", "window": "missions"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "clone", "window": "missions", "mission": "${m.copy}"}))
+        errors = hlib.validate_ui_action_step(0, {"op": "clone"})
+        self.assertTrue(any("window-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "clone", "window": "timeline"})
+        self.assertTrue(any("clone-unsupported-window" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "missions", "mission": "x"})
+        self.assertTrue(any("op=clone read it" in e for e in errors), errors)
+
     def test_uiaction_include_arg_is_flagged_on_other_ops(self):
         errors = hlib.validate_ui_action_step(
             0, {"op": "open", "window": "missions", "include": "true"})
@@ -16604,7 +16635,13 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertIn("vessel", hlib.UIACTION_EXPAND_PREFIXES["missions"])
         self.assertIn('LinkKeyPrefix = "link"', text)
         self.assertEqual("link", hlib.UIACTION_SELECT_PREFIXES[1])
-        self.assertEqual(2, len(hlib.UIACTION_SELECT_PREFIXES))
+        # `leg` (coverage wave 6): ONE interval key, the interval checkbox's own body.
+        self.assertIn('LegKeyPrefix = "leg"', text)
+        self.assertEqual("leg", hlib.UIACTION_SELECT_PREFIXES[2])
+        # And the C# prefix ARRAY carries exactly these three, in this order.
+        self.assertRegex(text, r"SelectPrefixes = new\[\]\s*\{\s*VesselKeyPrefix, "
+                               r"LinkKeyPrefix, LegKeyPrefix,\s*\}")
+        self.assertEqual(3, len(hlib.UIACTION_SELECT_PREFIXES))
         # The bulk tokens are the SAME two op=expand uses, which is why a spec author does
         # not learn a second grammar for them.
         self.assertEqual(("all", "none"), hlib.UIACTION_EXPAND_BULK_KEYS)
