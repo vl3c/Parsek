@@ -63,11 +63,6 @@ namespace Parsek
         private GUIStyle toggleButtonStyle;
         private GUIStyle alertStyle;
         private GUIStyle nameCellStyle;
-        // Table body cells: the shared table cell style (ParsekUI.GetTableCellStyle, the
-        // boxed column header's horizontal padding), plain and in the two tints a body
-        // cell uses, so a cell's text starts at the x its header's text does.
-        private GUIStyle cellStyle;
-        private GUIStyle grayCellStyle;
         private GUIStyle grayStyle;
         private GUIStyle bannerStyle;
 
@@ -263,11 +258,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// One change the recorded timeline makes to the Strategies tab's slot usage after
-        /// live UT: a strategy activated (+1) or deactivated (-1), or Administration
-        /// upgraded (<see cref="NewLimit"/>; -1 when the limit does not change). The
-        /// Contracts tab reads the shared <see cref="ContractSlotReservation"/> forecast
-        /// instead (<see cref="SlotUsageFromForecast"/>).
+        /// One change the recorded timeline makes to a tab's slot usage after live UT:
+        /// a contract accepted (+1) or closed (-1, at its deadline for an expiry), a
+        /// strategy activated or deactivated, or the building behind the limit upgraded
+        /// (<see cref="NewLimit"/>; -1 when the limit does not change).
         /// </summary>
         internal struct SlotChange
         {
@@ -424,15 +418,6 @@ namespace Parsek
         ///
         /// <para><paramref name="formatDate"/> formats every date cell once here
         /// (<see cref="FillDisplayText"/>); null falls back to raw UT.</para>
-        ///
-        /// <para>The Contracts heading's slot numbers are the shared Mission Control slot
-        /// forecast (<see cref="ContractSlotReservation"/>), the same query that refuses an
-        /// accept at Mission Control: <paramref name="liveContractForecast"/> when the
-        /// caller has one (the live window passes <c>ContractSlotReservation.ForecastNow()</c>),
-        /// else the pure forecast over THESE ledger rows
-        /// (<see cref="ForecastContractSlotsFromLedger"/>). <paramref name="isAutoAcceptContract"/>
-        /// marks stock auto-accept contracts, which hold no slot (stock's
-        /// <c>GetActiveContractCount</c> skips them); null treats none as one.</para>
         /// </summary>
         internal static CareerStateViewModel Build(
             IReadOnlyList<GameAction> actions,
@@ -440,9 +425,7 @@ namespace Parsek
             Game.Modes mode,
             ContractsModule contracts,
             StrategiesModule strategies,
-            Func<double, string> formatDate = null,
-            Func<string, bool> isAutoAcceptContract = null,
-            ContractSlotForecast liveContractForecast = null)
+            Func<double, string> formatDate = null)
         {
             if (contracts == null || strategies == null || actions == null)
             {
@@ -472,8 +455,8 @@ namespace Parsek
             // the row that is true now still ends at that first removal.
             var currentContractEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
             var currentStrategyEnds = new Dictionary<string, EndAcc>(StringComparer.Ordinal);
-            // Every strategy slot change after the current snapshot, for the Strategies
-            // heading's peak count. Contracts read the shared slot forecast instead.
+            // Every slot change after the current snapshot, for the heading's peak count.
+            var contractSlotChanges = new List<SlotChange>();
             var strategySlotChanges = new List<SlotChange>();
             var expiredScratch = new List<string>();
             int expiredCount = 0;
@@ -515,7 +498,7 @@ namespace Parsek
                 // closed as Expired and leaves it so.
                 expiredCount += ExpireContractDeadlines(a.UT, liveUT, snapshotTaken,
                     activeContractsTerm, contractEnds, currentContractEnds,
-                    expiredScratch);
+                    contractSlotChanges, expiredScratch);
 
                 // Snapshotting follows the full future action stream because the
                 // current-vs-projected split is defined by exact `<= liveUT`
@@ -547,6 +530,8 @@ namespace Parsek
                             // round-trip left to undo.
                             DeadlineUT = a.DeadlineUT
                         };
+                        if (snapshotTaken && !activeContractsTerm.ContainsKey(cid))
+                            contractSlotChanges.Add(SlotChange.Occupy(a.UT));
                         activeContractsTerm[cid] = acc;
                         if (a.UT > liveUT)
                             pendingContracts[cid] = acc;
@@ -575,6 +560,8 @@ namespace Parsek
                                 // fail / cancel row for it is stock reporting that expiry.
                                 break;
                             }
+                            if (snapshotTaken && wasActive)
+                                contractSlotChanges.Add(SlotChange.Release(a.UT));
                             if (a.UT > liveUT
                                 && wasActive
                                 && removed.AcceptUT <= liveUT
@@ -663,7 +650,10 @@ namespace Parsek
                         {
                             string upgradedId = FacilityDisplayNames.FacilityIdForBuilding(a.FacilityId);
                             facilityLevelsTerm[upgradedId] = a.ToLevel;
-                            if (snapshotTaken && upgradedId == AdministrationFacilityId)
+                            if (snapshotTaken && upgradedId == MissionControlFacilityId)
+                                contractSlotChanges.Add(SlotChange.Limit(
+                                    a.UT, LedgerOrchestrator.GetContractSlots(a.ToLevel)));
+                            else if (snapshotTaken && upgradedId == AdministrationFacilityId)
                                 strategySlotChanges.Add(SlotChange.Limit(
                                     a.UT, LedgerOrchestrator.GetStrategySlots(a.ToLevel)));
                         }
@@ -713,33 +703,11 @@ namespace Parsek
                 careerVisible);
 
             // Slots now against the recorded future. A hidden tab carries no rows, so it
-            // reads its bare limit rather than a future its rows do not show. Contracts
-            // read the shared Mission Control slot forecast (the live one when the caller
-            // passes it, else the same pure query over these ledger rows); strategies have
-            // no shared query and keep this window's own peak walk.
-            string contractSlotSource;
-            if (careerVisible)
-            {
-                ContractSlotForecast forecast = liveContractForecast;
-                contractSlotSource = "live";
-                if (forecast == null)
-                {
-                    var activeNow = new List<ContractSlotHolder>(activeContractsCurSnap.Count);
-                    foreach (var kvp in activeContractsCurSnap)
-                        activeNow.Add(new ContractSlotHolder(
-                            kvp.Key, kvp.Value.AcceptUT, kvp.Value.DeadlineUT));
-                    forecast = ForecastContractSlotsFromLedger(actions, activeNow,
-                        contractsVM.CurrentMaxSlots, liveUT, isAutoAcceptContract);
-                    contractSlotSource = "ledger";
-                }
-                contractsVM.Slots = SlotUsageFromForecast(forecast);
-            }
-            else
-            {
-                contractsVM.Slots = ComputeSlotUsage(contractsVM.CurrentActive,
-                    contractsVM.CurrentMaxSlots, null);
-                contractSlotSource = "none";
-            }
+            // reads its bare limit rather than a future its rows do not show.
+            // When the stock-UI overlay work's shared "free slots for a new accept now"
+            // query (over CommittedFutureIndex) lands, the heading should read that query.
+            contractsVM.Slots = ComputeSlotUsage(contractsVM.CurrentActive,
+                contractsVM.CurrentMaxSlots, careerVisible ? contractSlotChanges : null);
             strategiesVM.Slots = ComputeSlotUsage(strategiesVM.CurrentActive,
                 strategiesVM.CurrentMaxSlots, careerVisible ? strategySlotChanges : null);
 
@@ -778,8 +746,7 @@ namespace Parsek
                 + $"strategies={strategiesVM.CurrentActive}/{strategiesVM.ProjectedActive} "
                 + $"strategiesPending={strategiesVM.PendingRows.Count} "
                 + $"contractsExpired={expiredCount} "
-                + "contractSlots=" + FormatSlotUsageForLog(contractsVM.Slots)
-                + "/source=" + contractSlotSource + " "
+                + "contractSlots=" + FormatSlotUsageForLog(contractsVM.Slots) + " "
                 + "strategySlots=" + FormatSlotUsageForLog(strategiesVM.Slots) + " "
                 + $"missionControl=L{missionControlLevelCur}/L{missionControlLevelTerm} "
                 + $"administration=L{adminLevelCur}/L{adminLevelTerm} "
@@ -807,15 +774,15 @@ namespace Parsek
         /// Closes every active contract whose deadline has passed by <paramref name="ut"/>
         /// (<see cref="ContractsModule.HasContractDeadlineElapsed"/>, the ledger's own
         /// test) as <see cref="TimelineEndKind.Expired"/> AT its deadline. After the
-        /// current snapshot the expiry is that row's ending when the contract is active
-        /// now (the slot heading reads the shared forecast, which releases the slot at the
-        /// deadline by the same rule). Returns how many expired.
+        /// current snapshot the expiry is a future slot release, and for a contract active
+        /// now it is also that row's ending. Returns how many expired.
         /// </summary>
         private static int ExpireContractDeadlines(
             double ut, double liveUT, bool snapshotTaken,
             Dictionary<string, ContractAcc> activeContracts,
             Dictionary<string, EndAcc> contractEnds,
             Dictionary<string, EndAcc> currentContractEnds,
+            List<SlotChange> slotChanges,
             List<string> scratch)
         {
             if (activeContracts.Count == 0) return 0;
@@ -834,6 +801,7 @@ namespace Parsek
                 var end = new EndAcc { Kind = TimelineEndKind.Expired, UT = acc.DeadlineUT };
                 contractEnds[id] = end;
                 if (!snapshotTaken) continue;
+                slotChanges.Add(SlotChange.Release(acc.DeadlineUT));
                 if (acc.AcceptUT <= liveUT && !currentContractEnds.ContainsKey(id))
                     currentContractEnds[id] = end;
             }
@@ -841,81 +809,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The pure Mission Control slot forecast over the ledger rows this window walks:
-        /// the committed-future index built from the EFFECTIVE rows (every row counts as
-        /// committed - the caller already hands the effective ledger), the contracts
-        /// active now with their accept UT and deadline (a stock auto-accept contract
-        /// holds no slot, as stock counts), and the Mission Control limit now. The live
-        /// window passes <c>ContractSlotReservation.ForecastNow()</c> instead when stock's
-        /// contract state is readable; this is its fallback, and what tests and the GUI
-        /// gallery see.
-        /// </summary>
-        internal static ContractSlotForecast ForecastContractSlotsFromLedger(
-            IReadOnlyList<GameAction> actions,
-            IEnumerable<ContractSlotHolder> activeNow,
-            int limitNow,
-            double liveUT,
-            Func<string, bool> isAutoAcceptContract)
-        {
-            var effective = new List<GameAction>(actions != null ? actions.Count : 0);
-            if (actions != null)
-                for (int i = 0; i < actions.Count; i++)
-                    if (actions[i] != null && actions[i].Effective) effective.Add(actions[i]);
-            CommittedFutureIndex index = CommittedFutureIndex.Build(
-                effective, id => true, null, null, isAutoAcceptContract);
-
-            var holders = new List<ContractSlotHolder>();
-            if (activeNow != null)
-            {
-                foreach (var holder in activeNow)
-                {
-                    if (isAutoAcceptContract != null && isAutoAcceptContract(holder.Key)) continue;
-                    holders.Add(holder);
-                }
-            }
-            return ContractSlotReservation.Forecast(index, holders, limitNow, liveUT,
-                LedgerOrchestrator.GetContractSlots);
-        }
-
-        /// <summary>
-        /// The heading's numbers from the shared slot forecast. Active and the limit are
-        /// the forecast's own. Free is <see cref="ContractSlotForecast.FreeSlotsForNewAcceptNow"/>
-        /// clamped at 0 for display (negative means the committed timeline itself is
-        /// over-subscribed). The peak is counted against TODAY's limit - the forecast's
-        /// minimum slack is <c>Limit - peak</c> with every committed Mission Control
-        /// upgrade's added slots taken off the count at its moment - so
-        /// <c>PeakNeed = Limit - Free(raw)</c> and reserved is <c>PeakNeed - Active</c>
-        /// (at least 0): the same numbers this window's own peak walk produced before
-        /// it read the shared query. That equals
-        /// <see cref="ContractSlotForecast.ReservedForLater"/> when no upgrade lies ahead,
-        /// and is smaller when an upgrade supplies the slots a later accept needs. Null
-        /// reads an empty usage.
-        /// </summary>
-        internal static SlotUsage SlotUsageFromForecast(ContractSlotForecast forecast)
-        {
-            if (forecast == null) return new SlotUsage();
-            long peakAgainstToday = (long)forecast.LimitNow - forecast.FreeSlotsForNewAcceptNow;
-            int peak = (int)Math.Max(forecast.ActiveNow, Math.Min(int.MaxValue, peakAgainstToday));
-            return new SlotUsage
-            {
-                Active = forecast.ActiveNow,
-                Limit = forecast.LimitNow,
-                Unlimited = forecast.LimitNow >= UnlimitedSlotThreshold,
-                PeakNeed = peak,
-                Free = Math.Max(0, forecast.FreeSlotsForNewAcceptNow),
-                Reserved = Math.Max(0, peak - forecast.ActiveNow)
-            };
-        }
-
-        /// <summary>
-        /// The Strategies tab's slots now, read against the recorded future (strategies
-        /// have no shared forecast; contracts use <see cref="SlotUsageFromForecast"/>).
-        /// Walks the future
+        /// A tab's slots now, read against the recorded future. Walks the future
         /// <paramref name="changes"/> in UT order from <paramref name="activeNow"/>
-        /// (a release before an occupy at the same UT: a slot a deactivation frees is free
-        /// for an activation on the same tick) and keeps the PEAK number held at once. A
-        /// strategy that ends on day 50 and one a flight activates on day 60 share one
-        /// slot; two that overlap need two. A later upgrade of the building counts
+        /// (a release before an occupy at the same UT: a slot a completion frees is free
+        /// for an accept on the same tick) and keeps the PEAK number held at once. A
+        /// contract that ends on day 50 and one a flight accepts on day 60 share one slot;
+        /// two accepts that overlap need two. A later upgrade of the building counts
         /// against today's limit: the need at a moment is what is held then minus how many
         /// slots the upgrade has added by then.
         /// </summary>
@@ -1634,9 +1533,7 @@ namespace Parsek
             // failure). Rows that are merely in the future are not coloured: they already
             // sit under the "Accepted later" fold, and a second marker on every such
             // row would bury the warnings.
-            GUIStyle tableCell = parentUI.GetTableCellStyle();
-            cellStyle = tableCell;
-            alertStyle = new GUIStyle(tableCell)
+            alertStyle = new GUIStyle(GUI.skin.label)
             {
                 normal = { textColor = new Color(0.95f, 0.78f, 0.45f) }
             };
@@ -1644,16 +1541,9 @@ namespace Parsek
             {
                 normal = { textColor = new Color(0.75f, 0.75f, 0.75f) }
             };
-            // The grey "no active contracts" line drawn INSIDE a table body (rows pending,
-            // none now): cell-padded so it lines up with the columns above it.
-            grayCellStyle = new GUIStyle(tableCell)
-            {
-                normal = { textColor = grayStyle.normal.textColor }
-            };
             // The name cell is a label-styled BUTTON (the Timeline cross-link), so it
-            // clips instead of wrapping like a label and shows no button chrome; built on
-            // the table cell style so its text sits under the header text.
-            nameCellStyle = new GUIStyle(tableCell)
+            // clips instead of wrapping like a label and shows no button chrome.
+            nameCellStyle = new GUIStyle(GUI.skin.label)
             {
                 wordWrap = false,
                 clipping = TextClipping.Clip
@@ -1696,23 +1586,13 @@ namespace Parsek
             {
                 // [Phase 3] ELS-routed: career state view reads non-tombstoned
                 // ledger actions only (design section 3.4 career-state UI).
-                // The Contracts heading reads the SAME slot forecast Mission Control's
-                // accept block does (stock's live contracts and limit over the committed-
-                // future index). It is null when stock's contract state is unavailable;
-                // Build then falls back to the same pure forecast over the ledger rows it
-                // walks, so the heading still shows the reservation.
-                ContractSlotForecast liveContractForecast = ModeShowsCareerState(currentMode)
-                    ? ContractSlotReservation.ForecastNow()
-                    : null;
                 cachedVM = Build(
                     EffectiveState.ComputeELS(),
                     liveUT,
                     currentMode,
                     LedgerOrchestrator.Contracts,
                     LedgerOrchestrator.Strategies,
-                    FormatDate,
-                    CommittedFutureIndexCache.IsAutoAcceptContractSnapshot,
-                    liveContractForecast);
+                    FormatDate);
             }
 
             var vm = cachedVM.Value;
@@ -1938,11 +1818,9 @@ namespace Parsek
         /// <summary>
         /// The heading's hover text. With a reservation it says why fewer slots are free
         /// than the active count leaves: <c>Contracts your recorded flights accept later need 1 more
-        /// slot at peak, so only 4 are free for a new one.</c> For contracts the numbers
-        /// are the shared Mission Control slot forecast, the one that refuses an accept
-        /// that would leave a committed accept without a slot. For strategies they are this
-        /// window's own walk (Administration's per-strategy refusal,
-        /// <c>StrategyReservationPredicates</c>, has no shared count to read). Without one it
+        /// slot at peak, so only 4 are free for a new one.</c> It states the ledger's
+        /// count and nothing more: stock Mission Control / Administration count only what
+        /// is active now and do not refuse an accept or activation over it. Without one it
         /// names the building level the limit comes from (and the level at the timeline
         /// end when the recorded timeline upgrades it).
         /// </summary>
@@ -2068,7 +1946,7 @@ namespace Parsek
             DrawContractsColumnHeader(showEnd);
             GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
             if (tab.CurrentRows.Count == 0)
-                GUILayout.Label(NoActiveContractsText, grayCellStyle);
+                GUILayout.Label(NoActiveContractsText, grayStyle);
             for (int i = 0; i < tab.CurrentRows.Count; i++)
                 DrawContractRow(tab.CurrentRows[i], liveUT, showEnd);
             if (tab.PendingRows.Count > 0
@@ -2144,14 +2022,14 @@ namespace Parsek
                 OnRowNameClicked(TimelineScrollCallback(),
                     TimelineCareerCategory.Contracts, subject);
             }
-            GUILayout.Label(r.AcceptText ?? "", cellStyle,
+            GUILayout.Label(r.AcceptText ?? "", GUI.skin.label,
                 GUILayout.Width(ColW_Date));
             GUILayout.Label(r.DeadlineText ?? "",
-                r.DeadlineOverdue ? alertStyle : cellStyle,
+                r.DeadlineOverdue ? alertStyle : GUI.skin.label,
                 GUILayout.Width(ColW_Deadline));
             if (showEnd)
                 GUILayout.Label(r.TimelineEndText ?? "",
-                    IsTimelineEndAlert(r.EndKind) ? alertStyle : cellStyle,
+                    IsTimelineEndAlert(r.EndKind) ? alertStyle : GUI.skin.label,
                     GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
         }
@@ -2170,7 +2048,7 @@ namespace Parsek
             DrawStrategiesColumnHeader(showEnd);
             GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
             if (tab.CurrentRows.Count == 0)
-                GUILayout.Label(NoActiveStrategiesText, grayCellStyle);
+                GUILayout.Label(NoActiveStrategiesText, grayStyle);
             for (int i = 0; i < tab.CurrentRows.Count; i++)
                 DrawStrategyRow(tab.CurrentRows[i], showEnd);
             if (tab.PendingRows.Count > 0
@@ -2215,11 +2093,11 @@ namespace Parsek
                 OnRowNameClicked(TimelineScrollCallback(),
                     TimelineCareerCategory.Strategies, subject);
             }
-            GUILayout.Label(r.ActivateText ?? "", cellStyle,
+            GUILayout.Label(r.ActivateText ?? "", GUI.skin.label,
                 GUILayout.Width(ColW_Date));
-            GUILayout.Label(r.FlowText ?? "", cellStyle, GUILayout.Width(ColW_Flow));
+            GUILayout.Label(r.FlowText ?? "", GUI.skin.label, GUILayout.Width(ColW_Flow));
             if (showEnd)
-                GUILayout.Label(r.TimelineEndText ?? "", cellStyle,
+                GUILayout.Label(r.TimelineEndText ?? "", GUI.skin.label,
                     GUILayout.Width(ColW_TimelineEnd));
             GUILayout.EndHorizontal();
         }

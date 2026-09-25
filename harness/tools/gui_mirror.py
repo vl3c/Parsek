@@ -108,12 +108,13 @@ LAYOUT_EPOCHS = {
     # PR #1755 (merged 2026-09-22T19:16:54Z): no flight status block, bold title.
     # First run on it: GUI-1-census-ksc 2026-09-22_1841.
     "main": {"utc": "2026-09-22T18:41:11Z", "pr": 1755},
-    # PR #1834: body cell text under the header text (the shared table cell style).
-    # First run on it: GUI-11-census-kerbals-crewed 2026-09-25_2019.
-    "kerbals": {"utc": "2026-09-25T20:19:20Z", "pr": 1834},
-    # PR #1834: Archived is the last cell of filter row 1; Rewind/FF and Re-Fly
-    # draw an empty row 2. First run on it: GUI-24 2026-09-25_2020.
-    "timeline": {"utc": "2026-09-25T20:20:39Z", "pr": 1834},
+    # PR #1762 (merged 2026-09-22T20:38:41Z): slot-grouped roster, no Since column.
+    # First run on it: GUI-11-census-kerbals-crewed 2026-09-22_2004.
+    "kerbals": {"utc": "2026-09-22T20:04:25Z", "pr": 1762},
+    # PR #1828 (after #1818): no from-to readout line above the Custom sliders.
+    # First run on it: GUI-6-census-flight-playback 2026-09-25_1838 (its Timeline
+    # states); the Custom sliders themselves: GUI-24 2026-09-25_1842.
+    "timeline": {"utc": "2026-09-25T18:38:07Z", "pr": 1828},
     # PR #1828: header and rows in one body box, a Warp column header, cell text
     # under the header text.
     # First run on it: GUI-6-census-flight-playback 2026-09-25_1838.
@@ -121,9 +122,9 @@ LAYOUT_EPOCHS = {
     # PR #1828: header and rows in one body box, cell text under the header text.
     # First run on it: GUI-4-census-missions-docked 2026-09-25_1839.
     "structure": {"utc": "2026-09-25T18:39:56Z", "pr": 1828},
-    # PR #1834: body cell text under the header text; the Contracts heading reads
-    # the shared slot forecast. First run on it: GUI-15 2026-09-25_2021.
-    "career": {"utc": "2026-09-25T20:21:53Z", "pr": 1834},
+    # PR #1796 (merged 2026-09-24T16:18:48Z): the state view, two tabs.
+    # First run on it: GUI-15-census-career-contracts 2026-09-24_1522.
+    "career": {"utc": "2026-09-24T15:22:01Z", "pr": 1796},
 }
 
 

@@ -2217,7 +2217,13 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # form names no window; the apply and clear forms DO require one, which is checked by
     # the per-op branch in validate_uiaction_step below (mirroring the seam, which checks
     # it in the applier for the same reason).
-    "mock")
+    "mock",
+    # Coverage wave 6 (D11 `clone`): `clone` is the Missions tab's Clone button body,
+    # MissionStore.Clone - a new Mission over the same tree carrying the source's include
+    # set and loop configuration. Like `select` it writes MISSION state that persists with
+    # the save, so a lane using it runs on a throwaway staged fixture. `window=missions`
+    # only, plus the OPTIONAL `mission=` selector op=select takes.
+    "clone")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
@@ -2443,10 +2449,13 @@ UIACTION_SORT_DIR_KEY = "dir"
 UIACTION_SORT_DIR_VALUES: Tuple[str, ...] = ("asc", "desc")
 
 # `op=select key=` prefixes (plus the shared bulk tokens above) and its REQUIRED
-# direction. `vessel:` names a composition-interval key, `link:` a cross-tree foreign
-# dock link id. Both value halves may carry further colons, so the seam splits at the
-# FIRST one - the `op=expand` key rule.
-UIACTION_SELECT_PREFIXES: Tuple[str, ...] = ("vessel", "link")
+# direction. `vessel:` names a vessel ROW (by head, or by any one of its interval keys)
+# and writes ALL of that row's own interval keys; `link:` a cross-tree foreign dock link
+# id; `leg:` (coverage wave 6, D11 `leg-trim`) ONE composition-interval key, written
+# through the interval checkbox's own body, so unticking a vessel's launch interval
+# start-trims the loop and leaves the row Partial. Every value half may carry further
+# colons, so the seam splits at the FIRST one - the `op=expand` key rule.
+UIACTION_SELECT_PREFIXES: Tuple[str, ...] = ("vessel", "link", "leg")
 UIACTION_INCLUDE_KEY = "include"
 UIACTION_INCLUDE_VALUES: Tuple[str, ...] = ("true", "false")
 
@@ -2602,7 +2611,7 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
 # three take `popup=` instead (UIACTION_POPUP_KEY).
 UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
     "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run",
-    "state", "sort", "select", "edit")
+    "state", "sort", "select", "edit", "clone")
 
 # The four rect args, all REQUIRED together on `op=rect`: a partial rect mixes a
 # commanded position with a stale size, so the capture it produces is not reproducible.
@@ -3226,10 +3235,20 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
     # 6, op=select's OPTIONAL one - so this is its own rule rather than an arm of the
     # include chain above. It was an arm of it once, which made an op=select step carrying
     # no mission= fall through to "only op=select reads it, but this step is op=select".
-    if op not in ("target", "select") and "mission" in step_args:
+    if op not in ("target", "select", "clone") and "mission" in step_args:
         errors.append(
-            "driver.steps[%d].args.mission: only op=target and op=select read it, but "
-            "this step is op=%s -- the arg would be silently ignored" % (index, op))
+            "driver.steps[%d].args.mission: only op=target, op=select and op=clone read "
+            "it, but this step is op=%s -- the arg would be silently ignored"
+            % (index, op))
+
+    if op == "clone":
+        window_name = str(window) if window is not None else None
+        if window_name in UIACTION_WINDOW_VALUES and window_name != "missions":
+            errors.append(
+                "driver.steps[%d].args.%s: only the 'missions' window has a Clone "
+                "button, so op=clone against %r answers REJECTED "
+                "clone-unsupported-window"
+                % (index, UIACTION_WINDOW_KEY, window_name))
 
     if op == "edit":
         window_name = str(window) if window is not None else None

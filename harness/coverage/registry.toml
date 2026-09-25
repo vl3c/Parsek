@@ -565,88 +565,20 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # `2026-08-03_2147`, `'Tilan Kerman'` on `2026-08-04_2136`). The gate direction is
 # REQUIRED, never forbidden: the re-pin record above shows a forbidden `Stand-in
 # generated` passing exactly when the tombstone did nothing.
-#
-# COVERAGE WAVE 1 (2026-09-25, branch `cov-wave1`). Every entry below is a
-# "supervisor ruling 2026-09-25, pending operator confirmation" where it says so.
-#
-# `reservation-auto-hire` IS RETIRED (supervisor ruling 2026-09-25, pending operator
-# confirmation) and removed from the list: nothing in Source/Parsek produces it (no
-# auto-hire path exists; grep `AutoHire` / `auto-hire` returns only this registry's
-# history), and the behaviour it named - fill a reserved seat by hiring - is what the
-# generated stand-in does, which `stand-ins` already names and CL-4 claims. The
-# retirement LOWERS THE DENOMINATOR by one; it is not coverage.
-#
-# `crew-swap` - the in-flight seat swap of a reserved kerbal for its stand-in
-# (`CrewReservationManager` Pass 1): `Swapped '<reserved>' -> '<stand-in>' in part`
-# plus `Crew swap complete: N succeeded`, N >= 1. DECLARER: GS-4-kerbalx-rewind-watch
-# (the watcher Flea rolls out with a kerbal the committed future still reserves).
-#
-# `missed-endut-auto-free` - ParsekScenario's OnLoad pass that frees the crew of a
-# recording whose EndUT passed without a spawn. Its `Auto-unreserved crew for
-# recording #N` line prints for crewless snapshots too, so a claim must tie it to a
-# CREWED snapshot: the declarer requires the `Removed replacement` / `Kept
-# replacement` cleanup line directly above it (same loop iteration). DECLARER:
-# L4-ledger-groundtruth-strict.
-values = ["stand-ins", "seat-matching", "rescue-marker",
+values = ["reservation-auto-hire", "stand-ins", "seat-matching", "rescue-marker",
           "crew-death-in-flight",
           "dead-crew-strip", "tombstone-rep-penalty", "missed-endut-auto-free", "crew-swap",
           "hire-dismiss-patches"]
 
 [D13]  # spawn safety
-# COVERAGE WAVE 1 (2026-09-25, branch `cov-wave1`):
-#
-# `proximity-offset` IS RETIRED (supervisor ruling 2026-09-25, pending operator
-# confirmation) and removed from the list: the code is gone - VesselSpawner.cs:19
-# "Proximity offset removed - spawn collision detection now uses bounding box" - and
-# its successor is `bbox-block`. docs/user-guide.md's "Proximity offset" bullet was
-# corrected in the same change. The retirement lowers the denominator by one.
-#
-# `bbox-block` - the bounding-box overlap check refusing a spawn onto a live vessel.
-# DECLARER: EX-2-single-point-held-ghost, off its already-required `Spawn blocked for
-# #N (..): overlaps '<vessel>' at Nm (single-point trajectory)` (VesselSpawner.cs:1923).
-#
-# `ksc-exclusion` - a flight whose end lies in the KSC exclusion zone. The operator
-# ruled on 2026-09-23 that such a flight is RETIRED (no vessel, crew freed), and the
-# supervisor ruling of 2026-09-25 (pending operator confirmation) counts that
-# retirement as the cell. DECLARER: EX-1-ghost-extension-past-endut, off its
-# already-required `Spawn RETIRED for #N (..): flight ended within KSC exclusion zone
-# (pad) - no vessel` (VesselSpawner.cs:2387).
-#
-# `pid-dedup` - the TRACKING-STATION spawn handoff refusing a second copy of a vessel
-# whose real pid already exists (`Tracking-station handoff skipped duplicate spawn
-# for #N ... real vessel pid=P already exists`, GhostMapPresence.cs:7530). A SEPARATE
-# cell from D6 `spawn-at-end-pid-dedup` (supervisor ruling 2026-09-25, pending
-# operator confirmation). DECLARER: V22T-kerbin-splashdown-ts-arrival.
-values = ["bbox-block", "trajectory-walkback", "terrain-correction",
+values = ["proximity-offset", "bbox-block", "trajectory-walkback", "terrain-correction",
           "ksc-exclusion", "situation-correction", "surface-orbit-reseed", "pid-dedup",
           "three-cycle-abandon", "terminal-orbit-safety", "real-spawn-control"]
 
 [D14]  # environment axes (multipliers)
-# COVERAGE WAVE 1 (2026-09-25, branch `cov-wave1`):
-#
-# `situation` IS RETIRED (supervisor ruling 2026-09-25, pending operator
-# confirmation) and removed from the list: it named an AXIS (vessel situation), not
-# a behaviour a lane can gate, and the situations that matter already have their own
-# cells (D1 commit-landed-foreign-body / commit-in-foreign-soi, D13
-# situation-correction). The retirement lowers the denominator by one.
-#
-# `atmosphere` IS DEFINED (supervisor ruling 2026-09-25, pending operator
-# confirmation) as "a recording replays correctly around a non-Kerbin atmospheric
-# body". DECLARER: V16M-laythe-player-loop, off its already-required Laythe
-# body-orbit render line plus the faithful-parity and seam-endpoint summaries.
-# SCOPE: that replay is orbital around Laythe; a replay descending INTO a
-# non-Kerbin atmosphere is not yet gated anywhere.
-#
-# `warp-1x` IS DEFINED (supervisor ruling 2026-09-25, pending operator
-# confirmation) as "ghosts replayed at 1x, seen in the render warp histogram".
-# DECLARER: V14M-ike-player-loop, off its armed renderComposition block's
-# `warpBuckets = ["warp1x"]` (RC-WARP reds on zero 1x dwell frames; measured 173 /
-# 177). A 1x-only histogram claims NOTHING about warped rendering: RC-WARP's
-# seam/hold traversal clauses apply only to declarations naming an above-1x bucket
-# (V24W, `warp-rails`).
 values = ["kerbin", "mun", "minmus", "moho", "eve", "gilly", "duna", "ike", "dres",
           "jool", "laythe", "vall", "tylo", "bop", "pol", "eeloo",
-          "atmosphere", "soi-count",
+          "atmosphere", "situation", "soi-count",
           "warp-1x", "warp-phys", "warp-rails", "warp-high",
           "scene-flight", "scene-map", "scene-ts", "scene-ksc", "scene-editor",
           "career", "science-mode", "sandbox", "cold-load-ut0"]
@@ -655,31 +587,6 @@ values = ["kerbin", "mun", "minmus", "moho", "eve", "gilly", "duna", "ike", "dre
 values = ["timeline-projection"]
 
 [D16]  # storage / format
-# COVERAGE WAVE 1 (2026-09-25, branch `cov-wave1`):
-#
-# `alias-mode` IS KEPT. A retirement was proposed on the premise that no such feature
-# exists; it does: `GhostSnapshotMode.AliasVessel` (Recording.cs:7), chosen by
-# `RecordingStore.DetermineGhostSnapshotMode` (RecordingStore.cs:270) when the ghost
-# snapshot equals the vessel snapshot, in which case no `_ghost.craft` sidecar is
-# written. The witness exists (`SaveRecordingFiles: ... ghostSnapshotMode=AliasVessel
-# ... wroteGhost=False`, RecordingSidecarStore.cs:1231), but no committed-fixture lane
-# was found printing it; only operator-local GUI census logs do. Left uncovered.
-#
-# `sidecar-pann` - the `.pann` smoothing-annotation sidecar, READ and WRITTEN in one
-# run: `Pannotations read OK: recordingId=... block=SmoothingSplineList`
-# (SmoothingPipeline.cs:554) and `Pannotations write OK: recordingId=... bytes=N`
-# (:804). DECLARER: V22T-kerbin-splashdown-ts-arrival.
-#
-# `sfs-scenario-node` - Parsek's ScenarioModule state written into the save and read
-# back: `OnSave: saving N committed tree(s)` (ParsekScenario.cs:1400), N >= 1, on a
-# lane whose gating saveParse block parses the produced save's ParsekScenario node.
-# DECLARER: GS-4-kerbalx-rewind-watch (`[expectations.rewind]`, gating).
-#
-# `deflate-snapshots` stays UNCOVERED on purpose: every snapshot write goes through
-# the DeflateV1 codec (`SnapshotSidecarCodec.Write`), but the only log label
-# (`snapshotEncoding=DeflateV1` on `SaveRecordingFiles`) is a constant, and a
-# successful load logs no encoding. No archived lane both writes a snapshot and
-# re-loads that same id, so no honest single-lane witness exists yet.
 values = ["sidecar-prec", "sidecar-craft", "sidecar-pann",
           "rp-quicksaves", "deflate-snapshots", "txt-mirrors", "alias-mode",
           "sfs-scenario-node", "schema-gate", "path-validation", "safe-write",

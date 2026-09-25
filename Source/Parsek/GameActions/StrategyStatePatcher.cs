@@ -114,13 +114,7 @@ namespace Parsek
     /// therefore sees it inactive and this patch leaves it off: an expiry cannot be undone
     /// here, so there is no re-activate / expire loop. The one window where the ledger lags
     /// is a flight's own tagged expiry before the tree commits, and the patch is deferred
-    /// while a live or pending tree exists (<c>GetKspPatchDeferralReason</c>). This patch
-    /// runs only on a recalculation, so it cannot switch a strategy off at a committed
-    /// deactivation's UT before stock's per-frame <c>Update</c> replays the expiry after a
-    /// rewind; <c>StrategyUpdateExpiryPatch</c> does that
-    /// (<see cref="StrategyReservationPredicates.DecideStockUpdate"/>), through
-    /// <see cref="SwitchOffWithoutCapture"/> and the committed-rows predicate this patch
-    /// also reads (<see cref="StrategyCommittedRows.NextRowIsDeactivation"/>).</para>
+    /// while a live or pending tree exists (<c>GetKspPatchDeferralReason</c>).</para>
     ///
     /// <para><b>A late activation expires at once, harmlessly.</b> A patch that switches a
     /// strategy on after its <c>ActivateUT + LongestDuration</c> (for example a recalculation
@@ -496,21 +490,34 @@ namespace Parsek
                 var s = system.Strategies[i];
                 ordered.Add(new StrategyTagInfo(s?.Config?.Name, s?.Config != null ? s.GroupTags : null));
             }
-            // The same committed-rows predicate the Strategy.Update() prefix holds an expiry
-            // on, so the patch never switches off what the prefix keeps on.
             var plan = ComputePlan(snapshot.ActivateUT, snapshot.Managed.Contains, stockActive, byId.Keys, now,
                 id =>
                 {
-                    var rows = index.StrategyRows(id);
-                    return rows != null && rows.NextRowIsDeactivation(now);
+                    var next = StrategyReservationPredicates.FirstFutureRow(index, id, now);
+                    return next != null && next.Kind == CommittedFutureKind.StrategyDeactivate;
                 },
                 ordered);
 
             int deactivated = 0, activated = 0, failed = 0;
+            FieldInfo isActiveField = typeof(Strategies.Strategy).GetField(
+                "isActive", BindingFlags.Instance | BindingFlags.NonPublic);
             for (int i = 0; i < plan.ToDeactivate.Count; i++)
             {
-                if (SwitchOffWithoutCapture(byId[plan.ToDeactivate[i]], "PatchStrategies")) deactivated++;
-                else failed++;
+                if (isActiveField == null)
+                {
+                    if (!isActiveFieldWarned)
+                    {
+                        isActiveFieldWarned = true;
+                        ParsekLog.Warn(Tag,
+                            "PatchStrategies: Strategy.isActive field not found - committed deactivations cannot be applied");
+                    }
+                    failed++;
+                    continue;
+                }
+                var s = byId[plan.ToDeactivate[i]];
+                s.Unregister();
+                isActiveField.SetValue(s, false);
+                deactivated++;
             }
             for (int i = 0; i < plan.ToActivate.Count; i++)
             {
@@ -551,35 +558,7 @@ namespace Parsek
             }
         }
 
-        private static readonly FieldInfo IsActiveField = typeof(Strategies.Strategy).GetField(
-            "isActive", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        /// <summary>
-        /// Switches a stock strategy off with no refund and no capture: <c>Unregister()</c>
-        /// plus the private <c>isActive</c> flag. <c>Deactivate()</c> is never called, so
-        /// <c>StrategyDeactivatePatch</c> appends no ledger row. Callers run it inside
-        /// <c>SuppressionGuard.ResourcesAndReplay()</c>. Shared by the state patch and the
-        /// <c>Strategy.Update()</c> prefix. False (warned once) when the field is missing.
-        /// </summary>
-        internal static bool SwitchOffWithoutCapture(Strategies.Strategy strategy, string caller)
-        {
-            if (strategy == null) return false;
-            if (IsActiveField == null)
-            {
-                if (!isActiveFieldWarned)
-                {
-                    isActiveFieldWarned = true;
-                    ParsekLog.Warn(Tag, (caller ?? "?")
-                        + ": Strategy.isActive field not found - committed deactivations cannot be applied");
-                }
-                return false;
-            }
-            strategy.Unregister();
-            IsActiveField.SetValue(strategy, false);
-            return true;
-        }
-
-        internal static void RefreshAdministration()
+        private static void RefreshAdministration()
         {
             try
             {

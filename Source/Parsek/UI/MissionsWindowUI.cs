@@ -607,6 +607,36 @@ namespace Parsek
             if (mission != null) StampSelectionEdit(mission);
         }
 
+        /// <summary>
+        /// The body of ONE interval's include checkbox (the expanded vessel detail rows and the
+        /// foreign partner-journey subtrees): moves the interval's key into or out of
+        /// <see cref="Mission.ExcludedIntervalKeys"/> with NO cascade (unticking the launch
+        /// interval start-trims the loop and leaves the post-separation survivor included),
+        /// stamps the selection generation, and logs the edit. The checkbox and the
+        /// automation-only <c>UiAction op=select key=leg:</c> both call it, so the seam drives
+        /// the exact write and the exact log line a click produces.
+        ///
+        /// <para>Idempotent: a request matching the current state writes, stamps and logs
+        /// nothing and returns false. Both checkbox callers derive the shown state from exact
+        /// set membership, so a click always changes the set and its behaviour is unchanged;
+        /// the seam takes an explicit direction and relies on the no-op answer.</para>
+        /// </summary>
+        /// <returns>True when the excluded set changed.</returns>
+        internal static bool ApplyIntervalInclusion(Mission mission, string headLegId, bool include)
+        {
+            if (mission == null || string.IsNullOrEmpty(headLegId))
+                return false;
+            bool changed = include
+                ? mission.ExcludedIntervalKeys.Remove(headLegId)
+                : mission.ExcludedIntervalKeys.Add(headLegId);
+            if (!changed)
+                return false;
+            StampSelectionEdit(mission);
+            ParsekLog.Info("Mission",
+                $"Mission '{mission.Name}' interval '{headLegId}' included={include}");
+            return true;
+        }
+
         // Inline mission-title rename (double-click the name), mirroring the recordings
         // window group rename. renamingMissionId is the Mission.Id currently being edited.
         private string renamingMissionId;
@@ -1867,13 +1897,7 @@ namespace Parsek
                 bool toggled = GUILayout.Toggle(shownChecked, IntervalIncludeCheckboxContent,
                     GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
                 if (toggled != shownChecked)
-                {
-                    if (toggled) mission.ExcludedIntervalKeys.Remove(node.HeadLegId);
-                    else mission.ExcludedIntervalKeys.Add(node.HeadLegId);
-                    StampSelectionEdit(mission);
-                    ParsekLog.Info("Mission",
-                        $"Mission '{mission.Name}' interval '{node.HeadLegId}' included={toggled}");
-                }
+                    ApplyIntervalInclusion(mission, node.HeadLegId, toggled);
             }
             else
             {

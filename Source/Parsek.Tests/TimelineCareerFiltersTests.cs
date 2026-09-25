@@ -312,66 +312,16 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(0, 0)] // Overview -> Sources
-        [InlineData(1, 0)] // Details -> Sources
-        [InlineData(2, 1)] // Rewind/FF -> Empty (Archived moved to row 1)
-        [InlineData(3, 1)] // Re-Fly -> Empty
+        [InlineData(0, 0)] // Overview -> SourcesAndArchived
+        [InlineData(1, 0)] // Details -> SourcesAndArchived
+        [InlineData(2, 1)] // Rewind/FF -> ArchivedOnly
+        [InlineData(3, 1)] // Re-Fly -> ArchivedOnly
         [InlineData(4, 2)] // Contracts -> Categories
         [InlineData(8, 2)] // Tech -> Categories
         public void ContextRow_PerView(int mode, int expected)
         {
             Assert.Equal((TimelineWindowUI.TimelineContextRow)expected,
                 TimelineWindowUI.ResolveContextRow((TimelineWindowUI.TimelineTierFilterMode)mode));
-        }
-
-        /// <summary>
-        /// Owner ruling 2026-09-25: Archived is the LAST cell of row 1 (after the view
-        /// group, on the view row's cell width), never a row-2 control, because it applies
-        /// in every view. Row 2 of Rewind/FF and Re-Fly still reserves a button-high rect
-        /// so the list does not jump. No headless seam can run an IMGUI draw, so the
-        /// witness is a source scan with comments blanked and literals masked.
-        /// </summary>
-        [Fact]
-        public void ArchivedToggle_IsTheLastCellOfTheViewRow()
-        {
-            string path = System.IO.Path.Combine(ResolveRepoRoot(), "Source", "Parsek", "UI",
-                "TimelineWindowUI.cs");
-            string src = SourceScanText.StripCommentsAndMaskLiterals(
-                System.IO.File.ReadAllText(path)).Replace("\r\n", "\n");
-            int start = src.IndexOf("private void DrawFilterBar()", StringComparison.Ordinal);
-            Assert.True(start >= 0, "DrawFilterBar not found, this cell is vacuous.");
-            int end = src.IndexOf("private void DrawViewToggle(", start, StringComparison.Ordinal);
-            Assert.True(end > start);
-            string body = src.Substring(start, end - start);
-
-            int career = body.IndexOf("SelectView(ViewOfCategory(category))", StringComparison.Ordinal);
-            int archived = body.IndexOf("DrawArchivedToggle(viewW)", StringComparison.Ordinal);
-            int firstRowEnd = body.IndexOf("GUILayout.EndHorizontal()", StringComparison.Ordinal);
-            Assert.True(career >= 0 && archived > career,
-                "Archived must be drawn after the Career cell in row 1.");
-            Assert.True(archived < firstRowEnd, "Archived must be drawn inside row 1.");
-            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(
-                body, @"DrawArchivedToggle\(").Count);
-
-            int emptyCase = body.IndexOf("case TimelineContextRow.Empty:", StringComparison.Ordinal);
-            Assert.True(emptyCase > firstRowEnd, "row 2 has no Empty arm.");
-            int emptyBreak = body.IndexOf("break;", emptyCase, StringComparison.Ordinal);
-            Assert.Contains("GUILayoutUtility.GetRect(",
-                body.Substring(emptyCase, emptyBreak - emptyCase));
-        }
-
-        private static string ResolveRepoRoot()
-        {
-            string dir = AppContext.BaseDirectory;
-            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
-            {
-                if (System.IO.Directory.Exists(System.IO.Path.Combine(dir, "scripts"))
-                    && System.IO.Directory.Exists(System.IO.Path.Combine(dir, "Source")))
-                    return dir;
-                dir = System.IO.Path.GetDirectoryName(dir);
-            }
-            throw new InvalidOperationException("Could not locate repo root from "
-                + AppContext.BaseDirectory);
         }
 
         [Fact]

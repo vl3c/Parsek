@@ -3758,54 +3758,6 @@ class WarpHelperTests(unittest.TestCase):
         self.assertEqual("", rc._dominant_warp_bucket([rc.Dwell()]))
 
 
-class WarpTraversalScopeTests(unittest.TestCase):
-    """RC-WARP's two traversal clauses (`seamsAboveOneX`, `holdsAboveOneX`) are the
-    anti-vacuity half of an ABOVE-1x claim, so they fire only when the declared list
-    names an above-1x bucket (2026-09-25, D14 `warp-1x`). A 1x-only declaration
-    asserts the bucket clause alone; an above-1x declaration still reds when the
-    traversal evidence is missing."""
-
-    @staticmethod
-    def _snap(warp=None):
-        # One 1x-only dwell spanning a transition AND a hold pair: exactly the
-        # instantaneous-TimeJump lane shape (V14M) - every instant was seen, none
-        # of them above 1x.
-        return rc.ManifestSnapshot(
-            parsed=True,
-            dwells=(rc.Dwell(open_ut=100.0, close_ut=200.0,
-                             warp=warp or {"warp1x": 50}),),
-            transitions=(rc.Transition(ut=150.0),),
-            clock_events=(rc.ClockEvent(kind=rc.CLOCK_HOLD_ENGAGE, ut=120.0),
-                          rc.ClockEvent(kind=rc.CLOCK_HOLD_RELEASE, ut=180.0)))
-
-    def _findings(self, buckets):
-        ctx = rc._Ctx(self._snap(), {"gating": True, "warpBuckets": buckets})
-        rc._rule_warp(ctx)
-        return {f.target: f.level for f in ctx.findings if f.rule_id == rc.RULE_WARP}
-
-    def test_a_1x_only_declaration_asserts_only_the_bucket(self):
-        self.assertEqual({}, self._findings(["warp1x"]))
-
-    def test_an_above_1x_declaration_still_reds_on_missing_traversal_evidence(self):
-        found = self._findings(["warp100"])
-        self.assertEqual(rc.LEVEL_FAIL, found.get("warpBuckets.warp100"))
-        self.assertEqual(rc.LEVEL_FAIL, found.get("seamsAboveOneX"))
-        self.assertEqual(rc.LEVEL_FAIL, found.get("holdsAboveOneX"))
-
-    def test_a_mixed_declaration_is_an_above_1x_declaration(self):
-        found = self._findings(["warp1x", "warp1000"])
-        self.assertNotIn("warpBuckets.warp1x", found)
-        self.assertEqual(rc.LEVEL_FAIL, found.get("seamsAboveOneX"))
-        self.assertEqual(rc.LEVEL_FAIL, found.get("holdsAboveOneX"))
-
-    def test_the_1x_bucket_clause_reds_when_no_1x_frame_was_seen(self):
-        snap = self._snap(warp={"warp100": 50})
-        ctx = rc._Ctx(snap, {"gating": True, "warpBuckets": ["warp1x"]})
-        rc._rule_warp(ctx)
-        found = {f.target: f.level for f in ctx.findings if f.rule_id == rc.RULE_WARP}
-        self.assertEqual({"warpBuckets.warp1x": rc.LEVEL_FAIL}, found)
-
-
 class SinglePassAndCacheTests(unittest.TestCase):
     """One rule pass per row, and the memo that makes it cheap."""
 

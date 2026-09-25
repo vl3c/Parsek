@@ -446,8 +446,6 @@ namespace Parsek
                 // A crew member's recovery is a kerbal event on an existing flight; it
                 // reuses the assignment bucket rather than adding an entry type.
                 case GameActionType.KerbalRecovered:      return TimelineEntryType.KerbalAssignment;
-                // A kerbal's career-log (XP) entries from a recovery: the same bucket.
-                case GameActionType.KerbalExperience:     return TimelineEntryType.KerbalAssignment;
                 case GameActionType.FacilityUpgrade:      return TimelineEntryType.FacilityUpgrade;
                 case GameActionType.FacilityDestruction:  return TimelineEntryType.FacilityDestruction;
                 case GameActionType.FacilityRepair:       return TimelineEntryType.FacilityRepair;

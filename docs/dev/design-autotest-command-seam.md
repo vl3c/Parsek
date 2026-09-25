@@ -2765,8 +2765,8 @@ harness cannot know the live tab pre-launch, so `hlib.UIACTION_SORT_COLUMNS` val
 UNION and the seam owns the narrowing - the `op=expand` division of labour exactly: shape
 pre-launch, state at the seam.
 
-`op=select window=missions key=<vessel:|link:|all|none> include=` is the one op in this
-family that writes state PERSISTED WITH THE SAVE (`Mission.ExcludedIntervalKeys` and
+`op=select window=missions key=<vessel:|link:|leg:|all|none> include=` is one of the two ops
+in this family that write state PERSISTED WITH THE SAVE (`Mission.ExcludedIntervalKeys` and
 `Mission.IncludedForeignDockLinkIds`, both serialized by the Mission codec). A census lane
 using it runs on a THROWAWAY staged copy of its fixture; that is a lane rule, stated in the
 op's own header and in `harness/README.md`, because nothing in the seam can enforce it. It
@@ -2776,6 +2776,31 @@ click's conditional tail - `MissionStore.ClearLoopsConflictingWith` when a link 
 on a looping mission - because a write without it leaves two conflicting loops armed. The
 on-screen announcement beside that clear is deliberately NOT reproduced: a screen message
 is for a player who clicked, and it would land in the census capture.
+
+`key=leg:<intervalKey>` (coverage wave 6, D11 `leg-trim`) drives ONE composition interval
+(`MissionCompositionNode.HeadLegId`: the vessel's head recording id for its first
+interval, then `/segN` and `@dockM` suffixes) - the interval checkbox of an expanded vessel
+row - where `vessel:` resolves a ROW and writes all of that row's own keys, so it can only
+produce an `All` or `None` vessel. The applier calls the checkbox's own body,
+`MissionsWindowUI.ApplyIntervalInclusion` (extracted from the click handler so both callers
+share it): the one-key write, the selection-generation stamp and the production line
+`Mission '<name>' interval '<key>' included=<True|False>`. It is idempotent (a matching
+state writes and logs nothing), resolves against the same flattened rows `vessel:` reads
+(an unknown key is `select-key-unknown` listing the live interval keys), and its settle
+check reads the one key's own membership. Unticking a vessel's launch interval start-trims
+the loop: the loop unit keeps the vessel but its span starts at the separation.
+
+`op=clone window=missions [mission=<id>]` (coverage wave 6, D11 `clone`) is the Missions
+tab's Clone button, whose whole body is `MissionStore.Clone(mission)` - a second Mission
+over the same tree carrying the source's include set and loop configuration, inserted
+after its source, with the store's `Cloned mission '<src>' -> '<src> copy' (tree=<id>)`
+line. The mission resolver is `op=select`'s (a named `mission=`, else the first mission over
+a committed tree). Two-phase: the settle refuses (`ERROR clone-not-applied`) unless the copy
+is still in the store, the store grew by exactly one and the copy's tree is the source's.
+OK payload: `op=clone window= mission= copy= name= missions= excluded= links= loop=`, the
+last three being what the copy CARRIED. Like `op=select` it edits the save, so a lane using
+it runs on a throwaway staged fixture, and it is exempt from the window-open and host-UI
+gates for the same reason. REJECTED `clone-unsupported-window` / `clone-no-mission`.
 
 `op=edit window=missions field= key= [draft=] [commit=]` puts one of the in-place rename
 editors into edit mode. Every one of these editors is a LAYOUT change and not a restyle - a

@@ -2909,17 +2909,11 @@ namespace Parsek
             //     live-timeline event whose committed timeline extends into the future.
             // Do not restate "rewind-only" here: an earlier reader trusted that wording and
             // mis-scoped a live defect (UNAFFORDABLE-SCIENCE-SPENDING-SILENTLY-RE-LOCKS-A-TECH-NODE)
-            // to time travel. The null branch no-ops through PatchTechTree's null-target guard
-            // and runs the ADD-ONLY committed-unlock pass instead, capped at the live clock:
-            // the KSC ledger cursor takes a cutoff-less walk when the clock passes the LAST
-            // committed row, and a ScienceSpending row there must still reach stock
-            // (KspStatePatcher.PlanCommittedTechUnlocksForPatch).
+            // to time travel. The null branch no-ops through PatchTechTree's null-target guard.
             HashSet<string> targetTechIds = null;
             double? techBaselineUt = null;
             HashSet<string> baselineTechExclusions = null;
             Dictionary<string, KspStatePatcher.UnaffordableUnlockDrop> unaffordableTechDrops = null;
-            List<string> committedTechUnlockIds = null;
-            double? committedTechUnlockLiveUt = null;
             if (techPatchCutoff.HasValue)
             {
                 if (excludeTombstonedTechFromBaseline)
@@ -2945,23 +2939,8 @@ namespace Parsek
             }
             else
             {
-                double liveUT = CommittedFutureIndexCache.CurrentUT();
-                committedTechUnlockIds = KspStatePatcher.PlanCommittedTechUnlocksForPatch(
-                    actions,
-                    techPatchCutoff,
-                    liveUT,
-                    RecordingStore.RewindUTAdjustmentPending,
-                    out string unlockSkipReason);
-                if (committedTechUnlockIds != null)
-                    committedTechUnlockLiveUt = liveUT;
                 ParsekLog.Verbose(Tag,
-                    "RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks; " +
-                    (committedTechUnlockIds == null
-                        ? $"committed tech unlocks skipped (reason={unlockSkipReason}, " +
-                          $"liveUT={liveUT.ToString("R", CultureInfo.InvariantCulture)})"
-                        : $"committed tech unlocks add-only at liveUT={liveUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                          $"(count={committedTechUnlockIds.Count.ToString(CultureInfo.InvariantCulture)}, " +
-                          $"ids=[{KspStatePatcher.ComposeBoundedIdentitySample(committedTechUnlockIds, 10)}])"));
+                    "RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks");
             }
 
             KspStatePatcher.PatchAll(scienceModule, fundsModule, reputationModule,
@@ -2975,9 +2954,7 @@ namespace Parsek
                 unaffordableTechDrops: unaffordableTechDrops,
                 strategies: strategiesModule,
                 partPurchaseActions: actions,
-                walkUtCutoff: utCutoff,
-                committedTechUnlockIds: committedTechUnlockIds,
-                committedTechUnlockLiveUt: committedTechUnlockLiveUt);
+                walkUtCutoff: utCutoff);
 
             // LedgerTrace Tier-A: emit ONE structural snapshot per recalc, here (after
             // PatchAll), never inside a Patch* (that would emit 7x). Built from data

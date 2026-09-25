@@ -42,22 +42,7 @@ namespace Parsek.Tests
             /// <summary>For a table whose pinned header and body scroll view share ONE
             /// body box: the method that opens that box around both. Null otherwise.</summary>
             public string BoxedTableMethod;
-            /// <summary>For a table whose body cells are tinted: the style FIELDS its row
-            /// method may draw with, each of which must be built from the shared table cell
-            /// style. Null for the boxed tables, whose own cell covers them.</summary>
-            public string[] CellStyles;
-            /// <summary>Methods that pick one of <see cref="CellStyles"/> for a row (their
-            /// every <c>return</c> must name one).</summary>
-            public string[] CellStyleSelectors;
         }
-
-        private static readonly string[] CareerCellStyles = { "cellStyle", "alertStyle", "nameCellStyle" };
-        private static readonly string[] KerbalsCellStyles =
-        {
-            "cellPlainStyle", "cellGrayStyle", "cellDeadStyle", "cellRecoveredStyle",
-            "cellAboardStyle", "cellStandInStyle",
-        };
-        private static readonly string[] KerbalsCellSelectors = { "StyleForRosterStatus", "StyleForEndState" };
 
         private static readonly TableSite[] Tables =
         {
@@ -83,7 +68,6 @@ namespace Parsek.Tests
                 HeaderMethod = "DrawContractsColumnHeader",
                 RowMethod = "DrawContractRow",
                 HeaderPinnedOutsideScrollView = false,
-                CellStyles = CareerCellStyles,
             },
             new TableSite
             {
@@ -91,7 +75,6 @@ namespace Parsek.Tests
                 HeaderMethod = "DrawStrategiesColumnHeader",
                 RowMethod = "DrawStrategyRow",
                 HeaderPinnedOutsideScrollView = false,
-                CellStyles = CareerCellStyles,
             },
             // The Kerbals window's two tabs, rebuilt as column tables 2026-09-15. Both
             // headers are drawn INSIDE the window scroll view that holds their rows, so
@@ -103,8 +86,6 @@ namespace Parsek.Tests
                 HeaderMethod = "DrawRosterColumnHeader",
                 RowMethod = "DrawRosterRow",
                 HeaderPinnedOutsideScrollView = false,
-                CellStyles = KerbalsCellStyles,
-                CellStyleSelectors = KerbalsCellSelectors,
             },
             new TableSite
             {
@@ -112,8 +93,6 @@ namespace Parsek.Tests
                 HeaderMethod = "DrawFlightsColumnHeader",
                 RowMethod = "DrawFlightRow",
                 HeaderPinnedOutsideScrollView = false,
-                CellStyles = KerbalsCellStyles,
-                CellStyleSelectors = KerbalsCellSelectors,
             },
         };
 
@@ -276,108 +255,6 @@ namespace Parsek.Tests
                 }
                 // ... and that local really is the shared cell style (or a copy of it).
                 Assert.Contains("GetTableCellStyle()", prepared);
-            }
-        }
-
-        /// <summary>
-        /// The same rule for the Career and Kerbals tables, whose body cells are TINTED
-        /// (an overdue deadline, a lost kerbal) and include label-styled BUTTONS (the
-        /// Career name links, the Kerbals Last-flight and Flights cells): every
-        /// <c>GUILayout.Label</c> / <c>Button</c> / <c>Toggle</c> in the row method draws
-        /// with one of the window's cell style fields (directly, or through a local picked
-        /// by a selector method whose every return names one), never a bare skin style,
-        /// and each of those fields is built from <c>ParsekUI.GetTableCellStyle()</c>. The
-        /// 2026-09-25 census measured the Kerbals roster at header text x=289, body text
-        /// x=285 before this.
-        /// </summary>
-        [Fact]
-        public void TintedTableRowsDrawEveryCellWithACellStyleBuiltOnTheSharedOne()
-        {
-            var call = new Regex(@"GUILayout\.(?:Label|Button|Toggle)\(", RegexOptions.Compiled);
-            var styleIdent = new Regex(@"\b(?!GUIStyle\b)[A-Za-z_][A-Za-z0-9_]*Style\b",
-                RegexOptions.Compiled);
-            int checkedSites = 0;
-            foreach (TableSite t in Tables.Where(x => x.CellStyles != null))
-            {
-                checkedSites++;
-                string prepared = ReadPreparedSource(t.File);
-                string where = t.File + " / " + t.RowMethod;
-                var allowed = new HashSet<string>(t.CellStyles, StringComparer.Ordinal);
-
-                // Each allowed field is built on the shared cell style, through the one
-                // local EnsureStyles reads it into.
-                Assert.Contains("tableCell = parentUI.GetTableCellStyle()", prepared);
-                foreach (string field in t.CellStyles)
-                {
-                    Assert.True(Regex.IsMatch(prepared,
-                            @"\b" + Regex.Escape(field) + @"\s*=\s*(?:new GUIStyle\(\s*)?tableCell\b"),
-                        t.File + ": cell style field " + field
-                        + " is not built from the shared table cell style (tableCell).");
-                }
-
-                string row = MethodBody(prepared, t.RowMethod, t.File);
-                var usedStyles = new HashSet<string>(StringComparer.Ordinal);
-                int calls = 0;
-                foreach (Match m in call.Matches(row))
-                {
-                    calls++;
-                    string args = BalancedArgs(row, m.Index + m.Length - 1);
-                    Assert.DoesNotContain("GUI.skin", args);
-                    var names = styleIdent.Matches(args).Cast<Match>().Select(x => x.Value).ToList();
-                    Assert.True(names.Count > 0, where + ": a body cell names no style: " + args);
-                    foreach (string n in names) usedStyles.Add(n);
-                }
-                Assert.True(calls > 0, where + ": no cells found, this gate is vacuous.");
-
-                foreach (string used in usedStyles)
-                {
-                    if (allowed.Contains(used)) continue;
-                    // A row-local: its initializer may name only allowed fields and
-                    // selector methods, and each selector returns only allowed fields.
-                    Match local = Regex.Match(row,
-                        @"GUIStyle\s+" + Regex.Escape(used) + @"\s*=(?<expr>[^;]*);");
-                    Assert.True(local.Success, where + ": body cell style " + used
-                        + " is neither a cell style field nor a row-local picked from one.");
-                    string expr = local.Groups["expr"].Value;
-                    foreach (Match n in styleIdent.Matches(expr))
-                        Assert.True(allowed.Contains(n.Value),
-                            where + ": " + used + " can be " + n.Value + ", which is not a cell style.");
-                    Assert.NotNull(t.CellStyleSelectors);
-                    foreach (string selector in t.CellStyleSelectors)
-                    {
-                        if (!expr.Contains(selector + "(")) continue;
-                        string body = MethodBody(prepared, selector, t.File);
-                        var returns = Regex.Matches(body, @"return\s+(?<v>[A-Za-z_][A-Za-z0-9_.]*)\s*;");
-                        Assert.True(returns.Count > 0, t.File + " / " + selector + ": no returns.");
-                        foreach (Match r in returns)
-                            Assert.True(allowed.Contains(r.Groups["v"].Value),
-                                t.File + " / " + selector + " returns " + r.Groups["v"].Value
-                                + ", which is not a cell style.");
-                    }
-                }
-            }
-            Assert.Equal(4, checkedSites);
-        }
-
-        /// <summary>
-        /// The other text drawn INSIDE those two windows' table bodies - the Kerbals
-        /// fold rows (plain-kerbals fold, each Flights group) and Career's grey "none
-        /// active now" line above pending rows - sits under the first column too, so it
-        /// is built on the shared cell style as well.
-        /// </summary>
-        [Fact]
-        public void TintedTableBodyFoldAndEmptyLinesUseTheSharedCellStyle()
-        {
-            string kerbals = ReadPreparedSource(Path.Combine("UI", "KerbalsWindowUI.cs"));
-            Assert.Matches(@"\bgroupHeaderStyle\s*=\s*new GUIStyle\(\s*tableCell\b", kerbals);
-            string career = ReadPreparedSource(Path.Combine("UI", "CareerStateWindowUI.cs"));
-            Assert.Matches(@"\bgrayCellStyle\s*=\s*new GUIStyle\(\s*tableCell\b", career);
-            foreach (string tab in new[] { "DrawContractsTab", "DrawStrategiesTab" })
-            {
-                string body = MethodBody(career, tab, "CareerStateWindowUI.cs");
-                int box = body.IndexOf("GetTableBodyBoxStyle()", StringComparison.Ordinal);
-                Assert.True(box > 0, tab + ": no body box.");
-                Assert.Contains("grayCellStyle", body.Substring(box));
             }
         }
 
@@ -706,23 +583,6 @@ namespace Parsek.Tests
             }
             throw new InvalidOperationException(
                 file + ": unbalanced braces walking " + method);
-        }
-
-        /// <summary>The argument text of the call whose opening parenthesis is at
-        /// <paramref name="openParen"/>, parentheses balanced (literals are masked).</summary>
-        private static string BalancedArgs(string prepared, int openParen)
-        {
-            int depth = 0;
-            for (int i = openParen; i < prepared.Length; i++)
-            {
-                if (prepared[i] == '(') depth++;
-                else if (prepared[i] == ')')
-                {
-                    depth--;
-                    if (depth == 0) return prepared.Substring(openParen + 1, i - openParen - 1);
-                }
-            }
-            throw new InvalidOperationException("unbalanced parentheses at " + openParen);
         }
 
         /// <summary>Text of the <c>&lt;field&gt; = ...;</c> assignment for one shared

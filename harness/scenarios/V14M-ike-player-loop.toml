@@ -536,12 +536,10 @@ id = "V14M-ike-player-loop"
 # WHAT THIS LANE CANNOT MEASURE, stated so the reading run is not over-read: RC-WARP is
 # satisfiable only by a REAL rails-warp ladder (the V1/autopilot shape). Every clock
 # move in this spec is an INSTANTANEOUS `TimeJump`, so the warp histogram will be
-# 1x-only and no ABOVE-1x `warpBuckets` entry may ever be declared here. That is a
-# property of the lane's drive shape, not a defect, and the design's "warp schedule"
-# bullet is deliberately NOT honoured in this pass (RC-WARP assertions come at arming,
-# on a lane whose drive shape can carry them). UPDATED 2026-09-25: `warpBuckets =
-# ["warp1x"]` IS now declared, for the D14 `warp-1x` claim (see the renderComposition
-# block); it asserts only the 1x half this paragraph already measured.
+# 1x-only and `warpBuckets` must never be declared here. That is a property of the
+# lane's drive shape, not a defect, and the design's "warp schedule" bullet is
+# deliberately NOT honoured in this pass (RC-WARP assertions come at arming, on a lane
+# whose drive shape can carry them).
 # =====================================================================================
 # -------------------------------------------------------------------------------------
 # CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
@@ -717,20 +715,10 @@ steps = [
 #       subject, and although the recording's first six ORBIT_SEGMENTs are Duna-framed
 #       nothing in THIS spec's contract gates a Duna-framed render. Claim it at arming
 #       if the reading shows a gateable Duna token.
-#   D14 `warp-1x` (CLAIMED 2026-09-25, supervisor ruling 2026-09-25, pending operator
-#       confirmation: the cell means "ghosts replayed at 1x, seen in the render warp
-#       histogram") <- the armed renderComposition block's `warpBuckets = ["warp1x"]`:
-#       RC-WARP FAILs the run when the manifest counts zero 1x frames inside a dwell.
-#       Measured {warp1x: 173} (reading), 177 (armed re-flight `2026-08-25_1050`).
-#       This claims NOTHING about warped rendering; V24W owns the above-1x buckets.
-#       ARMED RE-FLIGHT WITH THE KEY `2026-09-25_2027` PASS attempt 1 (DLL sha256
-#       47e1b430): renderComposition gating PASS, warp1x 171, every other bucket 0.
-#       NEGATIVE CONTROL offline: that manifest with every `warp1x = N` zeroed reds
-#       `RC-WARP [FAIL] warpBuckets.warp1x` and nothing else.
 [dimensionsCovered]
 D9  = ["fast-forward"]
 D11 = ["phase-lock"]
-D14 = ["ike", "scene-flight", "sandbox", "warp-1x"]
+D14 = ["ike", "scene-flight", "sandbox"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every [expectations.<sub>]
@@ -996,20 +984,11 @@ terminalStates = { Orbiting = { min = 1 } }
 #     count window above and red exactly here. The vocabulary is
 #     `rendercompose.SEAM_KINDS_REQUIRABLE` and admits no other token.
 #
-#   warpBuckets = ["warp1x"]              MEASURED {warp1x: 173} / 177, every other
-#     bucket 0. ADDED 2026-09-25 for the D14 `warp-1x` claim (supervisor ruling
-#     2026-09-25, pending operator confirmation). Every clock move on this lane is an
-#     instantaneous TimeJump, so the histogram is 1x-only BY CONSTRUCTION, and that is
-#     exactly the cell's definition ("ghosts replayed at 1x, seen in the render warp
-#     histogram"): the clause reds when the manifest carries no 1x dwell frame at all.
-#     It became declarable the same day, when RC-WARP's `seamsAboveOneX` /
-#     `holdsAboveOneX` clauses were scoped to declarations naming an ABOVE-1x bucket
-#     (rendercompose `_rule_warp`); before that any declaration demanded a seam
-#     crossed above 1x, which this lane can never produce.
-#
 # NOT DECLARED, on purpose:
-#   * any ABOVE-1x `warpBuckets` entry - the histogram is 1x-only by construction.
-#     Header section 6, last paragraph.
+#   * `warpBuckets` - every clock move on this lane is an instantaneous TimeJump, so
+#     RC-WARP's histogram is 1x-only BY CONSTRUCTION (measured {warp1x: 173}, every
+#     other bucket 0). Declaring it would pin a property of the drive shape as though
+#     it were a property of the product. Header §6, last paragraph.
 #   * any RC-CUT / RC-HOLD surface - this lane measured no loiter cut and no hold
 #     pair, so there is nothing here to arm (V8 owns the cut, and its own reading
 #     could not evaluate it either).
@@ -1074,7 +1053,6 @@ dwells = { min = 1, max = 32 }
 cycles = { min = 1, max = 16 }
 unevaluable = { max = 200 }
 requireSeamKinds = ["rigid", "flexible-soi"]
-warpBuckets = ["warp1x"]
 
 [runtime]
 # 300 LoadGame + 2x300 StartLoopPlayback + 8x300 TimeJump + the fast non-deferred verbs

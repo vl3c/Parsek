@@ -157,7 +157,7 @@ TimelineEntry
 **Recording lifecycle** (5 types):
 `RecordingStart`, `VesselSpawn`, `CrewDeath`, `UnfinishedFlightSeparation`, `Separation`
 
-**Game actions** (23 entry types; every non-route `GameActionType` member renders as a row, the eight route action types have no timeline entry and the builder skips them). Four later action types reuse an existing bucket instead of adding an entry type: `StrategyScienceDebit` / `StrategyScienceCredit` render as `ScienceSpending` / `ScienceEarning`, and `KerbalRecovered` (`Recovered: <name>`) and `KerbalExperience` (`XP: <name> (<career-log entries>)`, e.g. `XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin, Recovered)`) render in the `KerbalAssignment` bucket. The entry types:
+**Game actions** (23 types, 1:1 with the non-route `GameActionType` members; the 7 route action types have no timeline entry):
 `ScienceEarning`, `ScienceSpending`, `FundsEarning`, `FundsSpending`, `ReputationEarning`, `ReputationPenalty`, `MilestoneAchievement`, `ContractAccept`, `ContractComplete`, `ContractFail`, `ContractCancel`, `KerbalAssignment`, `KerbalHire`, `KerbalRescue`, `KerbalStandIn`, `FacilityUpgrade`, `FacilityDestruction`, `FacilityRepair`, `StrategyActivate`, `StrategyDeactivate`, `FundsInitial`, `ScienceInitial`, `ReputationInitial`
 
 **Legacy** (1 type):
@@ -183,7 +183,7 @@ TimelineBuilder.Build(
 
 **Recording Collector** - emits `RecordingStart` (with MET duration, EVA detection, parent vessel resolution) and `VesselSpawn` at EndUT (with terminal state and VesselSituation), plus a `CrewDeath` row per dead kerbal (bug #229) and a `UnfinishedFlightSeparation` / `Separation` row at each staging split point. Skips hidden and debris recordings. Chain recordings show full chain duration. EVA detection via `EvaCrewName` or single-crew vessel name match.
 
-**Game Action Collector** — skips the route action types, maps the rest into their buckets, humanizes display text (science subjects, tech nodes, milestones, strategies, crew assignments with vessel name), classifies as Action or Event via `IsPlayerAction`, demotes ineffective T1 entries to T2, resolves vessel name from RecordingId.
+**Game Action Collector** — maps types 1:1, humanizes display text (science subjects, tech nodes, milestones, strategies, crew assignments with vessel name), classifies as Action or Event via `IsPlayerAction`, demotes ineffective T1 entries to T2, resolves vessel name from RecordingId.
 
 **Legacy Collector** — iterates committed milestones, keeps only events visible to the current timeline (untagged rows plus tagged rows whose recording id is in the committed/pending/active current branch), skips filtered event types, all entries at T2.
 

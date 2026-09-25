@@ -266,27 +266,7 @@ steps = [
 ]
 
 [dimensionsCovered]
-# CLAIMED 2026-09-25 (branch `cov-wave1`), each off a REQUIRED token below:
-# D13 `pid-dedup` <- `Tracking-station handoff skipped duplicate spawn for #N "Kerbal
-#   X" - real vessel pid=P already exists` (GhostMapPresence.cs:7530). The TS spawn
-#   handoff for the looped member finds the recording's real vessel already in the
-#   save (`RealVesselExistsForRecording`), marks it spawned and removes the ghost
-#   presence instead of spawning a second copy. Measured on all five archived runs
-#   (`2026-08-24_1920` .. `2026-08-25_0012`, pid 2708531065 every time). A SEPARATE
-#   cell from D6 `spawn-at-end-pid-dedup` (supervisor ruling 2026-09-25): this is the
-#   tracking-station handoff path, not the flight-scene end-of-playback spawn.
-# D16 `sidecar-pann` <- BOTH `Pannotations read OK: recordingId=... block=
-#   SmoothingSplineList` (SmoothingPipeline.cs:554, the fixture's committed `.pann`
-#   sidecars decoded at load) and `Pannotations write OK: recordingId=... bytes=N`
-#   (:804, a `.pann` written after the trajectory commit). Read and write of the same
-#   sidecar format in one run; every archived V22T log carries both (7 reads / 3 writes).
-# ARMED RE-FLIGHT `2026-09-25_2026` PASS attempt 1 (DLL sha256 47e1b430, origin/main
-#   7c90492bd): the handoff line for #2 "Kerbal X" pid 2708531065, 7 reads, 3 writes.
-#   NEGATIVE CONTROL offline over that log: each token with a reversed literal, and
-#   the log with each token's matches removed, reds through `hlib.evaluate_expectations`.
-D13 = ["pid-dedup"]
 D14 = ["kerbin", "scene-ts", "sandbox"]
-D16 = ["sidecar-pann"]
 
 [expectations]
 allowedAnomalies = []
@@ -330,10 +310,6 @@ required  = [
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
   "CreateGhostVesselsFromCommittedRecordings: created=\\d+ from \\d+ recordings",
   "skipped: debris=\\d+ .*loopMemberHidden=[1-9]",
-  # D13 pid-dedup + D16 sidecar-pann (2026-09-25, see [dimensionsCovered]).
-  "Tracking-station handoff skipped duplicate spawn for #[0-9]+ \"Kerbal X\" [^\\r\\n]*real vessel pid=[0-9]+ already exists",
-  "Pannotations read OK: recordingId=[0-9a-f]+ block=SmoothingSplineList ",
-  "Pannotations write OK: recordingId=[0-9a-f]+ bytes=[1-9][0-9]* ",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

@@ -53,8 +53,7 @@ namespace Parsek
         /// <summary>The three rows of the filter area, top to bottom.</summary>
         internal enum TimelineFilterRow
         {
-            /// <summary>Row 1: Overview, Details, Rewind/FF, Re-Fly, Career, then the
-            /// Archived filter.</summary>
+            /// <summary>Row 1: Overview, Details, Rewind/FF, Re-Fly, Career.</summary>
             View,
             /// <summary>Row 2: the context row of the selected view.</summary>
             Context,
@@ -65,12 +64,11 @@ namespace Parsek
         /// <summary>What filter row 2 holds for the selected view.</summary>
         internal enum TimelineContextRow
         {
-            /// <summary>Overview / Details: Recordings, Actions, Events.</summary>
-            Sources,
-            /// <summary>Rewind/FF / Re-Fly: no buttons (the sources are forced or inert
-            /// there, so they are hidden rather than greyed). The row is still drawn at a
-            /// button's height so switching views never moves the list.</summary>
-            Empty,
+            /// <summary>Overview / Details: Recordings, Actions, Events, Archived.</summary>
+            SourcesAndArchived,
+            /// <summary>Rewind/FF / Re-Fly: Archived only (the sources are forced or inert
+            /// there, so they are hidden rather than greyed).</summary>
+            ArchivedOnly,
             /// <summary>Career: the category buttons the game mode shows.</summary>
             Categories
         }
@@ -157,8 +155,8 @@ namespace Parsek
         private const float RowActionButtonWidth = 40f;
         private const float GoToButtonWidth = 48f;
 
-        // Floor of the cell width for the top zone: the view row (with Archived last),
-        // the context row (sources or the career categories) and the time-range preset row.
+        // Floor of the cell width for the top zone: the view row, the context row
+        // (sources, Archived or the career categories) and the time-range preset row.
         // All three rows share one width so their columns align.
         private const float FilterButtonWidth = 93f;
 
@@ -1068,11 +1066,10 @@ namespace Parsek
             // Rows 1 and 2 of the filter area (row 3, the time-range presets, is
             // DrawTimeRangeFilterBar).
             //   Row 1: the one-at-a-time view group (Overview, Details, Rewind/FF, Re-Fly,
-            //          Career), then the Archived filter as the last cell. Archived sits
-            //          here because it applies to every view, not to one view's context.
+            //          Career).
             //   Row 2: the context row for the selected view (ResolveContextRow), ALWAYS
             //          drawn and always one button tall, so switching views never moves
-            //          the list (Rewind/FF and Re-Fly reserve an empty button-high row).
+            //          the list.
             // Both rows sit on the shared six-cell grid (FilterRowCellWidth), left-aligned.
             // Nothing here reads the UI complexity mode: Basic and Advanced draw the same
             // controls. The Career cell reads the GAME mode (absent in Sandbox; Science
@@ -1115,9 +1112,7 @@ namespace Parsek
                     ParsekLog.Verbose("UI", $"Timeline filter: Career ({category})");
                 }
             }
-            // Sandbox: no Career cell; the four remaining views keep their width and
-            // Archived moves up to the fifth cell.
-            DrawArchivedToggle(viewW);
+            // Sandbox: no Career cell; the four remaining views keep their width.
             GUILayout.EndHorizontal();
 
             bool actionFilterMode = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward
@@ -1132,14 +1127,12 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             switch (ResolveContextRow(tierFilterMode))
             {
-                case TimelineContextRow.Sources:
+                case TimelineContextRow.SourcesAndArchived:
                     DrawSourceToggles(btnW);
+                    DrawArchivedToggle(btnW);
                     break;
-                case TimelineContextRow.Empty:
-                    // Reserve one button's height and draw nothing, so the list below
-                    // stays where it is when the view changes.
-                    GUILayoutUtility.GetRect(EmptyContextRowSizingContent, toggleButtonStyle,
-                        GUILayout.Width(btnW));
+                case TimelineContextRow.ArchivedOnly:
+                    DrawArchivedToggle(btnW);
                     break;
                 default:
                     DrawCategoryToggles(gameMode, btnW);
@@ -1191,10 +1184,6 @@ namespace Parsek
             }
         }
 
-        /// <summary>Sizing content for the empty context row: a one-line label, so the
-        /// reserved rect is exactly as tall as the buttons of the other context rows.</summary>
-        private static readonly GUIContent EmptyContextRowSizingContent = new GUIContent("Archived");
-
         private void DrawArchivedToggle(float btnW)
         {
             // Archive reveal. This is the ONLY control for the archive filter that Basic
@@ -1205,19 +1194,16 @@ namespace Parsek
             bool showArchived = ShowArchivedRecordings;
             bool newShowArchived = GUILayout.Toggle(
                 showArchived,
-                // Hover text, derived from what the toggle does: it flips the shared
-                // archive filter, which decides whether recordings the player archived
-                // (Recording.Hidden, set by the recordings list's per-row and per-group
-                // Archive boxes) contribute their flight rows - launch, separation,
-                // spawn and crew-death rows, each marked [archived]. It is in force in
-                // every view; the Career views list ledger rows only, which archiving
-                // never hides, so there it changes nothing. The Missions window's own
-                // Archive box is a different flag over a different list and does not
-                // reach the Timeline. Kept a literal so TooltipEchoBudgetTests budgets
-                // it; no hard newlines (the help strip is one wrapped line here).
+                // Tooltip names no window. The obvious wording ("archived in the
+                // Recordings tab") would point a Basic player at a tab their mode does
+                // not have. Wording that describes the ITEMS rather than the surface is
+                // correct in both modes and needs no mode read.
+                // No hard newlines: the help strip is a single wrapped line in this
+                // window, so a \n spends that line on whatever sits before it and
+                // clips the rest (TooltipEchoBudgetTests).
                 new GUIContent("Archived",
-                    "Lists archived flights, marked [archived], in all views. "
-                    + "Same switch as the recordings list's Archive filter."),
+                    "Brings back rows for flights you archived - the same Archive filter "
+                    + "the recordings list uses."),
                 toggleButtonStyle,
                 GUILayout.Width(btnW));
             if (newShowArchived != showArchived)
@@ -1327,8 +1313,8 @@ namespace Parsek
             if (IsCareerCategoryView(mode)) return TimelineContextRow.Categories;
             if (mode == TimelineTierFilterMode.RewindOrFastForward
                 || mode == TimelineTierFilterMode.ReFly)
-                return TimelineContextRow.Empty;
-            return TimelineContextRow.Sources;
+                return TimelineContextRow.ArchivedOnly;
+            return TimelineContextRow.SourcesAndArchived;
         }
 
         /// <summary>Whether row 1 draws the Career cell: false in Sandbox and the mission

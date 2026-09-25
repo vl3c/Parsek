@@ -274,29 +274,6 @@ D9 = ["rewind-to-launch"]
 # `scene-map`  <- "entermapview ok mapOpen=true" (read-back of MapView.MapIsEnabled,
 #   the same property the polyline Driver gates on).
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
-# `crew-swap` (CLAIMED 2026-09-25, branch `cov-wave1`) <- BOTH
-#   "Swapped '<reserved>' -> '<stand-in>' in part '" (CrewReservationManager.cs:314,
-#   the arrow is U+2192, spelled `\u2192` in the regex) and "Crew swap complete: N
-#   succeeded" with N >= 1 (:350). After the rewind the watcher Jumping Flea rolls out
-#   with a kerbal the committed Kerbal X future still reserves (measured on every GS-4
-#   archive: `Swapped 'Bill Kerman' -> 'Newgan Kerman' in part 'Mk1 Command Pod'`), and
-#   the in-flight swap replaces the reserved kerbal with its stand-in. The pair is the
-#   swap itself (Pass 1, a reserved kerbal taken out of a seat), not the stand-in
-#   generation `stand-ins` (CL-4) claims.
-D12 = ["crew-swap"]
-# `sfs-scenario-node` (CLAIMED 2026-09-25, branch `cov-wave1`) <- "OnSave: saving N
-#   committed tree(s)" with N >= 1 (ParsekScenario.cs:1400), the ScenarioModule
-#   writing its committed-tree state into the save, READ BACK by the gating
-#   `[expectations.rewind]` block below: saveParse parses the produced save's
-#   ParsekScenario node, so a missing or unreadable node reds rewindPoints {1,1}.
-#   Write logged, read gated.
-# ARMED RE-FLIGHT for both claims `2026-09-25_2028` PASS attempt 1 (DLL sha256
-#   47e1b430, origin/main 7c90492bd): `Swapped 'Bill Kerman' -> 'Mafield Kerman' in part
-#   'Mk1 Command Pod'`, `Crew swap complete: 1 succeeded`, `OnSave: saving 1 committed
-#   tree(s)`, saveParse gating PASS. NEGATIVE CONTROL offline over the archived logs:
-#   each token with a reversed literal, and each log with the token's matches removed,
-#   reds through `hlib.evaluate_expectations`.
-D16 = ["sfs-scenario-node"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must precede every
@@ -392,11 +369,7 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=(?:watch hold expired|playback completed|auto-followed)",
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
-             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris",
-             # D12 crew-swap + D16 sfs-scenario-node (2026-09-25, see [dimensionsCovered]).
-             "\\[CrewReservation\\] Swapped '[^']+' \\u2192 '[^']+' in part '",
-             "\\[CrewReservation\\] Crew swap complete: [1-9][0-9]* succeeded",
-             "\\[Scenario\\] OnSave: saving [1-9][0-9]* committed tree\\(s\\)"]
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris"]
 # The ERROR pattern is the suite-wide one. It also covers the seam verbs' own
 # failure terminals (rewind-failed / rewind-timeout / enterwatchmode timeout all
 # log at ERROR), so a watch or rewind that half-worked cannot pass on the required

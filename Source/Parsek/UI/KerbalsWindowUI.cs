@@ -159,16 +159,6 @@ namespace Parsek
         private GUIStyle recoveredStyle;
         private GUIStyle aboardStyle;
         private GUIStyle activeChainStyle;
-        // Table body cells: the shared table cell style (ParsekUI.GetTableCellStyle, the
-        // boxed column header's horizontal padding) in each tint, so a body cell's text
-        // starts at the x its header's text does. The plain-label tints above stay for
-        // the grey empty-state lines drawn outside the tables.
-        private GUIStyle cellPlainStyle;
-        private GUIStyle cellGrayStyle;
-        private GUIStyle cellDeadStyle;
-        private GUIStyle cellRecoveredStyle;
-        private GUIStyle cellAboardStyle;
-        private GUIStyle cellStandInStyle;
         // Toggle button style for tab bar - mirrors CareerStateWindowUI / TimelineWindowUI:
         // the "on" background is copied from GUI.skin.button.active so the selected tab
         // looks visibly pushed in.
@@ -558,11 +548,7 @@ namespace Parsek
             {
                 normal = { textColor = new Color(0.75f, 0.75f, 0.75f) }
             };
-            // The group header is a fold row INSIDE a table body (the plain-kerbals fold
-            // and each Flights group), so it takes the table cell padding too and its text
-            // lines up with the first column header's text.
-            GUIStyle tableCell = parentUI.GetTableCellStyle();
-            groupHeaderStyle = new GUIStyle(tableCell)
+            groupHeaderStyle = new GUIStyle(GUI.skin.label)
             {
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
@@ -583,12 +569,6 @@ namespace Parsek
             {
                 normal = { textColor = new Color(0.6f, 0.8f, 0.95f) }
             };
-            cellPlainStyle = tableCell;
-            cellGrayStyle = new GUIStyle(tableCell) { normal = { textColor = grayStyle.normal.textColor } };
-            cellDeadStyle = new GUIStyle(tableCell) { normal = { textColor = deadStyle.normal.textColor } };
-            cellRecoveredStyle = new GUIStyle(tableCell) { normal = { textColor = recoveredStyle.normal.textColor } };
-            cellAboardStyle = new GUIStyle(tableCell) { normal = { textColor = aboardStyle.normal.textColor } };
-            cellStandInStyle = new GUIStyle(tableCell) { normal = { textColor = activeChainStyle.normal.textColor } };
             // Tab bar button: selected tab looks pressed via onNormal.background copied
             // from GUI.skin.button.active.background (matches CareerStateWindowUI and
             // TimelineWindowUI toggle idiom).
@@ -730,7 +710,7 @@ namespace Parsek
         private void DrawRosterRow(KerbalsPresentation.RosterRow row, bool dimmed)
         {
             GUIStyle cellStyle = dimmed
-                ? cellGrayStyle
+                ? grayStyle
                 : StyleForRosterStatus(row.Status);
 
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
@@ -796,11 +776,11 @@ namespace Parsek
         {
             switch (s)
             {
-                case KerbalsPresentation.RosterStatus.Lost: return cellDeadStyle;
-                case KerbalsPresentation.RosterStatus.Retired: return cellGrayStyle;
-                case KerbalsPresentation.RosterStatus.Assigned: return cellAboardStyle;
-                case KerbalsPresentation.RosterStatus.StandIn: return cellStandInStyle;
-                default: return cellPlainStyle;
+                case KerbalsPresentation.RosterStatus.Lost: return deadStyle;
+                case KerbalsPresentation.RosterStatus.Retired: return grayStyle;
+                case KerbalsPresentation.RosterStatus.Assigned: return aboardStyle;
+                case KerbalsPresentation.RosterStatus.StandIn: return activeChainStyle;
+                default: return GUI.skin.label;
             }
         }
 
@@ -923,10 +903,10 @@ namespace Parsek
         {
             switch (s)
             {
-                case KerbalEndState.Dead: return cellDeadStyle;
-                case KerbalEndState.Recovered: return cellRecoveredStyle;
-                case KerbalEndState.Aboard: return cellAboardStyle;
-                default: return cellGrayStyle;
+                case KerbalEndState.Dead: return deadStyle;
+                case KerbalEndState.Recovered: return recoveredStyle;
+                case KerbalEndState.Aboard: return aboardStyle;
+                default: return grayStyle;
             }
         }
 

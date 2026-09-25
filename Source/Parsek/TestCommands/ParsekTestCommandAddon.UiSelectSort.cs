@@ -336,6 +336,16 @@ namespace Parsek.TestCommands
                 }
                 changed = ApplyVesselSelection(mission, row, include);
             }
+            else if (prefix == TestCommandUiSelectSort.LegKeyPrefix)
+            {
+                MissionVesselRow row = FindVesselRowByIntervalKey(rows, value);
+                if (row == null)
+                {
+                    RejectSelectKeyUnknown(rawKey, CollectIntervalKeys(rows));
+                    return;
+                }
+                changed = ApplyLegSelection(mission, row, value, include);
+            }
             else
             {
                 if (!LinkExists(links, value))
@@ -457,6 +467,15 @@ namespace Parsek.TestCommands
                     : MissionVesselInclusion.None;
                 agrees = inclusion == want;
                 after = inclusion.ToString();
+            }
+            else if (prefix == TestCommandUiSelectSort.LegKeyPrefix)
+            {
+                // The ONE key's own membership: a leg edit is exactly one write, so its
+                // read-back is exact. (The row's classification would be `Partial` for a
+                // correct trim, which is not a direction this op can be asked for.)
+                bool included = !mission.ExcludedIntervalKeys.Contains(value);
+                agrees = included == pending.SelectInclude;
+                after = TestCommandUiSelectSort.IncludeToken(included);
             }
             else
             {
@@ -615,6 +634,26 @@ namespace Parsek.TestCommands
             }
         }
 
+        private static List<string> CollectIntervalKeys(List<MissionVesselRow> rows)
+        {
+            var keys = new List<string>();
+            CollectIntervalKeysInto(rows, keys);
+            return keys;
+        }
+
+        private static void CollectIntervalKeysInto(List<MissionVesselRow> rows,
+                                                    List<string> into)
+        {
+            if (rows == null) return;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                MissionVesselRow row = rows[i];
+                if (row == null) continue;
+                into.AddRange(MissionVesselRowBuilder.IntervalKeys(row));
+                CollectIntervalKeysInto(row.Children, into);
+            }
+        }
+
         private static List<string> CollectLinkIds(List<ForeignDockLink> links)
         {
             var ids = new List<string>();
@@ -658,6 +697,25 @@ namespace Parsek.TestCommands
                 + $"include={TestCommandUiSelectSort.IncludeToken(include)} "
                 + $"keysChanged={Int(changed)}");
             return changed;
+        }
+
+        /// <summary>
+        /// The per-INTERVAL include, through the interval checkbox's own body
+        /// (<c>MissionsWindowUI.ApplyIntervalInclusion</c>: the one-key write, the selection
+        /// stamp and the production <c>Mission '...' interval '...' included=</c> line), so
+        /// nothing here re-spells the click. Idempotent like the vessel form: a request that
+        /// matches the current state writes nothing and reports <c>keysChanged=0</c>.
+        /// </summary>
+        private static int ApplyLegSelection(Mission mission, MissionVesselRow row,
+                                             string legKey, bool include)
+        {
+            bool moved = MissionsWindowUI.ApplyIntervalInclusion(mission, legKey, include);
+            ParsekLog.Info(Tag, $"uiaction select leg mission={mission.Id} "
+                + $"head={row.OwnerHeadId} leg={legKey} vessel={row.VesselName} "
+                + $"include={TestCommandUiSelectSort.IncludeToken(include)} "
+                + $"keysChanged={Int(moved ? 1 : 0)} "
+                + $"inclusion={MissionVesselRowBuilder.ClassifyInclusion(row, mission.ExcludedIntervalKeys)}");
+            return moved ? 1 : 0;
         }
 
         /// <summary>The partner-journey include, through the production membership write plus

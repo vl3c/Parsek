@@ -842,17 +842,6 @@ count = { min = 10, max = 24 }
 #     the endpoint census on this drive shape is a sampled population and a count
 #     window over it would pin the sampler, not the product.
 #
-# SCOPE NOTE, 2026-09-25 (branch `cov-wave1`): RC-WARP's two traversal clauses
-# (`seamsAboveOneX`, `holdsAboveOneX`) now fire only for a declaration that NAMES an
-# above-1x bucket. This lane names two, so its evaluation is unchanged - both archived
-# manifests (`2026-08-25_1851`, `_2313`) replay byte-identically through the old and
-# new rule, as do the other 75 archived manifests of every declaring lane. The change
-# lets V14M declare `["warp1x"]` alone for the D14 `warp-1x` cell (supervisor ruling
-# 2026-09-25): a 1x-only declaration proves only that 1x dwell frames were counted,
-# and must not be asked for a warped seam it makes no claim about. The above-1x
-# anti-vacuity this lane relies on is pinned by
-# `test_rendercompose.WarpTraversalScopeTests`.
-#
 # THE DECLARATION (not the arming) remains what sets `PARSEK_RENDER_MANIFEST=1` at
 # launch (`rendercompose.declared_composition_blocks` -> run.py's env build), arming
 # the C# recorder at Awake; without it the export step answers

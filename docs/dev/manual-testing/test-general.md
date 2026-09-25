@@ -219,9 +219,9 @@ Before capturing any release bundle, verify that the deployed
 
 ## Vessel Spawning
 
-### Spawn collision check
+### Proximity offset
 1. Record two flights that end near the same location
-2. Verify: the second vessel does not spawn overlapping the first (its spawn is blocked and retried, or placed at an earlier clear point along its recorded path)
+2. Verify: second vessel spawns offset to 250m away, not on top of the first
 
 ### Duplicate prevention
 1. Merge a recording with "Keep Vessel", let the vessel spawn
