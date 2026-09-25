@@ -111,10 +111,17 @@ LAYOUT_EPOCHS = {
     # PR #1762 (merged 2026-09-22T20:38:41Z): slot-grouped roster, no Since column.
     # First run on it: GUI-11-census-kerbals-crewed 2026-09-22_2004.
     "kerbals": {"utc": "2026-09-22T20:04:25Z", "pr": 1762},
-    # PR #1818 (after #1809 and #1792): every filter button one width, rows
-    # left-aligned (the view row no longer stretches).
-    # First run on it: GUI-24-census-timeline-filters 2026-09-25_1725.
-    "timeline": {"utc": "2026-09-25T17:25:59Z", "pr": 1818},
+    # PR #1828 (after #1818): no from-to readout line above the Custom sliders.
+    # First run on it: GUI-6-census-flight-playback 2026-09-25_1838 (its Timeline
+    # states); the Custom sliders themselves: GUI-24 2026-09-25_1842.
+    "timeline": {"utc": "2026-09-25T18:38:07Z", "pr": 1828},
+    # PR #1828: header and rows in one body box, a Warp column header, cell text
+    # under the header text.
+    # First run on it: GUI-6-census-flight-playback 2026-09-25_1838.
+    "spawncontrol": {"utc": "2026-09-25T18:38:07Z", "pr": 1828},
+    # PR #1828: header and rows in one body box, cell text under the header text.
+    # First run on it: GUI-4-census-missions-docked 2026-09-25_1839.
+    "structure": {"utc": "2026-09-25T18:39:56Z", "pr": 1828},
     # PR #1796 (merged 2026-09-24T16:18:48Z): the state view, two tabs.
     # First run on it: GUI-15-census-career-contracts 2026-09-24_1522.
     "career": {"utc": "2026-09-24T15:22:01Z", "pr": 1796},
