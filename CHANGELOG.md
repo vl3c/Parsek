@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane checks that a replayed ghost keeps its recorded attitude.** With
+  ghost render tracing on, each traced ghost frame now also logs how far, in degrees, the ghost's
+  drawn orientation is from the orientation its recording implies at that moment, worked out from
+  the recording itself the same way playback does. The new lane `AP-1-minmus-attitude-residual`
+  replays a recorded Minmus mission through a warp across the Kerbin-to-Minmus crossing and a
+  warp while watching the ghost in orbit, and requires that difference to stay under 0.05 degrees
+  on every frame while the ghost turns more than 90 degrees. Both flights measured 0.000 degrees
+  on about 830 frames while the ghost turned 157 degrees. Coverage 231 -> 232 of 247.
 - **Automated testing: ghosts are checked under physics warp, and snapshot files are checked for
   their compressed format and for ghost snapshots that reuse the vessel snapshot.** The test warp
   command can now hold the game in physics warp (1x to 4x) for a whole span instead of taking

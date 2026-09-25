@@ -64,6 +64,23 @@ the hold, and a retired or displaced stand-in still counts. Needs an in-game cel
 by the complex header, the hire lock, the hire cost and the editor auto-hire). (b) Refuse generation at
 the limit and log it (the seat then has no replacement). (c) Accept and document. Recommendation: (a).
 
+## ~~D6-ATTITUDE-PRESERVATION-HAS-NO-INSTRUMENT: no lane could measure that a replayed ghost keeps its recorded attitude~~ [FILED AND CLOSED 2026-09-26 by `AP-1-minmus-attitude-residual`, coverage wave 9, branch `cov-attitude`]
+
+The flight tracer's `AfterUpdate` line printed the rendered `rot=` with nothing to compare it
+against. Fix: two trailing fields `dRotDeg=<F3|NaN> rotRef=<token>`, the angle between the rendered
+rotation and the rotation the recording implies at that playback UT
+(`ParsekFlight.TryResolveRecordedAttitudeForTrace`, the recording's own data decoded through the
+positioner's frame code; tracing-only), read by `ghostlife.py` v3 (`attitude` table). AP-1 reading
+`2026-09-25_2235` and armed re-flight `2026-09-25_2238` both PASS: every one of ~830 lines reads
+0.000 deg while the rendered attitude sweeps 157 deg. Residue, not filed as defects: (a) the
+residual shares the positioner's frame conventions by design, so a convention error both sides
+share is H9's to catch, not this row's; (b) it reads before the LateUpdate floating-origin reapply,
+so a reapply that rewrote rotation wrongly would not show; (c) live-anchor loop RELATIVE ghosts
+print `NaN rotRef=relative-live-anchor` (no live anchor pose in the resolver); (d) AP-1 exercises the
+orbit-only checkpoint branch and Absolute points only - the checkpoint-with-frames branch (lerped
+position, so a small chord term in the residual), body-fixed primary and recorded-anchor RELATIVE
+decodes are implemented and unit-plumbed but not yet read live.
+
 ## MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`]
 
 `Mission.Clone` copies `LoopPlayback` (with the period, unit and anchor) and

@@ -34,8 +34,11 @@ id = "AP-1-minmus-attitude-residual"
 # of the positioner's lerped position against the Kepler position (a few tenths of a
 # degree at most on this subject), which is why the ceiling is not zero.
 #
-# STATUS: reading `2026-09-25_2235` PASS attempt 1; ARMED off it (the block below);
-# armed re-flight and offline negative control recorded in autotest-status.md.
+# STATUS: LIVE-PROVEN AND CLAIMED 2026-09-26. Reading `2026-09-25_2235` PASS attempt 1;
+# ARMED off it (the block below); armed re-flight `2026-09-25_2238` PASS attempt 1 (827
+# resolved lines, max 0.000 deg, sweep 157.3 deg). Negative controls OFFLINE on those logs:
+# one line's dRotDeg set to 12.5 reds exactly `attitude.maxRotDeg`; every `rot=` flattened
+# reds both sweep floors.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
 description = "D6 attitude-preservation: replay the committed Minmus loop subject (cycle 1) with the flight render tracer on, warp across the Kerbin->Minmus seam and then 600 s while watching the ghost in its Minmus park, and gate the AfterUpdate attitude residual (dRotDeg, rendered vs recording-implied rotation through the positioner's own frame conventions): bounded on every resolved line while the rendered attitude sweeps far enough to make the bound meaningful."
