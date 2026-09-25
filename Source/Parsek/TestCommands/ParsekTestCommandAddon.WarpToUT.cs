@@ -36,6 +36,13 @@ namespace Parsek.TestCommands
         private int warpLastRequestedIndex;
         private int warpSettleFramesRemaining;
 
+        // ladder=phys state: the requested ladder, the stock mode captured at start (restored
+        // at every terminal), and how many times the applier had to put stock back in
+        // physics warp (stock switches to rails on its own at low rungs in vacuum).
+        private WarpLadderMode warpRequestedMode;
+        private TimeWarp.Modes warpModeBefore;
+        private int warpPhysicsModeAsserts;
+
         // ----- WarpToUT (two-phase, forward-only, REAL rails warp) -----
         // Resolves the absolute forward target (ut=), the optional maxRate= cap, refuses a
         // backward / malformed target and an undriveable warp, then walks the stock rails
@@ -45,6 +52,7 @@ namespace Parsek.TestCommands
         {
             string utArg = ArgOrNull(cmd, "ut");
             string maxRateArg = ArgOrNull(cmd, "maxRate");
+            string modeArg = ArgOrNull(cmd, "ladder");
             double nowUt = SafeUniversalTime();
 
             double target = TestCommandWarpToUT.ResolveTargetUt(utArg, out string targetError);
@@ -63,6 +71,14 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            WarpLadderMode mode = TestCommandWarpToUT.ResolveWarpMode(modeArg, out string modeError);
+            if (modeError != null)
+            {
+                ParsekLog.Warn(Tag, $"warptout refused reason={modeError} ladder={modeArg}");
+                SetExecResult("REJECTED", null, modeError);
+                return;
+            }
+
             if (!TestCommandWarpToUT.IsForwardWarp(nowUt, target))
             {
                 ParsekLog.Warn(Tag,
@@ -74,6 +90,8 @@ namespace Parsek.TestCommands
 
             string feasibility = TestCommandWarpToUT.EvaluateFeasibility(
                 SafeWarpControllerPresent(), SafeTimeWarpLocked());
+            if (feasibility == null)
+                feasibility = TestCommandWarpToUT.EvaluateModeFeasibility(mode, SafePhysicsWarpAllowed());
             if (feasibility != null)
             {
                 ParsekLog.Warn(Tag, $"warptout refused reason={feasibility} ut={Inv(target)}");
@@ -87,10 +105,14 @@ namespace Parsek.TestCommands
             warpMaxObservedRate = SafeCurrentWarpRate();
             warpLastRequestedIndex = -1;
             warpSettleFramesRemaining = TestCommandWarpToUT.SettleFrames;
+            warpRequestedMode = mode;
+            warpModeBefore = SafeStockInPhysicsWarp() ? TimeWarp.Modes.LOW : TimeWarp.Modes.HIGH;
+            warpPhysicsModeAsserts = 0;
 
             ParsekLog.Info(Tag,
                 $"warptout start ut={Inv(target)} delta={Inv(target - nowUt)}s "
                 + $"maxRate={Inv(cap)} rate={Inv(warpMaxObservedRate)} "
+                + $"ladder={WarpModeToken(mode)} stockMode={SafeWarpModeName()} "
                 + $"ceilingIndex={SafeMaxRateIndexForActiveVessel().ToString(CultureInfo.InvariantCulture)}");
 
             // ARM THE TWO-PHASE FIRST, THEN RAISE THE WARP. The order is load-bearing and
@@ -165,6 +187,7 @@ namespace Parsek.TestCommands
                 // Never leave the game warped because a sample threw. The outer
                 // TryCompleteTwoPhase catch turns this into an ERROR terminal.
                 ForceWarpToRealTime("completion-threw");
+                RestoreWarpModeIfForced("completion-threw");
                 throw;
             }
 
@@ -177,15 +200,20 @@ namespace Parsek.TestCommands
             string id = completionId; long seq = completionSeq; string verb = completionVerb;
             double target = warpTargetUt; double start = warpStartUt;
             double maxObserved = warpMaxObservedRate;
+            WarpLadderMode requestedMode = warpRequestedMode;
+            int modeAsserts = warpPhysicsModeAsserts;
             ClearTwoPhase();
 
             if (decision == WarpCompletionDecision.CompleteOk)
             {
                 List<KeyValuePair<string, string>> payload =
                     TestCommandWarpToUT.BuildCompletePayload(currentUt, target, start, maxObserved);
+                RestoreWarpModeIfForced("target-reached");
                 ParsekLog.Info(Tag,
                     $"warptout complete reachedUT={Inv(currentUt)} ut={Inv(target)} "
                     + $"rate={Inv(SafeCurrentWarpRate())} maxRate={Inv(maxObserved)} "
+                    + $"ladder={WarpModeToken(requestedMode)} "
+                    + $"modeAsserts={modeAsserts.ToString(CultureInfo.InvariantCulture)} "
                     + $"elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
                 EmitExecutedTerminal(id, seq, verb, "OK", payload, null, dequeueHead: true);
             }
@@ -194,6 +222,7 @@ namespace Parsek.TestCommands
                 // Lower the warp BEFORE the terminal: a run that classifies INVALID off this
                 // ERROR must not leave a warped game behind for whatever runs next.
                 ForceWarpToRealTime(TestCommandWarpToUT.WarpTimeoutReason);
+                RestoreWarpModeIfForced(TestCommandWarpToUT.WarpTimeoutReason);
                 TestCommandDiagnostics.Timeout(id, verb, elapsed, TestCommandWarpToUT.WarpTimeoutReason);
                 ParsekLog.Error(Tag,
                     $"warptout timeout reason={TestCommandWarpToUT.WarpTimeoutReason} "
@@ -214,9 +243,28 @@ namespace Parsek.TestCommands
         private void ApplyWarpLadderStep(double currentUt)
         {
             double remaining = warpTargetUt - currentUt;
-            int ceiling = SafeMaxRateIndexForActiveVessel();
+            bool physicsRequested = warpRequestedMode == WarpLadderMode.Physics;
+            // A physics request selects against the PHYSICS ladder and ceiling even on a
+            // frame where stock has switched itself back to rails, so the rung it asks for
+            // is a physics rung; the mode is then re-asserted below before the request.
+            int ceiling = physicsRequested ? SafePhysicsCeilingIndex() : SafeMaxRateIndexForActiveVessel();
             int desired = TestCommandWarpToUT.SelectRateIndex(
-                remaining, SafeWarpRates(), ceiling, warpMaxRateCap);
+                remaining, physicsRequested ? SafePhysicsWarpRates() : SafeWarpRates(), ceiling, warpMaxRateCap);
+
+            bool assertMode = TestCommandWarpToUT.ShouldAssertPhysicsMode(
+                warpRequestedMode, SafeStockInPhysicsWarp(), desired);
+            if (assertMode)
+            {
+                string before = SafeWarpModeName();
+                SafeSetPhysicsWarpMode();
+                warpPhysicsModeAsserts++;
+                // Bounded in the normal case (once at start); rate-limited because stock can
+                // switch back each time the ladder crosses a low rung in vacuum.
+                ParsekLog.InfoRateLimited(Tag, "warptout-mode-assert",
+                    $"warptout mode asserted physics from={before} now={SafeWarpModeName()} "
+                    + $"desired={desired.ToString(CultureInfo.InvariantCulture)} "
+                    + $"asserts={warpPhysicsModeAsserts.ToString(CultureInfo.InvariantCulture)}");
+            }
 
             // DE-DUP ON BOTH THE REQUEST AND WHAT STOCK IS ACTUALLY AT. De-duping on the
             // request alone WEDGES: once stock clamps a rung away (under acceleration, a
@@ -227,7 +275,7 @@ namespace Parsek.TestCommands
             // minute later into a `warp-timeout` ERROR. The green log shows the drift is
             // real: after `requested=3` stock moved the live index to 2 and then 1 with no
             // re-request line in between.
-            if (desired == warpLastRequestedIndex && SafeCurrentWarpRateIndex() == desired)
+            if (!assertMode && desired == warpLastRequestedIndex && SafeCurrentWarpRateIndex() == desired)
                 return;
             warpLastRequestedIndex = desired;
 
@@ -261,7 +309,94 @@ namespace Parsek.TestCommands
                 + $"rate={Inv(SafeCurrentWarpRate())}");
         }
 
+        /// <summary>
+        /// Put stock back in the warp mode it was in when the verb started, but only when
+        /// this verb FORCED physics warp and the rate is already down (a mode change at a
+        /// rung above 1x would re-read the rung on the other ladder). Idempotent; a no-op
+        /// for an Auto warp, which never changed the mode itself.
+        /// </summary>
+        private void RestoreWarpModeIfForced(string reason)
+        {
+            if (warpRequestedMode != WarpLadderMode.Physics) return;
+            if (SafeCurrentWarpRateIndex() > 0) return;
+            try
+            {
+                TimeWarp tw = TimeWarp.fetch;
+                if (tw == null || tw.Mode == warpModeBefore) return;
+                tw.Mode = warpModeBefore;
+                ParsekLog.Info(Tag, $"warptout mode restored reason={reason} mode={SafeWarpModeName()}");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"warptout mode restore failed reason={reason}: {ex.Message}");
+            }
+        }
+
+        private static string WarpModeToken(WarpLadderMode mode)
+            => mode == WarpLadderMode.Physics ? TestCommandWarpToUT.PhysicsModeToken : "auto";
+
         // ----- Null-safe live-state samples (dispatch guaranteed FLIGHT, but stay safe) -----
+
+        private static bool SafeStockInPhysicsWarp()
+        {
+            try { return TimeWarp.WarpMode == TimeWarp.Modes.LOW; }
+            catch (Exception) { return false; }
+        }
+
+        /// <summary>Put stock in physics warp by writing the public <c>TimeWarp.Mode</c>
+        /// field (the in-game logistics harvest test writes it for rails). Stock's private
+        /// <c>setMode</c> is not used: it refuses above <c>maxModeSwitchRate_index</c>.</summary>
+        private static void SafeSetPhysicsWarpMode()
+        {
+            try
+            {
+                TimeWarp tw = TimeWarp.fetch;
+                if (tw != null) tw.Mode = TimeWarp.Modes.LOW;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag, $"warptout physics mode set failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Stock's physics-warp permission, the gate its own physics-warp button
+        /// reads. True when it cannot be read, so a missing game object cannot refuse a
+        /// verb the stock UI would allow; the rate read-back stays the truth.</summary>
+        private static bool SafePhysicsWarpAllowed()
+        {
+            try
+            {
+                Game game = HighLogic.CurrentGame;
+                if (game == null || game.Parameters == null || game.Parameters.Flight == null) return true;
+                return game.Parameters.Flight.CanTimeWarpLow;
+            }
+            catch (Exception) { return true; }
+        }
+
+        private static IList<float> SafePhysicsWarpRates()
+        {
+            try
+            {
+                TimeWarp tw = TimeWarp.fetch;
+                return tw != null ? tw.physicsWarpRates : null;
+            }
+            catch (Exception) { return null; }
+        }
+
+        /// <summary>Stock's LOW-mode ceiling, the tail of <c>setRate</c>:
+        /// <c>Mathf.Clamp(num, 0, physicsWarpRates.Length - 1)</c> (see
+        /// <see cref="SafeMaxRateIndexForActiveVessel"/> for why
+        /// <c>maxPhysicsRate_index</c> is not it).</summary>
+        private static int SafePhysicsCeilingIndex()
+        {
+            try
+            {
+                TimeWarp tw = TimeWarp.fetch;
+                if (tw == null || tw.physicsWarpRates == null || tw.physicsWarpRates.Length == 0) return 0;
+                return tw.physicsWarpRates.Length - 1;
+            }
+            catch (Exception) { return 0; }
+        }
 
         private static string Inv(double v) => v.ToString("R", CultureInfo.InvariantCulture);
 

@@ -2290,6 +2290,12 @@ UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     # OWN OnGUI - outside either scene host's showUI gate, in every scene but LOADING.
     "testrunnerglobal")
 UIACTION_MODE_KEY = "mode"
+# WarpToUT's optional ladder selector (coverage wave 5, D14 `warp-phys`). Absent = the
+# live stock ladder (the verb's original behaviour); `phys` = stock physics warp, held
+# for the whole warp. The C# parse (TestCommandWarpToUT.ResolveWarpMode) is exact and
+# case-sensitive and REJECTS anything else `warp-ladder-invalid`.
+WARPTOUT_LADDER_KEY = "ladder"
+WARPTOUT_LADDER_VALUES: Tuple[str, ...] = ("phys",)
 UIACTION_MODE_VALUES: Tuple[str, ...] = ("basic", "advanced")
 
 # `op=find`'s control-kind filter, mirroring TestCommandUiFind.CtrlValues, which itself
@@ -3654,6 +3660,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_OP_KEY: ("UiAction", UIACTION_OP_VALUES),
     UIACTION_WINDOW_KEY: ("UiAction", UIACTION_WINDOW_VALUES),
     UIACTION_MODE_KEY: ("UiAction", UIACTION_MODE_VALUES),
+    WARPTOUT_LADDER_KEY: ("WarpToUT", WARPTOUT_LADDER_VALUES),
     UIACTION_CTRL_KEY: ("UiAction", UIACTION_CTRL_VALUES),
     UIACTION_STATE_KEY: ("UiAction", UIACTION_STATE_VALUES),
     UIACTION_PARK_KEY: ("UiAction", UIACTION_PARK_VALUES),
@@ -9083,6 +9090,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "max-rate-invalid": "driver-arg",
     "warp-unavailable": "driver-gate",
     "warp-locked": "driver-gate",
+    # WarpToUT ladder=phys: an unknown ladder token is arg-class (fail-closed, like
+    # maxRate); a game whose difficulty forbids physics warp is a gate.
+    "warp-ladder-invalid": "driver-arg",
+    "physics-warp-disallowed": "driver-gate",
     # The Gloops pair: every refusal is a GATE the verb asked for and did not get (the
     # verb takes no args, so there is no arg-class fault it can have). Each token is a
     # read-back of an EXISTING Gloops guard's decision, and each is distinct so a report
