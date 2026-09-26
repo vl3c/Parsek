@@ -95,24 +95,16 @@ Owner rulings (2026-09-26):
   (they are Parsek's own time mechanic). Only the re-fly exit must stay reachable: stock
   builds the Esc-menu Revert button only when `CanRestart`, so `ReFlyRevertButtonGate` alone
   cannot surface Retry / Discard on the Hard preset (inferred, needs a live check).~~
-  FIXED 2026-09-26, branch `kss-modes`: no production path reads either flag, so rewind and
-  re-fly already ignored them. Decompiled reachability on `CanRestart = false`: Merge and
-  Discard stay reachable through scene exit (`SceneExitInterceptor` -> Re-Fly merge dialog;
-  Esc "Space Center" / "Tracking Station" are not CanRestart-gated), Retry was lost (the
-  Esc "Revert Flight" button is built only when `CanLeaveToEditor || CanRestart`, both false
-  on Hard; its Revert to Launch entry and `FlightResultsDialog`'s need `CanRestart`), and
-  in-flight Parsek UI cannot re-invoke (`RewindInvoker.CanInvoke` refuses while a re-fly is
-  active). `ReFlyRevertButtonGate` now also sets the live `Parameters.Flight.CanRestart` to
-  true in memory while a re-fly is live in FLIGHT (pure `ShouldHoldCanRestartOverride`; only
-  from false; only when the save guard is verified installed), restores it on marker clear,
-  any scene-load request and a game-object change, and `Patches/FlightParamsCanRestartPersistPatch`
-  (postfix on `GameParameters.ParameterNode.Save`, the one serializer every save and
-  `GameBackup` reaches) rewrites the held instance's saved value to False. xUnit:
-  `ReFlyCanRestartOverrideTests`. Live check still owed: fly a Hard-preset re-fly, Esc ->
-  Revert Flight -> Revert to Launch -> Retry, then confirm `persistent.sfs` keeps
-  `CanRestart = False`. Known side effects while held: stock's exit-without-saving choice and
-  the in-flight Difficulty Options "Allow Revert" toggle read true, and a player who turns
-  that toggle back on mid-re-fly has it reset to false when the session ends.
+  RESOLVED 2026-09-26: rewind and re-fly ignore the Hard flags (no production path reads
+  `CanQuickLoad` / `CanRestart`). On `CanRestart = false` stock hides the Esc "Revert Flight"
+  button (built only when `CanLeaveToEditor || CanRestart`) and the Revert to Launch entries,
+  so the re-fly Retry choice is not offered (owner decision 2026-09-26; an in-memory
+  `CanRestart` flip was built and dropped). Merge / Discard stay reachable by leaving the
+  flight (`SceneExitInterceptor` -> Re-Fly merge dialog; Esc "Space Center" / "Tracking
+  Station" are not CanRestart-gated). `ReFlyRevertButtonGate.Apply` logs one Info line per
+  evaluation while a re-fly is live on such a game (`Flight.CanRestart=False ... re-fly Retry
+  not offered`). Live check still owed: fly a Hard-preset re-fly, leave the flight, confirm
+  the scene-exit merge dialog appears.
 - ~~S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
   kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.~~
   FIXED 2026-09-26, branch `kss-respawn`: `KerbalsModule.PopulateCrewEndStates` stamps the

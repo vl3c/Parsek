@@ -1225,16 +1225,14 @@ _(unreleased — entries accumulate here per commit)_
   save that somehow carries a Parsek section keeps it unchanged when saved. Career, Science and
   Sandbox games are unaffected.
 
-- **Re-Fly on the Hard preset: the Retry choice is reachable again.** Rewind and Re-Fly ignore
-  the difficulty's "Allow Quickload" and "Allow Revert" settings, but stock only shows the Esc
-  menu's Revert Flight button (and the flight results' Revert to Launch) when Allow Revert is
-  on, and that button is the way into the re-fly Retry / Discard / Continue Flying choice. On a
-  game with Allow Revert off you could still merge or discard a re-fly by leaving the flight,
-  but not retry it from the rewind point. While a re-fly is running in flight, Parsek now turns
-  Allow Revert on in memory so the stock button appears, and turns it back off when the re-fly
-  ends, when you leave the flight scene and before anything is saved: every save writes your
-  own setting, so the preset is never changed on disk. `KSP.log` logs each change under
-  `[ReFlySession]`.
+- **Re-Fly on the Hard preset: Retry is not offered; merge or discard by leaving the flight.**
+  Rewind and Re-Fly ignore the difficulty's "Allow Quickload" and "Allow Revert" settings, but
+  stock only shows the Esc menu's Revert Flight button (the way into the re-fly Retry / Discard
+  / Continue Flying choice) when Allow Revert is on. On a game with Allow Revert off, such as
+  the Hard preset, Retry from the rewind point is therefore not available during a re-fly;
+  leaving the flight (Esc > Space Center or Tracking Station) still opens the merge dialog to
+  keep or discard it. `KSP.log` notes this under `[ReFlySession]` when a re-fly starts on such
+  a game.
 - **Rewind-to-Launch no longer undoes another flight's Re-Fly from a stale save.** A plain
   rewind reloads the career from `persistent.sfs` as it was last written, and while the
   recordings, the ledger and (since the earlier fix) the rewind points were kept from memory,
