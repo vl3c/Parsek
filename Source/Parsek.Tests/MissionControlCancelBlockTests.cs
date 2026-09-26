@@ -293,7 +293,7 @@ namespace Parsek.Tests
 
             string label = MissionControlStockAnnotation.ComposeRowLabel("", "Explore the Mun", d);
 
-            Assert.Equal("<color=#fefa87>Explore the Mun</color> <color=#8fd3ff>- completes on D5 on your committed timeline</color>",
+            Assert.Equal("<color=#fefa87>Explore the Mun</color> <color=#8fd3ff>- completes D5</color>",
                 label);
             Assert.Equal(label, MissionControlStockAnnotation.ComposeRowLabel(label, "Explore the Mun", d));
         }
@@ -328,9 +328,10 @@ namespace Parsek.Tests
             string openLabel = MissionControlStockUi.LabelForAddItem(open, "");
             MissionControlStockUi.EndRebuildPass();
 
-            Assert.StartsWith("<color=#fefa87>Resolved</color>" + MissionControlStockAnnotation.RowStatusMarker + "completes on ",
+            Assert.StartsWith("<color=#fefa87>Resolved</color>" + MissionControlStockAnnotation.RowStatusMarker + "completes ",
                 resolvedLabel);
-            Assert.EndsWith(MissionControlStockAnnotation.RowStatusTail + "</color>", resolvedLabel);
+            Assert.EndsWith("</color>", resolvedLabel);
+            Assert.DoesNotContain("committed timeline", resolvedLabel);
             Assert.Equal("", openLabel);
             Assert.Contains(logLines, l => l.Contains("[INFO][StockUiOverlay]")
                 && l.EndsWith("decorate screen=MissionControl tab=Active items=2 marked=1 blocked=1"));

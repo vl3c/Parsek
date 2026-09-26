@@ -65,6 +65,13 @@ namespace Parsek
         /// auto-accept contract (its accept snapshot says <c>autoAccept = True</c>); stock
         /// neither counts nor slot-checks those.</summary>
         internal readonly bool AutoAccept;
+        /// <summary>ContractAccept only: the accepted contract's agent as Mission Control
+        /// shows it (the accept snapshot's <c>agent</c>, stock's <c>Agent.Title</c>), or null.
+        /// Several offers can share a title; the agent tells them apart. The index reads the
+        /// snapshot only; a row with no snapshot agent is resolved against stock's live
+        /// contract list when the slot reason is rendered
+        /// (<see cref="ContractSlotReservation.WithStarvedAcceptAgent"/>).</summary>
+        internal readonly string AgentTitle;
 
         internal CommittedFutureEntry(
             CommittedFutureKind kind,
@@ -77,7 +84,8 @@ namespace Parsek
             string title = null,
             bool fromMilestoneFallback = false,
             double deadlineUT = double.NaN,
-            bool autoAccept = false)
+            bool autoAccept = false,
+            string agentTitle = null)
         {
             Kind = kind;
             Key = key ?? "";
@@ -90,6 +98,15 @@ namespace Parsek
             FromMilestoneFallback = fromMilestoneFallback;
             DeadlineUT = deadlineUT;
             AutoAccept = autoAccept;
+            AgentTitle = string.IsNullOrEmpty(agentTitle) ? null : agentTitle;
+        }
+
+        /// <summary>A copy of this entry carrying <paramref name="agentTitle"/> as its agent.</summary>
+        internal CommittedFutureEntry WithAgentTitle(string agentTitle)
+        {
+            return new CommittedFutureEntry(
+                Kind, Key, UT, RecordingId, RecordingName, FacilityToLevel, Amount, Title,
+                FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle);
         }
     }
 
@@ -239,12 +256,15 @@ namespace Parsek
         /// (<see cref="CommittedFutureKind.KerbalRetire"/>), already committed-filtered.</param>
         /// <param name="isAutoAcceptContract">True when a contract guid is a stock
         /// auto-accept contract (production: its accept snapshot); null treats none as one.</param>
+        /// <param name="contractAgentTitle">The agent title of a contract guid (production:
+        /// its accept snapshot), or null; null reads no agent.</param>
         internal static CommittedFutureIndex Build(
             IReadOnlyList<GameAction> effectiveActions,
             Func<string, bool> isCommittedRecording,
             Func<string, string> recordingName,
             IEnumerable<CommittedFutureEntry> fallbackEntries,
-            Func<string, bool> isAutoAcceptContract = null)
+            Func<string, bool> isAutoAcceptContract = null,
+            Func<string, string> contractAgentTitle = null)
         {
             var index = new CommittedFutureIndex();
             var nameCache = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -297,7 +317,8 @@ namespace Parsek
                         amount: amount,
                         title: a.ContractTitle,
                         deadlineUT: isAccept ? a.DeadlineUT : double.NaN,
-                        autoAccept: isAccept && isAutoAcceptContract != null && isAutoAcceptContract(key)));
+                        autoAccept: isAccept && isAutoAcceptContract != null && isAutoAcceptContract(key),
+                        agentTitle: isAccept && contractAgentTitle != null ? contractAgentTitle(key) : null));
                     entries++;
                 }
             }
@@ -631,7 +652,8 @@ namespace Parsek
                         isCommitted,
                         ResolveRecordingDisplayName,
                         CollectRetireFallbackEntries(isCommitted, ResolveRecordingDisplayName),
-                        IsAutoAcceptContractSnapshot);
+                        IsAutoAcceptContractSnapshot,
+                        ContractAgentTitleFromSnapshot);
 
                     cached = index;
                     cachedEls = els;
@@ -714,6 +736,66 @@ namespace Parsek
             if (string.IsNullOrEmpty(contractGuid)) return false;
             ConfigNode node = GameStateStore.GetContractSnapshot(contractGuid);
             return IsAutoAcceptSnapshotNode(node);
+        }
+
+        /// <summary>
+        /// The agent Mission Control names for a contract, from its accept snapshot's
+        /// <c>agent</c> value (stock <c>Contract.Save</c> writes <c>agent.Title</c>), or null.
+        /// Snapshot only: the index is rebuilt on scene load BEFORE stock's contract list is
+        /// loaded (<c>KspStatePatcher.PatchContracts</c> sees 0 current contracts), and nothing
+        /// rebuilds it once the list arrives, so a live read here would cache a null. A committed
+        /// accept with no snapshot agent is resolved live at render time instead
+        /// (<see cref="LiveContractAgentTitle"/> through
+        /// <see cref="ContractSlotReservation.WithStarvedAcceptAgent"/>).
+        /// </summary>
+        internal static string ContractAgentTitleFromSnapshot(string contractGuid)
+        {
+            if (string.IsNullOrEmpty(contractGuid)) return null;
+            return AgentTitleOfSnapshotNode(GameStateStore.GetContractSnapshot(contractGuid));
+        }
+
+        /// <summary>
+        /// The live contract's <c>Agent.Title</c> when stock's contract list holds the guid
+        /// (an offer the committed timeline accepts later), else null. Never throws: a
+        /// missing contract system (no Career game, a headless test) reads as no agent.
+        /// </summary>
+        internal static string LiveContractAgentTitle(string contractGuid)
+        {
+            if (string.IsNullOrEmpty(contractGuid)) return null;
+            try
+            {
+                return ReadLiveContractAgentTitle(contractGuid);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "live-agent-read",
+                    "LiveContractAgentTitle: stock contract list unavailable (" + ex.GetType().Name + ") - no agent");
+                return null;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string ReadLiveContractAgentTitle(string contractGuid)
+        {
+            var system = Contracts.ContractSystem.Instance;
+            if (system == null || system.Contracts == null) return null;
+            for (int i = 0; i < system.Contracts.Count; i++)
+            {
+                var c = system.Contracts[i];
+                if (c == null || !string.Equals(c.ContractGuid.ToString(), contractGuid, StringComparison.Ordinal))
+                    continue;
+                return c.Agent != null && !string.IsNullOrEmpty(c.Agent.Title) ? c.Agent.Title : null;
+            }
+            return null;
+        }
+
+        /// <summary>Pure: the snapshot node's trimmed <c>agent</c> value, or null.</summary>
+        internal static string AgentTitleOfSnapshotNode(ConfigNode node)
+        {
+            string value = node != null ? node.GetValue("agent") : null;
+            if (value == null) return null;
+            value = value.Trim();
+            return value.Length > 0 ? value : null;
         }
 
         /// <summary>Pure: the snapshot node's <c>autoAccept</c> value, case-insensitively.</summary>

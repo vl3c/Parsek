@@ -187,9 +187,10 @@ namespace Parsek
         /// <summary>
         /// Accepting a contract now would leave no Mission Control slot for a committed
         /// accept (section 4 "C2"). <paramref name="starvedAccept"/> is the earliest
-        /// committed accept that would find no slot; its flight and contract title are named
-        /// when the row carries them. The Mission Control detail panel, the Accept backstop
-        /// and Contract Configurator's refusal all read this text.
+        /// committed accept that would find no slot; its flight, contract title and agent are
+        /// named when the row carries them (several offers can share one title, and the
+        /// agent is what Mission Control shows beside each). The Mission Control detail
+        /// panel, the Accept backstop and Contract Configurator's refusal all read this text.
         /// </summary>
         internal static ReservationText ContractSlot(CommittedFutureEntry starvedAccept, Func<double, string> formatDate)
         {
@@ -204,6 +205,8 @@ namespace Parsek
             string what = starvedAccept != null && starvedAccept.Title != null
                 ? "the contract '" + starvedAccept.Title + "'"
                 : "a contract";
+            if (starvedAccept != null && starvedAccept.AgentTitle != null)
+                what += " from " + starvedAccept.AgentTitle;
             return new ReservationText
             {
                 Title = "Slot needed on " + date,

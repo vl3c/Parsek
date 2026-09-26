@@ -1,0 +1,183 @@
+schema = 1
+id = "MS-1-mission-leg-trim-clone"
+tier = "nightly"
+# =====================================================================================
+# COVERAGE WAVE 6: THE TWO MISSIONS-TAB AUTHORING CELLS, D11 `leg-trim` AND `clone`.
+#
+# Both are loop AUTHORING affordances of the Missions tab (hidden in Basic), and neither
+# was reachable by any seam before this lane:
+#
+#   leg-trim  The interval checkbox of an expanded vessel row: unticking ONE composition
+#             interval (a `MissionCompositionNode.HeadLegId`) drops that segment from
+#             the looped mission with NO cascade. Unticking a vessel's LAUNCH interval
+#             start-trims the loop to the post-separation survivor. `UiAction op=select
+#             key=vessel:` could not do it: it resolves a ROW and writes ALL of that
+#             row's own interval keys. The new `key=leg:<intervalKey>` calls the
+#             checkbox's own body, `MissionsWindowUI.ApplyIntervalInclusion`, which
+#             writes the one key, stamps the selection generation and prints the
+#             production line `Mission '<name>' interval '<leg>' included=False`.
+#   clone     The mission header's Clone button, whose whole body is
+#             `MissionStore.Clone(mission)`: a second Mission over the same tree that
+#             CARRIES the source's include set and loop configuration. The new
+#             `UiAction op=clone window=missions` makes that call; the store prints
+#             `Cloned mission '<src>' -> '<src> copy' (tree=<id>)`.
+#
+# HOST: `fixtures/saves/bdock-recorded` (GUI-4 / GUI-27's docked corpus), NOT GS-12's
+# live flight. A leg key is a RECORDING ID, and a tree recorded in-run mints fresh ids
+# every flight, so a committed spec cannot name a leg of it; this fixture's first tree
+# (`788554a928324f148dd313dd26322638`, root `a32f62f52dc84d6a94daf93460ec6548`) is a
+# committed literal. Its main vessel has TWO structural intervals, measured offline by
+# running the production builders (MissionStructureBuilder -> MissionCompositionBuilder
+# -> MissionVesselRowBuilder -> MissionLoopUnitBuilder.ComputeTrimmedMemberWindows)
+# over the committed sidecars:
+#
+#   row 'Kerbal X' head=a32f62f52dc84d6a94daf93460ec6548
+#     iv a32f62f52dc84d6a94daf93460ec6548       [25.96, 382.21] Launch -> Decoupled
+#     iv a32f62f52dc84d6a94daf93460ec6548/seg1  [382.21, 387.01] Decoupled -> Orbiting
+#     row 'Kerbal X Probe' head=b07cfd6cc27d47e7a6fb497d9836e665 [382.21, 387.01]
+#   untrimmed:                     members=2 span=[25.96, 387.01]
+#   exclude the launch interval -> members=2 span=[382.21, 387.01]   (the start-trim)
+#
+# So the trim is witnessed by the loop unit itself: the SAME mission's
+# `MissionLoopUnit:` line moves its span start from 25.96 to 382.21 while keeping both
+# members (the pod survives, only its pre-separation segment is gone). The untrimmed
+# line comes from MissionConfig's own build (before the trim); the trimmed one can
+# only come from a build AFTER the trim, and no MissionConfig runs after it, so it is
+# the flight engine's own signature-change rebuild (`ParsekFlight`, whose
+# `MissionLoopUnitBuilder.BuildSignature` folds in `ExcludedIntervalKeys`).
+#
+# ORDER: loop ON, trim, THEN clone - so the clone's payload reports the include set it
+# CARRIED (`excluded=1`), which is what makes a clone "a second include set over the
+# same recordings". Mission ids are seeded fresh on every load (the fixture has no
+# MISSION nodes), so both ops drive the FIRST mission over a committed tree (the
+# op=select selector) and echo its id.
+#
+# BOTH OPS EDIT THE SAVE (Mission state persists), so this lane runs on the harness's
+# throwaway staged copy and NO FIXTURE IS EVER HARVESTED FROM IT.
+#
+# FLIGHT, NOT THE SPACE CENTER: `MissionConfig` is `RequiresFlight` in the dispatcher, so
+# the first reading attempt (`2026-09-25_2112`, retry `_2114_a2`, both INVALID
+# seam-timeout) booted `scene = "spacecenter"` as GUI-4 does and deferred it
+# `not-in-flight` until its budget ran out - while the leg and clone steps behind it
+# both answered OK. The default boot focuses the fixture's active vessel, which IS tree
+# 2's committed tip, so scene entry PROMOTES that recording into a live recorder (RH-1's
+# finding); `StopRecording` idles it, and nothing here touches tree 2. No `DiscardTree`:
+# the promoted tree is a committed one.
+#
+# STATUS (automation DLL sha256 fb1dea87..., branch `cov-missions`):
+#   READING `2026-09-25_2117`: every step OK, PARSEK-FAIL(expectations) on exactly ONE
+#   pre-registered token: the untrimmed unit reads `members=3`, not the offline `members=2`
+#   (the live committed list carries a third member recording inside the launch interval;
+#   the trim drops it, so the trimmed unit reads `members=2` as predicted). Every other
+#   token matched as pre-registered, spans to the byte.
+#   ARMED RE-FLIGHT `2026-09-25_2120`: PASS attempt 1 (analyzer red 0, logValidate PASS,
+#   unity total 0).
+#   NEGATIVE CONTROLS, OFFLINE (the GS-12 / wave-1b precedent), via
+#   hlib.evaluate_expectations: this spec over GUI-4's `2026-09-24_2041` log (the same
+#   fixture with no loop, trim or clone) reds all 9 required tokens; the trimmed-unit token
+#   mutated back to the launch span start (25.96) over `_2117` reds exactly that token, so
+#   the pre-trim unit cannot satisfy it.
+# =====================================================================================
+description = "Coverage wave 6 (D11 leg-trim + clone): on bdock-recorded in flight, loop the first tree's mission, untick its main vessel's launch interval through the new UiAction op=select key=leg: (the interval checkbox's own body) so the loop unit's span start moves to the separation, then clone the mission through the new UiAction op=clone (the Clone button's MissionStore.Clone) and read the carried include set."
+instanceProfile = "stock-minimal"
+tags = ["MS1", "missions", "loop-authoring", "leg-trim", "clone", "coverage-wave-6"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # RH-1's finding: the boot promotes tree 2's committed tip into a live recorder.
+  { cmd = "StopRecording", expect = "OK" },
+
+  # The Missions tab drawn in Advanced, the mode the loop-authoring controls (the
+  # interval checkboxes and the Clone button) are drawn in.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+
+  # 1. Loop the first tree's ORIGINAL mission: the UNTRIMMED unit (span from launch).
+  { cmd = "MissionConfig", args = { tree = "788554a928324f148dd313dd26322638", loop = "true" }, expect = "OK" },
+
+  # 2. LEG-TRIM: untick the main vessel's launch interval (its key is the root recording id).
+  { cmd = "UiAction", args = { op = "select", window = "missions", key = "leg:a32f62f52dc84d6a94daf93460ec6548", include = "false" }, expect = "OK" },
+
+  # 3. CLONE the trimmed mission. `label` so the copy id is capturable as ${clone.copy}.
+  { cmd = "UiAction", args = { op = "clone", window = "missions" }, label = "clone", expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: each cell rides REQUIRED tokens below, re-cut from the reading run
+# `2026-09-25_2117` (automation DLL sha256 `fb1dea87...`).
+# `leg-trim` <- the production checkbox body's `Mission 'Kerbal X' interval
+#   'a32f62f5...' included=False` (MissionsWindowUI.ApplyIntervalInclusion, reached through
+#   `UiAction op=select key=leg:`) AND the trim taking effect on the loop: the SAME
+#   mission's `MissionLoopUnit:` line goes from `members=3 ... span=[25.96,387.01]`
+#   (MissionConfig's build, before the trim) to `members=2 ... span=[382.21,387.01]`, which
+#   only a build AFTER the trim can print and which the flight engine's own
+#   signature-change rebuild prints (no MissionConfig runs after the trim). The seam's
+#   `inclusion=Partial` says the vessel row kept its post-separation interval (no cascade).
+# `clone` <- the store's `Cloned mission 'Kerbal X' -> 'Kerbal X copy' (tree=788554a9...)`
+#   (MissionStore.Clone, the Clone button's whole body, reached through `UiAction
+#   op=clone`) AND the copy carrying the trimmed include set: `missions=3 excluded=1`, and
+#   the flight engine building the COPY's own unit over the same trimmed span
+#   (`MissionLoopUnit: mission='Kerbal X copy' ... members=2 ... span=[382.21,...]`).
+D11 = ["leg-trim", "clone"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's committed trees plus the boot's promoted recorder (21 on the reading run);
+# this lane records nothing of its own, so a floor, not a pin.
+count = { min = 1 }
+
+[expectations.logContracts]
+# ARMED off the reading run `2026-09-25_2117`. The span numbers are FIXTURE BYTES (the
+# committed sidecars' own StartUT / EndUT), so they are pinned verbatim; the offline
+# prediction had `members=2` before the trim, and the live committed list carries a third
+# member recording inside the launch interval, which the trim drops along with the span
+# start - a stronger reading than predicted, not a weaker one.
+#
+# NOT PINNED, ON PURPOSE: the clone payload's `loop=`. Mission.Clone copies LoopPlayback,
+# so cloning a LOOPING mission leaves two looping missions on one tree and the builder
+# warns `owner index 1 already owned by another looping unit; skipping` on every rebuild
+# (todo MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE). Pinning `loop=true` would
+# pin that defect; the copy's own unit line below is what the clone claim reads.
+required = [
+  # 1. the untrimmed unit (MissionConfig's own build, before the trim)
+  "missionconfig applied: mission='Kerbal X' tree=788554a928324f148dd313dd26322638 loop=True [^\\r\\n]*unitBuilt=True [^\\r\\n]*spanSeconds=361\\.05171081540209 ",
+  "MissionLoopUnit: mission='Kerbal X' tree=788554a928324f148dd313dd26322638 members=3 foreignMembers=0 skipped=0 span=\\[25\\.959999999999535,387\\.01171081540161\\] spanDur=361\\.05171081540209 ",
+  # 2. leg-trim: the production checkbox line, the seam's own record, the trimmed unit
+  "\\[Parsek\\]\\[INFO\\]\\[Mission\\] Mission 'Kerbal X' interval 'a32f62f52dc84d6a94daf93460ec6548' included=False",
+  "uiaction select leg mission=[0-9a-f]+ head=a32f62f52dc84d6a94daf93460ec6548 leg=a32f62f52dc84d6a94daf93460ec6548 vessel=Kerbal X include=false keysChanged=1 inclusion=Partial",
+  "uiaction select window=missions mission=[0-9a-f]+ key=leg:a32f62f52dc84d6a94daf93460ec6548 include=false changed=1 excluded=1 links=0 frames=[0-9]+",
+  "MissionLoopUnit: mission='Kerbal X' tree=788554a928324f148dd313dd26322638 members=2 foreignMembers=0 skipped=0 span=\\[382\\.211710815406,387\\.01171081540161\\] spanDur=4\\.79",
+  # 3. clone: the production store line, the carried include set, the copy's own unit
+  "\\[Parsek\\]\\[INFO\\]\\[Mission\\] Cloned mission 'Kerbal X' -> 'Kerbal X copy' \\(tree=788554a928324f148dd313dd26322638\\)",
+  "uiaction clone window=missions mission=[0-9a-f]+ copy=[0-9a-f]+ name='Kerbal X copy' tree=788554a928324f148dd313dd26322638 missions=3 excluded=1 links=0 loop=(?:true|false) frames=[0-9]+",
+  "MissionLoopUnit: mission='Kerbal X copy' tree=788554a928324f148dd313dd26322638 members=2 foreignMembers=0 skipped=0 span=\\[382\\.211710815406,387\\.01171081540161\\]",
+]
+forbidden = ["uiaction error reason=", "uiaction rejected reason=", "missionconfig rejected", "missionconfig error"]
+
+[runtime]
+# A 300 s cold-load allowance and ten single-phase seam ops over a two-tree sandbox
+# save; GUI-27 walks the same host inside the census budget.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

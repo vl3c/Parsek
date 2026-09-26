@@ -552,6 +552,161 @@ namespace Parsek.Tests
         // ---------------------------------------------------------------- texts
 
         [Fact]
+        public void SlotText_NamesTheAgent_SoOffersSharingATitleAreTellable()
+        {
+            // First in-game census (2026-09-25): three Offered rows read "Conduct a focused
+            // observational survey of Kerbin."; the agent is what Mission Control shows beside each.
+            var withAgent = ReservationExplanation.ContractSlot(
+                new CommittedFutureEntry(CommittedFutureKind.ContractAccept, "k", 11400, null, null,
+                    title: "Conduct a focused observational survey of Kerbin.", agentTitle: "Zaltonic Electronics"), Fmt);
+            var agentNoTitle = ReservationExplanation.ContractSlot(
+                new CommittedFutureEntry(CommittedFutureKind.ContractAccept, "k", 11400, "rec", "Mun Lander 3",
+                    agentTitle: "Zaltonic Electronics"), Fmt);
+
+            Assert.Equal("Your committed timeline accepts the contract 'Conduct a focused observational survey of Kerbin.'"
+                + " from Zaltonic Electronics on D114 and needs this slot. " + Rule + " " + WayOut, withAgent.Body);
+            Assert.Equal("The committed flight 'Mun Lander 3' accepts a contract from Zaltonic Electronics on D114"
+                + " and needs this slot. " + Rule + " " + WayOut, agentNoTitle.Body);
+            Assert.Equal("Slot needed on D114", withAgent.Title);
+        }
+
+        // Second in-game census (2026-09-25_2332, F6): the index is rebuilt on scene load
+        // before stock's contract list loads, so an accept with no snapshot agent read none.
+        // The agent is now resolved when the slot reason is rendered.
+        private static ContractSlotForecast StarvedForecastWithoutAgent()
+        {
+            var index = CommittedFutureIndex.Build(
+                new[] { Accept(500, "c-live", null, "Conduct a focused observational survey of Kerbin.") },
+                null, null, null);
+            var slots = Forecast(index, 2, "a");
+            Assert.NotNull(slots.FirstStarvedAccept);
+            Assert.Null(slots.FirstStarvedAccept.AgentTitle);
+            return slots;
+        }
+
+        [Fact]
+        public void SlotText_AgentResolvedAtRenderTime_NamesTheAgent()
+        {
+            var slots = StarvedForecastWithoutAgent();
+            var asked = new List<string>();
+
+            var resolved = ContractSlotReservation.WithStarvedAcceptAgent(slots,
+                key => { asked.Add(key); return " Zaltonic Electronics "; });
+
+            Assert.Equal(new[] { "c-live" }, asked);
+            Assert.Equal("Zaltonic Electronics", resolved.FirstStarvedAccept.AgentTitle);
+            Assert.Equal(slots.FirstStarvedAccept.UT, resolved.FirstStarvedAccept.UT);
+            Assert.Equal(slots.FirstStarvedAccept.Title, resolved.FirstStarvedAccept.Title);
+            Assert.Equal(slots.Describe(), resolved.Describe());
+            Assert.Equal("Your committed timeline accepts the contract 'Conduct a focused observational survey of Kerbin.'"
+                + " from Zaltonic Electronics on D5 and needs this slot. " + Rule + " " + WayOut,
+                ContractSlotReservation.Explain(resolved, Fmt).Body);
+            Assert.Contains(logLines, l => l.Contains("[ContractSlotReservation]")
+                && l.Contains("Starved accept c-live agent resolved at render time: 'Zaltonic Electronics'"));
+        }
+
+        [Fact]
+        public void SlotText_ResolverFindsNoAgent_TextUnchanged()
+        {
+            var slots = StarvedForecastWithoutAgent();
+            string before = ContractSlotReservation.Explain(slots, Fmt).Body;
+
+            Assert.Same(slots, ContractSlotReservation.WithStarvedAcceptAgent(slots, key => null));
+            Assert.Same(slots, ContractSlotReservation.WithStarvedAcceptAgent(slots, key => "  "));
+            Assert.Same(slots, ContractSlotReservation.WithStarvedAcceptAgent(slots, null));
+            Assert.Equal("Your committed timeline accepts the contract 'Conduct a focused observational survey of Kerbin.'"
+                + " on D5 and needs this slot. " + Rule + " " + WayOut, before);
+            Assert.Contains(logLines, l => l.Contains("[ContractSlotReservation]")
+                && l.Contains("Starved accept c-live has no snapshot agent and stock lists none"));
+        }
+
+        [Fact]
+        public void SlotText_ResolverThrows_NoException_TextUnchanged()
+        {
+            var slots = StarvedForecastWithoutAgent();
+
+            var result = ContractSlotReservation.WithStarvedAcceptAgent(slots,
+                key => { throw new InvalidOperationException("contract system not loaded"); });
+
+            Assert.Same(slots, result);
+            Assert.DoesNotContain(" from ", ContractSlotReservation.Explain(result, Fmt).Body);
+            Assert.Contains(logLines, l => l.Contains("[ContractSlotReservation]")
+                && l.Contains("Starved accept c-live agent not resolved (InvalidOperationException)"));
+        }
+
+        [Fact]
+        public void SlotText_SnapshotAgentWins_ResolverNotAsked()
+        {
+            var index = CommittedFutureIndex.Build(new[] { Accept(500, "c") }, null, null, null, null,
+                id => "Snapshot Agent");
+            var slots = Forecast(index, 2, "a");
+            bool asked = false;
+
+            var result = ContractSlotReservation.WithStarvedAcceptAgent(slots, key => { asked = true; return "Live Agent"; });
+
+            Assert.False(asked);
+            Assert.Same(slots, result);
+            Assert.Equal("Snapshot Agent", result.FirstStarvedAccept.AgentTitle);
+            Assert.Null(ContractSlotReservation.WithStarvedAcceptAgent(null, key => "Live Agent"));
+            var roomy = Forecast(index, 3, "a");
+            Assert.Null(roomy.FirstStarvedAccept);
+            Assert.Same(roomy, ContractSlotReservation.WithStarvedAcceptAgent(roomy, key => "Live Agent"));
+        }
+
+        // catches: the index build reading stock's live contract list again, which on scene
+        // load runs before the list loads and caches a null agent until the next rebuild.
+        [Fact]
+        public void IndexBuild_ReadsTheAgentFromTheSnapshotOnly()
+        {
+            string src = TooltipEchoBudgetTests.ReadParsekSource("CommittedFutureIndex.cs").Replace("\r\n", "\n");
+            int start = src.IndexOf("internal static string ContractAgentTitleFromSnapshot(string contractGuid)",
+                StringComparison.Ordinal);
+            Assert.True(start >= 0, "ContractAgentTitleFromSnapshot moved or was renamed.");
+            int end = src.IndexOf("internal static string LiveContractAgentTitle(string contractGuid)",
+                start, StringComparison.Ordinal);
+            Assert.True(end > start, "LiveContractAgentTitle no longer follows the snapshot reader.");
+            string body = src.Substring(start, end - start);
+            Assert.Contains("GameStateStore.GetContractSnapshot(contractGuid)", body);
+            Assert.DoesNotContain("ReadLiveContractAgentTitle", body);
+            Assert.Null(CommittedFutureIndexCache.ContractAgentTitleFromSnapshot("no-snapshot"));
+        }
+
+        [Fact]
+        public void AgentTitle_IsReadForAcceptRowsOnly()
+        {
+            var index = CommittedFutureIndex.Build(
+                new[] { Accept(500, "c"), Complete(600, "c") }, null, null, null, null,
+                id => id == "c" ? "Zaltonic Electronics" : null);
+
+            Assert.Equal("Zaltonic Electronics", index.FirstFuture(CommittedFutureKind.ContractAccept, "c", 100).AgentTitle);
+            Assert.Null(index.FirstFuture(CommittedFutureKind.ContractComplete, "c", 100).AgentTitle);
+            Assert.Null(CommittedFutureIndex.Build(new[] { Accept(500, "c") }, null, null, null)
+                .FirstFuture(CommittedFutureKind.ContractAccept, "c", 100).AgentTitle);
+        }
+
+        [Fact]
+        public void AgentTitle_ComesFromTheAcceptSnapshot_AndReachesTheSlotReason()
+        {
+            var node = new ConfigNode("CONTRACT");
+            node.AddValue("agent", "Zaltonic Electronics");
+            node.AddValue("agentName", "Zaltonic Electronics");
+            GameStateStore.AddContractSnapshot("c-agent", node, 50);
+            Ledger.AddAction(Accept(500, "c-agent", null, "Conduct a focused observational survey of Kerbin."));
+
+            var index = CommittedFutureIndexCache.Current;
+            var slots = Forecast(index, 2, "a");
+            var d = MissionControlStockAnnotation.Decide(index, 100, "free", Contract.State.Offered, Fmt, slots);
+
+            Assert.Equal("Zaltonic Electronics", CommittedFutureIndexCache.AgentTitleOfSnapshotNode(node));
+            Assert.Null(CommittedFutureIndexCache.AgentTitleOfSnapshotNode(new ConfigNode("CONTRACT")));
+            Assert.Null(CommittedFutureIndexCache.AgentTitleOfSnapshotNode(null));
+            Assert.Equal("Zaltonic Electronics",
+                index.FirstFuture(CommittedFutureKind.ContractAccept, "c-agent", 100).AgentTitle);
+            Assert.True(MissionControlStockAnnotation.BlocksAcceptForSlot(d));
+            Assert.Contains("'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics on D5", d.Why);
+        }
+
+        [Fact]
         public void SlotText_NamesTheFlightAndTheContractWhenKnown_AndIsPlainAscii()
         {
             var named = ReservationExplanation.ContractSlot(

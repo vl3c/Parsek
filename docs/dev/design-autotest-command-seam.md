@@ -1488,6 +1488,7 @@ budget a spec declares.
 |---|---|---|
 | `ut` | InvariantCulture float | REQUIRED, ABSOLUTE, and strictly in the future. Absent / unparseable is `REJECTED missing-warp-target` (a locale comma such as `600,0` fails: InvariantCulture only); non-finite or beyond 1e12 is `REJECTED target-out-of-range`; at or before now is `REJECTED backward-warp`. |
 | `maxRate` | InvariantCulture float `>= 1` | OPTIONAL cap on the rails rate the ladder may select. Absent means uncapped. Present-but-unparseable or below 1 is `REJECTED max-rate-invalid` - FAIL-CLOSED rather than ignored, so a mis-typed cap can never read as an uncapped warp. |
+| `ladder` | `phys` | OPTIONAL (coverage wave 5, D14 `warp-phys`). Absent keeps the behaviour below: whichever ladder stock is on, re-read every frame. `phys` drives stock PHYSICS warp for the whole span: it writes `TimeWarp.Mode = LOW`, selects against `physicsWarpRates` with the physics ceiling, re-asserts LOW before any rung above 1x if stock switched back (stock's `TimeWarp.Update` returns LOW to HIGH by itself at or below `maxModeSwitchRate_index` in vacuum or landed-and-still), and restores the starting mode once the rate is back at index 0 on every terminal. Any other value is `REJECTED warp-ladder-invalid`; a game whose difficulty forbids physics warp (`GameParameters.Flight.CanTimeWarpLow`, the gate stock's own physics button reads) is `REJECTED physics-warp-disallowed`. Pure halves: `ResolveWarpMode`, `EvaluateModeFeasibility`, `ShouldAssertPhysicsMode`. Logged as `ladder=phys` on the `warptout start` / `warptout complete` lines (the latter also carries `modeAsserts=N`), plus `warptout mode asserted physics ...` / `warptout mode restored ...`. The harness validates it pre-launch through `hlib.VERB_SCOPED_CLOSED_ARGS`. |
 
 **Why `ut` is absolute-only, unlike `TimeJump`'s `ut` / `deltaSeconds` pair.** A warp's own
 duration depends on the clamps stock applies, so a delta-relative target would land
@@ -1501,8 +1502,10 @@ is 4x. RF-12W's reading run 2 logged `rate=4 rateIndex=3` inside the atmosphere,
 what surfaced the pair. `SafeWarpRates` re-reads `TimeWarp.WarpMode` every frame (stock
 switches ladders on its own as a vessel climbs out of the atmosphere) and hands the live
 array to the pure selector, which never looks either up itself; `SafeMaxRateIndexForActiveVessel`
-answers with `maxPhysicsRate_index` in LOW mode, because the altitude limits are a RAILS
-concept that does not apply to the physics ladder.
+answers with the whole physics ladder (`physicsWarpRates.Length - 1`, the tail of stock's
+`setRate`) in LOW mode, because the altitude limits are a RAILS concept that does not
+apply to the physics ladder (`maxPhysicsRate_index` is a HIGH-mode gate that indexes the
+rails array, so it is not the physics ceiling).
 
 **The ladder is advisory; the read-back is truth.** Stock owns the real clamps - a body's
 rails altitude limit, a vessel under acceleration, an SOI-transition guard - and applies
@@ -2765,8 +2768,8 @@ harness cannot know the live tab pre-launch, so `hlib.UIACTION_SORT_COLUMNS` val
 UNION and the seam owns the narrowing - the `op=expand` division of labour exactly: shape
 pre-launch, state at the seam.
 
-`op=select window=missions key=<vessel:|link:|all|none> include=` is the one op in this
-family that writes state PERSISTED WITH THE SAVE (`Mission.ExcludedIntervalKeys` and
+`op=select window=missions key=<vessel:|link:|leg:|all|none> include=` is one of the two ops
+in this family that write state PERSISTED WITH THE SAVE (`Mission.ExcludedIntervalKeys` and
 `Mission.IncludedForeignDockLinkIds`, both serialized by the Mission codec). A census lane
 using it runs on a THROWAWAY staged copy of its fixture; that is a lane rule, stated in the
 op's own header and in `harness/README.md`, because nothing in the seam can enforce it. It
@@ -2776,6 +2779,31 @@ click's conditional tail - `MissionStore.ClearLoopsConflictingWith` when a link 
 on a looping mission - because a write without it leaves two conflicting loops armed. The
 on-screen announcement beside that clear is deliberately NOT reproduced: a screen message
 is for a player who clicked, and it would land in the census capture.
+
+`key=leg:<intervalKey>` (coverage wave 6, D11 `leg-trim`) drives ONE composition interval
+(`MissionCompositionNode.HeadLegId`: the vessel's head recording id for its first
+interval, then `/segN` and `@dockM` suffixes) - the interval checkbox of an expanded vessel
+row - where `vessel:` resolves a ROW and writes all of that row's own keys, so it can only
+produce an `All` or `None` vessel. The applier calls the checkbox's own body,
+`MissionsWindowUI.ApplyIntervalInclusion` (extracted from the click handler so both callers
+share it): the one-key write, the selection-generation stamp and the production line
+`Mission '<name>' interval '<key>' included=<True|False>`. It is idempotent (a matching
+state writes and logs nothing), resolves against the same flattened rows `vessel:` reads
+(an unknown key is `select-key-unknown` listing the live interval keys), and its settle
+check reads the one key's own membership. Unticking a vessel's launch interval start-trims
+the loop: the loop unit keeps the vessel but its span starts at the separation.
+
+`op=clone window=missions [mission=<id>]` (coverage wave 6, D11 `clone`) is the Missions
+tab's Clone button, whose whole body is `MissionStore.Clone(mission)` - a second Mission
+over the same tree carrying the source's include set and loop configuration, inserted
+after its source, with the store's `Cloned mission '<src>' -> '<src> copy' (tree=<id>)`
+line. The mission resolver is `op=select`'s (a named `mission=`, else the first mission over
+a committed tree). Two-phase: the settle refuses (`ERROR clone-not-applied`) unless the copy
+is still in the store, the store grew by exactly one and the copy's tree is the source's.
+OK payload: `op=clone window= mission= copy= name= missions= excluded= links= loop=`, the
+last three being what the copy CARRIED. Like `op=select` it edits the save, so a lane using
+it runs on a throwaway staged fixture, and it is exempt from the window-open and host-UI
+gates for the same reason. REJECTED `clone-unsupported-window` / `clone-no-mission`.
 
 `op=edit window=missions field= key= [draft=] [commit=]` puts one of the in-place rename
 editors into edit mode. Every one of these editors is a LAYOUT change and not a restyle - a
@@ -3077,6 +3105,20 @@ committed spec that drives `op=mock` until `gui_mirror.py` reads the dump's `moc
 without that, a mocked capture files under a real fixture's name and can pair against a real
 capture in Compare.
 
+**`op=warp` - the Real Spawn Control row button (2026-09-25).** `UiAction op=warp
+window=spawncontrol` presses the candidate table's FIRST row warp button (first in the
+window's current sort order, which `op=sort` sets) through the button's own click body,
+`SpawnControlUI.ExecuteRowWarp`; the drawn button and the op share that one method, so the
+`Real Spawn Control: warp to ...` line and the `WarpToRecordingEnd` / `WarpToDeparture` jump
+are the player's. It needs the window OPEN (`OpRequiresWindowOpen`), is one-phase (the jump
+is synchronous; the spawn that follows is the playback loop's and is asserted by log
+contracts), and refuses without pressing on `warp-no-candidate-row`, on
+`warp-button-disabled` (the row is drawn greyed - outside the 250 m / 2 m/s gates or past
+its UT - and a greyed button cannot be clicked; the refusal carries the button's own
+disabled-hover text), and on `warp-unsupported-window` for any other window
+(`TestCommandUiAction.WindowHasRowWarpButton`, mirrored by `hlib.UIACTION_WARP_WINDOWS`).
+It adds no arg key. First consumer: `RSC-1-real-spawn-control-warp`.
+
 **First consumers.** `GUI-1-census-ksc` (nine KSC windows, 22 captures across Advanced and
 Basic) and `GUI-2-census-flight` (the flight-only windows plus the flight form of the main
 window). Both on an OPERATOR-LOCAL fixture, both never flown; see
@@ -3325,6 +3367,130 @@ as reading-run specs and neither armed.
 
 ## Behavior
 
+#### StockScreen (additive; the stock KSP screens Parsek annotates)
+
+**Why.** The stock-screen annotation program (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md)
+greys stock controls and appends Parsek's reason to stock tooltips, reason fields and row
+labels. Those are uGUI surfaces behind stock buildings: no `UiAction` op reaches them
+(`UiAction` drives Parsek's IMGUI windows and is refused `ui-host-unavailable` in the
+editor), and the GuiTree recorder cannot see them. This verb is the census route onto them.
+
+**Grammar.** `cmd=StockScreen screen=<s> act=<a> [item=<id>] [part=<name>] [pane=<tab>]`.
+
+| screen | acts | item / part / pane | entry point |
+|---|---|---|---|
+| `rnd` | open, close, select, hover | select `item=<techId>`; hover `item=<techId>` (node tooltip) or `part=<name>` (the selected node's part list) | `RnDBuilding.EnterBuilding`; select runs the node's own click body (`RDNode.NodeInput`) |
+| `astronaut` | open, close, hover | hover `item=<kerbal>` | `AstronautComplexFacility.EnterBuilding` at the KSC; in the VAB the crew panel's own `CrewAssignmentDialog.ButtonAstronautComplex` |
+| `missioncontrol` | open, close, select | open `[pane=]`; select `item=<contract guid> [pane=]` | `MissionControlBuilding.EnterBuilding`; `SetDisplayMode*`; the row's own radio button |
+| `administration` | open, close, select | select `item=<strategy config name>` | `AdministrationFacility.EnterBuilding`; the strategy row's own radio button |
+| `facilitymenu` | open, close, hover | open `item=<facility id>`; hover = the Upgrade button | the building's own `OnRightClick`; close `KSCFacilityContextMenu.Dismiss(None)` |
+| `launchsite` | open, close, select, hover | select `item=<craft name>`; hover `item=<kerbal>` | the VAB launch site's `EnterBuilding` (the craft picker); select runs `VesselSpawnDialog.SelectVesselDataItem`; close is the dialog's own Close button |
+| `editor` | open, close, hover | open `item=<craft name>` (the save's `Ships/VAB`); hover `part=<name>` | open saves `persistent` then `EditorDriver.StartAndLoadVessel` (the VAB building's own sequence); close runs `EditorLogic.onExitConfirm` |
+| `crewdialog` | open, hover | hover `item=<kerbal>` | `EditorLogic.SelectPanelCrew` |
+
+**Precondition.** `RequiresGameLoaded` (the `UiAction` row). The scene each call needs is
+the verb's own typed REJECTED `stockscreen-wrong-scene`: the Space Center for every screen
+but these - `astronaut` in both scenes, `crewdialog` and the editor's hover / close in the
+editor. A non-career save is `stockscreen-career-only`.
+
+**Phases.** TWO-PHASE on the 60 s default budget (NOT a `DEFERRED_SEAM_VERB`). Each call
+arms the screen's own readiness signal (the screen's singleton exists and its rows are
+built, the selected row is the named one, stock's current tooltip is the named control, the
+scene is EDITOR with the craft loaded) and completes once it holds AND three frames have
+drawn, so a following `CaptureScreenshot` sees the rows stock builds after the spawn event.
+
+**Hover.** Stock tooltips follow the EventSystem, which reads `Input.mousePosition`, and that
+tracks the OS cursor. So a hover moves the REAL cursor onto the control's rect centre
+(writing the machine-wide operator Info line `op=pointer` writes) and, once a frame has
+passed, spawns the control's own tooltip controller through `UIMasterController.SpawnTooltip`
+when the pointer alone did not; the OK payload's `tooltip=<type>/<pointer|direct>/<move>`
+says which. Every NON-hover call first despawns stock's current tooltip and parks a cursor
+its own hover moved, so a capture after an open or a select shows the screen and not the
+previous hover.
+
+**Nothing is pressed.** No accept, decline, cancel, hire, dismiss, research, purchase,
+upgrade or strategy button is invoked, and no career state changes.
+
+**Records at capture time.** `CaptureScreenshot` logs, beside its `capturescreenshot ok
+label=` line, the decision records of every stock screen open in that frame
+(`TestCommands/StockScreenRecords.cs`): `[StockUiOverlay] record label=<l> screen=<S>
+tab=<T> items=N marked=M blocked=B` per screen and tab, then one
+`record label=<l> screen= tab= item=<id> kind= marked= blocked= why="..."` per marked or
+blocked item, or `record label=<l> screens=none`; then one `control label=<l> screen=<S>
+name=<control> state=<UIStateButton state> interactable=<b> visible=<b>` per stock control
+those decisions act on (R&D's action button, Mission Control's Accept / Decline / Cancel,
+Administration's Accept / Cancel, a facility menu's Upgrade, the part tooltip's purchase
+buttons, every Astronaut Complex and crew-panel row button), so a button that LOOKS enabled
+can be told apart from one that IS. Each record is read from the decision the screen
+itself draws from (the R&D / Astronaut Complex snapshot, `MissionControlStockUi.DecideNow`,
+the strategy gate, `StockUiCrewDialogDecoration.DescribeCurrent`, `ForFacilityMenu`,
+`StockUiPartPurchase.DecideLive`), never from the drawn text.
+
+**Refusals.** `stockscreen-screen-arg-missing|invalid`, `-act-arg-missing|invalid`,
+`-act-unsupported`, `-item-arg-missing`, `-pane-arg-invalid`, `-pane-not-for-screen`,
+`-part-not-for-screen`, `-item-not-found` (arg-class) and `-wrong-scene`, `-not-open`,
+`-already-open`, `-entry-not-found`, `-no-tooltip`, `-career-only` (gate-class) are
+REJECTED; `-open-failed` and `-not-settled` are ERROR. hlib mirrors the vocabularies
+(`STOCKSCREEN_*`, pinned by `StockScreenSourceSyncTests`) and `validate_stock_screen_step`
+catches a missing or mis-scoped arg pre-launch.
+
+#### GoToEditor / LaunchFromEditor (additive; the editor scene route)
+
+**Why.** `DecideLoadRoute` reaches FLIGHT, SPACECENTER and TRACKSTATION only, so no run could
+stand in the VAB or SPH or launch from there: the Space Center -> editor -> launch
+transition a player makes most often had never run under the harness (D14 `scene-editor`).
+`StockScreen screen=editor` also reaches the VAB, but it is a CAREER-only census verb and
+skips the building click. These two are the mode-agnostic player route. They are NOT a
+generic `LoadScene` (the `ExitToSpaceCenter` argument): each drives one stock click and
+refuses up front the modals that click can raise.
+
+**Grammar.**
+`cmd=GoToEditor facility=<VAB|SPH> [craft=<name>]` and `cmd=LaunchFromEditor [site=<name>]`.
+
+| verb | scene | stock entry point |
+|---|---|---|
+| `GoToEditor` | SPACECENTER | the building's own `SpaceCenterBuilding.OnLeftClick` (damage check, `EnterBuilding` -> `OnClicked`, which saves `persistent` and calls `EditorDriver.StartEditor`); then, with `craft=`, the craft browser's Normal load `EditorLogic.LoadShipFromFile` once the editor is up |
+| `LaunchFromEditor` | EDITOR | the Launch button's handler `EditorLogic.launchVessel()` (`launchBtn.onClick`), or the launch-site picker's `launchVessel(siteName)` with `site=`; stock runs its pre-flight checks and `FlightDriver.StartWithNewLaunch` |
+
+`craft=` is a bare file stem, looked up the way the load dialog lists it: the save's
+`Ships/<facility>`, the save's other folder, then the stock `Ships/<facility>` and other
+folder under the KSP root (the Stock tab). A VAB craft loads into the SPH as it does from
+the dialog's VAB tab.
+
+**Precondition.** `RequiresGameLoaded`; the scene is the verb's own typed REJECTED
+(`goeditor-wrong-scene` / `launchfromeditor-wrong-scene`), the `StockScreen` shape.
+
+**Guards (typed REJECTED before anything is clicked).** GoToEditor: the facility closed by
+the game parameters (`CanGoInVAB` / `CanGoInSPH`, the "FacilityLocked" popup), a closed
+building, or damage >= 70% (OnLeftClick opens the repair menu instead) ->
+`goeditor-facility-closed`. LaunchFromEditor, in the order a player meets them: no ship
+(`-no-ship`), the `EDITOR_LAUNCH` lock held (the button is greyed; `-launch-locked`), a site
+`EditorDriver.ValidLaunchSite` rejects (`-site-invalid`), and vessels standing on the site
+(`-site-obstructed`, read with stock's own `ShipConstruction.FindVesselsLandedAt`, the
+predicate `LaunchSiteClear.Test` uses). The obstruction guard matters on every recorded
+fixture: launch-clamp debris stands on the LaunchPad, and stock's dialog would RECOVER it.
+
+**Phases.** Both TWO-PHASE, in the `ExitToSpaceCenter` budget class (a scene change that
+parses no save off disk), so neither is a `DEFERRED_SEAM_VERB`: GoToEditor 120 s,
+LaunchFromEditor 180 s (the FLIGHT bootstrap of a new vessel). GoToEditor completes when
+the scene is EDITOR with a started `EditorLogic`, no side panel sliding and (with `craft=`)
+the craft on the stage by the name in its header, three frames after the last phase began;
+the load is issued ONCE, after the editor is up. LaunchFromEditor completes on FLIGHT with a
+loaded game AND the launched vessel active. MAINMENU is the fast failure of both.
+
+**Payloads.** GoToEditor `scene facility craft parts ship`; LaunchFromEditor `scene vessel
+pid site situation`. Log lines `goeditor start|loading|complete ...` and `launchfromeditor
+start|complete ...` (both world-mutating, both `recording` post-mission role).
+
+**Refusals.** Arg-class: `goeditor-facility-arg-missing|invalid`, `-craft-arg-invalid`,
+`-craft-not-found`, `launchfromeditor-site-invalid`. Gate-class: the wrong-scene pair,
+`goeditor-building-not-found`, `-facility-closed`, `launchfromeditor-no-ship`,
+`-launch-locked`, `-site-obstructed`. ERROR (post-click, unmapped): `-returned-to-menu` and
+`-not-settled` for each verb. hlib mirrors the tokens (`EDITORROUTE_*`, pinned by
+`EditorRouteSourceSyncTests`); `validate_go_to_editor_step` checks `facility=` and `craft=`
+pre-launch (the `facility` arg name is KscAction's `VERB_SCOPED_CLOSED_ARGS` row, so the
+spelling check lives in the validator). First consumer: `SE-1-editor-round-trip`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
@@ -3444,6 +3610,8 @@ wall-clock. Some verbs need a different bound and override the default:
 | `CaptureScreenshot` | (default) 60 s | TWO-PHASE but deliberately NOT in `DEFERRED_SEAM_VERBS`, the `EnterWatchMode` shape: the completion is a file poll that lands in a frame or two, so a capture still unwritten after a minute is broken rather than slow, and a longer budget would only delay the diagnosis |
 | `DumpGuiTree` | (default) 60 s | TWO-PHASE and NOT in `DEFERRED_SEAM_VERBS`, the `CaptureScreenshot` shape: the wait is one Repaint pass plus the `LateUpdate` that flushes it, and the RECORDER gives the arm up on its own after 900 frames (`GuiTreeRecorder.ArmTimeoutFrames`, ~15 s at 60 fps) - so this budget is a backstop behind a shorter bound, not the primary one |
 | `UiAction` | (default) 60 s | bounds the game-not-loaded dispatch defer AND the one-frame settle wait of its two two-phase ops. A settle that has not landed in a minute means the game stopped drawing, not that it is slow, so the default is the right size and the terminal is named `ui-action-not-settled` rather than spelled like a refusal |
+| `GoToEditor` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` class: the building click's persist + the EDITOR scene load, then (with `craft=`) the in-scene editor restart of the craft load; no save is parsed off disk, so NOT a `DEFERRED_SEAM_VERB` |
+| `LaunchFromEditor` | 180 s | TWO-PHASE: stock's pre-flight checks, the craft save and the FLIGHT bootstrap of a NEW vessel; `StartRecording`'s scene-wait size, NOT a `DEFERRED_SEAM_VERB` |
 
 Budgets are measured from when the command first reaches the head and begins deferring. On
 expiry the pump writes `TIMEOUT` with `msg` carrying the last defer reason and advances.

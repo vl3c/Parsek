@@ -1334,6 +1334,8 @@ namespace Parsek
 
             // Ghost playback engine + policy (T25 extraction)
             engine = new GhostPlaybackEngine(this);
+            // Tracing-only attitude residual source (GhostRenderTrace AfterUpdate dRotDeg=).
+            GhostRenderTrace.ExpectedAttitudeSource = TryResolveRecordedAttitudeForTrace;
             engine.OnLoopCameraAction += watchMode.HandleLoopCameraAction;
             engine.OnOverlapCameraAction += watchMode.HandleOverlapCameraAction;
             engine.IsWatchedGhostStateResolver = (recordingIndex, state) =>
@@ -2171,6 +2173,7 @@ namespace Parsek
             restoringActiveTree = false;
             ParsekLog.Info("Flight", "OnDestroy: cleaning up ParsekFlight");
             Camera.onPreCull -= OnCameraPreCull;
+            GhostRenderTrace.ExpectedAttitudeSource = null;
             // First, before anything below can throw: a dead instance left on these static
             // events would run ahead of the next scene's ParsekFlight and abort its reindex.
             RecordingStore.CommittedRecordingRemoving -= OnCommittedRecordingRemoving;

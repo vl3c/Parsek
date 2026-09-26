@@ -76,11 +76,23 @@ reason=overlap expired`` (and ``overlap cleared`` / ``engine teardown``) for an
 overlap copy that wrote a ``MeshSpawned``. On a log with no LoopCycle line and no
 overlap copy - every non-looping lane - every v1 facet, mismatch and status is
 unchanged.
+
+v3 (2026-09-26, D6 ``attitude-preservation``) reads a THIRD line shape, the
+flight tracer's per-frame ``phase=AfterUpdate`` line, for its two trailing
+fields ``dRotDeg=<F3|NaN> rotRef=<token>``: the angle between the ghost's
+rendered world rotation and the rotation the recording implies at that playback
+UT (``GhostRenderTrace.ResolveAttitudeResidualDegrees``, resolved by
+``ParsekFlight.TryResolveRecordedAttitudeForTrace`` through the positioner's own
+frame conventions). Those lines never enter ``lines`` / ``cycles``; they feed the
+``attitude`` facet and the optional ``attitude`` sub-table of the block. A log
+from a DLL older than the residual carries AfterUpdate lines with no
+``dRotDeg=`` (counted as ``legacyLines``, never as resolved).
 """
 
 from __future__ import annotations
 
 import copy
+import math
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -164,6 +176,25 @@ _CYCLE_RE = re.compile(
 
 _REASON_SEP = " reason="
 
+# v3: the per-frame post-position line (GhostRenderTrace.EmitPostUpdate). Only
+# the fields the attitude facet reads are extracted, the prefix by one anchored
+# regex and `rot=` / the residual tail each by its own search. `dRotDeg=` and
+# `rotRef=` are the line's LAST two fields by construction
+# (FormatAttitudeResidualFields is appended after clampFired).
+PHASE_AFTER_UPDATE = "AfterUpdate"
+_AFTER_UPDATE_HEAD_RE = re.compile(
+    r"phase=AfterUpdate"
+    r"\s+rec=(?P<rec>\S+)"
+    r"\s+recId=(?P<rec_id>\S+)"
+    r"\s+ghostIndex=(?P<ghost_index>-?\d+)"
+    r"\s+frame=(?P<frame>-?\d+)"
+    r"\s+currentUT=(?P<current_ut>\S+)"
+    r"\s+playbackUT=(?P<playback_ut>\S+)"
+    r"\s+path=(?P<path>\S+)")
+_ROT_RE = re.compile(r" rot=\((?P<q>[^)]*)\)")
+_ATTITUDE_TAIL_RE = re.compile(
+    r" dRotDeg=(?P<residual>\S+) rotRef=(?P<ref>\S+)\s*$")
+
 
 # ---------------------------------------------------------------------------
 # Parsed model.
@@ -209,6 +240,24 @@ class LoopCycleLine:
 
 
 @dataclass(frozen=True)
+class AttitudeSample:
+    """One parsed ``AfterUpdate`` line (v3). ``residual`` is the ``dRotDeg=``
+    value as a float, or ``None`` when the producer wrote ``NaN`` (no rendered
+    ghost, no resolver, or a declined decode - ``ref`` then names why) or when
+    the line predates the residual (``legacy`` True, ``ref`` empty). ``rot`` is
+    the rendered quaternion (x, y, z, w) or ``None`` when unreadable."""
+
+    rec: str
+    rec_id: str
+    playback_ut: str
+    path: str
+    rot: Optional[Tuple[float, float, float, float]]
+    residual: Optional[float]
+    ref: str
+    legacy: bool
+
+
+@dataclass(frozen=True)
 class GhostLifecycleSnapshot:
     """Every lifecycle line found in one log, plus the parse's own health.
 
@@ -230,6 +279,8 @@ class GhostLifecycleSnapshot:
     # v2 LoopCycle lines, kept apart from the mesh `lines` so nothing v1
     # computes from `lines` can see them.
     cycles: Tuple[LoopCycleLine, ...] = ()
+    # v3 AfterUpdate attitude samples, kept apart for the same reason.
+    attitude: Tuple[AttitudeSample, ...] = ()
 
     @property
     def spawns(self) -> Tuple[MeshLifecycleLine, ...]:
@@ -251,9 +302,17 @@ def parse_ghost_lifecycle(log_text: Optional[str]) -> GhostLifecycleSnapshot:
         return GhostLifecycleSnapshot(parsed=False, error="log text unavailable")
     out: List[MeshLifecycleLine] = []
     cycles: List[LoopCycleLine] = []
+    attitude: List[AttitudeSample] = []
     malformed = 0
     for raw in log_text.splitlines():
         if TRACE_SUBSYSTEM_TAG not in raw:
+            continue
+        if ("phase=" + PHASE_AFTER_UPDATE + " ") in raw:
+            sample = _parse_attitude_sample(raw)
+            if sample is None:
+                malformed += 1
+            else:
+                attitude.append(sample)
             continue
         head = None
         for phase in LIFECYCLE_PHASES:
@@ -306,7 +365,46 @@ def parse_ghost_lifecycle(log_text: Optional[str]) -> GhostLifecycleSnapshot:
             vessel=tail[:cut],
             reason=tail[cut + len(_REASON_SEP):]))
     return GhostLifecycleSnapshot(lines=tuple(out), malformed=malformed,
-                                  cycles=tuple(cycles))
+                                  cycles=tuple(cycles), attitude=tuple(attitude))
+
+
+def _finite_float(text: str) -> Optional[float]:
+    """float() of a FormatDouble token, or None for NaN / Infinity / junk."""
+    try:
+        val = float(text)
+    except (TypeError, ValueError):
+        return None
+    if val != val or val in (float("inf"), float("-inf")):
+        return None
+    return val
+
+
+def _parse_attitude_sample(raw: str) -> Optional[AttitudeSample]:
+    """One AfterUpdate line -> AttitudeSample, or None when the prefix is torn
+    (counted malformed). A line with a readable prefix but no residual tail is a
+    pre-residual producer (``legacy``), not a malformed line."""
+    m = _AFTER_UPDATE_HEAD_RE.search(raw)
+    if m is None:
+        return None
+    rot: Optional[Tuple[float, float, float, float]] = None
+    rm = _ROT_RE.search(raw)
+    if rm is not None:
+        parts = [_finite_float(p) for p in rm.group("q").split(",")]
+        if len(parts) == 4 and all(p is not None for p in parts):
+            rot = (parts[0], parts[1], parts[2], parts[3])  # type: ignore
+    tm = _ATTITUDE_TAIL_RE.search(raw)
+    if tm is None:
+        return AttitudeSample(rec=m.group("rec"), rec_id=m.group("rec_id"),
+                              playback_ut=m.group("playback_ut"),
+                              path=m.group("path"), rot=rot, residual=None,
+                              ref="", legacy=True)
+    residual = _finite_float(tm.group("residual"))
+    if residual is not None and residual < 0.0:
+        residual = None
+    return AttitudeSample(rec=m.group("rec"), rec_id=m.group("rec_id"),
+                          playback_ut=m.group("playback_ut"), path=m.group("path"),
+                          rot=rot, residual=residual, ref=tm.group("ref"),
+                          legacy=False)
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +455,18 @@ REQUIRED_KEY = "required"
 # { min = 6 } } }`. The name is matched EXACTLY against the lines' `vessel=`
 # text, and each vessel carries the same three mesh windows as the block.
 VESSELS_KEY = "vessels"
+# v3: the attitude-residual sub-table, `attitude = { resolvedLines = { min = N },
+# maxRotDeg = 0.5, minSweepDeg = 20.0, refs = { "checkpoint-orbit-ofr" = {...} } }`.
+ATTITUDE_KEY = "attitude"
+RESOLVED_LINES_KEY = "resolvedLines"
+MAX_ROT_DEG_KEY = "maxRotDeg"
+MIN_SWEEP_DEG_KEY = "minSweepDeg"
+REFS_KEY = "refs"
+# The three assertions an attitude window set may carry, at the top of the
+# sub-table and per `refs` entry alike.
+ATTITUDE_WINDOW_KEYS: Tuple[str, ...] = (
+    RESOLVED_LINES_KEY, MAX_ROT_DEG_KEY, MIN_SWEEP_DEG_KEY)
+ATTITUDE_BLOCK_KEYS: Tuple[str, ...] = ATTITUDE_WINDOW_KEYS + (REFS_KEY,)
 
 # Every window key must also be an unconditional key of
 # `observed_ghost_lifecycle_facets` (pinned by a unit cell), because a window
@@ -370,7 +480,7 @@ VESSEL_WINDOW_KEYS: Tuple[str, ...] = (
     SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY)
 GHOST_LIFECYCLE_ASSERTION_KEYS: Tuple[str, ...] = (
     SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY, CYCLE_LINES_KEY,
-    REQUIRE_BALANCED_KEY, DESTROYED_REASONS_KEY, VESSELS_KEY)
+    REQUIRE_BALANCED_KEY, DESTROYED_REASONS_KEY, VESSELS_KEY, ATTITUDE_KEY)
 GHOST_LIFECYCLE_BLOCK_KEYS: Tuple[str, ...] = (
     (GATING_KEY,) + GHOST_LIFECYCLE_ASSERTION_KEYS)
 
@@ -516,6 +626,84 @@ def _validate_vessels(prefix: str, val: Any, armed: bool) -> List[str]:
     return errs
 
 
+def _validate_degrees(prefix: str, val: Any, positive: bool) -> List[str]:
+    """An angle bound: a finite non-bool int or float in [0, 180] (> 0 when
+    ``positive`` - a ``maxRotDeg = 0`` ceiling would red on float noise)."""
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        return ["%s: %r must be a number of degrees" % (prefix, val)]
+    if val != val or val in (float("inf"), float("-inf")):
+        return ["%s: %r must be finite" % (prefix, val)]
+    if positive and val <= 0:
+        return ["%s: %r must be > 0" % (prefix, val)]
+    if val < 0:
+        return ["%s: %r must be >= 0" % (prefix, val)]
+    if val > 180:
+        return ["%s: %r exceeds 180 (the largest rotation angle)" % (prefix, val)]
+    return []
+
+
+def _validate_attitude_windows(label: str, windows: Dict, armed: bool) -> List[str]:
+    errs: List[str] = []
+    if not any(k in windows for k in ATTITUDE_WINDOW_KEYS):
+        errs.append("%s: no assertion declared (%s) - it asserts nothing"
+                    % (label, list(ATTITUDE_WINDOW_KEYS)))
+    if RESOLVED_LINES_KEY in windows:
+        errs.extend(_validate_window("%s.%s" % (label, RESOLVED_LINES_KEY),
+                                     windows[RESOLVED_LINES_KEY]))
+    if MAX_ROT_DEG_KEY in windows:
+        errs.extend(_validate_degrees("%s.%s" % (label, MAX_ROT_DEG_KEY),
+                                      windows[MAX_ROT_DEG_KEY], positive=True))
+    if MIN_SWEEP_DEG_KEY in windows:
+        errs.extend(_validate_degrees("%s.%s" % (label, MIN_SWEEP_DEG_KEY),
+                                      windows[MIN_SWEEP_DEG_KEY], positive=False))
+    if armed:
+        errs.extend(_validate_armed_unreddable(
+            label, dict(windows, **{GATING_KEY: True}), (RESOLVED_LINES_KEY,)))
+        sweep = windows.get(MIN_SWEEP_DEG_KEY)
+        if sweep == 0 and not isinstance(sweep, bool) \
+                and not any(k in windows for k in (RESOLVED_LINES_KEY, MAX_ROT_DEG_KEY)):
+            errs.append("%s.%s: an ARMED sweep floor of 0 alone can never red - "
+                        "raise it or add another assertion" % (label, MIN_SWEEP_DEG_KEY))
+    return errs
+
+
+def _validate_attitude(prefix: str, val: Any, armed: bool) -> List[str]:
+    """``attitude = { resolvedLines =, maxRotDeg =, minSweepDeg =, refs = {
+    "<rotRef token>" = { same three } } }``. ``refs`` names are matched EXACTLY
+    against the producer's ``rotRef=`` token."""
+    if not isinstance(val, dict):
+        return ["%s: %r must be a table" % (prefix, val)]
+    errs: List[str] = []
+    unknown = sorted(k for k in val if k not in ATTITUDE_BLOCK_KEYS)
+    if unknown:
+        errs.append("%s: unknown key(s) %s (accepted: %s)"
+                    % (prefix, unknown, list(ATTITUDE_BLOCK_KEYS)))
+    top = {k: v for k, v in val.items() if k in ATTITUDE_WINDOW_KEYS}
+    if top or REFS_KEY not in val:
+        errs.extend(_validate_attitude_windows(prefix, top, armed))
+    if REFS_KEY in val:
+        refs = val[REFS_KEY]
+        label = "%s.%s" % (prefix, REFS_KEY)
+        if not isinstance(refs, dict) or not refs:
+            errs.append("%s: %r must be a non-empty table of rotRef -> "
+                        "assertions" % (label, refs))
+        else:
+            for name, windows in refs.items():
+                rlabel = "%s.%r" % (label, name)
+                if not isinstance(name, str) or not name.strip() or " " in name:
+                    errs.append("%s: a rotRef must be a non-empty token" % rlabel)
+                    continue
+                if not isinstance(windows, dict):
+                    errs.append("%s: %r must be a table" % (rlabel, windows))
+                    continue
+                bad = sorted(k for k in windows if k not in ATTITUDE_WINDOW_KEYS)
+                if bad:
+                    errs.append("%s: unknown key(s) %s (accepted: %s)"
+                                % (rlabel, bad, list(ATTITUDE_WINDOW_KEYS)))
+                errs.extend(_validate_attitude_windows(rlabel, windows, armed))
+    return errs
+
+
 def validate_ghost_lifecycle_expectations(block: Any) -> List[str]:
     """Validate the ``[expectations.ghostLifecycle]`` spec surface (pre-launch,
     pure). ``None`` => no block declared => valid.
@@ -557,6 +745,10 @@ def validate_ghost_lifecycle_expectations(block: Any) -> List[str]:
     if VESSELS_KEY in block:
         errs.extend(_validate_vessels(
             "%s.%s" % (prefix, VESSELS_KEY), block[VESSELS_KEY],
+            block.get(GATING_KEY) is True))
+    if ATTITUDE_KEY in block:
+        errs.extend(_validate_attitude(
+            "%s.%s" % (prefix, ATTITUDE_KEY), block[ATTITUDE_KEY],
             block.get(GATING_KEY) is True))
     return errs
 
@@ -772,8 +964,83 @@ def observed_ghost_lifecycle_facets(snapshot: Optional[GhostLifecycleSnapshot]
             "cycleCensus": _cycle_census(snapshot.cycles),
             "cycleModes": _census([c.mode for c in snapshot.cycles]),
             "cycleRecordings": len({c.rec_id for c in snapshot.cycles}),
+            # ---- v3 facet (additive) ----
+            ATTITUDE_KEY: attitude_facets(snapshot.attitude),
         },
     }
+
+
+def quaternion_angle_degrees(a: Tuple[float, float, float, float],
+                             b: Tuple[float, float, float, float]) -> Optional[float]:
+    """Smallest rotation angle in degrees between two (x, y, z, w) attitudes,
+    double-cover safe and scale invariant; ``None`` for a zero-length input.
+    The same atan2-on-the-relative-quaternion form as the C#
+    ``GhostRenderTrace.RotationResidualDegrees``."""
+    na = math.sqrt(sum(c * c for c in a))
+    nb = math.sqrt(sum(c * c for c in b))
+    if not (na > 1e-9) or not (nb > 1e-9):
+        return None
+    ax, ay, az, aw = (c / na for c in a)
+    bx, by, bz, bw = (c / nb for c in b)
+    rw = aw * bw + ax * bx + ay * by + az * bz
+    rx = aw * bx - ax * bw - ay * bz + az * by
+    ry = aw * by + ax * bz - ay * bw - az * bx
+    rz = aw * bz - ax * by + ay * bx - az * bw
+    return math.degrees(2.0 * math.atan2(math.sqrt(rx * rx + ry * ry + rz * rz),
+                                         abs(rw)))
+
+
+def _attitude_row(samples: Sequence[AttitudeSample]) -> Dict[str, Any]:
+    """The window facets for one population of RESOLVED samples:
+    ``resolvedLines``; ``maxRotDeg`` (None when there is none) with the worst
+    line for triage; and ``sweepDeg`` (read by ``minSweepDeg``) - the largest
+    angle any recording's rendered attitude moved away from its OWN first
+    resolved line, the proof the ghost actually rotated (a residual bounded on a
+    ghost that never turns is vacuous)."""
+    worst: Optional[AttitudeSample] = None
+    first_rot: Dict[str, Tuple[float, float, float, float]] = {}
+    sweep = 0.0
+    sweep_rec = ""
+    for s in samples:
+        if worst is None or (s.residual or 0.0) > (worst.residual or 0.0):
+            worst = s
+        if s.rot is None:
+            continue
+        base = first_rot.setdefault(s.rec_id, s.rot)
+        ang = quaternion_angle_degrees(base, s.rot)
+        if ang is not None and ang > sweep:
+            sweep = ang
+            sweep_rec = s.rec
+    return {
+        RESOLVED_LINES_KEY: len(samples),
+        MAX_ROT_DEG_KEY: None if worst is None else worst.residual,
+        "maxRotDegAt": None if worst is None else {
+            "rec": worst.rec, "playbackUT": worst.playback_ut,
+            "path": worst.path, "rotRef": worst.ref},
+        "sweepDeg": round(sweep, 3),
+        "sweepRec": sweep_rec,
+    }
+
+
+def attitude_facets(samples: Sequence[AttitudeSample]) -> Dict[str, Any]:
+    """The v3 ``attitude`` facet over every AfterUpdate line, written
+    unconditionally (zeros on a log with none). ``perRef`` carries one
+    ``_attitude_row`` per resolved ``rotRef`` token; ``unresolvedRefs`` is the
+    census of the NaN lines' reason tokens."""
+    resolved = [s for s in samples if s.residual is not None]
+    unresolved = [s for s in samples if s.residual is None and not s.legacy]
+    by_ref: Dict[str, List[AttitudeSample]] = {}
+    for s in resolved:
+        by_ref.setdefault(s.ref, []).append(s)
+    row = _attitude_row(resolved)
+    row.update({
+        "afterUpdateLines": len(samples),
+        "unresolvedLines": len(unresolved),
+        "legacyLines": sum(1 for s in samples if s.legacy),
+        "unresolvedRefs": _census([s.ref for s in unresolved]),
+        "perRef": {ref: _attitude_row(rows) for ref, rows in sorted(by_ref.items())},
+    })
+    return row
 
 
 def _per_vessel_facets(snapshot: GhostLifecycleSnapshot) -> Dict[str, Dict[str, int]]:
@@ -959,6 +1226,66 @@ def _check_vessel_windows(block: Dict[str, Any], facets: Dict[str, Any],
                           windows[key], int(row.get(key) or 0), mismatches)
 
 
+def _check_attitude_windows(label: str, windows: Dict[str, Any],
+                            row: Dict[str, Any], mismatches: List[str]) -> None:
+    if RESOLVED_LINES_KEY in windows:
+        _check_window("%s.%s" % (label, RESOLVED_LINES_KEY),
+                      windows[RESOLVED_LINES_KEY],
+                      int(row.get(RESOLVED_LINES_KEY) or 0), mismatches)
+    ceiling = windows.get(MAX_ROT_DEG_KEY)
+    if isinstance(ceiling, (int, float)) and not isinstance(ceiling, bool):
+        measured = row.get(MAX_ROT_DEG_KEY)
+        if measured is None:
+            mismatches.append(
+                "%s.%s: no resolved dRotDeg line to bound - a ceiling over an "
+                "unmeasured residual is not a pass" % (label, MAX_ROT_DEG_KEY))
+        elif measured > ceiling:
+            at = row.get("maxRotDegAt") or {}
+            mismatches.append(
+                "%s.%s: residual %.3f deg > max %s; worst line rec=%s "
+                "playbackUT=%s path=%s rotRef=%s"
+                % (label, MAX_ROT_DEG_KEY, measured, ceiling, at.get("rec"),
+                   at.get("playbackUT"), at.get("path"), at.get("rotRef")))
+    floor = windows.get(MIN_SWEEP_DEG_KEY)
+    if isinstance(floor, (int, float)) and not isinstance(floor, bool):
+        sweep = float(row.get("sweepDeg") or 0.0)
+        if sweep < floor:
+            mismatches.append(
+                "%s.%s: the rendered attitude swept only %.3f deg < min %s - "
+                "the ghost barely rotated, so a bounded residual proves little"
+                % (label, MIN_SWEEP_DEG_KEY, sweep, floor))
+
+
+def _check_attitude(block: Dict[str, Any], facets: Dict[str, Any],
+                    mismatches: List[str]) -> None:
+    """``attitude`` (v3). Declared => ZERO resolved lines is a defined mismatch
+    (tracer off, a pre-residual DLL, or no ghost positioned while a line was
+    written), the same vacuity rule as the MeshSpawned floor. A ``refs`` entry
+    with no row measured zero lines of that rotRef in a log that WAS read."""
+    spec = block.get(ATTITUDE_KEY)
+    if not isinstance(spec, dict):
+        return
+    row = facets.get(ATTITUDE_KEY) or {}
+    label = "%s.%s" % (GHOST_LIFECYCLE_BLOCK, ATTITUDE_KEY)
+    if int(row.get(RESOLVED_LINES_KEY) or 0) == 0:
+        mismatches.append(
+            "%s: no AfterUpdate line carried a resolved dRotDeg (%d AfterUpdate, "
+            "%d legacy, unresolved %r) - declared, so a mismatch rather than a "
+            "vacuous pass" % (label, int(row.get("afterUpdateLines") or 0),
+                              int(row.get("legacyLines") or 0),
+                              row.get("unresolvedRefs", {})))
+    _check_attitude_windows(label, spec, row, mismatches)
+    refs = spec.get(REFS_KEY)
+    if isinstance(refs, dict):
+        per_ref = row.get("perRef", {}) or {}
+        empty = _attitude_row(())
+        for name, windows in refs.items():
+            if not isinstance(name, str) or not isinstance(windows, dict):
+                continue
+            _check_attitude_windows("%s.%s[%r]" % (label, REFS_KEY, name),
+                                    windows, per_ref.get(name, empty), mismatches)
+
+
 def evaluate_ghost_lifecycle(expectations: Optional[Dict],
                              snapshot: Optional[GhostLifecycleSnapshot]
                              ) -> GhostLifecycleResult:
@@ -1025,6 +1352,7 @@ def evaluate_ghost_lifecycle(expectations: Optional[Dict],
             _check_forbidden_reasons(block, snapshot, mismatches)
             _check_required_reasons(block, snapshot, facets, mismatches)
             _check_vessel_windows(block, facets, mismatches)
+            _check_attitude(block, facets, mismatches)
 
     mismatches_t = tuple(dict.fromkeys(mismatches))
     armed_mismatches = mismatches_t if armed else ()

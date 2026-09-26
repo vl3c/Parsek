@@ -10,6 +10,66 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane checks that a background-recorded vessel is claimed for a ghost chain
+  by its own part event.** The new injected preset `background-claim` adds to a test save a recording
+  of a real, loaded, non-focused probe that the tree recorded in the background, with no parent and
+  an engine ignite / shutdown. The new lane `CI-5-background-event-claim` reads the chain walker
+  claiming that probe, building its chain, and the flight scene turning the real probe into a ghost.
+  The claim covers the walker's decision on a hand-built recording, not a flight that produces one.
+  Coverage 237 -> 238 of 247 (D18 complete).
+- **Automated testing: a lane checks that a replayed ghost keeps its recorded attitude.** With
+  ghost render tracing on, each traced ghost frame now also logs how far, in degrees, the ghost's
+  drawn orientation is from the orientation its recording implies at that moment, worked out from
+  the recording itself the same way playback does. The new lane `AP-1-minmus-attitude-residual`
+  replays a recorded Minmus mission through a warp across the Kerbin-to-Minmus crossing and a
+  warp while watching the ghost in orbit, and requires that difference to stay under 0.05 degrees
+  on every frame while the ghost turns more than 90 degrees. Both flights measured 0.000 degrees
+  on about 830 frames while the ghost turned 157 degrees. Coverage 236 -> 237 of 247.
+- **Automated testing: replayed ghosts are now checked for engine flames defined in a part's
+  EFFECTS node, and for cargo-bay doors that open and close.** A ghost engine now logs one line
+  each time it ignites on replay, naming the part, where its flame effects came from (the part's
+  EFFECTS node, its legacy `fx_*` effects, or a Parsek stand-in) and how many are playing. GS-6
+  now requires that line for its Ant, the only EFFECTS-node engine it carries. The new lane
+  `BAY-1-runway-cargo-bays` rolls the stock Mallard out onto the runway, stages it where it stands
+  so recording starts, opens and closes its three cargo bays, commits, rewinds to launch and lets
+  the Space Center replay it; it requires the ghost's bay doors to open and close.
+- **Automated testing: three new lanes for Real Spawn Control, drilled-cargo routes and Making History launch sites.**
+  `RSC-1` presses Real Spawn Control's "Warp to Spawn" on a ghost parked near the pad and requires the time jump
+  and the vessel that spawns; a new test command, `UiAction op=warp`, runs the button's own click code and
+  refuses when the button is greyed out. `HV-1` runs the Logistics tests with a synthetic drill mission present,
+  so the check that a route treats drilled cargo as its own origin runs instead of skipping. `MC-4` launches the
+  staged Kerbal X from the Making History Desert pad and requires the recording to name the site, save it, and
+  replay there. Two new injection presets supply the subjects. Coverage 231 -> 234 of 247.
+- **Automated testing: ghosts are checked under physics warp, and snapshot files are checked for
+  their compressed format and for ghost snapshots that reuse the vessel snapshot.** The test warp
+  command can now hold the game in physics warp (1x to 4x) for a whole span instead of taking
+  whichever warp the game picks. `V7W-minmus-physics-warp` replays the Minmus loop under physics
+  warp, once across the Kerbin-to-Minmus boundary and once while watching the ghost, and requires
+  the render record to count physics-warp frames. `ST-3-snapshot-sidecars-bdock` runs a new in-game
+  category on a save with a recording whose ghost snapshot is its vessel snapshot: every snapshot
+  file must be in the compressed format and read back correctly, a snapshot of the live vessel must
+  survive a write and read, and saving such a recording must write no separate ghost file while
+  loading it must restore the ghost from the vessel snapshot.
+- **Automated testing: a lane walks into the Spaceplane Hangar and launches, with committed ghosts
+  replaying.** Two new test-seam verbs reach the vehicle editor the way a player does:
+  `GoToEditor` clicks the VAB or SPH building at the Space Center (and loads a craft through the
+  craft browser's own load), and `LaunchFromEditor` presses the editor's Launch button. Both refuse
+  up front the stock dialogs no test step can answer (a closed building, a greyed Launch button, a
+  launch site with vessels standing on it). The new lane `SE-1-editor-round-trip` loops a recorded
+  Kerbin flight, goes from the Space Center into the SPH, launches the same stock Kerbal X onto the
+  Runway and records it: the committed recordings survive both scene changes unchanged, ghosts
+  replay after the launch, and the new flight commits as its own tree. It is the second declarer of D14
+  `scene-editor` (coverage unchanged at 238 of 247). Test staging now creates every staged save's
+  `Ships/VAB` and `Ships/SPH` folders the way KSP does for a real save, without which the editor's Launch
+  button failed to write its auto-saved ship.
+- **Dev: the GUI mirror shows stock KSP screens as photographs, with Parsek's decorations beside them.** A census capture labelled `stk-<screen>-<state>` (or one with no Parsek window in it) is listed under a `Stock screens` rail heading, one group per screen, and shown as the frame the census took, never redrawn; a PNG with no control-tree dump is enough. Beside it a panel lists what Parsek decorated on that screen, read from the run's `KSP.log`: the stock census lane's own `record label=` lines (per-tab summaries, items, or `screens=none`), else the nearest `decorate` pass for that screen before the capture, else a line saying none was logged. Each row shows id, tab, kind, marked, blocked and why, a second table lists the stock buttons the lane logged (`control` lines: name, state, interactable, visible), and a mark without its block (or a block without its mark) on a kind the pairing rule covers is highlighted and badged in the rail. Superseded / retired flags, notes and Compare pairs work as for Parsek's windows (`harness/tools/gui_mirror.py`; `docs/dev/design-gui-mirror.md` section 18).
+- **Automated testing: the Missions tab's leg trim and Clone button are driven by a lane.**
+  Two test-seam additions reach the last two Missions-tab authoring actions no lane could: a
+  `leg:` key for the include op unticks ONE interval of a vessel, through the interval
+  checkbox's own code, and a `clone` op runs the Clone button's code. The new lane
+  `MS-1-mission-leg-trim-clone` loops a recorded two-vessel mission, unticks the main vessel's
+  launch interval and reads the loop shrinking to start at the separation, then clones the
+  mission and reads the copy carrying the trim. Coverage 225 -> 227 of 247 (D11 complete).
 - **Automated testing: two lanes check the Timeline against the ledger and three storage formats
   on live saves.** `ST-1-storage-timeline-ingame` boots the earned career and runs two new in-game
   categories: `Timeline` checks that every effective-ledger action is exactly one Timeline row with
@@ -19,6 +79,16 @@ _(unreleased — entries accumulate here per commit)_
   splits a kerbal off an orbiting ship, which writes a rewind-point quicksave, and checks the file is
   on disk under `Parsek/RewindPoints/`, loads as a save at the rewind point's time, and left no
   temporary file behind.
+- **Automated testing: a GUI census lane photographs Parsek's annotations on the stock KSP screens.**
+  `GUI-28-census-stock-screens` visits R&D, the Astronaut Complex (from the Space Center and from the
+  VAB), Mission Control, Administration, the Tracking Station's right-click menu, the launch-site crew
+  picker, the VAB part list and its crew panel, and photographs each greyed control and stock tooltip. Its
+  host is a new committed fixture, `stock-screen-census`: a rewound career whose committed timeline
+  researches a node, accepts an offered contract, completes an active one, hires an applicant, holds a
+  kerbal on a future flight, upgrades a building, buys a part and swaps strategies after the clock (built
+  by a test, never hand-edited). A new automation-only test command, `StockScreen`, opens those screens
+  through their own buildings, selects rows and hovers controls without pressing anything, and every
+  screenshot now also logs what Parsek decided for each stock screen open at that moment.
 - **Automated testing: nine more behaviours are gated by lanes that already show them, and three registry cells that named nothing are retired.**
   Existing lanes now require the log lines that prove the in-flight crew swap (GS-4), freeing a crewed
   recording's reservation when its end passed without a spawn (L4), the tracking-station duplicate-spawn
@@ -1054,6 +1124,57 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
+  While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
+  and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
+  [Max: 5]`, lock every applicant at the crew limit early and charge more for the next hire.
+  The active-crew count now treats the held kerbal and his active stand-in as one seat, so the
+  header, the hire limit, the hire cost (and the editor's auto-hire) read what they read before
+  the hold, and Parsek's ledger records the same hire cost stock charges. A retired or displaced
+  stand-in still counts, and the count returns to stock's own when the hold ends. The stand-in's
+  dismiss tooltip adds that it shares the owner's seat and does not count against the limit.
+- **Space Center: the Administration building keeps stock's own reason when stock already
+  refuses a strategy, and a strategy Parsek refuses now looks refused.** With every strategy
+  slot taken, all ten inactive strategies showed Parsek's "a committed activation needs this
+  slot" instead of stock's own slot-full reason. Parsek now adds its reason only where stock
+  would allow the activation (or the Cancel); when stock refuses for its own reason (slots,
+  a conflict, the cost, a minimum duration), stock's greyed state and stock's text stand
+  untouched, and the Accept / Cancel click is left to stock. The Accept / Cancel button used
+  to look fully enabled while Parsek had disabled it (stock gives that button no disabled
+  picture, for its own refusals too); it is now dimmed while a Parsek refusal disables it and
+  gets its exact stock look back when you select a strategy Parsek does not refuse.
+- **Astronaut Complex: an applicant your committed timeline hires later shows "Hired on
+  <date>" on its row.** The date was written to the row's status line, which applicant rows
+  never display (stock's own "For Hire" is hidden there too), so the row kept showing only the
+  trait and the date was in the hover tooltip alone. It now replaces the trait line under the
+  applicant's name (the trait stays in the tooltip) and the stock line returns once the hire is
+  no longer ahead.
+- **Astronaut Complex: a stand-in's row reads "Stand-in for Bill Kerman".** An active stand-in
+  kept stock's "Available for next mission" although his dismiss button was locked as managed
+  by Parsek; the row now says whose seat he is covering, in the Kerbals window's wording, and
+  the lock's reason is unchanged.
+- **Stock screens: a button Parsek blocks now looks disabled.** The R&D Research and
+  purchase-all button and Mission Control's Accept, Decline and Cancel draw no disabled state
+  of their own, so a blocked one looked clickable and only the reason text said otherwise.
+  They are now greyed while Parsek blocks them (a button whose own style has a disabled look
+  keeps using it), and get their exact stock look back when the block lifts or another,
+  unblocked contract or node is selected.
+- **KSC facility menu: the Upgrade explanation wraps.** The tooltip on a blocked Upgrade
+  button drew as one very long line to the left of the menu; it now wraps to short lines.
+- **Mission Control: row labels fit.** A contract the committed timeline accepts or resolves
+  reads e.g. "- accepted Y1 D3" or "- completes Y2 D114" after its title, instead of a long
+  status the three-line row cut off; the detail panel still gives the full explanation.
+- **Mission Control: the slot refusal names the contract's agent.** When several offers share
+  a title, "Accept is unavailable" now says which one the committed timeline accepts, e.g.
+  "'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics". The agent
+  comes from the contract's saved accept record, or else from Mission Control's own offer list
+  at the moment the reason is shown; it was missing when the save kept no accept record,
+  because Parsek looked for the offer while the game was still loading its contracts.
+- **Astronaut Complex: a stand-in's dismiss refusal says whose seat he covers.** It read "This
+  kerbal is a stand-in in a reserved kerbal's replacement chain"; it now reads e.g. "Standing
+  in for Bill Kerman, who is held by a committed flight. Dismissing them would leave that seat
+  without a kerbal." A stand-in who covers no seat right now reads "Parsek keeps this kerbal as
+  a stand-in for a kerbal a committed flight holds."
 - **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
   Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
   kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name
@@ -1148,7 +1269,8 @@ _(unreleased — entries accumulate here per commit)_
   is still running. An active strategy your committed timeline deactivates or re-activates
   later can no longer be cancelled before then. Stock greys the row or the Cancel button and
   prints why in its own orange reason line, for example `Activated on Y2 D114 on your
-  committed timeline.`, with the date it frees up.
+  committed timeline.`, with the date it frees up. Where stock itself already refuses the
+  action, stock's own reason is the one shown.
   Stock's own strategy expiry is never blocked.
 - **Space Center: committed strategy activations and deactivations now take effect in the
   stock game.** After a rewind, a strategy your committed timeline activated was charged its

@@ -318,6 +318,63 @@ namespace Parsek.Tests
             Assert.Contains("stand-in", r.DisabledCaption);
         }
 
+        [Fact]
+        public void Decide_ActiveStandIn_LabelsStandInFor_AndLocksDismissWithTheRecordsWhy()
+        {
+            // GUI-28 F3: the record's title and why are exactly what the row draws.
+            string refusal = KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged);
+            var d = Deco(StockUiDecorationKind.KerbalStandIn, StockUiDecorationQuery.StandInTitle("Bill Kerman"),
+                refusal, blocked: true);
+            var r = StockUiAstronautDecoration.Decide(d, "Available", "Available for next mission", true, refusal);
+
+            Assert.Equal("Stand-in for Bill Kerman", r.Label);
+            Assert.True(r.DisableButton);
+            Assert.Equal("dismiss", r.BlockKind);
+            Assert.Equal(d.Title, r.DisabledTitle);
+            Assert.Equal(d.Why, r.DisabledCaption);
+            // Informational label: the crew tooltip is left to the stock reason block.
+            Assert.False(StockUiAstronautDecoration.AppendsTooltip(StockUiDecorationKind.KerbalStandIn));
+        }
+
+        [Fact]
+        public void ChooseStatusSurface_ShownLabel_WinsOnEveryTab()
+        {
+            foreach (var tab in new[] { "Applicants", "Available", "Assigned", "Kia" })
+                Assert.Equal(CrewStatusSurface.Label, StockUiAstronautDecoration.ChooseStatusSurface(tab, true, true));
+        }
+
+        [Fact]
+        public void ChooseStatusSurface_ApplicantWithAHiddenLabel_WritesTheTraitLine()
+        {
+            // GUI-28 F2: the applicant prefab hides CrewListItem.label (stock's own "For Hire"
+            // never shows), so "Hired on <date>" went to an invisible text; the only line
+            // under an applicant's name is the trait.
+            Assert.Equal(CrewStatusSurface.Trait,
+                StockUiAstronautDecoration.ChooseStatusSurface("Applicants", false, true));
+        }
+
+        [Theory]
+        [InlineData("Available")]
+        [InlineData("Assigned")]
+        [InlineData("Kia")]
+        public void ChooseStatusSurface_NonApplicantWithAHiddenLabel_NeverOverwritesTheTraitColumn(string tab)
+        {
+            Assert.Equal(CrewStatusSurface.None, StockUiAstronautDecoration.ChooseStatusSurface(tab, false, true));
+        }
+
+        [Fact]
+        public void ChooseStatusSurface_NoTraitEither_IsNone()
+        {
+            Assert.Equal(CrewStatusSurface.None, StockUiAstronautDecoration.ChooseStatusSurface("Applicants", false, false));
+        }
+
+        [Fact]
+        public void DescribeVisibilityWithinRow_NoText_IsMissing()
+        {
+            Assert.Equal("missing", StockUiAstronautDecoration.DescribeVisibilityWithinRow(null, null));
+            Assert.Equal("missing", StockUiAstronautDecoration.DescribeVisibilityWithinRow("not a component", null));
+        }
+
         [Theory]
         [InlineData("KerbalLost", "Lost", "Kia")]
         [InlineData("KerbalRetiredStandIn", "Retired", "Available")]

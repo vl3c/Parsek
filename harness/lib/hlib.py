@@ -193,7 +193,42 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # injector refuses a target save at
                                         # another UT. No RP. Consumer:
                                         # SS-1-spawn-safety-corrections.
-                                        "spawn-safety")
+                                        "spawn-safety",
+                                        # spawn-control-target: ONE committed,
+                                        # stationary, Landed recording ~130 m
+                                        # from the Launch Pad, in progress at the
+                                        # save's UT with a future EndUT, so a pad
+                                        # vessel sees it as a Real Spawn Control
+                                        # candidate with "Warp to Spawn" ENABLED.
+                                        # `--filter InjectSpawnControlTarget`. No
+                                        # RP. Consumer:
+                                        # RSC-1-real-spawn-control-warp.
+                                        "spawn-control-target",
+                                        # drill-harvest-route: the M2 synthetic
+                                        # drill-run tree `tree-drill-harvest-m2`
+                                        # ALONE (all-synthetic carries it too,
+                                        # beside dozens of recordings that would
+                                        # move the Logistics roster). `--filter
+                                        # InjectDrillHarvestRoute`. No RP.
+                                        # Consumer: HV-1-harvest-route-analysis.
+                                        "drill-harvest-route",
+                                        # background-claim: ONE committed
+                                        # two-recording tree on
+                                        # eva2-lko-crewed: a root destroyed
+                                        # before the save, and a PARENTLESS
+                                        # background recording of the save's
+                                        # real Kerbal X Probe (its pid and
+                                        # launch guid) carrying an engine
+                                        # ignite / shutdown and an hour-long
+                                        # orbit tail, so the chain walker
+                                        # claims the probe via
+                                        # BACKGROUND_EVENT and the flight
+                                        # scene ghosts it. `--filter
+                                        # InjectBackgroundClaim`; the
+                                        # injector refuses a target save at
+                                        # another UT. No RP. Consumer:
+                                        # CI-5-background-event-claim.
+                                        "background-claim")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -450,6 +485,25 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # business, not a completion criterion, which is why a lane that wants a real take
     # puts steps between them and a lane that wants the drop does not.
     "GloopsStart", "GloopsStop",
+    # StockScreen. ADDITIVE (38 -> 39 implemented, reserved unchanged at 5): the GUI
+    # census's route onto the STOCK KSP screens Parsek annotates (R&D, the Astronaut
+    # Complex, Mission Control, Administration, a KSC facility menu, the launch-site
+    # picker, the VAB and its crew panel). No UiAction op can reach them: UiAction drives
+    # PARSEK's IMGUI windows, these are stock uGUI screens behind stock buildings. It
+    # opens, selects and hovers through each screen's own entry point and presses no
+    # stock action. Two-phase (the screen's own readiness signal plus a frame floor) on
+    # the 60 s default budget, so NOT a DEFERRED_SEAM_VERB.
+    "StockScreen",
+    # The editor scene route (coverage wave 12, D14 scene-editor). ADDITIVE (39 -> 41
+    # implemented, reserved unchanged at 5). DecideLoadRoute reaches only FLIGHT,
+    # SPACECENTER and TRACKSTATION, so no run could stand in the VAB / SPH or launch from
+    # there. GoToEditor clicks the building at the Space Center (the building's own
+    # OnLeftClick, which saves persistent and loads the editor) and, with craft=, loads a
+    # craft through the craft browser's own load; LaunchFromEditor presses the editor's
+    # Launch button (EditorLogic.launchVessel). Both TWO-PHASE on the ExitToSpaceCenter
+    # budget class (a scene change that parses no save off disk), so NOT
+    # DEFERRED_SEAM_VERBS; their budgets ride DISPATCH_DEFERRAL_BUDGET_SECONDS.
+    "GoToEditor", "LaunchFromEditor",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -781,6 +835,14 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # 540 s cap bounds any spec-declared budget - both apply, as they do for
     # LoadGame / InvokeRewind.
     "InvokeRewindToLaunch": 300.0,
+    # The editor scene route, mirroring DeferralBudget.GoToEditorSeconds /
+    # LaunchFromEditorSeconds. GoToEditor is the ExitToSpaceCenter class (a scene change
+    # plus, with craft=, an in-scene editor restart); LaunchFromEditor waits for the FLIGHT
+    # bootstrap of a NEW vessel and takes StartRecording's scene-wait size. Without the rows
+    # the harness step-wait would ride the 60 s default + margin and could KILL a healthy
+    # flight bootstrap before the seam's own verdict surfaced.
+    "GoToEditor": 120.0,
+    "LaunchFromEditor": 180.0,
 }
 
 # Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
@@ -990,6 +1052,14 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # parallel recorder sampling the active vessel, which an unmet tail must not start.
     "GloopsStart": TAIL_ROLE_WORLD_MUTATING,
     "GloopsStop": TAIL_ROLE_WORLD_MUTATING,
+    # StockScreen is WORLD-MUTATING: it changes no career state, but it moves the game
+    # between scenes (the VAB load SAVES persistent.sfs first, as the VAB building does)
+    # and leaves stock screens open, which an unmet tail must not do.
+    "StockScreen": TAIL_ROLE_WORLD_MUTATING,
+    # The editor scene route moves the game between scenes (the building click SAVES
+    # persistent.sfs first) and LaunchFromEditor puts a new vessel in the world.
+    "GoToEditor": TAIL_ROLE_WORLD_MUTATING,
+    "LaunchFromEditor": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1161,6 +1231,13 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # this verdict would certify nothing either way.
     "GloopsStart": POST_MISSION_ROLE_RECORDING,
     "GloopsStop": POST_MISSION_ROLE_RECORDING,
+    # StockScreen is `recording`: its verdict is a claim about a stock screen being on
+    # screen, not about a kerbal's physical in-world state.
+    "StockScreen": POST_MISSION_ROLE_RECORDING,
+    # The editor scene route: a claim about a scene transition having settled, not about a
+    # kerbal's physical in-world state.
+    "GoToEditor": POST_MISSION_ROLE_RECORDING,
+    "LaunchFromEditor": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -2234,7 +2311,18 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # form names no window; the apply and clear forms DO require one, which is checked by
     # the per-op branch in validate_uiaction_step below (mirroring the seam, which checks
     # it in the applier for the same reason).
-    "mock")
+    "mock",
+    # Coverage wave 6 (D11 `clone`): `clone` is the Missions tab's Clone button body,
+    # MissionStore.Clone - a new Mission over the same tree carrying the source's include
+    # set and loop configuration. Like `select` it writes MISSION state that persists with
+    # the save, so a lane using it runs on a throwaway staged fixture. `window=missions`
+    # only, plus the OPTIONAL `mission=` selector op=select takes.
+    "clone",
+    # `warp` presses the Real Spawn Control table's FIRST row warp button through the
+    # button's own click body (SpawnControlUI.ExecuteRowWarp), and refuses when the table
+    # has no row or the button is drawn disabled. Takes `window=` (only `spawncontrol`,
+    # UIACTION_WARP_WINDOWS) and no other arg; `op=sort` picks which row is first.
+    "warp")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
@@ -2245,6 +2333,12 @@ UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     # OWN OnGUI - outside either scene host's showUI gate, in every scene but LOADING.
     "testrunnerglobal")
 UIACTION_MODE_KEY = "mode"
+# WarpToUT's optional ladder selector (coverage wave 5, D14 `warp-phys`). Absent = the
+# live stock ladder (the verb's original behaviour); `phys` = stock physics warp, held
+# for the whole warp. The C# parse (TestCommandWarpToUT.ResolveWarpMode) is exact and
+# case-sensitive and REJECTS anything else `warp-ladder-invalid`.
+WARPTOUT_LADDER_KEY = "ladder"
+WARPTOUT_LADDER_VALUES: Tuple[str, ...] = ("phys",)
 UIACTION_MODE_VALUES: Tuple[str, ...] = ("basic", "advanced")
 
 # `op=find`'s control-kind filter, mirroring TestCommandUiFind.CtrlValues, which itself
@@ -2460,10 +2554,13 @@ UIACTION_SORT_DIR_KEY = "dir"
 UIACTION_SORT_DIR_VALUES: Tuple[str, ...] = ("asc", "desc")
 
 # `op=select key=` prefixes (plus the shared bulk tokens above) and its REQUIRED
-# direction. `vessel:` names a composition-interval key, `link:` a cross-tree foreign
-# dock link id. Both value halves may carry further colons, so the seam splits at the
-# FIRST one - the `op=expand` key rule.
-UIACTION_SELECT_PREFIXES: Tuple[str, ...] = ("vessel", "link")
+# direction. `vessel:` names a vessel ROW (by head, or by any one of its interval keys)
+# and writes ALL of that row's own interval keys; `link:` a cross-tree foreign dock link
+# id; `leg:` (coverage wave 6, D11 `leg-trim`) ONE composition-interval key, written
+# through the interval checkbox's own body, so unticking a vessel's launch interval
+# start-trims the loop and leaves the row Partial. Every value half may carry further
+# colons, so the seam splits at the FIRST one - the `op=expand` key rule.
+UIACTION_SELECT_PREFIXES: Tuple[str, ...] = ("vessel", "link", "leg")
 UIACTION_INCLUDE_KEY = "include"
 UIACTION_INCLUDE_VALUES: Tuple[str, ...] = ("true", "false")
 
@@ -2619,7 +2716,12 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
 # three take `popup=` instead (UIACTION_POPUP_KEY).
 UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
     "open", "close", "tab", "rect", "find", "expand", "target", "picker", "run",
-    "state", "sort", "select", "edit")
+    "state", "sort", "select", "edit", "clone", "warp")
+
+# The windows `op=warp` is defined for, mirroring TestCommandUiAction.WindowHasRowWarpButton:
+# the one window whose table rows carry a warp button. Any other window answers
+# `warp-unsupported-window`.
+UIACTION_WARP_WINDOWS: Tuple[str, ...] = ("spawncontrol",)
 
 # The four rect args, all REQUIRED together on `op=rect`: a partial rect mixes a
 # commanded position with a stale size, so the capture it produces is not reproducible.
@@ -2748,6 +2850,160 @@ def validate_capture_screenshot_step(index: int, step_args: Dict) -> List[str]:
                 "REJECTS anything else rather than clamping, because a typo that "
                 "silently captured at 1x would read as a resolution problem"
                 % (index, CAPTURE_SUPERSIZE_KEY, text, CAPTURE_SUPERSIZE_MAX))
+    return errors
+
+
+# StockScreen: the vocabularies, mirrored from the C# pure half
+# (TestCommands/TestCommandStockScreen.cs; StockScreenSourceSyncTests keeps them
+# byte-equal). `screen`, `act` and `pane` are closed and ride VERB_SCOPED_CLOSED_ARGS;
+# `item` (a tech id, contract guid, strategy config name, facility id, craft name or
+# kerbal name) and `part` (a runtime part name) are open-valued and checked for
+# presence only.
+STOCKSCREEN_VERB = "StockScreen"
+STOCKSCREEN_SCREEN_KEY = "screen"
+STOCKSCREEN_SCREEN_VALUES: Tuple[str, ...] = (
+    "rnd", "astronaut", "missioncontrol", "administration", "facilitymenu",
+    "launchsite", "editor", "crewdialog",
+)
+STOCKSCREEN_ACT_KEY = "act"
+STOCKSCREEN_ACT_VALUES: Tuple[str, ...] = ("open", "close", "select", "hover")
+STOCKSCREEN_PANE_KEY = "pane"
+STOCKSCREEN_PANE_VALUES: Tuple[str, ...] = ("available", "active", "archive")
+STOCKSCREEN_ITEM_KEY = "item"
+STOCKSCREEN_PART_KEY = "part"
+# TestCommandStockScreen.Supports, per screen.
+STOCKSCREEN_SUPPORTED_ACTS: Dict[str, Tuple[str, ...]] = {
+    "rnd": ("open", "close", "select", "hover"),
+    "astronaut": ("open", "close", "hover"),
+    "missioncontrol": ("open", "close", "select"),
+    "administration": ("open", "close", "select"),
+    "facilitymenu": ("open", "close", "hover"),
+    "launchsite": ("open", "close", "select", "hover"),
+    "editor": ("open", "close", "hover"),
+    "crewdialog": ("open", "hover"),
+}
+# The seam's typed refusal / error reasons (TestCommandStockScreen.Reasons, same order).
+STOCKSCREEN_REASONS: Tuple[str, ...] = (
+    "stockscreen-screen-arg-missing", "stockscreen-screen-arg-invalid",
+    "stockscreen-act-arg-missing", "stockscreen-act-arg-invalid",
+    "stockscreen-act-unsupported", "stockscreen-item-arg-missing",
+    "stockscreen-pane-arg-invalid", "stockscreen-pane-not-for-screen",
+    "stockscreen-part-not-for-screen", "stockscreen-wrong-scene",
+    "stockscreen-not-open", "stockscreen-already-open",
+    "stockscreen-entry-not-found", "stockscreen-item-not-found",
+    "stockscreen-no-tooltip", "stockscreen-career-only",
+    "stockscreen-open-failed", "stockscreen-not-settled",
+)
+
+
+# The editor scene route: vocabularies mirrored from the C# pure half
+# (TestCommands/TestCommandEditorRoute.cs; EditorRouteSourceSyncTests keeps them
+# byte-equal). `facility` is closed but CANNOT ride VERB_SCOPED_CLOSED_ARGS: that table
+# keys one verb per arg name and KscAction already owns `facility` (a facility id), so
+# validate_go_to_editor_step checks its spelling. `craft` (a bare craft file stem) and
+# LaunchFromEditor's `site` (a stock launch-site name) are open.
+EDITORROUTE_GO_VERB = "GoToEditor"
+EDITORROUTE_LAUNCH_VERB = "LaunchFromEditor"
+EDITORROUTE_FACILITY_KEY = "facility"
+EDITORROUTE_FACILITY_VALUES: Tuple[str, ...] = ("VAB", "SPH")
+EDITORROUTE_CRAFT_KEY = "craft"
+EDITORROUTE_SITE_KEY = "site"
+# Refusals (REJECTED before anything was clicked) - each mapped to a driver-* subkind.
+EDITORROUTE_REFUSAL_REASONS: Tuple[str, ...] = (
+    "goeditor-facility-arg-missing", "goeditor-facility-arg-invalid",
+    "goeditor-craft-arg-invalid", "goeditor-wrong-scene", "goeditor-craft-not-found",
+    "goeditor-building-not-found", "goeditor-facility-closed",
+    "launchfromeditor-wrong-scene", "launchfromeditor-no-ship",
+    "launchfromeditor-launch-locked", "launchfromeditor-site-invalid",
+    "launchfromeditor-site-obstructed",
+)
+# Post-click terminals (ERROR): the click happened and the scene never settled. NOT
+# mapped, the switch-refused-by-stock rule - a refusal subkind would name a refusal that
+# never happened.
+EDITORROUTE_POST_ACT_REASONS: Tuple[str, ...] = (
+    "goeditor-returned-to-menu", "goeditor-not-settled",
+    "launchfromeditor-returned-to-menu", "launchfromeditor-not-settled",
+)
+
+
+def validate_go_to_editor_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape checks for one ``GoToEditor`` step: ``facility=`` is REQUIRED
+    (its spelling is a VERB_SCOPED_CLOSED_ARGS row) and ``craft=``, when present, is a
+    bare file stem - the C# side refuses a path separator or a ``..`` run."""
+    errors: List[str] = []
+    facility = step_args.get(EDITORROUTE_FACILITY_KEY)
+    if facility is None:
+        errors.append(
+            "driver.steps[%d].args.%s: GoToEditor REQUIRES it (one of %s); the seam "
+            "answers REJECTED goeditor-facility-arg-missing"
+            % (index, EDITORROUTE_FACILITY_KEY,
+               " or ".join(repr(v) for v in EDITORROUTE_FACILITY_VALUES)))
+    elif facility not in EDITORROUTE_FACILITY_VALUES:
+        errors.append(
+            "driver.steps[%d].args.%s: %r must be one of %s (case-sensitive); the seam "
+            "answers REJECTED goeditor-facility-arg-invalid"
+            % (index, EDITORROUTE_FACILITY_KEY, facility,
+               " or ".join(repr(v) for v in EDITORROUTE_FACILITY_VALUES)))
+    craft = step_args.get(EDITORROUTE_CRAFT_KEY)
+    if craft is not None and (not isinstance(craft, str) or not craft.strip()
+                              or ".." in craft or any(c in craft for c in ("/", "\\", ":"))):
+        errors.append(
+            "driver.steps[%d].args.%s: %r must be a bare craft file stem; the seam answers "
+            "REJECTED goeditor-craft-arg-invalid" % (index, EDITORROUTE_CRAFT_KEY, craft))
+    return errors
+
+
+def stockscreen_needs_item(screen: str, act: str, has_part: bool) -> bool:
+    """TestCommandStockScreen.NeedsItem, verbatim."""
+    if act == "select":
+        return True
+    if act == "hover":
+        return not has_part and screen != "facilitymenu"
+    if act == "open":
+        return screen in ("facilitymenu", "editor")
+    return False
+
+
+def validate_stock_screen_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape checks for one ``StockScreen`` step: ``screen=`` and ``act=``
+    are REQUIRED, the pair must be one the verb implements, ``item=`` must be present
+    where the act needs it, and ``part=`` / ``pane=`` only where they are read. The
+    closed spellings are VERB_SCOPED_CLOSED_ARGS rows; this adds what a flat table
+    cannot say. Every fault here is a typed REJECTED after a whole KSP boot otherwise."""
+    errors: List[str] = []
+    screen = step_args.get(STOCKSCREEN_SCREEN_KEY)
+    act = step_args.get(STOCKSCREEN_ACT_KEY)
+    for key, value, allowed in ((STOCKSCREEN_SCREEN_KEY, screen, STOCKSCREEN_SCREEN_VALUES),
+                                (STOCKSCREEN_ACT_KEY, act, STOCKSCREEN_ACT_VALUES)):
+        if value is None:
+            errors.append(
+                "driver.steps[%d].args.%s: StockScreen REQUIRES it (one of %s); the seam "
+                "answers REJECTED stockscreen-%s-arg-missing"
+                % (index, key, " or ".join(repr(v) for v in allowed), key))
+    if errors or screen not in STOCKSCREEN_SUPPORTED_ACTS:
+        return errors
+    if act not in STOCKSCREEN_SUPPORTED_ACTS[screen]:
+        errors.append(
+            "driver.steps[%d].args: screen=%s does not support act=%s (it supports %s); "
+            "the seam answers REJECTED stockscreen-act-unsupported"
+            % (index, screen, act, ", ".join(STOCKSCREEN_SUPPORTED_ACTS[screen])))
+        return errors
+    has_part = STOCKSCREEN_PART_KEY in step_args
+    if has_part and not (act == "hover" and screen in ("rnd", "editor")):
+        errors.append(
+            "driver.steps[%d].args.%s: only a hover on screen=rnd or screen=editor reads "
+            "it; the seam answers REJECTED stockscreen-part-not-for-screen"
+            % (index, STOCKSCREEN_PART_KEY))
+    if STOCKSCREEN_PANE_KEY in step_args and not (
+            screen == "missioncontrol" and act in ("open", "select")):
+        errors.append(
+            "driver.steps[%d].args.%s: only screen=missioncontrol act=open|select reads "
+            "it; the seam answers REJECTED stockscreen-pane-not-for-screen"
+            % (index, STOCKSCREEN_PANE_KEY))
+    if stockscreen_needs_item(screen, act, has_part) and not step_args.get(STOCKSCREEN_ITEM_KEY):
+        errors.append(
+            "driver.steps[%d].args.%s: screen=%s act=%s needs it; the seam answers "
+            "REJECTED stockscreen-item-arg-missing" % (index, STOCKSCREEN_ITEM_KEY, screen, act))
     return errors
 
 
@@ -2971,6 +3227,16 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "step is op=%s -- the arg would be silently ignored (the RunTests VERB reads "
             "the same key, which is what makes this easy to misplace)"
             % (index, UIACTION_RUN_CATEGORY_KEY, op))
+
+    if op == "warp":
+        window_name = str(window) if window is not None else None
+        if (window_name in UIACTION_WINDOW_VALUES
+                and window_name not in UIACTION_WARP_WINDOWS):
+            errors.append(
+                "driver.steps[%d].args.%s: window %r has no row warp button, so op=warp "
+                "answers REJECTED warp-unsupported-window. The ones that do are %s"
+                % (index, UIACTION_WINDOW_KEY, window_name,
+                   ", ".join(UIACTION_WARP_WINDOWS)))
 
     if op not in ("expand", "playback", "state") and UIACTION_STATE_KEY in step_args:
         errors.append(
@@ -3243,10 +3509,20 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
     # 6, op=select's OPTIONAL one - so this is its own rule rather than an arm of the
     # include chain above. It was an arm of it once, which made an op=select step carrying
     # no mission= fall through to "only op=select reads it, but this step is op=select".
-    if op not in ("target", "select") and "mission" in step_args:
+    if op not in ("target", "select", "clone") and "mission" in step_args:
         errors.append(
-            "driver.steps[%d].args.mission: only op=target and op=select read it, but "
-            "this step is op=%s -- the arg would be silently ignored" % (index, op))
+            "driver.steps[%d].args.mission: only op=target, op=select and op=clone read "
+            "it, but this step is op=%s -- the arg would be silently ignored"
+            % (index, op))
+
+    if op == "clone":
+        window_name = str(window) if window is not None else None
+        if window_name in UIACTION_WINDOW_VALUES and window_name != "missions":
+            errors.append(
+                "driver.steps[%d].args.%s: only the 'missions' window has a Clone "
+                "button, so op=clone against %r answers REJECTED "
+                "clone-unsupported-window"
+                % (index, UIACTION_WINDOW_KEY, window_name))
 
     if op == "edit":
         window_name = str(window) if window is not None else None
@@ -3484,6 +3760,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_OP_KEY: ("UiAction", UIACTION_OP_VALUES),
     UIACTION_WINDOW_KEY: ("UiAction", UIACTION_WINDOW_VALUES),
     UIACTION_MODE_KEY: ("UiAction", UIACTION_MODE_VALUES),
+    WARPTOUT_LADDER_KEY: ("WarpToUT", WARPTOUT_LADDER_VALUES),
     UIACTION_CTRL_KEY: ("UiAction", UIACTION_CTRL_VALUES),
     UIACTION_STATE_KEY: ("UiAction", UIACTION_STATE_VALUES),
     UIACTION_PARK_KEY: ("UiAction", UIACTION_PARK_VALUES),
@@ -3497,6 +3774,9 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_COMMIT_KEY: ("UiAction", UIACTION_COMMIT_VALUES),
     UIACTION_DESCRIBE_KEY: ("UiAction", UIACTION_DESCRIBE_VALUES),
     ANSWERMERGE_DIALOG_KEY: ("AnswerMergeDialog", ANSWERMERGE_DIALOG_VALUES),
+    STOCKSCREEN_SCREEN_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_SCREEN_VALUES),
+    STOCKSCREEN_ACT_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_ACT_VALUES),
+    STOCKSCREEN_PANE_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_PANE_VALUES),
 }
 
 
@@ -5586,6 +5866,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_ui_action_step(i, step_args))
         elif cmd == "DumpGuiTree":
             errors.extend(validate_dump_gui_tree_step(i, step_args))
+        elif cmd == STOCKSCREEN_VERB:
+            errors.extend(validate_stock_screen_step(i, step_args))
+        elif cmd == EDITORROUTE_GO_VERB:
+            errors.extend(validate_go_to_editor_step(i, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
         # be well-formed AND name an EARLIER seam step that expects OK. A fault here
         # would otherwise put a literal ${...} on the wire, where the seam resolves an
@@ -8908,6 +9192,10 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "max-rate-invalid": "driver-arg",
     "warp-unavailable": "driver-gate",
     "warp-locked": "driver-gate",
+    # WarpToUT ladder=phys: an unknown ladder token is arg-class (fail-closed, like
+    # maxRate); a game whose difficulty forbids physics warp is a gate.
+    "warp-ladder-invalid": "driver-arg",
+    "physics-warp-disallowed": "driver-gate",
     # The Gloops pair: every refusal is a GATE the verb asked for and did not get (the
     # verb takes no args, so there is no arg-class fault it can have). Each token is a
     # read-back of an EXISTING Gloops guard's decision, and each is distinct so a report
@@ -8919,6 +9207,29 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "gloops-no-active-vessel": "driver-gate",
     "gloops-start-blocked": "driver-gate",
     "no-gloops-recorder": "driver-gate",
+    # StockScreen: a spec-shaped fault (spelling, a missing arg, an act the screen does
+    # not have, a row or part the fixture does not carry) is arg-class; a screen that is
+    # not open / already open, a wrong scene or a non-career save is a gate the verb
+    # asked for and did not get, and so is a stock entry point that threw or never
+    # settled.
+    "stockscreen-screen-arg-missing": "driver-arg",
+    "stockscreen-screen-arg-invalid": "driver-arg",
+    "stockscreen-act-arg-missing": "driver-arg",
+    "stockscreen-act-arg-invalid": "driver-arg",
+    "stockscreen-act-unsupported": "driver-arg",
+    "stockscreen-item-arg-missing": "driver-arg",
+    "stockscreen-pane-arg-invalid": "driver-arg",
+    "stockscreen-pane-not-for-screen": "driver-arg",
+    "stockscreen-part-not-for-screen": "driver-arg",
+    "stockscreen-item-not-found": "driver-arg",
+    "stockscreen-wrong-scene": "driver-gate",
+    "stockscreen-not-open": "driver-gate",
+    "stockscreen-already-open": "driver-gate",
+    "stockscreen-entry-not-found": "driver-gate",
+    "stockscreen-no-tooltip": "driver-gate",
+    "stockscreen-career-only": "driver-gate",
+    "stockscreen-open-failed": "driver-gate",
+    "stockscreen-not-settled": "driver-gate",
     # KscAction: dispatch not-ready + career-state declines are career-class; unknown /
     # missing targets are arg-class.
     "career-not-ready": "driver-career",
@@ -9113,6 +9424,24 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "link-no-candidate": "driver-gate",
     "route-not-linked": "driver-gate",
     "cadence-unchanged": "driver-gate",
+    # The editor scene route. Arg half: the spec named something wrong (a facility, a
+    # craft that is not in either Ships folder or the stock craft, a site this editor does
+    # not offer). Gate half: the run is in a state the click does not drive - the wrong
+    # scene, no building / no ship, a locked or closed facility, a locked Launch button, or
+    # an obstructed site (stock's recover-the-obstruction dialog). The post-click
+    # ERROR terminals (returned-to-menu / not-settled) stay unmapped.
+    "goeditor-facility-arg-missing": "driver-arg",
+    "goeditor-facility-arg-invalid": "driver-arg",
+    "goeditor-craft-arg-invalid": "driver-arg",
+    "goeditor-craft-not-found": "driver-arg",
+    "goeditor-wrong-scene": "driver-gate",
+    "goeditor-building-not-found": "driver-gate",
+    "goeditor-facility-closed": "driver-gate",
+    "launchfromeditor-site-invalid": "driver-arg",
+    "launchfromeditor-wrong-scene": "driver-gate",
+    "launchfromeditor-no-ship": "driver-gate",
+    "launchfromeditor-launch-locked": "driver-gate",
+    "launchfromeditor-site-obstructed": "driver-gate",
     # NOT mapped, deliberately, and for the SAME reason as switch-refused-by-stock:
     # `route-action-refused`, `seal-incomplete` and `seal-refused` are all POST-ACT
     # terminals (ERROR, not REJECTED). The verb reached the production call and the

@@ -48,6 +48,7 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -2119,11 +2120,35 @@ def scan_shots_dir(path, scenarios_dir, want_colors=True, verbose=False):
     fixture = spec_fixture(scenarios_dir, spec_id) if spec_id else ""
     logpath = os.path.join(path, "KSP.log")
     replay = {"captures": {}, "tabs": {}, "windows": []}
+    stock_log = None
     if os.path.isfile(logpath):
         with open(logpath, "r", encoding="utf-8", errors="replace") as fh:
-            replay = parse_ksp_log(fh.read())
+            text = fh.read()
+        replay = parse_ksp_log(text)
+        stock_log = parse_stock_log(text)
     caps = []
-    for name in sorted(os.listdir(path)):
+    names = sorted(os.listdir(path))
+    dumped = {n[:-len(".gui.json")] for n in names if n.endswith(".gui.json")}
+    for name in names:
+        # A stock screen is uGUI, which no control-tree dump can see, so its
+        # capture may be the photograph alone. It is filed off the label and the
+        # log, and its time is the file's own (there is no dump to carry one).
+        if not name.endswith(".png"):
+            continue
+        label = name[:-len(".png")]
+        if label in dumped or not is_stock_label(label):
+            continue
+        png = os.path.join(path, name)
+        at = datetime.datetime.fromtimestamp(
+            os.path.getmtime(png), datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        caps.append({
+            "label": label, "dir": path, "runId": run_id, "specId": spec_id,
+            "fixture": fixture, "mock": None,
+            "dump": {"schema": TREE_SCHEMA, "roots": [], "capturedUtc": at},
+            "png": png, "log": replay["captures"].get(label) or {},
+            "stockLog": stock_log,
+        })
+    for name in names:
         if not name.endswith(".gui.json"):
             continue
         label = name[:-len(".gui.json")]
@@ -2150,6 +2175,7 @@ def scan_shots_dir(path, scenarios_dir, want_colors=True, verbose=False):
             "dump": dump,
             "png": png if os.path.isfile(png) else None,
             "log": replay["captures"].get(label) or {},
+            "stockLog": stock_log,
         })
     return {"captures": caps, "tabs": replay["tabs"], "windows": replay["windows"],
             "runId": run_id, "specId": spec_id, "fixture": fixture,
@@ -2396,6 +2422,437 @@ def classify_foreign(all_caps):
 
 
 # --------------------------------------------------------------------------
+# stock screens: photographs of stock KSP (uGUI) screens, never redrawn
+# --------------------------------------------------------------------------
+
+# The label host a stock-screen census lane writes: `stk-<screen>-<state...>`.
+# Automation vocabulary (the lane's own label grammar), not window text.
+STOCK_HOST = "stk"
+# The log subsystem Parsek's stock-screen decorations print under
+# (`StockUiDecorationQuery.Tag` and friends).
+STOCK_LOG_TAG = "StockUiOverlay"
+# The two decoration kinds the pairing rule exempts, as `StockUiDecorationKind`
+# member names (held to the C# enum by a source-sync cell in the tests). The rule
+# (CLAUDE.md, owner ruling D1; docs/dev/research/stock-ui-reservation-overlays-
+# 2026-09-25.md): a mark on a CLICKABLE action ships with a click-block that reads
+# the same predicate. INFORMATIONAL kinds are marks no stock button acts on (a
+# future dismissal, a lost kerbal, a retired stand-in), so a mark without a block
+# is their design. BLOCK-ONLY kinds are the reverse: the contract-slot refusal
+# applies to every Offered row at once, so it has no per-row mark and its reason
+# in the detail panel is the annotation (plan section 7, C2).
+STOCK_INFORMATIONAL_KINDS = ("KerbalRetire", "KerbalLost", "KerbalRetiredStandIn")
+STOCK_BLOCK_ONLY_KINDS = ("ContractSlot",)
+
+# One decoration line. `record` and `control` are the per-capture shapes the
+# stock census lane (GUI-28) logs after each capture - the decoration it asked
+# `StockUiDecorationQuery` for, and the state of the stock buttons on screen;
+# `decorate` is the pass Parsek logs whenever it decorates.
+_STOCK_LINE = re.compile(
+    r"\[Parsek\]\[(?P<level>[A-Z]+)\]\[" + STOCK_LOG_TAG
+    + r"\]\s+(?P<verb>decorate|record|control)\s+(?P<tail>[^\r\n]*)")
+# The keys a decoration line carries. A value runs to the next known key rather
+# than to the next space, because an item id can hold spaces (a kerbal's name,
+# a crew row's `row:Jebediah Kerman`).
+_STOCK_KEYS = ("label", "screens", "screen", "tab", "items", "item", "id", "kind",
+               "facility", "marked", "blocked", "name", "state", "interactable",
+               "visible")
+_STOCK_KEY_AT = re.compile(r"(?:^|\s)(%s)=" % "|".join(_STOCK_KEYS))
+
+
+def is_stock_label(label):
+    """A stock-screen capture's label: `stk-<screen>[-<state>]`."""
+    toks = [t for t in (label or "").split("-") if t]
+    return len(toks) >= 2 and toks[0] == STOCK_HOST
+
+
+def stock_facets(label):
+    """`stk-mc-available-detail` -> (window `stk-mc`, screen `mc`, state
+    `available-detail`). The window token keeps the host so a stock screen can
+    never share a token with a Parsek window."""
+    toks = [t for t in (label or "").split("-") if t]
+    screen = toks[1] if len(toks) > 1 else ""
+    return "%s-%s" % (STOCK_HOST, screen), screen, "-".join(toks[2:])
+
+
+def _stock_bool(text):
+    t = (text or "").strip().lower()
+    if t in ("true", "false"):
+        return t == "true"
+    try:
+        return int(t) > 0
+    except ValueError:
+        return None
+
+
+def parse_stock_line(tail):
+    """One decoration line's tail (after `decorate ` / `record `) -> fields.
+
+    `why="..."` is cut out by position first (it is free text), then every known
+    key's value runs to the next known key. A facility line's id is its first
+    word: the Verbose form carries a `(reason)` and, when unmarked, an
+    `unmarked: ...` sentence, and that sentence IS its why.
+    """
+    tail = tail or ""
+    why = None
+    i = tail.find('why="')
+    if i >= 0:
+        j = tail.rfind('"')
+        why = tail[i + 5:j] if j > i + 4 else tail[i + 5:]
+        tail = tail[:i]
+    out = {}
+    hits = list(_STOCK_KEY_AT.finditer(tail))
+    for n, m in enumerate(hits):
+        end = hits[n + 1].start() if n + 1 < len(hits) else len(tail)
+        out[m.group(1)] = tail[m.end():end].strip()
+    if "facility" in out:
+        rest = out["facility"]
+        word = rest.split(" ", 1)[0] if rest else ""
+        if why is None:
+            k = rest.find("unmarked:")
+            if k >= 0:
+                why = rest[k:].strip()
+        out["facility"] = word
+    if why is not None:
+        out["why"] = why
+    return out
+
+
+def stock_pairing(kind, marked, blocked):
+    """(verdict, problem) for one decorated item, by the pairing rule.
+
+    A mark and a block together is paired, neither is plain stock. A mark alone is a
+    problem unless the kind is informational; a block alone is a problem unless
+    the kind is block-only. The verdict strings are the page's own chrome.
+    """
+    if marked and blocked:
+        return "paired", False
+    if marked:
+        if kind in STOCK_INFORMATIONAL_KINDS:
+            return "informational", False
+        return "marked, not blocked", True
+    if blocked:
+        if kind in STOCK_BLOCK_ONLY_KINDS:
+            return "block only", False
+        return "blocked, not marked", True
+    return "stock", False
+
+
+def _count(text):
+    try:
+        return int((text or "").strip())
+    except ValueError:
+        return 0
+
+
+def _stock_row(fields, lineno):
+    """A decoration line's fields as one table row, or None for a summary."""
+    count = None
+    if "items" in fields:
+        return None
+    ident = fields.get("item") or fields.get("id") or fields.get("facility") or ""
+    marked = _stock_bool(fields.get("marked"))
+    blocked = _stock_bool(fields.get("blocked"))
+    if not ident and fields.get("kind") and "blocked" in fields:
+        # The aggregate line a pass prints for slot-refused rows: `blocked=` is a
+        # COUNT there, and the row stands for that many items.
+        try:
+            count = int(fields["blocked"])
+        except ValueError:
+            count = None
+    verdict, problem = stock_pairing(fields.get("kind") or "", bool(marked),
+                                     bool(blocked))
+    row = {"id": ident, "kind": fields.get("kind") or "",
+           "tab": fields.get("tab") or "", "marked": bool(marked),
+           "blocked": bool(blocked), "why": fields.get("why"),
+           "pairing": verdict, "problem": problem, "line": lineno}
+    if count is not None:
+        row["count"] = count
+    return row
+
+
+def parse_stock_log(text):
+    """A shots-dir KSP.log -> the stock-screen decoration record.
+
+    Returns ``{"shots": {label: line}, "records": {label: [row]},
+    "recordSummaries": {label: [summary]}, "recordNone": {label: True},
+    "controls": {label: [control]}, "passes": [pass],
+    "screens": [screen names in first-seen order]}``.
+
+    The lane's per-capture lines, keyed by their own `label=` wherever they sit:
+    `record ... items=N marked=M blocked=B` is a per-tab summary, `record ...
+    item=<id> kind=<K> marked= blocked= why="..."` one decorated item, `record
+    screens=none` says no screen was decorated at all, and `control ... name=
+    state= interactable= visible=` one stock button's own state. A pass is
+    one screen's decoration refresh: its Info summary lines (one per tab), then
+    the Verbose item lines that follow for the same screen. A facility-menu Info
+    line is a pass of its own (the menu shows one building), and its Verbose line
+    lends that item its why.
+    """
+    shots = {}
+    records = defaultdict(list)
+    rec_sums = defaultdict(list)
+    rec_none = {}
+    controls = defaultdict(list)
+    passes = []
+    current = {}
+    screens = OrderedDict()
+    for lineno, raw in enumerate((text or "").splitlines(), 1):
+        m = _LOG_SHOT.search(raw)
+        if m:
+            shots.setdefault(m.group("label"), lineno)
+            continue
+        m = _STOCK_LINE.search(raw)
+        if not m:
+            continue
+        f = parse_stock_line(m.group("tail"))
+        verb = m.group("verb")
+        if verb in ("record", "control"):
+            label = f.get("label") or ""
+            if not label:
+                continue
+            if verb == "control":
+                controls[label].append({
+                    "screen": f.get("screen") or "", "name": f.get("name") or "",
+                    "state": f.get("state") or "",
+                    "interactable": _stock_bool(f.get("interactable")),
+                    "visible": _stock_bool(f.get("visible")), "line": lineno})
+            elif "items" in f:
+                rec_sums[label].append({
+                    "screen": f.get("screen") or "", "tab": f.get("tab") or "",
+                    "items": _count(f.get("items")), "marked": _count(f.get("marked")),
+                    "blocked": _count(f.get("blocked"))})
+            elif (f.get("screens") or "").lower() == "none":
+                rec_none[label] = True
+            else:
+                row = _stock_row(f, lineno)
+                if row is not None:
+                    row["screen"] = f.get("screen") or ""
+                    records[label].append(row)
+            continue
+        screen = f.get("screen") or ""
+        if not screen:
+            continue
+        screens[screen] = True
+        cur = current.get(screen)
+        if "items" in f:
+            tab = f.get("tab") or ""
+            # One pass prints its per-tab summaries on ADJACENT lines, before any
+            # item line; anything else starts the next pass.
+            if (cur is None or not cur["open"] or lineno != cur["last"] + 1
+                    or any(s["tab"] == tab for s in cur["summaries"])):
+                cur = {"screen": screen, "line": lineno, "summaries": [],
+                       "rows": [], "open": True}
+                passes.append(cur)
+                current[screen] = cur
+            cur["last"] = lineno
+            cur["summaries"].append({"tab": tab, "items": _count(f.get("items")),
+                                     "marked": _count(f.get("marked")),
+                                     "blocked": _count(f.get("blocked"))})
+            continue
+        if "facility" in f:
+            if "marked" in f:
+                cur = {"screen": screen, "line": lineno, "summaries": [],
+                       "rows": [], "open": False}
+                passes.append(cur)
+                current[screen] = cur
+                cur["rows"].append(_stock_row(f, lineno))
+            elif cur is not None and f.get("why") is not None:
+                for row in cur["rows"]:
+                    if row["id"] == f["facility"] and not row.get("why"):
+                        row["why"] = f["why"]
+            continue
+        row = _stock_row(f, lineno)
+        if row is None:
+            continue
+        if cur is None:
+            cur = {"screen": screen, "line": lineno, "summaries": [], "rows": [],
+                   "open": False}
+            passes.append(cur)
+            current[screen] = cur
+        cur["open"] = False
+        cur["rows"].append(row)
+    return {"shots": shots, "records": dict(records),
+            "recordSummaries": dict(rec_sums), "recordNone": rec_none,
+            "controls": dict(controls), "passes": passes,
+            "screens": list(screens.keys())}
+
+
+def _initials(name):
+    return "".join(w[0] for w in re.findall(r"[A-Z][a-z0-9]*|[a-z0-9]+", name or "")).lower()
+
+
+def stock_screen_matches(token, screen):
+    """Whether a label's screen token names a logged decoration screen.
+
+    Derived, never tabled: the token is the screen's name squashed (`rnd` /
+    `RnD`), its leading part (`facility` / `FacilityMenu`), its CamelCase
+    initials (`mc` / `MissionControl`, `ac` / `AstronautComplex`), or starts with
+    the screen's first word (`crewdialog` / `CrewAssignment`).
+    """
+    tok, name = norm(token), norm(screen)
+    if not tok or not name:
+        return False
+    words = re.findall(r"[A-Z][a-z0-9]*|[a-z0-9]+", screen or "")
+    first = norm(words[0]) if words else name
+    return (tok == name or name.startswith(tok) or tok == _initials(screen)
+            or (len(first) >= 3 and tok.startswith(first)))
+
+
+def stock_decoration(parsed, label, screen_token):
+    """What Parsek decorated on the screen a stock capture photographed.
+
+    The capture's own `record label=<label>` lines win: the lane logged them at
+    capture time (its summaries, its items, or `screens=none`). Without them, the
+    nearest `decorate` pass for the matching screen that STARTED before the
+    capture line, with the item lines it had logged by then. Without either, an
+    empty record that says so - a missing line is reported, never guessed
+    around. The capture's `control` lines ride along whichever source won.
+    """
+    parsed = parsed or {}
+    screens = list(parsed.get("screens") or ())
+    out = {"source": None, "screen": "", "line": None, "summaries": [], "rows": [],
+           "problems": 0, "logScreens": screens,
+           "matched": [s for s in screens if stock_screen_matches(screen_token, s)],
+           "controls": [dict(c) for c in
+                        (parsed.get("controls") or {}).get(label) or ()],
+           "recordNone": bool((parsed.get("recordNone") or {}).get(label))}
+    recs = (parsed.get("records") or {}).get(label) or []
+    sums = (parsed.get("recordSummaries") or {}).get(label) or []
+    if recs or sums or out["recordNone"]:
+        out["source"] = "record"
+        out["rows"] = [dict(r) for r in recs]
+        out["summaries"] = [dict(x) for x in sums]
+        named = [x.get("screen") for x in list(sums) + list(recs) if x.get("screen")]
+        out["screen"] = ", ".join(OrderedDict.fromkeys(named))
+    else:
+        at = (parsed.get("shots") or {}).get(label)
+        best = None
+        if at is not None:
+            for p in parsed.get("passes") or ():
+                if p["line"] < at and p["screen"] in out["matched"]:
+                    if best is None or p["line"] > best["line"]:
+                        best = p
+        if best is not None:
+            out["source"] = "pass"
+            out["screen"] = best["screen"]
+            out["line"] = best["line"]
+            out["summaries"] = [dict(s) for s in best["summaries"]]
+            out["rows"] = [dict(r) for r in best["rows"] if r["line"] < at]
+    out["problems"] = sum(r.get("count") or 1 for r in out["rows"] if r["problem"])
+    # Problems first, then the order the log printed them in.
+    out["rows"].sort(key=lambda r: (not r["problem"], r["line"]))
+    return out
+
+
+def is_stock_capture(cap, foreign=None):
+    """Whether a scanned capture is a photograph of a stock screen.
+
+    Its label says so (`stk-...`), or - once the foreign roots are known - its
+    dump holds no Parsek window at all: every root is another mod's (or there is
+    none), the seam reported no standing dialog, and it named no open window. A
+    frame with nothing of Parsek's in it has nothing to redraw.
+    """
+    if is_stock_label(cap.get("label")):
+        return True
+    if foreign is None:
+        return False
+    log = cap.get("log") or {}
+    if log.get("dialog") or log.get("openWindows"):
+        return False
+    for root in (cap.get("dump") or {}).get("roots") or ():
+        rect = tuple(int(v) for v in (root.get("rect") or [0, 0, 0, 0]))
+        if (root.get("text") or "", rect) not in foreign:
+            return False
+    return True
+
+
+def _stock_capture(cap, with_photos, photo_jobs, index, verbose=False):
+    """One stock-screen capture record: the whole frame as its photograph, the
+    label's screen and state, and the decoration the log carries for it."""
+    label = cap["label"]
+    if is_stock_label(label):
+        window, screen, state = stock_facets(label)
+    else:
+        lab = parse_label(label)
+        screen = lab["host"]
+        window = "%s-%s" % (STOCK_HOST, screen)
+        state = "-".join(p for p in (lab["window"], lab["state"]) if p)
+    dump = cap["dump"]
+    screen_wh = dump.get("screen") or {}
+    sw = int(screen_wh.get("width") or 0)
+    sh = int(screen_wh.get("height") or 0)
+    photo = None
+    digest = ""
+    if cap["png"]:
+        try:
+            with open(cap["png"], "rb") as fh:
+                digest = hashlib.sha1(fh.read()).hexdigest()
+            if with_photos:
+                pw, ph, bpp, px = read_png(cap["png"])
+                sw, sh = pw, ph
+                photo = {"x": 0, "y": 0, "w": pw, "h": ph, "whole": 1, "full": 1}
+                photo_jobs.append((index, (pw, ph, bpp, px), photo))
+        except Exception as exc:
+            if verbose:
+                sys.stderr.write("png %s: %s\n" % (cap["png"], exc))
+    log = cap.get("log") or {}
+    return {
+        "id": "%s/%s" % (cap["runId"], label),
+        "label": label,
+        "runId": cap["runId"],
+        "specId": cap["specId"],
+        "fixture": cap["fixture"],
+        "window": window,
+        "tab": None,
+        "tabNames": [],
+        "tabAlias": None,
+        "scene": log.get("scene") or "",
+        "mode": None,
+        "state": state,
+        "mocked": None,
+        "disagrees": [],
+        "capturedUtc": dump.get("capturedUtc") or "",
+        "screen": [sw or FRAME_W, sh or FRAME_H],
+        "openWindows": log.get("openWindows") or [],
+        "dialog": None,
+        "pointer": log.get("pointer"),
+        "roots": [],
+        "photo": photo,
+        "photoDigest": digest,
+        "counts": {},
+        "complexity": 0,
+        "gridIndex": None,
+        "stock": {"screen": screen,
+                  "decor": stock_decoration(cap.get("stockLog"), label, screen)},
+    }
+
+
+def _stock_differs(a, b):
+    return (a.get("photoDigest") != b.get("photoDigest")
+            or _stock_decor_sig(a["stock"]["decor"]) != _stock_decor_sig(b["stock"]["decor"]))
+
+
+def _stock_measure(before, after):
+    """What Compare can say about two photographs of one stock state: whether
+    the frames are byte-identical, and the decoration rows and pairing problems
+    on each side."""
+    db, da = before["stock"]["decor"], after["stock"]["decor"]
+    return {"photoSame": before.get("photoDigest") == after.get("photoDigest"),
+            "rowsBefore": len(db["rows"]), "rowsAfter": len(da["rows"]),
+            "problemsBefore": db["problems"], "problemsAfter": da["problems"],
+            "decorSame": _stock_decor_sig(db) == _stock_decor_sig(da)}
+
+
+def _stock_decor_sig(decor):
+    decor = decor or {}
+    return json.dumps([[(r["id"], r["kind"], r["tab"], r["marked"], r["blocked"],
+                         r.get("why"), r.get("count")) for r in decor.get("rows") or ()],
+                       [(c["name"], c["state"], c["interactable"], c["visible"])
+                        for c in decor.get("controls") or ()]],
+                      sort_keys=True)
+
+
+# --------------------------------------------------------------------------
 # build
 # --------------------------------------------------------------------------
 
@@ -2420,13 +2877,22 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         if w:
             window_tokens[w] = True
 
-    foreign = classify_foreign(all_caps)
+    # Stock-screen captures are photographs of uGUI screens: no tree to redraw
+    # and no Parsek window in them, so they take no part in judging which roots
+    # are another mod's.
+    foreign = classify_foreign([c for c in all_caps if not is_stock_capture(c)])
+    for cap in all_caps:
+        cap["stock"] = is_stock_capture(cap, foreign)
     window_titles = defaultdict(set)
 
     captures = []
     photo_jobs = []
     for cap in all_caps:
         dump = cap["dump"]
+        if cap["stock"]:
+            captures.append(_stock_capture(cap, with_photos, photo_jobs,
+                                           len(captures), verbose))
+            continue
         lab = parse_label(cap["label"], set(window_tokens),
                           {w: set(t) for w, t in tabs_by_window.items()})
         window = cap["log"].get("window") or lab["window"] or lab["host"]
@@ -2610,7 +3076,10 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             for idx, pix, ph in photo_jobs:
                 pw, phh, bpp, px = pix
                 cw, ch, cpx = crop(pw, phh, bpp, px, ph["x"], ph["y"], ph["w"], ph["h"])
-                cw, ch, cpx = subsample(cw, ch, bpp, cpx, factor)
+                # A stock-screen photograph IS the page's picture of that screen,
+                # so it is never subsampled; only the colour floor steps up.
+                cw, ch, cpx = subsample(cw, ch, bpp, cpx,
+                                        1 if ph.get("full") else factor)
                 blob = write_png(cw, ch, bpp, cpx, quant)
                 blobs[idx] = (blob, cw, ch)
                 used += len(blob) * 4 // 3
@@ -2687,12 +3156,15 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
     # fallback there is the capture's own tree: a hover frame that is
     # byte-identical to another capture of the same run, colours stripped,
     # photographed nothing its sibling did not.
+    # A stock screen is uGUI: `GUI.tooltip` is IMGUI's and says nothing about it,
+    # and with no tree every stock capture would be every other's twin.
     sig_by_run = defaultdict(dict)
     for cap in captures:
-        sig_by_run[cap["runId"]].setdefault(_tree_sig(cap), []).append(cap)
+        if not cap.get("stock"):
+            sig_by_run[cap["runId"]].setdefault(_tree_sig(cap), []).append(cap)
     for cap in captures:
         ptr = cap.get("pointer")
-        if not ptr or ptr.get("park"):
+        if cap.get("stock") or not ptr or ptr.get("park"):
             continue
         tip = ptr.get("tooltip")
         if tip == POINTER_TOOLTIP_EMPTY:
@@ -2714,7 +3186,15 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
     for k, caps in by_key.items():
         caps.sort(key=lambda c: (c["capturedUtc"], c["runId"]))
         before, after = caps[0], caps[-1]
-        changed = before["id"] != after["id"] and _differs(before, after)
+        stock_measured = None
+        if after.get("stock"):
+            # No tree to diff: two photographs differ when their bytes do, and
+            # the decorations are compared row by row.
+            changed = before["id"] != after["id"] and _stock_differs(before, after)
+            if changed:
+                stock_measured = _stock_measure(before, after)
+        else:
+            changed = before["id"] != after["id"] and _differs(before, after)
         # SUPERSEDED: a later capture of the same key exists, so this one is not
         # the current picture of that state. It stays reachable as the pair's
         # BEFORE, and it stops being what the mirror shows or what coverage
@@ -2728,8 +3208,11 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
             "after": after["id"],
             "superseded": [c["id"] for c in caps[:-1]],
             "changed": bool(changed),
-            "measured": measure_pair(before, after) if changed else None,
+            "measured": (measure_pair(before, after)
+                         if changed and not after.get("stock") else None),
         }
+        if stock_measured:
+            keys[k]["stockMeasured"] = stock_measured
 
     # ---- retired: a state its own lane stopped producing --------------------
     # Superseding needs a later capture of the SAME key, so a state a re-flown
@@ -2786,6 +3269,18 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         display_title_prefix([t for w in windows for t in w["titles"]]))
     for w in windows:
         w["name"] = shown_names.get(w["token"]) or w["token"]
+    # A stock screen is named by its label token (`rnd`, `mc`), and carries the
+    # decoration screens its captures' logs matched it to, so a reader can see
+    # which log name the panel read.
+    stock_windows = []
+    for w in windows:
+        caps = [c for c in captures if c["window"] == w["token"]]
+        if caps and all(c.get("stock") for c in caps):
+            w["stock"] = True
+            w["name"] = caps[0]["stock"]["screen"] or w["token"]
+            w["logScreens"] = sorted({s for c in caps
+                                      for s in c["stock"]["decor"]["matched"]})
+            stock_windows.append(w["token"])
 
     # states with no capture: a tab the seam knows but no capture selected, per
     # window and mode.
@@ -2801,10 +3296,13 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
 
     notes = {}
     if repo_root:
+        # The repo records are about Parsek's own windows; a stock screen's label
+        # token (`ac`, `mc`) would match prose that is not about it.
+        own = [w for w in windows if not w.get("stock")]
         vocab = window_vocabulary(
-            [w["token"] for w in windows],
-            {w["token"]: w["titles"] for w in windows},
-            {w["token"]: [t["token"] for t in w["tabs"]] for w in windows})
+            [w["token"] for w in own],
+            {w["token"]: w["titles"] for w in own},
+            {w["token"]: [t["token"] for t in w["tabs"]] for w in own})
         cl = _read(os.path.join(repo_root, "CHANGELOG.md"))
         td = _read(os.path.join(repo_root, "docs", "dev", "todo-and-known-bugs.md"))
         for extra in _done_volumes(repo_root):
@@ -2833,6 +3331,9 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         # mirror because it WAS photographed but left out of Compare, which is
         # about the product's windows.
         "seamWindows": list(window_tokens.keys()),
+        # The stock screens photographed (`stk-<screen>` tokens): listed under
+        # their own rail heading, shown as photographs, never redrawn.
+        "stockWindows": stock_windows,
         # The product's own name, derived from the window titles the captures
         # carry, so the page can strip it without knowing it.
         "titlePrefix": title_prefix([t for w in windows for t in w["titles"]]),
@@ -2847,7 +3348,8 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
         "closeOp": VERB_CLOSE,
         "fixtures": list(fixtures.values()),
         # PINNED here, never derived in the page: see `default_fixture`.
-        "defaultFixture": pinned or default_fixture(captures, fixture_order),
+        "defaultFixture": pinned or default_fixture(
+            [c for c in captures if not c.get("stock")], fixture_order),
         "mockFixture": MOCK_FIXTURE,
         "notesSchema": NOTES_SCHEMA,
         "notesFields": list(NOTES_FIELDS),
@@ -3231,6 +3733,34 @@ table.sum .wlink:hover{text-decoration:underline}
   padding:6px 10px;font-size:12px;margin:6px 0 12px}
 .cmp .sumhead .num{font-family:Consolas,monospace;color:#c8d8a8}
 .cmp .sumhead>div{margin-top:4px}
+/* Stock screens: the photograph scrolls in its own box and the decoration panel
+   stays beside it. */
+.sidebyside.stk{flex-wrap:nowrap}
+.sidebyside.stk>div:first-child{flex:1 1 0;min-width:0}
+.sidebyside.stk .stagewrap{max-height:calc(100vh - 150px)}
+#decorwrap{flex:0 0 480px;max-width:480px}
+.stage.stk{background:#000}
+.stkphoto{display:block;max-width:none}
+.stage.stk .nophoto{padding:12px}
+.decor{background:#1b1b1b;border:1px solid #2c2c2c;border-radius:4px;
+  padding:8px 10px;font-size:12px;margin-top:6px}
+.decor .dhead{display:flex;gap:8px;align-items:center;margin-bottom:4px}
+.decor .dhead b{flex:1}
+.decor .dprob{color:var(--bad);font-weight:600;margin:4px 0}
+.decor .dnone{color:var(--warn);margin:4px 0}
+table.dec{border-collapse:collapse;width:100%;font-size:11px;margin-top:6px}
+table.dec th,table.dec td{border:1px solid #2c2c2c;padding:3px 5px;text-align:left;
+  vertical-align:top}
+table.dec th{background:#1f1f1f;color:var(--dim);font-weight:600;white-space:nowrap}
+table.dec td.y{color:var(--ok);white-space:nowrap}
+table.dec td.n{color:var(--dim);white-space:nowrap}
+table.dec td.w{overflow-wrap:anywhere}
+table.dec tr.prob td{background:#3a1f1f;color:#f0c0c0}
+table.dec tr.hid td{opacity:.55}
+table.dec tr.why td,table.dec tr.why th{border-top:0;color:#a9a9a9;font-size:10.5px;
+  padding-top:0;font-weight:400}
+table.dec tr.why.prob td{color:#e0b0b0}
+.decor .dsub{margin-top:10px;font-weight:600;color:#e8e8e8}
 """
 
 # The bare-mode skin, kept apart from CSS so a test can assert that every
@@ -3245,7 +3775,8 @@ BARE_CSS = """
 body.bare{background:#000;overflow:hidden}
 body.bare #top,body.bare #rail,body.bare #status,body.bare #echo,
 body.bare #sidewrap,body.bare #compareView,body.bare #mirrorView>p,
-body.bare #stagehead,body.bare #statenote,body.bare #notesPanel{display:none}
+body.bare #stagehead,body.bare #statenote,body.bare #notesPanel,
+body.bare #decorwrap{display:none}
 body.bare #wrap{display:block}
 body.bare #main{padding:0}
 body.bare .sidebyside{display:block;gap:0}
@@ -3352,6 +3883,8 @@ function stripPrefix(t){
   return s;
 }
 function capsFor(win){ return M.captures.filter(function(c){ return c.window === win; }); }
+/* A stock KSP screen (uGUI): photographed, never redrawn. */
+function isStockWin(win){ return (M.stockWindows || []).indexOf(win) >= 0; }
 /* The generator's `is_stale`: not the current picture of its state. */
 function isStale(c){ return !!(c.hoverEmpty || c.supersededBy || c.retired || c.outdated); }
 function status(msg, warn){
@@ -4047,6 +4580,9 @@ function photoImg(cap){
 function renderCapture(cap, host, opts){
   opts = opts || {};
   host.innerHTML = '';
+  host.classList.remove('stk');
+  host.classList.remove('fit');
+  if (cap.stock) return renderStockPhoto(cap, host, opts);
   /* Two windows declare a minimum wider than the 1280-wide census instance, so
      their captures run off the frame. The stage grows to the widest root instead
      of cropping them - the scroll is the honest rendering of a window the
@@ -4092,6 +4628,170 @@ function renderCapture(cap, host, opts){
   }
   wireEcho(host);
   return host;
+}
+
+/* A stock screen is uGUI, so there is no control tree to draw: the stage IS the
+   frame the census took, at its own pixel size (or scaled to the width on
+   request), and nothing is laid over it. */
+function renderStockPhoto(cap, host, opts){
+  host.classList.remove('scene');
+  host.classList.remove('overlay');
+  host.classList.remove('noboxes');
+  host.classList.add('stk');
+  if (!(cap.photo && cap.photo.src)){
+    host.style.width = ''; host.style.height = '';
+    host.appendChild(el('div', 'small nophoto',
+      'no frame inlined for this capture: the page was generated without '
+      + 'photographs, or its PNG would not read'));
+    return host;
+  }
+  var img = el('img', 'stkphoto');
+  img.src = cap.photo.src;
+  img.alt = cap.label;
+  if (opts.fit){
+    host.classList.add('fit');
+    host.style.width = '100%'; host.style.height = 'auto';
+    img.style.width = '100%'; img.style.height = 'auto';
+  } else {
+    host.style.width = cap.photo.w + 'px'; host.style.height = cap.photo.h + 'px';
+    img.style.width = cap.photo.w + 'px'; img.style.height = cap.photo.h + 'px';
+  }
+  host.appendChild(img);
+  return host;
+}
+/* What Parsek decorated on that screen, as the log reported it. Every row is a
+   log line: the capture's own `record` lines where the lane logged them, else
+   the nearest decoration pass for the screen before the capture. A row whose
+   mark and block disagree (the pairing rule) is the thing to look at, so those
+   lead the table and are coloured. */
+function decorPanel(cap, withFit){
+  var d = el('div', 'decor');
+  var dec = (cap.stock || {}).decor || {};
+  var top = el('div', 'dhead');
+  top.appendChild(el('b', null, 'Parsek decorations'));
+  if (withFit && cap.photo && cap.photo.src){
+    var fb = el('button', 'ui' + (S.stockFit ? ' on' : ''),
+                S.stockFit ? 'full size' : 'fit to width');
+    fb.onclick = function(ev){ ev.stopPropagation(); S.stockFit = !S.stockFit;
+      select(cap, true); };
+    top.appendChild(fb);
+  }
+  d.appendChild(top);
+  var rows = dec.rows || [], sums = dec.summaries || [];
+  var ctrls = dec.controls || [];
+  if (!dec.source){
+    d.appendChild(el('div', 'dnone', 'no decoration lines logged for this screen'));
+    var ls = dec.logScreens || [];
+    d.appendChild(el('div', 'small', ls.length
+      ? 'this run logged decoration passes for ' + ls.join(', ')
+        + ((dec.matched || []).length ? ', none before this capture'
+           : '; none of them matches "' + cap.stock.screen + '"')
+      : 'this run logged no decoration line at all'));
+    if (ctrls.length) d.appendChild(controlTable(ctrls, false));
+    return d;
+  }
+  d.appendChild(el('div', 'small', dec.source === 'record'
+    ? 'logged by the lane at capture time (record label=' + cap.label + ')'
+    : 'the nearest ' + dec.screen + ' decoration pass before the capture '
+      + '(KSP.log line ' + dec.line + ')'));
+  /* Where a capture's lines name more than one screen (a part tooltip over the
+     R&D tree), every line says which one it is about. */
+  var scr = {};
+  sums.concat(rows).concat(ctrls).forEach(function(x){ if (x.screen) scr[x.screen] = 1; });
+  var many = Object.keys(scr).length > 1;
+  function where(x){ return (many && x.screen ? x.screen + ' / ' : '') + (x.tab || '-'); }
+  if (dec.recordNone && !sums.length && !rows.length){
+    d.appendChild(el('div', 'small', 'the lane recorded that no screen was decorated '
+      + '(record screens=none)'));
+  }
+  sums.forEach(function(s){
+    d.appendChild(el('div', 'small', where(s) + ': ' + s.items
+      + ' items, ' + s.marked + ' marked, ' + s.blocked + ' blocked'));
+  });
+  if (dec.problems){
+    d.appendChild(el('div', 'dprob', dec.problems + ' pairing problem'
+      + (dec.problems === 1 ? '' : 's') + ': a mark without its block, or a '
+      + 'block without its mark'));
+  }
+  if (!rows.length){
+    var flagged = sums.some(function(s){ return s.marked || s.blocked; });
+    if (!dec.recordNone || sums.length){
+      d.appendChild(el('div', 'small', flagged
+        ? 'the summary counted marked or blocked items but no item line was '
+          + 'logged' + (dec.source === 'pass' ? ' (item lines are Verbose)' : '')
+        : 'no item was marked or blocked'));
+    }
+  } else {
+    var tb = el('table', 'dec');
+    var hr = el('tr');
+    /* The why is a sentence, so it takes a full-width line under its item
+       rather than a column a few words wide. */
+    ['id', 'tab', 'kind', 'marked', 'blocked', 'pairing'].forEach(function(h){
+      hr.appendChild(el('th', null, h)); });
+    tb.appendChild(hr);
+    var wh = el('tr', 'why');
+    var whc = el('th', null, 'why (under each item)');
+    whc.colSpan = 6;
+    wh.appendChild(whc);
+    tb.appendChild(wh);
+    rows.forEach(function(r){
+      var cls = r.problem ? 'prob' : '';
+      var tr = el('tr', cls || null);
+      tr.title = 'KSP.log line ' + r.line;
+      tr.appendChild(el('td', null, r.id || (r.count != null
+        ? '(' + r.count + ' rows)' : '-')));
+      tr.appendChild(el('td', null, where(r)));
+      tr.appendChild(el('td', null, r.kind || '-'));
+      tr.appendChild(el('td', r.marked ? 'y' : 'n', r.marked ? 'yes' : 'no'));
+      tr.appendChild(el('td', r.blocked ? 'y' : 'n', r.blocked ? 'yes' : 'no'));
+      tr.appendChild(el('td', null, r.pairing));
+      tb.appendChild(tr);
+      var wr = el('tr', 'why' + (cls ? ' ' + cls : ''));
+      var wc = el('td', 'w', r.why ? r.why : '(no why logged)');
+      wc.colSpan = 6;
+      wr.appendChild(wc);
+      tb.appendChild(wr);
+    });
+    d.appendChild(tb);
+  }
+  if (ctrls.length) d.appendChild(controlTable(ctrls, many));
+  return d;
+}
+/* The stock buttons on screen as the lane read them off the live uGUI: the
+   button's name, the stock state it was in, and whether it was interactable
+   and visible. Reported, not judged - a blocked button stock draws without a
+   disabled look is an overlay finding the photograph shows. */
+function controlTable(ctrls, many){
+  var wrap = el('div', 'dctl');
+  wrap.appendChild(el('div', 'dsub', 'Stock controls (' + ctrls.length + ')'));
+  var tb = el('table', 'dec');
+  var hr = el('tr');
+  ['button', 'state', 'interactable', 'visible'].forEach(function(h){
+    hr.appendChild(el('th', null, h)); });
+  tb.appendChild(hr);
+  function yn(v){ return v == null ? '-' : (v ? 'yes' : 'no'); }
+  ctrls.forEach(function(c){
+    var tr = el('tr', c.visible === false ? 'hid' : null);
+    tr.title = (c.screen ? c.screen + ', ' : '') + 'KSP.log line ' + c.line;
+    tr.appendChild(el('td', 'w', (many && c.screen ? c.screen + ' / ' : '') + (c.name || '-')));
+    tr.appendChild(el('td', null, c.state || '-'));
+    tr.appendChild(el('td', c.interactable ? 'y' : 'n', yn(c.interactable)));
+    tr.appendChild(el('td', c.visible ? 'y' : 'n', yn(c.visible)));
+    tb.appendChild(tr);
+  });
+  wrap.appendChild(tb);
+  return wrap;
+}
+function stockMeasuredBlock(m){
+  var d = el('div', 'note');
+  d.appendChild(el('b', null, 'Measured off the two captures: '));
+  d.appendChild(el('span', 'num', [
+    m.photoSame ? 'frames byte-identical' : 'frames differ',
+    'decoration rows ' + m.rowsBefore + ' -> ' + m.rowsAfter
+      + (m.decorSame ? ' (rows and controls the same)' : ''),
+    'pairing problems ' + m.problemsBefore + ' -> ' + m.problemsAfter
+  ].join('   |   ')));
+  return d;
 }
 
 /* The modals are stock uGUI: no control tree exists for them, so the picture is
@@ -4301,9 +5001,17 @@ function select(cap, exact){
   var stage = document.getElementById('stage');
   var side = document.getElementById('sidestage');
   var sidewrap = document.getElementById('sidewrap');
-  renderCapture(cap, stage, { photo: S.photo, boxes: S.boxes, foreign: S.foreign });
+  renderCapture(cap, stage, { photo: S.photo, boxes: S.boxes, foreign: S.foreign,
+                              fit: S.stockFit });
   stage.onclick = function(ev){ routeClick(ev, cap); };
-  var wantSide = (S.photo === 'side' && cap.photo && cap.photo.src);
+  /* A stock screen shows its photograph with the decoration panel beside it;
+     the photo modes are about a redraw, and there is none. */
+  var decorwrap = document.getElementById('decorwrap');
+  decorwrap.innerHTML = '';
+  decorwrap.classList.toggle('hidden', !cap.stock);
+  if (cap.stock) decorwrap.appendChild(decorPanel(cap, true));
+  document.getElementById('echo').classList.toggle('hidden', !!cap.stock);
+  var wantSide = (!cap.stock && S.photo === 'side' && cap.photo && cap.photo.src);
   sidewrap.classList.toggle('hidden', !wantSide);
   if (wantSide){
     renderCapture(cap, side, { photoOnly: true, foreign: S.foreign });
@@ -4311,6 +5019,7 @@ function select(cap, exact){
     side.innerHTML = '';
   }
   document.getElementById('sidebyside').classList.toggle('two', !!wantSide);
+  document.getElementById('sidebyside').classList.toggle('stk', !!cap.stock);
   /* The stage's one header line: what this capture IS in words, every flag it
      declares, and where it came from in small print. */
   var head = document.getElementById('stagehead');
@@ -4375,10 +5084,13 @@ function buildRail(){
   var rail = document.getElementById('rail');
   rail.innerHTML = '';
   var mocked = M.captures.filter(function(c){ return c.mocked; }).length;
+  var stockCaps = M.captures.filter(function(c){ return c.stock; }).length;
   /* The page's statistics, in this one place. */
-  var h = el('h2', null, 'Windows (' + M.captures.length + ' captures'
+  var ownKeys = Object.keys(M.keys).filter(function(k){
+    return !(byId[M.keys[k].after] || {}).stock; }).length;
+  var h = el('h2', null, 'Windows (' + (M.captures.length - stockCaps) + ' captures'
     + (mocked ? ', ' + mocked + ' mocked' : '')
-    + ', ' + Object.keys(M.keys).length + ' distinct states)');
+    + ', ' + ownKeys + ' distinct states)');
   h.title = M.fixtures.length + ' datasets: '
     + M.fixtures.map(function(f){ return f.key; }).join(', ');
   rail.appendChild(h);
@@ -4392,7 +5104,19 @@ function buildRail(){
       if (S.view === 'compare') buildCompare(); };
     rail.appendChild(all);
   }
-  shown.forEach(function(w){
+  /* Stock screens under their own heading, after Parsek's windows: they are
+     photographs of stock KSP, not windows this page redraws. */
+  var own = shown.filter(function(w){ return !isStockWin(w.token); });
+  var stk = shown.filter(function(w){ return isStockWin(w.token); });
+  own.forEach(railWindow);
+  if (stk.length){
+    var sh = el('h2', null, 'Stock screens (' + stockCaps + ' captures)');
+    sh.title = 'Photographs of stock KSP screens, shown as taken, with the '
+      + 'decorations Parsek logged for each.';
+    rail.appendChild(sh);
+    stk.forEach(railWindow);
+  }
+  function railWindow(w){
     var open = !S.collapsed[w.token];
     var listId = 'rail-' + w.token;
     var row = el('div', 'w' + (w.token === S.window && S.view === 'mirror' ? ' sel' : ''));
@@ -4411,6 +5135,17 @@ function buildRail(){
       + ((w.titles || []).length > 1 ? '; titled ' + w.titles.join(', ') : '') + ')';
     row.appendChild(el('span', 'caret' + (open ? ' open' : ''), '\u25b8'));
     row.appendChild(el('b', null, winName(w.token)));
+    if (w.stock){
+      var wp = 0;
+      capsFor(w.token).forEach(function(c){
+        if (!isStale(c)) wp += (c.stock.decor || {}).problems || 0; });
+      if (wp){
+        var wpb = el('span', 'badge disagree', wp + ' pairing');
+        wpb.title = wp + ' decorated item(s) on this screen\'s current captures '
+          + 'carry a mark without its block, or a block without its mark';
+        row.appendChild(wpb);
+      }
+    }
     if (w.mockedCount){
       /* The mocked count BESIDE the real one, per window: "how much of this is
          real" has to be answerable without opening a capture. */
@@ -4495,6 +5230,12 @@ function buildRail(){
                        + (isStale(c) ? ' stale' : ''));
       sr.appendChild(el('span', null, stateLabel(w.token, c.tab, c.state, c.mode, headed)));
       appendFlags(sr, c, true);
+      if (c.stock && (c.stock.decor || {}).problems){
+        var pb = el('span', 'badge disagree', c.stock.decor.problems + ' pairing');
+        pb.title = 'a mark without its block, or a block without its mark, in '
+          + 'the decorations logged for this capture';
+        sr.appendChild(pb);
+      }
       sr.title = 'dataset ' + c.fixture + ', run ' + c.runId + ' (' + c.label + ')'
         + (c.state ? '; seam state ' + c.state : '');
       sr.dataset.nk = railNoteKey(w.token, c.tab, c.state, c.mode);
@@ -4509,7 +5250,7 @@ function buildRail(){
     });
     closeGroup();
     rail.appendChild(list);
-  });
+  }
 }
 
 function showView(){
@@ -4532,7 +5273,7 @@ function compareRowsFor(win){
     var cap = byId[info.after];
     if (!cap) return;
     if (cap.window !== win) return;
-    if (M.seamWindows.indexOf(cap.window) < 0) return;
+    if (M.seamWindows.indexOf(cap.window) < 0 && !isStockWin(cap.window)) return;
     /* A capture the log says photographed no hover is the window's idle state
        under a hover label, so a pair of it reports no change and occupies a row
        that reads as coverage. It keeps its rail row and its badge. */
@@ -4584,7 +5325,7 @@ function buildCompare(){
   var host = document.getElementById('compareView');
   host.innerHTML = '';
   var win = S.window;
-  if (M.seamWindows.indexOf(win) < 0){
+  if (M.seamWindows.indexOf(win) < 0 && !isStockWin(win)){
     /* the GuiTree probe and anything else the seam cannot open */
     host.appendChild(el('p','small',
       'Compare covers the windows the command seam can open. "' + win +
@@ -4592,7 +5333,14 @@ function buildCompare(){
       + 'in the rail.'));
     return;
   }
-  host.appendChild(el('p','small',
+  if (isStockWin(win)){
+    host.appendChild(el('p','small',
+      'Comparing the "' + winName(win) + '" stock screen only - pick another in the '
+      + 'rail to switch. BEFORE is the earliest capture of a (fixture, screen, state, '
+      + 'scene) key; AFTER is the latest. Both sides are the photographs as taken, '
+      + 'with the decorations the log carried for each; the numbers compare the two '
+      + 'frames byte for byte and their decoration rows line by line.'));
+  } else host.appendChild(el('p','small',
     'Comparing the "' + win + '" window only - pick another in the rail to switch. '
     + 'BEFORE is the earliest capture of a (fixture, window, tab, state, mode, scene) '
     + 'key; AFTER is the latest. Both sides are drawn by the same generator off their '
@@ -4649,7 +5397,8 @@ function buildCompare(){
     var sec = el('div','cmp');
     sec.appendChild(el('h3', null, winName(win)));
     sec.appendChild(summaryHead(win));
-    sec.appendChild(noteBlock(win, rows[win]));
+    /* The repo records are about Parsek's own windows. */
+    if (!isStockWin(win)) sec.appendChild(noteBlock(win, rows[win]));
     if (!rows[win].length){
       sec.appendChild(el('div','small',
         'No key of this window has a capture the seam could pair - it was '
@@ -4672,6 +5421,7 @@ function buildCompare(){
       sec.appendChild(kline);
       sec.appendChild(pair);
       if (r.info.measured) sec.appendChild(measuredBlock(r.info.measured));
+      if (r.info.stockMeasured) sec.appendChild(stockMeasuredBlock(r.info.stockMeasured));
       /* One line of the owner's own, per pair, keyed on THIS before/after: a
          verdict does not follow a picture he has not seen. */
       sec.appendChild(notesBox(pairCtx(r.info)));
@@ -4687,6 +5437,16 @@ function sideBlock(title, cap, info){
   appendFlags(h, cap);
   side.appendChild(h);
   if (!cap){ side.appendChild(el('div','small','no capture')); return side; }
+  if (cap.stock){
+    /* The photograph at the pane's width, and its decorations under it. */
+    var swrap = el('div','stagewrap');
+    var sst = el('div','stage');
+    swrap.appendChild(sst);
+    side.appendChild(swrap);
+    renderCapture(cap, sst, { fit: true });
+    side.appendChild(decorPanel(cap, false));
+    return side;
+  }
   var bar = el('div');
   var pb = el('button','ui','show the photo');
   var wrap = el('div','stagewrap');
@@ -5054,6 +5814,7 @@ def render_html(model):
         '<div class="stagewrap"><div class="stage" id="stage"></div></div></div>',
         '<div id="sidewrap" class="hidden"><h5>the frame the tree was dumped on</h5>'
         '<div class="stagewrap"><div class="stage" id="sidestage"></div></div></div>',
+        '<div id="decorwrap" class="hidden"></div>',
         '</div>',
         '<div class="echo" id="echo"></div>',
         '<div id="statenote"></div>',
@@ -5092,6 +5853,7 @@ def _page_model(model):
         "schema": model["schema"],
         "generatedUtc": model.get("generatedUtc", ""),
         "seamWindows": model["seamWindows"],
+        "stockWindows": model.get("stockWindows") or [],
         "titlePrefix": model["titlePrefix"],
         "stateNames": model.get("stateNames") or {},
         "clickKinds": model["clickKinds"],
@@ -5168,6 +5930,8 @@ def build_index(model):
         "generatedUtc": model.get("generatedUtc", ""),
         "captureCount": len(caps),
         "mockedCaptureCount": len([c for c in caps if c.get("mocked")]),
+        "stockCaptureCount": len([c for c in caps if c.get("stock")]),
+        "stockWindows": model.get("stockWindows") or [],
         "distinctKeyCount": len(model["keys"]),
         "supersededCaptureCount": len([c for c in caps if c.get("supersededBy")]),
         "retiredCaptureCount": len([c for c in caps if c.get("retired")]),

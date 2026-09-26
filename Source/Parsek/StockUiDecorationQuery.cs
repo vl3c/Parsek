@@ -37,7 +37,11 @@ namespace Parsek
         KerbalRetiredStandIn,
         /// <summary>A facility a committed row upgrades later: the facility menu's greyed
         /// Upgrade button and the upgrade refusal.</summary>
-        FacilityUpgrade
+        FacilityUpgrade,
+        /// <summary>An active stand-in (the active occupant of another kerbal's slot chain):
+        /// the informational row label <c>Stand-in for &lt;owner&gt;</c> and the dismissal
+        /// block, whose refusal text is the record's why.</summary>
+        KerbalStandIn
     }
 
     /// <summary>One stock item as the screen lists it: a stable id and the tab it sits in.</summary>
@@ -85,7 +89,18 @@ namespace Parsek
         internal Func<string, KerbalReservationKind> ReservationKind;
         internal Func<string, KerbalsModule.KerbalReservation> Reservation;
         internal Func<string, string> SlotOwner;
-        internal Func<string, bool> DismissalBlocked;
+        /// <summary>The dismissal block's refusal text, or null when dismissal is allowed:
+        /// the SAME predicate the dismiss button, <c>KerbalRoster.Remove</c> and
+        /// <c>SackAvailable</c> refuse with (<c>KerbalDismissalPatch.DescribeDismissalRefusal</c>),
+        /// so the record's blocked flag and why cannot disagree with the drawn row.</summary>
+        internal Func<string, string> DismissalRefusal;
+        /// <summary>The owner whose seat this kerbal is the ACTIVE stand-in for, or null
+        /// (<c>KerbalsModule.FindActiveStandInOwner</c>).</summary>
+        internal Func<string, string> ActiveStandInOwner;
+        /// <summary>The owner whose seat this active stand-in shares under the active-crew
+        /// count's own subtraction rule, or null (<c>StandInSeatCount.SeatSharedOwner</c>):
+        /// only then does the stand-in's tooltip say it does not count against the limit.</summary>
+        internal Func<string, string> SeatSharedOwner;
         internal Func<string, bool> IsLoopingRecording;
         /// <summary>Names already in the live Crew or Tourist lists: a committed future
         /// hire of one of them is moot, so it is not marked.</summary>
@@ -319,6 +334,12 @@ namespace Parsek
         /// status, qualified because the stock list does not say he is a stand-in.</summary>
         internal const string RetiredStandInText = "Retired stand-in (Parsek)";
 
+        /// <summary>The active stand-in's row status, the Kerbals window's Stand-in wording.</summary>
+        internal static string StandInTitle(string ownerName)
+        {
+            return "Stand-in for " + ownerName;
+        }
+
         /// <summary>R&amp;D tech tree: a node a committed future researches is marked and
         /// its Research is refused.</summary>
         internal static List<StockUiDecoration> ForRnD(
@@ -427,8 +448,10 @@ namespace Parsek
         /// <summary>
         /// Astronaut Complex, in resolution order: a committed future hire (unless the
         /// kerbal is already live crew), a committed future dismissal, a reservation held
-        /// by a committed flight (Lost when permanent), a retired stand-in. Blocked is the
-        /// hire block for a future hire and the dismissal block otherwise.
+        /// by a committed flight (Lost when permanent), a retired stand-in, an active stand-in
+        /// (<c>Stand-in for &lt;owner&gt;</c>). Blocked is the hire block for a future hire and
+        /// the dismissal block otherwise; a dismissal-blocked row no kind marks carries the
+        /// refusal text as its why.
         /// </summary>
         internal static List<StockUiDecoration> ForAstronautComplex(
             CommittedFutureIndex index,
@@ -446,7 +469,8 @@ namespace Parsek
                 if (string.IsNullOrEmpty(name)) continue;
                 string tab = string.IsNullOrEmpty(row.Tab) ? AstronautApplicantsTab : row.Tab;
                 var d = Undecorated(StockUiScreen.AstronautComplex, tab, name);
-                bool dismissalBlocked = context.DismissalBlocked != null && context.DismissalBlocked(name);
+                string dismissalRefusal = context.DismissalRefusal != null ? context.DismissalRefusal(name) : null;
+                bool dismissalBlocked = dismissalRefusal != null;
                 d.Blocked = dismissalBlocked;
 
                 bool alreadyLive = context.LiveCrewOrTourist != null && context.LiveCrewOrTourist.Contains(name);
@@ -490,6 +514,27 @@ namespace Parsek
                     d.Marked = true;
                     d.Why = RetiredStandInText;
                     d.Title = "Retired";
+                }
+                else if (dismissalBlocked)
+                {
+                    // Not reserved or retired but refused dismissal: an active stand-in (a
+                    // per-member fact, Kerbals window ruling 10), a displaced chain member, or
+                    // a returned owner a committed flight names. The why is the refusal the
+                    // dismiss button's tooltip draws; only the active stand-in gets a label.
+                    string owner = context.ActiveStandInOwner != null ? context.ActiveStandInOwner(name) : null;
+                    if (!string.IsNullOrEmpty(owner))
+                    {
+                        d.Kind = StockUiDecorationKind.KerbalStandIn;
+                        d.Marked = true;
+                        d.Title = StandInTitle(owner);
+                    }
+                    d.Why = dismissalRefusal;
+                    if (d.Kind == StockUiDecorationKind.KerbalStandIn)
+                    {
+                        string seatOwner = context.SeatSharedOwner != null ? context.SeatSharedOwner(name) : null;
+                        if (!string.IsNullOrEmpty(seatOwner))
+                            d.Why = StandInSeatCount.AppendSeatSharedSentence(dismissalRefusal, seatOwner);
+                    }
                 }
                 result.Add(d);
             }

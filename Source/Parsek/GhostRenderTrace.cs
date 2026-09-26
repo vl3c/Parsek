@@ -324,6 +324,100 @@ namespace Parsek
             states[key] = state;
         }
 
+        /// <summary>
+        /// Resolves the world rotation the recording implies for a ghost at a playback UT,
+        /// through the positioner's own frame conventions. Installed by the flight scene
+        /// (<c>ParsekFlight.TryResolveRecordedAttitudeForTrace</c>); null outside it. Called
+        /// only while tracing is on and an <c>AfterUpdate</c> line is being written, so it
+        /// costs nothing when <c>ghostRenderTracing</c> is off. <paramref name="rotRef"/> names
+        /// the decode used (e.g. <c>surface</c>, <c>checkpoint-orbit-ofr</c>) or, on a false
+        /// return, why none applied.
+        /// </summary>
+        internal delegate bool ExpectedAttitudeResolver(
+            IPlaybackTrajectory trajectory,
+            GhostPlaybackState playbackState,
+            double playbackUT,
+            RenderSurface surface,
+            out Quaternion expected,
+            out string rotRef);
+
+        internal static ExpectedAttitudeResolver ExpectedAttitudeSource;
+
+        /// <summary>
+        /// Attitude residual for one traced frame: the angle in degrees between the
+        /// rendered rotation and the resolver's expected rotation, or NaN with a reason
+        /// token when there is no rendered ghost, no resolver, or the resolver declined.
+        /// </summary>
+        internal static double ResolveAttitudeResidualDegrees(
+            IPlaybackTrajectory trajectory,
+            GhostPlaybackState playbackState,
+            double playbackUT,
+            RenderSurface surface,
+            bool rendered,
+            Quaternion renderedRotation,
+            out string rotRef)
+        {
+            if (!rendered)
+            {
+                rotRef = "not-rendered";
+                return double.NaN;
+            }
+            ExpectedAttitudeResolver resolver = ExpectedAttitudeSource;
+            if (resolver == null)
+            {
+                rotRef = "no-resolver";
+                return double.NaN;
+            }
+            Quaternion expected;
+            if (!resolver(trajectory, playbackState, playbackUT, surface, out expected, out rotRef))
+            {
+                if (string.IsNullOrEmpty(rotRef))
+                    rotRef = "unresolved";
+                return double.NaN;
+            }
+            if (string.IsNullOrEmpty(rotRef))
+                rotRef = "resolved";
+            return RotationResidualDegrees(renderedRotation, expected);
+        }
+
+        /// <summary>
+        /// The two trailing <c>AfterUpdate</c> fields, <c>dRotDeg=</c> (F3, invariant,
+        /// <c>NaN</c> when unresolved) and <c>rotRef=</c>. Pure, for tests.
+        /// </summary>
+        internal static string FormatAttitudeResidualFields(double residualDegrees, string rotRef)
+        {
+            return " dRotDeg=" + FormatDouble(residualDegrees, "F3")
+                + " rotRef=" + Token(rotRef);
+        }
+
+        /// <summary>
+        /// Smallest rotation angle in degrees, in [0, 180], taking <paramref name="a"/> to
+        /// <paramref name="b"/>. Double-cover safe (q and -q are the same attitude), scale
+        /// invariant (inputs are normalized), and computed as
+        /// <c>2 * atan2(|vec(r)|, |w(r)|)</c> on the relative quaternion
+        /// <c>r = conj(a) * b</c>, which keeps sub-degree precision where the
+        /// <c>acos(dot)</c> form loses it. NaN for a zero-length or non-finite input.
+        /// Pure: component arithmetic only, no Unity ECall.
+        /// </summary>
+        internal static double RotationResidualDegrees(Quaternion a, Quaternion b)
+        {
+            double ax = a.x, ay = a.y, az = a.z, aw = a.w;
+            double bx = b.x, by = b.y, bz = b.z, bw = b.w;
+            double na = Math.Sqrt(ax * ax + ay * ay + az * az + aw * aw);
+            double nb = Math.Sqrt(bx * bx + by * by + bz * bz + bw * bw);
+            if (!(na > 1e-9) || !(nb > 1e-9) || double.IsInfinity(na) || double.IsInfinity(nb))
+                return double.NaN;
+            ax /= na; ay /= na; az /= na; aw /= na;
+            bx /= nb; by /= nb; bz /= nb; bw /= nb;
+            // r = conj(a) * b, conj(a) = (-ax, -ay, -az, aw)
+            double rw = aw * bw + ax * bx + ay * by + az * bz;
+            double rx = aw * bx - ax * bw - ay * bz + az * by;
+            double ry = aw * by + ax * bz - ay * bw - az * bx;
+            double rz = aw * bz - ax * by + ay * bx - az * bw;
+            double vec = Math.Sqrt(rx * rx + ry * ry + rz * rz);
+            return 2.0 * Math.Atan2(vec, Math.Abs(rw)) * (180.0 / Math.PI);
+        }
+
         internal static void EmitPostUpdate(
             IPlaybackTrajectory trajectory,
             int ghostIndex,
@@ -428,7 +522,17 @@ namespace Parsek
                         : double.NaN, "F2")
                     + " rawPlaybackUT=" + FormatDouble(effectiveRawUT, "F3")
                     + " visibleLead=" + FormatDouble(visibleLead, "F3")
-                    + " clampFired=" + Bool(clampFired));
+                    + " clampFired=" + Bool(clampFired)
+                    + FormatAttitudeResidualFields(
+                        ResolveAttitudeResidualDegrees(
+                            trajectory,
+                            playbackState,
+                            playbackUT,
+                            surface,
+                            hasGhost && !retired,
+                            rotation,
+                            out string rotRef),
+                        rotRef));
             }
 
             state.initialized = true;

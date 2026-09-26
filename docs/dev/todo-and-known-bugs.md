@@ -15,6 +15,137 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~D14-SCENE-EDITOR-NO-SEAM-ROUTE: no verb could put a run in the VAB / SPH or launch from there~~ [FILED AND CLOSED 2026-09-26 by `SE-1-editor-round-trip`, coverage wave 12, branch `cov-editor`]
+
+`DecideLoadRoute` reached FLIGHT, SPACECENTER and TRACKSTATION only, and `StockScreen screen=editor` is CAREER-only
+and skips the building click, so the Space Center -> editor -> launch transition had never run under the harness with
+committed recordings pending. Closed by two scene-route verbs, `GoToEditor` (the building's own `OnLeftClick` + the
+craft browser's `EditorLogic.LoadShipFromFile`) and `LaunchFromEditor` (the Launch button's `EditorLogic.launchVessel`),
+contract in `design-autotest-command-seam.md`. Found on the way, both fixed in the same PR, neither a Parsek product
+defect: (1) stock craft name themselves with a localization tag, so a craft-name readiness check must format it;
+(2) a staged fixture had no `Ships/SPH` (stock creates `Ships/VAB` + `Ships/SPH` for every save on new game / Main Menu
+resume; the seam's LoadGame bypasses the Main Menu and git cannot carry empty folders), so the editor had no default
+save folder and its Launch threw `UnauthorizedAccessException` writing the auto-saved ship to the drive root -
+`run.py` staging now creates both folders. Reading run 2's PARSEK-FAIL (`2026-09-25_2334`) was a mis-calibrated epoch
+in the spec, read off the log (the clock stopped 10 s before the loop departure), not a replay defect; the armed
+re-flight `2026-09-25_2338` with a `TimeJump` into the replay window is green.
+
+## HARVEST-PROVENANCE-CLAIMED-ON-A-SYNTHETIC-DRILL: D10 `harvest-provenance` rests on the M2 synthetic drill tree, not on a flown drill [FILED 2026-09-25 by coverage wave 2 (branch `cov-wave2`). OPEN, low; an operator confirmation, not a defect]
+
+`HV-1-harvest-route-analysis` claims the cell SCOPED to "the route planner treats drilled
+cargo as its own origin" (supervisor ruling 2026-09-25): the synthetic tree
+`tree-drill-harvest-m2` (two witnessed harvest windows on an undocked-start Minmus run)
+makes `RouteAnalysisEngine.AnalyzeTree` take its harvest-origin branch in-game
+(`undocked start fully harvest-covered -> harvest origin originRec=m2-drill-root`,
+`harvestOrigin=1`), and `HarvestRoute_AnalyzesEligible_FromSyntheticRecording` passes
+(armed `2026-09-25_2143`). What it does NOT show: a live drill writing those harvest
+windows into a recording that a route is then built from. The capture half has its own
+evidence (H38's `Harvest funnel consumed at transition` token; the catch-up cell still
+self-skips for want of a drill rig landed on ore).
+
+**Owed:** the operator confirms the scoped claim, or rules that the cell needs the
+live-drill flight (a drill rig landed on ore, recorded, docked at a depot, committed, then
+the route built from it - the supply-route hand-off). Also measured on the same run and
+NOT claimed: the drill tree's synthetic `m2-drill-delivery` window lets
+`RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` pass on this host (41 / 6 against
+H38's 39 / 8); that is a shape check over a synthetic window, not a recorded dock capture.
+## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
+
+**Evidence.** The Astronaut Complex shows Jebediah as `Reserved` with the hover text `Flies
+'Jumping Flea' on your committed timeline. ... Free once 'Jumping Flea' is recovered.` (KSP.log
+`record label=stk-ac-ksc ... item=Jebediah Kerman kind=KerbalOnFlight ... why="... Free once 'Jumping
+Flea' is recovered."`), and the VAB crew dialog greys him for the same reason, yet the base career
+recovered him at UT 348.08. The base ledger
+(`Source/Parsek.Tests/Fixtures/C2CareerPostFix/Parsek/GameState/ledger.pgld`) has, for the Jumping Flea
+recording `5436a7e8840b4c5885afcbaedc9dc037`, a `KerbalAssignment` row with `endState = 0` (Aboard,
+`endUT = 347.92`) and a `KerbalExperience` row whose career entries end in `Recover`, but NO
+`KerbalRecovered` (type 34) row: the career was harvested before crewed recoveries wrote one, so the
+reservation walk sees an Aboard end with no closing recovery and holds him open-ended. Every fixture
+derived from it inherits the row set: `career-earned-pad` and `career-earned-ksc` (both carry that
+recording id) and GUI-28's `stock-screen-census`.
+
+**Options.** (1) Re-harvest the base career from a current build (fly the Jumping Flea recovery again
+so the capture writes the `KerbalRecovered` row), then re-run the derived-fixture builders
+(`harness/tools/build_career_earned_pad.py` and siblings; `test_career_earned_pad.py` asserts
+byte-identity with the base, so they must move together) and re-pin whatever reads Jeb's state. (2)
+Leave the fixtures and document that Jeb reads held on them. No migration or load-time repair of old
+ledgers: the recording schema policy (CLAUDE.md, "Recording schema") is one current contract, and a
+missing capture row is not something load code should synthesize.
+
+## ~~STAND-INS-EXCEED-THE-CREW-LIMIT: a generated stand-in counts against stock's active-crew limit, so a hold can push the Astronaut Complex over its cap~~ [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F9); FIXED 2026-09-26, branch `standin-crew-cap`, owner ruling 2026-09-26: option (a)]
+
+**Fix.** `Patches/ActiveCrewCountPatch.cs` postfixes `KerbalRoster.GetActiveCrewCount()` and
+subtracts one per slot whose owner and ACTIVE stand-in (`KerbalsModule.ResolveActiveChainIndex`,
+the rule behind `FindActiveStandInOwner`) are both counted by stock's own rule (type Crew, status
+Assigned / Available / Missing, mirrored in `StandInSeatCount.IsCountedByStock`). A kerbal is in at
+most one pair, the result is clamped at 0, and a displaced or retired member, a permanently-gone
+owner, a released hold and a pair either half of which stock does not count are left as stock
+counts them. Pure decision `StandInSeatCount.CollectSeatSharingPairs`; cells in
+`StandInSeatCountTests`. The count reaches the complex header and hire lock (`UpdateCrewCounts`),
+the editor auto-hire and its cost, and the int argument of `OnCrewmemberHired` / `Sacked` /
+`LeftForDead`; stock's `Funding.onCrewHired` and Parsek's recorded HireCost both price from that
+one argument (IL cell). No replay bypass: the count is a view, not a refusal. The active stand-in's
+dismiss tooltip adds one sentence (it shares the owner's seat and does not count against the
+limit) under the same predicate. Not covered by an in-game cell yet: the next GUI-28 census
+re-flight should read `Active Kerbals: 5 [Max: 5]` on `stk-ac-ksc.png`.
+
+**Evidence.** `stk-ac-ksc.png` shows `Active Kerbals: 6 [Max: 5]` at Astronaut Complex level 1. The
+roster is Jebediah, Bill, Bob, Valentina plus two stand-ins: Debwig (Jeb's, already in the base) and
+Leoly, generated when the census fixture's synthetic Bill flight put Bill on hold (KSP.log
+`[KerbalsModule] Stand-in generated: 'Leoly Kerman' (Engineer) for slot 'Bill Kerman' depth 0`). Stock
+`KerbalRoster.GetActiveCrewCount` (decompiled, KSP 1.12.5) counts every Crew-type kerbal whose status is
+Assigned, Available or Missing, and a stand-in is an ordinary Crew kerbal
+(`KerbalsModule.KerbalRosterFacade.TryCreateGeneratedStandIn` -> `roster.GetNewKerbal(Crew)`), created in
+`ApplyToRoster`'s chain pass with no limit check. The held owner stays in the roster too, so each hold
+with a stand-in counts two kerbals for one seat. Effects: stock locks every applicant with its own
+crew-limit reason (`AstronautComplex.UpdateCrewCounts`), the next hire costs more
+(`GetRecruitHireCost(GetActiveCrewCount())`), and the editor's auto-hire refuses on the same count.
+
+**Not a one-line fix.** The generation site is inside the chain pass and the stand-in's existence is
+what keeps the owner's seat usable, so refusing to generate at the limit leaves a hold with no
+replacement.
+
+**Proposed fix (needs a ruling).** (a) A postfix on `KerbalRoster.GetActiveCrewCount` that subtracts
+one per slot whose owner is reserved now and whose ACTIVE stand-in is in the roster
+(`KerbalsModule.FindActiveStandInOwner`), so a hold plus its stand-in count as the one seat they are;
+the Astronaut Complex would read `5 [Max: 5]`, the hire limit and hire cost stay what they were before
+the hold, and a retired or displaced stand-in still counts. Needs an in-game cell (the count is read
+by the complex header, the hire lock, the hire cost and the editor auto-hire). (b) Refuse generation at
+the limit and log it (the seat then has no replacement). (c) Accept and document. Recommendation: (a).
+
+## ~~D6-ATTITUDE-PRESERVATION-HAS-NO-INSTRUMENT: no lane could measure that a replayed ghost keeps its recorded attitude~~ [FILED AND CLOSED 2026-09-26 by `AP-1-minmus-attitude-residual`, coverage wave 9, branch `cov-attitude`]
+
+The flight tracer's `AfterUpdate` line printed the rendered `rot=` with nothing to compare it
+against. Fix: two trailing fields `dRotDeg=<F3|NaN> rotRef=<token>`, the angle between the rendered
+rotation and the rotation the recording implies at that playback UT
+(`ParsekFlight.TryResolveRecordedAttitudeForTrace`, the recording's own data decoded through the
+positioner's frame code; tracing-only), read by `ghostlife.py` v3 (`attitude` table). AP-1 reading
+`2026-09-25_2235` and armed re-flight `2026-09-25_2238` both PASS: every one of ~830 lines reads
+0.000 deg while the rendered attitude sweeps 157 deg. Residue, not filed as defects: (a) the
+residual shares the positioner's frame conventions by design, so a convention error both sides
+share is H9's to catch, not this row's; (b) it reads before the LateUpdate floating-origin reapply,
+so a reapply that rewrote rotation wrongly would not show; (c) live-anchor loop RELATIVE ghosts
+print `NaN rotRef=relative-live-anchor` (no live anchor pose in the resolver); (d) AP-1 exercises the
+orbit-only checkpoint branch and Absolute points only - the checkpoint-with-frames branch (lerped
+position, so a small chord term in the residual), body-fixed primary and recorded-anchor RELATIVE
+decodes are implemented and unit-plumbed but not yet read live.
+
+## MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`]
+
+`Mission.Clone` copies `LoopPlayback` (with the period, unit and anchor) and
+`MissionStore.Clone` inserts the copy without running the one-loop-per-tree clear that
+`MissionStore.SetLoopEnabled` runs on an enable. So the Missions tab's Clone button on a
+LOOPING mission leaves two looping missions over the same tree. Observed in
+`MS-1-mission-leg-trim-clone`: right after `Cloned mission 'Kerbal X' -> 'Kerbal X copy'` the
+flight engine builds the copy's unit and warns `MissionLoopUnit: mission='Kerbal X copy' ...
+owner index 1 already owned by another looping unit; skipping (expected one loop per tree)` on
+every rebuild; `NormalizeOneLoopPerTree` clears the copy's loop only at the next load. Nothing
+renders twice (the builder skips the second unit), so the cost is a WRN per rebuild and a
+copy whose Loop toggle reads on while it does nothing. Fix options, a product call: clone with
+`LoopPlayback = false` (the copy exists to carry a second include set / period, and arming it
+is a separate click), or run `ClearLoopsConflictingWith` on the copy. MS-1 deliberately does
+not pin the clone payload's `loop=` so either fix leaves it green.
+
 ## ~~D13-SPAWN-SAFETY-CORRECTIONS-HOST: `situation-correction` and `terminal-orbit-safety` had no driven lane~~ [FILED AND CLOSED 2026-09-26 by `SS-1-spawn-safety-corrections`, coverage wave 3]
 
 **CLOSED 2026-09-26.** Both D13 cells were R8 residue: the guards had unit tests and self-skipping
@@ -121,6 +252,63 @@ destination still parses and the orphan `.tmp` is swept (`RecordingStore.OrphanC
 `.tmp` files; other callers do not). Estimated well over the 150-line budget the wave allowed, so
 skipped. The pure ordering contract (`ReplaceDestination` never loses the previous file) is covered
 headlessly by the FileIOUtils xUnit cells.
+## STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show [FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`)]
+
+The first real-game look at the annotations: 25 PNGs on the committed `stock-screen-census`
+fixture, each capture logged with its decision records (`[StockUiOverlay] record label=...`)
+and the stock controls' state (`[StockUiOverlay] control label=... interactable=`). Present and
+correct: the R&D node tint, node tooltip and side-panel reason; both part tooltips' greyout
+reason with a dimmed Purchase; Mission Control's row labels and all three detail-panel
+headings with their reasons; both Administration reason lines; the Tracking Station Upgrade
+dimmed with its reason tooltip; `Reserved until Y1, D07, 00:08` on the held kerbal and the hold /
+hire reasons in the Astronaut Complex (KSC and VAB), the launch-site picker and the VAB crew
+panel; reserved kerbals greyed in both crew lists. The findings, none fixed here:
+
+1. **Disabled but not greyed.** R&D's Research (`state=research`) and `Purchase 1 Part`
+   (`state=purchase`), Mission Control's Accept / Decline (committed accept, slot block) and
+   Cancel (committed completion), and Administration's Accept / Cancel all read
+   `interactable=false` and look exactly like an enabled button: these stock buttons
+   (`UIStateButton` and the Mission Control `Button`s) draw no disabled state, so the reason
+   text beside them is the only visible cue. The facility menu's Upgrade and the part
+   tooltip's Purchase do render dimmed.
+2. **Future hire has no row mark.** The applicant `Verhat Kerman` (hired later) keeps stock's
+   trait line (`Engineer`) on its row; the `Hired on Y1, D04, 01:26` mark appears only in the
+   hover tooltip. The record says `kind=KerbalHire marked=true`.
+3. **Stand-in dismissal block without a record text.** The active stand-ins (Jeb's `Debwig`,
+   Bill's generated stand-in) read `blocked=true kind=None why=""` in the decoration query,
+   while their drawn tooltip carries `Managed by Parsek - This kerbal is a stand-in in a
+   reserved kerbal's replacement chain.` and their row keeps stock's `Available for next
+   mission`. The screen explains the block; the decision the pass logs (and a mirror's pairing
+   check reads) does not.
+4. **Facility tooltip is one unwrapped line.** The Upgrade tooltip draws the whole reason on a
+   single ~1170 px line that starts far left of the menu (the Parsek-added
+   `TooltipController_Text` with a copied prefab has no width constraint).
+5. **Mission Control row labels are clipped** by the row's three-line limit: `... on your
+   committed time...` (Available) and `... on your committ...` (Active). The date survives.
+6. **The C2 slot reason names a shared title.** `Your committed timeline accepts the contract
+   'Conduct a focused observational survey of Kerbin.'` - three Offered rows carry that title
+   (different agents), so only the row label says which one.
+7. **Strategy reason over a full stock slot.** With Administration at 1 of 1 active strategy
+   (stock itself refuses every activation now), Parsek's `CanBeActivated` postfix still writes
+   its future-slot reason (`A committed activation of 'Outsourced R&D' on Y1, D08, 02:26 needs
+   this slot`) over stock's own on all ten inactive strategies. Section 4 S1 says an overflow at
+   now is stock's own check; whether the Parsek reason should then stand aside is for the
+   overlay program to rule.
+
+Two kerbal-side readings the same captures show, outside the overlay code:
+
+8. **A hold the fixture's own history already ended.** Jeb reads `Reserved` with no date and
+   `Free once 'Jumping Flea' is recovered.` - but that vessel WAS recovered (UT 348.08:
+   recovery funds and `FirstCrewToSurvive`). The base career (`C2CareerPostFix`, harvested
+   2026-08-20) predates the `KerbalRecovered` row, so no recovery closure ends his Aboard hold.
+   Every host derived from it (`career-earned-ksc`, `career-earned-pad`, this fixture) carries it.
+9. **A stand-in hired over the Astronaut Complex cap.** Bill's hold creates a stand-in and the
+   complex reads `Active Kerbals: 6 [Max: 5]` (orange) at level 1.
+
+Harness note, not a finding: the kRPC server window (provisioned `mainWindowVisible = True`)
+covers the top-left of every census capture, including the VAB part list.
+
+---
 
 ## COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave [FILED 2026-09-25, branch `cov-wave1`. OPEN]
 
@@ -134,17 +322,18 @@ from D6 `spawn-at-end-pid-dedup`. If any is overruled, revert that registry entr
 matching `[dimensionsCovered]` line.
 
 **Left uncovered on purpose:**
-- D16 `alias-mode` was proposed for retirement on the premise that the feature does not exist;
-  it does (`GhostSnapshotMode.AliasVessel`, Recording.cs:7; RecordingStore.cs:270), so it stays.
-  Its witness is `SaveRecordingFiles: ... ghostSnapshotMode=AliasVessel ... wroteGhost=False`
-  (RecordingSidecarStore.cs:1231), printed only by operator-local GUI census logs; a claim wants a
-  committed-fixture lane that prints it plus a save-parse check that no `_ghost.craft` exists.
-- D16 `deflate-snapshots`: every snapshot write is DeflateV1 (`SnapshotSidecarCodec.Write`), but
-  the log label is a constant and a successful load logs no encoding, and no archived lane writes
-  a snapshot and re-loads the same id. A load-side encoding line (or a save-parse magic check of
-  a written sidecar) would make it claimable.
+- ~~D16 `alias-mode`~~ DONE 2026-09-26 (coverage wave 5, branch `cov-wave5`): claimed on
+  `ST-3-snapshot-sidecars-bdock`. `bdock-recorded` carries a committed AliasVessel recording with
+  no `_ghost.craft`; the in-game `SnapshotSidecars` cell checks its files, the product alias
+  decision, and a scratch-id copy through the product save (pinned `SaveRecordingFiles: ...
+  ghostSnapshotMode=AliasVessel wroteVessel=True wroteGhost=False`) and load. Runs
+  `2026-09-25_2158` / `_2203`, PASS.
+- ~~D16 `deflate-snapshots`~~ DONE 2026-09-26 (same lane): instead of a load-side log line, the
+  cell probes every committed sidecar's DeflateV1 header, decodes it against the snapshot the
+  product loaded, and round-trips a live vessel snapshot through the product writer and reader.
 - D14 `atmosphere` is claimed on an ORBITAL Laythe replay; a replay descending into a non-Kerbin
   atmosphere is not gated anywhere.
+
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect]
 
 **What the map shows** (`python scripts/arch/archview.py --check`, canaries in
@@ -416,6 +605,48 @@ pairing rule):
   click-block reads it. Fold it into the index properly if a dismissal ever becomes a
   ledger action.
 
+**First in-game census (2026-09-25, lane GUI-28, run `2026-09-25_2055` on base `7c90492bd`):**
+every annotated screen drew; the findings below are what the screenshots showed.
+- ~~F1: buttons Parsek disables looked live. R&D's `actionButton` (a `UIStateButton` whose
+  research / purchase states have no distinct disabled sprite) and Mission Control's Accept,
+  Decline and Cancel draw no disabled state, so the reason text was the only cue.~~ Fixed
+  (branch `stock-ui-fixes-a`): `StockUiGreyedButton` uses the button's own disabled visual
+  when its transition has one (a distinct disabled sprite, or a ColorTint with a distinct
+  disabled colour) and otherwise multiplies every graphic on the button by Unity's default
+  disabled tint. The look is re-derived after every stock write the block follows (R&D
+  `UpdatePanel`; Mission Control `UpdateInfoPanelContract`, `RefreshUIControls`, the timeline
+  refresh and the screen close) from the same decision as `interactable`, and the originals are
+  saved per graphic per button and restored the moment the selection moves to an unblocked
+  item; a colour stock rewrote while greyed is never overwritten (`GreyLedger`, unit cells in
+  `StockUiGreyedButtonTests`). The facility Upgrade and part-purchase buttons already dim and
+  are unchanged.
+- ~~F4: the facility menu Upgrade tooltip drew as one unwrapped ~1170 px line left of the
+  menu.~~ Fixed: the borrowed stock `Tooltip_Text` prefab has no maximum width and neither
+  `TooltipController_Text` nor `Tooltip_Text` exposes one (decompiled), so the explanation is
+  word-wrapped at 60 characters (`StockUiFacilityDecoration.WrapTooltipText`) before it goes in
+  the tooltip; the description fallback keeps the unwrapped text.
+- ~~F5: Mission Control row labels were clipped by the three-line row ("... accepted on Y1,
+  D03, 01:53 on your committed time...").~~ Fixed: the row status is the Timeline verb and a
+  date-only compact date (`- accepted Y1 D3`, `- completes Y2 D114`); the detail panel keeps
+  the full explanation.
+- ~~F6: the slot refusal named the committed contract by title only, and three Offered rows
+  shared it.~~ Fixed: it also names the contract's agent, the name Mission Control shows on
+  each row and in the panel (`CommittedFutureEntry.AgentTitle`, from the accept snapshot's
+  `agent`; with no snapshot agent, the live offer's `Agent.Title` read when the reason is
+  rendered, `ContractSlotReservation.WithStarvedAcceptAgent` in `ForecastNow`).
+- Still to see in the next census: the greyed Research / purchase-all / Accept / Decline /
+  Cancel (the in-game cells now assert the look and the restored colours), the wrapped facility
+  tooltip, and the shorter row labels. The Astronaut Complex and Administration findings are on
+  branch `stock-ui-fixes-b`.
+- Second census (run `2026-09-25_2332`): F1-F5, F7 and F9 confirmed in game. F6 still read no
+  agent: the index is rebuilt on scene load about 10 ms after `KspStatePatcher.PatchContracts`
+  logs `KSP has 0 current contracts`, so its live read found no offer and the null stayed
+  cached (the census fixture's committed accept is a synthetic ledger row with no accept
+  snapshot). Fixed on branch `stock-ui-fixes-c`: the index reads the snapshot only and the live
+  agent is resolved at render time. Same branch: the stand-in dismissal refusal reads "Standing
+  in for <owner>, who is held by a committed flight. ..." instead of "a stand-in in a reserved
+  kerbal's replacement chain".
+
 **Verification (2026-09-25):** reference section 12, cells in
 `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`:
 - F1, X1 (the cancel zeroes the completion, and the tech unlock and build it funded are
@@ -423,6 +654,34 @@ pairing rule):
 - The loop hold is released by turning the loop off only for a Recovered end.
 - The CC Mission Control bypass is code-read only: it needs a live Mission Control with CC
   installed.
+
+**First real-game census (GUI-28, run `2026-09-25_2055`), findings fixed on branch
+`stock-ui-fixes-b`:**
+- F2: a future-hire applicant's "Hired on <date>" went to `CrewListItem.label`, which the
+  applicant prefab hides (stock's own "For Hire" never shows either). The status now goes to the
+  row's trait line when the status line is not shown (applicant rows only,
+  `StockUiAstronautDecoration.ChooseStatusSurface`), restored when the hire is no longer ahead.
+- F3: an active stand-in recorded `kind=None marked=false why=""` while its row drew the dismissal
+  lock. New kind `KerbalStandIn` with the row label `Stand-in for <owner>`
+  (`KerbalsModule.FindActiveStandInOwner`); the record's blocked flag and why come from the same
+  `KerbalDismissalPatch.DescribeDismissalRefusal` the dismiss block uses (context
+  `DismissalRefusal` replaces the boolean `DismissalBlocked`), so every dismissal-blocked row now
+  carries the drawn refusal as its why.
+- F1 (Administration): stock's `UIStateButton.Enable(false)` only sets `interactable`; the
+  accept / cancel states have no distinct disabled picture, so stock's own refusals look enabled
+  too. While a Parsek refusal disables it the button's image is tinted with its own
+  `ColorBlock.disabledColor` (half alpha when that is neutral) and the exact stock colour comes back
+  on an unblocked selection (`StockUiAdministrationDecoration`, re-derived in `SetSelectedStrategy`
+  and `UpdateStrategyStats` postfixes).
+- F7 (ruling 2026-09-25): stock-first precedence. The `CanBeActivated` postfix, the Cancel
+  refusal, the click backstop and the pairing cells apply Parsek's refusal only when stock's own
+  `CanBeActivated` / `CanBeDeactivated` allows; otherwise stock's result and reason stand. Still
+  present on `main` after PR #1836 (that PR only added the expiry gate).
+- F8 and F9 are filed separately: `C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED`,
+  `STAND-INS-EXCEED-THE-CREW-LIMIT`.
+- The census lane's `record` / `control` lines live on the unmerged census branch; its
+  Administration records call `StrategyReservationGate.TryRefuseActivation(id, out text)`, which now
+  reads stock's verdict itself, so they follow the precedence without a change there.
 
 ---
 
@@ -875,7 +1134,28 @@ re-flown slot again, next to the fork's ghost. Needs a trace of slot-open resolu
 drop, or a lane (re-fly one slot without sealing, rewind to launch, read the slots).
 
 
-## D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. OPEN for blocker 2 only]
+## ~~D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED: `background-event-claims` still has no producer; the second-dock fixture and `cross-tree-chain-linking` are DONE~~ [FILED 2026-09-23 off the D18 PR-D build. UPDATED 2026-09-23: blocker 1 fixed by #1780, blocker 3 ruled and claimed on CI-4. CLOSED 2026-09-26 (coverage wave 8, branch `cov-bgclaims`): blocker 2 claimed on CI-5, SCOPED TO THE CHAIN-WALKER DECISION ON A BACKGROUND RECORDING; a flight-harvested producer stays unbuilt]
+
+**CLOSED 2026-09-26 (coverage wave 8).** Route A (re-fly the harvest with the boot merge dialog
+answered first) was NOT flown: the code settles it. A stock Switch-To onto the Interceptor half,
+while a recording is live and another committed tree matches the half, is pre-switch Case C
+(`MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction`, `C-loaded-separate-committed`); its
+handlers commit or discard the live tree, and the consume then takes
+`ParsekFlight.TryRouteCommittedSpawnedClone` path B, which clones the half's OWN committed tree and
+attaches the segment under the half's own tip - lineage, exactly what run `2026-09-22_2239`
+measured. Answering the boot dialog changes which dialog stands, not where the segment lands.
+Route B (supervisor ruling 2026-09-25, accepted by the coordinator, pending operator
+confirmation): the injected `background-claim` preset gives `eva2-lko-crewed` one committed tree
+whose second recording is a PARENTLESS, branch-point-free background recording of the save's real
+Kerbal X Probe (pid 2614652043) with an engine ignite / shutdown - the shape
+`PrepareActiveTreeForFreshPostSwitchRecording` (no `FreshStartParentRecordingId`) and
+`StartStandaloneContinuationSegment` write. `CI-5-background-event-claim` carries all three
+witnesses (claim line with the fixture pid and tree `tree-bg-claim-carrier-rec`, `Chain built:
+vessel=2614652043 links=1`, the real probe ghosted): reading `2026-09-25_2241`, armed `_2244`,
+negative control offline, plus the xUnit mirror that the same recording parented under the root
+is not claimed. RESIDUE, not filed as a separate item: a FLOWN producer of that shape (item 2's
+second candidate, the `[` / `]` non-stock switch path, needs a mission shell and a host with two
+loaded outsiders in one bubble).
 
 **STATUS 2026-09-23 (read this first; the original filing follows).**
 
@@ -2206,8 +2486,13 @@ the raise. NEEDS, if it is ever to be automatic: an `op=raise` post-settle that 
 when a non-`main` window's rect covers the dialog's own rect, which nothing computes
 today.
 
-**7. `" (partial)"` INCLUSION IS NOT REACHABLE THROUGH `op=select`**
-(`GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT`). A CORRECTION to the
+**7. ~~`" (partial)"` INCLUSION IS NOT REACHABLE THROUGH `op=select`~~**
+(`GUI-CENSUS-PARTIAL-INCLUSION-IS-NOT-REACHABLE-THROUGH-OP-SELECT`). **CLOSED 2026-09-25
+(coverage wave 6):** `op=select key=leg:<intervalKey>` writes ONE interval key through the
+interval checkbox's own body (`MissionsWindowUI.ApplyIntervalInclusion`), and
+`MS-1-mission-leg-trim-clone` reads `inclusion=Partial` off it (run `2026-09-25_2120`). No
+census capture of the suffix is taken yet; a census lane can now ask for one. The original
+finding follows. A CORRECTION to the
 wave-6 lane plan, which asked for the suffix by driving ONE of a vessel's own interval
 keys with `include=false`. The op cannot express that: `TryParseSelectKey` yields a
 `vessel:<value>` pair, the applier RESOLVES A ROW from it (`FindVesselRow` matches
@@ -4724,7 +5009,7 @@ copy-on-write host), so the dialog never draws. BDOCK-1's spec shape is unchange
 `StopRecording` mitigation is explicitly NOT to be added; the optional ~36 min
 `AnswerMergeDialog choice=merge` measurement is skipped.
 
-## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. DEFINED 2026-09-15, register B5; the clone spec and its one flight remain]
+## ~~D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness~~ [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. DEFINED 2026-09-15, register B5. **CLOSED 2026-09-25 (coverage wave 2, branch `cov-wave2`)**: the clone spec is `MC-4-making-history-desert` (GS-4's `kx_rewind_watch` with `launchSite = "Desert_Launch_Site"`, operator tier). Reading `2026-09-25_2132` and armed `_2146` both PASS attempt 1, MISSION-OK: `Start location captured: ... launchSite=Desert Launch Site`, the produced save carries `launchSiteName = Desert Launch Site`, and after the Rewind-to-Launch the replayed Kerbal X ghost first appears `zone=Physics dist=22m` from the watcher on the Desert pad and is watched from it. D17 `making-history` claimed]
 
 **DEFINED 2026-09-15, not flown:** alt-site launch capture on stock-minimal, a GS-4 clone
 with `launchSite = "Desert_Launch_Site"`, `tier = "operator"`, one reading flight, ranked
@@ -11639,6 +11924,13 @@ is aboard and its ignition IS recorded, but an applier line's `pid=` is the
 tally's representative rather than an enumeration, so the replay cannot be proved
 per-pid - see the GS-6 spec header).
 
+BOTH RESIDUES CLOSED 2026-09-26 (coverage wave 7). `engine-fx-effects`: a per-engine ignition
+witness now closes the representative-pid gap - `[GhostPartEvents] engine-fx start part=... source=...`,
+one line per ignition edge per engine, naming the build-time FX source and how many EFFECTS-node
+systems are playing. GS-6 reading `2026-09-25_2205` read the Ant as `source=effects-node
+effectsSystems=1 ... effectsPlaying=1`, and GS-6 now requires it. `bays`: `BAY-1-runway-cargo-bays`
+on the stock Mallard (see GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL). The chute trio stays open.
+
 THE FIX IS ONE PURPOSE-BUILT CRAFT, and the roadmap entry (Tier A item 1) already
 specifies the hard part of it: legacy vs EFFECTS engine FX needs BOTH populations
 aboard, and stock's only EFFECTS liquid engines are the Ant / Spark / Twitch v2 family
@@ -12047,7 +12339,7 @@ reading was taken while the two `spotLight1` lamps were still being dropped at l
 (the entry above), so it must be RE-TAKEN on the fixed craft before anything is
 concluded about lamps specifically.
 
-## GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL: the GS-6 sweep craft cannot carry a cargo bay, so D7 `bays` stays unreachable until a `ServiceBay.125.v2` tail is harvested from a live VAB session [FOUND BY READING 2026-09-02 while building the revision-2 craft. CRAFT-AUTHORING CONSTRAINT, REPORT-ONLY - not a product defect, not a driver gap]
+## ~~GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL~~: the GS-6 sweep craft cannot carry a cargo bay, so D7 `bays` stays unreachable until a `ServiceBay.125.v2` tail is harvested from a live VAB session [FOUND BY READING 2026-09-02 while building the revision-2 craft. CRAFT-AUTHORING CONSTRAINT, REPORT-ONLY - not a product defect, not a driver gap. CLOSED 2026-09-26 (coverage wave 7) by a different host, not by the harvest: `BAY-1-runway-cargo-bays` flies the stock Mallard, whose three Mk3 bays need no lifted tail because the whole stock craft file is committed. The GS-6 craft still carries no bay; see BAY-1 and CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING below]
 
 THE DRIVER IS NOT THE PROBLEM: kRPC 0.5.4 exposes `CargoBay.open`, and it is wired
 as `mlib.ACTION_SET_CARGO_BAYS` with `bays-open` / `bays-close` step names. The
@@ -12083,6 +12375,30 @@ THE FIX IS ONE HARVEST, not a design: open the VAB once, place a
 goes INTO the 1.25 m section of the stack (it is a structural section, not a
 nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
 is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
+
+## CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. PRODUCT GAP, OPEN]
+
+THE MEASUREMENT. The stock `Mallard` ships its three Mk3 bays with `ModuleAnimateGeneric`
+`allowDeployLimit = true` and `deployPercent = 44 / 45 / 51`. BAY-1's first reading run flew
+MISSION-OK: kRPC `CargoBay.open` opened, then shut, all three (`set open=True on 3 cargo bay(s)`,
+`set open=False ...`), the recorder's census listed them (`Visual coverage [CargoBay] 3:
+mk3CargoBayM[pid=2989664037](deployIdx=0,closed=1.00), ...`), and the recording carried NO
+CargoBay event at all. The Space Center ghost then replayed every other family it recorded
+(gear, robotic, engine) and left the doors shut.
+
+THE CAUSE (read, not flown). `FlightRecorder.ClassifyCargoBayState` calls a bay open only at the
+far end of its animation (`animTime <= 0.01` when `closedPosition = 1`). A deploy-limited bay
+stops at `animTime = 1 - deployPercent / 100` (0.56 for the Mallard's medium bay), which is
+neither end, so every poll lands in the skip branch, `openCargoBays` is never set, and the close
+is not an edge either.
+
+THE FIX DIRECTION, for whoever takes it: read the open end from the deploy limit (the settled
+stop at `1 - deployPercent/100` for `closedPosition = 1`, the mirror for 0), or classify "left
+the closed end and stopped moving" as open. The ghost side then needs the matching partial pose
+(today `ApplyDeployableStateWithOutcome` interpolates to the fully deployed sample), so this is
+a recorder AND applier change. BAY-1 sidesteps it: its fixture copy of the Mallard sets all three
+bays to `deployPercent = 100`, so the lane gates a full door cycle and this gap stays visible
+here rather than being flown away.
 
 ## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. OPERATOR CONFIRMATION PENDING on the supervisor's ruling]
 

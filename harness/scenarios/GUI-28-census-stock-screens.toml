@@ -1,0 +1,217 @@
+schema = 1
+id = "GUI-28-census-stock-screens"
+tier = "operator"
+# THE GUI CENSUS OF PARSEK'S ANNOTATIONS ON STOCK KSP SCREENS.
+#
+# WHY THIS LANE EXISTS. The stock-screen annotation program (PRs #1813 - #1826, design
+# and texts in docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md) greys stock
+# controls and appends the reason to stock's own tooltips, reason fields and row labels
+# wherever Parsek blocks an action for the committed timeline. Every one of those marks is
+# uGUI, which the GuiTree recorder cannot see, and NONE of them had run in KSP before this
+# lane: its PNGs are the first real-game look.
+#
+# THE HOST IS BUILT FOR IT. `stock-screen-census` is `career-earned-ksc` (vessel-less, so
+# LoadGame takes the NoVesselSpaceCenter route; save clock UT 409.56) plus a committed
+# timeline AFTER the clock, built by Source/Parsek.Tests/StockScreenCensusFixture.cs and
+# proven headless by StockScreenCensusFixtureTests (the committed-future index gives every
+# item below its mark or block):
+#   R&D              basicRocketry researched later            (KSC-origin ScienceSpending)
+#   Mission Control  survey 90e4faaf accepted later            (KSC-origin ContractAccept)
+#                    decoupler test 07c8e34d Active now, completed later by the flight
+#                    both level-1 slots needed later -> every other Offered row slot-blocked
+#   Astronaut Cplx   applicant Verhat Kerman hired later       (KSC-origin KerbalHire)
+#                    Bill Kerman held by the committed flight 'Census Hopper' (future,
+#                    Recovered, so the hold runs to its end)
+#   Administration   Appreciation Campaign active now, deactivated later;
+#                    Outsourced R&D activated later
+#   Facility menu    the Tracking Station upgraded to level 2 later
+#   Part tooltip     probeCoreSphere.v2 unpurchased now and bought later, with the
+#                    difficulty's BypassEntryPurchaseAfterResearch OFF
+# The earliest committed row is 30000 s after the clock, so a lane at 1x cannot reach it.
+#
+# THE ROUTE ONTO STOCK SCREENS is the `StockScreen` seam verb (automation-only, armed by
+# PARSEK_TEST_COMMANDS): each screen is opened through its own building entry point, a
+# row selected through its own radio button, and a control hovered by moving the OS
+# cursor onto it and spawning its stock tooltip. It presses no stock action and changes no
+# career state (the editor load saves persistent.sfs first, as the VAB building does).
+#
+# A POINTER LANE. Every `act=hover` step moves the OPERATOR'S OWN CURSOR machine-wide and
+# writes an Info line saying so (`stockscreen pointer moving the OS cursor ...`). A run
+# whose hover captures look wrong reads back against "someone was using the mouse".
+#
+# NO DumpGuiTree PAIRS: the annotations are uGUI and a dump records IMGUI only, so a tree
+# beside these PNGs would be empty of the subject. The capture instead logs the decision
+# records of every open stock screen beside its `capturescreenshot ok` line
+# (`[StockUiOverlay] record label=<label> ...`), read from the same decisions the screens
+# draw, so a PNG that shows nothing beside a record that says marked is an OVERLAY
+# finding; and the state of the stock controls those decisions act on
+# (`[StockUiOverlay] control label=<label> screen= name= state= interactable= visible=`), so
+# a button that LOOKS enabled can be told apart from one that IS.
+#
+# REPORT-ONLY READING RUN. The log contracts require each screen's own decoration pass
+# (`decorate screen=<S> ...`) and each capture's records, never a marked count; whether a
+# mark is DRAWN is what the PNGs are read for.
+#
+# ORDER: the Space Center screens first, the launch-site picker next, and the editor (a
+# scene change) last, because a driver-INVALID run still harvests every picture taken
+# before its failing step.
+description = "GUI census of Parsek's annotations on STOCK KSP screens over a rewound career whose committed timeline researches, accepts, completes, hires, holds, upgrades, buys and swaps strategies after the clock: R&D (node tint, tooltip, greyed Research, part tooltip), Astronaut Complex from the KSC and the VAB, Mission Control Available / slot block / Active, Administration, the Tracking Station facility menu, the launch-site crew picker, the VAB part tooltip and crew panel."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "career", "stock-ui", "GUI-28", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/stock-screen-census"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot: vessel-less, so the NoVesselSpaceCenter route; no `scene=` needed ---
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-ksc" }, expect = "OK" },
+
+  # ================================ R&D ================================
+  { cmd = "StockScreen", args = { screen = "rnd", act = "open" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-rnd-tree" }, expect = "OK" },
+  # The node the committed timeline researches: side panel with the reason and Research greyed.
+  { cmd = "StockScreen", args = { screen = "rnd", act = "select", item = "basicRocketry" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-rnd-node-panel" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "rnd", act = "hover", item = "basicRocketry" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-rnd-node-hover" }, expect = "OK" },
+  # The start node's part list holds the part the committed timeline buys.
+  { cmd = "StockScreen", args = { screen = "rnd", act = "select", item = "start" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-rnd-start-panel" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "rnd", act = "hover", part = "probeCoreSphere.v2" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-part-tooltip-rnd" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "rnd", act = "close" }, expect = "OK" },
+
+  # ========================== Astronaut Complex ==========================
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "open" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-ac-ksc" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "hover", item = "Bill Kerman" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-ac-ksc-reserved-hover" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "hover", item = "Verhat Kerman" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-ac-ksc-applicant-hover" }, expect = "OK" },
+  # A stand-in (Debwig, Jeb's seat-holder): the record reads blocked (dismissal) with no
+  # mark, so this picture shows what the player sees for that block.
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "hover", item = "Debwig Kerman" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-ac-ksc-standin-hover" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "close" }, expect = "OK" },
+
+  # =========================== Mission Control ===========================
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "open", pane = "available" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-mc-available" }, expect = "OK" },
+  # The Offered survey the committed timeline accepts: row label, Accept + Decline greyed.
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "select", item = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27", pane = "available" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-mc-available-detail" }, expect = "OK" },
+  # An Offered contract nothing committed touches: Accept greyed by the slot block (C2).
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "select", item = "375b4446-c861-4b4d-bf97-ef38407246a4", pane = "available" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-mc-slotblock" }, expect = "OK" },
+  # The Active contract the committed flight completes: row label, Cancel greyed.
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "select", item = "07c8e34d-0464-4416-a973-1e2b472bc347", pane = "active" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-mc-active-detail" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "close" }, expect = "OK" },
+
+  # ============================ Administration ============================
+  { cmd = "StockScreen", args = { screen = "administration", act = "open" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-admin" }, expect = "OK" },
+  # A strategy the committed timeline activates later: stock's orange reason line.
+  { cmd = "StockScreen", args = { screen = "administration", act = "select", item = "OutsourcedResearchCfg" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-admin-strategy" }, expect = "OK" },
+  # The active strategy the committed timeline deactivates later: Cancel greyed with the reason.
+  { cmd = "StockScreen", args = { screen = "administration", act = "select", item = "AppreciationCampaignCfg" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-admin-active-strategy" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "administration", act = "close" }, expect = "OK" },
+
+  # =========================== KSC facility menu ===========================
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "open", item = "SpaceCenter/TrackingStation" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "hover" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-facility-menu" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "close" }, expect = "OK" },
+
+  # ======================= launch-site crew picker =======================
+  { cmd = "StockScreen", args = { screen = "launchsite", act = "open" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "launchsite", act = "select", item = "Jumping Flea" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-launchpicker" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "launchsite", act = "hover", item = "Bill Kerman" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-launchpicker-hover" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "launchsite", act = "close" }, expect = "OK" },
+
+  # ============================== the VAB ==============================
+  # UiAction is refused in the editor (no Parsek UI host), so the verb parks the cursor
+  # itself: every non-hover StockScreen call despawns the current stock tooltip and
+  # parks a cursor its own hover moved.
+  { cmd = "StockScreen", args = { screen = "editor", act = "open", item = "Jumping Flea" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-editor" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "editor", act = "hover", part = "probeCoreSphere.v2" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-part-tooltip-editor" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "crewdialog", act = "open" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-crewdialog" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "crewdialog", act = "hover", item = "Bill Kerman" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-crewdialog-hover" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "open" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-ac-editor" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "close" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "editor", act = "close" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY: the verdict is a set of images and a record log, not a claim about a
+# dimension's behaviour.
+D14 = ["career", "scene-ksc", "scene-editor"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's three committed recordings (the base's two plus the synthetic future
+# flight); nothing in this lane records.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+# Each screen's own decoration pass (the overlay program's `decorate` lines) and each
+# capture's `record` lines. REPORT-ONLY on counts: no marked / blocked number is pinned.
+required = [
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] decorate screen=RnD tab=Tree items=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] decorate screen=AstronautComplex tab=Available items=",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] decorate screen=MissionControl tab=Available items=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] decorate screen=MissionControl tab=Active items=[1-9]",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] decorate screen=FacilityMenu facility=SpaceCenter/TrackingStation",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] decorate screen=CrewAssignment tab=Available items=",
+  # --- the capture-time records, one per screen family ---
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-rnd-node-panel screen=RnD tab=Tree items=",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-ac-ksc screen=AstronautComplex",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-mc-available-detail screen=MissionControl",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-admin-strategy screen=Administration",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-facility-menu screen=FacilityMenu",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-launchpicker screen=CrewAssignment",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-part-tooltip-editor screen=PartTooltip",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-crewdialog screen=CrewAssignment",
+  # --- the stock controls as stock holds them at capture time (the fact behind a greyed look) ---
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=stk-rnd-node-panel screen=RnD name=actionButton:basicRocketry ",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=stk-mc-available-detail screen=MissionControl name=btnAccept:90e4faaf-2029-4c6b-8bc1-40226bb0fc27 ",
+  # --- the verb's own terminals for the two scene changes ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=editor act=open item=Jumping_Flea .*scene=EDITOR",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=editor act=close .*scene=SPACECENTER",
+]
+forbidden = []
+
+[runtime]
+# ~30 stock-screen steps, ~25 captures, one editor round trip. The census lanes measured
+# 55-90 s for comparable step counts; the editor load is the new cost. 900 s is the
+# census class's budget.
+budgetSeconds = 900
+# The census frame (`screenResolution`, harness README).
+screenResolution = "1920x1080"
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

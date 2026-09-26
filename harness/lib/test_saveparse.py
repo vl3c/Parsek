@@ -2073,6 +2073,23 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "5436a7e8840b4c5885afcbaedc9dc037"],
             "schemaGeneration": 4,
         },
+        # stock-screen-census is career-earned-ksc plus ONE synthetic committed flight
+        # tree ("Census Hopper", a Recovered pad hop in the FUTURE of the save clock that
+        # holds Bill Kerman), built by Source/Parsek.Tests/StockScreenCensusFixture.cs.
+        # The flight carries no ghost snapshot (ghostSnapshotMode AliasVessel), so it adds
+        # two authoritative sidecars (.prec + _vessel.craft) to the base's eight.
+        "stock-screen-census": {
+            "trees": 2, "committedTrees": 2, "recordings": 3,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1, "Recovered": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 10,
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
+                             "5436a7e8840b4c5885afcbaedc9dc037",
+                             "5c0c7e3a1b2d4f60a9e8d7c6b5a4f301"],
+            "schemaGeneration": 4,
+        },
         # --- THE FIRST SURFACE-ENDPOINT SUBJECT (ATMOSPHERIC) ------------
         # PROVENANCE: kerbin-splashdown-recorded <- B4-reentry-splashdown, run
         # 2026-08-24_1431, PASS attempt 1 (wall 1,065 s, mission wall 989.2 s,
