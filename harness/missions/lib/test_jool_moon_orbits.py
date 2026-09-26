@@ -152,5 +152,84 @@ class HarvestSizingTests(unittest.TestCase):
             self.assertLess(eject + capture + corrections, DV_AVAILABLE_MPS * 0.75, moon)
 
 
+# --------------------------------------------------------------------------------
+# THE REPLAY LANES: each V lane's TimeJump table is derived off its fixture's bytes
+# with V16M's recipe. The same derivation must reproduce V16M's committed jumps on
+# `laythe-orbit-recorded`, which is what makes the derivation trustworthy.
+# --------------------------------------------------------------------------------
+import re  # noqa: E402
+
+V_LANES = {"Tylo": ("V28M-tylo-player-loop.toml", "tylo-orbit-recorded"),
+           "Bop": ("V29M-bop-player-loop.toml", "bop-orbit-recorded"),
+           "Pol": ("V30M-pol-player-loop.toml", "pol-orbit-recorded"),
+           "Laythe": ("V16M-laythe-player-loop.toml", "laythe-orbit-recorded")}
+SMA = {"Laythe": 27_184_000.0, "Tylo": 68_500_000.0, "Bop": 128_500_000.0,
+       "Pol": 179_890_000.0}
+
+
+def _fixture_bytes(fixture, moon):
+    root = os.path.join(HARNESS_ROOT, "fixtures", "saves", fixture)
+    sfs = open(os.path.join(root, "persistent.sfs"), encoding="utf-8").read()
+    tree = re.search(r"RECORDING_TREE\s*\{\s*id = (\w+)", sfs).group(1)
+    ut0 = float(re.search(r"explicitStartUT = ([\d.]+)", sfs).group(1))
+    end = float(re.search(r"explicitEndUT = ([\d.]+)", sfs).group(1))
+    save_ut = float(re.search(r"(?m)^\s*UT = ([\d.]+)", sfs).group(1))
+    rec_dir = os.path.join(root, "Parsek", "Recordings")
+    txt = [f for f in os.listdir(rec_dir) if f.endswith(".prec.txt")]
+    body = open(os.path.join(rec_dir, txt[0]), encoding="utf-8").read()
+    segs = [(float(re.search(r"startUT = ([\d.]+)", b).group(1)),
+             float(re.search(r"endUT = ([\d.]+)", b).group(1)),
+             re.search(r"body = (\w+)", b).group(1))
+            for b in re.findall(r"ORBIT_SEGMENT\s*\{(.*?)\n\s*\}", body, re.S)]
+    return tree, ut0, end, save_ut, segs
+
+
+def _derived_jumps(fixture, moon):
+    tree, ut0, end, save_ut, segs = _fixture_bytes(fixture, moon)
+    moon_segs = [s for s in segs if s[2] == moon]
+    seam, last_end = moon_segs[0][0], max(s[1] for s in moon_segs)
+    period = 2 * math.pi * math.sqrt(SMA[moon] ** 3 / MU_JOOL)
+    k = math.ceil((max(save_ut, end) - ut0) / period - 1e-9)
+    anchor = ut0 + k * period
+    seam_off = seam - ut0
+    park_off = seam_off + (last_end - seam) + 0.707 * (end - last_end)
+    jumps = [round(anchor + seam_off + o) for o in (-180, -60, 140)] + [round(anchor + park_off)]
+    return tree, jumps, end - ut0 - park_off
+
+
+def _spec_jumps(name):
+    steps = _spec(name)["driver"]["steps"]
+    return [int(s["args"]["ut"]) for s in steps if s.get("cmd") == "TimeJump"]
+
+
+class ReplayLaneTests(unittest.TestCase):
+
+    def test_the_recipe_reproduces_v16ms_committed_cycle_one(self):
+        _tree, jumps, _clear = _derived_jumps("laythe-orbit-recorded", "Laythe")
+        self.assertEqual(jumps, _spec_jumps("V16M-laythe-player-loop.toml")[:4])
+
+    def test_each_v_lane_jump_table_is_derived_from_its_fixture(self):
+        for moon in ("Tylo", "Bop", "Pol"):
+            name, fixture = V_LANES[moon]
+            tree, jumps, clear = _derived_jumps(fixture, moon)
+            self.assertEqual(jumps, _spec_jumps(name), moon)
+            self.assertEqual(jumps, sorted(jumps), moon)            # strictly forward
+            self.assertGreater(clear, 30.0, moon)                   # park epoch inside the tail
+            cfg = [s for s in _spec(name)["driver"]["steps"] if s.get("cmd") == "MissionConfig"]
+            self.assertEqual(tree, cfg[0]["args"]["tree"], moon)
+
+    def test_each_v_lane_requires_both_replay_witnesses_on_its_own_moon(self):
+        for moon in ("Tylo", "Bop", "Pol"):
+            name, fixture = V_LANES[moon]
+            spec = _spec(name)
+            req = spec["expectations"]["logContracts"]["required"]
+            self.assertIn("phase=body-orbit surface=ProtoOrbitLine .*body=%s" % moon, req)
+            self.assertIn("seam-endpoint summary evaluated=[1-9]\d* outsideSoi=0", req)
+            self.assertEqual("fixtures/saves/" + fixture, spec["fixture"]["saveTemplate"])
+            self.assertIn(moon.lower(), spec["dimensionsCovered"]["D14"])
+            self.assertTrue(spec["expectations"]["rewind"]["gating"], moon)
+            self.assertTrue(spec["expectations"]["recordings"]["structure"]["gating"], moon)
+
+
 if __name__ == "__main__":
     unittest.main()
