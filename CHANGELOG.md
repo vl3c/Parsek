@@ -215,6 +215,13 @@ _(unreleased — entries accumulate here per commit)_
   `REJECTED tab-hidden-in-game-mode` naming the mode, and `key=customRange` now opens the
   Time fold. `GUI-24-census-timeline-filters` photographs the Contracts, Milestones and
   Tech views on its host and Milestones under a This Year range.
+- **Automated testing: recordings now replay around Tylo, Bop and Pol.** Three new
+  flights (`B33-tylo-orbit`, `B34-bop-orbit`, `B35-pol-orbit`) start parked high above
+  Jool, transfer down to one moon, capture into orbit there and commit the recording; each
+  saved result becomes a test save. Three replay lanes (`V28M`, `V29M`, `V30M`) loop those
+  recordings, jump across the arrival and into the parked orbit, and check that the ghost's
+  map orbit is drawn around the right moon and that the replayed arrival lands inside the
+  moon's sphere of influence. Every Jool moon is now covered. Test-side only.
 - **Automated testing: a lane checks two spawn-safety guards on a real spawn.**
   `SS-1-spawn-safety-corrections` injects two recordings that end during a time warp. One
   landed on the grass near the Space Center but its saved state still said "flying"; it

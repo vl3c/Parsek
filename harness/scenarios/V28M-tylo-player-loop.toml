@@ -1,0 +1,144 @@
+schema = 1
+id = "V28M-tylo-player-loop"
+# =====================================================================================
+# V28M-tylo-player-loop: THE TYLO REPLAY LANE (roadmap G9, coverage wave 11). The V16M player-loop
+# shape, one cycle, on `tylo-orbit-recorded` - the B33 harvest (run `2026-09-25_2246`): a Jool-rooted
+# recording that transfers inward from B22's 584,321 km park and captures around
+# Tylo. The lane arms loop playback on that tree, jumps across the replayed
+# Jool->Tylo seam and into the replayed park, dwells, and requires the two replay
+# witnesses V16M uses on Laythe: the ghost's map orbit line drawn in Tylo's frame
+# (`phase=body-orbit surface=ProtoOrbitLine ... body=Tylo`) and the seam-endpoint
+# census finding every replayed SOI-entry endpoint inside Tylo's sphere
+# (`outsideSoi=0`). That pair is what "a recording replays correctly around Tylo"
+# means here, and it is what claims D14 `tylo`.
+#
+# THE JUMP TABLE, derived off the fixture's own bytes with V16M's recipe (the same
+# derivation reproduces V16M's committed jumps to the second on `laythe-orbit-recorded`):
+#   UT0 (explicitStartUT)  27,787,320.500
+#   explicitEndUT          29,017,597.493      span 1,230,276.993 s
+#   save UT (FLIGHTSTATE)  29,017,600.033
+#   Jool->Tylo seam      29,006,875.302      offset 1,219,554.802
+#   last Tylo segment end 29,017,257.333  (parked tail 340.160 s)
+#   P(Tylo)              211,926.360 s
+#   phaseAnchorUt = UT0 + k*P, k = ceil((max(saveUT, endUT) - UT0)/P) = 6
+#                 = 29,058,878.657
+#   seam bracket -180 / -60 / +140  -> 30278253 / 30278373 / 30278573
+#   park epoch   anchor + seam offset + (last segment end - seam) + 0.707 * tail
+#                -> 30289056  (99.7 s clear of the recording's end)
+# THE RE-PIN RECIPE: read `phaseAnchorUt=` off `missionconfig applied:` and
+# `relaunchUt=` off `startloopplayback initiated:`; every jump is anchor-relative.
+# ARMED off reading run `2026-09-26_0007`: PASS attempt 1. The product
+#   echoed phaseAnchorUt=29,058,878.608 against the derived 29,058,878.657 (0.049 s, the
+#   V16M residue), cadence 1,230,278 -> 1,271,558 = 6*P, and printed
+#   `[Orbital(Tylo) same-parent ... off=1219554.842]`, `PhaseLock APPLIED ...
+#   method=single-orbital ... zeroDrift=no`, `factory chain ... reaimed=False`,
+#   `Split summary ... seamSkipped=0 exoCoastBodyChangeKept=1`, eleven ProtoOrbitLine
+#   lines with body=Tylo and `seam-endpoint summary evaluated=2 outsideSoi=0`;
+#   saveParse read 1 recording, 343 points, every rewind facet 0. Those routing lines are
+#   now required and both save-structure blocks gate (the V16M arming shape).
+# =====================================================================================
+tier = "operator"
+description = "THE TYLO REPLAY LANE (G9, coverage wave 11): V16M's player-loop shape, one cycle, on `tylo-orbit-recorded` (B33 run `2026-09-25_2246`, a Jool-rooted recording captured around Tylo). Arms loop playback, jumps across the replayed Jool->Tylo seam and into the replayed park, dwells, and requires V16M's two replay witnesses on Tylo: the ghost's map orbit line drawn in Tylo's frame and the seam-endpoint census with every replayed SOI-entry endpoint inside Tylo's sphere. Claims D14 `tylo`."
+instanceProfile = "stock-minimal"
+tags = ["V28", "player-loop", "loop-playback", "tylo", "jool", "same-parent", "moon",
+        "jool-moon"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/tylo-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "f1f73e8a500c442d892872c3d70c9fe5", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "f1f73e8a500c442d892872c3d70c9fe5" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "30278253" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "30278373" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "30278573" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "30289056" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["fast-forward"]
+D14 = ["tylo", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+  "Orbital\\(Tylo\\) same-parent",
+  "support=Supported constraints=1",
+  "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no",
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+  "Split summary: rec=\\w+ .*seamSkipped=0 exoCoastBodyChangeKept=1",
+  "phase=body-orbit surface=ProtoOrbitLine .*body=Tylo",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=[1-9]\\d* outsideSoi=0",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "\\[ReaimDiag\\]",
+  "ENGAGED re-aim",
+  "FORCED FAITHFUL",
+  "timejump refused reason=backward-jump",
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+[expectations.rewind]
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

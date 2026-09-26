@@ -1,0 +1,162 @@
+schema = 1
+id = "B33-tylo-orbit"
+# =====================================================================================
+# B33: THE TYLO SUBJECT HARVEST (roadmap G9, coverage wave 11). B25's exact machine
+# and fixture, re-pointed from Laythe to TYLO: the crewed Duna Rocket starts parked
+# in B22's 584,321 km Jool orbit (`jool-park-nerv`, Parsek-stripped so the seam
+# StartRecording mints a fresh standalone Jool-rooted tree), transfers INWARD to
+# Tylo, captures + circularizes, holds the park and commits the tree there. THE
+# RECORDING IS THE PRODUCT: its produced save is harvested --keep-parsek into
+# `tylo-orbit-recorded`, which V28M replays.
+#
+# MISSION REUSE. `mission = "b25_laythe_orbit"` is deliberate: that module is a
+# thin alias over `mlib.b5_decide` whose whole target-specific content lives in
+# this spec's `missionParams` (the B23 -> B24 -> B25 lineage changed values only).
+# No mlib change and no new mission file.
+#
+# THE VALUES THAT DIFFER FROM B25, each derived (stock elements, mu_Jool 2.82528e14):
+#   Tylo  a 68,500,000 m, e 0, R 600,000 m, mu 2.82489e12, SOI 10,856,518 m,
+#         P 211,926.4 s, highest terrain ~11.3 km, no atmosphere.
+#   synodic vs the park (P 5,361,505 s) = 1/(1/211,926 - 1/5,361,505) = 220,650 s,
+#         so the worst window wait is ~0.22 Ms -> transferBurnTimeoutSeconds 600,000.
+#   transfer a = (584.3 + 68.5)/2 Mm = 326.4 Mm, coast = half period = 1.10 Ms
+#         -> coastTimeoutSeconds stays 4,000,000.
+#   transfer ecc = (584.3 - 68.5)/(584.3 + 68.5) = 0.79 -> ejectionEccFloor 0.55
+#         is still the right evidence (between the park's ~0 and 0.79).
+#   v_inf at Tylo = 2,717 (transfer periapsis speed) - 2,031 (Tylo) = 686 m/s.
+#   requested arrival periapsis 1,000 km = 9.2% of the SOI, the Mun row of the
+#         delivered-periapsis corpus (k 0.545 at 10.29%); B25's Laythe k = 0.29 at
+#         6.71% gives ~290 km, k = 1 gives 1,000 km and a 3x-long miss 3,000 km,
+#         all inside the 10.26 Mm SOI shell and all far above the 40 km arrival
+#         floor (a prediction below it gets mlib's arrival-quality extras).
+#   capture (circularize at periapsis) at 1,000 km: v_pe 2,000, v_circ 1,329 ->
+#         ~671 m/s; at 290 km ~795 m/s. That is a 130-160 s burn at ~5 m/s^2, the
+#         Laythe shape (B25 measured a ~15.4 km periapsis drop on 163.5 s), so the
+#         park floor sits 25 km under the arrival floor and 3.7 km above Tylo's
+#         highest terrain, and the park ceiling admits a 3x-long arrival.
+#   dv worst hop: ejection 377 + capture 800 + 4 rounds x maxCorrectionDvMps 200
+#         = 1,977 m/s against B25's measured 3,967 m/s available.
+# THE CROSSING: the descent crosses Pol's and Bop's orbital shells (Laythe's and
+# Vall's lie inside Tylo's orbit), so every other Jool moon is a named poison.
+# =====================================================================================
+tier = "operator"
+description = "THE TYLO SUBJECT HARVEST (G9, coverage wave 11): B25's orbit-start machine re-pointed at TYLO. The crewed Duna Rocket starts parked in B22's 584,321 km Jool orbit (`jool-park-nerv`), transfers INWARD to Tylo on a retrograde ejection (transfer ecc 0.79), captures into a Tylo park above its ~11.3 km terrain and commits the tree there. Its produced save is harvested --keep-parsek as `tylo-orbit-recorded`, the subject V28M replays. Reuses the `b25_laythe_orbit` mission module unchanged (the target lives in missionParams). Dv worst hop 1,977 m/s against 3,967 available."
+instanceProfile = "stock-minimal"
+tags = ["B33", "tylo", "jool", "same-parent", "moon", "jool-moon", "inward-transfer",
+        "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi",
+        "orbit-start", "crewed"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/jool-park-nerv"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b25_laythe_orbit"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 5400 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 250000000
+startInOrbitMaxApoapsisMeters   = 800000000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+homeBodyName               = "Jool"
+targetBodyName             = "Tylo"
+interplanetaryTransfer     = false
+returnBodyName             = "Jool"
+transferMinApoapsisMeters  = 0
+ejectionEccFloor           = 0.55
+courseCorrectPeriapsisMeters = 1000000
+correctionTriggerAltsMeters = [0]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+transferBurnTimeoutSeconds = 600000
+coastTimeoutSeconds        = 4000000
+flybyTimeoutSeconds        = 60000
+coastWarpFactor            = 5
+soiLeadSeconds             = 3000
+approachWindowSeconds      = 10000
+approachMaxWarpFactor      = 3
+flybyWarpFactor            = 2
+flybyMaxWarpFactor         = 3
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 40000
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 15000
+parkMaxApoapsisMeters      = 4000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+maxCorrectionDvMps         = 200
+
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["jool", "tylo", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Jool to Tylo",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Tylo",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "SOI change boundary suppressed in tree mode: \\w+ to Laythe",
+  "SOI change boundary suppressed in tree mode: Laythe to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Vall",
+  "SOI change boundary suppressed in tree mode: Vall to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Bop",
+  "SOI change boundary suppressed in tree mode: Bop to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Pol",
+  "SOI change boundary suppressed in tree mode: Pol to \\w+",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+budgetSeconds = 6000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

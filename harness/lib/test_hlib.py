@@ -9621,6 +9621,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # parent, and its five observation targets are pre-registered in the spec
         # header precisely so the post-flight paragraph cannot be written after
         # the fact.
+        "B33-tylo-orbit.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: B25's orbit-start machine re-pointed at Tylo to harvest the `tylo-orbit-recorded` subject its V lane replays; what is open is the flight, not a human review call",
+        "B34-bop-orbit.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: B25's orbit-start machine re-pointed at Bop to harvest the `bop-orbit-recorded` subject its V lane replays; what is open is the flight, not a human review call",
+        "B35-pol-orbit.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: B25's orbit-start machine re-pointed at Pol to harvest the `pol-orbit-recorded` subject its V lane replays; what is open is the flight, not a human review call",
+        "V28M-tylo-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `tylo-orbit-recorded`; what is open is the flight, not a human review call",
+        "V29M-bop-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `bop-orbit-recorded`; what is open is the flight, not a human review call",
+        "V30M-pol-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `pol-orbit-recorded`; what is open is the flight, not a human review call",
         "B30-mun-minmus-transfer.toml":     "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-23 and NOT YET FLOWN - the G4 replication of B26's moon-to-moon hop at a second parent (Mun -> Minmus under Kerbin), with five observation targets pre-registered in the header; what is open is the FLIGHT itself, not a human review call",
         # The V21 pair, tier=operator by the same calibration discipline and for
         # the same reason as every V lane before them: their windows are DERIVED
@@ -10897,6 +10903,14 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # `2026-09-10_2032` and V16T `2026-09-10_2034`, each red on
                        # exactly the inverted element, drift gate met.
                        "V16M-laythe-player-loop.toml", "V16T-laythe-ts-arrival.toml",
+                       # V28M / V29M / V30M (coverage wave 11, G9): `rewind` (all max 0)
+                       # + `structure` (V16M's windows: trees {1,2}, committedTrees 1,
+                       # recordings 1, Orbiting >= 1), armed off each lane's own reading
+                       # run (V28M `2026-09-26_0007`, V29M `_0012`, V30M `_0013`); armed re-flights and the offline
+                       # negative control are in autotest-status.md.
+                       "V28M-tylo-player-loop.toml",
+                       "V29M-bop-player-loop.toml",
+                       "V30M-pol-player-loop.toml",
                        # V17M: `rewind` (all max 0 - the family's replay-observation
                        # claim, now across a SELF-OVERLAPPING 20-instance loop whose
                        # re-arms the jumps repeatedly cross) + `structure` (trees

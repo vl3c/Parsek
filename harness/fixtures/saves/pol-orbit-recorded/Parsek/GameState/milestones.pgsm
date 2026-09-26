@@ -1,0 +1,42 @@
+version = 1
+MILESTONE
+{
+	id = a38d437f39314f929e51c8cf8aa402fc
+	startUT = 0
+	endUT = 27787320.639510833
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 27787319.959510848
+		type = 18
+		key = Orbit
+		detail = funds=12000;rep=2;sci=1
+	}
+}
+MILESTONE
+{
+	id = b71f7bf7dc4942e5bd2f7aec12e31501
+	startUT = 27787320.639510833
+	endUT = 30101445.806916464
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 30101387.284468964
+		type = 18
+		key = Pol/Flyby
+		detail = funds=31000;rep=1;sci=0
+		recordingId = 167849be8ad84b758c9c0e1a2a6d07a3
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 30101387.284468964
+		type = 18
+		key = Jool/Escape
+		detail = funds=18000;rep=1;sci=0
+		recordingId = 167849be8ad84b758c9c0e1a2a6d07a3
+	}
+}
