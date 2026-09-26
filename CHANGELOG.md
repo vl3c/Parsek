@@ -1661,6 +1661,12 @@ _(unreleased — entries accumulate here per commit)_
   - Debris rows show how they ended (`Destroyed`, `Landed`, ...) in Status instead of `past`.
     A folder's Status still ignores its debris, so a mission does not read `Destroyed`
     because its booster fell.
+  - A mission folder no longer repeats its launched vessel as a flight row of its own: that
+    vessel's segments are listed directly under the mission (other vessels' flight rows stay).
+    The mission row takes over what the removed row offered: its Loop box loops the launched
+    vessel's segments the way that row did (trimming each loop to the interesting part) and
+    the rest of the mission the way the folder always did, and its Group cell gains an `S`
+    button that picks folders for every segment of the launched vessel at once.
 
 - **Settings: a round of fixes to the Settings window.**
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data

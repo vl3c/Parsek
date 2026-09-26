@@ -398,5 +398,168 @@ namespace Parsek.Tests
                 Parsek.TestCommands.TestCommandUiAction.LogisticsWindow,
                 Parsek.TestCommands.TestCommandUiSelectSort.RecordingsTabToken, "site", false));
         }
+
+        // ── Item 3: the mission folder draws its launched vessel's segments directly ──
+
+        private static Recording MakeTreeRec(double startUT, double endUT, string name,
+            string groupName, string treeId, uint pid, string chainId = null, string id = null)
+        {
+            var rec = MakeRec(startUT, endUT);
+            rec.VesselName = name;
+            rec.RecordingId = id ?? Guid.NewGuid().ToString("N");
+            rec.TreeId = treeId;
+            rec.VesselPersistentId = pid;
+            rec.ChainId = chainId;
+            rec.RecordingGroups = new List<string> { groupName };
+            return rec;
+        }
+
+        [Fact]
+        public void RootBlockKey_UsesTheTreeVesselIdentity_ThenTheChainFallback()
+        {
+            var withPid = new Recording { TreeId = "tree-1", VesselPersistentId = 42 };
+            Assert.Equal("Kerbal X::treevessel:tree-1:42",
+                RecordingsTableUI.ResolveRootVesselBlockKey("Kerbal X", withPid));
+
+            var noPid = new Recording { TreeId = "tree-1", VesselPersistentId = 0, ChainId = "c-7" };
+            Assert.Equal("Kerbal X::chain:c-7",
+                RecordingsTableUI.ResolveRootVesselBlockKey("Kerbal X", noPid));
+
+            Assert.Null(RecordingsTableUI.ResolveRootVesselBlockKey("Kerbal X",
+                new Recording { TreeId = "tree-1" }));
+            Assert.Null(RecordingsTableUI.ResolveRootVesselBlockKey("Kerbal X", null));
+        }
+
+        [Fact]
+        public void TreeRootRecording_IsTheOneTheTreeNames()
+        {
+            var root = new Recording { RecordingId = "root-1" };
+            var other = new Recording { RecordingId = "other-1" };
+            var tree = new RecordingTree { RootRecordingId = "root-1" };
+            tree.Recordings["root-1"] = root;
+            tree.Recordings["other-1"] = other;
+
+            Assert.Same(root, RecordingsTableUI.ResolveTreeRootRecording(tree));
+            Assert.Null(RecordingsTableUI.ResolveTreeRootRecording(new RecordingTree()));
+            Assert.Null(RecordingsTableUI.ResolveTreeRootRecording(null));
+        }
+
+        [Fact]
+        public void MissionFolder_AbsorbsOnlyTheLaunchedVesselsBlock()
+        {
+            // Kerbal X (pid 42, the tree root) flew three segments; a probe (pid 77) that
+            // separated from it flew two. Only the root vessel's block is absorbed.
+            const string group = "Kerbal X";
+            var committed = new List<Recording>
+            {
+                MakeTreeRec(10, 20, "Kerbal X", group, "tree-kx", 42),
+                MakeTreeRec(20, 30, "Kerbal X", group, "tree-kx", 42),
+                MakeTreeRec(25, 40, "Kerbal X Probe", group, "tree-kx", 77),
+                MakeTreeRec(40, 50, "Kerbal X Probe", group, "tree-kx", 77),
+                MakeTreeRec(30, 60, "Kerbal X", group, "tree-kx", 42),
+            };
+            var blocks = RecordingsTableUI.BuildGroupDisplayBlocks(
+                group, new List<int> { 0, 1, 2, 3, 4 }, committed, new Dictionary<string, List<int>>());
+            Assert.Equal(2, blocks.Count);
+
+            string key = RecordingsTableUI.ResolveRootVesselBlockKey(group, committed[0]);
+            int idx = RecordingsTableUI.FindRootVesselBlockIndex(blocks, key);
+            Assert.Equal(0, idx);
+            Assert.Equal(new[] { 0, 1, 4 }, blocks[idx].Members);
+
+            var flattened = RecordingsTableUI.FlattenAbsorbedBlock(blocks, idx, group);
+
+            // Three single rows at the block's position, in its member order, then the
+            // probe's block untouched.
+            Assert.Equal(4, flattened.Count);
+            Assert.Equal(new[] { 0 }, flattened[0].Members);
+            Assert.Equal(new[] { 1 }, flattened[1].Members);
+            Assert.Equal(new[] { 4 }, flattened[2].Members);
+            Assert.Equal(new[] { 2, 3 }, flattened[3].Members);
+            Assert.Equal("Kerbal X::rec:4", flattened[2].Key);
+        }
+
+        [Fact]
+        public void MissionFolder_NothingToAbsorbWhenTheRootVesselHasOneSegment()
+        {
+            const string group = "Hopper";
+            var committed = new List<Recording>
+            {
+                MakeTreeRec(10, 20, "Hopper", group, "tree-h", 5),
+                MakeTreeRec(12, 30, "Hopper Debris", group, "tree-h", 6),
+                MakeTreeRec(30, 40, "Hopper Debris", group, "tree-h", 6),
+            };
+            var blocks = RecordingsTableUI.BuildGroupDisplayBlocks(
+                group, new List<int> { 0, 1, 2 }, committed, new Dictionary<string, List<int>>());
+            string key = RecordingsTableUI.ResolveRootVesselBlockKey(group, committed[0]);
+
+            Assert.Equal(-1, RecordingsTableUI.FindRootVesselBlockIndex(blocks, key));
+            Assert.Equal(-1, RecordingsTableUI.FindRootVesselBlockIndex(blocks, null));
+            Assert.Same(blocks, RecordingsTableUI.FlattenAbsorbedBlock(blocks, -1, group));
+        }
+
+        [Fact]
+        public void FlattenAbsorbedBlock_DoesNotDrawASegmentTwice()
+        {
+            var blocks = new List<RecordingsTableUI.GroupDisplayBlock>
+            {
+                new RecordingsTableUI.GroupDisplayBlock { Key = "G::rec:3", Members = new List<int> { 3 } },
+                new RecordingsTableUI.GroupDisplayBlock { Key = "G::treevessel:t:1", Members = new List<int> { 1, 3, 5 } },
+            };
+            var flattened = RecordingsTableUI.FlattenAbsorbedBlock(blocks, 1, "G");
+            Assert.Equal(3, flattened.Count);
+            Assert.Equal(new[] { 3 }, flattened[0].Members);
+            Assert.Equal(new[] { 1 }, flattened[1].Members);
+            Assert.Equal(new[] { 5 }, flattened[2].Members);
+        }
+
+        [Fact]
+        public void AbsorbedLoopWrite_RootMembersWithAutoRange_OthersWithout()
+        {
+            // catches: the mission row writing every descendant the same way, which would
+            // either narrow the probe's loop window (it never did under the folder) or stop
+            // narrowing the launched vessel's (which its own block's toggle did).
+            var scope = new HashSet<int> { 0, 1, 2, 3, 4, 9 };
+            RecordingsTableUI.SplitAbsorbedLoopWrite(scope, new List<int> { 0, 1, 4, 9 },
+                out List<int> withAuto, out List<int> without);
+
+            Assert.Equal(new[] { 0, 1, 4, 9 }, withAuto);
+            without.Sort();
+            Assert.Equal(new[] { 2, 3 }, without);
+        }
+
+        [Fact]
+        public void AbsorbedLoopWrite_EndToEnd_NarrowsOnlyTheLaunchedVessel()
+        {
+            // Two loopable recordings each with an interesting (propulsive) middle, so the auto
+            // range narrows. Written through the split, only the absorbed one is narrowed.
+            Recording MakeLoopable(string name)
+            {
+                var r = new Recording { VesselName = name, RecordingId = name, LaunchSiteName = "LaunchPad" };
+                r.Points.Add(new TrajectoryPoint { ut = 0 });
+                r.Points.Add(new TrajectoryPoint { ut = 300 });
+                r.TrackSections.Add(new TrackSection { environment = SegmentEnvironment.SurfaceStationary, startUT = 0, endUT = 100 });
+                r.TrackSections.Add(new TrackSection { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 });
+                r.TrackSections.Add(new TrackSection { environment = SegmentEnvironment.ExoBallistic, startUT = 200, endUT = 300 });
+                return r;
+            }
+            var root = MakeLoopable("Root");
+            var other = MakeLoopable("Other");
+            var committed = new List<Recording> { root, other };
+            Assert.True(Recording.IsLoopableRecording(root));
+
+            RecordingsTableUI.SplitAbsorbedLoopWrite(new HashSet<int> { 0, 1 }, new List<int> { 0 },
+                out List<int> withAuto, out List<int> without);
+            int rootWritten = RecordingsTableUI.BulkSetLoopPlayback(committed, withAuto, true, applyAutoRange: true);
+            int otherWritten = RecordingsTableUI.BulkSetLoopPlayback(committed, without, true, applyAutoRange: false);
+
+            Assert.Equal(1, rootWritten);
+            Assert.Equal(1, otherWritten);
+            Assert.True(root.LoopPlayback);
+            Assert.True(other.LoopPlayback);
+            Assert.True(double.IsNaN(other.LoopStartUT));
+            Assert.Equal(100, root.LoopStartUT);
+            Assert.Equal(200, root.LoopEndUT);
+        }
     }
 }

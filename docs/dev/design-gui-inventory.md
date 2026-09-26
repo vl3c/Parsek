@@ -492,7 +492,12 @@ Duration is blank. A subfolder's LABEL drops its parent's `parent + " / "` prefi
 under that parent (`GroupPickerPresentation.DisplayLabelUnderParent`; the group picker tree
 does the same), so a mission's auto subfolders read `Debris` / `Crew`. A leaf's `Period` cell is
 BLANK while its Loop is off, with the loop-off reason as the blank cell's hover
-(`LoopPeriodBlankCellTooltip`).
+(`LoopPeriodBlankCellTooltip`). A MISSION folder (a tree's auto-generated root group) draws
+no block row for its tree-root vessel: that vessel's segments are its own direct child rows
+(`FindRootVesselBlockIndex` / `FlattenAbsorbedBlock`), while every other vessel keeps its
+block. The mission row then writes Loop to those absorbed segments WITH the auto loop range
+and to its other loopable descendants WITHOUT (`SplitAbsorbedLoopWrite`), and its Group cell
+is `G` (folder parent) + `S` (every segment of the launched vessel, `OpenForRecordings`).
 
 Notable control semantics in the body:
 
@@ -501,12 +506,12 @@ Notable control semantics in the body:
 | per-row Enable toggle | `rec.PlaybackEnabled` | never disabled. See finding P1 |
 | header select-all Enable | writes every committed recording (`:1225`) | never; ignores the filters, and the tooltip says so |
 | Loop toggle (row) | `rec.LoopPlayback` + `ApplyAutoLoopRange` (`:2057`) | blank when `ShouldSuppressRowLoopUi` (`:5544`); greyed and write-blocked when route-bound (`:2049`) |
-| Loop toggle (header / folder) | `BulkSetLoopPlayback(..., applyAutoRange: false)` (`:1336`, `:2643`) | same route gate; deliberately does NOT re-narrow the window (`:5616-5630`) |
+| Loop toggle (header / folder) | `BulkSetLoopPlayback(..., applyAutoRange: false)` (`:1336`, `:2643`); a mission folder that absorbed its launched vessel's block writes those segments with `applyAutoRange: true` (`SplitAbsorbedLoopWrite`) | same route gate (over descendants plus absorbed segments); deliberately does NOT re-narrow the window for the rest (`:5616-5630`) |
 | Loop toggle (chain / block) | `BulkSetLoopPlayback(..., applyAutoRange: TRUE)` (`:4207`) | same glyph, different semantics, by design |
 | `Archive` header toggle | `GroupHierarchyStore.HideActive` (`:1377`) | the one header toggle that writes NOTHING to a recording; it is a view filter |
 | per-row Archive toggle | `rec.Hidden` + `NotifyTimelineOfArchiveChange` | REFUSED with a Warn + ScreenMessage when the row is an Unfinished Flight (`:2158-2167`) |
 | folder Archive toggle | writes every descendant `Hidden` (`:2860`) | never. See finding P17 |
-| `G` | `groupPicker.OpenForRecording / ForChain / ForRecordings / ForGroup` | never disabled; adds later rejected by `CanAddToUserGroup` (`UI/GroupPickerUI.cs:24`) |
+| `G` (+ `S` on a mission folder that absorbed its launched vessel's block) | `groupPicker.OpenForRecording / ForChain / ForRecordings / ForGroup`; `S` is `OpenForRecordings` over the absorbed segments | never disabled; adds later rejected by `CanAddToUserGroup` (`UI/GroupPickerUI.cs:24`) |
 | `X` on a row | `DeleteGhostOnlyRecording` (`:4570`), NO confirmation | only when `rec.IsGhostOnly && Mode != TrackingStation` (`:1982`, `:4611`) |
 | `X` on a folder | `ShowDisbandGroupConfirmation` (`:4399`) | only for a non-permanent group |
 | `W` / `W*` | `flight.EnterWatchMode(ri)` | `IsWatchButtonEnabled` (`:947`); column hidden outside flight |

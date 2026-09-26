@@ -701,6 +701,10 @@ namespace Parsek
         // dicts on every committed-list membership change.
         private readonly Dictionary<string, bool> lastSuppressedByEnclosingRow =
             new Dictionary<string, bool>();
+        // Transition-log dedup for the mission folder absorbing its launched vessel's block,
+        // keyed by group name (same quiet-first-false rule as the suppression cache).
+        private readonly Dictionary<string, bool> lastRootBlockAbsorbedByGroup =
+            new Dictionary<string, bool>();
 
         // Watch button enabled-state tracking for transition logging (bug #279).
         // Both dicts are keyed by RecordingId (stable across rewind/truncate
@@ -2809,6 +2813,31 @@ namespace Parsek
             CollectDescendantRecordings(groupName, grpToRecs, grpChildren, descendants);
             int memberCount = descendants.Count;
 
+            // The folder's own display blocks, built BEFORE the header row: on a mission
+            // folder the tree-root vessel's block is absorbed (its segments draw directly
+            // under the mission row), and the header's Loop and G cells take over what that
+            // block's header offered, so they need its members now.
+            List<int> directMembers;
+            grpToRecs.TryGetValue(groupName, out directMembers);
+            List<GroupDisplayBlock> displayBlocks = directMembers != null
+                ? BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs)
+                : null;
+            List<int> absorbedRootMembers = null;
+            if (displayBlocks != null)
+            {
+                RecordingTree missionTree = MissionGroupLink.FindTreeByRootGroup(groupName);
+                string rootBlockKey = missionTree != null
+                    ? ResolveRootVesselBlockKey(groupName, ResolveTreeRootRecording(missionTree))
+                    : null;
+                int absorbedIdx = FindRootVesselBlockIndex(displayBlocks, rootBlockKey);
+                if (absorbedIdx >= 0)
+                {
+                    absorbedRootMembers = displayBlocks[absorbedIdx].Members;
+                    displayBlocks = FlattenAbsorbedBlock(displayBlocks, absorbedIdx, groupName);
+                }
+                LogRootBlockAbsorptionTransition(groupName, rootBlockKey, absorbedRootMembers);
+            }
+
             float indent = SelfConnectorIndent(depth);
 
             // -- Group header --
@@ -2953,7 +2982,18 @@ namespace Parsek
             // G via DrawBodyCenteredButton.
             bool grpGClicked;
             bool grpXClicked = false;
-            if (canDisbandGroup)
+            bool grpSegmentsClicked = false;
+            if (absorbedRootMembers != null)
+            {
+                // A mission folder that absorbed its launched vessel's block keeps that
+                // block's "every segment to folders" picker as the second half of the cell.
+                // No X here: a mission folder is a permanent (auto-generated tree) group.
+                DrawBodyCenteredTwoButtons(
+                    new GUIContent("G", "Choose which folder this folder sits inside."), true,
+                    new GUIContent("S", "Choose which folders every segment of the launched vessel belongs to."), true,
+                    ColW_Group, out grpGClicked, out grpSegmentsClicked);
+            }
+            else if (canDisbandGroup)
             {
                 DrawBodyCenteredTwoButtons(
                     new GUIContent("G", "Choose which folder this folder sits inside."), true,
@@ -2977,6 +3017,14 @@ namespace Parsek
                 ShowDisbandGroupConfirmation(groupName, descendants, grpChildren);
                 ParsekLog.Verbose("UI", $"Disband clicked for group '{groupName}'");
             }
+            if (grpSegmentsClicked)
+            {
+                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                groupPicker.OpenForRecordings(absorbedRootMembers, mousePos);
+                ParsekLog.Verbose("UI",
+                    $"Group popup opened for the launched vessel's segments of '{groupName}' "
+                    + $"({absorbedRootMembers.Count.ToString(CultureInfo.InvariantCulture)} recordings)");
+            }
 
             // Aggregate Loop toggle. Group writes do not call ApplyAutoLoopRange
             // (so a user-customized LoopStartUT/LoopEndUT survives off/on toggle);
@@ -2985,8 +3033,20 @@ namespace Parsek
             // Mutual exclusion (design §0.6): grey OFF + block the group loop when ANY
             // descendant lives on a route-bound tree (safe default: a group spanning a
             // route-bound recording never partially applies).
-            bool grpRouteBound = AnyRecordingRouteBound(committed, descendants);
-            var grpLoopAgg = ComputeLoopAggregate(committed, descendants);
+            //
+            // A mission folder that absorbed its launched vessel's block also takes over that
+            // block's Loop semantics for those members: they are written WITH the auto loop
+            // range (what the block's own toggle did), every other loopable descendant WITHOUT
+            // (the folder's own behaviour). The aggregate and the route gate read the union.
+            IEnumerable<int> grpLoopScope = descendants;
+            if (absorbedRootMembers != null)
+            {
+                var union = new HashSet<int>(descendants);
+                union.UnionWith(absorbedRootMembers);
+                grpLoopScope = union;
+            }
+            bool grpRouteBound = AnyRecordingRouteBound(committed, grpLoopScope);
+            var grpLoopAgg = ComputeLoopAggregate(committed, grpLoopScope);
             if (grpLoopAgg.SuppressToggle)
             {
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
@@ -3015,6 +3075,20 @@ namespace Parsek
                     {
                         ParsekLog.Info("RouteGuard",
                             $"Recordings-tab group Loop blocked for '{groupName}' (a descendant is on a route-bound tree); request={newLoop} ignored");
+                    }
+                    else if (absorbedRootMembers != null)
+                    {
+                        SplitAbsorbedLoopWrite(grpLoopScope, absorbedRootMembers,
+                            out List<int> withAutoRange, out List<int> withoutAutoRange);
+                        int rootWritten = BulkSetLoopPlayback(
+                            committed, withAutoRange, newLoop, applyAutoRange: true);
+                        int otherWritten = BulkSetLoopPlayback(
+                            committed, withoutAutoRange, newLoop, applyAutoRange: false);
+                        ParsekLog.Info("UI",
+                            $"Group '{groupName}' loop set to {newLoop} "
+                            + $"(launched vessel {rootWritten.ToString(CultureInfo.InvariantCulture)} "
+                            + "recordings with auto loop range, other "
+                            + $"{otherWritten.ToString(CultureInfo.InvariantCulture)} without)");
                     }
                     else
                     {
@@ -3305,7 +3379,7 @@ namespace Parsek
             {
                 return DrawGroupChildren(groupName, depth, committed, now,
                     grpToRecs, chainToRecs, grpChildren, supersedes,
-                    nestedUnfinished, hasNestedUnfinished);
+                    nestedUnfinished, hasNestedUnfinished, displayBlocks);
             }
             finally
             {
@@ -3325,7 +3399,8 @@ namespace Parsek
             Dictionary<string, List<string>> grpChildren,
             IReadOnlyList<RecordingSupersedeRelation> supersedes,
             IReadOnlyList<Recording> nestedUnfinished,
-            bool hasNestedUnfinished)
+            bool hasNestedUnfinished,
+            List<GroupDisplayBlock> displayBlocks)
         {
             // -- Draw children --
             // Children render in three sections, in order: display blocks
@@ -3337,15 +3412,11 @@ namespace Parsek
             // (filtered out under the hide filter, inactive-for-display, or a
             // hidden child group with no escape hatch) are excluded from the
             // "last visible" computation so the corner never lands on a row
-            // that draws nothing.
-            List<int> directMembers;
-            grpToRecs.TryGetValue(groupName, out directMembers);
-
-            List<GroupDisplayBlock> displayBlocks = null;
+            // that draws nothing. `displayBlocks` arrives already built (and, on a mission
+            // folder, with the launched vessel's block flattened into single rows).
             int lastVisibleBlockIdx = -1;
-            if (directMembers != null)
+            if (displayBlocks != null)
             {
-                displayBlocks = BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs);
                 for (int i = 0; i < displayBlocks.Count; i++)
                     if (DisplayBlockRendersAnything(displayBlocks[i], committed, supersedes))
                         lastVisibleBlockIdx = i;
@@ -6072,6 +6143,121 @@ namespace Parsek
             }
 
             return blocks;
+        }
+
+        // ----- Tree-root vessel block absorption (the mission folder draws its launched
+        // vessel's segments directly) -----
+
+        /// <summary>The recording a tree names as its root (the launched vessel), or null.</summary>
+        internal static Recording ResolveTreeRootRecording(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || string.IsNullOrEmpty(tree.RootRecordingId))
+                return null;
+            Recording root;
+            return tree.Recordings.TryGetValue(tree.RootRecordingId, out root) ? root : null;
+        }
+
+        /// <summary>
+        /// The display-block key the tree-root vessel's block carries inside a mission folder:
+        /// the same <c>group + "::" + identity</c> <see cref="BuildGroupDisplayBlocks"/> builds,
+        /// where the identity is <c>treevessel:{TreeId}:{pid}</c> or, for a root without a pid,
+        /// the <c>chain:{ChainId}</c> fallback. Null when the root has neither.
+        /// </summary>
+        internal static string ResolveRootVesselBlockKey(string groupName, Recording rootRecording)
+        {
+            string identity = GetGroupDisplayIdentity(rootRecording);
+            return string.IsNullOrEmpty(identity) ? null : (groupName ?? "") + "::" + identity;
+        }
+
+        /// <summary>
+        /// Index of the block to absorb: the multi-member block whose key is the root vessel's.
+        /// A single-member block is already drawn as a plain row, so there is nothing to
+        /// absorb (-1); so is a missing key.
+        /// </summary>
+        internal static int FindRootVesselBlockIndex(List<GroupDisplayBlock> blocks, string rootBlockKey)
+        {
+            if (blocks == null || string.IsNullOrEmpty(rootBlockKey)) return -1;
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                if (blocks[i].Members != null && blocks[i].Members.Count > 1
+                    && string.Equals(blocks[i].Key, rootBlockKey, StringComparison.Ordinal))
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Replaces the absorbed block with one single-member block per segment, in the
+        /// block's own member order and at the block's position, so the folder draws those
+        /// segments as its own rows (single-member blocks draw as plain rows). A segment that
+        /// another single-member block of the folder already draws is not drawn twice.
+        /// </summary>
+        internal static List<GroupDisplayBlock> FlattenAbsorbedBlock(
+            List<GroupDisplayBlock> blocks, int absorbedIdx, string groupName)
+        {
+            if (blocks == null || absorbedIdx < 0 || absorbedIdx >= blocks.Count)
+                return blocks;
+
+            var alreadySingle = new HashSet<int>();
+            for (int i = 0; i < blocks.Count; i++)
+                if (i != absorbedIdx && blocks[i].Members != null && blocks[i].Members.Count == 1)
+                    alreadySingle.Add(blocks[i].Members[0]);
+
+            var flattened = new List<GroupDisplayBlock>(blocks.Count + blocks[absorbedIdx].Members.Count);
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                if (i != absorbedIdx)
+                {
+                    flattened.Add(blocks[i]);
+                    continue;
+                }
+                List<int> members = blocks[i].Members;
+                for (int m = 0; m < members.Count; m++)
+                {
+                    int ri = members[m];
+                    if (alreadySingle.Contains(ri)) continue;
+                    flattened.Add(new GroupDisplayBlock
+                    {
+                        Key = (groupName ?? "") + "::rec:" + ri.ToString(CultureInfo.InvariantCulture),
+                        DisplayName = null,
+                        Members = new List<int> { ri }
+                    });
+                }
+            }
+            return flattened;
+        }
+
+        /// <summary>
+        /// The mission folder's Loop write when it absorbed its launched vessel's block: the
+        /// absorbed members go WITH the auto loop range (what that block's toggle wrote), every
+        /// other index in scope WITHOUT (the folder's own behaviour). Pure for unit testing.
+        /// </summary>
+        internal static void SplitAbsorbedLoopWrite(
+            IEnumerable<int> scope, List<int> absorbedMembers,
+            out List<int> withAutoRange, out List<int> withoutAutoRange)
+        {
+            withAutoRange = new List<int>();
+            withoutAutoRange = new List<int>();
+            var absorbed = absorbedMembers != null ? new HashSet<int>(absorbedMembers) : new HashSet<int>();
+            if (absorbedMembers != null)
+                foreach (int idx in absorbedMembers)
+                    if (!withAutoRange.Contains(idx)) withAutoRange.Add(idx);
+            if (scope == null) return;
+            foreach (int idx in scope)
+                if (!absorbed.Contains(idx) && !withoutAutoRange.Contains(idx))
+                    withoutAutoRange.Add(idx);
+        }
+
+        private void LogRootBlockAbsorptionTransition(
+            string groupName, string rootBlockKey, List<int> absorbedMembers)
+        {
+            bool absorbed = absorbedMembers != null;
+            if (!UpdateEnclosingSuppressionCache(lastRootBlockAbsorbedByGroup, groupName, absorbed))
+                return;
+            ParsekLog.Verbose("UI", absorbed
+                ? $"Group '{groupName}': the launched vessel's block is drawn as the folder's own rows "
+                  + $"({absorbedMembers.Count.ToString(CultureInfo.InvariantCulture)} segments, key={rootBlockKey})"
+                : $"Group '{groupName}': the launched vessel's block is no longer absorbed (key={rootBlockKey ?? "<none>"})");
         }
 
         /// <summary>

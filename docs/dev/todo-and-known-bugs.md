@@ -46,6 +46,15 @@ button and the `op=state key=expandedStats` seam), and the census seam refuses
 189 characters are held by it, so the Name column absorbs the 188 px Phase + Site gave back;
 Info widens to 1493 px (was 1813).
 
+Fix (commit 3): a mission folder (a tree's auto-generated root group) absorbs its tree-root
+vessel's display block - key `group::treevessel:{TreeId}:{rootPid}`, or the `chain:` fallback
+identity (`ResolveRootVesselBlockKey`, `FindRootVesselBlockIndex`) - and draws its segments as
+its own rows (`FlattenAbsorbedBlock`); other vessels' blocks stay. The mission row keeps what
+that block header offered: its Loop toggle writes the absorbed members WITH the auto loop range
+and the other loopable descendants WITHOUT (`SplitAbsorbedLoopWrite`, both counts logged), and
+its Group cell becomes `G` + `S`, where `S` is the block's "every segment to folders" picker
+(`OpenForRecordings`). The block's aggregate R/FF duplicated the folder's and is dropped.
+
 ## RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE: a debris row's MaxSpd reads 318.4 km/s over a 1.9 km flight [FILED 2026-09-26 from the recordings-tab round (census run `2026-09-21_2316_GUI-25-census-missions-state-sort-edit`, capture `ib-missions-recordings-expandedstats-advanced`). OPEN, not fixed]
 
 The Info columns of recording #27 `Kerbal X Debris` on the `interbody-route-recorded` host
