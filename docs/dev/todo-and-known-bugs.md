@@ -174,7 +174,7 @@ non-Normal value.
 
 Bugs (no ruling needed):
 
-- S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
+- ~~S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
   pre-multiplier value to `subject.science`, then multiplies before `AddScience`; Parsek
   captures the pre-multiplier increment (`GameStateRecorder.ComputeScienceSubjectIncrement`,
   since SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT) and credits it as `ScienceAwarded`, so on
@@ -182,7 +182,11 @@ Bugs (no ruling needed):
   resets science to the x1 total. Fix: stamp the multiplier at capture; never read the
   current multiplier at replay. (The trace of this item found the capture also stored the
   running subject total rather than the increment; that fix and this stamp are one capture
-  now, see SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT above.)
+  now, see SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT above.)~~ FIXED 2026-09-26, branch `kss-ledger`: the capture freezes the
+  multiplier onto the pending subject (`ReadScienceGainMultiplierAtCapture`), the converter stamps
+  it on the row (`GameAction.ScienceGainMultiplier`, sparse key `scienceGainMultiplier`), and
+  `ScienceModule` scales only the pool credit, so the pool receives exactly stock's amount while
+  subject caps stay in pre-multiplier units.
 - ~~S2. `Career.RepLossDeclined` (Normal 1, Hard 3) never reaches the ledger: `ContractDeclined`
   is dropped in `GameStateEventConverter` and `ReputationPenaltySource.ContractDecline` is
   never constructed, so a rewind refunds the reputation. Fix: a KSC-origin reputation
