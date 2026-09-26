@@ -269,6 +269,8 @@ namespace Parsek.TestCommands
         // earlier verb could reach.
         void GoToEditor(ParsedCommand cmd);
         void LaunchFromEditor(ParsedCommand cmd);
+        // ----- SafeWriteCrash (D16 safe-write: crash after the temp write, one boot) -----
+        void SafeWriteCrash(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -498,6 +500,9 @@ namespace Parsek.TestCommands
                 // shape. The dispatch row only waits out a scene still loading its game.
                 ["GoToEditor"] = VerbSceneRequirement.RequiresGameLoaded,
                 ["LaunchFromEditor"] = VerbSceneRequirement.RequiresGameLoaded,
+                // SafeWriteCrash. RequiresGameLoaded: it reads committed trees and a
+                // save-scoped sidecar path, in any scene.
+                ["SafeWriteCrash"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>

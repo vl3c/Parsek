@@ -1502,6 +1502,8 @@ namespace Parsek.TestCommands
         // The editor scene route: bodies and settle polls in ParsekTestCommandAddon.EditorRoute.cs.
         void ITestCommandExecutor.GoToEditor(ParsedCommand cmd) => GoToEditorImpl(cmd);
         void ITestCommandExecutor.LaunchFromEditor(ParsedCommand cmd) => LaunchFromEditorImpl(cmd);
+        // SafeWriteCrash: body in the sibling ParsekTestCommandAddon.SafeWriteCrash.cs.
+        void ITestCommandExecutor.SafeWriteCrash(ParsedCommand cmd) => SafeWriteCrashImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1564,6 +1566,7 @@ namespace Parsek.TestCommands
                 case "StockScreen": exec.StockScreen(cmd); break;
                 case "GoToEditor": exec.GoToEditor(cmd); break;
                 case "LaunchFromEditor": exec.LaunchFromEditor(cmd); break;
+                case "SafeWriteCrash": exec.SafeWriteCrash(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

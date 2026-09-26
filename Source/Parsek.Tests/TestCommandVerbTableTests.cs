@@ -55,6 +55,7 @@ namespace Parsek.Tests
         [InlineData("GoToEditor")]
         [InlineData("LaunchFromEditor")]
         [InlineData("EvaGroundScience")]
+        [InlineData("SafeWriteCrash")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -163,7 +164,9 @@ namespace Parsek.Tests
             // GoToEditor and LaunchFromEditor were never in the reserved envelope.
             // EvaGroundScience is ADDITIVE (41 -> 42; reserved unchanged at 5): the reserved
             // envelope never carried an inventory verb.
-            Assert.Equal(42, TestCommandVerbs.ImplementedVerbNames.Count);
+            // SafeWriteCrash is ADDITIVE (42 -> 43; reserved unchanged at 5): the D16
+            // crash-after-temp injection, not a promotion of CrashAfterJournalPhase.
+            Assert.Equal(43, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
