@@ -54,13 +54,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DecideOnVesselSwitch_UndockSiblingPid_ReturnsUndockSwitch()
-        {
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, undockSiblingPid: 200);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.UndockSwitch, result);
-        }
-
-        [Fact]
         public void DecideOnVesselSwitch_EvaToEva_ReturnsContinueOnEva()
         {
             var result = FlightRecorder.DecideOnVesselSwitch(100, 200, currentIsEva: true, recordingStartedAsEva: true);

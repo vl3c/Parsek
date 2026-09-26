@@ -642,12 +642,9 @@ namespace Parsek
         private uint pendingBoardingTargetPid; // vessel PID from onCrewBoardVessel, 0 = none
         private int boardingConfirmFrames;     // frames since boarding event (auto-clear after 10)
 
-        // Pending dock/undock transitions (set by event handlers, consumed by Update)
+        // Pending dock transition (set by OnPartCouple, consumed by HandleTreeDockMerge)
         private uint pendingDockMergedPid;          // merged vessel pid, 0 = no pending dock
-        private bool pendingDockAsTarget;           // true if our vessel was the dock target (no pid change)
         private int dockConfirmFrames;              // frame counter for confirmation window (auto-clear after 5)
-        private uint pendingUndockOtherPid;         // pid of vessel that split off, 0 = no pending undock
-        private int undockConfirmFrames;            // frame counter for confirmation window
 
         // Recording tree mode (null when not in tree mode)
         private RecordingTree activeTree;
@@ -1409,27 +1406,8 @@ namespace Parsek
             CheckGloopsAutoStoppedByVesselSwitch();
 
             HandleTreeDockMerge();
-            HandleDockUndockCommitRestart();
-
-            // Chain: auto-commit previous segment when recording stopped (EVA exit)
-            // VesselSnapshot nulled in CommitChainSegment — mid-chain segments are ghost-only.
-            if (chainManager.PendingContinuation && !chainManager.PendingIsBoarding &&
-                recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                if (!chainManager.CommitChainSegment(recorder, chainManager.PendingEvaName))
-                    pendingAutoRecord = false;
-                recorder = null;
-                // pendingAutoRecord is still true on success — will start child EVA recording next
-            }
-
             HandleTreeBoardMerge();
-            HandleChainBoardingTransition();
-
-            // Bug #51: vessel-switch auto-stop loses chain ID.
-            // HandleVesselSwitchDuringRecording (in FlightRecorder) builds CaptureAtStop
-            // but cannot access ParsekFlight's chain fields. Commit the segment as a
-            // proper chain member and terminate the chain (vessel was switched away).
-            HandleVesselSwitchChainTermination();
+            HandleUnconfirmedBoardingStop();
 
             HandleAtmosphereBoundarySplit();
             HandleAltitudeBoundarySplit();
@@ -4755,9 +4733,7 @@ namespace Parsek
             // proof died here on every path a flight has ever taken
             // (ROUTE-ORIGIN-PROOF-NEVER-REACHES-A-TREE-RECORDING, measured by H57's first
             // flight and corroborated by ROUTE_ORIGIN_PROOF=0 in H56's and H57's produced
-            // saves). The chain-commit route (Recording.ApplyPersistenceArtifactsFrom via
-            // ChainSegmentManager.CommitSegmentCore) is reachable in code but no observed
-            // flight has taken it - zero CommitSegmentCore lines across 394 collected logs.
+            // saves).
             //
             // WHICH CALL WINS: THE FIRST ONE THAT CARRIES A PROOF. This helper is shared by
             // the ordinary tree-mode stop flush (FlushRecorderToTreeRecording, the path H57
@@ -5904,7 +5880,6 @@ namespace Parsek
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
             recorder.StartRecording(isPromotion: true);
-            recorder.UndockSiblingPid = 0; // tree handles vessel tracking
 
             if (!recorder.IsRecording)
             {
@@ -6172,7 +6147,6 @@ namespace Parsek
                 chainManager.PendingBoundaryAnchor = null;
             }
             recorder.StartRecording(isPromotion: true);
-            recorder.UndockSiblingPid = 0;
 
             if (!recorder.IsRecording)
             {
@@ -9057,7 +9031,6 @@ namespace Parsek
                 || pendingSplitInProgress
                 || pendingBoardingTargetPid != 0
                 || pendingDockMergedPid != 0
-                || pendingUndockOtherPid != 0
                 || (recorder != null && recorder.ChainToVesselPending);
         }
 
@@ -11320,7 +11293,7 @@ namespace Parsek
                 }
             }
 
-            // --- TREE MODE: create merge branch instead of chain segment ---
+            // --- TREE MODE: create merge branch ---
             if (activeTree != null && recorder != null)
             {
                 if (pendingSplitInProgress) return; // split must complete first
@@ -11403,7 +11376,6 @@ namespace Parsek
                     pendingDockRouteTargetPid = routeTargetPid;
                     pendingDockPartnerPid = partnerStampPid;
                     pendingDockTransferKind = coupleTransferKind;
-                    pendingDockAsTarget = isTarget;
                     dockConfirmFrames = 0;
 
                     // Race condition guard: prevent Task 6 from misclassifying absorption as destruction
@@ -11517,11 +11489,7 @@ namespace Parsek
                     pendingDockRouteTargetPid = routeTargetPid;
                     pendingDockPartnerPid = partnerStampPidR;
                     pendingDockTransferKind = coupleTransferKind;
-                    pendingDockAsTarget = false;
                     dockConfirmFrames = 0;
-
-                    // Clear DockMergePending to prevent chain handler
-                    recorder.DockMergePending = false;
 
                     if (absorbedPid != 0)
                         dockingInProgress.Add(absorbedPid);
@@ -11530,40 +11498,15 @@ namespace Parsek
                         $"(merged={mergedPid}, absorbed={absorbedPid})");
                     return;
                 }
-                // else: recorder exists but in some other state -- fall through to legacy
             }
 
-            // --- LEGACY (non-tree) chain mode: unchanged ---
-            if (recorder != null && recorder.IsRecording)
-            {
-                // We're actively recording
-                if (mergedPid == recorder.RecordingVesselId)
-                {
-                    // We're the TARGET — no pid change will happen
-                    pendingDockAsTarget = true;
-                    pendingDockMergedPid = mergedPid;
-                    dockConfirmFrames = 0;
-                    // Stop recording silently — Update() will commit and restart
-                    recorder.StopRecordingForChainBoundary();
-                    Log($"onPartCouple: target dock detected (mergedPid={mergedPid})");
-                }
-                else
-                {
-                    // We're the INITIATOR — pid will change, OnPhysicsFrame will stop us
-                    recorder.DockMergePending = true;
-                    pendingDockMergedPid = mergedPid;
-                    dockConfirmFrames = 0;
-                    Log($"onPartCouple: initiator dock detected (mergedPid={mergedPid})");
-                }
-            }
-            else if (recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                // OnPhysicsFrame already stopped us (initiator, pid changed before event fired)
-                recorder.DockMergePending = true;
-                pendingDockMergedPid = mergedPid;
-                dockConfirmFrames = 0;
-                Log($"onPartCouple: retroactive initiator dock (mergedPid={mergedPid})");
-            }
+            // No live tree recorder in a state a dock merge applies to: no tree, no
+            // recorder, or a recorder stopped without a capture. Every recording runs
+            // inside a tree, so nothing else consumes the couple.
+            ParsekLog.Verbose("Flight",
+                $"onPartCouple: no dock merge armed (mergedPid={mergedPid}, hasTree={activeTree != null}, " +
+                $"hasRecorder={recorder != null}, recording={recorder != null && recorder.IsRecording}, " +
+                $"hasCapture={recorder != null && recorder.CaptureAtStop != null})");
         }
 
         void OnPartUndock(Part undockedPart)
@@ -11968,36 +11911,6 @@ namespace Parsek
             rec.FlagEvents.AddRange(sorted);
 
             rec.MarkFilesDirty();
-        }
-
-        /// <summary>
-        /// Bug #51 fix: when vessel-switch auto-stop fires during an active chain,
-        /// commit the segment as a proper chain member and terminate the chain.
-        /// Guards stay on ParsekFlight; commit logic delegates to chainManager.
-        /// recorder = null on both success and abort paths.
-        /// </summary>
-        void HandleVesselSwitchChainTermination()
-        {
-            if (recorder == null || recorder.IsRecording || recorder.CaptureAtStop == null)
-                return;
-            if (chainManager.ActiveChainId == null)
-                return;
-            if (chainManager.PendingContinuation || recorder.ChainToVesselPending
-                || recorder.DockMergePending || recorder.UndockSwitchPending)
-                return;
-
-            // Delegate commit to chain manager (handles both success and abort chain cleanup)
-            chainManager.CommitVesselSwitchTermination(recorder);
-            recorder = null;
-        }
-
-        /// <summary>
-        /// Commits the current segment as an atmosphere boundary chain split.
-        /// Delegates to chainManager.CommitBoundarySplit.
-        /// </summary>
-        void CommitBoundarySplit(string completedPhase, string bodyName)
-        {
-            chainManager.CommitBoundarySplit(recorder, completedPhase, bodyName);
         }
 
         // Captures the scene-entry vessel pid for the fresh-launch restore guard.
@@ -12549,7 +12462,6 @@ namespace Parsek
                     if (pendingDockAbsorbedPid != 0)
                         dockingInProgress.Remove(pendingDockAbsorbedPid);
                     pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
                     pendingTreeDockMerge = false;
                     pendingDockAbsorbedPid = 0;
                     pendingDockRouteTargetPid = 0;
@@ -12562,16 +12474,6 @@ namespace Parsek
                     pendingDockRouteEndpointAtDock = null;
                     pendingDockRouteEndpointSituation = -1;
                     dockConfirmFrames = 0;
-                }
-            }
-            if (pendingUndockOtherPid != 0)
-            {
-                undockConfirmFrames++;
-                if (undockConfirmFrames > 5)
-                {
-                    ParsekLog.Info("Flight", $"Undock confirmation expired (otherPid={pendingUndockOtherPid})");
-                    pendingUndockOtherPid = 0;
-                    undockConfirmFrames = 0;
                 }
             }
         }
@@ -12682,16 +12584,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Zeros all dock/undock pending-transition fields.
-        /// Called from scene change, flight ready, and after dock/undock commit/restart.
+        /// Zeros all dock pending-transition fields.
+        /// Called from scene change and flight ready.
         /// </summary>
         private void ClearDockUndockState()
         {
             pendingDockMergedPid = 0;
-            pendingDockAsTarget = false;
             dockConfirmFrames = 0;
-            pendingUndockOtherPid = 0;
-            undockConfirmFrames = 0;
             pendingDockAbsorbedPid = 0;
             pendingDockRouteTargetPid = 0;
             pendingDockPartnerPid = 0;
@@ -12702,25 +12601,6 @@ namespace Parsek
             pendingDockSelfSnapshotPid = 0u;
             pendingDockRouteEndpointAtDock = null;
             pendingDockRouteEndpointSituation = -1;
-        }
-
-        /// <summary>
-        /// Restarts recording after a dock/undock chain boundary: nulls the old recorder,
-        /// starts a new recording, sets UndockSiblingPid, and logs/screen-messages the result.
-        /// Optional <paramref name="onRecordingStarted"/> callback runs inside the IsRecording
-        /// guard before the sibling PID assignment (used by undock paths to start continuation).
-        /// </summary>
-        private void RestartRecordingAfterDockUndock(string logReason, string screenReason, Action onRecordingStarted = null)
-        {
-            recorder = null;
-            StartRecording();
-            if (IsRecording)
-            {
-                onRecordingStarted?.Invoke();
-                recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
-                Log($"Recording continues after {logReason} (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
-                ScreenMessage($"Recording continues ({screenReason})", 2f);
-            }
         }
 
         /// <summary>
@@ -12786,72 +12666,8 @@ namespace Parsek
             pendingDockRouteEndpointAtDock = null;
             pendingDockRouteEndpointSituation = -1;
             dockConfirmFrames = 0;
-            pendingDockAsTarget = false;
 
             Log("Tree dock merge completed");
-        }
-
-        /// <summary>
-        /// Handles dock/undock commit and restart: commits the stopped recorder segment,
-        /// then restarts recording on the merged/remaining vessel.
-        /// </summary>
-        private void HandleDockUndockCommitRestart()
-        {
-            // Dock: initiator (pid changed, recorder already stopped by OnPhysicsFrame)
-            if (recorder != null && recorder.DockMergePending &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid))
-                    ClearDockUndockState();
-                RestartRecordingAfterDockUndock("dock", "docked");
-                ClearDockUndockState();
-            }
-
-            // Dock: target (pid unchanged, recorder already stopped by OnPartCouple)
-            if (pendingDockAsTarget && recorder != null &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid))
-                    ClearDockUndockState();
-                RestartRecordingAfterDockUndock("dock as target", "docked");
-                ClearDockUndockState();
-            }
-
-            // Undock: player stays on remaining vessel (same pid, recorder stopped by StopRecordingForChainBoundary)
-            if (pendingUndockOtherPid != 0 && recorder != null &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null &&
-                !recorder.UndockSwitchPending)
-            {
-                if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Undocked, 0))
-                    ClearDockUndockState();
-                uint undockPid = pendingUndockOtherPid;
-                RestartRecordingAfterDockUndock("undock", "undocked",
-                    () => chainManager.StartUndockContinuation(undockPid));
-                ClearDockUndockState();
-            }
-
-            // Undock: player switched to undocked vessel (pid changed, recorder stopped by OnPhysicsFrame)
-            if (recorder != null && recorder.UndockSwitchPending &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                uint oldPid = recorder.RecordingVesselId;
-                if (!chainManager.CommitDockUndockSegment(recorder, PartEventType.Undocked, 0))
-                    ClearDockUndockState();
-                recorder = null;
-
-                // Stop existing undock continuation (we're switching roles)
-                // Bug #95: bake before stop — old trajectory is real
-                if (chainManager.UndockContinuationPid != 0)
-                {
-                    if (chainManager.TryGetUndockContinuationRecording(out var undockRec))
-                        ChainSegmentManager.BakeContinuationData(undockRec);
-                    chainManager.StopUndockContinuation("sibling switch");
-                }
-
-                RestartRecordingAfterDockUndock("undock switch", "undocked",
-                    () => chainManager.StartUndockContinuation(oldPid));
-                ClearDockUndockState();
-            }
         }
 
         /// <summary>
@@ -12900,71 +12716,28 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Handles chain boarding transition: auto-commits EVA segment when boarding
-        /// detected (EVA to vessel), or treats as normal stop if not in a chain.
+        /// An EVA recording stopped on boarding (ChainToVesselPending) that
+        /// <see cref="HandleTreeBoardMerge"/> did not consume, because the boarding
+        /// confirmation is missing or names another vessel: treat it as a normal stop and
+        /// leave CaptureAtStop for the ordinary revert/merge handling.
         /// </summary>
-        private void HandleChainBoardingTransition()
+        private void HandleUnconfirmedBoardingStop()
         {
             if (recorder == null || !recorder.ChainToVesselPending
                 || recorder.IsRecording || recorder.CaptureAtStop == null)
                 return;
 
-            // Only continue the chain if we're already in one AND the boarding event confirmed
-            if (chainManager.ActiveChainId != null &&
-                pendingBoardingTargetPid != 0 &&
-                FlightGlobals.ActiveVessel != null &&
-                FlightGlobals.ActiveVessel.persistentId == pendingBoardingTargetPid)
-            {
-                Log($"Chain boarding confirmed: EVA\u2192vessel pid={pendingBoardingTargetPid}");
-                pendingBoardingTargetPid = 0;
-                boardingConfirmFrames = 0;
-
-                chainManager.CommitChainSegment(recorder, chainManager.ActiveChainCrewName);
-                recorder = null;
-
-                // Start new vessel recording on the boarded vessel
-                chainManager.ActiveChainCrewName = null; // vessel segment, not EVA
-                StartRecording();
-                if (IsRecording)
-                {
-                    Log($"Chain vessel recording started (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})");
-                    ScreenMessage("Recording STARTED (boarded vessel)", 2f);
-                }
-            }
-            else
-            {
-                // Not in a chain or boarding not confirmed — treat as normal stop
-                recorder.ChainToVesselPending = false;
-                pendingBoardingTargetPid = 0;
-                boardingConfirmFrames = 0;
-                Log("ChainToVessel without active chain or boarding confirmation \u2014 treating as normal stop");
-                ParsekLog.ScreenMessage("Recording stopped - vessel changed", 3f);
-                // Leave CaptureAtStop intact for normal revert/merge handling
-            }
-        }
-
-        /// <summary>
-        /// Shared tail for boundary splits: stops recording, commits the segment,
-        /// restarts recording and restores undock continuation PID.
-        /// </summary>
-        private void CommitBoundaryAndRestart(string phase, string bodyName,
-            string logMessage, string screenMessage)
-        {
-            recorder.StopRecordingForChainBoundary();
-            CommitBoundarySplit(phase, bodyName);
-            recorder = null;
-            StartRecording();
-            if (IsRecording)
-            {
-                recorder.UndockSiblingPid = chainManager.UndockContinuationPid;
-                ParsekLog.Info("Flight", logMessage);
-                ParsekLog.ScreenMessage(screenMessage, 2f);
-            }
+            recorder.ChainToVesselPending = false;
+            pendingBoardingTargetPid = 0;
+            boardingConfirmFrames = 0;
+            Log("ChainToVessel without boarding confirmation \u2014 treating as normal stop");
+            ParsekLog.ScreenMessage("Recording stopped - vessel changed", 3f);
         }
 
         /// <summary>
         /// Returns true if the current recording mode suppresses environment boundary
-        /// splits (tree mode does — chain mode does not).
+        /// splits. Tree mode does, and every recording runs in a tree: the recorder keeps
+        /// one recording across the boundary and the optimizer splits it afterwards.
         /// </summary>
         internal static bool ShouldSuppressBoundarySplit(RecordingTree activeTree)
         {
@@ -12973,7 +12746,7 @@ namespace Parsek
 
         /// <summary>
         /// Handles atmosphere boundary auto-split when crossing the atmosphere edge.
-        /// Commits the current segment, restarts recording in the new phase.
+        /// In tree mode the recording continues across the edge and only the flags clear.
         /// </summary>
         private void HandleAtmosphereBoundarySplit()
         {
@@ -12994,20 +12767,13 @@ namespace Parsek
                 return;
             }
 
-            string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
-            string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
-            string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
-            ParsekLog.Info("Flight", $"Atmosphere auto-split triggered: {bodyName} {phase}\u2192{newPhase} " +
-                $"(chain={chainManager.ActiveChainId ?? "(new)"}, points={recorder.Recording.Count})");
-            CommitBoundaryAndRestart(phase, bodyName,
-                $"Recording continues after atmosphere boundary " +
-                    $"(chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex}, {bodyName} {phase}\u2192{newPhase})",
-                $"Recording continues ({(newPhase == "atmo" ? "entering" : "exiting")} atmosphere)");
+            ParsekLog.Warn("Flight", "Atmosphere boundary crossed with no active tree - clearing boundary flags");
+            recorder.ClearBoundaryFlags();
         }
 
         /// <summary>
         /// Handles SOI change auto-split when transitioning between celestial bodies.
-        /// Commits the current segment, restarts recording in the new SOI.
+        /// In tree mode the recording continues across the SOI change and only the flags clear.
         /// </summary>
         private void HandleSoiChangeSplit()
         {
@@ -13028,40 +12794,13 @@ namespace Parsek
                 return;
             }
 
-            string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
-            string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
-            // Completed segment was at fromBody — tag based on atmosphere/altitude
-            CelestialBody fromCB = FlightGlobals.Bodies?.Find(b => b.name == fromBody);
-            string fromPhase;
-            if (fromCB != null && fromCB.atmosphere)
-                fromPhase = "exo"; // was in space around atmospheric body
-            else if (fromCB != null)
-            {
-                // Use LastRecordedAltitude (cached field) instead of peeking at the
-                // Recording buffer. The buffer can legitimately be empty here because
-                // FlushRecorderIntoActiveTreeForSerialization clears it on every OnSave
-                // while IsRecording stays true. The cached field is updated every
-                // CommitRecordedPoint / SamplePosition, so it reflects the true last
-                // altitude regardless of whether a flush happened since.
-                double threshold = FlightRecorder.ComputeApproachAltitude(fromCB);
-                fromPhase = !double.IsNaN(recorder.LastRecordedAltitude)
-                    && recorder.LastRecordedAltitude < threshold
-                    ? "approach" : "exo";
-            }
-            else
-                fromPhase = "exo";
-            ParsekLog.Info("Flight", $"SOI auto-split triggered: {fromBody} ({fromPhase}) \u2192 {toBody} " +
-                $"(chain={chainManager.ActiveChainId ?? "(new)"}, points={recorder.Recording.Count})");
-            CommitBoundaryAndRestart(fromPhase, fromBody,
-                $"Recording continues after SOI change " +
-                    $"({fromBody} \u2192 {toBody}, chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})",
-                $"Recording continues (entering {toBody} SOI)");
+            ParsekLog.Warn("Flight", "SOI change with no active tree - clearing boundary flags");
+            recorder.ClearBoundaryFlags();
         }
 
         /// <summary>
         /// Handles altitude boundary auto-split when crossing the approach altitude threshold
-        /// on an airless body. Commits the current segment, restarts recording in the new phase.
-        /// Mirrors HandleAtmosphereBoundarySplit.
+        /// on an airless body. Mirrors HandleAtmosphereBoundarySplit.
         /// </summary>
         private void HandleAltitudeBoundarySplit()
         {
@@ -13080,18 +12819,8 @@ namespace Parsek
                 return;
             }
 
-            // Completed phase is the one we just left:
-            // descended below threshold = completed "exo" segment
-            // ascended above threshold = completed "approach" segment
-            string phase = recorder.DescendedBelowThreshold ? "exo" : "approach";
-            string newPhase = recorder.DescendedBelowThreshold ? "approach" : "exo";
-            string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
-            ParsekLog.Info("Flight", $"Altitude auto-split triggered: {bodyName} {phase}\u2192{newPhase} " +
-                $"(chain={chainManager.ActiveChainId ?? "(new)"}, points={recorder.Recording.Count})");
-            CommitBoundaryAndRestart(phase, bodyName,
-                $"Recording continues after altitude boundary " +
-                    $"(chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex}, {bodyName} {phase}\u2192{newPhase})",
-                $"Recording continues ({(newPhase == "approach" ? "entering approach zone" : "leaving approach zone")})");
+            ParsekLog.Warn("Flight", "Altitude boundary crossed with no active tree - clearing boundary flags");
+            recorder.ClearBoundaryFlags();
         }
 
         /// <summary>
@@ -13459,19 +13188,8 @@ namespace Parsek
             if (IsRecording)
             {
                 pendingAutoRecord = false;
-
-                if (chainManager.PendingContinuation)
-                {
-                    chainManager.PendingContinuation = false;
-                    chainManager.PendingEvaName = null;
-                    Log($"Chain EVA recording started (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex}, crew={chainManager.ActiveChainCrewName})");
-                    ScreenMessage("Recording STARTED (EVA chain)", 2f);
-                }
-                else
-                {
-                    Log("Auto-record started (EVA from pad)");
-                    ScreenMessage("Recording STARTED (auto - EVA from pad)", 2f);
-                }
+                Log("Auto-record started (EVA from pad)");
+                ScreenMessage("Recording STARTED (auto - EVA from pad)", 2f);
             }
             // else: StartRecording failed (paused game or no active vessel).
             // Keep pending flags so we retry next frame; fall through to
@@ -13555,11 +13273,9 @@ namespace Parsek
                 chainManager.ClearAll();
             }
 
-            // Chain continuations (atmosphere/SOI splits, dock/undock, boarding) are NOT
-            // new launches — they must not capture a fresh rewind save.  The rewind save
-            // belongs to the chain root only.  chainManager.ActiveChainId is set by
-            // CommitBoundarySplit / CommitChainSegment / CommitDockUndockSegment *before*
-            // this method is called, so a non-null value reliably indicates a continuation.
+            // A chain continuation is not a new launch and must not capture a fresh rewind
+            // save. No producer sets chainManager.ActiveChainId in always-tree mode, so this
+            // is false on every start; the check goes with the chain-identity fields.
             bool isContinuation = chainManager.ActiveChainId != null;
 
             // Commit orphaned CaptureAtStop from a previous recorder that was stopped

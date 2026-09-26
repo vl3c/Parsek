@@ -15,6 +15,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
+
+The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
+`StartUndockContinuation` and their `ParsekFlight` / `FlightRecorder` gates) was removed as
+unreachable in always-tree mode; the reachability proof is in the entry (closed by PR #1864)
+CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED. That removal
+left state whose only producers were the removed commits, kept on purpose:
+
+- Chain identity: `ActiveChainId` (now assigned only `null`), `ActiveChainNextIndex`,
+  `ActiveChainPrevId`, `ActiveChainCrewName`, `PendingContinuation` (only ever `false`),
+  `PendingIsBoarding`, `PendingEvaName`, `PendingBoundaryAnchor`, `HasActiveChain`,
+  `ApplyChainMetadataTo` (a no-op while `ActiveChainId` is null), `ClearChainIdentity`, and
+  `StartRecording`'s `isContinuation` (always false). `RecorderStateSnapshot` logs some of
+  them in every `RecState` line (`chain.*` fields).
+- Continuation sampling: `ContinuationVesselPid` / `UndockContinuationPid` and their index,
+  id, velocity and UT fields are never set non-zero, so `UpdateContinuationSampling`,
+  `UpdateUndockContinuationSampling`, `StopAllContinuations`, the snapshot refreshes and the
+  `ParsekFlight` bake-and-stop blocks on switch / split / destroy never act.
+- `ChainSegmentManager.OnCommittedRecordingRemoved` / `OnCommittedRecordingInserted` /
+  `RebindContinuationIndices` are the "chain continuation indices" subscriber of the
+  committed-list index contract (`RecordingStore.CommittedListNotifications.cs`), and
+  `absorbedIntoByRecordingId` is written there with no reader left.
+
+Removing these touches the index-contract subscriber set and the `RecState` log format, so
+it was held back for an operator decision rather than folded into the dead-commit removal.
+The `Recording` revert-rollback fields `ContinuationBoundaryIndex` and the
+`PreContinuation*` snapshots were set only by the removed commits too, so the
+`RecordingStore` rollback that reads them and the hydration-repair copy go with this
+cleanup. Recording-side chain DATA (`ChainId`, `ChainIndex`, `ChainBranch`,
+`ParentRecordingId`, `EvaCrewName`) is serialized and read by playback and must stay.
+
+---
+
 ## ~~SETTINGS-WINDOW-ROUND-2026-09-26: eleven Settings-window findings from the read-only review at `dd9c1682b`~~ [FILED AND FIXED 2026-09-26, branch `settings-window-round`]
 
 The review found the Basic hover leaving out Kerbals; readable `.txt` mirrors ON for every
