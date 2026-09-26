@@ -4532,6 +4532,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Removed the unused per-recording and per-milestone resource-cost helpers.**
+  `ResourceBudget`'s `CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,
+  `MilestoneCommittedFunds` / `MilestoneCommittedScience`, `FullCommittedFundsCost` /
+  `FullCommittedScienceCost` / `FullCommittedReputationCost` and `ComputeFacilityUpgradeCost`
+  (a placeholder returning 0) had no caller outside the unit tests since the ledger took over
+  funds, science and reputation. They are deleted with the 27 test cells that existed only to
+  test them. A new `RecordingStoreTests` cell pins directly, on the real `CommitTree` path,
+  that every child of a committed tree is the same object in the committed recordings list
+  and the committed tree, and carries the tree's id; a cell deleted with the old budget
+  totals used to carry that fact implicitly. No gameplay change.
+
 - **Automated testing: a `WarpToUT` refused because time warp is locked now names who holds
   the lock.** The `warptout refused reason=warp-locked` log line gains a `holders=` field:
   the ids of the input locks whose mask includes TIMEWARP, sorted and comma-joined, or `none`

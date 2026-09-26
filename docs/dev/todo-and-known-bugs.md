@@ -12290,7 +12290,7 @@ through the Total/Reserved pair.
 
 ---
 
-## RESOURCE-BUDGET-COST-HELPERS-ARE-PRODUCTION-DEAD: `ResourceBudget`'s per-recording and per-milestone cost helpers now have test callers only [FOUND 2026-08-29 as the residue of the RESOURCE-BUDGET-READOUTS-ARE-DEAD cleanup. Dead weight, not a defect - low priority]
+## ~~RESOURCE-BUDGET-COST-HELPERS-ARE-PRODUCTION-DEAD: `ResourceBudget`'s per-recording and per-milestone cost helpers now have test callers only~~ [FOUND 2026-08-29 as the residue of the RESOURCE-BUDGET-READOUTS-ARE-DEAD cleanup. Dead weight, not a defect - low priority. **CLOSED 2026-09-26 (branch `fix-resourcebudget-dead`), operator ruling 2026-09-26: delete.**]
 
 With `ComputeTotal` / `ComputeTotalFullCost` deleted, their per-item helpers lost their last
 production caller: `CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,
@@ -12323,6 +12323,28 @@ on it implicitly - 87 test files call `AddRecordingWithTreeForTesting` or `Final
 regression in that shape would surface as a scatter of unrelated failures rather than as one
 clear red. Not worth a speculative cell today; worth a direct pin in `RecordingStoreTests` the
 first time that shape is touched or suspected.
+
+Fix: operator ruling 2026-09-26, delete. Re-verified from the full caller set (`grep -rn` over
+`Source/Parsek`, tests excluded): every helper above had callers only inside
+`ResourceBudget.cs` itself (`MilestoneCommittedFunds` -> `ComputeFacilityUpgradeCost`) and in
+tests. All nine are deleted, with the 25 `ResourceBudgetTests` cells of the "Recording Cost
+Calculations" and "Milestone Cost Calculations" regions and both `RewindLoggingTests`
+`FullCommittedCost_SignConvention_*` cells: read first, each asserted only the helper's own
+subtraction on a hand-built recording, with no production path underneath to rewrite them
+against. The lost shape pin is rebuilt as
+`RecordingStoreTests.CommitTree_TreeChildrenLandInBothCommittedCollectionsWithTreeId`, driving
+the real `CommitTree` -> `FinalizeTreeCommit` path on a two-recording tree (mutation-checked:
+dropping the `committedRecordings.Add` in `FinalizeTreeCommit` reds it). `ResourceBudget` keeps
+`ParseCostFromDetail` and `BudgetSummary` (the struct is live in `RewindContext` / `RecordingStore`).
+
+Residue found on the way, left open deliberately:
+- `ParseCostFromDetail` is itself production-dead now. The `Patches/TechResearchPatch.cs`
+  caller this entry cites was removed by the Stock-UI overlays PR 1 (`d0ab49701`,
+  2026-09-25), and its only other callers were the two milestone helpers deleted here. Kept
+  with its 13 cells on the brief's instruction; a one-line decision for the next pass.
+- `Recording.LastAppliedResourceIndex` (`lastResIdx`) and `Milestone.LastReplayedEventIndex`
+  (`lastReplayedIdx`) are now written, copied and serialized but read by no decision. Removing
+  them is a serialized-key change, so it was not folded into this dead-code deletion.
 
 ---
 
@@ -17328,7 +17350,7 @@ half with parking + coast but no arrival would emit `no target arrival leg after
 heliocentric coast`), and those stay unannotated -- widening the predicate without a
 measured instance would be guessing.
 
-## RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed]
+## RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed. **Operator ruling 2026-09-26: keep filed; act only when a second consumer is misled by the label.**]
 
 **The observation.** On `dres-orbit-recorded`, track section 28 is
 `env=ExoPropulsive ref=OrbitalCheckpoint`, spans 25,921 s, and its single

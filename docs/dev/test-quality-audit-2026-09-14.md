@@ -918,7 +918,9 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     pins that a spend after the cutoff is not deducted - the same contract, on the ledger recalc
     that now performs the correction. Its one unique assertion (the positive arm of the
     committed-cost sign convention) survives as
-    `RewindLoggingTests.FullCommittedCost_SignConvention_PositiveMeansSpent`.
+    `RewindLoggingTests.FullCommittedCost_SignConvention_PositiveMeansSpent` (deleted 2026-09-26
+    with `ResourceBudget.FullCommittedFundsCost`, which had no production caller:
+    RESOURCE-BUDGET-COST-HELPERS-ARE-PRODUCTION-DEAD).
 
 - `testfix-t1t2`, third PR (2026-09-15): the second slice of Medium T1 rows
   (`work/phase-b-slice-medium-t1-02.txt`, 20 ids, all recording-tree). Each fixed row has
