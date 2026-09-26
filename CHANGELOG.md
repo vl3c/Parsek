@@ -1736,8 +1736,9 @@ _(unreleased — entries accumulate here per commit)_
   A death still ahead of you on the timeline (after a rewind) holds the kerbal until its own
   respawn, and a re-fly that undoes the death removes the respawn wait with it. The Kerbals
   window reads "Lost until <date>", the stock crew screens name the respawn date in their
-  hover text, and the Timeline's "Lost" entry says when the kerbal respawns. Deaths recorded
-  before this change keep their permanent loss.
+  hover text, and the Timeline's "Lost" entry says when the kerbal respawns. A death whose
+  outcome Parsek had already settled before this change keeps its permanent loss; a flight
+  whose crew outcome is first settled after it follows your current setting.
 
 - **Settings: a round of fixes to the Settings window.**
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data

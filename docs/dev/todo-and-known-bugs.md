@@ -122,7 +122,9 @@ Owner rulings (2026-09-26):
   generation bump). The ledger `KerbalAssignment` rows are re-derived from the recording on
   load, so the recording is the durable home. The walk turns a Dead row with respawn on into a
   finite hold ending at the recording's EndUT + the stamped timer (`DeathRespawnUT`); off or
-  unstamped (every pre-S8 death) stays permanent. While the hold is in force the kerbal reads
+  unstamped stays permanent (a recording whose end states were resolved before S8; one first
+  resolved after S8 - the load-time pass over unresolved recordings or a stale-terminal
+  re-derivation - takes the live policy at that moment). While the hold is in force the kerbal reads
   Lost (Kerbals window "Lost until <date>", stock-screen `KerbalLost` marks with the date,
   Timeline "respawns after"), no stand-in is made (as stock leaves him unreplaced), and the
   ordinary time-release frees him at the respawn; a tombstoned Dead row takes the window
