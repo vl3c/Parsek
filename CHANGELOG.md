@@ -1792,7 +1792,9 @@ _(unreleased — entries accumulate here per commit)_
   window reads "Lost until <date>", the stock crew screens name the respawn date in their
   hover text, and the Timeline's "Lost" entry says when the kerbal respawns. A death whose
   outcome Parsek had already settled before this change keeps its permanent loss; a flight
-  whose crew outcome is first settled after it follows your current setting.
+  whose crew outcome is first settled after it follows your current setting. A death in a
+  looping mission, or of a kerbal another committed flight still holds with no end, stays
+  permanent.
 
 - **Settings: a round of fixes to the Settings window.**
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
