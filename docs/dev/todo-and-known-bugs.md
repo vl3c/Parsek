@@ -39,8 +39,11 @@ angularVelocity`), so the axis was wrong whenever the vessel was not aligned wit
 either field. The detection line reads `PersistentRotation mod detected: True
 (matched=<spelling>)`. `TrajectoryMath.ComputeSpinAngularVelocityVesselLocal` lifts the
 reference-local vector to world and then into the vessel frame. Both have unit tests
-(`PersistentRotationDetectionTests`), including the decode direction. Live lane:
-`MC-5-persistent-rotation` on modded-compat, which now pins the mod (GT-8 closed).
+(`PersistentRotationDetectionTests`), including the decode direction. Live-proven on
+`MC-5-persistent-rotation` (modded-compat, which now pins the mod; GT-8 closed): reading
+`2026-09-26_1849`, armed re-flight `_1853`, both PASS attempt 1. The capture stored
+`|angVel|=0.8000` and the replay took spin-forward, so the ghost turned at the recorded
+rate. D17 `persistent-rotation` is claimed.
 
 ## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
 

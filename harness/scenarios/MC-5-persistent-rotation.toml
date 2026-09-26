@@ -3,7 +3,8 @@ id = "MC-5-persistent-rotation"
 tier = "operator"
 # =====================================================================================
 # MC-5: THE PERSISTENTROTATION INTERACTION, RECORDED AND REPLAYED ON THE MODDED-COMPAT
-# INSTANCE. NEVER FLOWN (reading-run shape; nothing below is armed).
+# INSTANCE. READ 2026-09-26 (`2026-09-26_1849`), ARMED FROM ITS BYTES, ARMED RE-FLIGHT
+# `2026-09-26_1853` PASS, NEGATIVE CONTROL OFFLINE. D17 `persistent-rotation` CLAIMED.
 # =====================================================================================
 #
 # WHAT THE LANE IS FOR (registry D17 `persistent-rotation`). When PersistentRotation is
@@ -48,6 +49,55 @@ tier = "operator"
 #   orbital-frame, the loop refusing an orbit-rooted tree) is reported from the bytes
 #   before any edit.
 #
+# THE READING: `2026-09-26_1849_MC-5-persistent-rotation`, modded-compat provisioned from
+# branch `persistent-rotation` (automation Parsek.dll sha256 18c227db...8914), PASS attempt
+# 1, wall 134 s, recordings 1 (one committed tree, one Orbiting recording, 62 points).
+# Every pre-registered reading printed:
+#     PersistentRotation mod detected: True (matched=Persistent Rotation Upgraded)
+#     spinvessel applied: vessel=#autoLOC_501232 ... rate=0.8000 axis=roll parts=10 sasWasOn=true
+#     Spinning vessel detected (|angVel|=0.8000), recording angular velocity for spin-forward
+#       (vesselLocal=(0.0, 0.8, 0.0), referenceLocal=(0.0, 0.8, 0.0))
+#     Vessel went on rails ... angVel=(0.0, 0.8, 0.0), persistentRotation=True
+#     Orbit segment <key>: spin-forward (|angVel|=0.8000)      (the replay, first activation)
+# 0.5 s passed between the spin and the capture. The Kerbal X's control reference is its
+# root, so the vessel-local and reference-local vectors agree, a pure roll about local +Y.
+# The loop landed at relaunch (`relaunchUt=22402.44`, `reachedUt=22402.50`). The ghost
+# rendered the rails segment at playback 21763.96-21764.84: 55 UpdatePath lines
+# `rotationMode=spin-forward`, zero `orbital-frame`; 53 AfterUpdate lines, all
+# `rotRef=checkpoint-orbit-spin`, all `dRotDeg=0.000`, rendered sweep 40.33 deg over
+# those 0.88 s of game time. That is 0.8 rad/s * 0.88 s = 40.3 deg, the recorded rate
+# reproduced. An orbital-frame hold would move about 0.06 deg in that time. No trace
+# line printed after the 200 s TimeJump: its windows had closed and orbit propagation
+# suppresses the large-delta window. One Unity NRE, stock `CrewHatchController` after
+# `Application.Quit`, no Parsek frame; zero `[Parsek][ERROR]`.
+#
+# THE ARMED RE-FLIGHT: `2026-09-26_1853_MC-5-persistent-rotation`, the spec as committed, the
+# same automation DLL (sha256 re-verified before launch). PASS attempt 1, wall 112 s, both
+# gates live: expectations 0 mismatches, ghostLifecycle GATING PASS. Recordings 1. Every
+# pinned line printed at the reading's values; 60 AfterUpdate lines, all
+# `checkpoint-orbit-spin`, all dRotDeg=0.000, sweep 45.83 deg; 62 `rotationMode=
+# spin-forward` UpdatePath lines, zero orbital-frame. Zero Unity exceptions.
+#
+# THE NEGATIVE CONTROL (offline, both logs; the mirror direction of the product fix): the
+# committed spec evaluated through `hlib.evaluate_expectations` +
+# `ghostlife.evaluate_ghost_lifecycle` (the two verifiers `run.py` runs) over the reading and
+# armed KSP.logs is GREEN on both, and RED on every seeded fault, per log:
+#   - the log a run without the mod writes, which is also what the pre-fix build wrote (detection
+#     False, no capture line, `angVel=(0,0,0) persistentRotation=False`, the segment replayed
+#     orbital-frame): 9 mismatches;
+#   - detection False alone: 1 (the matched-name token);
+#   - the capture alone removed (the spin never stored): 2;
+#   - the replay alone orbital-frame: 6 (both replay tokens, both forbidden tokens, and the
+#     `checkpoint-orbit-spin` line and sweep floors);
+#   - every AfterUpdate `rot=` frozen at its first value: 2 (both sweep floors);
+#   - one residual set to 0.2 deg: 1 (maxRotDeg);
+#   - the capture and replay at 0.4 rad/s: 2;
+#   - SpinVessel refused: 2;
+#   - a second recording: 1.
+# The PersistentRotation cross-run state below was live in the re-flight: `[PR] Found node
+# for vessel #autoLOC_501232`, `Loaded time: 21746.28` (the reading run's StartRecording save,
+# written before the spin). The spin and capture read the same as the reading.
+#
 # CROSS-RUN STATE. PersistentRotation persists per-vessel momentum in the INSTANCE
 # folder `GameData/PersistentRotation/PluginData/PersistentRotation_<save title>_<n>.cfg`,
 # keyed by vessel Guid and save title, so a later run of this fixture on the same
@@ -57,7 +107,7 @@ tier = "operator"
 #
 # NOT H-SERIES, same reason as MC-1: the H7+ wiring group pins a stock-fixture skip
 # floor this instance does not share. THE TIER IS operator until armed.
-description = "D17 persistent-rotation: on the modded-compat instance (PersistentRotationUpgraded 1.9.2.1 pinned), seam StartRecording on the Parsek-stripped Mun-orbit Kerbal X, spin it with the automation-only SpinVessel verb, warp on rails (the recorder's spin capture), commit, then loop-replay the tree and read the ghost's spin-forward orbit-segment attitude. Never flown: the reading-run shape."
+description = "D17 persistent-rotation: on the modded-compat instance (PersistentRotationUpgraded 1.9.2.1 pinned), seam StartRecording on the Parsek-stripped Mun-orbit Kerbal X, spin it at 0.8 rad/s with the automation-only SpinVessel verb, warp on rails (the recorder's spin capture), commit, then loop-replay the tree and gate the ghost's spin-forward orbit-segment attitude. Reading 2026-09-26_1849, armed re-flight 2026-09-26_1853 PASS, offline negative control red on every seeded fault; claims D17 persistent-rotation."
 instanceProfile = "modded-compat"
 tags = ["modded-compat", "persistent-rotation", "live-recording", "loop-playback", "render-trace", "MC-5"]
 
@@ -103,38 +153,61 @@ steps = [
 ]
 
 [dimensionsCovered]
-# D17 persistent-rotation is claimed only after the reading run, the armed re-flight and
-# the negative control (wave ruling G4). Nothing is declared until then.
+# D17 persistent-rotation, CLAIMED 2026-09-26 after the reading `2026-09-26_1849`, the armed
+# re-flight `2026-09-26_1853` and the offline negative control (wave ruling G4). GATING
+# TOKENS: the matched-name detection line, the capture line at the applied rate, the
+# replay's spin-forward first-activation line, and the ghostLifecycle `checkpoint-orbit-spin`
+# sweep floor; none can print without PersistentRotation (the control). No D14 row: MC-3
+# already holds the boot and scene facts on this instance and fixture.
+D17 = ["persistent-rotation"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING (see S0.6): this table stays ahead of the sub-tables.
 allowedAnomalies = []
 
 [expectations.recordings]
-# A reading window: one standalone tree is committed; the post-commit re-adoption can
-# leave a second recording. The reading pins it.
-count = { min = 1, max = 4 }
+# PINNED from the reading: one standalone tree, one recording; the post-commit
+# re-adoption commits nothing further.
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
-# Reading-shape pins: the verbs ran and the recorder saw the mod. The capture and replay
-# lines are MEASURED by the reading run and pinned from its bytes at arming.
+# ARMED 2026-09-26 from the reading `2026-09-26_1849`. Literals except the vessel name,
+# the segment cache key and the sign of a printed zero.
+#  1. Detection names the 1.12 build (the fixed predicate; it printed False before).
+#  2. The subject: the verb spun the 10-part Kerbal X at 0.8 rad/s and turned SAS off.
+#  3-4. THE RECORDER SIDE: the go-on-rails capture stored the spin, a roll about vessel
+#     local +Y at exactly the applied rate, and the segment carries it.
+#  5-6. THE PLAYBACK SIDE: the replayed segment took the spin-forward branch.
+#  7-9. The record / loop verbs.
 required = [
-  "PersistentRotation mod detected: True",
-  "spinvessel applied: vessel=",
+  "PersistentRotation mod detected: True \\(matched=Persistent Rotation Upgraded\\)",
+  "spinvessel applied: vessel=.* rate=0\\.8000 axis=roll parts=10 sasWasOn=true",
+  "Spinning vessel detected \\(\\|angVel\\|=0\\.8000\\), recording angular velocity for spin-forward \\(vesselLocal=\\(-?0\\.0, 0\\.8, -?0\\.0\\), referenceLocal=\\(-?0\\.0, 0\\.8, -?0\\.0\\)\\)",
+  "Vessel went on rails .*angVel=\\(-?0\\.0, 0\\.8, -?0\\.0\\), persistentRotation=True",
+  "Orbit segment -?[0-9]+: spin-forward \\(\\|angVel\\|=0\\.8000\\)",
+  "rotationMode=spin-forward",
   "committree committed=true",
   "missionconfig applied:",
   "startloopplayback initiated:",
 ]
+# The recording's only orbit segment is the spinning one, so an orbital-frame replay of
+# it is the regression (it is exactly what the pre-fix build did).
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "spinvessel rejected",
+  "rotationMode=orbital-frame",
+  "Orbit segment -?[0-9]+: orbital-frame rotation",
 ]
 
-# REPORT-ONLY (no `gating`): the reading run measures the attitude population; the
-# windows are armed from its bytes.
+# ARMED 2026-09-26 from the reading `2026-09-26_1849`: 53 resolved AfterUpdate lines, all
+# `checkpoint-orbit-spin`, all dRotDeg=0.000, sweep 40.33 deg. AP-1's 0.05 deg residual
+# ceiling; line floors at about half, the sweep floor at 60 % of the measurement (an
+# orbital-frame hold makes ~0.06 deg in the same window). requireBalanced stays off: the
+# lane quits mid-playback.
 [expectations.ghostLifecycle]
+gating = true
 requireBalanced = false
-attitude = { maxRotDeg = 1.0, minSweepDeg = 30.0, resolvedLines = { min = 1 } }
+attitude = { maxRotDeg = 0.05, minSweepDeg = 24.0, resolvedLines = { min = 25 }, refs = { "checkpoint-orbit-spin" = { resolvedLines = { min = 25 }, minSweepDeg = 24.0 } } }
 
 [runtime]
 # 300 LoadGame + 180 StartRecording + 300 WarpToUT (650 s of rails warp at up to 50x)

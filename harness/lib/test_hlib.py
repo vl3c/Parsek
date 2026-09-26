@@ -9663,7 +9663,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
         # THE D17 PERSISTENT-ROTATION LANE, 2026-09-26.
-        "MC-5-persistent-rotation.toml": "tier=operator on the reading-run discipline, NOT debt: the D17 `persistent-rotation` host (the pinned PersistentRotationUpgraded on modded-compat, the SpinVessel verb, a loop replay of the spin-forward segment); its pre-registered readings are in the header and nothing gates until the reading run's bytes arm it. What is owed is the flight, which the lane itself is",
+        "MC-5-persistent-rotation.toml": "tier=operator on the calibration-discipline shape, NOT debt: the D17 `persistent-rotation` host (the pinned PersistentRotationUpgraded on modded-compat, the SpinVessel verb, a loop replay of the spin-forward segment). Reading `2026-09-26_1849`, armed re-flight `_1853` PASS attempt 1 with ghostLifecycle GATING, offline negative control red on every seeded fault; D17 claimed. Owed: only the ordinary promotion call (MC-3's nightly slot beside it)",
         # THE D17 MAKING-HISTORY LANE, 2026-09-25.
         "MC-4-making-history-desert.toml": "tier=operator BY THE REGISTRY'S OWN DEFINITION of the cell (D17 comment, operator ruling B5: a GS-4 clone, operator tier, one reading flight), NOT debt: it is a reading-run lane whose GREEN / INVALID readings are named in its header (a MechJeb ascent failure from the Desert is driver-INVALID). What is owed is the flight, which the lane itself is",
         # THE G3b RENDER-SURFACE LANE, 2026-09-07, same shape as H59 below.
@@ -12970,6 +12970,11 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     # ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
     # workflow.
     GHOSTLIFE_ARMED_SPECS = {
+        # ARMED 2026-09-26 off the reading run `2026-09-26_1849_MC-5-persistent-rotation`
+        # (PASS attempt 1): 53 AfterUpdate lines, all `checkpoint-orbit-spin`, dRotDeg=0.000,
+        # sweep 40.33 deg (0.8 rad/s over 0.88 s). Armed re-flight `_1853` PASS (60 lines,
+        # 45.83 deg); the offline negative control is in the spec header.
+        "MC-5-persistent-rotation.toml",
         # ARMED 2026-09-26 off the reading run `2026-09-25_2235_AP-1-minmus-attitude-residual`
         # (PASS attempt 1): 831 resolved AfterUpdate attitude lines, every one dRotDeg=0.000,
         # rendered sweep 157.3 deg (checkpoint-orbit-ofr) / 168.7 deg (surface). The first

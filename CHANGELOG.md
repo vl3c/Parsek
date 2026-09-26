@@ -4523,7 +4523,9 @@ _(unreleased — entries accumulate here per commit)_
   dependency SpaceTuxLibrary 0.0.9, both pinned via their CKAN-meta records (GT-8 closed).
   The automation-only `SpinVessel rate=<rad/s>` verb turns SAS off and spins the active
   vessel about its roll axis. `MC-5-persistent-rotation` records a spinning Kerbal X
-  through rails warp and loop-replays it.
+  through rails warp and loop-replays it. Both flights passed and the lane is armed on the
+  replayed ghost's attitude sweep. D17 `persistent-rotation` is claimed (coverage 245 of
+  247).
 
 - **Automated testing: a `WarpToUT` refused because time warp is locked now names who holds
   the lock.** The `warptout refused reason=warp-locked` log line gains a `holders=` field:
