@@ -5414,6 +5414,11 @@ reading flight).**
   docking lane could meet the same refusal incidentally; it would log `CommitSegmentCore`'s
   own Verbose "segment too short" rather than the Gloops Warn GL-2 gates, so the two are
   distinguishable in a log.
+  CORRECTED 2026-09-26: no guard on the call chain, but none of the four branches is
+  reachable in always-tree mode, because the pending state each reads is set only by the
+  legacy chain or not at all (evidence under
+  CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED). The Gloops
+  stop is in practice the only producer of the drop outside the split-edge aborts.
 - `points=` in the stop payload is the committed recording's `Points.Count` on a commit and
   the RECORDER COUNT BEFORE THE CALL on a drop. It is deliberately NOT "the number the < 2
   rule was applied to": `FinalizeRecordingState` can ADD a boundary sample at stop when the
@@ -6979,7 +6984,7 @@ penalty by the recording's end. Either changes the split / tombstone-guard seam
 convention (the guard must stay bit-identical to the retag), so it is filed rather than
 guessed.
 
-## CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED [FOUND 2026-09-23 while fixing OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT and by its review. OPEN, analysis only, not measured]
+## ~~CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED~~ [FOUND 2026-09-23 while fixing OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT and by its review. CLOSED 2026-09-26: UNREACHABLE in always-tree mode, no code change]
 
 `ChainSegmentManager.CommitSegmentCore` commits a segment, runs
 `RecordingStore.RunOptimizationPass()`, and only THEN files the segment's ledger rows via
@@ -6994,6 +6999,63 @@ has none. `MergeDialog`'s tree commit avoids both by committing the ledger per t
 the pass. Fix direction: resolve the surviving ids after the pass (as the tree commit
 does) before filing. Check first whether the standalone chain path is still reachable in
 always-tree mode.
+
+CLOSED WITHOUT A CODE CHANGE (2026-09-26): the ordering is real in code, but no current
+play reaches `CommitSegmentCore`, so no ledger row can be filed against a restructured id.
+Re-derived from the full caller set (grep of `CommitSegmentCore(` and the four public
+wrappers over `Source/Parsek`; line numbers at `origin/main` 958314016):
+
+- `ActiveChainId` is assigned non-null ONLY inside `CommitSegmentCore` itself
+  (`ChainSegmentManager.cs:688-690`), and `StartRecording` clears any chain state it finds
+  without a tree (`ParsekFlight.cs:13533-13546`) and wraps every non-continuation start in
+  a single-node tree (`:13591`). So the gates that need an existing chain are circular:
+  the chain boarding transition (`ParsekFlight.cs:12912`, behind `ActiveChainId != null`)
+  and `CommitVesselSwitchTermination` (`:11980`, same gate).
+- `CommitChainSegment` from `ParsekFlight.cs:1415` is behind
+  `chainManager.PendingContinuation`, which nothing ever sets true (every write is
+  `= false`: `ChainSegmentManager.cs:285`, `:790`, `ParsekFlight.cs:8624`, `:13455`).
+- `CommitBoundarySplit` (`ParsekFlight.cs:12944`): all three boundary handlers return
+  first on `ShouldSuppressBoundarySplit(activeTree)` (`:12959`, i.e. `activeTree != null`),
+  logging `... boundary suppressed in tree mode` (`:12980`, `:13014`, `:13066`).
+- `CommitDockUndockSegment`, all four branches of `HandleDockUndockCommitRestart`
+  (`ParsekFlight.cs:12794-12828`). This corrects the D1 sub-2-point census above, which
+  called the dock path live "with no always-tree guard": the guard is the STATE the
+  branches read, not a check on the chain. (a) Dock initiator reads
+  `recorder.DockMergePending`, set only by the legacy half of `OnPartCouple`
+  (`:11543`, `:11552`) and by the recorder's `DockMerge` decision, which requires the flag
+  already set (`FlightRecorder.cs:8911-8914`). The legacy half runs only when the tree half
+  (`ParsekFlight.cs:11314`, `activeTree != null && recorder != null`) did not return, and
+  the tree half returns on both recorder states the legacy half acts on (`:11405`,
+  `:11521`); the fall-through state (`!IsRecording && CaptureAtStop == null`) matches
+  neither legacy branch. (b) Dock target reads `pendingDockAsTarget`, which the tree half
+  also sets (`:11396`), but always together with `pendingTreeDockMerge`, and
+  `HandleTreeDockMerge` runs first in the same `Update` (`:1407` before `:1408`) on the
+  same recorder predicates and nulls `recorder` (`:12742`); every clear resets both flags
+  together (`:12542-12543`, `ClearDockUndockState` + `:12315`, `:12374`, `:12766`).
+  (c) Undock-stay reads `pendingUndockOtherPid`, which nothing ever sets non-zero
+  (declaration `:649`; writes only `= 0` at `:12563`, `:12683`). (d) Undock-switch needs
+  the recorder's `UndockSwitch` decision (`FlightRecorder.cs:8911`, `UndockSiblingPid != 0`),
+  and `UndockSiblingPid` is written only from `chainManager.UndockContinuationPid`
+  (`ParsekFlight.cs:12710`, `:12949`), which only `StartUndockContinuation`
+  (`ChainSegmentManager.cs:616`) sets, called only from branches (c) and (d)
+  (`ParsekFlight.cs:12819`, `:12842`): circular.
+- Every mid-scene site that nulls `activeTree` also nulls `recorder` (`ParsekFlight.cs:3025`,
+  `:3195`, `:3236`, `:3551`, `CommitTreeFlight` `:13996`); the other two run at
+  `OnFlightReady` on a fresh addon (`:12357`) or after a failed start with no capture
+  (`:13669`), so no live recorder outlives its tree to reach the legacy halves.
+- Census: 0 of the 756 `KSP.log`s under `../logs` (646 folders, every one verbose) carries
+  `CommitSegmentCore`, `Atmosphere auto-split triggered` or any of the three legacy
+  `onPartCouple:` dock lines, against positive controls of 136 logs with `boundary
+  suppressed in tree mode` and 22 with `onPartCouple (tree`.
+
+Mirror direction: `ChainSegmentManager.cs:714` -> `:727` is the only site that files
+`OnRecordingCommitted` after an optimization pass. `ParsekFlight.FallbackCommitSplitRecorder`
+(`:6948`) runs no pass, and the tree commits (`MergeDialog.Commit.cs:86` then
+`NotifyLedgerTreeCommitted`, and `CommitTreeFlight`, which runs no pass) file per tree
+after the pass. Whether the pass could merge or split the fresh segment was not settled,
+because nothing reaches it. If the legacy chain path is ever revived, fix the ordering as
+this entry's fix direction says; deleting the dead chain commit paths is a separate
+cleanup, not this defect.
 
 ## ~~TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT~~: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. RULED 2026-09-23 (a1 + the Recovered handoff). FIXED on branch `tombstone-reload`]
 
