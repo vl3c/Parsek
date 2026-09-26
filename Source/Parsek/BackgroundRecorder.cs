@@ -2553,6 +2553,21 @@ namespace Parsek
             pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
             railsSpanPartStates.Remove(vesselPid);
             finalizationCaches.Remove(vesselPid);
+
+            // A vessel leaving the background (promotion to the foreground recorder,
+            // merge, switch-segment consume) must not keep a debris TTL: CheckDebrisTTL
+            // would later report a TTL close for a recording it no longer owns.
+            // EndDebrisRecording removes the entry itself before calling here.
+            double cancelledExpiry;
+            if (debrisTTLExpiry.TryGetValue(vesselPid, out cancelledExpiry))
+            {
+                debrisTTLExpiry.Remove(vesselPid);
+                ParsekLog.Info("BgRecorder",
+                    "Debris TTL cancelled: pid=" + vesselPid +
+                    " expiryUT=" + cancelledExpiry.ToString("F1", CultureInfo.InvariantCulture) +
+                    " reason=removed-from-background");
+            }
+
             ParsekLog.Info("BgRecorder", $"Vessel removed from background: pid={vesselPid}");
         }
 

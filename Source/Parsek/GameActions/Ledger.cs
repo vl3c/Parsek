@@ -706,6 +706,10 @@ namespace Parsek
                 return false;
             }
 
+            // A crash between SaveToFile's temp write and its swap leaves '<path>.tmp' beside
+            // the previous ledger; the load reads the previous ledger, so the residue goes.
+            FileIOUtils.SweepStaleSafeWriteTemp(path, "Ledger");
+
             if (!File.Exists(path))
             {
                 ParsekLog.Verbose("Ledger", $"Ledger file not found at '{path}', starting with empty ledger");

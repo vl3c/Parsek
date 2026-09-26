@@ -760,7 +760,7 @@ namespace Parsek
             // to their defaults), so a full refresh ends with them all
             // cleared / defaulted; preserve-mode reapplies the snapshot.
             // Audit anchor: the [NonSerialized] flag set in Recording.cs is
-            // {FilesDirty, SidecarLoadFailed, SidecarLoadFailureReason,
+            // {FilesDirty, SidecarEpochAdvancePending, SidecarLoadFailed, SidecarLoadFailureReason,
             // ContinuationBoundaryIndex, PreContinuationVesselSnapshot,
             // PreContinuationGhostSnapshot, PreReFlyAnchor*}. Add to this
             // preserve-list when any new [NonSerialized] flag tracking
@@ -794,6 +794,8 @@ namespace Parsek
             loadedRec.SpawnSuppressedByRewindReason = sourceClone.SpawnSuppressedByRewindReason;
             loadedRec.SpawnSuppressedByRewindUT = sourceClone.SpawnSuppressedByRewindUT;
             loadedRec.SidecarEpoch = sourceClone.SidecarEpoch;
+            loadedRec.SidecarEpochAdvancePending =
+                loadedRec.SidecarEpochAdvancePending || sourceClone.SidecarEpochAdvancePending;
             RecordingStore.ClearSidecarLoadFailure(loadedRec);
             // Mark dirty so the next OnSave rewrites the .sfs with the refreshed
             // shape + advances the .prec sidecar epoch in lockstep (same
@@ -993,6 +995,7 @@ namespace Parsek
             target.SpawnSuppressedByRewindUT = sourceClone.SpawnSuppressedByRewindUT;
             target.FilesDirty = false;
             target.SidecarEpoch = sourceClone.SidecarEpoch;
+            target.SidecarEpochAdvancePending = sourceClone.SidecarEpochAdvancePending;
             RecordingStore.ClearSidecarLoadFailure(target);
 
             target.RecordingId = recordingId;

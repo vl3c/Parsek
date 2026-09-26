@@ -7813,6 +7813,149 @@ class ExpectedFailSignatureMatchTests(unittest.TestCase):
         self.assertTrue(v.ok, "a known PARSEK-FAIL subkind must validate; errors=%s" % (v.errors,))
 
 
+class ExpectedFailMismatchSignatureTests(unittest.TestCase):
+    """Guards EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an optional `[expectedFail]
+    mismatches = [...]` narrows a subkind quarantine to ONE defect. A run demotes
+    only when the failing verifier's mismatch set EQUALS the declared set; an extra
+    red (an unrelated break in the same spec) or a missing declared token (the
+    defect changed shape) stays PARSEK-FAIL. Key absent = the subkind-only match,
+    unchanged."""
+
+    MISS_A = hlib.EXPECTATION_REQUIRED_MISS_PREFIX + "Ghost held pending spawn retry"
+    HIT_B = hlib.EXPECTATION_FORBIDDEN_HIT_PREFIX + "destroyed \\(stale-past-end\\)"
+    OTHER = hlib.EXPECTATION_REQUIRED_MISS_PREFIX + "BATCH_COMPLETE v1"
+
+    def _match(self, observed, declared, base_subkind="expectation",
+               ef_subkind="expectation", verdict="PARSEK-FAIL"):
+        return hlib.expected_fail_signature_matched(
+            verdict, base_subkind, ef_subkind, declared, observed)
+
+    def test_exact_match_demotes_to_expected_fail(self):
+        declared = [self.MISS_A, self.HIT_B]
+        self.assertTrue(self._match([self.HIT_B, self.MISS_A], declared))
+        base = hlib.Verdict(hlib.VERDICT_PARSEK_FAIL, "expectation", False, "x")
+        overlaid = hlib.classify_expected_fail(
+            base, "EX-BUG", self._match([self.MISS_A, self.HIT_B], declared))
+        self.assertEqual(hlib.VERDICT_EXPECTED_FAIL, overlaid.verdict)
+
+    def test_an_extra_mismatch_stays_parsek_fail(self):
+        matched = self._match([self.MISS_A, self.HIT_B, self.OTHER],
+                              [self.MISS_A, self.HIT_B])
+        self.assertFalse(matched)
+        base = hlib.Verdict(hlib.VERDICT_PARSEK_FAIL, "expectation", False, "x")
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL,
+                         hlib.classify_expected_fail(base, "EX-BUG", matched).verdict)
+
+    def test_a_missing_declared_mismatch_stays_parsek_fail(self):
+        # Equality, not subset: half the defect reproducing is a changed shape.
+        self.assertFalse(self._match([self.MISS_A], [self.MISS_A, self.HIT_B]))
+
+    def test_key_absent_is_the_unchanged_subkind_match(self):
+        # The pre-fix behaviour, kept: any expectation red demotes, including OTHER.
+        self.assertTrue(self._match([self.MISS_A, self.OTHER], None))
+        self.assertTrue(hlib.expected_fail_signature_matched(
+            "PARSEK-FAIL", "expectation", "expectation"))
+        self.assertFalse(self._match([self.MISS_A], None, base_subkind="log-contract"))
+
+    def test_fails_closed(self):
+        declared = [self.MISS_A]
+        # A different subkind never matches a signature.
+        self.assertFalse(self._match([self.MISS_A], declared, base_subkind="log-contract"))
+        # No observed list (the row was absent) never matches.
+        self.assertFalse(self._match(None, declared))
+        # A signature without a subkind, or on a subkind with no token list.
+        self.assertFalse(self._match([self.MISS_A], declared, ef_subkind=""))
+        self.assertFalse(self._match([self.MISS_A], declared, base_subkind="analyzer",
+                                     ef_subkind="analyzer"))
+        # Only a PARSEK-FAIL matches.
+        self.assertFalse(self._match([self.MISS_A], declared, verdict="PASS"))
+
+    def test_observed_mismatches_read_from_the_expectations_row(self):
+        detail = {"expectations": {"status": "FAIL", "mismatches": [self.MISS_A]},
+                  "logValidate": {"status": "FAIL"}}
+        self.assertEqual([self.MISS_A],
+                         hlib.expected_fail_observed_mismatches("expectation", detail))
+        self.assertIsNone(hlib.expected_fail_observed_mismatches("log-contract", detail))
+        self.assertIsNone(hlib.expected_fail_observed_mismatches("expectation", {}))
+        self.assertIsNone(hlib.expected_fail_observed_mismatches("expectation", None))
+
+    def test_evaluate_expectations_emits_the_prefixed_shapes(self):
+        # The signature strings are copied from results JSON, so the evaluator and
+        # the validator must agree on one spelling (the shared prefix constants).
+        exp = {"recordings": {"count": {"min": 2}},
+               "logContracts": {"required": ["never-written"], "forbidden": ["hit-me"]}}
+        r = hlib.evaluate_expectations(exp, 1, "hit-me\n")
+        self.assertEqual(
+            {hlib.EXPECTATION_COUNT_PREFIX + "1 < min 2",
+             hlib.EXPECTATION_REQUIRED_MISS_PREFIX + "never-written",
+             hlib.EXPECTATION_FORBIDDEN_HIT_PREFIX + "hit-me"},
+            set(r.mismatches))
+
+    # --- spec validation -------------------------------------------------------
+
+    def _spec(self, mismatches, subkind="expectation", bug_id="EX-BUG"):
+        spec = load_spec("B10-career-passive-safety.toml")
+        spec["expectedFail"] = {"bugId": bug_id, "subkind": subkind,
+                                "mismatches": mismatches}
+        return spec
+
+    def _errors(self, spec):
+        return hlib.validate_spec(spec, load_registry(), bug_ids=["EX-BUG"]).errors
+
+    def test_a_well_formed_signature_validates(self):
+        spec = load_spec("B10-career-passive-safety.toml")
+        req = spec["expectations"]["logContracts"]["required"][0]
+        forb = spec["expectations"]["logContracts"]["forbidden"][0]
+        spec["expectedFail"] = {"bugId": "EX-BUG", "subkind": "expectation", "mismatches": [
+            hlib.EXPECTATION_REQUIRED_MISS_PREFIX + req,
+            hlib.EXPECTATION_FORBIDDEN_HIT_PREFIX + forb,
+            hlib.EXPECTATION_COUNT_PREFIX + "0 < min 1"]}
+        v = hlib.validate_spec(spec, load_registry(), bug_ids=["EX-BUG"])
+        self.assertTrue(v.ok, v.errors)
+
+    def test_malformed_signatures_are_validation_errors(self):
+        spec = load_spec("B10-career-passive-safety.toml")
+        req = hlib.EXPECTATION_REQUIRED_MISS_PREFIX + \
+            spec["expectations"]["logContracts"]["required"][0]
+        cases = {
+            "not-a-list": ("just a string", "expectation", "EX-BUG"),
+            "empty-list": ([], "expectation", "EX-BUG"),
+            "non-string-entry": ([req, 3], "expectation", "EX-BUG"),
+            "blank-entry": ([req, "  "], "expectation", "EX-BUG"),
+            "duplicate": ([req, req], "expectation", "EX-BUG"),
+            "no-bug-id": ([req], "expectation", ""),
+            "no-subkind": ([req], "", "EX-BUG"),
+            "tokenless-subkind": ([req], "analyzer", "EX-BUG"),
+            "unknown-shape": (["something else entirely"], "expectation", "EX-BUG"),
+            "undeclared-required": (
+                [hlib.EXPECTATION_REQUIRED_MISS_PREFIX + "not in this spec"],
+                "expectation", "EX-BUG"),
+            "undeclared-forbidden": (
+                [hlib.EXPECTATION_FORBIDDEN_HIT_PREFIX + "not in this spec"],
+                "expectation", "EX-BUG"),
+        }
+        for name, (sigs, subkind, bug) in cases.items():
+            with self.subTest(case=name):
+                errors = self._errors(self._spec(sigs, subkind, bug))
+                self.assertTrue(any("expectedFail.mismatches" in e for e in errors),
+                                "%s: %s" % (name, errors))
+
+    def test_an_unknown_expected_fail_key_is_a_validation_error(self):
+        # A misspelled narrowing key would read as absent = the WIDER match.
+        spec = load_spec("B10-career-passive-safety.toml")
+        spec["expectedFail"] = {"bugId": "EX-BUG", "subkind": "expectation",
+                                "mismatch": ["x"]}
+        errors = self._errors(spec)
+        self.assertTrue(any("expectedFail: unknown key" in e and "mismatch" in e
+                            for e in errors), errors)
+
+    def test_key_absent_validates_unchanged(self):
+        spec = load_spec("B10-career-passive-safety.toml")
+        spec["expectedFail"] = {"bugId": "EX-BUG", "subkind": "expectation"}
+        v = hlib.validate_spec(spec, load_registry(), bug_ids=["EX-BUG"])
+        self.assertTrue(v.ok, v.errors)
+
+
 class ResolveTerminalTests(unittest.TestCase):
     """Guards: a flaked-then-passed pair must terminate PASS with the note (no
     FLAKE verdict), while its attempt-1 INVALID stays visible for the ledger."""

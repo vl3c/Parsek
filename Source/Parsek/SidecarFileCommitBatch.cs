@@ -44,7 +44,7 @@ namespace Parsek
             catch (Exception ex) when (!(ex is FileIOUtils.SafeWriteInjectedCrashException))
             {
                 DeleteTransientArtifact(stagedPath);
-                DeleteTransientArtifact(stagedPath + ".tmp");
+                DeleteTransientArtifact(stagedPath + FileIOUtils.SafeWriteTempSuffix);
                 throw;
             }
 
@@ -191,7 +191,7 @@ namespace Parsek
                     RecordCleanupFailure(
                         failures,
                         DeleteTransientArtifact(
-                            string.IsNullOrEmpty(stagedPath) ? null : stagedPath + ".tmp"));
+                            string.IsNullOrEmpty(stagedPath) ? null : stagedPath + FileIOUtils.SafeWriteTempSuffix));
                 }
             }
 

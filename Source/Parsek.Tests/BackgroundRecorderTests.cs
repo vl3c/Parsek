@@ -642,6 +642,73 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OnVesselRemovedFromBackground_CancelsDebrisTTL_AndLogsIt()
+        {
+            // D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: a booster promoted to the foreground
+            // recorder kept its debris TTL, so CheckDebrisTTL later printed a TTL close
+            // for a recording the background recorder no longer owned.
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var tree = MakeTree((100, "rec_bg1"), (200, "rec_bg2"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectDebrisTTLForTesting(100u, 125.4);
+            bgRecorder.InjectDebrisTTLForTesting(200u, 160.0);
+
+            bgRecorder.OnVesselRemovedFromBackground(100);
+
+            Assert.True(double.IsNaN(bgRecorder.GetDebrisTTLExpiryForTesting(100u)));
+            Assert.Equal(160.0, bgRecorder.GetDebrisTTLExpiryForTesting(200u));
+            Assert.Equal(1, bgRecorder.DebrisTTLCount);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][BgRecorder]")
+                && l.Contains("Debris TTL cancelled: pid=100 expiryUT=125.4 reason=removed-from-background"));
+
+            // Past the removed vessel's expiry: no TTL close is reported for it.
+            logLines.Clear();
+            bgRecorder.CheckDebrisTTL(130.0);
+            Assert.DoesNotContain(logLines, l => l.Contains("vesselPid=100"));
+        }
+
+        [Fact]
+        public void OnVesselRemovedFromBackground_WithoutDebrisTTL_LogsNoCancellation()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            bgRecorder.OnVesselRemovedFromBackground(100);
+
+            Assert.Equal(0, bgRecorder.DebrisTTLCount);
+            Assert.DoesNotContain(logLines, l => l.Contains("Debris TTL cancelled"));
+            Assert.Contains(logLines, l => l.Contains("Vessel removed from background: pid=100"));
+        }
+
+        [Fact]
+        public void CheckDebrisTTL_EndDebrisRecording_DoesNotLogCancellation()
+        {
+            // EndDebrisRecording removes the TTL entry before it routes through
+            // OnVesselRemovedFromBackground, so a real TTL close is not also a cancel.
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.InjectDebrisTTLForTesting(100u, 120.0);
+
+            bgRecorder.CheckDebrisTTL(130.0);
+
+            Assert.Equal(0, bgRecorder.DebrisTTLCount);
+            Assert.False(tree.BackgroundMap.ContainsKey(100u));
+            Assert.DoesNotContain(logLines, l => l.Contains("Debris TTL cancelled"));
+        }
+
+        [Fact]
         public void ForgetFinalizationCache_RemovesDeferredDestructionCache()
         {
             var tree = MakeTree((100, "rec_bg1"));

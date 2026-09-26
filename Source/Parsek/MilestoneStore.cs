@@ -358,6 +358,7 @@ namespace Parsek
 
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildMilestonesRelativePath());
+            FileIOUtils.SweepStaleSafeWriteTemp(path, "MilestoneStore");
             if (path == null || !File.Exists(path))
             {
                 ParsekLog.Info("MilestoneStore", "No milestones file found — starting fresh");

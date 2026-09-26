@@ -149,7 +149,7 @@ namespace Parsek
             for (int i = 0; i < RecordingFileSuffixes.Length; i++)
             {
                 string suffix = RecordingFileSuffixes[i];
-                if (fileName.EndsWith(suffix + ".tmp", StringComparison.OrdinalIgnoreCase)
+                if (fileName.EndsWith(suffix + FileIOUtils.SafeWriteTempSuffix, StringComparison.OrdinalIgnoreCase)
                     || fileName.IndexOf(suffix + ".stage.", StringComparison.OrdinalIgnoreCase) >= 0
                     || fileName.IndexOf(suffix + ".bak.", StringComparison.OrdinalIgnoreCase) >= 0)
                 {

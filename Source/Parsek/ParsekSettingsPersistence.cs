@@ -114,6 +114,7 @@ namespace Parsek
             loaded = true;
 
             string path = GetFilePath();
+            FileIOUtils.SweepStaleSafeWriteTemp(path, Tag);
             if (!File.Exists(path))
             {
                 ParsekLog.Verbose(Tag, $"No settings file at '{path}' — using defaults");

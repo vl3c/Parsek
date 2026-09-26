@@ -1248,6 +1248,10 @@ namespace Parsek
                 }
 
                 rec.FilesDirty = false;
+                // An epoch-advancing write satisfies a pending advance left by an
+                // out-of-band flush; a non-advancing write leaves it for the next OnSave.
+                if (incrementEpoch)
+                    rec.SidecarEpochAdvancePending = false;
                 return true;
             }
             catch (Exception ex)
