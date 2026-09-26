@@ -327,7 +327,7 @@ ControllerInfo
   partPersistentId: uint
 ```
 
-**AntennaSpec** - in-memory antenna data for a ghost CommNet node, derived from the vessel snapshot and the part prefabs and never serialized (KSP does not persist antenna power in a snapshot). See section 15.6.
+**GhostAntennaSpec** (`GhostCommNet.cs`) - in-memory antenna data for a ghost CommNet node, derived from the vessel snapshot and the part prefabs and never serialized (KSP does not persist antenna power in a snapshot). See section 15.6.
 
 ### 4.4 The Segment Boundary Rule
 
@@ -1477,7 +1477,7 @@ Ghosts represent vessels that exist in the world pending chain resolution. They 
 
 **Unloaded ghosts (outside physics bubble):** No Unity object. A CommNet node at the orbital-propagated position, plus a tracking station entry and map view marker. This is the minimum representation for a ghost that is far from the player but still participates in the communication network.
 
-**Implementation: ProtoVessel-based map presence.** Each ghost chain with orbital data gets a lightweight ProtoVessel (single `sensorBarometer` part, `DiscoveryLevels.Owned`). This provides automatic tracking station entries, orbit lines via `OrbitRenderer`, map icons via `MapObject`, and `ITargetable` navigation targeting — all from a single `ProtoVessel.Load()` call. Ghost ProtoVessels are prevented from entering physics simulation via a Harmony prefix on `Vessel.GoOffRails`. They are stripped from saves in `ParsekScenario.OnSave` and reconstructed from recording data on load. A `CommNetVessel.OnStart` patch suppresses the duplicate CommNet node (GhostCommNetRelay handles CommNet separately). Tracking station Fly/Delete/Recover actions are blocked via Harmony patches on `SpaceTracking` methods. All `FlightGlobals.Vessels` iteration sites and vessel GameEvent handlers in Parsek have `GhostMapPresence.IsGhostMapVessel(pid)` guards (27 sites across 9 files). Full design in `docs/dev/done/research/ghost-map-presence-design.md`.
+**Implementation: ProtoVessel-based map presence.** Each ghost chain with orbital data gets a lightweight ProtoVessel (single `sensorBarometer` part, `DiscoveryLevels.Owned`). This provides automatic tracking station entries, orbit lines via `OrbitRenderer`, map icons via `MapObject`, and `ITargetable` navigation targeting — all from a single `ProtoVessel.Load()` call. Ghost ProtoVessels are prevented from entering physics simulation via a Harmony prefix on `Vessel.GoOffRails`. They are stripped from saves in `ParsekScenario.OnSave` and reconstructed from recording data on load. A `CommNetVessel.OnStart` patch suppresses the duplicate CommNet node (the ghost's CommNet node is `GhostCommNetManager`'s, section 15.6). Tracking station Fly/Delete/Recover actions are blocked via Harmony patches on `SpaceTracking` methods. All `FlightGlobals.Vessels` iteration sites and vessel GameEvent handlers in Parsek have `GhostMapPresence.IsGhostMapVessel(pid)` guards (27 sites across 9 files). Full design in `docs/dev/done/research/ghost-map-presence-design.md`.
 
 **Ghosts are invisible to the recording system.** Ghost mesh GameObjects are raw Unity objects (not KSP Vessels). Ghost map ProtoVessels ARE in `FlightGlobals.Vessels`, but every recording system path has an `IsGhostMapVessel` guard that excludes them. The background recorder, flight recorder, spawn collision detector, and all vessel event handlers skip ghost ProtoVessels. If a ghost flies through the physics bubble during an active recording session, the recorder does not see it.
 
@@ -1772,7 +1772,7 @@ The ghost chain system, spawn safety, time jump, and ghost world presence are im
 | 6e — Relative-State Time Jump | Discrete UT skip, TIME_JUMP event | Done (27 tests) |
 | 6f — Ghost World Presence | Map view, tracking station, CommNet relay (stock API), antenna specs | Done (47 tests); CommNet relay: see 15.6 |
 
-New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, VesselGhoster, SpawnCollisionDetector, GhostExtender, TerrainCorrector, SpawnWarningUI, TimeJumpManager, GhostMapPresence, GhostCommNetRelay, AntennaSpec. The recording schema is a single clean-slate contract (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`), not an additive versioned format.
+New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, VesselGhoster, SpawnCollisionDetector, GhostExtender, TerrainCorrector, SpawnWarningUI, TimeJumpManager, GhostMapPresence, and (rebuilt 2026-09-26 per section 15.6) GhostCommNet + GhostCommNetManager in place of the never-wired GhostCommNetRelay / AntennaSpec. The recording schema is a single clean-slate contract (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`), not an additive versioned format.
 
 ### 21.3 Deferred Items
 

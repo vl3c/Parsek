@@ -1070,6 +1070,10 @@ namespace Parsek
         private readonly List<RecordingAnchorCandidate> cachedGhostRecordingAnchorCandidates =
             new List<RecordingAnchorCandidate>();
         private TrajectoryPlaybackFlags[] cachedFlags;
+        // Per-committed-index relay window inputs, filled by ComputePlaybackFlags.
+        private GhostCommNetEligibilityInput[] ghostCommNetInputs = new GhostCommNetEligibilityInput[0];
+        private readonly List<GhostCommNetCandidate> ghostCommNetCandidates = new List<GhostCommNetCandidate>();
+        private GhostCommNetManager ghostCommNet;
         private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
         private readonly Dictionary<string, int> reFlyAnchorHoldStartFrameByAnchor =
             new Dictionary<string, int>(StringComparer.Ordinal);
@@ -2191,6 +2195,12 @@ namespace Parsek
 
             UnregisterGameEvents();
             packStates.Clear();
+
+            if (ghostCommNet != null)
+            {
+                ghostCommNet.Shutdown("ParsekFlight destroyed");
+                ghostCommNet = null;
+            }
 
             // Restore debris persistence if still overridden
             RestoreDebrisPersistence();
@@ -19130,6 +19140,8 @@ namespace Parsek
             ReFlySessionMarker activeReFlyMarker)
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
+            if (ghostCommNetInputs == null || ghostCommNetInputs.Length != committed.Count)
+                ghostCommNetInputs = new GhostCommNetEligibilityInput[committed.Count];
             int frame = FlightRecorder.GetFrameCount();
             reFlyAnchorHoldCountsThisFrame.Clear();
             reFlyAnchorHoldReasonsThisFrame.Clear();
@@ -19287,6 +19299,32 @@ namespace Parsek
                     spawnSuppressedCount++;
                 }
 
+                bool isMidChain = RecordingStore.IsChainMidSegment(rec);
+                double chainEndUT = RecordingStore.GetChainEndUT(rec);
+                // Ghost CommNet relay window inputs (design 15.6): the same gates as the
+                // ghost, minus the display-only playback toggle, plus the real-run scope
+                // gate (the spawn variant, so a loop member's first run is gated too).
+                ghostCommNetInputs[i] = new GhostCommNetEligibilityInput
+                {
+                    HasRecordingId = !string.IsNullOrEmpty(rec.RecordingId),
+                    IsDebris = rec.IsDebris,
+                    HasRenderableData = hasData,
+                    SupersededByRelation = supersededByRelation,
+                    RewindRetired = rewindRetired,
+                    SessionSuppressed = activeReFlyMarker != null
+                        && SessionSuppressionState.IsSuppressedRecordingIndex(i),
+                    ExternalVesselSuppressed = externalVesselSuppressed,
+                    HistoricalNeverReplayed = spawnHistoricalNeverReplayed,
+                    ActivationStartUT = activationStartUT,
+                    EndUT = rec.EndUT,
+                    NeedsSpawn = finalNeedsSpawn,
+                    VesselSpawned = rec.VesselSpawned,
+                    SpawnAbandoned = rec.SpawnAbandoned,
+                    CannotSpawnSafely = rec.TerminalSpawnCannotSpawnSafely,
+                    IsMidChain = isMidChain,
+                    ChainEndUT = chainEndUT,
+                };
+
                 flags[i] = new TrajectoryPlaybackFlags
                 {
                     skipGhost = skipReason != GhostPlaybackSkipReason.None,
@@ -19303,8 +19341,8 @@ namespace Parsek
                             externalVesselSuppressed,
                             supersededByRelation,
                             rewindRetired),
-                    isMidChain = RecordingStore.IsChainMidSegment(rec),
-                    chainEndUT = RecordingStore.GetChainEndUT(rec),
+                    isMidChain = isMidChain,
+                    chainEndUT = chainEndUT,
                     needsSpawn = finalNeedsSpawn,
                     isActiveChainMember = isActiveChain,
                     isChainLooping = chainLooping,
@@ -19417,7 +19455,12 @@ namespace Parsek
             // Flush deferred spawns from warp (policy owns the queue)
             policy.FlushDeferredSpawns();
 
-            if (committed.Count == 0) return;
+            if (committed.Count == 0)
+            {
+                // Removes any ghost CommNet node left over from a deleted recording.
+                DriveGhostCommNet(committed, currentUT);
+                return;
+            }
 
             // Snapshot the active re-fly marker once per frame so the per-recording
             // suppression bit (computed inside ComputePlaybackFlags) and the FrameContext
@@ -19521,6 +19564,11 @@ namespace Parsek
             // indirection — same method, same arg, same slot, same surrounding guard/try-catch.
             mapViewScene.DriveMapPresence(Planetarium.GetUniversalTime());
 
+            // Ghost CommNet relay / control-point nodes (design 15.6). After the spawn
+            // passes above, so a vessel spawned this frame hands its node over to the
+            // real vessel's stock node in the same frame.
+            DriveGhostCommNet(committed, currentUT);
+
             // Phase 4 decision-only shadow: run the new map-render pipeline (chain -> sample -> intent)
             // over the live map ghosts and reconcile each intent against the OLD path's rendered truth
             // via MapRenderProbe. Writes NOTHING to the stock surfaces. Gated on ShadowRenderDriver.Enabled
@@ -19554,6 +19602,126 @@ namespace Parsek
             // Watch-mode ghost validity check
             watchMode.ValidateWatchedGhostStillActive();
         }
+
+        /// <summary>
+        /// Feeds every committed recording's relay-window verdict (and every chain-ghosted real
+        /// vessel) to the ghost CommNet manager (design 15.6). Runs each frame after the spawn
+        /// passes; the verdict inputs come from <see cref="ComputePlaybackFlags"/>.
+        /// </summary>
+        private void DriveGhostCommNet(IReadOnlyList<Recording> committed, double currentUT)
+        {
+            try
+            {
+                if (ghostCommNet == null)
+                    ghostCommNet = new GhostCommNetManager("FLIGHT", TryResolveGhostCommNetRecordingPosition);
+
+                ghostCommNetCandidates.Clear();
+                int count = committed != null ? committed.Count : 0;
+                bool inputsAligned = ghostCommNetInputs != null && ghostCommNetInputs.Length == count;
+                var scenario = ParsekScenario.Instance;
+                for (int i = 0; inputsAligned && i < count; i++)
+                {
+                    Recording rec = committed[i];
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                        continue;
+                    GhostCommNetEligibilityInput input = ghostCommNetInputs[i];
+                    // The chain successor only matters for a mid-chain segment past its end.
+                    if (input.IsMidChain && currentUT > input.EndUT)
+                    {
+                        int next = GhostPlaybackLogic.ResolveChainNextSlotIndex(
+                            i, committed,
+                            object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+                        input.ChainSuccessorStarted = next >= 0
+                            && currentUT >= GhostPlaybackEngine.ResolveGhostActivationStartUT(committed[next]);
+                    }
+                    ghostCommNetCandidates.Add(new GhostCommNetCandidate
+                    {
+                        Key = rec.RecordingId,
+                        RecordingId = rec.RecordingId,
+                        RecordingIndex = i,
+                        Recording = rec,
+                        VesselName = rec.VesselName,
+                        VesselPid = rec.VesselPersistentId,
+                        LaunchGuid = rec.RecordedVesselGuid,
+                        Eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT),
+                        WindowStartUT = input.ActivationStartUT,
+                        EndUT = input.EndUT,
+                    });
+                }
+
+                // Chain-ghosted real vessels: before the first claim the despawned vessel sits
+                // on rails, so it relays from its despawn snapshot. From the claim on, the
+                // committed recordings that carry it relay instead.
+                if (activeGhostChains != null && vesselGhoster != null)
+                {
+                    foreach (var kv in activeGhostChains)
+                    {
+                        GhostChain chain = kv.Value;
+                        if (chain == null) continue;
+                        var info = vesselGhoster.GetGhostedInfo(chain.OriginalVesselPid);
+                        if (info == null || info.snapshot == null) continue;
+                        bool preClaim = currentUT < chain.GhostStartUT;
+                        ghostCommNetCandidates.Add(new GhostCommNetCandidate
+                        {
+                            Key = GhostCommNetMath.ChainKey(chain.OriginalVesselPid),
+                            RecordingIndex = -1,
+                            ChainSnapshot = info.snapshot,
+                            VesselName = info.vesselName,
+                            VesselPid = chain.OriginalVesselPid,
+                            LaunchGuid = chain.LaunchGuid,
+                            Eligibility = new GhostCommNetEligibility
+                            {
+                                Eligible = preClaim,
+                                Reason = preClaim ? "chain-pre-claim" : "chain-claimed",
+                            },
+                            WindowStartUT = double.NegativeInfinity,
+                            EndUT = chain.GhostStartUT,
+                        });
+                    }
+                }
+
+                ghostCommNet.Tick(ghostCommNetCandidates, currentUT);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(GhostCommNetMath.Tag, "flight-drive-exception",
+                    "DriveGhostCommNet threw (suppressed): " + ex.GetType().Name + ": " + ex.Message, 10.0);
+            }
+        }
+
+        /// <summary>
+        /// Mesh-independent world position of a committed recording at a UT, for its ghost
+        /// CommNet node. The index hint is verified against the recording id because the
+        /// committed list can shift between the host tick and the CommNet rebuild.
+        /// </summary>
+        internal bool TryResolveGhostCommNetRecordingPosition(
+            string recordingId, int indexHint, double ut, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || string.IsNullOrEmpty(recordingId))
+                return false;
+            int index = indexHint;
+            if (index < 0 || index >= committed.Count || committed[index] == null
+                || committed[index].RecordingId != recordingId)
+            {
+                index = -1;
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    if (committed[i] != null && committed[i].RecordingId == recordingId)
+                    {
+                        index = i;
+                        break;
+                    }
+                }
+                if (index < 0)
+                    return false;
+            }
+            return TryResolvePlaybackWorldPosition(index, committed[index], null, ut, out worldPos);
+        }
+
+        /// <summary>The flight scene's ghost CommNet manager (in-game tests); null before the first tick.</summary>
+        internal GhostCommNetManager GhostCommNet => ghostCommNet;
 
         // Replaces each re-aim loop unit member's heliocentric leg in cachedTrajectories with the
         // per-window re-aimed transfer (Phase 3c). Runs after DriveMissionLoopUnits (so cachedLoopUnits

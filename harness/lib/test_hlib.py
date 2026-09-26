@@ -3969,7 +3969,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H25-serialization":         ("Serialization", 4, "FLIGHT"),
         "H26-log-contracts":         ("LogContracts", 10, "FLIGHT"),
         "H27-diagnostics":           ("Diagnostics", 6, "FLIGHT"),
-        "H28-map-presence":          ("MapPresence", 5, "FLIGHT"),
+        "H28-map-presence":          ("MapPresence", 4, "FLIGHT"),
         "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
         "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
@@ -4039,7 +4039,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # counts belong here.
     RUNTIME_SKIPS = {
         "H26-log-contracts": 1,
-        # H28: three, all MEASURED on run 2026-08-05_1855 and all three the
+        # H28: two, MEASURED on run 2026-08-05_1855 (three then) and both
         # W2-VACUOUS-CELLS conversions for this category (they used to bail
         # through a silent `return` and report PASSED, which is why the old
         # passed=5 pin was green).
@@ -4051,10 +4051,11 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         #     measured run says otherwise - the set is empty for the whole
         #     driven batch WITH the corpus injected, so it is a fixture property
         #     of the driven FLIGHT batch, not a missing injection.
-        #   * AntennaSpecsProduceRelayPower skips because no recording among the
-        #     306 committed carries AntennaSpecs - no generator sets the field
-        #     at all, so this one is corpus-INDEPENDENT.
-        "H28-map-presence": 3,
+        #   The third measured skip, AntennaSpecsProduceRelayPower, was DELETED
+        #     2026-09-26 with the dead Recording.AntennaSpecs field it walked; the
+        #     ghost CommNet relay has its own category (GhostCommNet). Derived,
+        #     not re-measured: removing a cell that skipped moves skipped 3 -> 2.
+        "H28-map-presence": 2,
         # H31: three, MEASURED on run 2026-08-05_1857, on top of an attribute
         # floor of 1 (the SPACECENTER-scoped CrewAutoAssignPatch cell scene-skips
         # at FLIGHT) for a pinned skipped=4. ReplacementsAreValid,

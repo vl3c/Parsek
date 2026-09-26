@@ -42,6 +42,14 @@ namespace Parsek
         private const float MaterializedFocusRetryDurationSec = 20.0f;
         private const float MaterializedFocusRetryIntervalSec = 0.1f;
         private float nextLifecycleCheckTime;
+
+        // Ghost CommNet relay / control-point nodes (design 15.6). Registration runs at the
+        // lifecycle cadence; the node's own CommNet pre-update hook keeps position and powers
+        // exact on every rebuild in between.
+        private GhostCommNetManager ghostCommNet;
+        private readonly List<GhostCommNetCandidate> ghostCommNetCandidates = new List<GhostCommNetCandidate>();
+        private readonly Dictionary<string, KeyValuePair<OrbitSegment, Orbit>> ghostCommNetOrbitCache =
+            new Dictionary<string, KeyValuePair<OrbitSegment, Orbit>>(System.StringComparer.Ordinal);
         private PopupDialog currentGhostPopup;
         private string currentGhostPopupKey;
         private int ghostPopupOpenFrame;
@@ -312,7 +320,205 @@ namespace Parsek
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
 
             GhostMapPresence.UpdateTrackingStationGhostLifecycle(cachedLoopUnits);
+            DriveGhostCommNet();
         }
+
+        /// <summary>
+        /// Feeds every committed recording's relay-window verdict to the ghost CommNet
+        /// manager. Same gates as flight: timeline-inactive, re-fly session, real vessel
+        /// present, historical scope (spawn variant), window, spawn hold. There are no chain
+        /// ghosts in the Tracking Station.
+        /// </summary>
+        private void DriveGhostCommNet()
+        {
+            try
+            {
+                if (ghostCommNet == null)
+                    ghostCommNet = new GhostCommNetManager("TRACKSTATION", TryResolveGhostCommNetRecordingPosition);
+
+                var committed = RecordingStore.CommittedRecordings;
+                double currentUT = Planetarium.GetUniversalTime();
+                ghostCommNetCandidates.Clear();
+                int count = committed != null ? committed.Count : 0;
+                var scenario = ParsekScenario.Instance;
+                IReadOnlyDictionary<string, TimelineInactiveReason> inactive = count > 0
+                    ? EffectiveState.ComputeTimelineInactiveRecordingIds(
+                        committed,
+                        object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes,
+                        object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements)
+                    : null;
+                bool reFlyActive = SessionSuppressionState.ActiveMarker != null;
+                Dictionary<uint, GhostChain> chains = null;
+                for (int i = 0; i < count; i++)
+                {
+                    Recording rec = committed[i];
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                        continue;
+                    var input = new GhostCommNetEligibilityInput
+                    {
+                        HasRecordingId = true,
+                        IsDebris = rec.IsDebris,
+                    };
+                    if (!rec.IsDebris)
+                    {
+                        TimelineInactiveReason reason = TimelineInactiveReason.None;
+                        if (inactive != null) inactive.TryGetValue(rec.RecordingId, out reason);
+                        double activationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
+                        bool loopingLike = rec.LoopPlayback || cachedLoopUnits.IsMember(i);
+                        input.HasRenderableData = GhostPlaybackEngine.HasRenderableGhostData(rec);
+                        input.SupersededByRelation = reason == TimelineInactiveReason.SupersededByRelation;
+                        input.RewindRetired = reason == TimelineInactiveReason.RewindRetired;
+                        input.SessionSuppressed = reFlyActive
+                            && SessionSuppressionState.IsSuppressedRecordingIndex(i);
+                        input.ExternalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(rec, false);
+                        input.HistoricalNeverReplayed = GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
+                            loopingLike,
+                            reFlyActive,
+                            PlaybackScopeTracker.IsHistoricalNeverReplayed(
+                                rec.RecordingId, currentUT, activationStartUT),
+                            forSpawn: true);
+                        input.ActivationStartUT = activationStartUT;
+                        input.EndUT = rec.EndUT;
+                        input.VesselSpawned = rec.VesselSpawned;
+                        input.SpawnAbandoned = rec.SpawnAbandoned;
+                        input.CannotSpawnSafely = rec.TerminalSpawnCannotSpawnSafely;
+                        if (currentUT > input.EndUT && !rec.VesselSpawned)
+                        {
+                            if (chains == null)
+                                chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
+                            input.NeedsSpawn = GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
+                                rec, currentUT, chains, (HashSet<string>)null).needsSpawn;
+                            input.IsMidChain = RecordingStore.IsChainMidSegment(rec);
+                            input.ChainEndUT = RecordingStore.GetChainEndUT(rec);
+                            if (input.IsMidChain)
+                            {
+                                int next = GhostPlaybackLogic.ResolveChainNextSlotIndex(
+                                    i, committed,
+                                    object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+                                input.ChainSuccessorStarted = next >= 0
+                                    && currentUT >= GhostPlaybackEngine.ResolveGhostActivationStartUT(committed[next]);
+                            }
+                        }
+                    }
+                    ghostCommNetCandidates.Add(new GhostCommNetCandidate
+                    {
+                        Key = rec.RecordingId,
+                        RecordingId = rec.RecordingId,
+                        RecordingIndex = i,
+                        Recording = rec,
+                        VesselName = rec.VesselName,
+                        VesselPid = rec.VesselPersistentId,
+                        LaunchGuid = rec.RecordedVesselGuid,
+                        Eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT),
+                        WindowStartUT = input.ActivationStartUT,
+                        EndUT = input.EndUT,
+                    });
+                }
+
+                ghostCommNet.Tick(ghostCommNetCandidates, currentUT);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.WarnRateLimited(GhostCommNetMath.Tag, "ts-drive-exception",
+                    "TS DriveGhostCommNet threw (suppressed): " + ex.GetType().Name + ": " + ex.Message, 10.0);
+            }
+        }
+
+        /// <summary>
+        /// World position of a committed recording at a UT for its ghost CommNet node in the
+        /// Tracking Station: the recording's map ProtoVessel when one is drawn (not for loop
+        /// members, whose ProtoVessel follows the loop clock), else the recorded orbit segment
+        /// covering the UT, else body-fixed frames that actually cover the UT. Anything else is
+        /// unresolved (the node goes dark for that rebuild rather than sit at a stale point).
+        /// </summary>
+        internal bool TryResolveGhostCommNetRecordingPosition(
+            string recordingId, int indexHint, double ut, out Vector3d worldPos)
+        {
+            worldPos = Vector3d.zero;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || string.IsNullOrEmpty(recordingId))
+                return false;
+            int index = indexHint;
+            if (index < 0 || index >= committed.Count || committed[index] == null
+                || committed[index].RecordingId != recordingId)
+            {
+                index = -1;
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    if (committed[i] != null && committed[i].RecordingId == recordingId)
+                    {
+                        index = i;
+                        break;
+                    }
+                }
+                if (index < 0)
+                    return false;
+            }
+            Recording rec = committed[index];
+            bool loopingLike = rec.LoopPlayback || cachedLoopUnits.IsMember(index);
+            if (!loopingLike && GhostMapPresence.TryGetGhostWorldPosForRecording(index, out worldPos))
+                return true;
+
+            if (!TrajectoryMath.IsSurfaceAtUT(rec.TrackSections, ut))
+            {
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, ut);
+                if (seg.HasValue && TryGetGhostCommNetOrbit(recordingId, seg.Value, out Orbit orbit))
+                {
+                    worldPos = orbit.getPositionAtUT(ut);
+                    return true;
+                }
+            }
+
+            if (TrySelectTrackingStationFocusFrames(rec, ut, out List<TrajectoryPoint> frames, out _)
+                && frames != null && frames.Count > 0
+                && ut >= frames[0].ut && ut <= frames[frames.Count - 1].ut)
+            {
+                int cachedIndex = 0;
+                return TryResolveRecordingWorldPosition(
+                    rec, ut, ref cachedIndex, out worldPos, out _, out _, out _);
+            }
+            return false;
+        }
+
+        private bool TryGetGhostCommNetOrbit(string recordingId, OrbitSegment seg, out Orbit orbit)
+        {
+            orbit = null;
+            if (ghostCommNetOrbitCache.TryGetValue(recordingId, out var cached)
+                && cached.Key.startUT == seg.startUT
+                && cached.Key.endUT == seg.endUT
+                && cached.Key.bodyName == seg.bodyName
+                && cached.Key.semiMajorAxis == seg.semiMajorAxis)
+            {
+                orbit = cached.Value;
+                return orbit != null;
+            }
+            if (!TrajectoryMath.HasUsableOrbitSegmentElements(seg))
+                return false;
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == seg.bodyName);
+            if (body == null)
+                return false;
+            try
+            {
+                orbit = new Orbit(
+                    seg.inclination,
+                    seg.eccentricity,
+                    seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode,
+                    seg.argumentOfPeriapsis,
+                    seg.meanAnomalyAtEpoch,
+                    seg.epoch,
+                    body);
+            }
+            catch (System.Exception)
+            {
+                orbit = null;
+            }
+            ghostCommNetOrbitCache[recordingId] = new KeyValuePair<OrbitSegment, Orbit>(seg, orbit);
+            return orbit != null;
+        }
+
+        /// <summary>The Tracking Station's ghost CommNet manager (in-game tests); null before the first tick.</summary>
+        internal GhostCommNetManager GhostCommNet => ghostCommNet;
 
         /// <summary>
         /// Recompute the Mission LoopUnitSet only when its inputs change (cheap signature compare),
@@ -988,6 +1194,11 @@ namespace Parsek
 
         void OnDestroy()
         {
+            if (ghostCommNet != null)
+            {
+                ghostCommNet.Shutdown("ParsekTrackingStation destroyed");
+                ghostCommNet = null;
+            }
             RecordingStore.CommittedRecordingRemoving -= OnCommittedRecordingRemoving;
             RecordingStore.CommittedRecordingRemoved -= OnCommittedRecordingRemoved;
             RecordingStore.CommittedRecordingInserted -= OnCommittedRecordingInserted;

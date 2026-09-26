@@ -922,10 +922,6 @@ namespace Parsek
             if (target.Controllers == null && absorbed.Controllers != null)
                 target.Controllers = new List<ControllerInfo>(absorbed.Controllers);
 
-            // 11. AntennaSpecs: keep target's if present, else inherit
-            if (target.AntennaSpecs == null && absorbed.AntennaSpecs != null)
-                target.AntennaSpecs = absorbed.AntennaSpecs;
-
             if (normalizeEvaBoundaryMerge)
                 NormalizeContinuousEvaBoundaryMerge(target);
 
@@ -1283,8 +1279,6 @@ namespace Parsek
             // 11. Copy shared fields to both halves
             second.Controllers = original.Controllers != null
                 ? new List<ControllerInfo>(original.Controllers) : null;
-            second.AntennaSpecs = original.AntennaSpecs != null
-                ? new List<AntennaSpec>(original.AntennaSpecs) : null;
             second.IsDebris = original.IsDebris;
             // PR 3b: propagate the debris parent-anchor contract to both halves of
             // a SplitAtSection split. The `original` half retains its field by virtue of

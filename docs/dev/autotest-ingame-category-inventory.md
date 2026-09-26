@@ -1,4 +1,4 @@
-# In-game test category inventory (all 117 categories)
+# In-game test category inventory (all 118 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -113,6 +113,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `GameActionsHealth` | 4 | 4 | 4 | 4 | 0 | 3 | B10 / L1 | B |
 | `GhostAudio` | 9 | 8 | 3 | 2 | 0 | 1 | H30 | A |
 | `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | H50 (flown 2026-08-28, executes 4 of 4) | A |
+| `GhostCommNet` | 5 | 3 | 0 | 2 | 0 | 5 | NOT DRIVEN (2026-09-26, the ghost CommNet relay / control point of design 15.6). Three FLIGHT cells and two TRACKSTATION cells against the live stock network: a deterministic three-node route (home, a transform-less ghost relay node, a free endpoint beyond the home's reach) with a negative control, a per-node check that every registered ghost node sits in the network with non-null range curves, at the position resolver's point and with the derived powers, and a FLIGHT cell that an active vessel linked only to ghost relays routes its control path through one. Its OWN category for the standing reason (a cell added to `MapPresence` would move H28's pinned tally). NEVER FLOWN; the routing cells need only a stock CommNet save, the other three self-skip naming the missing context (no committed relay recording in its window, the active vessel linking KSC directly). Bucket **C** until a lane drives it | C |
 | `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 4 of 17 over `gloops-airshow` + the `part-showcase` preset with a TimeJump to UT 55, so the showcase ghosts are spawned and five seconds into playback when the batch fires. MOVED OUT OF LT-1 in the same commit: LT-1's host has a corpus but nothing PLAYING at its batch UT, where it measured 2 of 17, so the category now sits on the lane that gives its cells active ghosts. The 13 skips want a loop recording (M1 owns loop units) or two overlapping recordings of one vessel - see the 2026-08-04 body read below, whose ~4-of-17 prediction this host MEASURES at exactly 4. A SLICE at 4 of 17, so the promotion rule below does NOT fire and the bucket stays **B** on `Logistics`' standing precedent, with the residue named here) | B |
 | `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6, H44 (TRACKSTATION slice, flown 2026-08-28, executes 9 of 25 - the WHOLE TS slice, zero run-time skips) | B |
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the map cell wants ghost map vessels, which no unattended FLIGHT batch arms). NOT an LT-2 constituent: its SPACECENTER slice measured the same skip on the census | B |
@@ -130,7 +131,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `LogContracts` | 10 | 10 | 8 | 8 | 0 | 2 | H26 | A |
 | `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35), RVR-1 (the same ISOLATED slice on the TARGET-BRANCH recorded host `rover-route-recorded`, authored 2026-08-30, NEVER FLOWN - predicted to convert the two dock-window cells H39/H40 both measured as unpayable by existing bytes, at the cost of the initiator cell they pin). Union across the five FLOWN slices: 42 of 47 | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | H41 (ISOLATED, flown 2026-08-28, executes 3 of 4; the 4th wants a harvested Grapple window) | A |
-| `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
+| `MapPresence` | 4 | 4 | 2 | 2 | 0 | 1 | H28 (`AntennaSpecsProduceRelayPower` deleted 2026-09-26 with the dead `Recording.AntennaSpecs` field it walked; the ghost CommNet relay moved to `GhostCommNet`) | A |
 | `MapRender` | 23 | 22 | 0 | 0 | 1 | 14 | S1.7 | B |
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 (flown 2026-08-28, executes 4 of 4) | A |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | H63-merge-dialog-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2012`: PASS attempt 1, 58 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MergeDialog scene=FLIGHT` pinned whole. EXECUTED 2 of 2. The merge popup's own two branches driven in place over a FABRICATED pending tree - Discard clears it, deferred Merge commits it through the real `Merge to Timeline` path - which is a different seam from H21's, where a real stock scene exit spawns the same popup. Boots `gloops-airshow`: neither cell stages or spawns, so the requirement is `loaded-vessel`. Neither REFLECTION guard fired, so the merge-dialog helpers and `ParsekScenario.Instance` both resolve at run time on KSP 1.12.5) | A |
@@ -211,10 +212,12 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **117 categories / 642 declarations**. Buckets **A 89 categories
-(360 declarations)**, **B 27 categories (277 declarations)**, **C 1 category (5
-declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
-gallery, which ships no lane by design (P2 owns the two gallery lanes). All re-derived
+Totals, re-derived: **118 categories / 646 declarations**. Buckets **A 89 categories
+(359 declarations)**, **B 27 categories (277 declarations)**, **C 2 categories (10
+declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
+gallery, which ships no lane by design (P2 owns the two gallery lanes), and
+`GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay and not yet driven.
+The same day `MapPresence` lost one declaration (A 360 -> 359). All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
@@ -315,10 +318,11 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **116 of 117 categories**, covering **637 of 642
+Driven by a committed spec: **116 of 118 categories**, covering **636 of 646
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 642 declarations in
-117 categories over `Source/Parsek`. The 2026-09-08 reading was 112 of 112; the GUI-tree
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 646 declarations in
+118 categories over `Source/Parsek`. The 2026-09-26 ghost CommNet relay opened a 118th
+row, `GhostCommNet`, UNCLAIMED like `GuiMock`. The 2026-09-08 reading was 112 of 112; the GUI-tree
 dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on
 2026-09-11; the GUI state gallery's P1 opened a 114th on 2026-09-22 and left it
 UNCLAIMED, which is the honest state - P1 ships no lane, and claiming the row from an
@@ -708,7 +712,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (89 categories, 360 declarations)
+### Bucket A - wired now (89 categories, 359 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.
@@ -1672,9 +1676,11 @@ time verbatim and was taken WHOLE, `GUI-1-census-ksc` left
 `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and the row moved to bucket **A** - which
 empties this sub-reason.
 
-### Bucket C - not batch-runnable (0 categories, 0 declarations)
+### Bucket C - not batch-runnable (2 categories, 10 declarations)
 
-EMPTY, and it has been since R12 closed C2 on 2026-07-30 - the header said
+The two rows here are not batch-UNRUNNABLE; they are the two categories with no lane yet, which the triage line counts as C: `GuiMock` (5, P1 of the GUI state gallery) and `GhostCommNet` (5, the ghost CommNet relay, 2026-09-26). The header read 0 / 0 while `GuiMock` sat in C; re-derived here by counting the table's C rows.
+
+The sub-reasons below were EMPTY since R12 closed C2 on 2026-07-30 - the header said
 "1 category, 10 declarations" until 2026-09-06 because it was never re-derived after
 that closure moved `TrackingStation` to bucket A. Both sub-reasons below are retired
 and are kept for their reasoning rather than their contents. All three bucket headers

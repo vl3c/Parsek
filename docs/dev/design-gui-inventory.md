@@ -1623,7 +1623,7 @@ One line each for the rest:
 | P11 | `Merged, but could not seal - seal it from the Timeline window` names a control that cannot exist in exactly that state: reword, or make the control exist? |
 | P19 | The Candidates empty-state sentence tells the player to do what the near-miss list below shows they already did: reword, or suppress it when near-misses exist? |
 | P20 | Four route cells read `Stops[0]` only while `RouteBuilder` builds multi-stop routes: is multi-stop display in scope, or should the labels be scoped to the first stop? |
-| D3 | `GhostCommNetRelay` is dead while `GhostCommNetVesselPatch` cites it as the justification for destroying each ghost's `CommNetVessel`: do ghost relays contribute to CommNet or not? |
+| D3 | `GhostCommNetRelay` is dead while `GhostCommNetVesselPatch` cites it as the justification for destroying each ghost's `CommNetVessel`: do ghost relays contribute to CommNet or not? RULED A 2026-09-26: yes; rebuilt as `GhostCommNet` / `GhostCommNetManager` (design 15.6, todo GUI-D3) |
 | D6 | `MissionSelection` and `Mission.ExcludedThroughLineHeadIds` are persisted but never written: removal touches the mission save schema, so does it go now or wait for a generation bump? |
 | D8 | The legacy `SupersedeCommit` public surfaces are kept alive only by their in-game tests, which therefore prove something the product does not run: delete both, or re-point the tests? |
 | D18 | The virtual Unfinished Flights hide-all branch is unreachable; P17's fix should make the ordinary path carry the same guard: verify after, then decide whether the branch stays |

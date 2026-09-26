@@ -4792,7 +4792,7 @@ it to the stock screen.
 alternative (honour the stock edits by writing through `Record*` on the stock path) was not
 taken: the stock screen would still be a second surface for developer diagnostics.
 
-## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch. RE-INVESTIGATED 2026-09-26 (branch `commnet-relay-decision`): the gap is deeper than a missing call site. RULED 2026-09-26: A (wire it up), with relay AND control point; IN PROGRESS on the same branch; also the reason D6 `commnet-relay` is unclaimable]
+## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch. RE-INVESTIGATED 2026-09-26 (branch `commnet-relay-decision`): the gap is deeper than a missing call site. RULED 2026-09-26: A (wire it up), with relay AND control point; IMPLEMENTED on the same branch 2026-09-26, OPEN pending flight proof (no lane yet; D6 `commnet-relay` stays unclaimed until one flies)]
 
 **What the player gets today.** Ghosts carry no CommNet signal. A relay placed by a
 committed recording counts for signal exactly as in stock from the moment it spawns as a
@@ -4911,6 +4911,34 @@ CommNet as the real vessel: it relays, and it is a probe control point when its 
 qualifies (stock parity). Only the real run relays; loop replays do not. The binding
 scenarios and mechanics are in `docs/parsek-flight-recorder-design.md` section 15.6. The
 recommendation above (C) was not taken.
+
+**Implementation (2026-09-26, branch `commnet-relay-decision`).** The dead code is gone:
+`GhostCommNetRelay.cs`, `AntennaSpec.cs`, `Recording.AntennaSpecs` and its copy sites, their
+unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by derivation to
+`total=4 skipped=2`). In its place:
+- `GhostCommNet.cs` (pure, unit-tested in `GhostCommNetTests`): stock `CommNetVessel.UpdateComm`
+  antenna combination transcribed verbatim (including the no-direct-antenna raw-sum quirk and
+  the relay-enabler promotion), the stock control-point rule, a piecewise-constant per-recording
+  timeline over `DeployableExtended` / `Retracted` / `Broken` (deploy-gated antennas) and
+  `Decoupled` (subtree) / `Destroyed` part events, the relay-window predicate, the stock
+  vessel-type exclusions, the mod guard and the register / remove diff.
+- `GhostCommNetManager.cs` (live shell): specs derived from the vessel snapshot (end state, or the
+  start-state visual snapshot when destroyed) through the part prefabs (`CanCommUnloaded`,
+  `CommPowerUnloaded`, `CanControlUnloaded`, stock `FindModule` matching), crew qualified by name
+  through the roster (`FullVesselControlSkill`); one free `GhostCommNetNode` per recording id
+  whose `position` returns `precisePosition`, positioned and powered in its own CommNet pre-update
+  hook (dark for a rebuild when the position cannot resolve), registered only against stock
+  CommNet types, re-added on `OnNetworkInitialized`.
+- Hosts: `ParsekFlight` ticks it every frame after the spawn passes (window inputs from
+  `ComputePlaybackFlags`, position from the mesh-independent `TryResolvePlaybackWorldPosition`,
+  chain-ghosted real vessels from their despawn snapshot's orbit before the first claim);
+  `ParsekTrackingStation` at its 0.25 s lifecycle cadence (position: the map ProtoVessel, else
+  the covering orbit segment, else body-fixed frames covering the UT).
+- Proof so far: unit tests with hand-derived stock numbers, and a new in-game `GhostCommNet`
+  category (routing probe with a negative control in FLIGHT and TRACKSTATION, per-node state
+  checks, active-vessel control path). Never flown. `VesselSnapshotBuilder.RelaySatellite`
+  authors an RC-L01 + RA-2 snapshot for a future lane; no lane or synthetic corpus row uses it
+  yet. Remaining to close: a harness lane that flies a probe through a ghost relay (D6).
 
 ## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
 

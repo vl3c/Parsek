@@ -66,7 +66,7 @@ craft = []
 
 [driver]
 kind = "seam"
-# NO isolated arg: all 5 declarations are AllowBatchExecution (default) with no
+# NO isolated arg: all 4 declarations are AllowBatchExecution (default) with no
 # restore flag - identical admission either way.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
@@ -145,10 +145,16 @@ count = { min = 274, max = 274 }
 # prediction. CONFIRMED GREEN against the new pin the same day: run
 # `2026-08-05_1915_H28-map-presence`, PASS on attempt 1, every verifier
 # PASS/SKIPPED - the runner printed the pinned line token for token.
-#  - total=5 is ATTRIBUTE-EXACT and UNMOVED: 5 [InGameTest(Category =
-#    "MapPresence")] declarations (3 AnyScene + 2 FLIGHT). Kept in sync by
-#    CommittedBatchTallySourceSyncTests.
-#  - skipped=3 is MEASURED, not derived. The ATTRIBUTE floor is still 0 (nothing
+#  - total=4 is ATTRIBUTE-EXACT: 4 [InGameTest(Category = "MapPresence")]
+#    declarations (2 AnyScene + 2 FLIGHT). Kept in sync by
+#    CommittedBatchTallySourceSyncTests. MOVED 5 -> 4 on 2026-09-26 by DERIVATION,
+#    not by a flight: AntennaSpecsProduceRelayPower (one of the three measured
+#    skips below) was deleted together with the dead Recording.AntennaSpecs field
+#    it walked. The ghost CommNet relay is now covered by its own GhostCommNet
+#    category (design 15.6). Removing a cell that measurably skipped moves
+#    total 5 -> 4 and skipped 3 -> 2 and leaves passed=2 untouched; re-measure on
+#    the next H28 flight.
+#  - skipped=2 was MEASURED as 3 (the deleted cell included), not derived. The ATTRIBUTE floor is still 0 (nothing
 #    scene-skips at FLIGHT, nothing is batch-disabled); all three are run-time
 #    InGameAssert.Skip firings, declared in
 #    IngameBatchWiringGroupTests.RUNTIME_SKIPS so the group's floor cell models
@@ -159,11 +165,9 @@ count = { min = 274, max = 274 }
 #        driven batch even under the injected corpus (see the fixture note).
 #      * NoPidCollisionWithRealVessels - same empty set; its collision walk
 #        would compare every real vessel against nothing.
-#      * AntennaSpecsProduceRelayPower - walked all 306 committed recordings (308 as of
-#        2026-08-11) and
-#        none carries AntennaSpecs, because no generator ever sets it. Corpus-
-#        INDEPENDENT, so no injectedRecordings value fixes it (see the fixture
-#        note); D6 commnet-relay stays unclaimed.
+#      * (deleted 2026-09-26) AntennaSpecsProduceRelayPower - walked all 306
+#        committed recordings and none carried AntennaSpecs; the field and the
+#        cell are gone.
 #  - failed=0 is the ASSERTION.
 #  - passed=2 follows, and is the honest count of cells that executed real
 #    assertions: ChainGhost_ReverseMap_WrittenOnCreate_ClearedOnRemove (16.4 ms)
@@ -172,7 +176,7 @@ count = { min = 274, max = 274 }
 #    and has now held across two unattended runs.
 #  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 /
 #    S1.4 on this exact fixture.
-required  = ["BATCH_COMPLETE v1 total=5 passed=2 failed=0 skipped=3 category=MapPresence scene=FLIGHT"]
+required  = ["BATCH_COMPLETE v1 total=4 passed=2 failed=0 skipped=2 category=MapPresence scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
