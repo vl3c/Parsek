@@ -12331,17 +12331,17 @@ tests. All nine are deleted, with the 25 `ResourceBudgetTests` cells of the "Rec
 Calculations" and "Milestone Cost Calculations" regions and both `RewindLoggingTests`
 `FullCommittedCost_SignConvention_*` cells: read first, each asserted only the helper's own
 subtraction on a hand-built recording, with no production path underneath to rewrite them
-against. The lost shape pin is rebuilt as
+against. `ParseCostFromDetail` went too, with its 13 cells: its `Patches/TechResearchPatch.cs`
+caller was removed by the Stock-UI overlays PR 1 (`d0ab49701`, 2026-09-25) and its only other
+callers were the two milestone helpers deleted here, so the "delete them" ruling covers it; the
+`ResourceBudget` class is gone and `ResourceBudget.cs` keeps only `BudgetSummary`. The lost
+shape pin is rebuilt as
 `RecordingStoreTests.CommitTree_TreeChildrenLandInBothCommittedCollectionsWithTreeId`, driving
 the real `CommitTree` -> `FinalizeTreeCommit` path on a two-recording tree (mutation-checked:
-dropping the `committedRecordings.Add` in `FinalizeTreeCommit` reds it). `ResourceBudget` keeps
-`ParseCostFromDetail` and `BudgetSummary` (the struct is live in `RewindContext` / `RecordingStore`).
+dropping the `committedRecordings.Add` in `FinalizeTreeCommit` reds it). `BudgetSummary` stays
+(the struct is live in `RewindContext` / `RecordingStore`).
 
 Residue found on the way, left open deliberately:
-- `ParseCostFromDetail` is itself production-dead now. The `Patches/TechResearchPatch.cs`
-  caller this entry cites was removed by the Stock-UI overlays PR 1 (`d0ab49701`,
-  2026-09-25), and its only other callers were the two milestone helpers deleted here. Kept
-  with its 13 cells on the brief's instruction; a one-line decision for the next pass.
 - `Recording.LastAppliedResourceIndex` (`lastResIdx`) and `Milestone.LastReplayedEventIndex`
   (`lastReplayedIdx`) are now written, copied and serialized but read by no decision. Removing
   them is a serialized-key change, so it was not folded into this dead-code deletion.

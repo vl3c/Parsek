@@ -34,7 +34,7 @@ Parsek/
 ├── GameStateBaseline.cs       # Full game state snapshot at commit points
 ├── Milestone.cs               # Groups game state events into committed timeline units
 ├── MilestoneStore.cs          # Milestone collection management
-├── ResourceBudget.cs          # BudgetSummary + ParseCostFromDetail
+├── ResourceBudget.cs          # BudgetSummary (rewind reserved-resource snapshot)
 ├── RecordingTree.cs           # Rooted DAG of recordings for multi-vessel missions
 ├── BranchPoint.cs             # Links parent/child recordings at split/merge events
 ├── BackgroundRecorder.cs      # Dual-mode recording for non-active tree vessels

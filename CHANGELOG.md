@@ -4537,8 +4537,9 @@ _(unreleased — entries accumulate here per commit)_
   `MilestoneCommittedFunds` / `MilestoneCommittedScience`, `FullCommittedFundsCost` /
   `FullCommittedScienceCost` / `FullCommittedReputationCost` and `ComputeFacilityUpgradeCost`
   (a placeholder returning 0) had no caller outside the unit tests since the ledger took over
-  funds, science and reputation. They are deleted with the 27 test cells that existed only to
-  test them. A new `RecordingStoreTests` cell pins directly, on the real `CommitTree` path,
+  funds, science and reputation, and `ParseCostFromDetail` lost its last caller with them. They
+  are deleted with the 40 test cells that existed only to test them; `ResourceBudget.cs` now
+  holds only the live `BudgetSummary` struct. A new `RecordingStoreTests` cell pins directly, on the real `CommitTree` path,
   that every child of a committed tree is the same object in the committed recordings list
   and the committed tree, and carries the tree's id; a cell deleted with the old budget
   totals used to carry that fact implicitly. No gameplay change.
