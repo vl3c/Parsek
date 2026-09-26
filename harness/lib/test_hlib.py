@@ -1087,7 +1087,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # carried a stock-screen verb.
         # 41 / 5 after the editor scene route (GoToEditor / LaunchFromEditor), an
         # ADDITION by two: the reserved envelope never carried a scene-route verb.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 41)
+        # 42 / 5 after EvaGroundScience, an ADDITION by one: the reserved envelope never
+        # carried an inventory verb.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 42)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -15131,13 +15133,15 @@ class PostMissionOutcomeGateTests(unittest.TestCase):
                  if v not in hlib.IMPLEMENTED_SEAM_VERBS]
         self.assertEqual([], extra, "stale post-mission-role rows: %s" % (extra,))
 
-    def test_outcome_set_is_exactly_the_four_eva_verbs(self):
+    def test_outcome_set_is_exactly_the_five_eva_verbs(self):
         # The whole gating set. Each one's verdict is a claim about a KERBAL's
         # in-world state that no verifier re-derives; widening this set to a Parsek
-        # verb would route a Parsek defect through the wrong subkind.
+        # verb would route a Parsek defect through the wrong subkind. Coverage wave 10
+        # added EvaGroundScience ("the part is on the ground / back in the inventory").
         outcome = sorted(v for v, r in hlib.SEAM_VERB_POST_MISSION_ROLE.items()
                          if r == hlib.POST_MISSION_ROLE_OUTCOME)
-        self.assertEqual(["EvaBoard", "EvaChuteDeploy", "EvaExit", "PlantFlag"], outcome)
+        self.assertEqual(["EvaBoard", "EvaChuteDeploy", "EvaExit", "EvaGroundScience",
+                          "PlantFlag"], outcome)
 
     def test_recording_verbs_do_not_gate(self):
         # The ORIGINAL carve-out, preserved: a good flight Parsek then failed to

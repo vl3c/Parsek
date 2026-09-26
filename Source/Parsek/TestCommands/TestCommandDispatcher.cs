@@ -188,6 +188,9 @@ namespace Parsek.TestCommands
         // ----- EVA-4 (atmospheric chute) -----
         void EvaChuteDeploy(ParsedCommand cmd);
 
+        // ----- Coverage wave 10 (EVA ground-science place / pick-up) -----
+        void EvaGroundScience(ParsedCommand cmd);
+
         // ----- R12 (scene routing) -----
         void ExitToSpaceCenter(ParsedCommand cmd);
 
@@ -344,6 +347,9 @@ namespace Parsek.TestCommands
                 // FLIGHT, and shares PlantFlag / EvaBoard's not-eva dispatch defer so the
                 // preceding EvaExit's auto-switch is allowed to settle first.
                 ["EvaChuteDeploy"] = VerbSceneRequirement.RequiresFlight,
+                // Coverage wave 10. Same family: acts on the EVA kerbal's own inventory
+                // (place) or on a ground part within its reach (pick up), from FLIGHT.
+                ["EvaGroundScience"] = VerbSceneRequirement.RequiresFlight,
                 // R12. ExitToSpaceCenter drives the FLIGHT -> SPACECENTER transition, so
                 // FLIGHT is a hard precondition. RequiresFlight (a DEFER on not-in-flight)
                 // rather than a hand-written REJECT sub-gate: the wrong-scene case here is
@@ -740,7 +746,8 @@ namespace Parsek.TestCommands
                 case "PlantFlag":
                 case "EvaBoard":
                 case "EvaChuteDeploy":
-                    // All three act on the EVA kerbal, so defer while the preceding EvaExit's
+                case "EvaGroundScience":
+                    // All four act on the EVA kerbal, so defer while the preceding EvaExit's
                     // auto-switch is still settling (the active vessel is not yet the EVA one).
                     if (!state.ActiveVesselIsEva)
                         return DispatchResult.Defer("not-eva");
@@ -836,6 +843,12 @@ namespace Parsek.TestCommands
         /// the scenario's EVA window is specified LOW rather than at apoapsis.</summary>
         internal const double EvaChuteDeploySeconds = 420.0;
 
+        /// <summary>EvaGroundScience (coverage wave 10): not-eva defer + the place gate
+        /// (kerbal landed and standing) + the preview build + up to five confirm presses +
+        /// the ground vessel load, or the pick-up's retract animation + vessel kill. Each is
+        /// seconds; 120 s is the EvaExit / EvaBoard size.</summary>
+        internal const double EvaGroundScienceSeconds = 120.0;
+
         /// <summary>ExitToSpaceCenter (R12): the pre-exit persist + the FLIGHT teardown
         /// (tree finalize, dirty-sidecar force-write, background-recorder shutdown) + the
         /// KSC scene bootstrap, which RE-READS persistent.sfs from disk and runs
@@ -918,6 +931,8 @@ namespace Parsek.TestCommands
                     return EvaBoardSeconds;
                 case "EvaChuteDeploy":
                     return EvaChuteDeploySeconds;
+                case "EvaGroundScience":
+                    return EvaGroundScienceSeconds;
                 case "ExitToSpaceCenter":
                     return ExitToSpaceCenterSeconds;
                 case "StartLoopPlayback":

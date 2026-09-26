@@ -2734,9 +2734,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// P8 step 1: unconditional (the ghost part is activated and joins logical
-        /// presence whatever else the ghost carries), so Applied on the INVENTORY
-        /// surface is always the honest report.
+        /// The bookkeeping (logical presence, placed-target set) is unconditional, but the
+        /// REPORTED outcome follows the ghost: <c>applied</c> only when the ghost carries a
+        /// transform for the pid, otherwise <c>no-info-for-part</c>. The distinction is
+        /// real rather than defensive: stock places an EVA ground-science part as its OWN
+        /// new vessel (<c>ModuleInventoryPart.DeployGroundPart</c> -> <c>AddVessel</c>), so
+        /// the pid the recorder captures on the kerbal's recording is never a part of the
+        /// kerbal's ghost, and an unconditional <c>applied</c> claimed a visual write that
+        /// did not happen (coverage wave 10, todo EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL).
         /// </summary>
         private static GhostPartEventOutcome ApplyInventoryPartPlacedEvent(
             GhostPlaybackState state,
@@ -2745,6 +2750,7 @@ namespace Parsek
             ref HashSet<uint> placedTargetPartIds,
             ref bool visibilityChanged)
         {
+            bool carried = GhostCarriesPart(state, partPersistentId);
             SetGhostPartActive(state, partPersistentId, true);
             if (logicalPartIds != null)
                 logicalPartIds.Add(partPersistentId);
@@ -2752,7 +2758,7 @@ namespace Parsek
                 placedTargetPartIds = new HashSet<uint>();
             placedTargetPartIds.Add(partPersistentId);
             visibilityChanged = true;
-            return GhostPartEventOutcome.Applied;
+            return InventoryApplyOutcome(carried);
         }
 
         private static GhostPartEventOutcome ApplyInventoryPartRemovedEvent(
@@ -2761,11 +2767,20 @@ namespace Parsek
             uint partPersistentId,
             ref bool visibilityChanged)
         {
+            bool carried = GhostCarriesPart(state, partPersistentId);
             SetGhostPartActive(state, partPersistentId, false);
             RemovePartSubtreeFromLogicalPresence(logicalPartIds, partPersistentId, null);
             visibilityChanged = true;
-            return GhostPartEventOutcome.Applied;
+            return InventoryApplyOutcome(carried);
         }
+
+        /// <summary>The inventory surface's reported outcome. Pure.</summary>
+        internal static GhostPartEventOutcome InventoryApplyOutcome(bool ghostCarriesPart)
+            => ghostCarriesPart ? GhostPartEventOutcome.Applied : GhostPartEventOutcome.NoInfoForPart;
+
+        private static bool GhostCarriesPart(GhostPlaybackState state, uint persistentId)
+            => state != null && state.ghost != null
+               && GhostVisualBuilder.FindGhostPartTransform(state.ghost, persistentId) != null;
 
         /// <summary>
         /// Spawns a small smoke puff + spark FX at a ghost part's world position.

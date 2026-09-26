@@ -62,6 +62,15 @@ _(unreleased — entries accumulate here per commit)_
   `scene-editor` (coverage unchanged at 238 of 247). Test staging now creates every staged save's
   `Ships/VAB` and `Ships/SPH` folders the way KSP does for a real save, without which the editor's Launch
   button failed to write its auto-saved ship.
+- **Automated testing: an EVA kerbal places and picks up a Breaking Ground seismometer in a lane.**
+  A new test-seam command places a ground-science part from an EVA kerbal's inventory through the
+  inventory slot click and the confirm key, and picks it back up through the part's own Pick Up
+  button, so stock fires the events Parsek records. The lane `EVA-5-ground-science-place-pickup`
+  gives Jebediah a seismometer, places it, picks it up, boards, commits and replays. It found a
+  defect and is marked expected-to-fail on it: the placed part becomes its own vessel, so the
+  kerbal's recording holds a part id its vessel does not have and the replay never shows the
+  placed part.
+
 - **Dev: the GUI mirror shows stock KSP screens as photographs, with Parsek's decorations beside them.** A census capture labelled `stk-<screen>-<state>` (or one with no Parsek window in it) is listed under a `Stock screens` rail heading, one group per screen, and shown as the frame the census took, never redrawn; a PNG with no control-tree dump is enough. Beside it a panel lists what Parsek decorated on that screen, read from the run's `KSP.log`: the stock census lane's own `record label=` lines (per-tab summaries, items, or `screens=none`), else the nearest `decorate` pass for that screen before the capture, else a line saying none was logged. Each row shows id, tab, kind, marked, blocked and why, a second table lists the stock buttons the lane logged (`control` lines: name, state, interactable, visible), and a mark without its block (or a block without its mark) on a kind the pairing rule covers is highlighted and badged in the rail. Superseded / retired flags, notes and Compare pairs work as for Parsek's windows (`harness/tools/gui_mirror.py`; `docs/dev/design-gui-mirror.md` section 18).
 - **Automated testing: the Missions tab's leg trim and Clone button are driven by a lane.**
   Two test-seam additions reach the last two Missions-tab authoring actions no lane could: a
@@ -1133,6 +1142,10 @@ _(unreleased — entries accumulate here per commit)_
   the hold, and Parsek's ledger records the same hire cost stock charges. A retired or displaced
   stand-in still counts, and the count returns to stock's own when the hold ends. The stand-in's
   dismiss tooltip adds that it shares the owner's seat and does not count against the limit.
+- **Ghost replay no longer reports a placed ground-science part as shown.** The part-event
+  log line for an EVA inventory placement or pick-up said the ghost applied it even when the
+  ghost had no such part (always the case today); it now says `no-info-for-part`.
+
 - **Space Center: the Administration building keeps stock's own reason when stock already
   refuses a strategy, and a strategy Parsek refuses now looks refused.** With every strategy
   slot taken, all ten inactive strategies showed Parsek's "a committed activation needs this

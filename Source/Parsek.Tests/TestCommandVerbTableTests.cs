@@ -54,6 +54,7 @@ namespace Parsek.Tests
         [InlineData("StockScreen")]
         [InlineData("GoToEditor")]
         [InlineData("LaunchFromEditor")]
+        [InlineData("EvaGroundScience")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -160,7 +161,9 @@ namespace Parsek.Tests
             // reserved envelope never carried a stock-screen verb.
             // The editor scene route is ADDITIVE too (39 -> 41; reserved unchanged at 5):
             // GoToEditor and LaunchFromEditor were never in the reserved envelope.
-            Assert.Equal(41, TestCommandVerbs.ImplementedVerbNames.Count);
+            // EvaGroundScience is ADDITIVE (41 -> 42; reserved unchanged at 5): the reserved
+            // envelope never carried an inventory verb.
+            Assert.Equal(42, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

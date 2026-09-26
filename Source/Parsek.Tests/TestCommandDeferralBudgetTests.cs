@@ -81,6 +81,10 @@ namespace Parsek.Tests
                 DeferralBudget.BudgetSeconds("EvaChuteDeploy"));
             Assert.True(DeferralBudget.EvaChuteDeploySeconds <= 540.0,
                 "EvaChuteDeploy budget must stay under the harness deferred-step cap");
+            // Coverage wave 10: EvaGroundScience is EvaExit-sized.
+            Assert.Equal(120.0, DeferralBudget.BudgetSeconds("EvaGroundScience"));
+            Assert.Equal(DeferralBudget.EvaGroundScienceSeconds,
+                DeferralBudget.BudgetSeconds("EvaGroundScience"));
         }
 
         [Fact]
