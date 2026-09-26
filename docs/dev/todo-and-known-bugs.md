@@ -425,8 +425,10 @@ Two kerbal-side readings the same captures show, outside the overlay code:
 9. **A stand-in hired over the Astronaut Complex cap.** Bill's hold creates a stand-in and the
    complex reads `Active Kerbals: 6 [Max: 5]` (orange) at level 1.
 
-Harness note, not a finding: the kRPC server window (provisioned `mainWindowVisible = True`)
-covers the top-left of every census capture, including the VAB part list.
+Harness note, not a finding: the kRPC server window covered the top-left of every census
+capture, including the VAB part list. Fixed 2026-09-26 (branch `census-refresh-0926`): the
+provisioned kRPC settings stamp `mainWindowVisible = False` (the servers start from
+`autoStartServers` alone); run `2026-09-26_0025` shows the part tooltip and crew dialog clear.
 
 ---
 

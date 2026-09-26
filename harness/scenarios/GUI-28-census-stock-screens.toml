@@ -87,6 +87,11 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "stk-rnd-start-panel" }, expect = "OK" },
   { cmd = "StockScreen", args = { screen = "rnd", act = "hover", part = "probeCoreSphere.v2" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "stk-part-tooltip-rnd" }, expect = "OK" },
+  # The grey LIFT: a node nothing committed touches (engineering101, researchable at the
+  # fixture's 111.6 science) on the SAME side-panel button Parsek greyed for basicRocketry
+  # and start. Parsek must give the button its stock colours back.
+  { cmd = "StockScreen", args = { screen = "rnd", act = "select", item = "engineering101" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-rnd-unblocked-panel" }, expect = "OK" },
   { cmd = "StockScreen", args = { screen = "rnd", act = "close" }, expect = "OK" },
 
   # ========================== Astronaut Complex ==========================
@@ -195,6 +200,9 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-crewdialog screen=CrewAssignment",
   # --- the stock controls as stock holds them at capture time (the fact behind a greyed look) ---
   "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=stk-rnd-node-panel screen=RnD name=actionButton:basicRocketry ",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=stk-rnd-unblocked-panel screen=RnD name=actionButton:engineering101 ",
+  # --- the grey lift on the R&D side-panel button (StockUiGreyedButton.Sync, greyed=false) ---
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] R&D actionButton greyed state lifted, stock colours restored",
   "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=stk-mc-available-detail screen=MissionControl name=btnAccept:90e4faaf-2029-4c6b-8bc1-40226bb0fc27 ",
   # --- the verb's own terminals for the two scene changes ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=editor act=open item=Jumping_Flea .*scene=EDITOR",
