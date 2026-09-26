@@ -682,11 +682,20 @@ every annotated screen drew; the findings below are what the screenshots showed.
 - ~~F6: the slot refusal named the committed contract by title only, and three Offered rows
   shared it.~~ Fixed: it also names the contract's agent, the name Mission Control shows on
   each row and in the panel (`CommittedFutureEntry.AgentTitle`, from the accept snapshot's
-  `agent`, else the live offer's `Agent.Title`).
+  `agent`; with no snapshot agent, the live offer's `Agent.Title` read when the reason is
+  rendered, `ContractSlotReservation.WithStarvedAcceptAgent` in `ForecastNow`).
 - Still to see in the next census: the greyed Research / purchase-all / Accept / Decline /
   Cancel (the in-game cells now assert the look and the restored colours), the wrapped facility
   tooltip, and the shorter row labels. The Astronaut Complex and Administration findings are on
   branch `stock-ui-fixes-b`.
+- Second census (run `2026-09-25_2332`): F1-F5, F7 and F9 confirmed in game. F6 still read no
+  agent: the index is rebuilt on scene load about 10 ms after `KspStatePatcher.PatchContracts`
+  logs `KSP has 0 current contracts`, so its live read found no offer and the null stayed
+  cached (the census fixture's committed accept is a synthetic ledger row with no accept
+  snapshot). Fixed on branch `stock-ui-fixes-c`: the index reads the snapshot only and the live
+  agent is resolved at render time. Same branch: the stand-in dismissal refusal reads "Standing
+  in for <owner>, who is held by a committed flight. ..." instead of "a stand-in in a reserved
+  kerbal's replacement chain".
 
 **Verification (2026-09-25):** reference section 12, cells in
 `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`:

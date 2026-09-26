@@ -429,6 +429,33 @@ namespace Parsek.Tests
             Assert.Null(kerbals.FindActiveStandInOwner(null));
         }
 
+        // catches: the dismissal refusal not passing the live stand-in owner through, and a
+        // displaced chain member being told he stands in for someone.
+        [Fact]
+        public void DismissalRefusal_ActiveStandInNamesTheOwner_DisplacedMemberDoesNot()
+        {
+            var module = new KerbalsModule();
+            var parent = new ConfigNode("TEST");
+            var slotNode = parent.AddNode("KERBAL_SLOTS").AddNode("SLOT");
+            slotNode.AddValue("owner", "Jeb");
+            slotNode.AddValue("trait", "Pilot");
+            slotNode.AddNode("CHAIN_ENTRY").AddValue("name", "Hanley");
+            slotNode.AddNode("CHAIN_ENTRY").AddValue("name", "Kirrim");
+            module.LoadSlots(parent);
+            RecordingStore.AddRecordingWithTreeForTesting(MakeRecording("Ship", new[] { "Jeb" },
+                TerminalState.Recovered, 2000));
+
+            var kerbals = KerbalsTestHelper.RecalculateModule(module);
+
+            Assert.Equal("Standing in for Jeb, who is held by a committed flight. "
+                    + "Dismissing them would leave that seat without a kerbal.",
+                Parsek.Patches.KerbalDismissalPatch.DescribeDismissalRefusal(kerbals, "Hanley"));
+            Assert.True(kerbals.ShouldBlockDismissal("Kirrim"));
+            Assert.Equal("Parsek keeps this kerbal as a stand-in for a kerbal a committed flight holds.",
+                Parsek.Patches.KerbalDismissalPatch.DescribeDismissalRefusal(kerbals, "Kirrim"));
+            Assert.Null(Parsek.Patches.KerbalDismissalPatch.DescribeDismissalRefusal(kerbals, "Bob"));
+        }
+
         [Fact]
         public void FindActiveStandInOwner_OwnerFreeAgain_NoOneStandsIn()
         {
