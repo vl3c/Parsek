@@ -1195,6 +1195,27 @@ _(unreleased — entries accumulate here per commit)_
   paths. Spawn tracking still resets as before, and revert and rewind still differ in the same
   way: a revert throws the reverted flight away, a rewind commits it.
 
+- **Science is no longer over-credited when the same experiment is submitted more than once.**
+  Parsek recorded a science subject's running total at each submission, and the ledger adds
+  every submission, so a second transmission of the same experiment (or a transmit followed
+  by recovering the data) credited the first one again. Breaking Ground deployed
+  experiments, which send their results in about ten chunks, reached an experiment's full
+  value after three or four sends. Each submission now records only the science it added,
+  so your science total matches stock. Saves already carrying the extra science keep it.
+- **Breaking Ground deployed-experiment science is never attributed to the vessel you are
+  flying.** Science from deployed experiments is recorded like science earned at the Space
+  Center, so re-flying a flight no longer removes it and it no longer locks a re-fly as if
+  you had earned it on that vessel.
+
+- **Repairing a KSC building that your committed timeline already repairs later is now
+  refused, so it is no longer charged twice.** After a rewind to between a building's
+  destruction and its committed repair, repairing it again charged both repairs. The
+  building's menu now greys out Repair, with the reason in its tooltip ("Repaired on
+  <date> on your committed timeline. ..."), and a Repair click is refused with the same
+  text before any funds are taken, the way a committed facility upgrade is already blocked.
+  A building you destroy yourself after rewinding to before its committed destruction can
+  still be repaired.
+
 - **A crew death's reputation penalty now stays with the death when a recording is split.**
   When the optimizer or a Re-Fly split cut a recording between the moment a crashed vessel's
   reputation penalty was stamped and the crew's death, the death went to the later part and

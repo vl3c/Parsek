@@ -413,6 +413,31 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Rewrites the <c>recordingId</c> of the first event matching the target's identity
+        /// (ut/eventType/key/recordingId). Returns true when an entry was found and updated.
+        /// Used by the deployed-science capture to untag the ScienceChanged event that stock
+        /// fired one callback before the subject identified the award as ground-station science.
+        /// </summary>
+        internal static bool UpdateEventRecordingId(GameStateEvent target, string newRecordingId)
+        {
+            for (int i = 0; i < events.Count; i++)
+            {
+                if (EventIdentityMatches(events[i], target))
+                {
+                    var e = events[i];
+                    e.recordingId = newRecordingId ?? "";
+                    events[i] = e;
+                    ParsekLog.Verbose("GameStateStore",
+                        $"Updated event recordingId: {target.eventType} key='{target.key}' " +
+                        $"ut={target.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"'{target.recordingId ?? ""}' -> '{newRecordingId ?? ""}'");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Removes an event by matching ut, eventType, and key.
         /// Returns true if the event was found and removed.
         /// </summary>
@@ -808,6 +833,13 @@ namespace Parsek
 
         #region Committed Science Subjects
 
+        /// <summary>
+        /// Provisional cache write for newly filed ScienceEarning rows. Each row is a per-
+        /// submission INCREMENT, so the max merge below is only a lower bound; every caller is
+        /// followed by a recalc whose <c>RebuildCommittedScienceFromSurvivingLedger</c> replaces
+        /// the cache with the capped per-subject SUM of the surviving ledger, which is the
+        /// authoritative value.
+        /// </summary>
         internal static void CommitScienceActions(IReadOnlyList<GameAction> actions)
         {
             if (actions == null || actions.Count == 0) return;

@@ -15,6 +15,84 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: every repeat submission of a science subject re-credited the earlier ones~~ [FILED AND FIXED 2026-09-26, branch `fix-deployed-science-ledger`]
+
+`GameStateRecorder.OnScienceReceived` stored `science = subject.science`, the subject's RUNNING
+total after stock's `SubmitScienceData` added the award (`subject.science += value`, then
+`OnScienceRecieved` fires with the award; decompiled KSP 1.12.5). Every ledger consumer ADDS
+`ScienceEarning` rows per subject (`ScienceModule.ProcessEarning`,
+`LedgerOrchestrator.BuildCommittedScienceSubjectCredits`,
+`LedgerLoadMigration.GetLedgerScienceEarningTotal`), capped only by the subject cap. So a
+subject submitted N times was credited 1 + 2 + ... + N shares. The capture comment claimed a
+max-merge; only the provisional `GameStateStore.CommitScienceActions` cache write merges by
+max, and the recalc's rebuild replaces it with the summed ledger.
+
+Scope: ALL science, not only deployed experiments. Any subject submitted more than once
+over-credited: a second transmission, a transmit then a recovery, and a subject whose
+`subject.science` already carried committed science injected by `ScienceSubjectPatch`. (Two
+canisters of the same subject in ONE recovery did not over-credit: the second row is dropped by
+`LedgerOrchestrator.DeduplicateAgainstLedger`, which is the separate under-credit
+SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED.) Breaking Ground deployed experiments hit it
+hardest: they send about ten chunks per subject, so a subject reached its cap after three or
+four sends while stock was at a third of it, and in the KSC scene the patch-back of the
+inflated credit into `subject.science` compounded each later send.
+
+Proof (`DeployedScienceLedgerTests`): three KSC sends of 8 on `deployedSeismicSensor@...`
+(running totals 8 / 16 / 24, cap 80) filed as the old capture wrote them credit 48 through
+`TryRecordKscScienceSubject` + `RecalculateAndPatch`; stock holds 24. Through the fixed capture
+core the same three callbacks credit 24.
+
+**Fix.** The capture files the increment:
+`GameStateRecorder.ComputeScienceSubjectIncrement(amount, ScienceGainMultiplier, subject.science)`
+= `amount / multiplier`, in subject units (stock scales the event amount by
+`Career.ScienceGainMultiplier` but not `subject.science`), clamped to the running total. The
+headless core `CaptureScienceSubject` takes every value the stock callback supplies. Mirror
+directions checked: recovery bursts (one callback per data, each an increment), the
+committed-science cache (rebuilt as the capped sum after every recalc), Re-Fly tombstones
+(retiring a recording's rows now removes exactly its share), rewind replay (the patch-back
+writes the credited sum, which now equals stock's running total), and the earnings-window /
+post-walk reconcilers (they compare rows to `ScienceChanged` deltas, which are increments).
+Not migrated: ledger rows already written with running totals by older builds keep their
+over-credit (no migration path, like every other ledger capture fix). S1 of
+KSP-SETTINGS-AUDIT-2026-09-26 (the multiplier is not applied to ledger science) is unchanged
+and still open; the increment stays in subject units so a stamped multiplier can apply on top.
+
+## SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED: a second science award for the same subject within 0.1 s is dropped from the ledger [FILED 2026-09-26 from the PR #1883 review. OPEN, under-credit, pre-existing]
+
+`LedgerOrchestrator.DeduplicateAgainstLedger` treats two `ScienceEarning` rows with the same
+`SubjectId` whose capture moments are within 0.1 s as one row and drops the second. That guard
+exists to stop a KSC row written live from being filed again at recording commit, but it also
+drops a GENUINE second award at the same instant: two canisters of the same experiment and
+subject recovered together (stock calls `SubmitScienceData` once per data item), or two deployed
+stations sending the same subject in the same frame. The ledger then credits only the first
+award while stock credits both. Pre-existing (with the old running-total rows the second row was
+dropped the same way) and neither fixed nor worsened by the running-total fix, which now makes
+each row an independent increment, so a distinguishing key (for example the stock award amount,
+or a per-burst sequence number) would let the guard tell a re-filed row from a second award. Not
+measured on a flight. Fix direction: key science dedup on the live-row identity (the row a KSC
+write already filed, by action id or capture sequence) rather than on subject + time window.
+
+## DEPLOYED-SCIENCE-IS-ALWAYS-UNTAGGED: Breaking Ground deployed-experiment science is never tagged to the flown recording [OPERATOR RULING 2026-09-26; IMPLEMENTED 2026-09-26, branch `fix-deployed-science-ledger`]
+
+Deployed experiments (`deployedSeismicSensor`, `deployedWeatherReport`,
+`deployedGooObservation`, `deployedIONCollector`, `SquadExpansion/Serenity/Resources/ScienceDefs.cfg`)
+transmit from a ground station in any scene, every 60 s of game time, with no source vessel.
+Before the ruling a send that landed during a flight was tagged to whichever recording was
+live, so a Re-Fly could tombstone it and it could auto-seal the slot. Ruling: always an
+untagged row, like KSC and Tracking Station science.
+
+Implemented: `GameStateRecorder.IsDeployedScienceSubjectId` (ordinal prefix `deployed`; a
+subject id is `experimentId@...`). `CaptureScienceSubject` forces the tag empty, writes the row
+straight to the ledger through `TryRecordKscScienceSubject` even with a live recorder or an
+uncommitted tree (never `PendingScienceSubjects`, whose commit-time window routing would tag
+it), and untags the matched `ScienceChanged` event so the commit reconcile does not count it.
+`ResolveKscScienceRecordingId` skips the recovery picker for it (stock submits it as
+`VesselRecovery`). `SupersedeCommit.IsRetryBlockingRecordingAction` and the auto-seal preview
+exclude it, which also covers rows older builds tagged. A Revert still drops such a row with
+the other untagged post-launch rows (`Ledger.PruneOrphanActionsAfterUT`), matching stock,
+whose revert also rolls the send back. Left alone: an older build's tagged deployed rows are
+still tombstoned by a Re-Fly of their recording.
+
 ## ~~PERSISTENT-ROTATION-NEVER-DETECTED: the spin capture never ran on any KSP 1.12 install~~ [FILED AND FIXED 2026-09-26, branch `persistent-rotation`]
 
 `FlightRecorder.InitializeRecordingFlags` detected the mod with
@@ -73,7 +151,8 @@ Bugs (no ruling needed):
 
 - S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
   pre-multiplier value to `subject.science`, then multiplies before `AddScience`; Parsek
-  captures `subject.science` (`GameStateRecorder`) and credits it as `ScienceAwarded`, so on
+  captures the pre-multiplier increment (`GameStateRecorder.ComputeScienceSubjectIncrement`,
+  since SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT) and credits it as `ScienceAwarded`, so on
   Easy (x2), Moderate (x0.9) and Hard (x0.6) the ledger drifts from the live pool and a rewind
   resets science to the x1 total. Fix: stamp the multiplier at capture; never read the
   current multiplier at replay.
@@ -2737,13 +2816,12 @@ Timeline showed each as a legacy row beside its ledger row, now deduplicated
 (`TimelineBuilder.GetLegacyDuplicateKey`). A committed `FacilityUpgraded` legacy event has no
 dedup key either; not checked here.
 
-**Residual (open).** After a Parsek rewind to between a destruction and a KSC repair, the
-repair is a future row; if the player repairs again before its date, the walk charges both
-repairs (stock charged only the new one live). Facility upgrades avoid the same shape with
-the committed-upgrade block (`FacilityUpgradePatch`); repairs have no block. See
-KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE.
+**Residual (fixed 2026-09-26).** After a Parsek rewind to between a destruction and a KSC
+repair, the repair is a future row; if the player repaired again before its date, the walk
+charged both repairs (stock charged only the new one live). Repairs now get the same block
+as facility upgrades. See KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE.
 
-## KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE: re-repairing a building before a committed future repair charges both [FILED 2026-09-23 on branch `ksc-facility-ledger`; OPEN]
+## ~~KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE: re-repairing a building before a committed future repair charges both~~ [FILED 2026-09-23 on branch `ksc-facility-ledger`; FIXED 2026-09-26 on branch `fix-ksc-repair-block`]
 
 A KSC repair is an untagged spending row (`FacilityRepair`, cost in `FacilityCost`). A Parsek
 rewind to a UT between a building's destruction and that repair keeps the repair as a future
@@ -2755,6 +2833,29 @@ repair of a building whose destruction already has a committed future repair (th
 `FacilityUpgradePatch` shape, but it adds a blocked dialog), or charge a repair only when the
 walk finds its building destroyed (needs the facility state before `FundsModule` runs; today
 the facilities tier dispatches after the funds tier). Not reachable without a Parsek rewind.
+
+**Ruling (operator, 2026-09-26).** Block the re-repair, the way the committed-upgrade block
+works: grey the stock Repair control with the explanation, and refuse the click with the same
+predicate and text. No ledger dedupe.
+
+**Fix:** the committed-future index now keys `FacilityRepair` and `FacilityDestruction` rows by
+destructible building id. `StockUiReservationPredicates.IsFacilityRepairBlocked` is true when a
+destroyed building of the facility has a committed future repair and no committed destruction
+of that building comes first (a destruction the player makes live after a rewind to before the
+committed one is a new destruction, so its repair is allowed). The click refusal
+`FacilityRepairBlock.TryBlockFacilityRepair` runs first in the existing prefix on
+`SpaceCenterBuilding.RepairFacility(bool deduceFunds)`, before stock's affordability check and
+funds debit, and shows the `CommittedActionDialog` with the `ReservationExplanation.FacilityRepair`
+text ("Repaired on <date> on your committed timeline. ..."). The facility menu postfix on
+`KSCFacilityContextMenu.OnFacilityValuesModified` sets the protected `RepairButton`
+non-interactable and puts the same text in a stock `TooltipController_Text` (D1 stock-control
+annotation; stock has no tooltip on Repair, so the controller is added with a copied stock
+prefab, the Upgrade button's mechanism, and falls back to the description text with no
+prefab). New `StockUiDecorationKind.FacilityRepair` (tab `Repair`), logged as the facility
+menu pass's item line so the GUI mirror pairs it. Pinned by `FacilityRepairBlockTests` and a
+`test_gui_mirror` parse cell. Not proven in game: the live proof needs a GUI-28-style
+stock-screen census flight over a fixture rewound between a destruction and its committed
+repair (not flown).
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 
