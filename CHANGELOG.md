@@ -1839,9 +1839,15 @@ _(unreleased — entries accumulate here per commit)_
     Real Spawn Control and Structure tables, so every cell's text starts exactly under its
     heading (it sat one pixel to the right).
 
+- **Recordings can no longer be deleted.** A committed recording is part of the timeline and the
+  career ledger, and deleting one broke both. The Settings window's Data Management section is
+  gone, with its "Wipe All Recordings" and "Wipe All Milestones" buttons and their confirmation
+  dialogs. To stop seeing a recording, tick its Archive checkbox in the Recordings tab. Saves
+  that already used a wipe stay as they are.
+
 - **Settings: a round of fixes to the Settings window.**
-  - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
-    Management. Basic still shows Interface, Ghosts and Data Management.
+  - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics. Basic
+    shows Interface and Ghosts.
   - Basic / Advanced and Low / Medium / High draw the selected option as a pressed button, the
     way the Timeline, Kerbals and Career windows do, instead of a grey box, and every option
     keeps one fixed width, so the row no longer jumps when you switch.
