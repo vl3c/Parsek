@@ -502,12 +502,12 @@ namespace Parsek.Tests
             }
         }
 
-        // catches: an un-closed Aboard co-row of the same kerbal turning a respawn-on death
-        // into an ordinary open-ended hold with a stand-in (G1), in either row order;
-        // respawn off / unstamped already permanent and unchanged.
+        // catches: an un-closed Aboard co-row that overlaps the dead window turning a
+        // respawn-on death into an ordinary open-ended hold with a stand-in (G1), in either
+        // row order; respawn off / unstamped already permanent and unchanged.
         [Theory]
-        [InlineData(true, 50.0)]     // the open-ended flight is earlier than the death
-        [InlineData(true, 2000.0)]   // ... later than the death
+        [InlineData(true, 50.0)]     // the open-ended flight starts before the death
+        [InlineData(true, 2000.0)]   // ... after the death, before the respawn at 7500
         [InlineData(false, 50.0)]
         [InlineData(null, 2000.0)]
         public void DeathWithOpenEndedAboardCoRow_IsPermanentLoss_NoStandIn(bool? respawns, double coRowStartUT)
@@ -526,8 +526,78 @@ namespace Parsek.Tests
             Assert.Equal(respawns == true, suppressedLogged);
         }
 
+        // catches: a legitimate post-respawn reuse (flown again after the respawn, still
+        // aboard a station) reading Lost or losing the respawn.
+        [Fact]
+        public void OpenEndedFlightAfterTheRespawn_IsAnOrdinaryHold_RespawnIntact()
+        {
+            CommitDeath(true, 7200.0);           // dies at 300, respawns at 7500
+            CommitOpenEndedAboardFlight(8000.0); // flown again after the respawn, never recovered
+
+            KerbalsModule kerbals = Walk(9000.0);
+
+            var r = kerbals.Reservations[Jeb];
+            Assert.False(r.IsPermanent);
+            Assert.Equal(7500.0, r.DeathRespawnUT);
+            Assert.True(double.IsPositiveInfinity(r.ReservedUntilUT));
+            Assert.False(KerbalsModule.IsRespawnPendingHold(r));
+            Assert.False(KerbalsModule.IsLossHold(r));
+            Assert.True(kerbals.IsReservedNow(Jeb));
+            Assert.Equal(KerbalsPresentation.RosterStatus.Reserved,
+                KerbalsPresentation.ClassifyStatus(Jeb, false, false, r, null, null));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Death hold: 'Jebediah Kerman' respawn kept: open-ended co-row starts after the respawn"));
+            Assert.DoesNotContain(logLines, l => l.Contains("respawn suppressed: open-ended co-row"));
+        }
+
+        private static TimelineEntry DeathEntry()
+        {
+            var entries = TimelineBuilder.Build(
+                RecordingStore.CommittedRecordings,
+                new List<GameAction>(),
+                new List<Milestone>(),
+                null);
+            return entries.Find(e => e.Type == TimelineEntryType.CrewDeath
+                && e.RecordingId == RecordingId);
+        }
+
+        // catches: the Timeline promising a respawn for a death the walk made permanent
+        // (a looping chain), i.e. reading the raw stamp instead of the resolved hold.
+        [Fact]
+        public void Timeline_LoopingChainDeath_NamesNoRespawn()
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+            CommitLoopingSegment("chain-loop");
+            CommitDeath(true, 7200.0, chainId: "chain-loop");
+            Walk(1000.0);
+
+            TimelineEntry death = DeathEntry();
+
+            Assert.NotNull(death);
+            Assert.DoesNotContain("respawns after", death.DisplayText);
+        }
+
+        // catches: the same for an overlapping open-ended co-row, and the resolved lookup
+        // dropping the respawn text for a plain respawning death.
+        [Theory]
+        [InlineData(false, true)]    // plain respawn-on death: the text stays
+        [InlineData(true, false)]    // overlapping open-ended co-row: permanent, no text
+        public void Timeline_RespawnText_FollowsTheResolvedHold(bool overlappingCoRow, bool expectRespawnText)
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+            CommitDeath(true, 7200.0);
+            if (overlappingCoRow) CommitOpenEndedAboardFlight(2000.0);
+            Walk(1000.0);
+
+            TimelineEntry death = DeathEntry();
+
+            Assert.NotNull(death);
+            Assert.Equal(expectRespawnText, death.DisplayText.Contains("respawns after 2h 0m"));
+        }
+
         // catches: the post-merge rule touching anything but an open-ended respawn-on hold
-        // (a plain respawn-pending death, a finite later flight, a permanent death).
+        // whose co-row overlaps the dead window (a plain respawn-pending death, a finite
+        // later flight, a post-respawn open-ended reuse, a permanent death).
         [Fact]
         public void ResolveOpenEndedRespawnDeaths_ConvertsOnlyOpenEndedRespawnHolds()
         {
@@ -538,11 +608,16 @@ namespace Parsek.Tests
                 { "laterFlight", new KerbalsModule.KerbalReservation
                     { KerbalName = "laterFlight", ReservedUntilUT = 9000.0, DeathRespawnUT = 7500.0 } },
                 { "openEnded", new KerbalsModule.KerbalReservation
-                    { KerbalName = "openEnded", ReservedUntilUT = double.PositiveInfinity, DeathRespawnUT = 7500.0 } },
+                    { KerbalName = "openEnded", ReservedUntilUT = double.PositiveInfinity, DeathRespawnUT = 7500.0,
+                      OpenEndedCoRowStartUT = 1000.0 } },
+                { "reusedAfter", new KerbalsModule.KerbalReservation
+                    { KerbalName = "reusedAfter", ReservedUntilUT = double.PositiveInfinity, DeathRespawnUT = 7500.0,
+                      OpenEndedCoRowStartUT = 7500.0 } },
                 { "permanent", new KerbalsModule.KerbalReservation
                     { KerbalName = "permanent", ReservedUntilUT = double.PositiveInfinity, IsPermanent = true } },
                 { "aboardOnly", new KerbalsModule.KerbalReservation
-                    { KerbalName = "aboardOnly", ReservedUntilUT = double.PositiveInfinity } },
+                    { KerbalName = "aboardOnly", ReservedUntilUT = double.PositiveInfinity,
+                      OpenEndedCoRowStartUT = 50.0 } },
             };
 
             Assert.Equal(1, KerbalsModule.ResolveOpenEndedRespawnDeaths(holds));
@@ -553,12 +628,36 @@ namespace Parsek.Tests
             Assert.True(holds["openEnded"].IsPermanent);
             Assert.True(double.IsNaN(holds["openEnded"].DeathRespawnUT));
             Assert.True(KerbalsModule.IsLossHold(holds["openEnded"]));
+            Assert.False(holds["reusedAfter"].IsPermanent);
+            Assert.Equal(7500.0, holds["reusedAfter"].DeathRespawnUT);
+            Assert.False(KerbalsModule.IsLossHold(holds["reusedAfter"]));
             Assert.True(holds["permanent"].IsPermanent);
             Assert.False(holds["aboardOnly"].IsPermanent);
             Assert.False(KerbalsModule.IsLossHold(holds["aboardOnly"]));
             Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
                 && l.Contains("Death hold: 'openEnded' respawn suppressed: open-ended co-row"));
             Assert.Equal(0, KerbalsModule.ResolveOpenEndedRespawnDeaths(null));
+        }
+
+        // catches: the Timeline lookup naming a respawn the resolved hold does not grant.
+        [Fact]
+        public void ResolveTimelineRespawnSeconds_Cases()
+        {
+            var stamped = new Recording { CrewDeathRespawns = true, CrewDeathRespawnSeconds = 7200.0 };
+            var off = new Recording { CrewDeathRespawns = false, CrewDeathRespawnSeconds = 7200.0 };
+            var holds = new Dictionary<string, KerbalsModule.KerbalReservation>
+            {
+                { Jeb, new KerbalsModule.KerbalReservation
+                    { KerbalName = Jeb, ReservedUntilUT = 7500.0, DeathRespawnUT = 7500.0 } },
+                { "Bill", new KerbalsModule.KerbalReservation
+                    { KerbalName = "Bill", ReservedUntilUT = double.PositiveInfinity, IsPermanent = true } },
+            };
+
+            Assert.Equal(7200.0, KerbalsModule.ResolveTimelineRespawnSeconds(stamped, Jeb, holds));
+            Assert.True(double.IsNaN(KerbalsModule.ResolveTimelineRespawnSeconds(stamped, "Bill", holds)));
+            Assert.True(double.IsNaN(KerbalsModule.ResolveTimelineRespawnSeconds(stamped, "Val", holds)));
+            Assert.True(double.IsNaN(KerbalsModule.ResolveTimelineRespawnSeconds(off, Jeb, holds)));
+            Assert.True(double.IsNaN(KerbalsModule.ResolveTimelineRespawnSeconds(stamped, Jeb, null)));
         }
 
         // ------------------------------------------------------------------

@@ -203,6 +203,7 @@ namespace Parsek
             public bool IsChainRecording;
             public string ChainId;
             public string TreeId;
+            public double StartUT;
             public double EndUT;
             // The recording's stamped crew death respawn policy (Recording.CrewDeathRespawns
             // / CrewDeathRespawnSeconds); null = unstamped, a death is permanent.
@@ -227,6 +228,15 @@ namespace Parsek
             /// (<see cref="IsRespawnPendingHold"/>) the kerbal reads as lost until then.
             /// </summary>
             public double DeathRespawnUT = double.NaN;
+            /// <summary>
+            /// The earliest start UT among this kerbal's OPEN-ENDED non-death rows (an
+            /// un-closed Aboard / Unknown row, or any row a looping chain keeps open), or NaN
+            /// when none. <see cref="ResolveOpenEndedRespawnDeaths"/> compares it with
+            /// <see cref="DeathRespawnUT"/>: a row starting before the respawn keeps the
+            /// kerbal committed across the dead window (permanent loss); one starting at or
+            /// after it is a post-respawn reuse (ordinary hold, respawn intact).
+            /// </summary>
+            public double OpenEndedCoRowStartUT = double.NaN;
         }
 
         /// <summary>
@@ -244,41 +254,76 @@ namespace Parsek
 
         /// <summary>
         /// Owner decision 2026-09-26: a hold that carries a respawn-on death is a finite
-        /// respawn-pending hold only when nothing else keeps the kerbal open-ended. When the
-        /// merged hold is open-ended (an un-closed Aboard / Unknown co-row of the same kerbal)
-        /// the death is a PERMANENT loss: no stand-in, reads Lost, never respawns - the same
-        /// answer the data gives with respawn off, where the permanent death wins the merge.
-        /// A finite co-row that outlasts the respawn keeps the S8 ordinary hold. A looping
-        /// chain is made permanent per row in <see cref="ProcessAction"/>. Runs on the merged
-        /// reservation set, so the result never depends on row order. Returns the number of
-        /// holds converted.
+        /// respawn-pending hold only when nothing keeps the kerbal committed ACROSS the dead
+        /// window. An open-ended co-row of the same kerbal (an un-closed Aboard / Unknown row,
+        /// or a row a looping chain keeps open) that STARTS before the respawn UT overlaps
+        /// that window, so the death is a PERMANENT loss: no stand-in, reads Lost, never
+        /// respawns - the same answer the data gives with respawn off. An open-ended co-row
+        /// starting at or after the respawn UT is a post-respawn reuse (e.g. he flew again
+        /// to a station and is still aboard): the respawn stays intact and the later flight
+        /// is an ordinary hold. A finite co-row that outlasts the respawn keeps the S8
+        /// ordinary hold too. A death in a looping chain is made permanent per row in
+        /// <see cref="ProcessAction"/>. Runs on the merged reservation set (the earliest
+        /// open-ended start is carried through the merge), so the result never depends on
+        /// row order. Returns the number of holds converted.
         /// </summary>
         internal static int ResolveOpenEndedRespawnDeaths(
             Dictionary<string, KerbalReservation> holds)
         {
             if (holds == null) return 0;
             int converted = 0;
+            int kept = 0;
             foreach (var kvp in holds)
             {
                 KerbalReservation r = kvp.Value;
                 if (r == null || r.IsPermanent || double.IsNaN(r.DeathRespawnUT))
                     continue;
-                if (!double.IsPositiveInfinity(r.ReservedUntilUT))
+                if (double.IsNaN(r.OpenEndedCoRowStartUT))
                     continue;
+                if (r.OpenEndedCoRowStartUT >= r.DeathRespawnUT)
+                {
+                    kept++;
+                    ParsekLog.Verbose(Tag,
+                        $"Death hold: '{kvp.Key}' respawn kept: open-ended co-row starts after the respawn " +
+                        $"(coRowStartUT={FormatClockUT(r.OpenEndedCoRowStartUT)} " +
+                        $"respawnUT={FormatClockUT(r.DeathRespawnUT)}); ordinary hold for the later flight");
+                    continue;
+                }
                 ParsekLog.Verbose(Tag,
                     $"Death hold: '{kvp.Key}' respawn suppressed: open-ended co-row " +
-                    $"(respawnUT={FormatClockUT(r.DeathRespawnUT)}); permanent loss");
+                    $"(coRowStartUT={FormatClockUT(r.OpenEndedCoRowStartUT)} " +
+                    $"respawnUT={FormatClockUT(r.DeathRespawnUT)}); permanent loss");
                 r.IsPermanent = true;
+                r.ReservedUntilUT = double.PositiveInfinity;
                 r.DeathRespawnUT = double.NaN;
                 converted++;
             }
-            if (converted > 0)
+            if (converted > 0 || kept > 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"Death holds made permanent by an open-ended co-row: " +
-                    $"{converted.ToString(CultureInfo.InvariantCulture)}");
+                    $"Open-ended co-rows over respawn deaths: permanent={converted.ToString(CultureInfo.InvariantCulture)} " +
+                    $"respawnKept={kept.ToString(CultureInfo.InvariantCulture)}");
             }
             return converted;
+        }
+
+        /// <summary>
+        /// The respawn delay a Timeline death entry may name: the recording's stamped timer,
+        /// but only when the stamp says respawn on AND the walk's resolved hold for that
+        /// kerbal still carries a respawn (not permanent: no looping chain, no overlapping
+        /// open-ended co-row). NaN otherwise, including when no resolved hold is available,
+        /// so the Timeline never promises a respawn the reservation walk does not grant. Pure.
+        /// </summary>
+        internal static double ResolveTimelineRespawnSeconds(
+            Recording rec, string kerbalName,
+            IReadOnlyDictionary<string, KerbalReservation> resolvedHolds)
+        {
+            if (rec == null || rec.CrewDeathRespawns != true) return double.NaN;
+            if (resolvedHolds == null || string.IsNullOrEmpty(kerbalName)) return double.NaN;
+            KerbalReservation r;
+            if (!resolvedHolds.TryGetValue(kerbalName, out r) || r == null) return double.NaN;
+            if (r.IsPermanent || double.IsNaN(r.DeathRespawnUT)) return double.NaN;
+            return rec.CrewDeathRespawnSeconds;
         }
 
         /// <summary>
@@ -764,6 +809,7 @@ namespace Parsek
                     IsChainRecording = isChain,
                     ChainId = chainId,
                     TreeId = rec.TreeId,
+                    StartUT = rec.StartUT,
                     EndUT = rec.EndUT,
                     DeathRespawns = rec.CrewDeathRespawns,
                     DeathRespawnSeconds = rec.CrewDeathRespawnSeconds
@@ -954,11 +1000,21 @@ namespace Parsek
                 }
             }
 
+            // An open-ended non-death row: remember when it starts, so the post-merge rule
+            // can tell a row that spans the dead window from a post-respawn reuse.
+            double openEndedStartUT = (!dead && double.IsPositiveInfinity(endUT))
+                ? meta.StartUT : double.NaN;
+
             KerbalReservation existing;
             if (reservations.TryGetValue(name, out existing))
             {
-                // Merge: take max endUT, permanent wins, latest respawn instant kept
+                // Merge: take max endUT, permanent wins, latest respawn instant kept,
+                // earliest open-ended co-row start kept
                 if (permanent) existing.IsPermanent = true;
+                if (!double.IsNaN(openEndedStartUT)
+                    && (double.IsNaN(existing.OpenEndedCoRowStartUT)
+                        || openEndedStartUT < existing.OpenEndedCoRowStartUT))
+                    existing.OpenEndedCoRowStartUT = openEndedStartUT;
                 if (endUT > existing.ReservedUntilUT) existing.ReservedUntilUT = endUT;
                 if (!double.IsNaN(deathRespawnUT)
                     && (double.IsNaN(existing.DeathRespawnUT) || deathRespawnUT > existing.DeathRespawnUT))
@@ -977,7 +1033,8 @@ namespace Parsek
                     KerbalName = name,
                     ReservedUntilUT = endUT,
                     IsPermanent = permanent,
-                    DeathRespawnUT = deathRespawnUT
+                    DeathRespawnUT = deathRespawnUT,
+                    OpenEndedCoRowStartUT = openEndedStartUT
                 };
                 ParsekLog.Verbose(Tag,
                     $"Reservation: '{name}' endUT={( permanent ? "INDEFINITE" : endUT.ToString("F1") )} " +

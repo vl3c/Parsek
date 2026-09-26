@@ -1793,8 +1793,8 @@ _(unreleased — entries accumulate here per commit)_
   hover text, and the Timeline's "Lost" entry says when the kerbal respawns. A death whose
   outcome Parsek had already settled before this change keeps its permanent loss; a flight
   whose crew outcome is first settled after it follows your current setting. A death in a
-  looping mission, or of a kerbal another committed flight still holds with no end, stays
-  permanent.
+  looping mission, or of a kerbal another unfinished committed flight already had aboard
+  before the respawn came due, stays permanent; flying him again after the respawn does not.
 
 - **Settings: a round of fixes to the Settings window.**
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
