@@ -45,6 +45,89 @@ reference-local vector to world and then into the vessel frame. Both have unit t
 `|angVel|=0.8000` and the replay took spin-forward, so the ghost turned at the recorded
 rate. D17 `persistent-rotation` is claimed.
 
+## ~~GHOST-COMMNET-RELAYS-UNDER-REMOTETECH: ghost CommNet relays under RemoteTech~~ [FILED 2026-09-26 by the operator rulings of that day, branch `operator-rulings-0926`. NOT PLANNED]
+
+RemoteTech replaces stock CommNet, so stock creates no `CommNetScenario`, and
+`GhostCommNetMath.DecideAvailability` (`Source/Parsek/GhostCommNet.cs`) returns `CommNetDisabled`:
+Parsek registers no ghost CommNet node and logs `CommNet is off in scene ... (difficulty setting, or a
+mod such as RemoteTech that replaces CommNet)`. That is RemoteTech's only Parsek behaviour, and it
+stays, unit-tested by `GhostCommNetTests.DecideAvailability_AllCases` and
+`LogAvailability_OneLinePerOutcome`. Making ghosts relay under RemoteTech would mean integrating
+RemoteTech's own satellite API, which is out of scope. The registry cell D17 `remotetech-commnet` is
+retired with this ruling (it would only have proved that an unintegrated mod is not integrated).
+
+---
+
+## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override]
+
+Audit of every player-facing stock KSP 1.12.5 setting (new-game modes and presets, the 103
+`GameParameters` fields, the 306 `settings.cfg` keys, the Alt+F12 cheats) against what
+Parsek reads or assumes. Report and evidence: `docs/dev/research/ksp-settings-vs-parsek-2026-09-26.md`
+plus its three companion files. Every item below was invisible to the test estate: all
+committed fixtures carry Normal-preset values (x1 multipliers, quickload on, Kerbin
+calendar), and both the dev and the automation KSP instances run `MAX_VESSELS_BUDGET = 10000`,
+`DECLUTTER_KSC = False` where players run 250 / True. Each fix lands with a unit cell at a
+non-Normal value.
+
+Bugs (no ruling needed):
+
+- S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
+  pre-multiplier value to `subject.science`, then multiplies before `AddScience`; Parsek
+  captures `subject.science` (`GameStateRecorder`) and credits it as `ScienceAwarded`, so on
+  Easy (x2), Moderate (x0.9) and Hard (x0.6) the ledger drifts from the live pool and a rewind
+  resets science to the x1 total. Fix: stamp the multiplier at capture; never read the
+  current multiplier at replay.
+- S2. `Career.RepLossDeclined` (Normal 1, Hard 3) never reaches the ledger: `ContractDeclined`
+  is dropped in `GameStateEventConverter` and `ReputationPenaltySource.ContractDecline` is
+  never constructed, so a rewind refunds the reputation. Fix: a KSC-origin reputation
+  penalty row carrying the amount stock applied.
+- S3. Logistics hard-codes a 21600 s day: `LogisticsWindowUI.FormatDuration` switches to days
+  at 86400 s but divides by 21600 (24 h reads "4.0d"), and `RouteCadence` parses "d" as
+  21600 s on the Earth calendar too. Fix: route both through `ParsekTimeFormat`.
+- S4. A zero starting pool is never seeded (`EnsureInitialFundsSeed` seeds non-zero only;
+  the stock slider allows 0 funds, Science mode can start at 0 science), and the value wait
+  spins its full 600 frames on every load. Also `DeferredSeed` and
+  `ApplyBudgetDeductionWhenReady` wait 120 frames for currency singletons Science and
+  Sandbox never create.
+- S5. Ghost map vessels count toward the stock vessel budget: `Game.Updated` builds the
+  pruned `FlightState` before `ParsekScenario.OnSave` strips ghosts, and ghosts are live,
+  `prst=True`, non-Debris vessels in FLIGHT and TRACKSTATION, so each one pushes one real
+  debris vessel out of a player-default save (inferred from the decompile, not flown).
+  Related: a background-recorded debris vessel that stock pruned gets a silent on-rails
+  state after reload (add a load check and one summary log line); an autoclean recovery
+  matches pending-tree recordings by vessel NAME only (low); and
+  `ParsekFlight.EnforceMinDebrisPersistence` reflects for a GameSettings field that does not
+  exist in 1.12.5 (delete it).
+
+Owner rulings (2026-09-26):
+
+- S6 (Q4). The `stock-minimal` and `modded-compat` provision profiles run player defaults
+  (`MAX_VESSELS_BUDGET = 250`, `DECLUTTER_KSC = True`); re-fly the daily tier once after the
+  flip. The S5 fix gets unit and in-game cells, no dedicated low-budget lane.
+- S7 (Q1). Rewind-to-Separation and Re-Fly IGNORE `Flight.CanQuickLoad` / `Flight.CanRestart`
+  (they are Parsek's own time mechanic). Only the re-fly exit must stay reachable: stock
+  builds the Esc-menu Revert button only when `CanRestart`, so `ReFlyRevertButtonGate` alone
+  cannot surface Retry / Discard on the Hard preset (inferred, needs a live check).
+- S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
+  kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.
+- S9 (Q3). Parsek is inert (no recording, ghosts or rewind; one log line) in `MISSION`,
+  `MISSION_BUILDER`, `SCENARIO` and `SCENARIO_NON_RESUMABLE` games.
+
+Supervisor defaults (not overridden):
+
+- S10 (Q5). Parsek IMGUI windows ignore `GameSettings.UI_SCALE`; scale them to match. Separate
+  UI work, not in the fix PR.
+- S11 (Q6). Alt+F12 cheat currency (`TransactionReasons.Cheating`) stays unledgered and
+  clamp-held until the next rewind; log it once per event.
+
+To trace before filing as defects (low): `AllowNegativeCurrency` against reserved funds on
+spends no click-block covers; `AutoHireCrews` hire capture; Set Orbit / Set Position teleports
+inside a live recording; infinite-propellant recordings vs route cost manifests;
+`persistKerbalInventories` vs inventory-carrying recordings; alternate launch sites with
+`AllowOtherLaunchSites` off.
+
+---
+
 ## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
 
 The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
@@ -103,7 +186,7 @@ applier route tables, and the hlib / run smoke baseline cells.
 
 ---
 
-## ~~D1-COMMIT-ABORT-UNDEFINED: D1 `commit-abort` had no definition and no lane~~ [FILED AND CLOSED 2026-09-26 by `CA-1-commit-abort-booster-live`, coverage wave 14, branch `cov-commitabort`; the definition is a supervisor ruling PENDING OPERATOR CONFIRMATION]
+## ~~D1-COMMIT-ABORT-UNDEFINED: D1 `commit-abort` had no definition and no lane~~ [FILED AND CLOSED 2026-09-26 by `CA-1-commit-abort-booster-live`, coverage wave 14, branch `cov-commitabort`; the definition is OPERATOR-CONFIRMED 2026-09-26]
 
 **Definition (registry D1 block).** The post-destruction auto-merge is ABORTED because the ACTIVE
 vessel was destroyed while another leaf of the same tree is a NON-DEBRIS blocker (still live, or
@@ -164,10 +247,10 @@ save folder and its Launch threw `UnauthorizedAccessException` writing the auto-
 in the spec, read off the log (the clock stopped 10 s before the loop departure), not a replay defect; the armed
 re-flight `2026-09-25_2338` with a `TimeJump` into the replay window is green.
 
-## HARVEST-PROVENANCE-CLAIMED-ON-A-SYNTHETIC-DRILL: D10 `harvest-provenance` rests on the M2 synthetic drill tree, not on a flown drill [FILED 2026-09-25 by coverage wave 2 (branch `cov-wave2`). OPEN, low; an operator confirmation, not a defect]
+## ~~HARVEST-PROVENANCE-CLAIMED-ON-A-SYNTHETIC-DRILL: D10 `harvest-provenance` rests on the M2 synthetic drill tree, not on a flown drill~~ [FILED 2026-09-25 by coverage wave 2 (branch `cov-wave2`). CLOSED 2026-09-26: the scoped claim is operator-confirmed]
 
 `HV-1-harvest-route-analysis` claims the cell SCOPED to "the route planner treats drilled
-cargo as its own origin" (supervisor ruling 2026-09-25): the synthetic tree
+cargo as its own origin" (operator-confirmed 2026-09-26): the synthetic tree
 `tree-drill-harvest-m2` (two witnessed harvest windows on an undocked-start Minmus run)
 makes `RouteAnalysisEngine.AnalyzeTree` take its harvest-origin branch in-game
 (`undocked start fully harvest-covered -> harvest origin originRec=m2-drill-root`,
@@ -177,13 +260,32 @@ windows into a recording that a route is then built from. The capture half has i
 evidence (H38's `Harvest funnel consumed at transition` token; the catch-up cell still
 self-skips for want of a drill rig landed on ore).
 
-**Owed:** the operator confirms the scoped claim, or rules that the cell needs the
-live-drill flight (a drill rig landed on ore, recorded, docked at a depot, committed, then
+**Confirmed 2026-09-26:** the operator confirmed the scoped claim; the
+live-drill flight stays optional (a drill rig landed on ore, recorded, docked at a depot, committed, then
 the route built from it - the supply-route hand-off). Also measured on the same run and
 NOT claimed: the drill tree's synthetic `m2-drill-delivery` window lets
 `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` pass on this host (41 / 6 against
 H38's 39 / 8); that is a shape check over a synthetic window, not a recorded dock capture.
-## EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL: a ground-science part a kerbal places on EVA is recorded against a pid the kerbal's recording does not carry, so the analyzer reds and the ghost never shows the placed part [FILED 2026-09-26 by coverage wave 10, run `2026-09-25_2341` (`EVA-5-ground-science-place-pickup`). PRODUCT DEFECT, open; DESIGN QUESTION FOR THE OPERATOR below. EVA-5 is `[expectedFail]` on this id]
+## ~~EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL: a ground-science part a kerbal places on EVA is recorded against a pid the kerbal's recording does not carry, so the analyzer reds and the ghost never shows the placed part~~ [FILED 2026-09-26 by coverage wave 10, run `2026-09-25_2341` (`EVA-5-ground-science-place-pickup`). FIXED 2026-09-26, branch `eva-placed-part-member`, owner ruling 2026-09-26: option (1)]
+
+**Fix.** The placed part gets its OWN recording and ghost, a tree member created at the placement
+(design: `docs/parsek-flight-recorder-design.md` section 4.11). A new additive
+`BranchPointType.GroundPartPlaced = 9` (no schema generation bump) has parent = the kerbal's
+recording, which keeps recording (its `ChildBranchPointId` is not set, so it stays an ordinary leaf),
+and child = the member: background-recorded, not debris, no parent-anchor contract,
+`RecordedVesselGuid` from the placed vessel. `InventoryPartPlaced` / `InventoryPartRemoved` now go on
+the MEMBER keyed by the placed part's own pid, so INV4 resolves by construction and the ghost shows the
+part until the pick-up. The pick-up stamps the member `Disassembled` (reason `GroundPartRetrieved`)
+through the existing disassembly seam, from the first Removed signal or a live
+`ModuleGroundPart.deployedOnGround == false` read (the Central Station fires no Removed event). A part
+still placed at the end is a spawnable leaf like any other vessel the tree leaves behind. The
+switch-segment subtree walk (scoped Discard, no-op auto-discard) finds the member by parent id.
+Pure helpers `GroundPartPlacement` + `ParsekFlight.GroundPartPlacement.cs`; cells in
+`GroundPartPlacementTests`; generators `RecordingBuilder.AsPlacedGroundPart` and
+`ScenarioWriter.GroundPartPlacedBranch` / `MaterializeTree(..., branchPoints)`. EVA-5 is re-armed (no
+`[expectedFail]`) and claims D7 `inventory-place-remove`. Follow-ups filed:
+REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS, EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE.
+
 
 **Fingerprint.** The offline analyzer's `INV4-PARTEVENT-PID` rule, `unresolved-pid`:
 `FAIL INV4-PARTEVENT-PID ... INV4 unresolved-pid recording=541b245cfda94d9580b3651faeb51d64 pid=4140861083 event=InventoryPartPlaced`
@@ -219,7 +321,18 @@ with playback spawning a static ghost part at the Placed event and removing it a
 Either shape makes INV4 resolvable by construction; the current shape cannot be. Re-arm EVA-5 by removing
 its `[expectedFail]` table once the chosen fix lands: its contract set already passed offline on `_2341`.
 
-## INVENTORY-PLACED-FIRES-ON-ANY-LANDED-EXPERIMENT-LOAD: the recorder logs `InventoryPartPlaced` for every unlinked ground experiment whose part starts while recording, not only for a placement [FILED 2026-09-26 by coverage wave 10, from the decompile. REPORT-ONLY, not observed in a flight]
+## ~~INVENTORY-PLACED-FIRES-ON-ANY-LANDED-EXPERIMENT-LOAD: the recorder logs `InventoryPartPlaced` for every unlinked ground experiment whose part starts while recording, not only for a placement~~ [FILED 2026-09-26 by coverage wave 10, from the decompile. FIXED 2026-09-26 with EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL, branch `eva-placed-part-member`]
+
+**Fix.** `onGroundSciencePartDeployed` is no longer a placement signal and records nothing (a Verbose
+diagnostic only). A placement is stock's `onDeployGroundPart(partName)`, which fires only from the
+confirm press in `ModuleInventoryPart.OnUpdate` on the ACTIVE vessel, matched to the vessel
+`Game.AddVessel` announced through `onNewVesselCreated` in the same frame (single part in its
+ProtoVessel, same part name, not already a tree member), while the active vessel is the EVA kerbal the
+tree records in the foreground (pure gate `GroundPartPlacement.EvaluatePlacement`; every refusal logs
+`Ground part placement not recorded: reason=...`). The double `onGroundSciencePartRemoved` per pick-up
+is deduplicated: the first records `InventoryPartRemoved` on the member, the second logs
+`repeat pick-up signal ... deduplicated`.
+
 
 Decompiled `ModuleGroundSciencePart.OnStart` fires `GameEvents.onGroundSciencePartDeployed` whenever the
 part starts landed, is not a `DroppedPart`, is not a Central Station (`ModuleGroundExpControl`), and has
@@ -232,6 +345,27 @@ EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL). Whichever fix that entry's ru
 which starts count as a placement. Also measured on `2026-09-25_2341`: one pick-up fires
 `onGroundSciencePartRemoved` TWICE (`ModuleGroundPart.RetrievePart`, then `OnRetractCompleted` about 4.7 s
 later), so the recording carries two `InventoryPartRemoved` events per pick-up.
+
+## REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS: re-flying an EVA kerbal does not supersede a ground part it placed in the re-flown interval [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. DESIGN DECISION, open]
+
+A placed ground part's member recording has its own pid, so the Re-Fly supersede closure
+(`EffectiveState.ComputeSubtreeClosureInternal`) treats it as a side-off branch: the same-pid gate skips
+it, and `EnqueueDebrisChildren` admits debris only, by explicit design ("a separate design decision").
+Re-flying the kerbal from an EVA rewind point therefore keeps the old placement's ghost and its
+end-of-flight spawn next to whatever the new flight places, exactly as a controlled-decoupled child is
+kept today. Options: (1) admit GroundPartPlaced children whose branch point's parents include the
+dequeued recording and whose start is after the rewind UT (the placement is the kerbal's action, not a
+separate vessel's flight), or (2) keep the side-off policy. The switch-segment scoped Discard already
+owns the member (it walks GroundPartPlaced children by parent id).
+
+## EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. AUTOTEST GAP, open]
+
+EVA-5 picks its part up (Disassembled, never spawned), and every EVA fixture places on the launch pad,
+where a part left behind is retired by the KSC exclusion zone (50 m) instead of spawned. The
+still-placed answer is pinned headlessly (`GroundPartPlacementTests`: a Landed member is a spawnable
+leaf, a Disassembled one is not). A live lane needs an off-pad crewed landed host (a fixture landed more
+than 50 m from the pad, or a walk verb), then: place without picking up, board, commit, rewind to before
+the placement, and assert the member's spawn line after its end UT.
 
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 
@@ -314,7 +448,7 @@ orbit-only checkpoint branch and Absolute points only - the checkpoint-with-fram
 position, so a small chord term in the residual), body-fixed primary and recorded-anchor RELATIVE
 decodes are implemented and unit-plumbed but not yet read live.
 
-## ~~MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load~~ [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`; FIXED 2026-09-26 on branch fix-mission-clone-loop, supervisor ruling: clone disarms its loop, pending operator confirmation]
+## ~~MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load~~ [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`; FIXED 2026-09-26 on branch fix-mission-clone-loop, supervisor ruling: clone disarms its loop, CONFIRMED by the operator 2026-09-26]
 
 **Fix:** `MissionStore.Clone` (the only path that inserts a copy into the store; the Clone button
 and `UiAction op=clone` both call it) sets the copy's `LoopPlayback` to false when the source
@@ -329,8 +463,11 @@ enable`. Cells: `MissionStoreTests.Clone_OfLoopingMission_LeavesExactlyOneLoopOn
 `Clone_CopiesSelection_IntoAnIndependentMission`. `MS-1-mission-leg-trim-clone` drops the copy's
 `MissionLoopUnit` token (it only existed because of this defect), pins `loop=false` plus the new
 store line, and forbids `already owned by another looping unit`; those tokens are re-cut from
-source and not yet re-read on a flight. The Clone tooltip ("its own include set, loop period, and
-Archive flag") stays true. Route backing missions (`RouteBackingMission.BuildMission`) are
+source and not yet re-read on a flight. The Clone tooltip now also says a looping mission's copy
+starts with Loop off (operator request with the confirmation; the Loop toggle's own tooltip
+already names the one-loop-per-tree clear). Operator context: mission looping is mostly a
+debugging surface today and its player-facing controls may be removed in a later version, once
+the looping system and Logistics (which depends on it) are proven bug-free. Route backing missions (`RouteBackingMission.BuildMission`) are
 synthesized per frame and never inserted into the store, so they are not a copy path.
 
 
@@ -455,8 +592,8 @@ action row typed `LegacyEvent` or whose text is the raw enum name. Unit cells in
 ## ~~SAFE-WRITE-CRASH-AFTER-TEMP-HAS-NO-LANE: D16 `safe-write` needs a crash hook between the temp write and the swap~~ [FILED 2026-09-25, coverage wave 4, branch `cov-ingame`; CLOSED 2026-09-26 by `ST-4-safe-write-crash-after-temp`, coverage wave 13, branch `cov-safewrite`]
 
 Catalog item F5: a crash after `FileIOUtils` wrote `<path>.tmp` but before the swap must leave the
-previous file intact, and the next load must recover. Closed inside ONE boot (supervisor ruling
-2026-09-25, pending operator confirmation), with no relaunch:
+previous file intact, and the next load must recover. Closed inside ONE boot (operator-confirmed
+2026-09-26), with no relaunch:
 
 - **Hook.** `FileIOUtils.MaybeInjectCrashAfterTemp` runs in `SafeWriteBytes` and `SafeWriteConfigNode`
   after the temp file is verified and before the swap. It is armed only by `ArmCrashAfterTemp(pattern,
@@ -573,16 +710,15 @@ provisioned kRPC settings stamp `mainWindowVisible = False` (the servers start f
 
 ---
 
-## COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave [FILED 2026-09-25, branch `cov-wave1`. OPEN]
+## ~~COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave~~ [FILED 2026-09-25, branch `cov-wave1`. CLOSED 2026-09-26: rulings operator-confirmed, and the `atmosphere` residue closed by AT-1]
 
-**Pending operator confirmation (supervisor rulings 2026-09-25, applied in the registry):**
+**Operator-confirmed 2026-09-26 (supervisor rulings 2026-09-25, applied in the registry):**
 retire D13 `proximity-offset` (code removed, VesselSpawner.cs:19), D12 `reservation-auto-hire`
 (never produced; stand-ins replaced it) and D14 `situation` (an axis, not a behaviour); define
 D14 `atmosphere` ("a recording replays correctly around a non-Kerbin atmospheric body", claimed
 on V16M) and `warp-1x` ("ghosts replayed at 1x, seen in the render warp histogram", claimed on
 V14M); count EX-1's pad retirement as D13 `ksc-exclusion`; D13 `pid-dedup` is a separate cell
-from D6 `spawn-at-end-pid-dedup`. If any is overruled, revert that registry entry and the
-matching `[dimensionsCovered]` line.
+from D6 `spawn-at-end-pid-dedup`.
 
 **Left uncovered on purpose:**
 - ~~D16 `alias-mode`~~ DONE 2026-09-26 (coverage wave 5, branch `cov-wave5`): claimed on
@@ -594,8 +730,12 @@ matching `[dimensionsCovered]` line.
 - ~~D16 `deflate-snapshots`~~ DONE 2026-09-26 (same lane): instead of a load-side log line, the
   cell probes every committed sidecar's DeflateV1 header, decodes it against the snapshot the
   product loaded, and round-trips a live vessel snapshot through the product writer and reader.
-- D14 `atmosphere` is claimed on an ORBITAL Laythe replay; a replay descending into a non-Kerbin
-  atmosphere is not gated anywhere.
+- ~~D14 `atmosphere` is claimed on an ORBITAL Laythe replay; a replay descending into a non-Kerbin
+  atmosphere is not gated anywhere.~~ DONE 2026-09-26: the claim moved to
+  `AT-1-duna-atmospheric-descent`, which replays `duna-park-recorded`'s recording `acf1435a`
+  (all Atmospheric on Duna) through the mission loop's descent trigger; the engine drives and
+  spawns the ghost on Duna at 26,913.5 m. Reading `2026-09-26_1816`, armed `_1819`, negative
+  control offline.
 
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect]
 
@@ -1446,8 +1586,8 @@ handlers commit or discard the live tree, and the consume then takes
 `ParsekFlight.TryRouteCommittedSpawnedClone` path B, which clones the half's OWN committed tree and
 attaches the segment under the half's own tip - lineage, exactly what run `2026-09-22_2239`
 measured. Answering the boot dialog changes which dialog stands, not where the segment lands.
-Route B (supervisor ruling 2026-09-25, accepted by the coordinator, pending operator
-confirmation): the injected `background-claim` preset gives `eva2-lko-crewed` one committed tree
+Route B (accepted by the coordinator, operator-confirmed
+2026-09-26): the injected `background-claim` preset gives `eva2-lko-crewed` one committed tree
 whose second recording is a PARENTLESS, branch-point-free background recording of the save's real
 Kerbal X Probe (pid 2614652043) with an engine ignite / shutdown - the shape
 `PrepareActiveTreeForFreshPostSwitchRecording` (no `FreshStartParentRecordingId`) and
@@ -13012,7 +13152,7 @@ a recorder AND applier change. BAY-1 sidesteps it: its fixture copy of the Malla
 bays to `deployPercent = 100`, so the lane gates a full door cycle and this gap stays visible
 here rather than being flown away.
 
-## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. OPERATOR CONFIRMATION PENDING on the supervisor's ruling]
+## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. The route-driven ruling is OPERATOR-CONFIRMED 2026-09-26]
 
 The registry names the road (roadmap routing roads: a rendezvous mission relaunched against
 the station's live orbit). V18T is the only lane whose extraction emits a `VesselOrbital`
@@ -13111,8 +13251,8 @@ UPDATE 2026-09-26 (coverage wave 10): the two `InventoryPart*` families are now 
 rather than by kRPC or a craft. `EvaGroundScience action=place|pickup` drives the stock EVA inventory slot
 click plus the confirm key, and the ground part's own Pick Up event (not EVA construction mode: a
 ground-science placement is inventory placement). Lane `EVA-5-ground-science-place-pickup` flies it; it is
-EXPECTED-FAIL on EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL, and the D7 cell stays unclaimed until
-that design ruling.
+re-armed 2026-09-26: the placed part is its own tree member (GroundPartPlaced), and EVA-5 claims the D7
+`inventory-place-remove` cell off the member's ghost applying both families `applied=1`.
 
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 

@@ -1314,6 +1314,8 @@ namespace Parsek
             GameEvents.onVesselsUndocking.Add(OnVesselsUndocking);
             GameEvents.onGroundSciencePartDeployed.Add(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
+            GameEvents.onNewVesselCreated.Add(OnNewVesselCreatedForGroundPart);
+            GameEvents.onDeployGroundPart.Add(OnDeployGroundPart);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
             GameEvents.onVesselWasModified.Add(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
@@ -2277,6 +2279,8 @@ namespace Parsek
             GameEvents.onVesselsUndocking.Remove(OnVesselsUndocking);
             GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
+            GameEvents.onNewVesselCreated.Remove(OnNewVesselCreatedForGroundPart);
+            GameEvents.onDeployGroundPart.Remove(OnDeployGroundPart);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
             GameEvents.onVesselWasModified.Remove(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
@@ -11679,44 +11683,6 @@ namespace Parsek
         private void ClearPendingUndockSeed()
         {
             pendingUndockRootPartSeed = null;
-        }
-
-        void OnGroundSciencePartDeployed(ModuleGroundSciencePart deployedPart)
-        {
-            RecordInventoryPlacementEvent(
-                deployedPart,
-                PartEventType.InventoryPartPlaced,
-                "onGroundSciencePartDeployed");
-        }
-
-        void OnGroundSciencePartRemoved(ModuleGroundSciencePart removedPart)
-        {
-            RecordInventoryPlacementEvent(
-                removedPart,
-                PartEventType.InventoryPartRemoved,
-                "onGroundSciencePartRemoved");
-        }
-
-        void RecordInventoryPlacementEvent(
-            ModuleGroundSciencePart module,
-            PartEventType eventType,
-            string sourceEvent)
-        {
-            if (recorder == null || !recorder.IsRecording) return;
-            Part p = module?.part;
-            if (p == null) return;
-
-            var evt = new PartEvent
-            {
-                ut = Planetarium.GetUniversalTime(),
-                partPersistentId = p.persistentId,
-                eventType = eventType,
-                partName = p.partInfo?.name ?? "unknown",
-                moduleIndex = 0
-            };
-            recorder.PartEvents.Add(evt);
-
-            Log($"Part event captured: {eventType} '{evt.partName}' pid={evt.partPersistentId} via {sourceEvent}");
         }
 
         /// <summary>

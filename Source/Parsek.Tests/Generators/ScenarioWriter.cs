@@ -106,13 +106,18 @@ namespace Parsek.Tests.Generators
         /// derives the stash state from it: non-null =&gt; <c>Limbo</c>, null =&gt;
         /// <c>LimboVesselSwitch</c> (bug #266's outsider shape).
         /// </param>
+        /// <param name="branchPoints">
+        /// Optional branch points for the emitted tree (see <see cref="MaterializeTree"/>).
+        /// Null on every fixture that predates them, which keeps those trees BP-free.
+        /// </param>
         public ScenarioWriter AddRecordingsAsTree(
             IEnumerable<RecordingBuilder> builders,
             string markerKey = null,
-            string activeRecordingId = null)
+            string activeRecordingId = null,
+            IEnumerable<BranchPoint> branchPoints = null)
         {
             var builderList = ValidateTreeBuilders(builders);
-            var tree = MaterializeTree(builderList, activeRecordingId);
+            var tree = MaterializeTree(builderList, activeRecordingId, branchPoints);
             AddSerializedTree(tree, markerKey);
             RegisterV3Builders(builderList);
             return this;
@@ -130,9 +135,15 @@ namespace Parsek.Tests.Generators
         /// leaves a fixture makes spawnable is wrong if it assumes otherwise, and
         /// re-deriving it against a lookalike would reproduce the assumption instead of
         /// catching it.</para>
+        /// <para>Optional <paramref name="branchPoints"/> are added as given; each child
+        /// named in a branch point gets that point as its <c>ParentBranchPointId</c>, and
+        /// each parent gets it as its <c>ChildBranchPointId</c> EXCEPT for a
+        /// <see cref="BranchPointType.GroundPartPlaced"/> point, whose parent (the placing
+        /// kerbal) keeps recording, exactly as the live recorder leaves it.</para>
         /// </summary>
         public static RecordingTree MaterializeTree(
-            IEnumerable<RecordingBuilder> builders, string activeRecordingId = null)
+            IEnumerable<RecordingBuilder> builders, string activeRecordingId = null,
+            IEnumerable<BranchPoint> branchPoints = null)
         {
             var builderList = ValidateTreeBuilders(builders);
 
@@ -164,7 +175,45 @@ namespace Parsek.Tests.Generators
                 tree.Recordings[recordings[i].RecordingId] = recordings[i];
             }
 
+            if (branchPoints != null)
+            {
+                foreach (BranchPoint bp in branchPoints)
+                {
+                    if (bp == null) continue;
+                    tree.BranchPoints.Add(bp);
+                    foreach (string childId in bp.ChildRecordingIds)
+                    {
+                        if (tree.Recordings.TryGetValue(childId, out Recording child))
+                            child.ParentBranchPointId = bp.Id;
+                    }
+                    if (bp.Type == BranchPointType.GroundPartPlaced) continue;
+                    foreach (string parentId in bp.ParentRecordingIds)
+                    {
+                        if (tree.Recordings.TryGetValue(parentId, out Recording parent))
+                            parent.ChildBranchPointId = bp.Id;
+                    }
+                }
+            }
+
             return tree;
+        }
+
+        /// <summary>
+        /// The branch point the live recorder writes when an EVA kerbal places a ground
+        /// part (docs/parsek-flight-recorder-design.md section 4.11): parent = the
+        /// kerbal's recording, child = the placed part's member recording.
+        /// </summary>
+        public static BranchPoint GroundPartPlacedBranch(
+            string branchPointId, string kerbalRecordingId, string memberRecordingId, double placementUT)
+        {
+            return new BranchPoint
+            {
+                Id = branchPointId,
+                UT = placementUT,
+                Type = BranchPointType.GroundPartPlaced,
+                ParentRecordingIds = new List<string> { kerbalRecordingId },
+                ChildRecordingIds = new List<string> { memberRecordingId }
+            };
         }
 
         private static List<RecordingBuilder> ValidateTreeBuilders(

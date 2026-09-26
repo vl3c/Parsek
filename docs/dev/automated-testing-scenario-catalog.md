@@ -108,7 +108,9 @@ report; headline values only here.
   .txt mirrors, alias mode, .sfs scenario node, schema gate (format 1 /
   generation 4), path validation, safe-write, pre-Parsek backup.
 - **D17 Mod compatibility**: Waterfall + SWE pristine fallback, ReStock/+,
-  PersistentRotation, BetterTimeWarp, RemoteTech/CommNet, Making History.
+  PersistentRotation, BetterTimeWarp, Making History. (RemoteTech/CommNet was
+  retired 2026-09-26: Parsek's only RemoteTech behaviour is switching ghost
+  CommNet off, which is unit-tested.)
   Runs ONLY on the modded-compat instance profile (plan section 10), with ONE
   exception ruled 2026-09-15 (register B5): Making History is junctioned into
   every instance as a stock asset payload, so its cell is alt-site launch

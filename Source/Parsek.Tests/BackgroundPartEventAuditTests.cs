@@ -22,7 +22,8 @@ namespace Parsek.Tests
     ///
     /// NOT APPLICABLE (handled elsewhere):
     ///   Docked / Undocked -- branch management in ParsekFlight
-    ///   InventoryPartPlaced / InventoryPartRemoved -- EVA-only, active vessel
+    ///   InventoryPartPlaced / InventoryPartRemoved -- written by ParsekFlight onto the
+    ///     placed ground part's own tree member (GroundPartPlacement)
     /// </summary>
     [Collection("Sequential")]
     public class BackgroundPartEventAuditTests : System.IDisposable

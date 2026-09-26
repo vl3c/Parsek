@@ -100,8 +100,7 @@ schema = 1
 #   sub-2-point-drop", wording that predates always-tree mode and describes a path
 #   their own commits no longer take; both are corrected in the same change.
 #
-# "commit-abort" (DEFINED 2026-09-26 by SUPERVISOR RULING, PENDING OPERATOR
-# CONFIRMATION; claimed by CA-1-commit-abort-booster-live): the post-destruction
+# "commit-abort" (DEFINED 2026-09-26, OPERATOR-CONFIRMED 2026-09-26; claimed by CA-1-commit-abort-booster-live): the post-destruction
 # auto-merge is ABORTED because the ACTIVE vessel was destroyed while another leaf of
 # the same tree is still a blocker that is NOT debris, and the tree keeps recording
 # instead of finalizing. Code: ParsekFlight.ClassifyPostDestructionMergeResolution
@@ -228,14 +227,14 @@ values = ["basic-playback", "loop-period-modes", "self-overlap", "overlap-expiry
           "watch-entry-distance-cutoff"]
 
 [D7]  # part events
-# `inventory-place-remove` SCOPE NOTE (coverage wave 10, 2026-09-26): UNCLAIMED, pending
-# the operator's design ruling on todo EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL.
-# `EVA-5-ground-science-place-pickup` drives the stock placement and pick-up (seam verb
-# EvaGroundScience) and is EXPECTED-FAIL on the analyzer's INV4 unresolved-pid finding. Its
-# evidence is DISPATCH-ONLY: the recorder captures InventoryPartPlaced / Removed with the
-# placed part's pid and the replay consumes both on the kerbal's ghost (reason
-# no-info-for-part), but the ghost never shows the placed part. A future claim off EVA-5
-# alone would therefore be a dispatch claim, and must say so here.
+# `inventory-place-remove` SCOPE NOTE (re-armed 2026-09-26): CLAIMED by
+# `EVA-5-ground-science-place-pickup` under the owner ruling on todo
+# EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL (option 1). A placed ground part is its own
+# tree member (BranchPointType.GroundPartPlaced, docs/parsek-flight-recorder-design.md section
+# 4.11), so the claim is VISUAL, not dispatch-only: the member's ghost is built and its own
+# InventoryPartPlaced / InventoryPartRemoved events apply `applied=1` to the part it carries.
+# Spawn-at-end of a still-placed part is not part of this claim (todo
+# EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE).
 values = ["decouple-stage-destroy", "engine-fx-legacy", "engine-fx-effects",
           "engine-fx-waterfall-fallback", "rcs", "chute-two-phase", "chute-cut", "shroud",
           "fairing", "panels-antennas-radiators", "gear", "bays", "lights", "dock-undock",
@@ -593,11 +592,11 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # REQUIRED, never forbidden: the re-pin record above shows a forbidden `Stand-in
 # generated` passing exactly when the tombstone did nothing.
 #
-# COVERAGE WAVE 1 (2026-09-25, branch `cov-wave1`). Every entry below is a
-# "supervisor ruling 2026-09-25, pending operator confirmation" where it says so.
+# COVERAGE WAVE 1 (2026-09-25, branch `cov-wave1`). Every entry below that says
+# "operator-confirmed 2026-09-26" was a supervisor ruling of 2026-09-25, confirmed by the
+# operator on 2026-09-26.
 #
-# `reservation-auto-hire` IS RETIRED (supervisor ruling 2026-09-25, pending operator
-# confirmation) and removed from the list: nothing in Source/Parsek produces it (no
+# `reservation-auto-hire` IS RETIRED (operator-confirmed 2026-09-26) and removed from the list: nothing in Source/Parsek produces it (no
 # auto-hire path exists; grep `AutoHire` / `auto-hire` returns only this registry's
 # history), and the behaviour it named - fill a reserved seat by hiring - is what the
 # generated stand-in does, which `stand-ins` already names and CL-4 claims. The
@@ -622,8 +621,7 @@ values = ["stand-ins", "seat-matching", "rescue-marker",
 [D13]  # spawn safety
 # COVERAGE WAVE 1 (2026-09-25, branch `cov-wave1`):
 #
-# `proximity-offset` IS RETIRED (supervisor ruling 2026-09-25, pending operator
-# confirmation) and removed from the list: the code is gone - VesselSpawner.cs:19
+# `proximity-offset` IS RETIRED (operator-confirmed 2026-09-26) and removed from the list: the code is gone - VesselSpawner.cs:19
 # "Proximity offset removed - spawn collision detection now uses bounding box" - and
 # its successor is `bbox-block`. docs/user-guide.md's "Proximity offset" bullet was
 # corrected in the same change. The retirement lowers the denominator by one.
@@ -634,7 +632,7 @@ values = ["stand-ins", "seat-matching", "rescue-marker",
 #
 # `ksc-exclusion` - a flight whose end lies in the KSC exclusion zone. The operator
 # ruled on 2026-09-23 that such a flight is RETIRED (no vessel, crew freed), and the
-# supervisor ruling of 2026-09-25 (pending operator confirmation) counts that
+# ruling (operator-confirmed 2026-09-26) counts that
 # retirement as the cell. DECLARER: EX-1-ghost-extension-past-endut, off its
 # already-required `Spawn RETIRED for #N (..): flight ended within KSC exclusion zone
 # (pad) - no vessel` (VesselSpawner.cs:2387).
@@ -642,8 +640,7 @@ values = ["stand-ins", "seat-matching", "rescue-marker",
 # `pid-dedup` - the TRACKING-STATION spawn handoff refusing a second copy of a vessel
 # whose real pid already exists (`Tracking-station handoff skipped duplicate spawn
 # for #N ... real vessel pid=P already exists`, GhostMapPresence.cs:7530). A SEPARATE
-# cell from D6 `spawn-at-end-pid-dedup` (supervisor ruling 2026-09-25, pending
-# operator confirmation). DECLARER: V22T-kerbin-splashdown-ts-arrival.
+# cell from D6 `spawn-at-end-pid-dedup` (operator-confirmed 2026-09-26). DECLARER: V22T-kerbin-splashdown-ts-arrival.
 values = ["bbox-block", "trajectory-walkback", "terrain-correction",
           "ksc-exclusion", "situation-correction", "surface-orbit-reseed", "pid-dedup",
           "three-cycle-abandon", "terminal-orbit-safety", "real-spawn-control"]
@@ -651,21 +648,23 @@ values = ["bbox-block", "trajectory-walkback", "terrain-correction",
 [D14]  # environment axes (multipliers)
 # COVERAGE WAVE 1 (2026-09-25, branch `cov-wave1`):
 #
-# `situation` IS RETIRED (supervisor ruling 2026-09-25, pending operator
-# confirmation) and removed from the list: it named an AXIS (vessel situation), not
+# `situation` IS RETIRED (operator-confirmed 2026-09-26) and removed from the list: it named an AXIS (vessel situation), not
 # a behaviour a lane can gate, and the situations that matter already have their own
 # cells (D1 commit-landed-foreign-body / commit-in-foreign-soi, D13
 # situation-correction). The retirement lowers the denominator by one.
 #
-# `atmosphere` IS DEFINED (supervisor ruling 2026-09-25, pending operator
-# confirmation) as "a recording replays correctly around a non-Kerbin atmospheric
-# body". DECLARER: V16M-laythe-player-loop, off its already-required Laythe
-# body-orbit render line plus the faithful-parity and seam-endpoint summaries.
-# SCOPE: that replay is orbital around Laythe; a replay descending INTO a
-# non-Kerbin atmosphere is not yet gated anywhere.
+# `atmosphere` IS DEFINED (operator-confirmed 2026-09-26) as "a recording replays
+# correctly around a non-Kerbin atmospheric body". DECLARER (since 2026-09-26):
+# AT-1-duna-atmospheric-descent, a replay DESCENDING THROUGH Duna's atmosphere. It loops
+# `duna-park-recorded` and jumps into the descent trigger's slice for recording `acf1435a`
+# (three Atmospheric TrackSections on Duna, 49,991 m -> 4,534 m); the flight engine drives
+# the ghost on it (`engine descent trigger member=12 ... phase=Descent render=True`, head in
+# the member's window) and spawns it on Duna inside the air (`Pending playback
+# interpolation: ... body='Duna' altitude=26913.5`). Reading `2026-09-26_1816`, armed
+# `_1819`, negative control offline (12 of 12 seeds red). The first declarer,
+# V16M-laythe-player-loop, replayed an ORBIT around Laythe and gave the claim up.
 #
-# `warp-1x` IS DEFINED (supervisor ruling 2026-09-25, pending operator
-# confirmation) as "ghosts replayed at 1x, seen in the render warp histogram".
+# `warp-1x` IS DEFINED (operator-confirmed 2026-09-26) as "ghosts replayed at 1x, seen in the render warp histogram".
 # DECLARER: V14M-ike-player-loop, off its armed renderComposition block's
 # `warpBuckets = ["warp1x"]` (RC-WARP reds on zero 1x dwell frames; measured 173 /
 # 177). A 1x-only histogram claims NOTHING about warped rendering: RC-WARP's
@@ -682,8 +681,7 @@ values = ["bbox-block", "trajectory-walkback", "terrain-correction",
 #
 # COVERAGE WAVE 12 (2026-09-26, branch `cov-editor`):
 #
-# `scene-editor` IS DEFINED (supervisor ruling 2026-09-25, pending operator
-# confirmation) as: a player with committed recordings whose ghosts are pending goes to
+# `scene-editor` IS DEFINED (operator-confirmed 2026-09-26) as: a player with committed recordings whose ghosts are pending goes to
 # the VAB/SPH mid-timeline, then returns or launches; afterwards the timeline and ghosts
 # are intact - no recordings lost or duplicated, ghosts still replay, the ledger is
 # unchanged - and the new launch records into a NEW tree. TWO DECLARERS.
@@ -768,15 +766,26 @@ values = ["sidecar-prec", "sidecar-craft", "sidecar-pann",
 # operator tier, ONE reading flight, tokens pinned from that flight's `launchSite=` line;
 # a MechJeb ascent failure from the Desert is driver-INVALID, never PARSEK-FAIL. Ranked
 # LAST of D17: the cell has no declarer until that spec and that flight exist.
+#
+# `remotetech-commnet` IS RETIRED (operator ruling 2026-09-26) and removed from the list.
+# RemoteTech's only Parsek behaviour is switching ghost CommNet OFF: RemoteTech disables
+# stock CommNet, so no CommNetScenario exists, and `GhostCommNetMath.DecideAvailability`
+# (GhostCommNet.cs) returns CommNetDisabled and registers no ghost node, logging "CommNet is
+# off in scene ... (difficulty setting, or a mod such as RemoteTech that replaces CommNet)".
+# That guard stays and is unit-tested (GhostCommNetTests `DecideAvailability_AllCases`,
+# `LogAvailability_OneLinePerOutcome`); a flown lane would prove only that a mod with no
+# Parsek integration is not integrated. Ghost relays under RemoteTech are not planned (todo
+# GHOST-COMMNET-RELAYS-UNDER-REMOTETECH). The retirement lowers the denominator by one; it
+# is not coverage.
 values = ["waterfall-swe-fallback", "restock", "persistent-rotation", "better-time-warp",
-          "remotetech-commnet", "making-history"]
+          "making-history"]
 
 # D18 `background-event-claims` (CLAIMED 2026-09-26 on CI-5-background-event-claim) is SCOPED
 # TO THE CHAIN-WALKER DECISION ON A BACKGROUND RECORDING: the claimed recording is a
 # synthetic, production-shaped one (the `background-claim` injected preset: a parentless,
 # branch-point-free background recording of a real loaded vessel with a trigger part
-# event), not a harvested flight. Supervisor ruling 2026-09-25, pending operator
-# confirmation. Why no harvest: todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED.
+# event), not a harvested flight. Operator-confirmed 2026-09-26.
+# Why no harvest: todo D18-PR-D-SECOND-DOCK-HARVEST-BLOCKED.
 [D18]  # ghost chains / paradox prevention
 values = ["committed-interaction-claiming", "ghost-conversion-quicksave",
           "intermediate-spawn-suppression", "chain-tip-original-pid",

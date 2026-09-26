@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the coverage-wave rulings are confirmed, and the RemoteTech cell is retired.**
+  The rulings the coverage waves applied pending the operator (three retired cells, the atmosphere,
+  1x-warp, editor-scene and commit-abort definitions, the scoped synthetic claims and the rest) are
+  confirmed. D17 `remotetech-commnet` is retired: Parsek's only RemoteTech behaviour is switching
+  ghost CommNet off, which stays unit-tested, and ghost relays under RemoteTech are not planned.
+  The "replays around a non-Kerbin atmospheric body" cell moves from an orbital Laythe replay to a
+  new lane that replays a recorded descent through Duna's atmosphere and checks the ghost is
+  driven and spawned on Duna below 50 km. Coverage 244 of 247 -> 244 of 246.
 - **Ghost relays and control points now count for CommNet during the ghost window.** A ghost
   replaying a committed recording now takes part in CommNet as the vessel it replays, from the
   start of its recording until the vessel spawns. Its relay antennas carry signal for the
@@ -1181,6 +1189,18 @@ _(unreleased — entries accumulate here per commit)_
   vessel's angular velocity relative to its control part, and the old code read it as a
   world vector. That was harmless while the mod was never recognised.
 
+- **A ground part a kerbal places on EVA is now recorded as its own vessel and replays as a
+  ghost.** Breaking Ground experiments, power and comms units and the Central Station become
+  their own vessel when a kerbal places them, and Parsek used to record the placement on the
+  kerbal instead, so the replay showed the kerbal walking up to an empty patch of ground. The
+  placed part now gets its own recording in the flight's tree from the moment it is placed:
+  its ghost stands where it was placed and disappears when the kerbal picks it up. A part
+  that is still placed when the flight ends comes back as a real vessel after a rewind, like
+  any other vessel the flight leaves behind; a part that was picked up ends as "Disassembled"
+  and is never spawned. Only a real placement by the kerbal you are recording counts: an old
+  experiment that merely loads nearby no longer adds anything to the recording, and one
+  pick-up records one pick-up (stock reports it twice).
+
 - **Rewind-to-Launch no longer undoes another flight's Re-Fly from a stale save.** A plain
   rewind reloads the career from `persistent.sfs` as it was last written, and while the
   recordings, the ledger and (since the earlier fix) the rewind points were kept from memory,
@@ -1211,7 +1231,8 @@ _(unreleased — entries accumulate here per commit)_
   only one mission per flight can loop; the copy did nothing and the log warned on every rebuild
   until the next load switched it off. The copy is now created with Loop off while the original
   keeps looping. It keeps the original's loop period and unit, so turning Loop on for the copy
-  later loops it with the same settings (and, as before, switches the original's loop off).
+  later loops it with the same settings (and, as before, switches the original's loop off). The
+  Clone button's tooltip now says so.
 
 - **A save interrupted by a crash no longer leaves a stray `.tmp` file next to Parsek's
   career files.** Parsek writes each file to a temporary copy and then swaps it into place. A
@@ -4524,8 +4545,8 @@ _(unreleased — entries accumulate here per commit)_
   The automation-only `SpinVessel rate=<rad/s>` verb turns SAS off and spins the active
   vessel about its roll axis. `MC-5-persistent-rotation` records a spinning Kerbal X
   through rails warp and loop-replays it. Both flights passed and the lane is armed on the
-  replayed ghost's attitude sweep. D17 `persistent-rotation` is claimed (coverage 245 of
-  247).
+  replayed ghost's attitude sweep. D17 `persistent-rotation` is claimed, and with it every
+  registry cell is covered (246 of 246).
 
 - **Automated testing: a `WarpToUT` refused because time warp is locked now names who holds
   the lock.** The `warptout refused reason=warp-locked` log line gains a `holders=` field:

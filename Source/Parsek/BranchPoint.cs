@@ -24,7 +24,15 @@ namespace Parsek
         // records an observation/recording boundary, NOT a physical vessel
         // ownership transfer. See docs/dev/plans/segment-scoped-switch-fly-autorecord.md
         // §"Segment Creation".
-        VesselSwitchContinuation = 8
+        VesselSwitchContinuation = 8,
+
+        // An EVA kerbal placed a ground part (Breaking Ground experiment, power or comms
+        // unit, Central Station), which stock makes its OWN new vessel. Parent = the
+        // kerbal's recording, which does NOT end here (its ChildBranchPointId is left
+        // alone); child = the placed part's recording. No split / merge / breakup /
+        // terminal metadata. Purely additive: no schema generation bump. See
+        // docs/parsek-flight-recorder-design.md section 4.11.
+        GroundPartPlaced = 9
     }
 
     public class BranchPoint
