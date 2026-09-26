@@ -1086,6 +1086,7 @@ branch without it - and are harmless only because later runs superseded them.
 | `career` | 2026-09-24T15:22:01Z | #1796, 2026-09-24T16:18:48Z | GUI-15-census-career-contracts 2026-09-24_1522 |
 | `spawncontrol` | 2026-09-25T18:38:07Z | #1828 | GUI-6-census-flight-playback 2026-09-25_1838 |
 | `structure` | 2026-09-25T18:39:56Z | #1828 | GUI-4-census-missions-docked 2026-09-25_1839 |
+| `settings` | 2026-09-26T10:10:05Z | #1867 | GUI-14-census-settings-and-facility 2026-09-26_1009 |
 
 Each boundary was checked against the captures' own chrome: every Timeline
 capture from 2026-09-23_2134 on draws the `Career` view toggle and the one

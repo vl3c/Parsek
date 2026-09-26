@@ -261,11 +261,6 @@ namespace Parsek
         // NaN = not set (non-surface terminal state)
         public double TerrainHeightAtEnd = double.NaN;
 
-        // Antenna specifications for CommNet ghost relay registration (Phase 6f)
-        // Extracted from ModuleDataTransmitter modules in vessel snapshot at commit time.
-        // null = not extracted (legacy recording or no antennas).
-        internal List<AntennaSpec> AntennaSpecs;
-
         // Per-crew end state (inferred at commit time from terminal state + snapshot)
         // null = not yet populated (legacy recording or pre-commit).
         public Dictionary<string, KerbalEndState> CrewEndStates;
@@ -946,8 +941,6 @@ namespace Parsek
             ExplicitEndUT = source.ExplicitEndUT;
             RecordingGroups = source.RecordingGroups != null
                 ? new List<string>(source.RecordingGroups) : null;
-            AntennaSpecs = source.AntennaSpecs != null
-                ? new List<AntennaSpec>(source.AntennaSpecs) : null;
             StartResources = source.StartResources;
             EndResources = source.EndResources;
             StartInventory = source.StartInventory;

@@ -288,6 +288,34 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
+        /// The ids of the input locks whose mask includes <paramref name="timeWarpMask"/>,
+        /// sorted ordinally and comma-joined, or <c>none</c> when no entry carries the bit.
+        /// Appended to the <c>warp-locked</c> refusal LOG line (never to the response msg,
+        /// whose token the harness maps verbatim) so the next occurrence names who holds
+        /// TIMEWARP. <c>none</c> while the gate still refused is itself a finding:
+        /// <c>InputLockManager.lockMask</c> is a public field a caller can set without a
+        /// <c>lockStack</c> entry. Null and empty keys are skipped rather than printed as
+        /// blanks.
+        /// </summary>
+        internal static string FormatTimeWarpLockHolders(
+            IEnumerable<KeyValuePair<string, ulong>> lockStack, ulong timeWarpMask)
+        {
+            var holders = new List<string>();
+            if (lockStack != null && timeWarpMask != 0UL)
+            {
+                foreach (KeyValuePair<string, ulong> entry in lockStack)
+                {
+                    if (string.IsNullOrEmpty(entry.Key)) continue;
+                    if ((entry.Value & timeWarpMask) == 0UL) continue;
+                    holders.Add(entry.Key);
+                }
+            }
+            if (holders.Count == 0) return "none";
+            holders.Sort(StringComparer.Ordinal);
+            return string.Join(",", holders.ToArray());
+        }
+
+        /// <summary>
         /// True once the clock has reached (or passed) the target within tolerance. The
         /// latch is ONE-SIDED for <c>TestCommandTimeJump.DecideJumpCompletion</c>'s
         /// reason verbatim: the clock keeps advancing while warp winds down, so a

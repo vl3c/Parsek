@@ -20,7 +20,10 @@ namespace Parsek.TestCommands
 
         /// <summary>The call ran and the read-back still disagrees - stock declined
         /// (constant-map mode, <c>CanUseMap</c> off, or a MissionSystem camera-switch
-        /// block). REJECTED with the per-direction reason.</summary>
+        /// block). ERROR with the per-direction reason: stock was called and declined, so
+        /// this is not a pre-call refusal (see
+        /// <see cref="TestCommandMapViewVerbs.RefusalVerdict"/> for the REJECTED / ERROR
+        /// rule).</summary>
         Refused,
     }
 

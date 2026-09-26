@@ -312,7 +312,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Formats a size + count snapshot for the Settings window. Uses the
+        /// Formats a size + count snapshot for the Settings window: bytes and files only;
+        /// the live per-state counts are in <see cref="FormatTooltip"/>. Uses the
         /// MB/KB/B breakpoints from <see cref="DiagnosticsComputation.FormatBytes"/>
         /// so the string reads the same as other diagnostics lines.
         /// </summary>
@@ -330,9 +331,24 @@ namespace Parsek
                         : "")
                     + ")";
 
-            return $"Rewind point disk usage: {disk}; " +
-                $"live={s.Live.RewindPointCount}, crashed={s.Live.CrashedOpenCount}, " +
-                $"stable={s.Live.StableOpenCount}, concluded={s.Live.ConcludedCount}";
+            return $"Rewind points on disk: {disk}";
+        }
+
+        /// <summary>
+        /// The disk line's hover: the save's live rewind-point count and why they are
+        /// kept, split by slot state (crashed = a slot still recording its crash, stable =
+        /// a re-flyable open slot, concluded = sealed). The buckets may overlap, since one
+        /// rewind point can hold slots in different states. Sized for the Settings help
+        /// strip (71 characters) with three-digit counts. Invariant formatting: a unit
+        /// test reads it.
+        /// </summary>
+        internal static string FormatTooltip(Snapshot s)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            return $"Live rewind points: {s.Live.RewindPointCount.ToString(ic)} " +
+                $"({s.Live.CrashedOpenCount.ToString(ic)} crashed, " +
+                $"{s.Live.StableOpenCount.ToString(ic)} stable, " +
+                $"{s.Live.ConcludedCount.ToString(ic)} concluded)";
         }
     }
 }

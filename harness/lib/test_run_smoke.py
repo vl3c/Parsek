@@ -1120,6 +1120,69 @@ class AnalyzerReportOnlySmokeTests(unittest.TestCase):
                          result["verifiers"]["analyzer"]["status"])
 
 
+class ExpectedFailMismatchSignatureSmokeTests(unittest.TestCase):
+    """`[expectedFail] mismatches = [...]` driven END TO END through run.run_attempt
+    over the fake Runtime seam. The pure cells prove the comparison; this leg proves
+    run.py hands the comparison the EXPECTATIONS row's own mismatch list (the
+    strings evaluate_expectations built), not some other list or none at all -
+    a wiring slip there would fail closed on every run and the quarantine would
+    never demote, or fail open if it read an empty list."""
+
+    DEFECT = "a-token-the-defect-never-writes-7c1e"
+    OTHER = "an-unrelated-token-also-missing-9b3d"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-efsig-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "efsig_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, missing_tokens, signature):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-efsig"
+        spec["expectations"]["logContracts"]["required"] = (
+            list(spec["expectations"]["logContracts"]["required"]) + list(missing_tokens))
+        spec["expectedFail"] = {"bugId": "EF-SIG-1", "subkind": "expectation"}
+        if signature is not None:
+            spec["expectedFail"]["mismatches"] = list(signature)
+        rt = FakeRuntime("pass")
+        return run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                               prior_boot_crashed=False, logger=self.logger)
+
+    def _sig(self, *tokens):
+        return [hlib.EXPECTATION_REQUIRED_MISS_PREFIX + t for t in tokens]
+
+    def test_exact_signature_demotes(self):
+        result = self._run([self.DEFECT], self._sig(self.DEFECT))
+        self.assertEqual(hlib.VERDICT_EXPECTED_FAIL, result["verdict"])
+        self.assertTrue(result["expectedFail"]["matched"])
+
+    def test_an_extra_red_stays_parsek_fail(self):
+        result = self._run([self.DEFECT, self.OTHER], self._sig(self.DEFECT))
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("expectation", result["subkind"])
+        self.assertFalse(result["expectedFail"]["matched"])
+
+    def test_the_control_without_the_key_absorbs_the_extra_red(self):
+        # The defect this closes, measured on the same two misses: subkind-only
+        # matching demotes the unrelated red too.
+        result = self._run([self.DEFECT, self.OTHER], None)
+        self.assertEqual(hlib.VERDICT_EXPECTED_FAIL, result["verdict"])
+
+
 class LedgerSeedBaselineSmokeTests(unittest.TestCase):
     """Review SF8: the M-B2 run.py PLUMBING driven through run.run_attempt over the
     fake Runtime seam (no KSP). Covers _capture_seed_baseline's 4-way branch (skipped
@@ -3619,12 +3682,14 @@ class SettingsSidecarResetSmokeTests(unittest.TestCase):
         self.assertIn("settings-sidecar baseline written phase=teardown", body)
 
     def test_baseline_leaves_the_other_tracked_settings_unset(self):
-        """Only the three tracers are pinned. Writing any of the other five
-        sidecar-tracked settings would override the fixture's own GameParameters
-        for every save on the instance - the same bug in a different key."""
+        """Only the three tracers (OFF) and the readable-mirror flag (ON) are
+        pinned. Writing any other sidecar-tracked setting would override the
+        fixture's own GameParameters for every save on the instance - the same bug
+        in a different key."""
         self._run("pass")
         values = hlib.parse_settings_sidecar(self._read())
-        self.assertEqual(sorted(hlib.TRACER_SETTING_KEYS), sorted(values))
+        self.assertEqual(
+            sorted(hlib.TRACER_SETTING_KEYS + hlib.PINNED_ON_SETTING_KEYS), sorted(values))
 
 
 class AlwaysCollectAndContactSheetSmokeTests(unittest.TestCase):
