@@ -1187,6 +1187,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Science is no longer over-credited when the same experiment is submitted more than once.**
+  Parsek recorded a science subject's running total at each submission, and the ledger adds
+  every submission, so a second transmission of the same experiment (or a transmit followed
+  by recovering the data) credited the first one again. Breaking Ground deployed
+  experiments, which send their results in about ten chunks, reached an experiment's full
+  value after three or four sends. Each submission now records only the science it added,
+  so your science total matches stock. Saves already carrying the extra science keep it.
+- **Breaking Ground deployed-experiment science is never attributed to the vessel you are
+  flying.** Science from deployed experiments is recorded like science earned at the Space
+  Center, so re-flying a flight no longer removes it and it no longer locks a re-fly as if
+  you had earned it on that vessel.
+
 - **Repairing a KSC building that your committed timeline already repairs later is now
   refused, so it is no longer charged twice.** After a rewind to between a building's
   destruction and its committed repair, repairing it again charged both repairs. The

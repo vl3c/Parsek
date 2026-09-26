@@ -5343,6 +5343,17 @@ namespace Parsek
             string vesselName,
             string launchGuid = null)
         {
+            // Operator ruling 2026-09-26: deployed-experiment science is always untagged.
+            // Stock submits it with xmitScalar 1, which reads as VesselRecovery, so without
+            // this guard a named vessel would send it through the recovery picker.
+            if (GameStateRecorder.IsDeployedScienceSubjectId(subject.subjectId))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ResolveKscScienceRecordingId: deployed-experiment subject='{subject.subjectId}' " +
+                    "- untagged by ruling, recovery picker skipped");
+                return null;
+            }
+
             if (!string.Equals(
                     subject.reasonKey ?? "",
                     VesselRecoveryReasonKey,

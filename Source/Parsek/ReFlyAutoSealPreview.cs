@@ -237,6 +237,9 @@ namespace Parsek
                 var action = actions[i];
                 if (action == null) continue;
                 if (action.Type != GameActionType.ScienceEarning) continue;
+                // Mirror IsRetryBlockingRecordingAction: deployed-experiment science
+                // never seals a slot (operator ruling 2026-09-26).
+                if (GameStateRecorder.IsDeployedScienceSubjectId(action.SubjectId)) continue;
                 if (string.IsNullOrEmpty(action.RecordingId)) continue;
                 if (!lineageRecordingIds.Contains(action.RecordingId)) continue;
 
