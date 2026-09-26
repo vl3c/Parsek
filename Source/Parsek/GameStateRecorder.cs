@@ -253,6 +253,49 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The subject-unit (pre-multiplier) science one submission added, from the
+        /// <c>OnScienceRecieved</c> amount. Stock fires <c>amount = scienceValue *
+        /// ScienceGainMultiplier</c> after adding <c>scienceValue</c> to <c>subject.science</c>,
+        /// so <c>amount / multiplier</c> is that increment and
+        /// <c>increment * multiplier == amount</c> by construction. A non-positive or
+        /// non-finite multiplier reads as 1 (the amount is returned unchanged).
+        /// </summary>
+        internal static float ComputeSubjectScienceIncrement(float amount, float scienceGainMultiplier)
+        {
+            if (scienceGainMultiplier > 0f && !float.IsInfinity(scienceGainMultiplier))
+                return amount / scienceGainMultiplier;
+            return amount;
+        }
+
+        /// <summary>
+        /// Pure: the pending subject <c>OnScienceReceived</c> files for one stock submission.
+        /// <see cref="PendingScienceSubject.science"/> is the per-submission increment in
+        /// subject units (<see cref="ComputeSubjectScienceIncrement"/>), flagged as such, with
+        /// the multiplier frozen alongside so the row's pool credit equals <paramref name="amount"/>.
+        /// </summary>
+        internal static PendingScienceSubject BuildCapturedScienceSubject(
+            string subjectId,
+            float subjectCap,
+            float amount,
+            float scienceGainMultiplier,
+            double captureUt,
+            string reasonKey,
+            string recordingId)
+        {
+            return new PendingScienceSubject
+            {
+                subjectId = subjectId,
+                science = ComputeSubjectScienceIncrement(amount, scienceGainMultiplier),
+                subjectMaxValue = subjectCap,
+                captureUT = captureUt,
+                reasonKey = reasonKey,
+                recordingId = recordingId,
+                scienceGainMultiplier = scienceGainMultiplier,
+                scienceIsIncrement = true
+            };
+        }
+
+        /// <summary>
         /// Returns whether stock KSP bypasses the one-time part entry purchase in R&amp;D.
         /// Defensive: returns false when no live game exists.
         /// </summary>
@@ -1000,24 +1043,22 @@ namespace Parsek
             // Vessel recovery and other multi-subject payouts can fire several
             // OnScienceReceived callbacks after one ScienceChanged capture.
 
-            // Record the cumulative science earned for this subject.
-            // Note: subject.science may include Harmony-injected committed science
-            // (from ScienceSubjectPatch) if this experiment was previously committed.
-            // This is correct — the committed-science cache merges by max value when the
-            // eventual ScienceEarning actions are persisted, so repeated captures only
-            // ever preserve the highest science earned.
-            var pendingSubject = new PendingScienceSubject
-            {
-                subjectId = subject.id,
-                science = subject.science,
-                subjectMaxValue = subject.scienceCap,
-                captureUT = captureUt,
-                reasonKey = reasonKey,
-                recordingId = subjectRecordingId,
-                // subject.science is PRE-multiplier; the pool got amount (post). Freeze the
-                // multiplier now so the ledger credits what stock credited.
-                scienceGainMultiplier = ReadScienceGainMultiplierAtCapture()
-            };
+            // Record what THIS submission added, not subject.science. subject.science is
+            // the running total after the submission (and may already include committed
+            // science injected by ScienceSubjectPatch); the ledger walk sums rows as
+            // increments, so a total would re-credit every earlier submission of the
+            // subject. amount is stock's pre-multiplier value times the multiplier, so
+            // dividing recovers the subject-unit increment exactly and the row's pool
+            // credit (increment * multiplier) equals what stock added.
+            float scienceGainMultiplier = ReadScienceGainMultiplierAtCapture();
+            var pendingSubject = BuildCapturedScienceSubject(
+                subject.id,
+                subject.scienceCap,
+                amount,
+                scienceGainMultiplier,
+                captureUt,
+                reasonKey,
+                subjectRecordingId);
 
             bool hasLiveRecorder = HasLiveRecorder();
             bool hasActiveUncommittedTree = HasActiveUncommittedTree();
@@ -1051,7 +1092,9 @@ namespace Parsek
             }
 
             ParsekLog.Info("GameStateRecorder",
-                $"Science subject captured: {subject.id} amount={amount:F1} total={subject.science:F1} " +
+                $"Science subject captured: {subject.id} amount={amount:F1} " +
+                $"increment={pendingSubject.science.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"total={subject.science:F1} " +
                 $"gainMultiplier={pendingSubject.scienceGainMultiplier.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"reason='{reasonKey}' ut={captureUt:F1} tag='{subjectRecordingId}' " +
                 $"directLedger={directLedgerHandled}");

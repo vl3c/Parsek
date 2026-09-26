@@ -397,7 +397,11 @@ namespace Parsek
                 // Mirror only after all pre-ledger work succeeded and the resulting
                 // ScienceEarning actions are safely in the ledger. This keeps the
                 // committed-subject cache aligned with the real persistence point.
-                GameStateStore.CommitScienceActions(scienceActions);
+                // Only the rows that survived the dedup: the cache ADDS an increment,
+                // so a row the ledger already held (a KSC direct write, or a retry of
+                // this commit) must not be mirrored a second time.
+                GameStateStore.CommitScienceActions(
+                    FilterSurvivingScienceActions(scienceActions, actions));
                 scienceActionsAddedToLedger = true;
             }
 
@@ -1121,6 +1125,43 @@ namespace Parsek
             ParsekLog.Error(Tag,
                 $"Science reconcile dump (commit): window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}] " +
                 $"scope='{recordingId ?? "(none)"}' events={detail}");
+        }
+
+        /// <summary>
+        /// Pure: the members of <paramref name="scienceActions"/> (by reference) that are
+        /// still in <paramref name="survivors"/>, i.e. that <see cref="DeduplicateAgainstLedger"/>
+        /// kept and the ledger just received. Order is preserved.
+        /// </summary>
+        internal static List<GameAction> FilterSurvivingScienceActions(
+            IReadOnlyList<GameAction> scienceActions, IReadOnlyList<GameAction> survivors)
+        {
+            var result = new List<GameAction>();
+            if (scienceActions == null || scienceActions.Count == 0 || survivors == null)
+                return result;
+
+            var kept = new HashSet<GameAction>();
+            for (int i = 0; i < survivors.Count; i++)
+                if (survivors[i] != null)
+                    kept.Add(survivors[i]);
+
+            int dropped = 0;
+            for (int i = 0; i < scienceActions.Count; i++)
+            {
+                var a = scienceActions[i];
+                if (a != null && kept.Contains(a))
+                    result.Add(a);
+                else
+                    dropped++;
+            }
+
+            if (dropped > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"FilterSurvivingScienceActions: {dropped.ToString(CultureInfo.InvariantCulture)} " +
+                    $"science row(s) already in the ledger not mirrored into the committed-science cache " +
+                    $"(kept={result.Count.ToString(CultureInfo.InvariantCulture)})");
+            }
+            return result;
         }
 
         /// <summary>
@@ -5096,8 +5137,9 @@ namespace Parsek
             Ledger.AddActions(rehomed);
 
             // Mirror the committed-science cache for any surviving re-homed ScienceEarning
-            // action so the direct science is treated as committed (subjectId-deduped,
-            // max-not-additive).
+            // action so the direct science is treated as committed. Only the dedup
+            // survivors: the cache adds each increment row onto the subject total, so a
+            // row the ledger already held must not be mirrored again.
             if (scienceActions != null)
             {
                 var survivingScience = new List<GameAction>();

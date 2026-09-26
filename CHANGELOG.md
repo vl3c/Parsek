@@ -1189,6 +1189,13 @@ _(unreleased — entries accumulate here per commit)_
     waiting 2 seconds on every load for funds and reputation, which those modes do not have.
   - Currency from the Alt+F12 cheat menu is still not recorded (by design, the next rewind
     removes it); each cheat now writes one log line saying so.
+- **Gathering the same experiment again no longer over-credits science.** Parsek recorded each
+  science submission as the experiment's running total instead of what that submission added,
+  so transmitting or recovering the same experiment a second time (in one flight, across
+  flights, or at the Space Center) counted the earlier science again, up to the experiment's
+  cap. Parsek now records exactly what each submission added, so your science matches what
+  stock paid. Saves recorded before this keep their past credit unchanged; only science
+  gathered from now on is counted the new way.
 - **Ghosts on the map no longer push real debris out of your save.** KSP keeps at most
   `MAX_VESSELS_BUDGET` vessels (250 by default) when it saves, dropping the oldest debris
   first. Parsek's map ghosts are vessels while you are in flight or the Tracking Station, and

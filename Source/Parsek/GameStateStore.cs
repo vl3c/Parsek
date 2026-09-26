@@ -808,11 +808,22 @@ namespace Parsek
 
         #region Committed Science Subjects
 
+        /// <summary>
+        /// Mirrors newly persisted <c>ScienceEarning</c> rows into the committed-science
+        /// cache, which stores one running subject TOTAL per subject (subject units, the
+        /// value <c>ScienceSubjectPatch</c> falls back to). Callers pass only rows that were
+        /// actually added to the ledger, each exactly once. An increment row
+        /// (<see cref="GameAction.ScienceAwardedIsIncrement"/>, every capture since
+        /// SCIENCE-CUMULATIVE-CAPTURE-OVER-CREDIT) is ADDED onto the stored total, capped at
+        /// the subject cap; any other row carries a running total and is max-merged. A total
+        /// already in a save's cache is therefore never summed a second time: only a new
+        /// increment adds, and it adds on top of whatever total is stored.
+        /// </summary>
         internal static void CommitScienceActions(IReadOnlyList<GameAction> actions)
         {
             if (actions == null || actions.Count == 0) return;
 
-            int added = 0, updated = 0, skipped = 0;
+            int added = 0, updated = 0, skipped = 0, increments = 0;
             for (int i = 0; i < actions.Count; i++)
             {
                 var action = actions[i];
@@ -825,30 +836,66 @@ namespace Parsek
                     continue;
                 }
 
-                CommitScienceSubject(action.SubjectId, action.ScienceAwarded, ref added, ref updated);
+                if (action.ScienceAwardedIsIncrement)
+                    increments++;
+                CommitScienceSubject(
+                    action.SubjectId,
+                    action.ScienceAwarded,
+                    action.SubjectMaxValue,
+                    action.ScienceAwardedIsIncrement,
+                    ref added,
+                    ref updated);
             }
 
             ParsekLog.Info("GameStateStore",
                 $"CommitScienceActions: {added} added, {updated} updated, skipped={skipped} " +
-                $"(total={committedScienceSubjects.Count})");
+                $"(total={committedScienceSubjects.Count}) increments={increments}");
         }
 
-        private static void CommitScienceSubject(string id, float science, ref int added, ref int updated)
+        private static void CommitScienceSubject(
+            string id, float science, float subjectMaxValue, bool isIncrement,
+            ref int added, ref int updated)
         {
             float existing;
-            if (committedScienceSubjects.TryGetValue(id, out existing))
+            bool hadExisting = committedScienceSubjects.TryGetValue(id, out existing);
+            if (!hadExisting)
+                existing = 0f;
+
+            float next = isIncrement
+                ? MergeCommittedScienceIncrement(existing, science, subjectMaxValue)
+                : (hadExisting ? Math.Max(existing, science) : science);
+
+            if (!hadExisting)
             {
-                if (science > existing)
-                {
-                    committedScienceSubjects[id] = science;
-                    updated++;
-                }
-            }
-            else
-            {
-                committedScienceSubjects[id] = science;
+                committedScienceSubjects[id] = next;
                 added++;
             }
+            else if (next > existing)
+            {
+                committedScienceSubjects[id] = next;
+                updated++;
+            }
+        }
+
+        /// <summary>
+        /// Pure: the cache total after one increment: <c>existing + increment</c>, capped at
+        /// the subject cap when one is known (<paramref name="subjectMaxValue"/> &gt; 0). The
+        /// cap never lowers a total that is already above it (a save written by an older
+        /// build can hold one), and a non-positive increment leaves the total unchanged.
+        /// </summary>
+        internal static float MergeCommittedScienceIncrement(
+            float existingTotal, float increment, float subjectMaxValue)
+        {
+            if (!(increment > 0f))
+                return existingTotal;
+            float next = existingTotal + increment;
+            if (subjectMaxValue > 0f)
+            {
+                float ceiling = Math.Max(existingTotal, subjectMaxValue);
+                if (next > ceiling)
+                    next = ceiling;
+            }
+            return next;
         }
 
         /// <summary>

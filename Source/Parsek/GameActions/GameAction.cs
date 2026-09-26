@@ -499,9 +499,20 @@ namespace Parsek
         /// PRE-<see cref="ScienceGainMultiplier"/>: stock adds this to
         /// <c>subject.science</c>, so the per-subject cap walk and the committed-science
         /// cache run in these units. The pool received
-        /// <see cref="GetScienceAwardedPoolCredit"/>.
+        /// <see cref="GetScienceAwardedPoolCredit"/>. The walk treats it as the increment one
+        /// submission added. Rows captured before SCIENCE-CUMULATIVE-CAPTURE-OVER-CREDIT
+        /// hold the subject's running total instead and over-credit repeated collections;
+        /// by owner decision they are kept and walked unchanged.
         /// </summary>
         public float ScienceAwarded;
+
+        /// <summary>
+        /// In-memory only (never serialized): true when this row was converted from a
+        /// pending subject that captured a per-submission increment. Read solely by
+        /// <see cref="GameStateStore.CommitScienceActions"/> to pick the committed-science
+        /// cache merge (capped sum for an increment, max for a running total).
+        /// </summary>
+        public bool ScienceAwardedIsIncrement;
 
         /// <summary>How the science was collected.</summary>
         public ScienceMethod Method;
