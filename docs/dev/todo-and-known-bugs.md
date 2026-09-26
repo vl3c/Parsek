@@ -20379,6 +20379,14 @@ Operator ruling for this pass: answer the four questions, then fix Revert AND Re
 
 **The flagged switch-continuation case, pinned before retiring.** A spawned parent that absorbs a later chain segment ending Destroyed (`CanAutoMerge` admits the pair, `MergeInto` stamps the absorbed verdict onto the parent, which still carries `VesselSpawned=true`) keeps `Destroyed` across both the revert reset and `ResetAllPlaybackState`, and `ShouldSpawnAtRecordingEnd` refuses the spawn with `terminal state Destroyed` - the correct answer, since the merged recording's trajectory ends in destruction; the retired clear would have nulled it and let the end of that trajectory spawn a vessel. Cells: `RevertRewindTerminalVerdictTests` (revert and rewind keep committed debris `Destroyed` and `Recovered`, a flight committed at rewind scene exit keeps its debris verdicts, the reverted flight's pending tree is unstashed and not committed, spawn fields still reset, plus a source gate that OnLoad routes through the helper and neither reset stamps a verdict). `RewindTests`' two `ResetAllPlaybackState_Clears...` cells now assert the verdict is kept.
 
+
+**Follow-up noted by the review (not blocking, not fixed):** the rewind reset
+(`RecordingStore.ResetRecordingPlaybackFields`) still sets `VesselDestroyed = false` while a
+Destroyed verdict now survives. `main` already left that pair on every never-spawned Destroyed
+recording; the change only extends it to the spawned subset. `MergeInto`'s sealed-destroyed check
+reads `VesselDestroyed`, but `CanAutoMerge` needs a chain successor at `ChainIndex + 1`, which a
+destroyed segment never has, so no merge is affected today. Worth aligning if `VesselDestroyed`
+gains another reader.
 ## REAIM-TILT-NOOP-AT-EELOO-6.15-DEG - the tilt-RETENTION branch is still unexercised at the highest stock inclination below Moho, because the synthesized conic came in BELOW the bound (measured 2026-08-13, branch `eeloo-loop-lanes`, four green V12A-eeloo-loop-arrival runs; NOT a defect, and NOT a widening of the tilt plan's claim scope)
 
 **The measurement, byte-identical on all four runs** (`2026-08-13_0120`, `_1513`, `_1515`, `_1536`):
