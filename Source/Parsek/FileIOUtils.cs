@@ -63,56 +63,103 @@ namespace Parsek
         /// <summary>
         /// Deletes the stale <c>&lt;path&gt;.tmp</c> that a crash between the temp write and the
         /// swap of <see cref="SafeWriteConfigNode"/> / <see cref="SafeWriteBytes"/> leaves next to
-        /// <paramref name="path"/>. Called from a store's LOAD path before it reads
-        /// <paramref name="path"/>; returns true when a file was deleted.
+        /// <paramref name="path"/>, when <paramref name="path"/> itself exists. Called from a
+        /// store's LOAD path before it reads <paramref name="path"/>; returns true when a file
+        /// was deleted.
         ///
         /// <para>
         /// Safe because a safe-write is synchronous on the main thread and Parsek starts no
         /// threads (<c>grep-audit-background-threads.ps1</c>): when a load runs, no write of the
         /// same file can be in flight, so any <c>.tmp</c> on disk is residue from a process that
-        /// died mid-write. The residue is never read (a crash mid-save keeps the previous file,
-        /// which is what the load uses), so it is deleted, not promoted: a partial temp file
-        /// cannot be told from a complete one. <paramref name="path"/> itself is never touched,
-        /// and neither is the swap fallback's <c>.bak.&lt;guid&gt;</c>, which in the
-        /// double-failure corner holds the only copy of the previous bytes. Fail-open: an IO
-        /// error is logged and swallowed, and the next successful write overwrites the file.
+        /// died mid-write. When <paramref name="path"/> exists, the crash hit before the swap
+        /// (or <c>File.Replace</c> swapped atomically), so the real file holds the previous or
+        /// the new bytes, the load reads it, and the <c>.tmp</c> is junk.
+        /// </para>
+        /// <para>
+        /// <b>Real file missing: the <c>.tmp</c> is KEPT.</b> The move-aside fallback in
+        /// <see cref="ReplaceDestination"/> moves the destination to <c>.bak.&lt;guid&gt;</c>
+        /// before moving the temp file into place; a crash between those two renames leaves no
+        /// real file, the previous bytes in the <c>.bak.&lt;guid&gt;</c> and the newest complete
+        /// bytes only in the <c>.tmp</c>. A first-ever save interrupted mid-write also leaves no
+        /// real file, but a PARTIAL <c>.tmp</c>, and the two cannot be told apart, so the
+        /// <c>.tmp</c> is neither deleted nor promoted: a Warn names it, its size and any
+        /// <c>.bak.*</c> sibling so it can be recovered by hand. The <c>.bak.&lt;guid&gt;</c> is
+        /// never touched either. Fail-open: an IO error is logged and swallowed.
         /// </para>
         /// </summary>
         internal static bool SweepStaleSafeWriteTemp(string path, string tag)
         {
             if (string.IsNullOrEmpty(path))
                 return false;
+            return SweepOneStaleTemp(path + SafeWriteTempSuffix, path, tag) == StaleTempOutcome.Deleted;
+        }
 
-            string tmpPath = path + SafeWriteTempSuffix;
+        internal enum StaleTempOutcome { Absent, Deleted, KeptRealMissing, Failed }
+
+        private static StaleTempOutcome SweepOneStaleTemp(string tmpPath, string path, string tag)
+        {
             try
             {
                 if (!File.Exists(tmpPath))
-                    return false;
+                    return StaleTempOutcome.Absent;
                 long bytes = new FileInfo(tmpPath).Length;
+                if (!File.Exists(path))
+                {
+                    ParsekLog.Warn(tag,
+                        $"SafeWrite: kept stale temp file '{tmpPath}' ({bytes.ToString(CultureInfo.InvariantCulture)} bytes) " +
+                        $"because its real file '{path}' is missing; it may hold the newest save " +
+                        "(interrupted swap) or a partial first save, recover by hand if needed; " +
+                        $"bakSiblings={DescribeBakSiblings(path)}");
+                    return StaleTempOutcome.KeptRealMissing;
+                }
                 File.Delete(tmpPath);
                 ParsekLog.Info(tag,
                     $"SafeWrite: deleted stale temp file '{tmpPath}' ({bytes.ToString(CultureInfo.InvariantCulture)} bytes, " +
-                    $"left by an interrupted save); '{Path.GetFileName(path)}' untouched " +
-                    $"destExists={File.Exists(path)}");
-                return true;
+                    $"left by an interrupted save); '{Path.GetFileName(path)}' untouched");
+                return StaleTempOutcome.Deleted;
             }
             catch (Exception ex)
             {
                 ParsekLog.Warn(tag,
-                    $"SafeWrite: failed to delete stale temp file '{tmpPath}' " +
-                    $"({ex.GetType().Name}: {ex.Message}); left in place, the next save overwrites it");
-                return false;
+                    $"SafeWrite: failed to sweep stale temp file '{tmpPath}' " +
+                    $"({ex.GetType().Name}: {ex.Message}); left in place");
+                return StaleTempOutcome.Failed;
+            }
+        }
+
+        /// <summary>Lists the swap fallback's <c>&lt;path&gt;.bak.*</c> siblings for a log line;
+        /// never throws.</summary>
+        private static string DescribeBakSiblings(string path)
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(path);
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                    return "none";
+                string[] baks = Directory.GetFiles(dir,
+                    Path.GetFileName(path) + SwapBackupExtensionPrefix + "*", SearchOption.TopDirectoryOnly);
+                if (baks.Length == 0)
+                    return "none";
+                var names = new string[baks.Length];
+                for (int i = 0; i < baks.Length; i++)
+                    names[i] = Path.GetFileName(baks[i]);
+                Array.Sort(names, StringComparer.Ordinal);
+                return string.Join(",", names);
+            }
+            catch (Exception ex)
+            {
+                return "unknown(" + ex.GetType().Name + ")";
             }
         }
 
         /// <summary>
         /// Directory form of <see cref="SweepStaleSafeWriteTemp"/> for stores whose file names
-        /// vary (the per-UT <c>baseline_*.pgsb</c>): deletes every
-        /// <c>&lt;file&gt;.tmp</c> in <paramref name="dir"/> whose stem matches
-        /// <paramref name="fileSearchPattern"/> (a pattern for the REAL file, e.g.
-        /// <c>baseline_*.pgsb</c>). Non-recursive. Unlike the fixed-path stores, these names
-        /// never repeat, so without a sweep the residue would accumulate. Returns the count
-        /// deleted; logs one summary line. Same safety argument and fail-open contract.
+        /// vary (the per-UT <c>baseline_*.pgsb</c>): sweeps every <c>&lt;file&gt;.tmp</c> in
+        /// <paramref name="dir"/> whose stem matches <paramref name="fileSearchPattern"/> (a
+        /// pattern for the REAL file, e.g. <c>baseline_*.pgsb</c>), applying the same per-file
+        /// rule (deleted when the real file exists, kept with a Warn when it is missing).
+        /// Non-recursive. Unlike the fixed-path stores, these names never repeat, so without a
+        /// sweep the residue would accumulate. Returns the count deleted; logs one summary line.
         /// </summary>
         internal static int SweepStaleSafeWriteTemps(string dir, string fileSearchPattern, string tag)
         {
@@ -136,31 +183,30 @@ namespace Parsek
             }
 
             int deleted = 0;
+            int kept = 0;
             int failed = 0;
             for (int i = 0; i < candidates.Length; i++)
             {
                 // Windows GetFiles matches a 3-char extension as a prefix ("*.tmp" also
-                // returns "x.tmpx"), so re-check the exact suffix before deleting.
-                if (!candidates[i].EndsWith(SafeWriteTempSuffix, StringComparison.OrdinalIgnoreCase))
+                // returns "x.tmpx"), so re-check the exact suffix before touching anything.
+                string tmpPath = candidates[i];
+                if (!tmpPath.EndsWith(SafeWriteTempSuffix, StringComparison.OrdinalIgnoreCase))
                     continue;
-                try
+                string realPath = tmpPath.Substring(0, tmpPath.Length - SafeWriteTempSuffix.Length);
+                switch (SweepOneStaleTemp(tmpPath, realPath, tag))
                 {
-                    File.Delete(candidates[i]);
-                    deleted++;
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    ParsekLog.Warn(tag,
-                        $"SafeWrite: failed to delete stale temp file '{candidates[i]}' " +
-                        $"({ex.GetType().Name}: {ex.Message}); left in place");
+                    case StaleTempOutcome.Deleted: deleted++; break;
+                    case StaleTempOutcome.KeptRealMissing: kept++; break;
+                    case StaleTempOutcome.Failed: failed++; break;
                 }
             }
 
-            if (deleted > 0 || failed > 0)
+            if (deleted > 0 || kept > 0 || failed > 0)
                 ParsekLog.Info(tag,
                     $"SafeWrite: swept stale temp files in '{dir}' pattern={fileSearchPattern}{SafeWriteTempSuffix} " +
-                    $"deleted={deleted.ToString(CultureInfo.InvariantCulture)} failed={failed.ToString(CultureInfo.InvariantCulture)}");
+                    $"deleted={deleted.ToString(CultureInfo.InvariantCulture)} " +
+                    $"keptRealMissing={kept.ToString(CultureInfo.InvariantCulture)} " +
+                    $"failed={failed.ToString(CultureInfo.InvariantCulture)}");
             return deleted;
         }
 

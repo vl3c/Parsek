@@ -79,7 +79,7 @@ namespace Parsek.Tests
             Assert.Equal(before, File.ReadAllBytes(path));
             Assert.Contains(logLines, l => l.Contains("[SweepTest]")
                 && l.Contains("deleted stale temp file") && l.Contains("x.cfg.tmp")
-                && l.Contains("7 bytes") && l.Contains("destExists=True"));
+                && l.Contains("7 bytes"));
         }
 
         [Fact]
@@ -95,16 +95,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Sweep_TmpWithoutRealFile_DeletesTmpOnly()
+        public void Sweep_TmpWithoutRealFile_KeepsTmp_AndWarns()
         {
-            // First-ever save interrupted: nothing to preserve, residue still goes.
+            // Real file missing: either the move-aside swap crashed between its two renames
+            // (the .tmp holds the newest complete bytes) or a first-ever save died mid-write
+            // (a partial .tmp). Indistinguishable, so the .tmp is kept, not deleted or promoted.
             string path = Path.Combine(root, "x.cfg");
             WriteText(path + ".tmp", "partial");
 
-            Assert.True(FileIOUtils.SweepStaleSafeWriteTemp(path, "SweepTest"));
-            Assert.False(File.Exists(path + ".tmp"));
+            Assert.False(FileIOUtils.SweepStaleSafeWriteTemp(path, "SweepTest"));
+            Assert.True(File.Exists(path + ".tmp"));
+            Assert.Equal("partial", File.ReadAllText(path + ".tmp"));
             Assert.False(File.Exists(path));
-            Assert.Contains(logLines, l => l.Contains("[SweepTest]") && l.Contains("destExists=False"));
+            Assert.Contains(logLines, l => l.Contains("[SweepTest]") && l.Contains("[WARN]")
+                && l.Contains("kept stale temp file") && l.Contains("x.cfg.tmp")
+                && l.Contains("7 bytes") && l.Contains("real file") && l.Contains("is missing")
+                && l.Contains("bakSiblings=none"));
+        }
+
+        [Fact]
+        public void Sweep_InterruptedMoveAsideSwap_KeepsTmp_AndNamesTheBak()
+        {
+            // The ReplaceDestination fallback moved the real file to .bak.<guid> and died
+            // before moving the .tmp into place: the .tmp is the newest complete copy.
+            string path = Path.Combine(root, "x.cfg");
+            string bakName = "x.cfg.bak." + Guid.NewGuid().ToString("N");
+            WriteText(Path.Combine(root, bakName), "previous");
+            WriteText(path + ".tmp", "newest");
+
+            Assert.False(FileIOUtils.SweepStaleSafeWriteTemp(path, "SweepTest"));
+            Assert.Equal("newest", File.ReadAllText(path + ".tmp"));
+            Assert.Equal("previous", File.ReadAllText(Path.Combine(root, bakName)));
+            Assert.False(File.Exists(path));
+            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("kept stale temp file")
+                && l.Contains("bakSiblings=" + bakName));
         }
 
         [Fact]
@@ -134,7 +158,9 @@ namespace Parsek.Tests
             string dir = Path.Combine(root, "GameState");
             WriteText(Path.Combine(dir, "baseline_100.pgsb"), "real");
             WriteText(Path.Combine(dir, "baseline_100.pgsb.tmp"), "a");
+            WriteText(Path.Combine(dir, "baseline_250.5.pgsb"), "real");
             WriteText(Path.Combine(dir, "baseline_250.5.pgsb.tmp"), "b");
+            WriteText(Path.Combine(dir, "baseline_400.pgsb.tmp"), "no real file");
             WriteText(Path.Combine(dir, "baseline_300.pgsb.tmpx"), "not ours");
             WriteText(Path.Combine(dir, "events.pgse.tmp"), "other store");
 
@@ -143,11 +169,16 @@ namespace Parsek.Tests
             Assert.Equal(2, deleted);
             Assert.False(File.Exists(Path.Combine(dir, "baseline_100.pgsb.tmp")));
             Assert.False(File.Exists(Path.Combine(dir, "baseline_250.5.pgsb.tmp")));
+            Assert.True(File.Exists(Path.Combine(dir, "baseline_400.pgsb.tmp")));
             Assert.True(File.Exists(Path.Combine(dir, "baseline_100.pgsb")));
+            Assert.True(File.Exists(Path.Combine(dir, "baseline_250.5.pgsb")));
             Assert.True(File.Exists(Path.Combine(dir, "baseline_300.pgsb.tmpx")));
             Assert.True(File.Exists(Path.Combine(dir, "events.pgse.tmp")));
+            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("baseline_400.pgsb.tmp")
+                && l.Contains("kept stale temp file"));
             Assert.Contains(logLines, l => l.Contains("[SweepTest]")
-                && l.Contains("swept stale temp files") && l.Contains("deleted=2 failed=0"));
+                && l.Contains("swept stale temp files")
+                && l.Contains("deleted=2 keptRealMissing=1 failed=0"));
         }
 
         [Fact]
@@ -187,15 +218,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LedgerLoad_NoRealFile_SweepsTmp()
+        public void LedgerLoad_NoRealFile_KeepsTmp()
         {
             string path = Path.Combine(root, "GameState", "ledger.pgld");
             WriteText(path + ".tmp", "partial");
 
             Assert.True(Ledger.LoadFromFile(path));
 
-            Assert.False(File.Exists(path + ".tmp"));
+            Assert.True(File.Exists(path + ".tmp"));
             Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l => l.Contains("[Ledger]") && l.Contains("[WARN]")
+                && l.Contains("kept stale temp file"));
         }
 
         [Fact]
@@ -219,15 +252,23 @@ namespace Parsek.Tests
         public void GameStateBaselinesLoad_SweepsPerUtTmps()
         {
             string dir = ArmSaveRoot();
-            WriteText(Path.Combine(dir, "baseline_100.pgsb.tmp"), "partial");
-            WriteText(Path.Combine(dir, "baseline_200.pgsb.tmp"), "partial");
+            string real100 = Path.Combine(dir, "baseline_100.pgsb");
+            string real200 = Path.Combine(dir, "baseline_200.pgsb");
+            WriteText(real100, "ut = 100\n");
+            WriteText(real200, "ut = 200\n");
+            byte[] before100 = File.ReadAllBytes(real100);
+            WriteText(real100 + ".tmp", "partial");
+            WriteText(real200 + ".tmp", "partial");
+            WriteText(Path.Combine(dir, "baseline_300.pgsb.tmp"), "no real file");
 
             GameStateStore.LoadBaselines();
 
-            Assert.False(File.Exists(Path.Combine(dir, "baseline_100.pgsb.tmp")));
-            Assert.False(File.Exists(Path.Combine(dir, "baseline_200.pgsb.tmp")));
-            Assert.Empty(GameStateStore.Baselines);
-            Assert.Contains(logLines, l => l.Contains("[GameStateStore]") && l.Contains("deleted=2 failed=0"));
+            Assert.False(File.Exists(real100 + ".tmp"));
+            Assert.False(File.Exists(real200 + ".tmp"));
+            Assert.True(File.Exists(Path.Combine(dir, "baseline_300.pgsb.tmp")));
+            Assert.Equal(before100, File.ReadAllBytes(real100));
+            Assert.Contains(logLines, l => l.Contains("[GameStateStore]")
+                && l.Contains("deleted=2 keptRealMissing=1 failed=0"));
         }
 
         [Fact]

@@ -1155,14 +1155,18 @@ _(unreleased — entries accumulate here per commit)_
 ### Fixed
 
 - **A save interrupted by a crash no longer leaves a stray `.tmp` file next to Parsek's
-  career files.** Parsek writes each file to a temporary copy and then swaps it into place, so a
-  crash at that instant keeps the previous file and leaves the temporary copy beside it. Only the
+  career files.** Parsek writes each file to a temporary copy and then swaps it into place. A
+  crash before the swap keeps the real file and leaves the temporary copy beside it. Only the
   recordings folder was cleaned of these copies; the ledger (`ledger.pgld`), game-state events
   (`events.pgse`), milestones (`milestones.pgsm`), per-UT baselines (`baseline_*.pgsb`) and the
   install-wide `settings.cfg` kept theirs. Each of those now deletes its own leftover
   `<file>.tmp` when it loads, before reading the real file, which it never touches. The baselines
   mattered most: their names change with every save, so their leftovers accumulated instead of
-  being overwritten by the next save. No data was ever lost; this removes litter.
+  being overwritten by the next save. One case is left alone on purpose: when the real file is
+  missing, the temporary copy may be the newest complete save (a crash in the middle of the
+  fallback swap, which parks the previous file as `<file>.bak.<id>` first) or a half-written
+  first save, and the two cannot be told apart. That copy is kept, not deleted and not put in
+  place, and the log warns with its path, size and any `.bak` copy, so it can be recovered by hand.
 
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
