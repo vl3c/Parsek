@@ -19819,7 +19819,8 @@ class SettingsSidecarBaselineTests(unittest.TestCase):
     def test_baseline_body_pins_every_tracer_off(self):
         body = hlib.render_settings_sidecar_baseline()
         values = hlib.parse_settings_sidecar(body)
-        self.assertEqual(sorted(hlib.TRACER_SETTING_KEYS), sorted(values))
+        self.assertEqual(
+            sorted(hlib.TRACER_SETTING_KEYS + hlib.PINNED_ON_SETTING_KEYS), sorted(values))
         for key in hlib.TRACER_SETTING_KEYS:
             self.assertEqual("False", values[key], key)
 
@@ -19829,13 +19830,24 @@ class SettingsSidecarBaselineTests(unittest.TestCase):
         body = hlib.render_settings_sidecar_baseline()
         self.assertEqual([], hlib.settings_sidecar_tracers_on(body))
 
-    def test_baseline_writes_no_key_the_mod_does_not_read(self):
-        # The two OTHER sidecar-tracked settings must stay UNSET so the fixture's
-        # own GameParameters keep governing them (a stored value would override
-        # every save on the instance, which is the bug being fixed). The 2026-08-27
-        # settings simplification shrank this residue from five keys to these two.
+    def test_baseline_pins_the_readable_mirrors_on(self):
+        # writeReadableSidecarMirrors defaults OFF for players since 2026-09-26, but
+        # the fixture builders and OptimizerTransferCohesionTests need `.prec.txt`
+        # mirrors from every automation run, so the baseline stamps it True.
         values = hlib.parse_settings_sidecar(hlib.render_settings_sidecar_baseline())
-        for key in ("writeReadableSidecarMirrors", "showRouteLines"):
+        self.assertEqual(("writeReadableSidecarMirrors",), hlib.PINNED_ON_SETTING_KEYS)
+        self.assertEqual("True", values["writeReadableSidecarMirrors"])
+        # The pin is not a tracer, so it never reads as a leaked one.
+        self.assertEqual([], hlib.settings_sidecar_tracers_on(
+            hlib.render_settings_sidecar_baseline()))
+
+    def test_baseline_writes_no_key_the_mod_does_not_read(self):
+        # The OTHER sidecar-tracked settings must stay UNSET so the fixture's own
+        # GameParameters keep governing them (a stored value would override every
+        # save on the instance, which is the bug being fixed).
+        values = hlib.parse_settings_sidecar(hlib.render_settings_sidecar_baseline())
+        for key in ("showRouteLines", "verboseLogging", "samplingDensity",
+                    "ghostAudioVolume"):
             self.assertNotIn(key, values, key)
         # The three keys RETIRED by that simplification are no longer read by the
         # mod at all; a baseline that started writing one would be pure noise that

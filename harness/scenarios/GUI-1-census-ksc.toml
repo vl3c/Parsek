@@ -459,7 +459,8 @@ steps = [
   # load-bearing: the mode IS persisted (ParsekSettingsPersistence), but run.py rewrites
   # the instance's `GameData/Parsek/PluginData/settings.cfg` to its own baseline at BOTH
   # stage and teardown (`reset_settings_sidecar`), and that baseline carries only the
-  # three tracer flags - so whatever this lane persisted is gone either way. The step
+  # three tracer flags and the readable-mirror pin - so whatever this lane persisted is
+  # gone either way. The step
   # stays because it costs one op and it is the right thing to do to an install a person
   # also uses.
   { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },

@@ -125,6 +125,9 @@ LAYOUT_EPOCHS = {
     # PR #1834: body cell text under the header text; the Contracts heading reads
     # the shared slot forecast. First run on it: GUI-15 2026-09-25_2021.
     "career": {"utc": "2026-09-25T20:21:53Z", "pr": 1834},
+    # PR #1867: section order, pressed equal-width option rows, reworded labels.
+    # First run on it: GUI-14-census-settings-and-facility 2026-09-26_1009.
+    "settings": {"utc": "2026-09-26T10:10:05Z", "pr": 1867},
 }
 
 

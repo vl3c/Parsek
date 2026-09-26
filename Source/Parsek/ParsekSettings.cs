@@ -110,8 +110,13 @@ namespace Parsek
         // are kept because they are inert and because their autoPersistance default is what
         // keeps every field in the save; the Parsek Settings window is the only surface that
         // draws these settings, and its own labels and tooltips live in SettingsWindowUI.
+        // verboseLogging, samplingDensity and ghostAudioVolume are install-wide: the
+        // Settings window records every change in ParsekSettingsPersistence, whose stored
+        // value overrides the per-save GameParameters copy on each load (so an F9 or a
+        // rewind no longer reverts them). An install that never changed one keeps the
+        // per-save value, which starts at the field initializer below.
         [GameParameters.CustomParameterUI("Verbose logging",
-            toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]
+            toolTip = "When enabled, write detailed Parsek diagnostics to KSP.log")]
         public bool verboseLogging = true;
 
         [GameParameters.CustomParameterUI("Ghost render tracing (Warning: huge logs)",
@@ -126,9 +131,18 @@ namespace Parsek
             toolTip = "When enabled, write detailed ledger reconstruction diagnostics to KSP.log: one structural snapshot per recalc, per-identity change lines (facility / tech-node / contract / per-subject science), and computed-vs-live read-back mismatch warnings. Leave off for normal playtests. Per-identity detail also requires Verbose logging on.")]
         public bool ledgerTracing = false;
 
-        [GameParameters.CustomParameterUI("Readable sidecar mirrors (Warning: extra disk usage)",
-            toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
-        public bool writeReadableSidecarMirrors = true;
+        /// <summary>
+        /// Also write human-readable <c>.txt</c> copies of every recording sidecar.
+        /// Defaults OFF for players (the copies are debugging aids that cost disk). There
+        /// is deliberately no migration: an install whose settings.cfg already stores the
+        /// key keeps its value, which is how the dev instances stay ON, and the harness
+        /// stamps it ON for every provisioned run (hlib.render_settings_sidecar_baseline)
+        /// because the fixture builders and OptimizerTransferCohesionTests read the
+        /// <c>.prec.txt</c> mirrors.
+        /// </summary>
+        [GameParameters.CustomParameterUI("Readable recording copies (.txt)",
+            toolTip = "When enabled, also write human-readable .txt copies of recording sidecars for bug reports and binary/text comparison")]
+        public bool writeReadableSidecarMirrors = false;
 
         // autoBackupExistingSaves, showCommittedFutureOverlays and blockCommittedActions
         // were DELETED in the 2026-08-27 settings simplification: the pre-Parsek backup

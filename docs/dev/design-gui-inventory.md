@@ -966,16 +966,26 @@ draw site (`UI/UiComplexityMode.cs:174`).
 
 | # | section | gate | controls |
 |---|---|---|---|
-| 1 | Interface | always | `Basic` / `Advanced` buttons (`:488-493`) plus a hint label; `Basic` is greyed while a Gloops recording runs (`:475`, predicate `:505`) |
-| 2 | Looping | `SettingsSectionLooping` (`:378`) | `Auto-launch every` label, a 45 px value field, a 40 px unit button |
-| 3 | Ghosts | always | ghost-audio slider 0..1 with a 35 px percent label, and the ` Show supply route paths on map` toggle |
-| 4 | Diagnostics | `SettingsSectionDiagnostics` (`:393`) | five tracing toggles, `In-Game Test Runner`, `Run Diagnostics Report`, and the rewind-point disk readout |
-| 5 | Recorder Sample Density | `SettingsSectionSampleDensity` (`:401`) | `Low` / `Medium` / `High` plus a summary label |
-| 6 | Data Management | always | `Wipe All Recordings (N)` (`:746`) and `Wipe All Game Actions (N)` (`:756`), each greyed at zero with a disabled-hover reason |
+| 1 | Interface | always | `Basic` / `Advanced` pressed toggles of one fixed equal width (`SettingsWindowPresentation.OptionCellWidth`) plus a hint label; `Basic` is greyed while a Gloops recording runs (predicate `IsModeOptionDisabled`) |
+| 2 | Ghosts | always | ghost-audio slider 0..1 with a 35 px percent label, and the ` Show supply route paths on map` toggle |
+| 3 | Looping | `SettingsSectionLooping` | `Auto-launch every` label, a 45 px value field, a 40 px unit button |
+| 4 | Recorder Sample Density | `SettingsSectionSampleDensity` | `Low` / `Medium` / `High` pressed toggles of one fixed equal width, plus a summary label |
+| 5 | Diagnostics | `SettingsSectionDiagnostics` | five toggles (` Verbose logging`, three tracers, ` Write readable .txt recording copies`), `In-Game Test Runner`, `Run Diagnostics Report`, and the `Rewind points on disk: <size> (<n> files)` readout whose hover carries the live / crashed / stable / concluded counts |
+| 6 | Data Management | always | `Wipe All Recordings (N)` and `Wipe All Milestones (N)`, each with its own hover while enabled and greyed at zero with a disabled-hover reason |
 
-Footer: `Defaults` (`:416`, resets 9 values from `UI/SettingsWindowPresentation.cs:55-66`) and
-`Close`. Each hidden section's trailing `Space` lives INSIDE its gate (`:381`, `:396`, `:404`),
-so Basic shows no double gap.
+Order since 2026-09-26: Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
+Management (it was Interface, Looping, Ghosts, Diagnostics, Sample Density, Data Management).
+
+Footer: `Defaults` (resets the values in `SettingsWindowPresentation.BuildDefaults`, the
+Advanced-only ones included, and never the interface mode) and `Close`. Each hidden section's
+trailing `Space` lives INSIDE its gate, so Basic shows no double gap.
+
+Persistence: the interface mode, ghost audio, route paths, sample density, verbose logging, the
+three tracers and the readable copies are install-wide (`ParsekSettingsPersistence`,
+`GameData/Parsek/PluginData/settings.cfg`; the audio slider is written once per finished drag);
+only the auto-launch period is per save. The readable copies default OFF for players since
+2026-09-26 with no migration (a stored key keeps its value), and the harness settings baseline
+stamps them ON for every automation run.
 
 Settings that no longer have a control at all (2026-08-27 simplification): `autoRecordOnLaunch`
 / `autoRecordOnEva` / `autoRecordOnFirstModificationAfterSwitch` and `autoMerge` are hidden
@@ -986,8 +996,9 @@ deleted outright (`ParsekSettings.cs:93-99`, `:233-238`).
 
 Pictures: `ksc-settings-advanced` (39 nodes) and `ksc-settings-basic` (19). The 20-node
 difference is exactly the three Basic-hidden sections, diffed node for node: 5 Looping + 9
-Diagnostics + 6 Sample Density. Nothing else differs but the two mode buttons' widths (the
-selected one renders with `GUI.skin.box`). No picture: the null-settings fallback, a greyed
+Diagnostics + 6 Sample Density. Nothing else differed but the two mode buttons' widths (the
+selected one rendered with `GUI.skin.box`); since 2026-09-26 both option rows draw pressed
+toggles of one fixed width, so the mode switch no longer moves them. No picture: the null-settings fallback, a greyed
 `Basic`, a mid-edit auto-loop field, either wipe button greyed.
 
 ### 3.9 Real Spawn Control
