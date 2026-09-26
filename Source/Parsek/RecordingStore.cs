@@ -5335,6 +5335,7 @@ namespace Parsek
             RewindContext.EndRewind();
             ClearRewindReplayTargetScope();
             ClearRewindCarriedRewindPoints("rewind-flags-reset");
+            ClearRewindCarriedStagedLists("rewind-flags-reset");
         }
 
         /// <summary>
@@ -5548,6 +5549,12 @@ namespace Parsek
                             $"Dropped {droppedSupersedes} supersede relation(s) rewound out of existence " +
                             $"(rewindUT={RewindAdjustedUT:F1} owner='{dropSupersedeOwner.VesselName}')");
                 }
+
+                // Same stale-persistent reason as the RP capture above, for the supersede,
+                // rewind-retirement and tombstone lists and the merge journal. Taken AFTER the
+                // supersede drop so the capture already holds this rewind's drop and
+                // retirements; the OnLoad re-apply then finds nothing left to do on it.
+                CaptureRewindStagedListsForRewind(ParsekScenario.Instance, messageLabel);
 
                 HighLogic.CurrentGame = game;
                 HighLogic.LoadScene(GameScenes.SPACECENTER);

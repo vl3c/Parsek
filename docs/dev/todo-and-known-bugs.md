@@ -1232,13 +1232,13 @@ derived `max = 0`. GS-7's comment and the roadmap item are corrected.
 - GS-7 re-read: see the defect paragraph; its comment is corrected.
 
 **Residue.** See RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT below for the other staged
-lists this fix does not carry. The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
+lists this fix does not carry (carried since 2026-09-26). The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
 host save's UT, which is 60 s BEFORE the RP UT, so a fixture re-fly runs with the clock before
 its own RP. Nothing on the committed lanes calls CanInvoke inside a fixture session, but a
 Retry from Rewind Point there would read the gate; production RP quicksaves are written after
 the RP stamps its UT and never have this shape.
 
-## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. OPEN]
+## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. FIXED 2026-09-26 on branch `fix-rewind-staged-lists` (headless only, not flown). The related open question below stays OPEN]
 
 `LoadRewindStagingState` rebuilds RECORDING_SUPERSEDES, RECORDING_REWIND_RETIREMENTS,
 LEDGER_TOMBSTONES and the merge journal from the same OnLoad node, and on a plain rewind that
@@ -1248,6 +1248,45 @@ Re-Fly merge in ANOTHER tree after the last persistent write would lose its supe
 tombstones on the next Rewind-to-Launch, while its RP now survives from memory. Not measured
 live; derived from the mechanism. Fix direction: carry every staged list the same way (the
 supersede re-apply `ReapplyRewindSupersedeDropAfterLoad` would then run on the carried list).
+
+**Which writes miss the file.** A live Re-Fly merge is NOT one of them: `MergeJournalOrchestrator`
+saves persistent.sfs synchronously at Durable Saves #1-#3. What leaves the file behind memory:
+a merge finished by the load-time finisher (its durable saves are deferred), the Re-Fly invoke's
+resurrected-recovery tombstones, a tree discard purge (removals, so the file resurrects rows),
+and an earlier rewind's own drop and retirements (a second Rewind-to-Launch in another tree
+before any persistent write re-read the dropped rows and lost the retirements, so the first
+rewind's re-flown fork could show again).
+
+**Repro** (`RewindStagedListsCarryTests`, real `SaveRewindStagingState` / `LoadRewindStagingState`
+through reflection, then the OnLoad order): on origin/main the two-tree case read supersedes
+`["rel_gone"]` instead of `["rel_b"]` (tree B's memory-only row lost, a purged row resurrected).
+
+**Fix.** Per list, memory wins wholesale, exactly like the RP carry (no union, so a row both hold
+appears once as the in-memory instance and a row memory removed stays removed):
+`RecordingStore.CaptureRewindStagedListsForRewind` (new partial
+`RecordingStore.RewindStagedListsCarry.cs`) runs in `ExecuteRewindSaveLoad` AFTER the pre-load
+supersede drop and before the scene load, so the capture already holds this rewind's drop and
+retirements; `ParsekScenario.OnLoad` calls `ReinstallRewindCarriedStagedListsAfterLoad` right
+after the RP carry and BEFORE `ReapplyRewindSupersedeDropAfterLoad`, so the re-apply runs on the
+carried list (a no-op in production, the live drop is already in it; the test without the
+pre-load drop proves the re-apply still drops the rewound tree's fork). Same gating as the RP
+carry: installed only while `RewindContext.IsRewinding`, dropped by `ResetRewindFlags` and by a
+non-rewind load. Log `Staged lists carried across rewind: supersedes installed= loadedFromSave=
+restored= staleDropped=; retirements ...; tombstones ...; journal installed= loadedFromSave=`.
+- Supersedes: what a rewind undoes is unchanged - the rewound tree's rows whose forks start at or
+  after the rewind UT, via the same drop. Other trees' rows are kept, as the RP carry keeps
+  other trees' RPs.
+- Retirements: the rewind only adds them (through the drop); carried wholesale.
+- Tombstones: the rewind never touched them on the disk path either; carried wholesale, which
+  also keeps them consistent with the ledger, which the rewind keeps in memory. NOT changed and
+  left as a product question: the rewound tree's own Re-Fly tombstones survive the drop that
+  un-supersedes their origin (both before and after this fix).
+- Merge journal: carried only when the capture is null or `Complete`
+  (`ShouldCarryMergeJournal`). Both plain-rewind entry points refuse an in-flight in-memory
+  journal, so the capture is always that; a journal on disk is then one memory already drove
+  or rolled back, and installing null keeps the next load's `RunFinisher` from driving it a
+  second time after the rewind cleared the Re-Fly marker (the rewind branch runs no finisher).
+  An in-flight capture (unreachable) keeps the loaded journal and Warns.
 
 Related open question (UNVERIFIED): `DropSupersedesRewoundOutOfExistence` drops the owner
 tree's non-canon supersede rows whose forks start after the rewind UT. An RP that survives

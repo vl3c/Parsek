@@ -1154,6 +1154,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Rewind-to-Launch no longer undoes another flight's Re-Fly from a stale save.** A plain
+  rewind reloads the career from `persistent.sfs` as it was last written, and while the
+  recordings, the ledger and (since the earlier fix) the rewind points were kept from memory,
+  the supersede rows, the rewind retirements, the kerbal-death tombstones and the merge journal
+  were read back from that file. Any change to them since the last write was undone: rows
+  added then were lost (a Re-Fly merge finished at load time, whose saves are deferred; the
+  retirements an earlier rewind wrote, so its re-flown flight could show again), and rows
+  removed then came back (a discarded flight's rows, the rows an earlier rewind dropped). The
+  rewind now carries all four from memory, the same way it carries the rewind
+  points; the rewound flight's own Re-Fly is still undone exactly as before. A merge journal
+  still on disk for a merge memory had already finished is dropped instead of being run a
+  second time on the next load. Log: `Staged lists carried across rewind:`.
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
   and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6

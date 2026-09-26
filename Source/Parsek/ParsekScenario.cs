@@ -3526,6 +3526,13 @@ namespace Parsek
                 loadPhase = "rewind-point-carry-over";
                 RecordingStore.ReinstallRewindCarriedRewindPointsAfterLoad(this);
 
+                // Same for the supersede, rewind-retirement and tombstone lists and the merge
+                // journal: the recordings and the ledger are kept from memory across a plain
+                // rewind, so these must be too. Before the supersede re-apply below, which then
+                // drops the rewound tree's rows from the carried list. No-op when not a rewind.
+                loadPhase = "rewind-staged-lists-carry-over";
+                RecordingStore.ReinstallRewindCarriedStagedListsAfterLoad(this);
+
                 // PR #774 cross-LoadScene fix: re-apply the rewind-time supersede drop
                 // performed in RecordingStore.InitiateRewind. The in-memory mutation
                 // there is reverted by KSP's scenario-state restoration across the
