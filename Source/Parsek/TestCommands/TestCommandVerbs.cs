@@ -251,12 +251,8 @@ namespace Parsek.TestCommands
             //     D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE): in always-tree mode a tree
             //     commit never passes through that factory at all (it appends through
             //     TryAppendCapturedToTree, which KEEPS a 1-point recording), the remaining
-            //     split-edge callers are abnormal aborts no seam verb can provoke on demand,
-            //     and the dock/undock chain-segment path IS live and reaches the same
-            //     factory (ParsekFlight.HandleDockUndockCommitRestart ->
-            //     ChainSegmentManager.CommitDockUndockSegment -> CommitSegmentCore), with no
-            //     always-tree guard on that chain - it just logs its own "segment too short"
-            //     rather than the Gloops Warn a lane gates.
+            //     split-edge callers are abnormal aborts no seam verb can provoke on
+            //     demand, and no chain-segment commit exists in always-tree mode.
             // BOTH SINGLE-PHASE, and neither is a borderline call: the recorder attaches
             // to the physics-frame patch INSIDE FlightRecorder.StartRecording, and the
             // stop half stops / builds / commits / nulls inside one synchronous call, so

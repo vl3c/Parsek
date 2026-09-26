@@ -15,6 +15,64 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
+
+The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
+`StartUndockContinuation` and their `ParsekFlight` / `FlightRecorder` gates) was removed as
+unreachable in always-tree mode; the reachability proof is in the entry (closed by PR #1864)
+CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED. That removal
+left state whose only producers were the removed commits, kept on purpose:
+
+- Chain identity: `ActiveChainId` (now assigned only `null`), `ActiveChainNextIndex`,
+  `ActiveChainPrevId`, `ActiveChainCrewName`, `PendingContinuation` (only ever `false`),
+  `PendingIsBoarding`, `PendingEvaName`, `PendingBoundaryAnchor`, `HasActiveChain`,
+  `ApplyChainMetadataTo` (a no-op while `ActiveChainId` is null), `ClearChainIdentity`, and
+  `StartRecording`'s `isContinuation` (always false). `RecorderStateSnapshot` logs some of
+  them in every `RecState` line (`chain.*` fields).
+- Continuation sampling: `ContinuationVesselPid` / `UndockContinuationPid` and their index,
+  id, velocity and UT fields are never set non-zero, so `UpdateContinuationSampling`,
+  `UpdateUndockContinuationSampling`, `StopAllContinuations`, the snapshot refreshes and the
+  `ParsekFlight` bake-and-stop blocks on switch / split / destroy never act.
+- `ChainSegmentManager.OnCommittedRecordingRemoved` / `OnCommittedRecordingInserted` /
+  `RebindContinuationIndices` are the "chain continuation indices" subscriber of the
+  committed-list index contract (`RecordingStore.CommittedListNotifications.cs`), and
+  `absorbedIntoByRecordingId` is written there with no reader left.
+
+Removing these touches the index-contract subscriber set and the `RecState` log format, so
+it was held back for an operator decision rather than folded into the dead-commit removal.
+The `Recording` revert-rollback fields `ContinuationBoundaryIndex` and the
+`PreContinuation*` snapshots were set only by the removed commits too, so the
+`RecordingStore` rollback that reads them and the hydration-repair copy go with this
+cleanup. Recording-side chain DATA (`ChainId`, `ChainIndex`, `ChainBranch`,
+`ParentRecordingId`, `EvaCrewName`) is serialized and read by playback and must stay.
+
+---
+
+## ~~SETTINGS-WINDOW-ROUND-2026-09-26: eleven Settings-window findings from the read-only review at `dd9c1682b`~~ [FILED AND FIXED 2026-09-26, branch `settings-window-round`]
+
+The review found the Basic hover leaving out Kerbals; readable `.txt` mirrors ON for every
+player; ghost audio, sample density and verbose logging living in the save (reverted by F9 and
+rewinds, reset in a new save) while every other setting was install-wide; the selected
+Basic/Advanced and Low/Medium/High option drawn as a grey-looking box that also resized the row;
+a section order that put developer Diagnostics above Sample Density; wipe buttons with no hover
+while enabled; a rewind-point line carrying counts its hover did not explain; a `(development
+default)` verbose label; a Defaults hover that did not mention the Advanced-only settings; an
+auto-launch hover naming `'auto' rows`; and a user guide still documenting the retired Recording
+settings, a disable-able EVA auto-record and a 10s auto-launch default (it is 30s).
+
+Fix: all eleven applied. The three per-save settings moved into `ParsekSettingsPersistence`
+(stored value wins at load, absent key leaves the save's value; the audio slider persists once
+per finished drag), and `SettingWhitelist` routes them through the sidecar so a harness
+`SetSetting` survives the next load while `run.py`'s stage / teardown baseline still clears it.
+`writeReadableSidecarMirrors` defaults false with no migration; the dev instance's settings.cfg
+already stores `True`, and `hlib.render_settings_sidecar_baseline` now stamps it `True` for every
+automation run, because the fixture builders and `OptimizerTransferCohesionTests` read the
+`.prec.txt` mirrors. Tests: `SettingsWindowTextTests`, the new `ParsekSettingsPersistenceTests`
+cells (a real file round trip, de-DE invariance, invalid-value handling), the whitelist and
+applier route tables, and the hlib / run smoke baseline cells.
+
+---
+
 ## ~~D1-COMMIT-ABORT-UNDEFINED: D1 `commit-abort` had no definition and no lane~~ [FILED AND CLOSED 2026-09-26 by `CA-1-commit-abort-booster-live`, coverage wave 14, branch `cov-commitabort`; the definition is a supervisor ruling PENDING OPERATOR CONFIRMATION]
 
 **Definition (registry D1 block).** The post-destruction auto-merge is ABORTED because the ACTIVE
@@ -381,15 +439,39 @@ previous file intact, and the next load must recover. Closed inside ONE boot (su
 **Scope.** The recording-sidecar write path (the staged `.prec`), and a cold load inside the same
 process rather than a new process. The direct `SafeWriteConfigNode` callers are filed below.
 
-## SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT: a crash mid-save leaves `<file>.tmp` next to the ledger, game-state, milestone and settings files and nothing removes it [FILED 2026-09-26, coverage wave 13, branch `cov-safewrite`; OPEN, low: litter, not data loss]
+## ~~SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT: a crash mid-save leaves `<file>.tmp` next to the ledger, game-state, milestone and settings files and nothing removes it~~ [FILED 2026-09-26, coverage wave 13, branch `cov-safewrite`; FIXED 2026-09-26 on branch `fix-safewrite-tmp`]
 
 `Ledger`, `GameStateStore`, `MilestoneStore` and `ParsekSettingsPersistence` write through
 `FileIOUtils.SafeWriteConfigNode` straight to `<file>.tmp` (no `.stage.` name). A crash between the temp
 write and the swap leaves the previous file intact (the ordering contract ST-4 proves on the sidecar
-path) and a `<file>.tmp` beside it. `RecordingStore.CleanOrphanFiles` only scans `Parsek/Recordings/`,
+path) and a `<file>.tmp` beside it, except in one corner: on the move-aside fallback of
+`FileIOUtils.ReplaceDestination` (taken when `File.Replace` throws), a crash after the destination
+moved to `<file>.bak.<guid>` and before the `.tmp` moved into place leaves NO real file, the previous
+bytes in the `.bak.<guid>` and the newest complete bytes only in the `.tmp`. `RecordingStore.CleanOrphanFiles` only scans `Parsek/Recordings/`,
 so nothing deletes that `.tmp`; the next successful write of the same file overwrites it, so it never
 accumulates and is never read. Found by reading the sweep's scope while building ST-4, not by a flight.
-Fix if wanted: a load-time delete of `<file>.tmp` for those four known paths.
+
+**Fix:** `FileIOUtils.SweepStaleSafeWriteTemp(path, tag)` deletes `<path>.tmp` when `<path>` exists
+(Info-logged with its size, fail-open on IO errors, never touches `<path>` or the swap fallback's
+`.bak.<guid>`). When `<path>` is MISSING it keeps the `.tmp` and Warns with its path, size and any
+`<path>.bak.*` sibling: that `.tmp` is either the only copy of the newest save (the fallback-swap
+corner above) or a partial first-ever save, indistinguishable, so it is neither deleted nor promoted
+and is left for recovery by hand. Each store calls it at the top of its LOAD path before reading the real file: `Ledger.LoadFromFile`,
+`GameStateStore.LoadEventFile`, `MilestoneStore.LoadMilestoneFile`,
+`ParsekSettingsPersistence.LoadIfNeeded`. `GameStateStore.SaveBaseline` also writes through the same
+helper to per-UT `baseline_<ut>.pgsb` names that never repeat, so its residue DID accumulate;
+`LoadBaselines` sweeps them with the directory form `SweepStaleSafeWriteTemps(dir, "baseline_*.pgsb")`.
+Safe to delete at load: safe-writes are synchronous on the main thread and Parsek starts no threads,
+so no write of the same file can be in flight during its load; with the real file present the
+residue is deleted, not promoted, because the load already reads the real file. The directory form
+applies the same per-file rule and logs `deleted= keptRealMissing= failed=`. The recordings sweep keeps its own pattern scan (recording-id classification,
+`.stage.` / `.bak.` names, the known-ids guard) and now shares only the `SafeWriteTempSuffix`
+constant with the producer and this helper. Not swept: `RenderCompositionRecorder`'s manifest (an
+automation-only write-only export at the KSP root that nothing loads; the next export overwrites
+it) and the `SafeWriteBytes` writes of `persistent.sfs` by the in-game test batch isolation, whose
+save-root `.tmp` is outside Parsek's own folders. Cells in `SafeWriteTempSweepTests` (helper
+behavior including the kept-when-real-missing and interrupted-fallback-swap cells, plus each store's
+real load path against a temp dir; removing the five call sites reds all six store cells).
 ## STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show [FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`)]
 
 The first real-game look at the annotations: 25 PNGs on the committed `stock-screen-census`
@@ -1435,7 +1517,17 @@ PASS attempt 1 with every token as written; EX-1 armed `_1820` PASS on the fix-u
 `756a9ce6...` (`746e6c48e`), negative control `_1822` red on exactly its one seed. LF-1 / LF-2
 were not re-flown on the fix-up DLL (the fix-ups do not touch a subject outside the zone).
 
-## D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: a promoted staging booster still has its debris TTL armed [FILED 2026-09-23 off GS-11. OPEN, low]
+## ~~D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: a promoted staging booster still has its debris TTL armed~~ [FILED 2026-09-23 off GS-11. FIXED 2026-09-26 on branch fix-promoted-debris]
+
+**FIXED 2026-09-26 on branch fix-promoted-debris.** Fix: `BackgroundRecorder.OnVesselRemovedFromBackground`
+now removes the pid from `debrisTTLExpiry` and logs `Debris TTL cancelled: pid=<p> expiryUT=<u>
+reason=removed-from-background` (Info, only when an entry existed). Every caller is a vessel
+leaving the background for good (promotion, dock/board merge, switch-segment consume, EVA-board
+promotion, background-parent split); `EndDebrisRecording` removes the entry itself before routing
+there, so a real TTL close logs no cancel. Headless cells in `BackgroundRecorderTests`
+(`OnVesselRemovedFromBackground_CancelsDebrisTTL_AndLogsIt` and two neighbours). Not changed: a
+promoted booster switched AWAY from again is re-backgrounded without a new TTL (as before). Not
+re-flown; GS-11 fact (3) now expects the cancel line instead of `Debris TTL expired`.
 
 Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the booster pid 2353949206
 was promoted to the FOREGROUND recorder at UT ~71.5 (`Promoted recording 'baa46b97...' from
@@ -1453,7 +1545,26 @@ Fix: remove the pid from `debrisTTLExpiry` in `OnVesselRemovedFromBackground` (o
 promotion path only), and log it. GS-11's header names the line as expected; flip that note
 when fixed.
 
-## D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance [FILED 2026-09-23 off GS-11. OPEN]
+## ~~D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance~~ [FILED 2026-09-23 off GS-11. FIXED 2026-09-26 on branch fix-promoted-debris]
+
+**FIXED 2026-09-26 on branch fix-promoted-debris.** Source found: not live bookkeeping but
+`VesselSpawner.SnapshotVessel` at recorder stop, which resolved the capture's flat `Points`
+(first point, last point, `ComputeMaxDistance`) through `GetWorldSurfacePosition`; the promoted
+foreground recorder had entered RELATIVE mode near the sibling booster, so the flat list carried
+anchor-local metres. The finalize backfill never corrected it because
+`ClassifyMaxDistanceBackfillRoute` skips a recording whose maxDist is already non-zero. Fix: a pure
+`ClassifySnapshotDistanceRoute` sends any capture with a Relative TrackSection through
+`TryComputeSnapshotDistancesFromBodyFixedSurfaces`, which reuses
+`TryComputeMaxDistanceFromBodyFixedSurfaces` / `CollectBodyFixedSectionSamples` (Absolute `frames`
++ Relative `bodyFixedFrames`, earliest sample as the launch reference) for `MaxDistanceFromLaunch`,
+and measures `DistanceFromLaunch` from the same reference to the live vessel or, when destroyed, to
+the latest body-fixed sample. Mirror site fixed too: the destroyed path's `EndBiome` now resolves
+at the latest body-fixed sample (`TryGetEndBiomeSamplePoint`), not the flat tail. Captures with no
+Relative section keep the flat list. Headless cells: `PromotedDebrisSnapshotDistanceTests`. Not
+re-flown. Residual (not changed): the capture's distance is measured from the promotion point,
+not the booster's own first background sample, and `TryAppendCapturedToTree` keeps the larger of
+the two values; and a capture built on the vessel-switch stop path while a Relative section is
+still OPEN (not yet in the deep-copied `TrackSections`) would still take the flat route.
 
 Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the promoted booster fell
 about 5 km from the pad, yet its death snapshot reads `Vessel was destroyed during recording.
@@ -4810,19 +4921,215 @@ it to the stock screen.
 alternative (honour the stock edits by writing through `Record*` on the stock path) was not
 taken: the stock screen would still be a second surface for developer diagnostics.
 
-## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION~~ [FILED 2026-09-11 by the GUI fix batch. RE-INVESTIGATED 2026-09-26 (branch `commnet-relay-decision`): the gap is deeper than a missing call site. RULED 2026-09-26: A (wire it up), with relay AND control point; IMPLEMENTED on the same branch 2026-09-26. DONE 2026-09-26 (PR #1857): lanes CN-1 / CN-1T flown green, reading runs `2026-09-26_1130` / `_1131`, D6 `commnet-relay` claimed. Follow-ups filed: GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP, GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED]
 
-**Evidence.** `GhostCommNetRelay.ShouldRegisterCommNet` (`:207`), `RegisterNode` (`:239`),
-`ComputeCombinedRelayPower` (`:35`) and `IsRemoteTechPresent` (`:389`) have no production
-caller. Meanwhile `GhostCommNetVesselPatch.Prefix`
-(`Patches/GhostVesselLoadPatch.cs:446`) destroys each ghost's `CommNetVessel` citing
-"GhostCommNetRelay handles CommNet" (`:459`) - a live patch justified by dead code. Ghost
-relays contribute nothing to CommNet.
+**What the player gets today.** Ghosts carry no CommNet signal. A relay placed by a
+committed recording counts for signal exactly as in stock from the moment it spawns as a
+real vessel at the end of its recording. The gap is the ghost window only:
+- after a rewind, a relay that a committed mission put up does not count until that
+  mission's recording ends and the relay spawns;
+- a pre-existing real vessel that a committed future recording docks with or boards is
+  despawned by `VesselGhoster.GhostVessel` (`vessel.Die()`) until its chain tip, so it
+  drops out of a network it was already part of.
 
-**Decision:** a CommNet ruling. Should a ghost relay carry signal (wire the class up), or
-should ghosts be CommNet-inert (delete the class and re-word the patch's justification to
-say what it actually does)? Either is fine; the current state documents a behaviour that
-does not happen.
+A probe flown in that window can read No Signal where the design says a ghost relay would
+carry it. With RemoteTech installed there is no ghost relay under any option.
+
+**Evidence (origin/main `958314016`, 2026-09-26).**
+1. **Never instantiated.** `new GhostCommNetRelay` occurs only in
+   `GhostCommNetRelayTests.cs` (`:665`, `:677`). Nothing in production calls `RegisterNode`,
+   `UpdateNodePosition`, `RemoveNode` or `ReregisterAllNodes`, and nothing subscribes to
+   CommNet network init.
+2. **No writer.** `Recording.AntennaSpecs` (`Recording.cs:258`) is only copied
+   (`Recording.cs:940`, `RecordingOptimizer.cs:926`, `:1286`).
+   `AntennaSpecExtractor.ExtractFromSnapshot` (`AntennaSpec.cs:36`) is called only from
+   `AntennaSpecTests`.
+3. **Not serialized.** No codec, sidecar or `ParsekScenario` key mentions antennas (grep of
+   `Source/Parsek` for "antenna"), so a spec set in memory would be lost at the next
+   save/load.
+4. **The data source cannot work on real saves.** The extractor reads `antennaPower`,
+   `antennaCombinable`, `antennaCombinableExponent` and `antennaType` from the snapshot's
+   `MODULE` node. KSP does not persist those; they are part-config fields. The dev-instance
+   saves hold 2021 `ModuleDataTransmitter` nodes and the committed fixtures 286, and none of
+   them has an `antennaPower` key. They persist `isEnabled`, `xmitIncomplete`,
+   `stagingEnabled`, `canComm` and `UPGRADESAPPLIED`. Wiring the extractor as written would
+   therefore produce power-0 specs, and `ShouldRegisterCommNet` would refuse every ghost.
+   Stock resolves the power of an unloaded antenna from the part prefab plus the snapshot's
+   `UPGRADESAPPLIED` (`ModuleDataTransmitter.CommPowerUnloaded`, decompiled), then scales the
+   vessel node by `CommNetParams.rangeModifier` (`CommNetVessel`). `RegisterNode` applies
+   neither.
+5. **Why the coverage cell is stuck.** The only in-game test,
+   `RuntimeTests.AntennaSpecsProduceRelayPower` (`:10205`), skips honestly. D6
+   `commnet-relay` is not "vacuous until a generator writes AntennaSpecs": the product never
+   produces the data, so a `RecordingBuilder.WithAntennaSpecs` would prove only the pure
+   power formula, not a relay.
+6. **Live code cites it.** `GhostCommNetVesselPatch` (`Patches/GhostVesselLoadPatch.cs:469`)
+   destroys every ghost map ProtoVessel's `CommNetVessel`, citing "GhostCommNetRelay handles
+   CommNet". `GhostMapPresence.cs:11144` says the same. The patch is right to exist (a ghost
+   marker must not be a CommNet node); only its stated reason is false.
+7. **Docs describe it as shipped.** `docs/parsek-flight-recorder-design.md` section 15.6
+   ("captured ... at commit time", nodes "registered at ghost positions") and its 6f row
+   ("Done (47 tests)"), and the "Ghost world presence" line in `docs/roadmap.md`. The
+   intended design is section 15.6 plus the paradox addendum section 7.3
+   (`docs/dev/done/recording-system-redesign/parsek-vessel-interaction-paradox-addendum-time-jump.md`).
+   The class comment's "Section 13.2" does not match: 13.2 of the design doc is Chain-Aware
+   Spawn, and the constraint it quotes is from addendum 7.3.
+
+**Options.**
+- **(A) Wire it up.** This means rebuilding the feature, not just adding a call site.
+  - *Spec source:* resolve each antenna part's power, type and combinability from its prefab
+    (`PartLoader`, dot-form names), plus the snapshot's `UPGRADESAPPLIED` and
+    `canComm` / deploy state. Derive the specs at load from the recording's existing
+    `_vessel.craft` sidecar, which needs NO codec or schema change (the field stays
+    in-memory and derived). Chain-ghosted vessels use the despawn snapshot that
+    `VesselGhoster` already keeps.
+  - *Runtime:* one relay instance per FLIGHT scene (including map view) and per
+    TRACKSTATION scene.
+    - Register when a non-loop ghost with antenna power enters its window.
+    - Position the node from the ghost map ProtoVessel's orbit when unloaded, or from the
+      ghost transform when loaded.
+    - Remove it at spawn, at ghost destroy and at scene exit, and re-register on CommNet
+      network init.
+    - Apply `rangeModifier`, skip when `EnableCommNet` is off, and exclude loop and overlap
+      copies, which would otherwise add one relay per loop cycle.
+  - *RemoteTech (`remoteTechDetected`):* keep the skip. RemoteTech replaces CommNet, so ghost
+    relays would not count under it. Supporting it means RemoteTech's own satellite API,
+    which is out of scope. `IsRemoteTechPresent` matches any assembly name containing
+    "RemoteTech", which is acceptable for a skip. CommNet-extending mods (the
+    CommNetManager family) would be untested.
+  - *Proof:*
+    - unit tests for spec resolution and the lifecycle decisions;
+    - an in-game test asserting that a probe's control path runs through a ghost node;
+    - a harness lane to claim D6 (a CommNet-enabled fixture, a relay recording, and a probe
+      hidden behind the Mun).
+  - *Size:* roughly 800-1200 lines including tests, over 2-3 PRs plus one new lane. The risk
+    is the CommNet node lifecycle across scene switches and warp, not the maths.
+  - *Narrower variant:* wire only chain-ghosted real vessels, the one case where the player
+    loses coverage they already had. Not recommended, because chain ghosting itself is
+    half-built: `GhostVessel` creates no ghost object, and the 6b-4 visual is deferred.
+- **(B) Remove.**
+  - *Delete:* `GhostCommNetRelay.cs` (427 lines), `AntennaSpec.cs` (127 lines),
+    `Recording.AntennaSpecs` and its three copy sites, `GhostCommNetRelayTests`,
+    `AntennaSpecTests`, the antenna cases in `BugFixTests`,
+    `RecordingOptimizerTests.SplitAtSection_CopiesAntennaSpecsToBoth`, and the in-game test.
+    Removing the in-game test lowers H28's `MapPresence` batch tally by one skip, so re-pin
+    H28 or `CommittedBatchTallySourceSyncTests` reds.
+  - *Keep:* `GhostCommNetVesselPatch`. Re-word its comment and `GhostMapPresence.cs:11144`
+    to say that ghost markers are CommNet-inert by design.
+  - *Retire:* D6 `commnet-relay` in `harness/coverage/registry.toml` and the catalog. D6
+    becomes complete, and the coverage denominator drops by one.
+  - *Docs:* rewrite design 15.6 as "ghosts are CommNet-inert; relays count from spawn", and
+    fix the 6f row and `docs/roadmap.md`.
+  - *Size:* one small mechanical PR.
+- **(C) Remove now, park the recipe.** Do everything in B. In addition, section 15.6 keeps
+  a short "not implemented; if revived" note with the corrected recipe from A: powers
+  resolved from the prefab, derived from the existing sidecar, no schema change,
+  ProtoVessel positions, loops excluded, `rangeModifier` applied. A later revival then does
+  not start from the wrong premise.
+
+**Recommendation: C.** This code is not a nearly finished feature waiting for one call
+site. Its data source cannot work on a real save, so A costs about what a new feature
+would. The gameplay gap covers only ghost windows, and relays count from the moment they
+spawn. Keeping ghosts CommNet-inert costs nothing. Removing the class stops the docs and a
+live patch comment from promising behaviour that does not happen, and it retires a coverage
+cell no lane could ever claim. Revive it through the parked recipe if a comms-heavy career
+shows the gap in play.
+
+**Decision (operator, 2026-09-26): A.** A ghost replaying a committed recording counts for
+CommNet as the real vessel: it relays, and it is a probe control point when its recorded crew
+qualifies (stock parity). Only the real run relays; loop replays do not. The binding
+scenarios and mechanics are in `docs/parsek-flight-recorder-design.md` section 15.6. The
+recommendation above (C) was not taken.
+
+**Implementation (2026-09-26, branch `commnet-relay-decision`).** The dead code is gone:
+`GhostCommNetRelay.cs`, `AntennaSpec.cs`, `Recording.AntennaSpecs` and its copy sites, their
+unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by derivation to
+`total=4 skipped=2`). In its place:
+- `GhostCommNet.cs` (pure, unit-tested in `GhostCommNetTests`): stock `CommNetVessel.UpdateComm`
+  antenna combination transcribed verbatim (including the no-direct-antenna raw-sum quirk and
+  the relay-enabler promotion), the stock control-point rule, a piecewise-constant per-recording
+  timeline over `DeployableExtended` / `Retracted` / `Broken` (deploy-gated antennas) and
+  `Decoupled` (subtree) / `Destroyed` part events, the relay-window predicate, the stock
+  vessel-type exclusions, the mod guard and the register / remove diff.
+- `GhostCommNetManager.cs` (live shell): specs derived from the vessel snapshot (end state, or the
+  start-state visual snapshot when destroyed) through the part prefabs (`CanCommUnloaded`,
+  `CommPowerUnloaded`, `CanControlUnloaded`, stock `FindModule` matching), crew qualified by name
+  through the roster (`FullVesselControlSkill`); one free `GhostCommNetNode` per recording id
+  whose `position` returns `precisePosition`, positioned and powered in its own CommNet pre-update
+  hook (dark for a rebuild when the position cannot resolve, and dark past EndUT unless held),
+  registered only against stock CommNet types, re-added on `OnNetworkInitialized`. A node
+  held past EndUT (spawn pending, warp-deferred spawns included, or a chain gap) keeps the
+  END antenna state but sits where the vessel about to spawn is NOW: the recorded terminal
+  surface point, else the terminal orbit the spawn path builds
+  (`VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn`) propagated to the current UT, else
+  a body-fixed end sample; an orbit / anchor end with no buildable orbit is dark.
+- Hosts: `ParsekFlight` ticks it every frame after the spawn passes, re-reading each
+  recording's spawn state so a spawn hands over in the same frame (window inputs from
+  `ComputePlaybackFlags`, position from the mesh-independent `TryResolvePlaybackWorldPosition`,
+  chain-ghosted real vessels from their despawn snapshot's orbit before the first claim);
+  `ParsekTrackingStation` at its 0.25 s lifecycle cadence (position: the map ProtoVessel, else
+  the covering orbit segment, else body-fixed frames covering the UT). Known seam: the
+  Tracking Station learns a spawn hold only past EndUT, so a held node there can be dark for
+  up to one 0.25 s tick at its EndUT; FLIGHT bridges that seam (tracked with the other
+  Tracking Station follow-up in GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED).
+- Proof so far: unit tests with hand-derived stock numbers, and a new in-game `GhostCommNet`
+  category (routing probe with a negative control in FLIGHT and TRACKSTATION, per-node state
+  checks, active-vessel control path). Never flown. `VesselSnapshotBuilder.RelaySatellite`
+  authors an RC-L01 + RA-2 snapshot for a future lane; no lane or synthetic corpus row uses it
+  yet. Remaining to close: a harness lane that flies a probe through a ghost relay (D6).
+- Lane (2026-09-26, branch `commnet-relay-lane`): `CN-1-ghost-commnet-relay` (FLIGHT) and
+  `CN-1T-ghost-commnet-relay-ts` (TRACKSTATION) over the new `ghost-commnet-relay` preset (A crewed
+  over the KSC, B playback-disabled, C looped with its real run over), with four new GhostCommNet
+  cells (the real registered nodes route a free endpoint home and are the only way through; the
+  rulings on A / B / C). NEVER FLOWN; D6 `commnet-relay` is claimed after the first PASS.
+- **Flight proof (2026-09-26, PR #1857).** First flights `2026-09-26_1121` (CN-1) and `_1122`
+  (CN-1T) were PARSEK-FAIL on the synthetic routing cell `GhostRelayNodeBridgesEndpointToHome_*`
+  alone: its endpoint was in direct range of a registered preset relay, so the path skipped the
+  probe's own node. A test geometry defect, fixed in `9eee0e80e`; every product cell passed.
+  Reading runs `2026-09-26_1130` (CN-1) and `_1131` (CN-1T) on automation DLL sha256
+  `fcbe2979...`: PASS attempt 1, `total=9 passed=4 failed=0 skipped=5`, A and B registered, C
+  not, each real ghost node the only way home for its endpoint and the path cut once the node is
+  removed, zero GhostCommNet WARN / ERROR. Both specs armed off them and D6 `commnet-relay`
+  claimed (coverage 243 -> 244 of 247); offline negative control red on 22 of 22 seeded faults.
+  H28 re-flown `2026-09-26_1123` PASS, confirming its derived `total=4 skipped=2` pin.
+
+## GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15, PARTIAL]
+
+Design 15.6 scenario 15 says a real vessel despawned because a committed future recording claims
+it keeps relaying until the claim resolves. What ships covers only the stretch BEFORE the first
+claim: `GhostCommNetManager` relays a chain-ghosted vessel from its despawn snapshot's orbit until
+the claim UT. From the first claim to the vessel's reappearance (the chain tip's spawn) it has a
+node only when a committed recording carrying it is itself in its ghost window and eligible
+(real run, playback on, CommNet-capable). Otherwise it drops out of the network.
+
+Why: chain ghosts are never positioned. `ParsekFlight.PositionChainGhosts` skips an entry when
+`info.ghostGO == null`, and `VesselGhoster.GhostVessel` never creates one (`ghostGO = null`,
+"Ghost GO creation deferred to 6b-4"), so there is no chain-ghost position to hang a node on
+after the claim.
+
+Fix: when chain ghosts get a position (6b-4, or a mesh-independent chain-ghost position resolver
+like `TryResolvePlaybackWorldPosition`), feed it to the manager for the claim-to-tip span. Until
+then the design's scenario 15 row should read "until the first claim". Low: the case needs a
+committed future recording that docks with or boards a real relay the player depends on.
+
+## GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED: a Tracking Station entered first excludes a playback-disabled recording from the ghost CommNet [FILED 2026-09-26 from the GUI-D3 closure; low]
+
+The Tracking Station ghost CommNet driver (`ParsekTrackingStation`, the `PlaybackScopeTracker
+.IsHistoricalNeverReplayed` read) honours the replay-scope latch but never notes a playhead
+itself. The TS notes playheads only on its map-presence paths (`GhostMapPresence`), and the
+create path declines a playback-disabled recording before reaching them. So when the Tracking
+Station is the FIRST scene to see a playback-disabled recording's start, that recording is never
+latched and its ghost relay is excluded as `historical-never-replayed`. In normal play the TS is
+always reached through the Space Center or a flight, and both note every committed recording
+every frame, so the latch is set long before; only `LoadGame scene=trackstation` from the main
+menu (a harness road) skips them. CN-1T boots FLIGHT first for this reason.
+
+Same host, second seam (moved here from GUI-D3): the Tracking Station learns a spawn hold only
+past EndUT, so a held node there can be dark for up to one 0.25 s lifecycle tick at its EndUT;
+FLIGHT bridges that seam.
+
+Fix: note the playhead for every committed recording in the TS ghost CommNet driver's own pass
+(as `ParsekFlight` / `ParsekKSC` do), and read the spawn hold at EndUT rather than after it.
 
 ## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
 
@@ -5432,6 +5739,11 @@ reading flight).**
   docking lane could meet the same refusal incidentally; it would log `CommitSegmentCore`'s
   own Verbose "segment too short" rather than the Gloops Warn GL-2 gates, so the two are
   distinguishable in a log.
+  CORRECTED 2026-09-26: no guard on the call chain, but none of the four branches is
+  reachable in always-tree mode, because the pending state each reads is set only by the
+  legacy chain or not at all (evidence under
+  CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED). The Gloops
+  stop is in practice the only producer of the drop outside the split-edge aborts.
 - `points=` in the stop payload is the committed recording's `Points.Count` on a commit and
   the RECORDER COUNT BEFORE THE CALL on a drop. It is deliberately NOT "the number the < 2
   rule was applied to": `FinalizeRecordingState` can ADD a boundary sample at stop when the
@@ -6997,7 +7309,7 @@ penalty by the recording's end. Either changes the split / tombstone-guard seam
 convention (the guard must stay bit-identical to the retag), so it is filed rather than
 guessed.
 
-## CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED [FOUND 2026-09-23 while fixing OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT and by its review. OPEN, analysis only, not measured]
+## ~~CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED~~ [FOUND 2026-09-23 while fixing OPTIMIZER-SPLIT-LEAVES-KERBAL-ROWS-ON-THE-FIRST-SEGMENT and by its review. CLOSED 2026-09-26: UNREACHABLE in always-tree mode, no code change]
 
 `ChainSegmentManager.CommitSegmentCore` commits a segment, runs
 `RecordingStore.RunOptimizationPass()`, and only THEN files the segment's ledger rows via
@@ -7012,6 +7324,63 @@ has none. `MergeDialog`'s tree commit avoids both by committing the ledger per t
 the pass. Fix direction: resolve the surviving ids after the pass (as the tree commit
 does) before filing. Check first whether the standalone chain path is still reachable in
 always-tree mode.
+
+CLOSED WITHOUT A CODE CHANGE (2026-09-26): the ordering is real in code, but no current
+play reaches `CommitSegmentCore`, so no ledger row can be filed against a restructured id.
+Re-derived from the full caller set (grep of `CommitSegmentCore(` and the four public
+wrappers over `Source/Parsek`; line numbers at `origin/main` 958314016):
+
+- `ActiveChainId` is assigned non-null ONLY inside `CommitSegmentCore` itself
+  (`ChainSegmentManager.cs:688-690`), and `StartRecording` clears any chain state it finds
+  without a tree (`ParsekFlight.cs:13533-13546`) and wraps every non-continuation start in
+  a single-node tree (`:13591`). So the gates that need an existing chain are circular:
+  the chain boarding transition (`ParsekFlight.cs:12912`, behind `ActiveChainId != null`)
+  and `CommitVesselSwitchTermination` (`:11980`, same gate).
+- `CommitChainSegment` from `ParsekFlight.cs:1415` is behind
+  `chainManager.PendingContinuation`, which nothing ever sets true (every write is
+  `= false`: `ChainSegmentManager.cs:285`, `:790`, `ParsekFlight.cs:8624`, `:13455`).
+- `CommitBoundarySplit` (`ParsekFlight.cs:12944`): all three boundary handlers return
+  first on `ShouldSuppressBoundarySplit(activeTree)` (`:12959`, i.e. `activeTree != null`),
+  logging `... boundary suppressed in tree mode` (`:12980`, `:13014`, `:13066`).
+- `CommitDockUndockSegment`, all four branches of `HandleDockUndockCommitRestart`
+  (`ParsekFlight.cs:12794-12828`). This corrects the D1 sub-2-point census above, which
+  called the dock path live "with no always-tree guard": the guard is the STATE the
+  branches read, not a check on the chain. (a) Dock initiator reads
+  `recorder.DockMergePending`, set only by the legacy half of `OnPartCouple`
+  (`:11543`, `:11552`) and by the recorder's `DockMerge` decision, which requires the flag
+  already set (`FlightRecorder.cs:8911-8914`). The legacy half runs only when the tree half
+  (`ParsekFlight.cs:11314`, `activeTree != null && recorder != null`) did not return, and
+  the tree half returns on both recorder states the legacy half acts on (`:11405`,
+  `:11521`); the fall-through state (`!IsRecording && CaptureAtStop == null`) matches
+  neither legacy branch. (b) Dock target reads `pendingDockAsTarget`, which the tree half
+  also sets (`:11396`), but always together with `pendingTreeDockMerge`, and
+  `HandleTreeDockMerge` runs first in the same `Update` (`:1407` before `:1408`) on the
+  same recorder predicates and nulls `recorder` (`:12742`); every clear resets both flags
+  together (`:12542-12543`, `ClearDockUndockState` + `:12315`, `:12374`, `:12766`).
+  (c) Undock-stay reads `pendingUndockOtherPid`, which nothing ever sets non-zero
+  (declaration `:649`; writes only `= 0` at `:12563`, `:12683`). (d) Undock-switch needs
+  the recorder's `UndockSwitch` decision (`FlightRecorder.cs:8911`, `UndockSiblingPid != 0`),
+  and `UndockSiblingPid` is written only from `chainManager.UndockContinuationPid`
+  (`ParsekFlight.cs:12710`, `:12949`), which only `StartUndockContinuation`
+  (`ChainSegmentManager.cs:616`) sets, called only from branches (c) and (d)
+  (`ParsekFlight.cs:12819`, `:12842`): circular.
+- Every mid-scene site that nulls `activeTree` also nulls `recorder` (`ParsekFlight.cs:3025`,
+  `:3195`, `:3236`, `:3551`, `CommitTreeFlight` `:13996`); the other two run at
+  `OnFlightReady` on a fresh addon (`:12357`) or after a failed start with no capture
+  (`:13669`), so no live recorder outlives its tree to reach the legacy halves.
+- Census: 0 of the 756 `KSP.log`s under `../logs` (646 folders, every one verbose) carries
+  `CommitSegmentCore`, `Atmosphere auto-split triggered` or any of the three legacy
+  `onPartCouple:` dock lines, against positive controls of 136 logs with `boundary
+  suppressed in tree mode` and 22 with `onPartCouple (tree`.
+
+Mirror direction: `ChainSegmentManager.cs:714` -> `:727` is the only site that files
+`OnRecordingCommitted` after an optimization pass. `ParsekFlight.FallbackCommitSplitRecorder`
+(`:6948`) runs no pass, and the tree commits (`MergeDialog.Commit.cs:86` then
+`NotifyLedgerTreeCommitted`, and `CommitTreeFlight`, which runs no pass) file per tree
+after the pass. Whether the pass could merge or split the fresh segment was not settled,
+because nothing reaches it. If the legacy chain path is ever revived, fix the ordering as
+this entry's fix direction says; deleting the dead chain commit paths is a separate
+cleanup, not this defect.
 
 ## ~~TOMBSTONED-DEATH-RESURRECTS-ON-RELOAD-AFTER-A-RP-SPLIT~~: a death the merge retired comes back on the next load when the origin was split at the rewind point [FOUND 2026-09-22 while landing the entry below. RULED 2026-09-23 (a1 + the Recovered handoff). FIXED on branch `tombstone-reload`]
 

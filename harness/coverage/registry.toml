@@ -88,16 +88,11 @@ schema = 1
 #   always-tree mode a tree commit never passes through that factory - it appends
 #   through TryAppendCapturedToTree, which KEEPS a 1-point recording - so no
 #   StartRecording lane can produce this drop however short its take. The factory's
-#   remaining callers are: the Gloops commit (this claim's subject), a set of
-#   abnormal split-edge aborts no seam verb can provoke on demand, AND the
-#   dock/undock chain-segment path, which is live - ParsekFlight
-#   .HandleDockUndockCommitRestart (all four branches: dock initiator, dock target,
-#   undock stay, undock switch) -> ChainSegmentManager.CommitDockUndockSegment ->
-#   CommitSegmentCore -> the factory, with no always-tree guard anywhere on that
-#   chain. So the honest scope is "the only seam VERB whose SUBJECT is the drop",
-#   not "the only producer": a docking lane could reach the same refusal
-#   incidentally, and would log CommitSegmentCore's own "segment too short" Verbose
-#   rather than the Gloops Warn GL-2 gates.
+#   remaining callers are: the Gloops commit (this claim's subject) and a set of
+#   abnormal split-edge aborts no seam verb can provoke on demand. The dock/undock
+#   chain-segment path that also reached it was unreachable in always-tree mode and
+#   has been removed. So the honest scope is "the only seam VERB whose SUBJECT is
+#   the drop".
 #   MEASURED on GL-2's reading run 2026-09-15_1621: the take lands on EXACTLY ONE
 #   point at samplingDensity=0 with the stop step adjacent to the start, and the
 #   refusal Warn precedes the seam's own committed=false report by 1.0 ms.
@@ -751,7 +746,8 @@ values = ["timeline-projection"]
 # the on-disk `.prec` stays byte-identical, and a COLD reload in the same process (the isolated-
 # restore prep + LoadGame) re-reads it with all its points and sweeps the orphan `.tmp`
 # (`CleanOrphanFiles`). Not claimed: a crash of a new PROCESS, and the direct SafeWriteConfigNode
-# callers, whose `.tmp` nothing sweeps (todo SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT).
+# callers, whose `.tmp` each store now deletes on load (todo SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT,
+# fixed 2026-09-26; unit-tested in SafeWriteTempSweepTests, not flown).
 values = ["sidecar-prec", "sidecar-craft", "sidecar-pann",
           "rp-quicksaves", "deflate-snapshots", "txt-mirrors", "alias-mode",
           "sfs-scenario-node", "schema-gate", "path-validation", "safe-write",

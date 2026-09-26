@@ -293,11 +293,8 @@ count = { min = 0, max = 0 }
 #        token below.
 #     2. AutoRecordOnEvaFromPad_StartsExactlyOnce (:2118) - crewed non-EVA + idle + a
 #        resolvable `FlightEVA` + a crewed part with an airlock. NO situation guard.
-#        THE ONE WAY IT COULD SURPRISE: `HandleDeferredAutoRecordEva` has a second branch
-#        that logs `Chain EVA recording started` instead when `chainManager
-#        .PendingContinuation` is set, and the cell counts only the
-#        `Auto-record started (EVA from pad)` spelling. A fresh batch on an idle host
-#        should not have a pending chain continuation; if it does, that is a finding.
+#        `HandleDeferredAutoRecordEva` logs only the `Auto-record started (EVA from pad)`
+#        spelling the cell counts.
 #     3. EvaTwiceFromSameCapsuleProducesTwoBranches (:2488) - `CountCrewInParts >= 2` is
 #        satisfied (Valentina + Bob). ITS RUN-TIME PATH IS LONG AND EVERY EXIT IS A SKIP
 #        rather than a Fail: KSP not auto-switching to the first kerbal, the first kerbal

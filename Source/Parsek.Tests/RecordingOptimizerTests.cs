@@ -2617,25 +2617,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SplitAtSection_CopiesAntennaSpecsToBoth()
-        {
-            var rec = MakeRecordingWithSections(17000, 17030, 17060,
-                SegmentEnvironment.ExoBallistic, SegmentEnvironment.Atmospheric);
-            rec.AntennaSpecs = new List<AntennaSpec>
-            {
-                new AntennaSpec { partName = "antenna1", antennaPower = 500000 }
-            };
-
-            var second = RecordingOptimizer.SplitAtSection(rec, 1);
-
-            Assert.NotNull(rec.AntennaSpecs);
-            Assert.Single(rec.AntennaSpecs);
-            Assert.NotNull(second.AntennaSpecs);
-            Assert.Single(second.AntennaSpecs);
-            Assert.NotSame(rec.AntennaSpecs, second.AntennaSpecs);
-        }
-
-        [Fact]
         public void SplitAtSection_CopiesIsDebris()
         {
             var rec = MakeRecordingWithSections(17000, 17030, 17060,

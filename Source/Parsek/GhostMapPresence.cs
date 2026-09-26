@@ -11141,7 +11141,7 @@ namespace Parsek
             out VesselType vtype,
             out string vesselName)
         {
-            // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay).
+            // Single antenna-free part: the ghost's CommNet node is GhostCommNetManager's, not this marker's.
             // Aero/thermal tolerances are hardened post-load in HardenGhostVesselPartPhysics:
             // the partNode is loaded into a real Part with prefab maxTemp=1200, which
             // would otherwise overheat and explode the marker vessel during low-altitude

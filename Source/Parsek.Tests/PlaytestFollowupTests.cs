@@ -224,13 +224,12 @@ namespace Parsek.Tests
         /// naming MarkFilesDirty does not stand in for the call, and braces inside string /
         /// char literals do not unbalance the body walk.
         /// AppendCapturedDataToRecording additionally has a behavioural twin in this file;
-        /// the other three rows remain source-level pins.
+        /// the other two rows remain source-level pins.
         /// </summary>
         [Theory]
         [InlineData("ParsekFlight.cs", "static void AppendCapturedDataToRecording(")]
         [InlineData("ParsekFlight.cs", "void FlushRecorderToTreeRecording(FlightRecorder")]
         [InlineData("ChainSegmentManager.cs", "void SampleContinuationVessel(")]
-        [InlineData("ChainSegmentManager.cs", "void StartUndockContinuation(uint")]
         public void Bug273_MethodBody_ContainsMarkFilesDirtyCall(string fileName, string methodSignature)
         {
             string path = LocateSourceFile(fileName);

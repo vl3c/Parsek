@@ -3619,12 +3619,14 @@ class SettingsSidecarResetSmokeTests(unittest.TestCase):
         self.assertIn("settings-sidecar baseline written phase=teardown", body)
 
     def test_baseline_leaves_the_other_tracked_settings_unset(self):
-        """Only the three tracers are pinned. Writing any of the other five
-        sidecar-tracked settings would override the fixture's own GameParameters
-        for every save on the instance - the same bug in a different key."""
+        """Only the three tracers (OFF) and the readable-mirror flag (ON) are
+        pinned. Writing any other sidecar-tracked setting would override the
+        fixture's own GameParameters for every save on the instance - the same bug
+        in a different key."""
         self._run("pass")
         values = hlib.parse_settings_sidecar(self._read())
-        self.assertEqual(sorted(hlib.TRACER_SETTING_KEYS), sorted(values))
+        self.assertEqual(
+            sorted(hlib.TRACER_SETTING_KEYS + hlib.PINNED_ON_SETTING_KEYS), sorted(values))
 
 
 class AlwaysCollectAndContactSheetSmokeTests(unittest.TestCase):

@@ -260,13 +260,35 @@ namespace Parsek.Tests
             };
 
             string line = RewindPointDiskUsage.FormatLine(snap);
+            string hover = RewindPointDiskUsage.FormatTooltip(snap);
 
-            Assert.Contains("Rewind point disk usage: 1.0 KB", line);
-            Assert.Contains("3 files", line);
-            Assert.Contains("live=4", line);
-            Assert.Contains("crashed=1", line);
-            Assert.Contains("stable=2", line);
-            Assert.Contains("concluded=1", line);
+            // The line is size + files only; the live per-state counts moved to the hover
+            // (which used to leave out the live total).
+            Assert.Equal("Rewind points on disk: 1.0 KB (3 files)", line);
+            Assert.Equal("Live rewind points: 4 (1 crashed, 2 stable, 1 concluded)", hover);
+        }
+
+        // catches: the singular file count reading "1 files", and the hover outgrowing the
+        // Settings help strip (71 characters) once counts reach three digits.
+        [Fact]
+        public void DiskUsage_FormatLine_SingularFile_AndHoverFitsTheStrip()
+        {
+            var one = new RewindPointDiskUsage.Snapshot { TotalBytes = 10L, FileCount = 1 };
+            Assert.Equal("Rewind points on disk: 10 B (1 file)", RewindPointDiskUsage.FormatLine(one));
+
+            var big = new RewindPointDiskUsage.Snapshot
+            {
+                Live = new RewindPointDiskUsage.LiveBreakdown
+                {
+                    RewindPointCount = 999,
+                    CrashedOpenCount = 999,
+                    StableOpenCount = 999,
+                    ConcludedCount = 999
+                }
+            };
+            string hover = RewindPointDiskUsage.FormatTooltip(big);
+            Assert.True(hover.Length <= TooltipEchoBudgetTests.BudgetChars(280f, TooltipEchoBox.DoubleLine),
+                hover);
         }
 
         // catches: a FAILED directory scan rendering as "0 B, 0 files" again - which is what
@@ -288,7 +310,7 @@ namespace Parsek.Tests
             Assert.Contains("could not read the folder", line);
             Assert.DoesNotContain("0 B", line);
             Assert.DoesNotContain("0 files", line);
-            Assert.Contains("live=2", line);
+            Assert.Contains("Live rewind points: 2", RewindPointDiskUsage.FormatTooltip(failed));
 
             // An empty-but-successful scan still reports zero, and must NOT claim a failure.
             var empty = new RewindPointDiskUsage.Snapshot();
