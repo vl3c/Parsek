@@ -1187,6 +1187,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A crew death's reputation penalty now stays with the death when a recording is split.**
+  When the optimizer or a Re-Fly split cut a recording between the moment a crashed vessel's
+  reputation penalty was stamped and the crew's death, the death went to the later part and
+  the penalty stayed on the earlier one, so re-flying the later part brought the crew back but
+  kept the reputation loss. The penalty now always lands on the same part as its death, on both
+  splits, and a re-fly that undoes the death undoes the penalty too. Penalties from contracts
+  and other sources are placed as before.
+
 - **A ground part a kerbal places on EVA is now recorded as its own vessel and replays as a
   ghost.** Breaking Ground experiments, power and comms units and the Central Station become
   their own vessel when a kerbal places them, and Parsek used to record the placement on the
