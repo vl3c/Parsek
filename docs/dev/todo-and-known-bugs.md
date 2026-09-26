@@ -28,6 +28,76 @@ retired with this ruling (it would only have proved that an unintegrated mod is 
 
 ---
 
+## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override]
+
+Audit of every player-facing stock KSP 1.12.5 setting (new-game modes and presets, the 103
+`GameParameters` fields, the 306 `settings.cfg` keys, the Alt+F12 cheats) against what
+Parsek reads or assumes. Report and evidence: `docs/dev/research/ksp-settings-vs-parsek-2026-09-26.md`
+plus its three companion files. Every item below was invisible to the test estate: all
+committed fixtures carry Normal-preset values (x1 multipliers, quickload on, Kerbin
+calendar), and both the dev and the automation KSP instances run `MAX_VESSELS_BUDGET = 10000`,
+`DECLUTTER_KSC = False` where players run 250 / True. Each fix lands with a unit cell at a
+non-Normal value.
+
+Bugs (no ruling needed):
+
+- S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
+  pre-multiplier value to `subject.science`, then multiplies before `AddScience`; Parsek
+  captures `subject.science` (`GameStateRecorder`) and credits it as `ScienceAwarded`, so on
+  Easy (x2), Moderate (x0.9) and Hard (x0.6) the ledger drifts from the live pool and a rewind
+  resets science to the x1 total. Fix: stamp the multiplier at capture; never read the
+  current multiplier at replay.
+- S2. `Career.RepLossDeclined` (Normal 1, Hard 3) never reaches the ledger: `ContractDeclined`
+  is dropped in `GameStateEventConverter` and `ReputationPenaltySource.ContractDecline` is
+  never constructed, so a rewind refunds the reputation. Fix: a KSC-origin reputation
+  penalty row carrying the amount stock applied.
+- S3. Logistics hard-codes a 21600 s day: `LogisticsWindowUI.FormatDuration` switches to days
+  at 86400 s but divides by 21600 (24 h reads "4.0d"), and `RouteCadence` parses "d" as
+  21600 s on the Earth calendar too. Fix: route both through `ParsekTimeFormat`.
+- S4. A zero starting pool is never seeded (`EnsureInitialFundsSeed` seeds non-zero only;
+  the stock slider allows 0 funds, Science mode can start at 0 science), and the value wait
+  spins its full 600 frames on every load. Also `DeferredSeed` and
+  `ApplyBudgetDeductionWhenReady` wait 120 frames for currency singletons Science and
+  Sandbox never create.
+- S5. Ghost map vessels count toward the stock vessel budget: `Game.Updated` builds the
+  pruned `FlightState` before `ParsekScenario.OnSave` strips ghosts, and ghosts are live,
+  `prst=True`, non-Debris vessels in FLIGHT and TRACKSTATION, so each one pushes one real
+  debris vessel out of a player-default save (inferred from the decompile, not flown).
+  Related: a background-recorded debris vessel that stock pruned gets a silent on-rails
+  state after reload (add a load check and one summary log line); an autoclean recovery
+  matches pending-tree recordings by vessel NAME only (low); and
+  `ParsekFlight.EnforceMinDebrisPersistence` reflects for a GameSettings field that does not
+  exist in 1.12.5 (delete it).
+
+Owner rulings (2026-09-26):
+
+- S6 (Q4). The `stock-minimal` and `modded-compat` provision profiles run player defaults
+  (`MAX_VESSELS_BUDGET = 250`, `DECLUTTER_KSC = True`); re-fly the daily tier once after the
+  flip. The S5 fix gets unit and in-game cells, no dedicated low-budget lane.
+- S7 (Q1). Rewind-to-Separation and Re-Fly IGNORE `Flight.CanQuickLoad` / `Flight.CanRestart`
+  (they are Parsek's own time mechanic). Only the re-fly exit must stay reachable: stock
+  builds the Esc-menu Revert button only when `CanRestart`, so `ReFlyRevertButtonGate` alone
+  cannot surface Retry / Discard on the Hard preset (inferred, needs a live check).
+- S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
+  kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.
+- S9 (Q3). Parsek is inert (no recording, ghosts or rewind; one log line) in `MISSION`,
+  `MISSION_BUILDER`, `SCENARIO` and `SCENARIO_NON_RESUMABLE` games.
+
+Supervisor defaults (not overridden):
+
+- S10 (Q5). Parsek IMGUI windows ignore `GameSettings.UI_SCALE`; scale them to match. Separate
+  UI work, not in the fix PR.
+- S11 (Q6). Alt+F12 cheat currency (`TransactionReasons.Cheating`) stays unledgered and
+  clamp-held until the next rewind; log it once per event.
+
+To trace before filing as defects (low): `AllowNegativeCurrency` against reserved funds on
+spends no click-block covers; `AutoHireCrews` hire capture; Set Orbit / Set Position teleports
+inside a live recording; infinite-propellant recordings vs route cost manifests;
+`persistKerbalInventories` vs inventory-carrying recordings; alternate launch sites with
+`AllowOtherLaunchSites` off.
+
+---
+
 ## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
 
 The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
@@ -297,7 +367,7 @@ orbit-only checkpoint branch and Absolute points only - the checkpoint-with-fram
 position, so a small chord term in the residual), body-fixed primary and recorded-anchor RELATIVE
 decodes are implemented and unit-plumbed but not yet read live.
 
-## ~~MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load~~ [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`; FIXED 2026-09-26 on branch fix-mission-clone-loop, supervisor ruling: clone disarms its loop, pending operator confirmation]
+## ~~MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load~~ [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`; FIXED 2026-09-26 on branch fix-mission-clone-loop, supervisor ruling: clone disarms its loop, CONFIRMED by the operator 2026-09-26]
 
 **Fix:** `MissionStore.Clone` (the only path that inserts a copy into the store; the Clone button
 and `UiAction op=clone` both call it) sets the copy's `LoopPlayback` to false when the source
@@ -312,8 +382,11 @@ enable`. Cells: `MissionStoreTests.Clone_OfLoopingMission_LeavesExactlyOneLoopOn
 `Clone_CopiesSelection_IntoAnIndependentMission`. `MS-1-mission-leg-trim-clone` drops the copy's
 `MissionLoopUnit` token (it only existed because of this defect), pins `loop=false` plus the new
 store line, and forbids `already owned by another looping unit`; those tokens are re-cut from
-source and not yet re-read on a flight. The Clone tooltip ("its own include set, loop period, and
-Archive flag") stays true. Route backing missions (`RouteBackingMission.BuildMission`) are
+source and not yet re-read on a flight. The Clone tooltip now also says a looping mission's copy
+starts with Loop off (operator request with the confirmation; the Loop toggle's own tooltip
+already names the one-loop-per-tree clear). Operator context: mission looping is mostly a
+debugging surface today and its player-facing controls may be removed in a later version, once
+the looping system and Logistics (which depends on it) are proven bug-free. Route backing missions (`RouteBackingMission.BuildMission`) are
 synthesized per frame and never inserted into the store, so they are not a copy path.
 
 
@@ -1359,13 +1432,13 @@ derived `max = 0`. GS-7's comment and the roadmap item are corrected.
 - GS-7 re-read: see the defect paragraph; its comment is corrected.
 
 **Residue.** See RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT below for the other staged
-lists this fix does not carry. The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
+lists this fix does not carry (carried since 2026-09-26). The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
 host save's UT, which is 60 s BEFORE the RP UT, so a fixture re-fly runs with the clock before
 its own RP. Nothing on the committed lanes calls CanInvoke inside a fixture session, but a
 Retry from Rewind Point there would read the gate; production RP quicksaves are written after
 the RP stamps its UT and never have this shape.
 
-## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. OPEN]
+## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. FIXED 2026-09-26 on branch `fix-rewind-staged-lists` (headless only, not flown). The related open question below stays OPEN]
 
 `LoadRewindStagingState` rebuilds RECORDING_SUPERSEDES, RECORDING_REWIND_RETIREMENTS,
 LEDGER_TOMBSTONES and the merge journal from the same OnLoad node, and on a plain rewind that
@@ -1375,6 +1448,45 @@ Re-Fly merge in ANOTHER tree after the last persistent write would lose its supe
 tombstones on the next Rewind-to-Launch, while its RP now survives from memory. Not measured
 live; derived from the mechanism. Fix direction: carry every staged list the same way (the
 supersede re-apply `ReapplyRewindSupersedeDropAfterLoad` would then run on the carried list).
+
+**Which writes miss the file.** A live Re-Fly merge is NOT one of them: `MergeJournalOrchestrator`
+saves persistent.sfs synchronously at Durable Saves #1-#3. What leaves the file behind memory:
+a merge finished by the load-time finisher (its durable saves are deferred), the Re-Fly invoke's
+resurrected-recovery tombstones, a tree discard purge (removals, so the file resurrects rows),
+and an earlier rewind's own drop and retirements (a second Rewind-to-Launch in another tree
+before any persistent write re-read the dropped rows and lost the retirements, so the first
+rewind's re-flown fork could show again).
+
+**Repro** (`RewindStagedListsCarryTests`, real `SaveRewindStagingState` / `LoadRewindStagingState`
+through reflection, then the OnLoad order): on origin/main the two-tree case read supersedes
+`["rel_gone"]` instead of `["rel_b"]` (tree B's memory-only row lost, a purged row resurrected).
+
+**Fix.** Per list, memory wins wholesale, exactly like the RP carry (no union, so a row both hold
+appears once as the in-memory instance and a row memory removed stays removed):
+`RecordingStore.CaptureRewindStagedListsForRewind` (new partial
+`RecordingStore.RewindStagedListsCarry.cs`) runs in `ExecuteRewindSaveLoad` AFTER the pre-load
+supersede drop and before the scene load, so the capture already holds this rewind's drop and
+retirements; `ParsekScenario.OnLoad` calls `ReinstallRewindCarriedStagedListsAfterLoad` right
+after the RP carry and BEFORE `ReapplyRewindSupersedeDropAfterLoad`, so the re-apply runs on the
+carried list (a no-op in production, the live drop is already in it; the test without the
+pre-load drop proves the re-apply still drops the rewound tree's fork). Same gating as the RP
+carry: installed only while `RewindContext.IsRewinding`, dropped by `ResetRewindFlags` and by a
+non-rewind load. Log `Staged lists carried across rewind: supersedes installed= loadedFromSave=
+restored= staleDropped=; retirements ...; tombstones ...; journal installed= loadedFromSave=`.
+- Supersedes: what a rewind undoes is unchanged - the rewound tree's rows whose forks start at or
+  after the rewind UT, via the same drop. Other trees' rows are kept, as the RP carry keeps
+  other trees' RPs.
+- Retirements: the rewind only adds them (through the drop); carried wholesale.
+- Tombstones: the rewind never touched them on the disk path either; carried wholesale, which
+  also keeps them consistent with the ledger, which the rewind keeps in memory. NOT changed and
+  left as a product question: the rewound tree's own Re-Fly tombstones survive the drop that
+  un-supersedes their origin (both before and after this fix).
+- Merge journal: carried only when the capture is null or `Complete`
+  (`ShouldCarryMergeJournal`). Both plain-rewind entry points refuse an in-flight in-memory
+  journal, so the capture is always that; a journal on disk is then one memory already drove
+  or rolled back, and installing null keeps the next load's `RunFinisher` from driving it a
+  second time after the rewind cleared the Re-Fly marker (the rewind branch runs no finisher).
+  An in-flight capture (unreachable) keeps the loaded journal and Warns.
 
 Related open question (UNVERIFIED): `DropSupersedesRewoundOutOfExistence` drops the owner
 tree's non-canon supersede rows whose forks start after the rewind UT. An RP that survives
