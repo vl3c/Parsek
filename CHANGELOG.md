@@ -1205,7 +1205,10 @@ _(unreleased — entries accumulate here per commit)_
   its ghost stands where it was placed and disappears when the kerbal picks it up. A part
   that is still placed when the flight ends comes back as a real vessel after a rewind, like
   any other vessel the flight leaves behind; a part that was picked up ends as "Disassembled"
-  and is never spawned. Only a real placement by the kerbal you are recording counts: an old
+  and is never spawned. The kerbal who placed it still counts as the end of his own flight, so a
+  kerbal left standing on EVA after placing a part also comes back after a rewind (he used to be
+  treated as having branched into the part and never came back). Only a real placement by the
+  kerbal you are recording counts: an old
   experiment that merely loads nearby no longer adds anything to the recording, and one
   pick-up records one pick-up (stock reports it twice).
 

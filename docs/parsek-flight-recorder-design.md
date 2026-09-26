@@ -476,7 +476,10 @@ existing unknown-type fallback). The branch point has `ParentRecordingIds = [the
 and `ChildRecordingIds = [the placed part's recording]`. The kerbal's recording does NOT end and its
 `ChildBranchPointId` is NOT set: placing a part does not change the kerbal, the single-slot pointer stays
 free for the kerbal's own later split or merge (the board), and the kerbal stays an ordinary leaf instead
-of relying on the breakup-continuous "effective leaf" rule. The child is reached through its own
+of relying on the breakup-continuous "effective leaf" rule. The spawn decision's #114 safety net
+(`GhostPlaybackLogic.IsNonLeafInTree`, which reads "parent of any branch point" as "branched into a
+continuation") skips `GroundPartPlaced` branch points for the same reason, so a kerbal left standing on
+EVA after placing a part still spawns at the end of his flight (after a rewind, at the Space Center). The child is reached through its own
 `ParentBranchPointId`, the way foreground debris children are once their parent splits again; a walk
 that must own the placing recording's products finds it by parent id (the switch-segment subtree
 behind scoped Discard and the no-op auto-discard, `RecordingStore.CollectSwitchSegmentSubtreeRecordingIds`,
