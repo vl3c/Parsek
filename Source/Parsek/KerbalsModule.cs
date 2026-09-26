@@ -1809,8 +1809,8 @@ namespace Parsek
         ///
         /// <para>RETRACTIONS (stamping null) deliberately do NOT invalidate. A null terminal can
         /// only ever re-infer to <c>Unknown</c>, which is the latched state this seam exists to
-        /// escape, and the retraction sites (post-spawn revert/rewind clears) would otherwise
-        /// wipe end states derived from a real flight. Any later stamp runs this seam again.
+        /// escape, and a retraction site (ClearStaleDestroyedTerminalForResume) would otherwise wipe end
+        /// states derived from a real flight. Any later stamp runs this seam again.
         /// A split's first half is not a retraction through this seam: its end states move to
         /// the second half with the terminal (<c>RecordingOptimizer.MoveCrewEndStatesToSecondHalf</c>)
         /// and the first half re-derives through the chain-handoff rule.</para>

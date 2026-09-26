@@ -4521,7 +4521,7 @@ namespace Parsek.Display
 
             /// <summary>
             /// Cross-save guard (§1.4 / §6 MAJOR-3). <c>ParsekScenario.OnLoad</c>
-            /// calls <c>RecordingStore.ClearCommitted()</c>; a same-RecordingId
+            /// rebuilds the committed store; a same-RecordingId
             /// in the next-loaded save would otherwise hit the stale cache.
             /// The XOR-of-UTs content hash is byte-stable across a load
             /// round-trip, so a content-hash gate alone cannot flush. Drop

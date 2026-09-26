@@ -1832,7 +1832,7 @@ Stubbed. Scene reload is not drivable under xUnit, and the KSP in-game test runn
 
 ### 10.6 Auto-purge policies for reap-eligible RPs
 
-There are none in v1. The disk-usage diagnostic surfaces the current total; the player can Wipe All Recordings to clear them. A scheduled purge for old reap-eligible RPs (TTL-based) is future work.
+There are none in v1. The disk-usage diagnostic surfaces the current total. (The player could once clear them with Wipe All Recordings; that button was removed 2026-09-26, since recordings are never player-deletable.) A scheduled purge for old reap-eligible RPs (TTL-based) is future work.
 
 ### 10.7 Recovery-snapshot feature
 

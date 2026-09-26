@@ -453,7 +453,7 @@ namespace Parsek
         // Two-step delete: the X button captures the route to confirm here during
         // the draw loop; ApplyPendingActions spawns the confirm dialog (once) and
         // clears the field. The dialog's Delete button calls RouteStore.RemoveRoute
-        // directly in its callback (the Wipe-All precedent, ParsekUI), which is safe
+        // directly in its callback, which is safe
         // because the callback fires outside the draw-loop route iteration. Deletion
         // never happens without the player confirming.
         private Route pendingConfirmDeleteRoute;
@@ -2752,11 +2752,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Spawns the modal "Delete route '...'? This cannot be undone." confirm
-        /// (mirrors the Wipe-All confirmation idiom in
-        /// <see cref="ParsekUI.ShowWipeRecordingsConfirmation"/>). The Delete button
-        /// calls <see cref="RouteStore.RemoveRoute"/> directly in its callback, the
-        /// same way Wipe-All performs its destructive action in-callback; this is
+        /// Spawns the modal "Delete route '...'? This cannot be undone." confirm.
+        /// The Delete button calls <see cref="RouteStore.RemoveRoute"/> directly in
+        /// its callback, performing the destructive action in-callback; this is
         /// safe because the callback fires outside the window's route iteration, and
         /// it avoids the frame-top deferred-field reset that would otherwise clobber
         /// an asynchronously set delete request. Cancel only logs. Deletion never

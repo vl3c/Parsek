@@ -139,7 +139,7 @@ namespace Parsek.Tests
             // mutate the save, so a lane that forgot press= must take the dialog down
             // rather than confirm it.
             Assert.True(TestCommandUiDialogRaise.TryResolveDialog(
-                TestCommandUiDialogRaise.WipeRecordingsDialog,
+                TestCommandUiDialogRaise.DeleteRouteDialog,
                 out UiRaisableDialog spec, out _));
             Assert.True(TestCommandUiDialogRaise.TryResolvePress(
                 spec, null, out string button, out string reject));
@@ -153,18 +153,18 @@ namespace Parsek.Tests
         [Fact]
         public void Press_RefusesEveryMutatingConfirmButton()
         {
-            // The one cell that matters most: `Wipe All` clears every committed recording
-            // and unreserves every crew reservation in the save the census is photographing.
+            // The one cell that matters most: `Delete` permanently removes a supply route
+            // from the save the census is photographing.
             Assert.True(TestCommandUiDialogRaise.TryResolveDialog(
-                TestCommandUiDialogRaise.WipeRecordingsDialog,
-                out UiRaisableDialog wipe, out _));
+                TestCommandUiDialogRaise.DeleteRouteDialog,
+                out UiRaisableDialog del, out _));
             Assert.False(TestCommandUiDialogRaise.TryResolvePress(
-                wipe, "Wipe All", out _, out string reject));
+                del, "Delete", out _, out string reject));
             Assert.Equal(TestCommandUiDialogRaise.PressNotAllowedReason, reject);
 
             // And its cancel IS pressable, so a lane can drive the harmless half.
             Assert.True(TestCommandUiDialogRaise.TryResolvePress(
-                wipe, "Cancel", out string cancel, out _));
+                del, "Cancel", out string cancel, out _));
             Assert.Equal("Cancel", cancel);
         }
 
@@ -271,16 +271,16 @@ namespace Parsek.Tests
         public void RaisePayload_EchoesOpDialogsOwnKeys_SoTheTwoStepsAreComparable()
         {
             Assert.True(TestCommandUiDialogRaise.TryResolveDialog(
-                TestCommandUiDialogRaise.WipeMilestonesDialog,
+                TestCommandUiDialogRaise.DeleteRouteDialog,
                 out UiRaisableDialog spec, out _));
             var p = TestCommandUiDialogRaise.BuildRaisePayload(
-                spec, "Confirm: Wipe Milestones",
-                new List<string> { "Wipe All", "Cancel" });
+                spec, "Confirm: Delete Route",
+                new List<string> { "Delete", "Cancel" });
             Assert.Equal("raise", Value(p, "op"));
-            Assert.Equal("wipemilestones", Value(p, "popup"));
-            Assert.Equal("ParsekWipeMilestonesConfirm", Value(p, "name"));
-            Assert.Equal("Confirm: Wipe Milestones", Value(p, "title"));
-            Assert.Equal("Wipe All|Cancel", Value(p, "buttons"));
+            Assert.Equal("deleteroute", Value(p, "popup"));
+            Assert.Equal("ParsekLogisticsDeleteRouteConfirm", Value(p, "name"));
+            Assert.Equal("Confirm: Delete Route", Value(p, "title"));
+            Assert.Equal("Delete|Cancel", Value(p, "buttons"));
             Assert.Equal("2", Value(p, "nbuttons"));
             Assert.Equal("Cancel", Value(p, "pressable"));
         }
@@ -350,8 +350,8 @@ namespace Parsek.Tests
         ///
         /// <para>WHAT THE LABEL HALF CATCHES, stated because it is weaker than it looks: a
         /// whole-file search for <c>"OK"</c> or <c>"Cancel"</c> passes against files that
-        /// spawn several dialogs, so only the DISTINCTIVE labels (<c>Wipe All</c>,
-        /// <c>Fast-Forward</c>, <c>Seal Permanently</c>) are genuinely pinned by it. The
+        /// spawn several dialogs, so only the DISTINCTIVE labels (<c>Fast-Forward</c>,
+        /// <c>Seal Permanently</c>) are genuinely pinned by it. The
         /// TITLE is what makes each row's check specific, which is why it is asserted here
         /// as well: every title in the table is a unique literal in the file that spawns
         /// that dialog, so a re-worded title cannot pass. The remaining hole - a
@@ -362,8 +362,6 @@ namespace Parsek.Tests
         [Theory]
         [InlineData("actionblocked", "CommittedActionDialog.cs")]
         [InlineData("savefailed", "SceneExitInterceptor.cs")]
-        [InlineData("wiperecordings", "ParsekUI.cs")]
-        [InlineData("wipemilestones", "ParsekUI.cs")]
         [InlineData("rewind", "UI/RecordingsTableUI.cs")]
         [InlineData("fastforward", "UI/RecordingsTableUI.cs")]
         [InlineData("seal", "UnfinishedFlightSealHandler.cs")]

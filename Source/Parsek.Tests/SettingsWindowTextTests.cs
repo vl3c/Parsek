@@ -22,8 +22,6 @@ namespace Parsek.Tests
             yield return new object[] { nameof(SettingsWindowUI.AutoLaunchTooltip), SettingsWindowUI.AutoLaunchTooltip };
             yield return new object[] { nameof(SettingsWindowUI.VerboseLoggingTooltip), SettingsWindowUI.VerboseLoggingTooltip };
             yield return new object[] { nameof(SettingsWindowUI.ReadableMirrorsTooltip), SettingsWindowUI.ReadableMirrorsTooltip };
-            yield return new object[] { nameof(SettingsWindowUI.WipeRecordingsTooltip), SettingsWindowUI.WipeRecordingsTooltip };
-            yield return new object[] { nameof(SettingsWindowUI.WipeMilestonesTooltip), SettingsWindowUI.WipeMilestonesTooltip };
             yield return new object[] { nameof(SettingsWindowPresentation.DefaultsButtonTooltip), SettingsWindowPresentation.DefaultsButtonTooltip };
         }
 
@@ -107,33 +105,6 @@ namespace Parsek.Tests
             Assert.Contains(".txt", SettingsWindowUI.ReadableMirrorsLabel);
             Assert.Contains("bug reports", SettingsWindowUI.ReadableMirrorsTooltip);
             Assert.Contains("disk", SettingsWindowUI.ReadableMirrorsTooltip);
-        }
-
-        // catches: an enabled wipe button with no hover, or a greyed one publishing its
-        // enabled-state text alongside the DisabledHoverEcho reason.
-        [Fact]
-        public void WipeButtonTooltip_OnlyWhileEnabled()
-        {
-            Assert.Equal(SettingsWindowUI.WipeRecordingsTooltip,
-                SettingsWindowUI.WipeButtonTooltip(true, SettingsWindowUI.WipeRecordingsTooltip));
-            Assert.Equal(string.Empty,
-                SettingsWindowUI.WipeButtonTooltip(false, SettingsWindowUI.WipeRecordingsTooltip));
-            Assert.Equal(SettingsWindowUI.WipeMilestonesTooltip,
-                SettingsWindowUI.WipeButtonTooltip(true, SettingsWindowUI.WipeMilestonesTooltip));
-            Assert.Equal(string.Empty,
-                SettingsWindowUI.WipeButtonTooltip(false, SettingsWindowUI.WipeMilestonesTooltip));
-        }
-
-        // catches: the milestone wipe hover promising a ledger wipe. MilestoneStore.ClearAll
-        // clears the milestone list only; every GameAction survives (finding P5).
-        [Fact]
-        public void WipeMilestonesTooltip_SaysCareerActionsStay()
-        {
-            Assert.Contains("milestone", SettingsWindowUI.WipeMilestonesTooltip);
-            Assert.Contains("career actions stay", SettingsWindowUI.WipeMilestonesTooltip);
-            Assert.DoesNotContain("game action", SettingsWindowUI.WipeMilestonesTooltip);
-            Assert.Contains("Asks first", SettingsWindowUI.WipeRecordingsTooltip);
-            Assert.Contains("Asks first", SettingsWindowUI.WipeMilestonesTooltip);
         }
 
         [Fact]
