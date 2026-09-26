@@ -1,0 +1,105 @@
+# CN-1T: the ghost CommNet relay (design 15.6) against the real stock network, TRACKING
+# STATION half. NEVER FLOWN. Same subject and cells as CN-1-ghost-commnet-relay (read its
+# header first): the `ghost-commnet-relay` preset on gloops-airshow, category GhostCommNet.
+#
+# WHY THE LANE BOOTS TO FLIGHT FIRST. The Tracking Station notes a recording's playhead
+# (PlaybackScopeTracker.NotePlayhead) only on its map-presence paths, and the create path
+# declines a playback-disabled recording before it gets there, so a TS that is the FIRST
+# scene to see relay B's start never latches B into replay scope and excludes it as
+# `historical-never-replayed`. In play the Tracking Station is always entered from the Space
+# Center or a flight, and both note every committed recording every frame, so B is latched
+# long before; `LoadGame scene=trackstation` from the main menu is the one road that skips
+# them. The lane therefore boots to FLIGHT (which latches A and B at the save's clock, one
+# second before their start), then re-enters through `LoadGame scene=trackstation` -
+# V14T's FLIGHT -> TRACKSTATION road. The scope latches are keyed by recording id and are
+# cleared only on a main-menu transition, which the seam's in-game LoadGame does not make.
+# autoRecordOnLaunch=false keeps the recorder off, so the second LoadGame is not refused
+# `recording-active`.
+#
+# In the Tracking Station a node's position is A's map ProtoVessel (built from the same
+# orbit segment) and B's orbit segment (a hidden recording has no ProtoVessel).
+#
+# THE CELLS. PREDICTED `passed=4 skipped=5`: the 5 FLIGHT cells scene-skip and the four
+# TRACKSTATION cells (synthetic route, registered-node state, the real registered-node route
+# with its negative control and the control-source hop, the preset rulings) execute. Regexed
+# until the first flight (INTERIM_PIN_IDS); pin it whole off the reading run.
+#
+# COVERAGE: with CN-1, meant to claim D6 `commnet-relay` after a passing flight; not declared
+# yet.
+
+schema = 1
+id = "CN-1T-ghost-commnet-relay-ts"
+tier = "operator"
+description = "NEVER FLOWN. The ghost CommNet relay (design 15.6) in the TRACKING STATION over gloops-airshow plus the ghost-commnet-relay preset (A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over), entered FLIGHT -> LoadGame scene=trackstation so the relays are latched in replay scope: run the in-game GhostCommNet category and require that A and B register nodes, a free endpoint routes home through each real registered node and is cut off without it, A is a multi-hop control source, B relays while hidden, and C registers nothing."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "tracking-station", "CN-1T", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "ghost-commnet-relay"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # FLIGHT frames note the relays' playhead before their start (see the header).
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  # 1x Tracking Station time so the relays' window is open and the lifecycle tick
+  # (0.25 s) has registered them when the batch runs.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RunTests",   args = { category = "GhostCommNet" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required  = [
+  "BATCH_COMPLETE v1 total=9 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostCommNet scene=TRACKSTATION",
+  "\\[GhostCommNet\\] Stock CommNet available in scene TRACKSTATION: ghost CommNet nodes enabled",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=TRACKSTATION reason=in-window .* relay=2000000000 .*control=True multiHop=True",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-b node=ParsekGhost:cn-relay-b vessel=\"CN Relay B\" scene=TRACKSTATION reason=in-window .* relay=2000000000 .*control=False multiHop=True",
+  "\\[TestRunner\\] GhostCommNet routing probe \\(TRACKSTATION\\): .* viaGhost=True negativeControl=cut",
+  "\\[TestRunner\\] GhostCommNet registered nodes \\(TRACKSTATION\\): checked=2 dark=0",
+  "\\[TestRunner\\] GhostCommNet registered relay route \\(TRACKSTATION\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 ",
+  "\\[TestRunner\\] GhostCommNet preset rulings \\(TRACKSTATION\\): relayA=registered control=True multiHop=True relay=2000000000 relayB=registered playbackEnabled=False control=False relay=2000000000 relayC=unregistered loop=True reason=historical-never-replayed",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Ghost node pre-update threw",
+  "DriveGhostCommNet threw",
+  "Registered ghost node: key=cn-relay-c ",
+  "Ghost node dark this rebuild: key=cn-relay-[ab] vessel=\"[^\"]*\" reason=(position-unresolved|exception)",
+  "No ghost node for key=cn-relay-[ab] vessel=\"[^\"]*\": (?!before-window)",
+  "Removed ghost node: key=cn-relay-[ab] .* reason=(?!Parsek(Flight|TrackingStation) destroyed)",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

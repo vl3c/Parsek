@@ -1,0 +1,129 @@
+# CN-1: the ghost CommNet relay (design 15.6) against the real stock network, FLIGHT half.
+# NEVER FLOWN. The TRACKSTATION half is CN-1T-ghost-commnet-relay-ts (one RunTests batch per
+# spec, hlib.SINGLE_BATCH_SELECTOR_RULE, so the two scenes are two lanes).
+#
+# THE SUBJECT: the `ghost-commnet-relay` injected preset
+# (SyntheticRecordingTests.GhostCommNetRelayPreset, fact InjectGhostCommNetRelays) adds to
+# gloops-airshow three committed single-recording trees, each the RelaySatellite craft
+# (RC-L01 probe core + RA-2 relay, 2e9) on a Kerbin-synchronous equatorial circular orbit
+# (sma 3463.3 km, altitude 2863.3 km): ONE point at the start plus ONE orbit segment, no
+# TrackSections, so the load-time TrimBoringTail pass leaves the authored end alone.
+#   cn-relay-a  "CN Relay A"  over the KSC meridian, a Mk1 pod seating Valentina Kerman (a
+#                             Pilot, Available and on no vessel in this save), playback ON,
+#                             not looped, window [save+1 s, save+100001 s];
+#   cn-relay-b  "CN Relay B"  30 deg east of A (~1,790 km apart), no crew, playback OFF,
+#                             same window;
+#   cn-relay-c  "CN Relay C"  30 deg west, no crew, LOOPED (launch identity so the loop flag
+#                             survives SanitizeNonLoopableLoopPlayback), real run
+#                             [save-20 s, save-5 s]: over before the save's clock, so only its
+#                             loop copies play.
+# The phase is calibrated off the pad vessel's own ORBIT node (xUnit
+# GhostCommNetRelay_PhaseCalibration*: three fixtures' pad vessels agree on the sidereal LAN
+# drift, and eva2-lko-crewed's orbiting Kerbal X Probe's saved longitude is predicted to
+# 0.002 deg). In FLIGHT the node's position is the orbit-tail path of
+# ParsekFlight.TryResolvePlaybackWorldPosition (a non-predicted segment, no continuity
+# offset) at the current UT.
+#
+# THE WINDOW. PlaybackScopeTracker latches a recording into replay scope only when a scene
+# notes the playhead at or before its start + 2 s; ParsekFlight notes every committed
+# recording every frame, so A and B (start = save + 1 s) latch on the first frames after
+# LoadGame and are `in-window` a second later. C's start is 20 s behind the save's clock, so
+# it never latches and its real run is excluded as `historical-never-replayed` (the spawn
+# variant of the scope gate, which a loop member's real run takes) while its loop copies
+# render. The eight RecordingState steps are ~4 s of 1x flight time before the batch, so the
+# relays' window is open when it runs; the rulings cell skips (never fails) if it is not.
+#
+# THE CELLS (category GhostCommNet, 9 declarations: 5 FLIGHT, 4 TRACKSTATION). PREDICTED
+# `passed=4 skipped=5` here: the 4 TRACKSTATION cells scene-skip, and
+# ActiveVesselControlPathUsesGhostRelay skips at run time because the pad vessel links KSC
+# directly. The four that should execute:
+#   GhostRelayNodeBridgesEndpointToHome_Flight   synthetic three-node route + negative control;
+#   RegisteredGhostNodesMatchDerivedState_Flight every registered node in the network, at the
+#                                                resolver's point, with the derived powers;
+#   RegisteredGhostRelayRoutesEndpointHome_Flight the REAL registered nodes: a free endpoint
+#                                                radially outward of each, reachable only
+#                                                through it, reaches home; with the node taken
+#                                                out it cannot; A (a control source) is the
+#                                                endpoint's closest control source, one hop;
+#   PresetRelayRulings_Flight                    A control=True multiHop=True; B (hidden)
+#                                                registered, control=False; C (looped)
+#                                                unregistered, reason historical-never-replayed.
+# The split is regexed until the first flight (INTERIM_PIN_IDS in harness/lib/test_hlib.py);
+# pin it whole off the reading run.
+#
+# COVERAGE: this lane (with CN-1T) is meant to claim D6 `commnet-relay`. The claim is NOT
+# declared below until a flight passes; add `D6 = ["commnet-relay"]` in the arming commit.
+
+schema = 1
+id = "CN-1-ghost-commnet-relay"
+tier = "operator"
+description = "NEVER FLOWN. The ghost CommNet relay (design 15.6) in FLIGHT over gloops-airshow plus the ghost-commnet-relay preset (three copies of one RC-L01 + RA-2 relay craft on a Kerbin-synchronous orbit: A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over): run the in-game GhostCommNet category and require that A and B register nodes, a free endpoint routes home through each real registered node and is cut off without it, A is a multi-hop control source, B relays while hidden, and C registers nothing."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "CN-1", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "ghost-commnet-relay"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # 1x flight time so the relays' window (save + 1 s) is open when the batch runs.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RunTests",   args = { category = "GhostCommNet" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required  = [
+  "BATCH_COMPLETE v1 total=9 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostCommNet scene=FLIGHT",
+  "\\[GhostCommNet\\] Stock CommNet available in scene FLIGHT: ghost CommNet nodes enabled",
+  # The derivation: A's crewed RC-L01 with a Pilot the roster knows.
+  "\\[GhostCommNet\\] Derived antennas: key=cn-relay-a vessel=\"CN Relay A\" source=vessel-snapshot type=Relay parts=3 relayAntennas=1 .*controlPoints=1 relayEnablers=0 crew=1 knownCrew=1 pilots=1 unknownCrew=0 partsMissingPrefab=0",
+  # Registration (GhostCommNetMath.LogRegistered), one line per copy that relays.
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT reason=in-window .* relay=2000000000 .*control=True multiHop=True",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-b node=ParsekGhost:cn-relay-b vessel=\"CN Relay B\" scene=FLIGHT reason=in-window .* relay=2000000000 .*control=False multiHop=True",
+  # The cells' own summaries.
+  "\\[TestRunner\\] GhostCommNet routing probe \\(FLIGHT\\): .* viaGhost=True negativeControl=cut",
+  "\\[TestRunner\\] GhostCommNet registered nodes \\(FLIGHT\\): checked=2 dark=0",
+  "\\[TestRunner\\] GhostCommNet registered relay route \\(FLIGHT\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 ",
+  "\\[TestRunner\\] GhostCommNet preset rulings \\(FLIGHT\\): relayA=registered control=True multiHop=True relay=2000000000 relayB=registered playbackEnabled=False control=False relay=2000000000 relayC=unregistered loop=True reason=historical-never-replayed",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Ghost node pre-update threw",
+  "DriveGhostCommNet threw",
+  "Registered ghost node: key=cn-relay-c ",
+  "Ghost node dark this rebuild: key=cn-relay-[ab] vessel=\"[^\"]*\" reason=(position-unresolved|exception)",
+  "No ghost node for key=cn-relay-[ab] vessel=\"[^\"]*\": (?!before-window)",
+  "Removed ghost node: key=cn-relay-[ab] .* reason=(?!ParsekFlight destroyed)",
+]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
