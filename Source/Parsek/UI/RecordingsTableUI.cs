@@ -626,6 +626,20 @@ namespace Parsek
         // doesn't flood the log with one line per branch every frame.
         private Dictionary<int, bool> lastSuppressedTreeBranch = new Dictionary<int, bool>();
 
+        // "Shown once" for the Rewind column: the committed index the nearest DRAWN enclosing
+        // row (folder or block) offers R / FF to, or -1. A child whose own button would target
+        // the same recording draws a blank cell instead. Set around each child draw pass and
+        // restored in a finally, so they are -1 whenever no Recordings-tab parent is drawing
+        // (the Missions tab reuses DrawLegacyRewindForwardCell and is never suppressed). The
+        // STASH virtual group resets both: it draws a blank R, so its leaves keep theirs.
+        private int enclosingRewindTargetIdx = -1;
+        private int enclosingForwardTargetIdx = -1;
+        // Transition-log dedup for that suppression, keyed "row:{ri}:{r|ff}" for a leaf and
+        // "group:{name}" / "block:{id}" for an aggregate row. Cleared with the index-keyed
+        // dicts on every committed-list membership change.
+        private readonly Dictionary<string, bool> lastSuppressedByEnclosingRow =
+            new Dictionary<string, bool>();
+
         // Watch button enabled-state tracking for transition logging (bug #279).
         // Both dicts are keyed by RecordingId (stable across rewind/truncate
         // index reuse, unlike the existing index-keyed lastCanFF/lastCanRewind
@@ -1327,6 +1341,20 @@ namespace Parsek
             return string.Empty;
         }
 
+        /// <summary>
+        /// Hover text of a Period cell drawn BLANK because the row's Loop is off: the
+        /// loop-off reason, so the empty cell still says why it is empty. Null-safe; a
+        /// looping recording yields the empty string (its cell is the live editor, which
+        /// carries its own tooltips). Pure for unit testing.
+        /// </summary>
+        internal static string LoopPeriodBlankCellTooltip(Recording rec)
+        {
+            bool looping = rec != null && rec.LoopPlayback;
+            if (looping) return string.Empty;
+            return LoopPeriodDisabledReason(
+                false, rec != null && rec.LoopTimeUnit == LoopTimeUnit.Auto);
+        }
+
         /// <inheritdoc cref="GetWatchButtonReason"/>
         internal static string GetWatchButtonTooltip(
             bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris,
@@ -1942,6 +1970,10 @@ namespace Parsek
                 DrawRecordingsTableHeader(committed);
 
                 renderedRowCounter = 0;
+                // Top-level rows have no enclosing row (the fields are restored in a
+                // finally by every nested draw; this is the belt to that).
+                enclosingRewindTargetIdx = -1;
+                enclosingForwardTargetIdx = -1;
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
@@ -2368,6 +2400,16 @@ namespace Parsek
             {
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
             }
+            else if (!rec.LoopPlayback)
+            {
+                // Loop off: the period means nothing yet, so the cell draws blank rather
+                // than a greyed value + unit pair. It still explains itself on hover (the
+                // cell is never a silent hover), with the same reason the greyed pair
+                // carried.
+                GUILayout.Label(
+                    new GUIContent("", LoopPeriodBlankCellTooltip(rec)),
+                    bodyCellLabel, GUILayout.Width(ColW_Period));
+            }
             else
             {
                 GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
@@ -2707,7 +2749,8 @@ namespace Parsek
             Dictionary<string, List<int>> chainToRecs,
             Dictionary<string, List<string>> grpChildren,
             IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
-            string treeConnector = null)
+            string treeConnector = null,
+            string parentGroupName = null)
         {
             // Compute this tree's unfinished-flight members up front so the
             // nested virtual subgroup can be rendered even when the mission
@@ -2797,8 +2840,12 @@ namespace Parsek
             }
             else
             {
+                // Display label only: "Mission / Debris" drawn under "Mission" reads "Debris".
+                // The rename seed below, the stores and the census seam keep the full name.
+                string groupLabel = GroupPickerPresentation.DisplayLabelUnderParent(
+                    groupName, parentGroupName);
                 if (GUILayout.Button(
-                    new GUIContent($"{treeConnector ?? ""}{arrow} {groupName} ({memberCount})",
+                    new GUIContent($"{treeConnector ?? ""}{arrow} {groupLabel} ({memberCount})",
                         "Click to expand or collapse this folder; double-click to rename it."),
                     GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
@@ -2849,9 +2896,10 @@ namespace Parsek
                 : "-";
             GUILayout.Label(grpLaunchText, bodyCellLabel, GUILayout.Width(ColW_Launch));
 
-            // Duration (sum of descendant durations)
-            double grpTotalDur = GetGroupTotalDuration(descendants, committed);
-            GUILayout.Label(FormatDuration(grpTotalDur), bodyCellLabel, GUILayout.Width(ColW_Dur));
+            // Duration: the span the descendants cover (latest end - earliest start), the
+            // figure a chain block shows, never a sum that double-counts parallel branches.
+            double grpSpanDur = GetGroupSpanDuration(descendants, committed);
+            GUILayout.Label(FormatDuration(grpSpanDur), bodyCellLabel, GUILayout.Width(ColW_Dur));
 
             // Expanded stats spacers
             if (showExpandedStats)
@@ -3103,7 +3151,21 @@ namespace Parsek
             // an escalation surface for any child launch rewind.
             bool isRecording = parentUI.InFlightMode && flight.IsRecording;
             int forwardIdx = FindAggregateForwardRecordingIndex(descendants, committed, now);
-            if (forwardIdx >= 0)
+            int grpRewindIdx = forwardIdx >= 0
+                ? -1
+                : FindGroupLegacyRewindRecordingIndex(descendants, committed, now);
+            // Shown once: a folder nested under a row that already offers this exact target
+            // (a "/ Debris" folder under its mission, say) draws a blank cell.
+            bool grpTimeSuppressed = forwardIdx >= 0
+                ? IsTimeTargetShownByEnclosingRow(forwardIdx, enclosingForwardTargetIdx)
+                : IsTimeTargetShownByEnclosingRow(grpRewindIdx, enclosingRewindTargetIdx);
+            LogEnclosingTimeSuppressionTransition("group:" + groupName, grpTimeSuppressed,
+                $"Group '{groupName}'");
+            if (grpTimeSuppressed)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+            }
+            else if (forwardIdx >= 0)
             {
                 var mainRec = committed[forwardIdx];
 
@@ -3118,30 +3180,27 @@ namespace Parsek
                 }
                 GUI.enabled = true;
             }
+            else if (grpRewindIdx >= 0)
+            {
+                int rewindIdx = grpRewindIdx;
+                var rewindRec = committed[rewindIdx];
+                string rewindReason;
+                bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
+                GUI.enabled = canRewind;
+                string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
+                    ? "this launch"
+                    : rewindRec.VesselName;
+                string tooltip = canRewind ? $"Rewind to launch: {targetName}" : rewindReason;
+                if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
+                {
+                    ParsekLog.Info("UI", $"Group '{groupName}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
+                    ShowRewindConfirmation(rewindRec);
+                }
+                GUI.enabled = true;
+            }
             else
             {
-                int rewindIdx = FindGroupLegacyRewindRecordingIndex(descendants, committed, now);
-                if (rewindIdx >= 0)
-                {
-                    var rewindRec = committed[rewindIdx];
-                    string rewindReason;
-                    bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
-                    GUI.enabled = canRewind;
-                    string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
-                        ? "this launch"
-                        : rewindRec.VesselName;
-                    string tooltip = canRewind ? $"Rewind to launch: {targetName}" : rewindReason;
-                    if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
-                    {
-                        ParsekLog.Info("UI", $"Group '{groupName}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
-                        ShowRewindConfirmation(rewindRec);
-                    }
-                    GUI.enabled = true;
-                }
-                else
-                {
-                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
-                }
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
             }
 
             // Group rows do not expose aggregate Re-Fly actions. Stash/Fly/Seal
@@ -3209,6 +3268,40 @@ namespace Parsek
 
             if (!expanded) return false;
 
+            // The rows drawn under this folder compare their own R / FF against what this
+            // row actually drew (or, when it drew a blank, against what its own parent drew).
+            int savedEnclosingRewind = enclosingRewindTargetIdx;
+            int savedEnclosingForward = enclosingForwardTargetIdx;
+            ResolveChildEnclosingTimeTargets(
+                forwardIdx, grpRewindIdx, grpTimeSuppressed,
+                savedEnclosingForward, savedEnclosingRewind,
+                out enclosingForwardTargetIdx, out enclosingRewindTargetIdx);
+            try
+            {
+                return DrawGroupChildren(groupName, depth, committed, now,
+                    grpToRecs, chainToRecs, grpChildren, supersedes,
+                    nestedUnfinished, hasNestedUnfinished);
+            }
+            finally
+            {
+                enclosingRewindTargetIdx = savedEnclosingRewind;
+                enclosingForwardTargetIdx = savedEnclosingForward;
+            }
+        }
+
+        /// <summary>
+        /// Draws an expanded folder's children. Returns true if the recording list was
+        /// modified (the caller stops iterating).
+        /// </summary>
+        private bool DrawGroupChildren(string groupName, int depth,
+            IReadOnlyList<Recording> committed, double now,
+            Dictionary<string, List<int>> grpToRecs,
+            Dictionary<string, List<int>> chainToRecs,
+            Dictionary<string, List<string>> grpChildren,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<Recording> nestedUnfinished,
+            bool hasNestedUnfinished)
+        {
             // -- Draw children --
             // Children render in three sections, in order: display blocks
             // (chain/grouped blocks + single recording rows), child sub-groups,
@@ -3284,7 +3377,8 @@ namespace Parsek
                     string connector = TreeConnector(
                         cornerSection == TreeChildSection.ChildGroup && c == lastRenderableChildGroupIdx);
                     if (DrawGroupTree(children[c], depth + 1, committed, now,
-                        grpToRecs, chainToRecs, grpChildren, supersedes, connector))
+                        grpToRecs, chainToRecs, grpChildren, supersedes, connector,
+                        parentGroupName: groupName))
                         return true;
                 }
             }
@@ -3460,9 +3554,11 @@ namespace Parsek
                 : "-";
             GUILayout.Label(grpLaunchText, bodyCellLabel, GUILayout.Width(ColW_Launch));
 
-            // Total duration.
-            double grpTotalDur = GetGroupTotalDuration(descendants, committed);
-            GUILayout.Label(FormatDuration(grpTotalDur), bodyCellLabel, GUILayout.Width(ColW_Dur));
+            // Duration placeholder. STASH is a to-do list of re-flyable separations picked
+            // out of the mission it sits under; neither a sum nor a span of those unrelated
+            // siblings describes a flight, so the cell stays blank like the virtual group's
+            // Loop / Period / Rewind cells.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Dur));
 
             if (showExpandedStats)
             {
@@ -3580,6 +3676,13 @@ namespace Parsek
             });
 
             unfinishedFlightRowDepth++;
+            // STASH draws a blank Rewind cell, so nothing above its members offers their
+            // R / FF: they keep their own (the mission folder's button is not "enclosing"
+            // for a mirror list that repeats rows drawn elsewhere under it).
+            int savedEnclosingRewind = enclosingRewindTargetIdx;
+            int savedEnclosingForward = enclosingForwardTargetIdx;
+            enclosingRewindTargetIdx = -1;
+            enclosingForwardTargetIdx = -1;
             try
             {
                 float memberIndent = ChildConnectorIndent(depth);
@@ -3597,6 +3700,8 @@ namespace Parsek
             finally
             {
                 unfinishedFlightRowDepth--;
+                enclosingRewindTargetIdx = savedEnclosingRewind;
+                enclosingForwardTargetIdx = savedEnclosingForward;
             }
 
             return false;
@@ -3621,6 +3726,18 @@ namespace Parsek
 
             if (ShouldShowForwardButton(rec, now))
             {
+                // Shown once: the folder / block row this row is drawn under already
+                // offers FF to this very recording, so the child cell stays blank.
+                bool ffShownAbove = IsTimeTargetShownByEnclosingRow(ri, enclosingForwardTargetIdx);
+                LogEnclosingTimeSuppressionTransition(
+                    "row:" + ri.ToString(CultureInfo.InvariantCulture) + ":ff",
+                    ffShownAbove, $"Forward #{ri} \"{rec.VesselName}\"");
+                if (ffShownAbove)
+                {
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                    return;
+                }
+
                 // Future recording: Forward button advances UT to recording start.
                 string ffReason;
                 bool canFF = RecordingStore.CanFastForward(
@@ -3652,6 +3769,20 @@ namespace Parsek
                 // Past/active recording with save AND we are the rewind owner.
                 // The helper suppresses tree branches and rows whose own
                 // unfinished-flight action lives in the Re-Fly column.
+                ClearLegacyRewindSuppressionForOwnerRow(rec, ri);
+
+                // Shown once: the folder / block row this row is drawn under already
+                // offers R to this very launch, so the child cell stays blank.
+                bool rewindShownAbove = IsTimeTargetShownByEnclosingRow(ri, enclosingRewindTargetIdx);
+                LogEnclosingTimeSuppressionTransition(
+                    "row:" + ri.ToString(CultureInfo.InvariantCulture) + ":r",
+                    rewindShownAbove, $"Rewind #{ri} \"{rec.VesselName}\"");
+                if (rewindShownAbove)
+                {
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                    return;
+                }
+
                 string rewindReason;
                 bool canRewind = RecordingStore.CanRewind(
                     rec, out rewindReason, isRecording: isRecording);
@@ -3663,7 +3794,6 @@ namespace Parsek
                         $"Rewind #{ri} \"{rec.VesselName}\": {(canRewind ? "enabled" : "disabled — " + rewindReason)}");
                 }
 
-                ClearLegacyRewindSuppressionForOwnerRow(rec, ri);
                 GUI.enabled = canRewind;
                 string tooltip = canRewind
                     ? "Rewind to this launch"
@@ -4110,6 +4240,69 @@ namespace Parsek
         internal static bool ShouldShowGroupLegacyRewindButton(Recording rec, double now)
         {
             return ShouldSurfaceLaunchRewindButton(rec, now);
+        }
+
+        /// <summary>
+        /// "Shown once" for the Rewind column: true when the nearest DRAWN enclosing row
+        /// already offers the same R (or FF) target - the same committed index - that this
+        /// row's own button would, so this row draws a blank cell. Only an equal target
+        /// suppresses: a child whose button would go somewhere else keeps it, and a row with
+        /// no target of its own (-1) is never "suppressed". Pure for unit testing.
+        /// </summary>
+        internal static bool IsTimeTargetShownByEnclosingRow(int ownTargetIdx, int enclosingTargetIdx)
+        {
+            return ownTargetIdx >= 0 && ownTargetIdx == enclosingTargetIdx;
+        }
+
+        /// <summary>
+        /// The enclosing R / FF targets a row hands to the rows drawn under it. A row that
+        /// DREW its own button passes that target down (FF replaces the forward target, R the
+        /// rewind one); a row that drew a blank cell - suppressed, or with no target - passes
+        /// the targets it inherited through unchanged, because the row that drew them is still
+        /// the enclosing one for its grandchildren. Pure for unit testing.
+        /// </summary>
+        internal static void ResolveChildEnclosingTimeTargets(
+            int ownForwardIdx, int ownRewindIdx, bool ownSuppressed,
+            int inheritedForwardIdx, int inheritedRewindIdx,
+            out int childForwardIdx, out int childRewindIdx)
+        {
+            childForwardIdx = inheritedForwardIdx;
+            childRewindIdx = inheritedRewindIdx;
+            if (ownSuppressed) return;
+            if (ownForwardIdx >= 0)
+                childForwardIdx = ownForwardIdx;
+            else if (ownRewindIdx >= 0)
+                childRewindIdx = ownRewindIdx;
+        }
+
+        /// <summary>
+        /// Transition gate for the shown-once suppression log: true when a key flips, or the
+        /// first time a key is seen already suppressed. A key first seen UNsuppressed is
+        /// recorded silently, so the ordinary state of every row never logs. Updates the
+        /// cache. Pure over the dictionary for unit testing.
+        /// </summary>
+        internal static bool UpdateEnclosingSuppressionCache(
+            Dictionary<string, bool> cache, string key, bool suppressed)
+        {
+            if (cache == null || string.IsNullOrEmpty(key)) return false;
+            bool prev;
+            if (!cache.TryGetValue(key, out prev))
+            {
+                cache[key] = suppressed;
+                return suppressed;
+            }
+            if (prev == suppressed) return false;
+            cache[key] = suppressed;
+            return true;
+        }
+
+        internal void LogEnclosingTimeSuppressionTransition(string key, bool suppressed, string subject)
+        {
+            if (!UpdateEnclosingSuppressionCache(lastSuppressedByEnclosingRow, key, suppressed))
+                return;
+            ParsekLog.Verbose("UI", suppressed
+                ? $"{subject}: time button suppressed - the enclosing row shows the same target (key={key})"
+                : $"{subject}: time button no longer suppressed by the enclosing row (key={key})");
         }
 
         /// <summary>
@@ -4624,7 +4817,21 @@ namespace Parsek
             // affordance as the recordings they contain.
             bool isRecording = parentUI.InFlightMode && parentUI.Flight.IsRecording;
             int forwardIdx = FindAggregateForwardRecordingIndex(members, committed, now);
-            if (forwardIdx >= 0)
+            int blockRewindIdx = forwardIdx >= 0
+                ? -1
+                : FindAggregateLegacyRewindRecordingIndex(members, committed, now);
+            // Shown once: the block's target is usually the very launch its mission folder
+            // already offers, so under that folder the block draws a blank cell.
+            bool blockTimeSuppressed = forwardIdx >= 0
+                ? IsTimeTargetShownByEnclosingRow(forwardIdx, enclosingForwardTargetIdx)
+                : IsTimeTargetShownByEnclosingRow(blockRewindIdx, enclosingRewindTargetIdx);
+            LogEnclosingTimeSuppressionTransition("block:" + blockId, blockTimeSuppressed,
+                $"{logKind} '{logId}'");
+            if (blockTimeSuppressed)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+            }
+            else if (forwardIdx >= 0)
             {
                 var forwardRec = committed[forwardIdx];
                 string ffReason;
@@ -4638,30 +4845,27 @@ namespace Parsek
                 }
                 GUI.enabled = true;
             }
+            else if (blockRewindIdx >= 0)
+            {
+                int rewindIdx = blockRewindIdx;
+                var rewindRec = committed[rewindIdx];
+                string rewindReason;
+                bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
+                GUI.enabled = canRewind;
+                string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
+                    ? "this launch"
+                    : rewindRec.VesselName;
+                string tooltip = canRewind ? $"Rewind to launch: {targetName}" : rewindReason;
+                if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
+                {
+                    ParsekLog.Info("UI", $"{logKind} '{logId}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
+                    ShowRewindConfirmation(rewindRec);
+                }
+                GUI.enabled = true;
+            }
             else
             {
-                int rewindIdx = FindAggregateLegacyRewindRecordingIndex(members, committed, now);
-                if (rewindIdx >= 0)
-                {
-                    var rewindRec = committed[rewindIdx];
-                    string rewindReason;
-                    bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
-                    GUI.enabled = canRewind;
-                    string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
-                        ? "this launch"
-                        : rewindRec.VesselName;
-                    string tooltip = canRewind ? $"Rewind to launch: {targetName}" : rewindReason;
-                    if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
-                    {
-                        ParsekLog.Info("UI", $"{logKind} '{logId}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
-                        ShowRewindConfirmation(rewindRec);
-                    }
-                    GUI.enabled = true;
-                }
-                else
-                {
-                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
-                }
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
             }
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Hide));
@@ -4670,15 +4874,29 @@ namespace Parsek
 
             if (expanded)
             {
-                int lastVisibleMember = -1;
-                for (int m = 0; m < members.Count; m++)
-                    if (IsRowVisible(committed[members[m]], supersedes))
-                        lastVisibleMember = m;
-                for (int m = 0; m < members.Count; m++)
+                int savedEnclosingRewind = enclosingRewindTargetIdx;
+                int savedEnclosingForward = enclosingForwardTargetIdx;
+                ResolveChildEnclosingTimeTargets(
+                    forwardIdx, blockRewindIdx, blockTimeSuppressed,
+                    savedEnclosingForward, savedEnclosingRewind,
+                    out enclosingForwardTargetIdx, out enclosingRewindTargetIdx);
+                try
                 {
-                    string connector = TreeConnector(m == lastVisibleMember);
-                    if (DrawRecordingRow(members[m], committed, now, ChildConnectorIndent(depth), supersedes, connector))
-                        return true;
+                    int lastVisibleMember = -1;
+                    for (int m = 0; m < members.Count; m++)
+                        if (IsRowVisible(committed[members[m]], supersedes))
+                            lastVisibleMember = m;
+                    for (int m = 0; m < members.Count; m++)
+                    {
+                        string connector = TreeConnector(m == lastVisibleMember);
+                        if (DrawRecordingRow(members[m], committed, now, ChildConnectorIndent(depth), supersedes, connector))
+                            return true;
+                    }
+                }
+                finally
+                {
+                    enclosingRewindTargetIdx = savedEnclosingRewind;
+                    enclosingForwardTargetIdx = savedEnclosingForward;
                 }
             }
             return false;
@@ -5040,6 +5258,7 @@ namespace Parsek
             lastCanFF.Clear();
             lastStashSealInReFlyColumn.Clear();
             lastSuppressedTreeBranch.Clear();
+            lastSuppressedByEnclosingRow.Clear();
             sortedIndices = new int[committed.Count];
             for (int i = 0; i < committed.Count; i++)
                 sortedIndices[i] = i;
@@ -5235,7 +5454,8 @@ namespace Parsek
 
         /// <summary>
         /// Sort key for a chain based on the current sort column.
-        /// Uses earliest StartUT for launch, sum for duration, etc.
+        /// Uses earliest StartUT for launch, the covered span for duration (the figure the
+        /// chain row shows), etc.
         /// </summary>
         internal static double GetChainSortKey(List<int> members, IReadOnlyList<Recording> committed,
             SortColumn column, double now)
@@ -5251,15 +5471,7 @@ namespace Parsek
                     return earliest;
                 }
                 case SortColumn.Duration:
-                {
-                    double total = 0;
-                    for (int m = 0; m < members.Count; m++)
-                    {
-                        double dur = committed[members[m]].EndUT - committed[members[m]].StartUT;
-                        if (dur > 0) total += dur;
-                    }
-                    return total;
-                }
+                    return GetGroupSpanDuration(members, committed);
                 case SortColumn.Status:
                 {
                     // Best (lowest) status order among members
@@ -5431,17 +5643,32 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns the sum of durations (EndUT - StartUT) for all descendant recordings.
+        /// The wall-clock SPAN a folder's recordings cover: the latest EndUT minus the
+        /// earliest StartUT over the descendants, the same figure a chain block shows. A sum
+        /// of durations double-counts every parallel branch (a booster, debris, an EVA flying
+        /// at the same time as its parent), so a mission read longer than it took.
+        /// Recordings whose EndUT precedes their StartUT carry no trajectory data (the
+        /// no-data fallback reads StartUT = ExplicitStartUT, EndUT = 0) and are skipped so
+        /// they cannot stretch the span. Zero when nothing qualifies.
         /// </summary>
-        internal static double GetGroupTotalDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
+        internal static double GetGroupSpanDuration(IEnumerable<int> descendants, IReadOnlyList<Recording> committed)
         {
-            double total = 0;
+            if (descendants == null || committed == null) return 0;
+            double earliest = double.MaxValue;
+            double latest = double.MinValue;
             foreach (int idx in descendants)
             {
-                double dur = committed[idx].EndUT - committed[idx].StartUT;
-                if (dur > 0) total += dur;
+                if (idx < 0 || idx >= committed.Count) continue;
+                var rec = committed[idx];
+                if (rec == null) continue;
+                double start = rec.StartUT;
+                double end = rec.EndUT;
+                if (end < start) continue;
+                if (start < earliest) earliest = start;
+                if (end > latest) latest = end;
             }
-            return total;
+            if (earliest == double.MaxValue || latest == double.MinValue) return 0;
+            return Math.Max(0, latest - earliest);
         }
 
         /// <summary>
@@ -5783,7 +6010,7 @@ namespace Parsek
                 case SortColumn.LaunchTime:
                     return GetGroupEarliestStartUT(descendants, committed);
                 case SortColumn.Duration:
-                    return GetGroupTotalDuration(descendants, committed);
+                    return GetGroupSpanDuration(descendants, committed);
                 case SortColumn.Status:
                 {
                     string unused;
@@ -6164,41 +6391,10 @@ namespace Parsek
             // ColW_Period - BodyCellButtonLeftInset. The wrapping BeginHorizontal at the call
             // site provides the Space(BodyCellButtonLeftInset) on the left so val+unit start
             // 10 px into the Period cell.
+            // Only a LOOPING row reaches this: DrawRecordingRow draws a blank cell (with the
+            // loop-off reason as its hover) while Loop is off.
             const float unitBtnW = 40f;
             float valueBtnW = ColW_Period - unitBtnW - 4f - BodyCellButtonLeftInset;
-
-            if (!rec.LoopPlayback)
-            {
-                // Disabled: gray out the same two-control layout
-                GUI.enabled = false;
-                string disabledText;
-                if (rec.LoopTimeUnit == LoopTimeUnit.Auto)
-                {
-                    var settings = ParsekSettings.Current;
-                    double gv = settings != null
-                        ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
-                        : LoopTiming.DefaultLoopIntervalSeconds;
-                    var gu = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
-                    disabledText = ParsekUI.FormatLoopValue(gv, gu) + UnitSuffix(gu);
-                }
-                else
-                {
-                    disabledText = ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(rec.LoopIntervalSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit);
-                }
-                string loopOffReason = LoopPeriodDisabledReason(false, false);
-                GUILayout.TextField(disabledText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
-                // A TextField takes no GUIContent, so the value half of this cell could
-                // never explain itself at all before the carrier existed.
-                DisabledHoverEcho.CarryLastControl(false, loopOffReason);
-                GUILayout.Space(4f);
-                GUILayout.Button(
-                    new GUIContent(ParsekUI.UnitLabel(rec.LoopTimeUnit),
-                        "Period unit for this recording. Enable Loop to change it."),
-                    bodyCellButtonFlush, GUILayout.Width(unitBtnW));
-                DisabledHoverEcho.CarryLastControl(false, loopOffReason);
-                GUI.enabled = true;
-                return;
-            }
 
             if (rec.LoopTimeUnit == LoopTimeUnit.Auto)
             {

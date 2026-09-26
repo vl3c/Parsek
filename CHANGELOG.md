@@ -1636,6 +1636,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Recordings tab: a presentation round.** Nothing about the recordings themselves changes;
+  only how the table shows them.
+  - A folder's Duration is now the time its flights cover (the latest end minus the earliest
+    start), the figure a chain row already showed, instead of a sum that counted every booster,
+    debris piece and EVA flying at the same time again. Sorting by Duration uses the same
+    figure for folders and chains. The STASH row leaves Duration blank: it lists re-flyable
+    separations, not a flight.
+  - A subfolder drawn under its mission drops the repeated mission name: `R.1-S.1 / Debris`
+    reads `Debris` under `R.1-S.1` (the same in the Manage Groups / Set Parent Group tree).
+    The stored name, renaming and the census seam keep the full name.
+  - The Period cell is blank while a row's Loop is off, instead of a greyed value and unit;
+    hovering it still says `Turn Loop on for this flight to set its period`.
+  - Rewind / FF is shown once: a row drawn under a folder or flight row that already offers
+    the same R (or FF) target leaves its cell blank. A row whose button goes somewhere else
+    keeps it, and the rows inside STASH keep theirs (STASH draws no R of its own).
+
 - **Settings: a round of fixes to the Settings window.**
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
     Management. Basic still shows Interface, Ghosts and Data Management.

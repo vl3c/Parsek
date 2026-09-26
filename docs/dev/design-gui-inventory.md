@@ -480,6 +480,15 @@ Watch, Rewind, Re-Fly blank), and the RECORDING leaf (`:1820`, all columns). The
 separate detail row: expansion is a caret that renders CHILD rows of the same kinds, with
 box-drawing connectors (`:2283`) and per-level indents.
 
+Aggregate cells (2026-09-26 round): a folder's `Duration` is the SPAN its descendants cover
+(`GetGroupSpanDuration`: latest EndUT - earliest StartUT, dataless members skipped), the same
+figure a chain block shows, and the folder / chain Duration sort keys use it; the STASH row's
+Duration is blank. A subfolder's LABEL drops its parent's `parent + " / "` prefix when drawn
+under that parent (`GroupPickerPresentation.DisplayLabelUnderParent`; the group picker tree
+does the same), so a mission's auto subfolders read `Debris` / `Crew`. A leaf's `Period` cell is
+BLANK while its Loop is off, with the loop-off reason as the blank cell's hover
+(`LoopPeriodBlankCellTooltip`).
+
 Notable control semantics in the body:
 
 | control | backend | gate |
@@ -496,7 +505,7 @@ Notable control semantics in the body:
 | `X` on a row | `DeleteGhostOnlyRecording` (`:4570`), NO confirmation | only when `rec.IsGhostOnly && Mode != TrackingStation` (`:1982`, `:4611`) |
 | `X` on a folder | `ShowDisbandGroupConfirmation` (`:4399`) | only for a non-permanent group |
 | `W` / `W*` | `flight.EnterWatchMode(ri)` | `IsWatchButtonEnabled` (`:947`); column hidden outside flight |
-| `FF` / `R` | `ShowFastForwardConfirmation` (`:4496`) / `ShowRewindConfirmation` (`:4450`) | `RecordingStore.CanFastForward` / `CanRewind`, refusal as tooltip; `R` is suppressed entirely on an unfinished-flight row (`:3754`) |
+| `FF` / `R` | `ShowFastForwardConfirmation` (`:4496`) / `ShowRewindConfirmation` (`:4450`) | `RecordingStore.CanFastForward` / `CanRewind`, refusal as tooltip; `R` is suppressed entirely on an unfinished-flight row (`:3754`). SHOWN ONCE (2026-09-26): a row under a folder / block that DREW the same target (same committed index) draws a blank cell (`IsTimeTargetShownByEnclosingRow`, `ResolveChildEnclosingTimeTargets`); STASH resets the inherited targets, so its rows keep theirs |
 | `Fly` + `Seal` / `Stash` + `Seal` | `RewindInvoker.ShowDialog` / `UnfinishedFlightSealHandler.ShowConfirmation` / `UnfinishedFlightStashHandler.TryStash` | `ResolveReFlyColumnAction` (`:3416`, `:3420`) |
 | footer `Info >` / `Info <` | flips `showExpandedStats`; forces the window to 1813 px on expand and back to 1355 on collapse (`:1418-1423`) | only when the list is non-empty |
 

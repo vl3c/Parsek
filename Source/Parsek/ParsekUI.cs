@@ -2107,8 +2107,8 @@ namespace Parsek
         internal static double GetGroupEarliestStartUT(HashSet<int> descendants, IReadOnlyList<Recording> committed)
             => RecordingsTableUI.GetGroupEarliestStartUT(descendants, committed);
 
-        internal static double GetGroupTotalDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
-            => RecordingsTableUI.GetGroupTotalDuration(descendants, committed);
+        internal static double GetGroupSpanDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
+            => RecordingsTableUI.GetGroupSpanDuration(descendants, committed);
 
         internal static int FindGroupMainRecordingIndex(
             HashSet<int> descendants, IReadOnlyList<Recording> committed)

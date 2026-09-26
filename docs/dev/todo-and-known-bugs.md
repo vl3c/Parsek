@@ -15,6 +15,40 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RECORDINGS-TAB-ROUND-2026-09-26: an approved set of Recordings-tab presentation changes~~ [FILED AND FIXED 2026-09-26, branch `recordings-tab-round`]
+
+A reviewed list of presentation changes to the Recordings tab (no recording data, schema or
+store behaviour changes): folder Duration summed its members' durations (every booster, debris
+piece and EVA flying at the same time counted again); a mission's auto subfolders repeated the
+mission name under the mission row; the Period cell drew a greyed value + unit while Loop was
+off; and the Rewind column repeated one launch's `R` on the mission folder, its flight block
+and the flight's first row.
+
+Fix (commit 1 of the round): folder Duration and the folder and chain Duration sort keys are
+the covered span (`RecordingsTableUI.GetGroupSpanDuration`, dataless members skipped); the
+STASH row's Duration is blank. `GroupPickerPresentation.DisplayLabelUnderParent` drops a
+`parent + " / "` prefix from a subgroup's LABEL under that parent, in the table and in the
+group picker tree. The Period cell draws blank while Loop is off with
+`LoopPeriodBlankCellTooltip` as its hover. Rewind / FF is shown once: every folder and block
+row hands the R / FF target it actually DREW to its children
+(`ResolveChildEnclosingTimeTargets`), and a child whose own button would target the same
+committed index draws a blank cell (`IsTimeTargetShownByEnclosingRow`), logged on transitions
+only; STASH resets the inherited targets so its mirror rows keep their buttons.
+
+## RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE: a debris row's MaxSpd reads 318.4 km/s over a 1.9 km flight [FILED 2026-09-26 from the recordings-tab round (census run `2026-09-21_2316_GUI-25-census-missions-state-sort-edit`, capture `ib-missions-recordings-expandedstats-advanced`). OPEN, not fixed]
+
+The Info columns of recording #27 `Kerbal X Debris` on the `interbody-route-recorded` host
+read MaxAlt `5.8km`, MaxSpd `318.4km/s`, Dist `1.9km`, 54 points, 48 s, `Destroyed, Kerbin`.
+A 48 s debris fall cannot reach 318 km/s; the point velocities of such a flight are a few
+hundred m/s.
+
+Likely cause (unverified, read off the source only): `TrajectoryMath.AccumulateOrbitSegmentStats`
+takes the vis-viva PERIAPSIS speed of every orbit segment as a max-speed candidate. A
+sub-orbital debris segment's periapsis sits deep inside Kerbin (radius near zero), so
+`sqrt(gm * (2 / periRadius - 1 / sma))` runs away. The mean-speed distance term uses the same
+segment and may be similarly off. A fix would skip, or clamp at the surface, a segment whose
+periapsis lies below the body's radius; verify against the fixture's sidecar first.
+
 ## ~~SETTINGS-WINDOW-ROUND-2026-09-26: eleven Settings-window findings from the read-only review at `dd9c1682b`~~ [FILED AND FIXED 2026-09-26, branch `settings-window-round`]
 
 The review found the Basic hover leaving out Kerbals; readable `.txt` mirrors ON for every
