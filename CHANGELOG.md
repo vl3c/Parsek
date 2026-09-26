@@ -4478,6 +4478,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: a quarantine for one log-contract defect no longer hides other
+  log-contract failures in the same test.** A test scenario can be marked as expected to fail
+  while a known bug is open, and a matching failure then reads EXPECTED-FAIL, which counts as
+  green. The match was on the failure's class only, so a scenario quarantined for one missing
+  log line also read green when any other expected log line went missing. The expected-fail
+  block now takes an optional `mismatches` list naming the exact failing checks the bug
+  produces; the run reads EXPECTED-FAIL only when its failing checks are exactly that list, and
+  anything extra (or a listed check that stopped failing) stays a real failure. Without the
+  list the behaviour is unchanged. Spec validation rejects a list entry naming a check the
+  scenario does not declare, and any unknown key in the block. No committed scenario uses the
+  list yet: the one active quarantine is on the recording analyzer, which reports no such
+  list. Test-tooling only; no gameplay change.
+
 - **Removed the chain-segment commit path, which always-tree recording never reaches.**
   Before every recording lived in a tree, Parsek committed a flight as a chain of separate
   segments at EVA, boarding, docking, undocking, atmosphere / altitude / SOI boundaries and
