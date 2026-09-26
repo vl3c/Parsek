@@ -1179,6 +1179,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Every column of the Missions and Logistics windows can be reached on a 1280 px screen.**
+  Both windows are laid out wider than 1280 px (Missions 1355, Logistics 1410), and nothing
+  kept a window on the screen, so on a 1280x720 game window their right-hand columns were
+  drawn off the edge and could not be reached. Parsek's resizable windows are now never
+  wider than the screen and are kept on it, and when a window is narrower than the width its
+  table is laid out for, the table scrolls sideways: in the Missions window the column
+  headers scroll together with the rows, so every column stays under its header, and the
+  Close button and the help line stay in place. A resize drag stops at the screen edge. On a
+  screen the window already fits, nothing changes.
 - **Rewind-to-Launch no longer undoes another flight's Re-Fly from a stale save.** A plain
   rewind reloads the career from `persistent.sfs` as it was last written, and while the
   recordings, the ledger and (since the earlier fix) the rewind points were kept from memory,
@@ -4548,6 +4557,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: the wide windows at 1280x720.** New automation-only `UiAction op=state
+  window=missions key=scrollX value=<px>` drives the Missions window's horizontal scroll
+  (read back as the settled, clamped offset; 0 while the window fits), mirrored in hlib. The
+  `op=rect` op now applies the same screen fit a window takes before it draws, so a rect
+  commanded wider than the screen reads back at the screen width with `clamped=true`. New
+  operator-tier census lane `GUI-29-census-wide-windows-1280` photographs the Missions
+  window (both tabs, scrolled left and right) and Logistics on the 1280x720 frame.
 - **Automated testing: a `WarpToUT` refused because time warp is locked now names who holds
   the lock.** The `warptout refused reason=warp-locked` log line gains a `holders=` field:
   the ids of the input locks whose mask includes TIMEWARP, sorted and comma-joined, or `none`

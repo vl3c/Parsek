@@ -36,6 +36,15 @@ namespace Parsek
         }
 
         private Vector2 recordingsScrollPos;
+        // Horizontal scroll for both tabs when the window is capped below its natural
+        // width by a narrow screen (WideWindowLayout). One state for the window: the two
+        // tabs share its width, and only one of them draws per frame.
+        private readonly WideWindowScroll wideScroll =
+            new WideWindowScroll("Missions window", MinWindowWidth);
+        /// <summary>The window's horizontal-scroll state. Read by the Missions tab's draw
+        /// (which lives in MissionsWindowUI) and by the automation-only <c>op=state
+        /// key=scrollX</c> seam key.</summary>
+        internal WideWindowScroll WideScroll => wideScroll;
         private bool isResizingRecordingsWindow;
         private bool recordingsWindowHasInputLock;
         private const string RecordingsInputLockId = "Parsek_RecordingsWindow";
@@ -1791,6 +1800,10 @@ namespace Parsek
             // Breathing room below the title bar — matches Timeline's visual spacing.
             GUILayout.Space(5);
 
+            // Horizontal-scroll decision for this frame (Layout-latched): true only when a
+            // narrow screen has capped the window below its natural width.
+            wideScroll.Latch(recordingsWindowRect.width);
+
             // Ensure body + tab-bar styles exist before the tab bar draws.
             EnsurePhaseStyles();
 
@@ -1841,7 +1854,7 @@ namespace Parsek
                 // height, so neither the control count nor the window height depends on whether
                 // the cursor is over a tooltipped control.
                 recordingsWindowTooltipText = string.Empty;
-                parentUI.GetMissionsUI().DrawMissionsTabContent();
+                parentUI.GetMissionsUI().DrawMissionsTabContent(wideScroll);
                 DrawMissionsTabBottomBar();
                 return;
             }
@@ -1912,7 +1925,10 @@ namespace Parsek
                 // Fixed header row (outside the scroll view) — stays pinned to the top
                 // while the body scrolls. A trailing spacer inside the header matches the
                 // vertical scrollbar's reserved width so column right-edges line up with
-                // the row cells exactly.
+                // the row cells exactly. On a screen narrower than the window's natural
+                // width, the header and the body scroll horizontally together inside one
+                // wrapper (a no-op on a screen the window fits).
+                wideScroll.BeginPinnedHeaderArea(parentUI.GetOpaqueWindowStyle());
                 DrawRecordingsTableHeader(committed);
 
                 renderedRowCounter = 0;
@@ -2083,6 +2099,7 @@ namespace Parsek
                 // Capture scroll view rect for tooltip visibility guard
                 if (Event.current.type == EventType.Repaint)
                     scrollViewRect = GUILayoutUtility.GetLastRect();
+                wideScroll.EndPinnedHeaderArea();
             }
 
             DrawRecordingsBottomBar(committed);

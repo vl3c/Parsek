@@ -3189,17 +3189,48 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Handles resize drag for a window. Call before the window function.
-        /// Group Popup passes null for windowName to suppress logging.
+        /// Handles resize drag for a window, then fits the rect to the screen. Call before
+        /// the window function. Group Popup passes null for windowName to suppress the
+        /// resize logging.
         /// </summary>
         internal static void HandleResizeDrag(ref Rect windowRect, ref bool isResizing,
             float minWidth, float minHeight, string windowName)
         {
-            if (!isResizing) return;
+            if (isResizing)
+                ApplyResizeDrag(ref windowRect, ref isResizing, minWidth, minHeight, windowName);
+            FitWindowToScreen(ref windowRect, minWidth, windowName);
+        }
 
+        /// <summary>
+        /// Keeps a window no wider than the screen and fully on it (see
+        /// <see cref="WideWindowLayout.FitToScreen"/>). Runs before every draw of every
+        /// window that has a resize handle, so a first-open default, a drag or an
+        /// automation-written rect that reaches past the screen edge is pulled back before
+        /// it is drawn. A rect already on-screen is left untouched. Logged only when it
+        /// moves the rect, rate-limited per window because a player dragging a window
+        /// against the edge moves it every frame.
+        /// </summary>
+        internal static void FitWindowToScreen(ref Rect windowRect, float minWidth,
+            string windowName)
+        {
+            float sw = Screen.width;
+            float sh = Screen.height;
+            Rect before = windowRect;
+            if (!WideWindowLayout.FitToScreen(ref windowRect, minWidth, sw, sh)) return;
+            string name = windowName ?? "Popup window";
+            ParsekLog.VerboseRateLimited("UI", "window-screen-fit:" + name,
+                WideWindowLayout.FormatFitLog(name, before, windowRect, sw, sh));
+        }
+
+        private static void ApplyResizeDrag(ref Rect windowRect, ref bool isResizing,
+            float minWidth, float minHeight, string windowName)
+        {
             if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
             {
-                float newW = Mathf.Max(minWidth, Event.current.mousePosition.x - windowRect.x);
+                // The drag stops at the screen's right edge, and a screen narrower than the
+                // window's own minimum lowers that minimum to the screen width.
+                float newW = WideWindowLayout.ResizeDragWidth(
+                    Event.current.mousePosition.x, windowRect.x, minWidth, Screen.width);
                 float newH = Mathf.Max(minHeight, Event.current.mousePosition.y - windowRect.y);
                 windowRect.width = newW;
                 windowRect.height = newH;

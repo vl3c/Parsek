@@ -125,6 +125,24 @@ namespace Parsek.Tests
             Assert.Equal(UiStateKeyKind.Value, spec.Kind);
         }
 
+        // catches: the Missions window's horizontal scroll key dropped from its table, made
+        // bool-shaped, or leaking onto the Timeline (whose list scrolls only vertically).
+        [Fact]
+        public void ScrollXIsAValueShapedMissionsKeyAndNotATimelineOne()
+        {
+            Assert.True(TestCommandUiWindowState.TryResolveKey(
+                TestCommandUiAction.MissionsWindow, TestCommandUiWindowState.ScrollXKey,
+                out UiStateKeySpec spec, out string ok));
+            Assert.Null(ok);
+            Assert.Equal(UiStateKeyKind.Value, spec.Kind);
+            Assert.Equal("scrollX", spec.Key);
+
+            Assert.False(TestCommandUiWindowState.TryResolveKey(
+                TestCommandUiAction.TimelineWindow, TestCommandUiWindowState.ScrollXKey,
+                out UiStateKeySpec _, out string reject));
+            Assert.Equal(TestCommandUiWindowState.StateKeyInvalidReason, reject);
+        }
+
         [Fact]
         public void ArchivedMissionsIsAMissionsKeyAndNotATimelineOne()
         {

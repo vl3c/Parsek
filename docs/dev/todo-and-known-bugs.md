@@ -15,6 +15,54 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~WIDE-WINDOWS-OFF-SCREEN-AT-1280: the Missions and Logistics windows' right-hand columns are unreachable on a 1280 px screen~~ [FILED AND FIXED 2026-09-26, branch `wide-window-hscroll`]
+
+Owner request. The Missions window (both tabs) is laid out at 1355 px and Logistics at
+1410 px, both wider than a 1280x720 game window, and no window was ever capped to the screen
+(the only size clamp in the program was `ParsekUI.HandleResizeDrag`'s minimum, applied during
+a drag), so on such a screen their right-hand columns were drawn off the edge with no way to
+reach them. Every other window's minimum and default fit 1024 px (survey in
+`design-gui-inventory.md` section 7). The census-only fix of
+GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH (a 1920x1080 frame) never touched a
+player's screen.
+
+Fix: `UI/WideWindowLayout.cs`, one shared helper.
+- `ParsekUI.HandleResizeDrag` now also runs `FitWindowToScreen` before every draw of every
+  window with a resize handle: the width is capped to `Screen.width` and raised to
+  `min(MinWindowWidth, Screen.width)` when below it (so a window capped on a narrow screen
+  grows back when the screen grows; no drag can go below that floor), and the window is
+  moved fully on-screen horizontally and top-on-screen vertically; the height is never
+  changed (a GUILayout window resolves it from its content). A resize drag stops at
+  the screen's right edge, and its floor is `min(MinWindowWidth, Screen.width)`. Logged only
+  when the rect moves, rate-limited per window.
+- `WideWindowScroll` decides per window, latched on the Layout pass, whether the window is
+  below its natural width (`MinWindowWidth`), logging the transition only; on a screen the
+  window fits it draws nothing, so the layout is unchanged. When active, the Missions window
+  wraps its pinned column header AND its vertical body scroll view in ONE horizontal-only
+  scroll view whose content group is laid out at the natural width with the window style's
+  own horizontal padding, so header and body keep the x and widths they have at 1355 and
+  scroll in lockstep; the help strip and the Close row stay outside it. Logistics, whose
+  headers already live inside its single scroll view, only gets a minimum content width
+  inside that scroll view, so its own horizontal bar appears instead of the Name column
+  squeezing. Pinned by `TableRowInsetAlignmentTests.WideWindowScrollWrapsTheHeaderAndTheBodyTogether`
+  and `WideWindowLayoutTests`.
+- Trade-off taken: in the Missions window the body's vertical scrollbar sits at the right
+  end of the scrolled content, so it is visible only once scrolled right (the mouse wheel
+  scrolls vertically everywhere). The alternative, a header scrolled by a separate offset
+  above a body that keeps its bar at the window edge, needs the header's height fixed ahead
+  of layout (a GUILayout scroll view never reports its content height and lerps a
+  non-stretching child below its natural height), which cannot be read from the skin
+  without re-deriving IMGUI's margin rules.
+- Seam: `UiAction op=state window=missions key=scrollX` (hlib mirrored) and `op=rect` now
+  applies the same screen fit. Census lane `GUI-29-census-wide-windows-1280` (1280x720):
+  `2026-09-26_1926` PASS attempt 1 (both windows `applied=0,8,1280,700 clamped=true`,
+  `scrollX` settles at 95, header and rows aligned scrolled left and right). GUI-1 re-flown
+  at 1920x1080 `2026-09-26_1928` PASS: every Missions / Logistics dump geometry-identical to
+  the pre-change `2026-09-26_1745`.
+
+Residue: the one-line help strips of both windows are budgeted at their natural width
+(`TooltipEchoBudgetTests`), so on a capped window a long hover text is cut at the edge.
+
 ## ~~RECORDINGS-TAB-ROUND-2026-09-26: an approved set of Recordings-tab presentation changes~~ [FILED AND FIXED 2026-09-26, branch `recordings-tab-round`]
 
 A reviewed list of presentation changes to the Recordings tab (no recording data, schema or

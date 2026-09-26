@@ -1971,11 +1971,11 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 | window | min W x H | first-open W x H | resize? | fits 1280x720 | fits 1920x1080 |
 |---|---|---|---|---|---|
 | main | none | 250 x content (flight `ParsekFlight.cs:962`, KSC `ParsekKSC.cs:23`) | NO handle | yes | yes |
-| Missions | **1355** x 150 (`UI/RecordingsTableUI.cs:48`, `:49`, `:63`) | 1355 x main height (KSC 2x) | yes | **NO** - 75 px too wide at its own minimum | yes |
+| Missions | **1355** x 150 (`UI/RecordingsTableUI.cs:48`, `:49`, `:63`) | 1355 x main height (KSC 2x) | yes | capped to 1280, both tabs scroll sideways (header with the rows) | yes, unchanged |
 | Timeline | 520 x 150 (`UI/TimelineWindowUI.cs:67`, `:68`) | 820 x max(600, main height) | yes | yes | yes |
 | Kerbals | 280 x 150 (`UI/KerbalsWindowUI.cs:42-43`) | 410 x 400 (half of Career's 820, so the two sit side by side, `:44-46`) | yes | yes | yes |
 | Career State | 520 x 200 (`UI/CareerStateWindowUI.cs:74-75`) | 820 x 400 | yes | yes | yes |
-| Logistics | **1410** x 500 (`UI/LogisticsWindowUI.cs:390-391`) | 1556 x 500 | yes, clamped on DRAG only (`:435`) | **NO** - 130 px too wide at its minimum; the census forced 1280 and got a squeezed layout with a horizontal scrollbar | yes |
+| Logistics | **1410** x 500 (`UI/LogisticsWindowUI.cs:390-391`) | 1556 x 500 | yes | capped to 1280, its section stack keeps its 1410 layout and scrolls sideways in its own scroll view | yes, unchanged |
 | Structure | 420 x 160 (`UI/StructureListWindowUI.cs:69-70`) | 820 x 320 | yes | yes | yes |
 | Settings | none | 280 x 600 (the 600 is a guess; every first open requests a height fit, `:75-86`) | NO handle; height is fixed between fits | yes | yes |
 | Real Spawn Control | 350 x 150 (`UI/SpawnControlUI.cs:74-75`) | 750 x 200 | yes | yes | yes |
@@ -1985,12 +1985,24 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 | Group picker | 220 x 200 (`UI/GroupPickerUI.cs:88-89`) | 280 x 300, clamped to the screen at the click point (`:207-213`) | yes | yes | yes |
 | Logistics link picker | 240 x 180 (`UI/LogisticsWindowUI.cs:329-330`) | 340 x 380, clamped at the arming mouse position | yes | yes | yes |
 
-Two windows therefore cannot be drawn at their own minimum on the 1280-wide census instance:
-Logistics (1410) and Missions (1355; its Info-expanded 1813 / 1493 form was removed 2026-09-26). `op=rect` writes the field
-directly and only a resize DRAG clamps, so a commanded rect below the minimum is accepted
-silently - that is what produced the shipped Logistics capture. Any future populated capture of
-either window must size to at least the minimum first, which on a 1280 screen means the
-instance itself has to grow.
+Two windows are laid out wider than a 1280 px screen: Logistics (1410) and Missions (1355; its
+Info-expanded 1813 / 1493 form was removed 2026-09-26). Every other window's minimum and
+first-open default fit 1024 px. Since 2026-09-26 (`UI/WideWindowLayout.cs`,
+WIDE-WINDOWS-OFF-SCREEN-AT-1280) every window with a resize handle is fitted to the screen
+before each draw (`ParsekUI.HandleResizeDrag` -> `FitWindowToScreen`): its width is capped to
+`Screen.width` (and raised back to `min(MinWindowWidth, Screen.width)` if a narrower screen had
+capped it), it is moved fully on-screen horizontally and top-on-screen vertically, its
+height is never touched, a resize drag stops at the screen edge, and the drag floor becomes
+`min(MinWindowWidth, Screen.width)`. A window capped below its natural width
+(`MinWindowWidth`) scrolls its content sideways through `WideWindowScroll`: the Missions
+window wraps its pinned header and its body scroll view in one horizontal scroll view laid
+out at 1355 (the body's vertical bar then sits at the content's right end), and Logistics
+gets a minimum content width inside its existing scroll view. On a screen the window fits,
+neither draws anything. The windows with no resize handle (main, Settings, Gloops) are not
+fitted. `op=rect` applies the same fit, so on a narrow screen a rect commanded at the
+minimum reads back at the screen width with `clamped=true`; `op=state window=missions
+key=scrollX` drives the Missions window's horizontal offset. Census lane:
+`GUI-29-census-wide-windows-1280`.
 
 Fixed content pins, for the same reason - a column constant that exceeds its own content is the
 class of defect the Milestones `Rewards` overflow belongs to:

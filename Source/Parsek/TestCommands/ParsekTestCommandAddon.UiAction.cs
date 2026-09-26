@@ -591,6 +591,14 @@ namespace Parsek.TestCommands
             bool clamped;
             UiActionRect applied = TestCommandUiAction.ClampRectToMinimums(
                 want, handle.MinW, handle.MinH, out clamped);
+            // Then the SCREEN fit every resizable window takes before its own draw
+            // (ParsekUI.FitWindowToScreen): capped to the screen width and moved fully
+            // on-screen. Applied here too so the read-back is measured against the rect the
+            // window will actually draw at, not one the next draw pulls back.
+            bool fitted;
+            applied = TestCommandUiAction.FitRectToScreen(
+                applied, handle.MinW, handle.MinH, Screen.width, Screen.height, out fitted);
+            clamped = clamped || fitted;
             handle.SetRect(new Rect(applied.X, applied.Y, applied.W, applied.H));
 
             // TWO-PHASE, and this is the whole reason: a GUILayout window's rect is
