@@ -4792,19 +4792,121 @@ it to the stock screen.
 alternative (honour the stock edits by writing through `Record*` on the stock path) was not
 taken: the stock screen would still be a second surface for developer diagnostics.
 
-## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch]
+## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch. RE-INVESTIGATED 2026-09-26 (branch `commnet-relay-decision`): the gap is deeper than a missing call site. OPEN, awaiting an operator ruling A / B / C; also the reason D6 `commnet-relay` is unclaimable]
 
-**Evidence.** `GhostCommNetRelay.ShouldRegisterCommNet` (`:207`), `RegisterNode` (`:239`),
-`ComputeCombinedRelayPower` (`:35`) and `IsRemoteTechPresent` (`:389`) have no production
-caller. Meanwhile `GhostCommNetVesselPatch.Prefix`
-(`Patches/GhostVesselLoadPatch.cs:446`) destroys each ghost's `CommNetVessel` citing
-"GhostCommNetRelay handles CommNet" (`:459`) - a live patch justified by dead code. Ghost
-relays contribute nothing to CommNet.
+**What the player gets today.** Ghosts carry no CommNet signal. A relay placed by a
+committed recording counts for signal exactly as in stock from the moment it spawns as a
+real vessel at the end of its recording. The gap is the ghost window only:
+- after a rewind, a relay that a committed mission put up does not count until that
+  mission's recording ends and the relay spawns;
+- a pre-existing real vessel that a committed future recording docks with or boards is
+  despawned by `VesselGhoster.GhostVessel` (`vessel.Die()`) until its chain tip, so it
+  drops out of a network it was already part of.
 
-**Decision:** a CommNet ruling. Should a ghost relay carry signal (wire the class up), or
-should ghosts be CommNet-inert (delete the class and re-word the patch's justification to
-say what it actually does)? Either is fine; the current state documents a behaviour that
-does not happen.
+A probe flown in that window can read No Signal where the design says a ghost relay would
+carry it. With RemoteTech installed there is no ghost relay under any option.
+
+**Evidence (origin/main `958314016`, 2026-09-26).**
+1. **Never instantiated.** `new GhostCommNetRelay` occurs only in
+   `GhostCommNetRelayTests.cs` (`:665`, `:677`). Nothing in production calls `RegisterNode`,
+   `UpdateNodePosition`, `RemoveNode` or `ReregisterAllNodes`, and nothing subscribes to
+   CommNet network init.
+2. **No writer.** `Recording.AntennaSpecs` (`Recording.cs:258`) is only copied
+   (`Recording.cs:940`, `RecordingOptimizer.cs:926`, `:1286`).
+   `AntennaSpecExtractor.ExtractFromSnapshot` (`AntennaSpec.cs:36`) is called only from
+   `AntennaSpecTests`.
+3. **Not serialized.** No codec, sidecar or `ParsekScenario` key mentions antennas (grep of
+   `Source/Parsek` for "antenna"), so a spec set in memory would be lost at the next
+   save/load.
+4. **The data source cannot work on real saves.** The extractor reads `antennaPower`,
+   `antennaCombinable`, `antennaCombinableExponent` and `antennaType` from the snapshot's
+   `MODULE` node. KSP does not persist those; they are part-config fields. The dev-instance
+   saves hold 2021 `ModuleDataTransmitter` nodes and the committed fixtures 286, and none of
+   them has an `antennaPower` key. They persist `isEnabled`, `xmitIncomplete`,
+   `stagingEnabled`, `canComm` and `UPGRADESAPPLIED`. Wiring the extractor as written would
+   therefore produce power-0 specs, and `ShouldRegisterCommNet` would refuse every ghost.
+   Stock resolves the power of an unloaded antenna from the part prefab plus the snapshot's
+   `UPGRADESAPPLIED` (`ModuleDataTransmitter.CommPowerUnloaded`, decompiled), then scales the
+   vessel node by `CommNetParams.rangeModifier` (`CommNetVessel`). `RegisterNode` applies
+   neither.
+5. **Why the coverage cell is stuck.** The only in-game test,
+   `RuntimeTests.AntennaSpecsProduceRelayPower` (`:10205`), skips honestly. D6
+   `commnet-relay` is not "vacuous until a generator writes AntennaSpecs": the product never
+   produces the data, so a `RecordingBuilder.WithAntennaSpecs` would prove only the pure
+   power formula, not a relay.
+6. **Live code cites it.** `GhostCommNetVesselPatch` (`Patches/GhostVesselLoadPatch.cs:469`)
+   destroys every ghost map ProtoVessel's `CommNetVessel`, citing "GhostCommNetRelay handles
+   CommNet". `GhostMapPresence.cs:11144` says the same. The patch is right to exist (a ghost
+   marker must not be a CommNet node); only its stated reason is false.
+7. **Docs describe it as shipped.** `docs/parsek-flight-recorder-design.md` section 15.6
+   ("captured ... at commit time", nodes "registered at ghost positions") and its 6f row
+   ("Done (47 tests)"), and the "Ghost world presence" line in `docs/roadmap.md`. The
+   intended design is section 15.6 plus the paradox addendum section 7.3
+   (`docs/dev/done/recording-system-redesign/parsek-vessel-interaction-paradox-addendum-time-jump.md`).
+   The class comment's "Section 13.2" does not match: 13.2 of the design doc is Chain-Aware
+   Spawn, and the constraint it quotes is from addendum 7.3.
+
+**Options.**
+- **(A) Wire it up.** This means rebuilding the feature, not just adding a call site.
+  - *Spec source:* resolve each antenna part's power, type and combinability from its prefab
+    (`PartLoader`, dot-form names), plus the snapshot's `UPGRADESAPPLIED` and
+    `canComm` / deploy state. Derive the specs at load from the recording's existing
+    `_vessel.craft` sidecar, which needs NO codec or schema change (the field stays
+    in-memory and derived). Chain-ghosted vessels use the despawn snapshot that
+    `VesselGhoster` already keeps.
+  - *Runtime:* one relay instance per FLIGHT scene (including map view) and per
+    TRACKSTATION scene.
+    - Register when a non-loop ghost with antenna power enters its window.
+    - Position the node from the ghost map ProtoVessel's orbit when unloaded, or from the
+      ghost transform when loaded.
+    - Remove it at spawn, at ghost destroy and at scene exit, and re-register on CommNet
+      network init.
+    - Apply `rangeModifier`, skip when `EnableCommNet` is off, and exclude loop and overlap
+      copies, which would otherwise add one relay per loop cycle.
+  - *RemoteTech (`remoteTechDetected`):* keep the skip. RemoteTech replaces CommNet, so ghost
+    relays would not count under it. Supporting it means RemoteTech's own satellite API,
+    which is out of scope. `IsRemoteTechPresent` matches any assembly name containing
+    "RemoteTech", which is acceptable for a skip. CommNet-extending mods (the
+    CommNetManager family) would be untested.
+  - *Proof:*
+    - unit tests for spec resolution and the lifecycle decisions;
+    - an in-game test asserting that a probe's control path runs through a ghost node;
+    - a harness lane to claim D6 (a CommNet-enabled fixture, a relay recording, and a probe
+      hidden behind the Mun).
+  - *Size:* roughly 800-1200 lines including tests, over 2-3 PRs plus one new lane. The risk
+    is the CommNet node lifecycle across scene switches and warp, not the maths.
+  - *Narrower variant:* wire only chain-ghosted real vessels, the one case where the player
+    loses coverage they already had. Not recommended, because chain ghosting itself is
+    half-built: `GhostVessel` creates no ghost object, and the 6b-4 visual is deferred.
+- **(B) Remove.**
+  - *Delete:* `GhostCommNetRelay.cs` (427 lines), `AntennaSpec.cs` (127 lines),
+    `Recording.AntennaSpecs` and its three copy sites, `GhostCommNetRelayTests`,
+    `AntennaSpecTests`, the antenna cases in `BugFixTests`,
+    `RecordingOptimizerTests.SplitAtSection_CopiesAntennaSpecsToBoth`, and the in-game test.
+    Removing the in-game test lowers H28's `MapPresence` batch tally by one skip, so re-pin
+    H28 or `CommittedBatchTallySourceSyncTests` reds.
+  - *Keep:* `GhostCommNetVesselPatch`. Re-word its comment and `GhostMapPresence.cs:11144`
+    to say that ghost markers are CommNet-inert by design.
+  - *Retire:* D6 `commnet-relay` in `harness/coverage/registry.toml` and the catalog. D6
+    becomes complete, and the coverage denominator drops by one.
+  - *Docs:* rewrite design 15.6 as "ghosts are CommNet-inert; relays count from spawn", and
+    fix the 6f row and `docs/roadmap.md`.
+  - *Size:* one small mechanical PR.
+- **(C) Remove now, park the recipe.** Do everything in B. In addition, section 15.6 keeps
+  a short "not implemented; if revived" note with the corrected recipe from A: powers
+  resolved from the prefab, derived from the existing sidecar, no schema change,
+  ProtoVessel positions, loops excluded, `rangeModifier` applied. A later revival then does
+  not start from the wrong premise.
+
+**Recommendation: C.** This code is not a nearly finished feature waiting for one call
+site. Its data source cannot work on a real save, so A costs about what a new feature
+would. The gameplay gap covers only ghost windows, and relays count from the moment they
+spawn. Keeping ghosts CommNet-inert costs nothing. Removing the class stops the docs and a
+live patch comment from promising behaviour that does not happen, and it retires a coverage
+cell no lane could ever claim. Revive it through the parked recipe if a comms-heavy career
+shows the gap in play.
+
+**Decision:** pending (operator). Implement neither A nor B until ruled.
 
 ## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
 

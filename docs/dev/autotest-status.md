@@ -690,8 +690,8 @@ batch with all 306 recordings committed, so nothing repopulates what
 `PerformBetweenRunCleanup` empties and both now honestly Skip. The old
 `passed=5` pin WAS the vacuous-pass evidence. Making those two real is deferred
 follow-up work (whatever creates ghost map presence in a driven batch),
-alongside the `AntennaSpecs` generator gap that keeps D6 `commnet-relay`
-unclaimed. H28's D6 `ghost-map-presence` claim is NARROWED in place rather than
+alongside D6 `commnet-relay`, which no generator can close because the
+product never writes `AntennaSpecs` (todo GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION). H28's D6 `ghost-map-presence` claim is NARROWED in place rather than
 left standing: it now rests on the synthetic-ghost half alone (chain-ghost
 create + reverse map, `SetGhostMapNavigationTarget`), with the live-lifecycle
 path explicitly named as not exercised. PASS -> honest-Skip reads as a step

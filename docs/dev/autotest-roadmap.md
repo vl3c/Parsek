@@ -467,7 +467,8 @@ with what closing the rest takes:
 
 Structurally out of reach and excluded on purpose: planet -> planet transfers not
 from Kerbin (G6), the moon-to-moon re-aim road (G7, a product decision),
-`commnet-relay` until a generator writes antenna specs, and the two source-blocked
+`commnet-relay` (the product never writes antenna specs; operator ruling pending,
+todo GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION), and the two source-blocked
 D17 mods.
 
 **Distance to done.** Register items 1-3 plus the claim passes (D6 on 2026-09-08,
@@ -1279,7 +1280,7 @@ and are kept so the remaining work is legible against the original list:
 | `Rewind` | 31 of **39** (written 37 until 2026-09-09, then 38 when the recovery-bundle wave's SPACECENTER cell of 2026-08-20 was finally re-derived, then 39 when PR #1662 added the optimizer-split regression cell; the number is kept honest by `CommittedBatchTallySourceSyncTests`, which reds RF-6's pin until it agrees with the source) | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
 | `GhostLifecycle` | 15 of 17 | D6 `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps` (the other 2 are `Scene = TRACKSTATION`, so this is one of the 7 partly-stranded categories) |
 | ~~`GhostAudio`~~ | 9 | DRIVEN since wave-2 by `H30` (live-proven 2026-08-04; needed the W2-SHIP-VOLUME-ZERO provision fix). D6 `ghost-audio` |
-| ~~`MapPresence`~~ | 5 | DRIVEN since wave-2 by `H28` (live-proven 2026-08-04). D6 `ghost-map-presence`; `commnet-relay` NOT closed - its only cell is vacuous under every committed asset (no generator writes AntennaSpecs; see W2-VACUOUS-CELLS) |
+| ~~`MapPresence`~~ | 5 | DRIVEN since wave-2 by `H28` (live-proven 2026-08-04). D6 `ghost-map-presence`; `commnet-relay` NOT closed - its only cell is vacuous under every committed asset (the product never writes AntennaSpecs, so no generator can close it; see todo GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION) |
 | `ReentryFx` | 3 | D6 `reentry-fx` |
 | `Watch` | 2 | D6 `watch-mode-retarget-explosion-hold` |
 | ~~`LedgerGroundTruth`~~ | 2 | DRIVEN since the career-ledger lane by `L2-ledger-groundtruth-career` (live-proven 2026-08-17, armed run `2026-08-17_2233`). D8 `ground-truth-harness`. The count was 1 here and is 2: `KerbalExperienceReassertTest.SurvivingCareerLogEntriesAreOnTheLiveRoster` (P9a) also declares this category |

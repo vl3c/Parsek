@@ -1491,6 +1491,8 @@ Ghosts represent vessels that exist in the world pending chain resolution. They 
 
 ### 15.6 Ghost CommNet Relay
 
+**Status (2026-09-26): NOT IMPLEMENTED.** `GhostCommNetRelay` is never instantiated, nothing writes `AntennaSpecs`, and the snapshot fields the extractor reads are not persisted by KSP. Ghosts are CommNet-inert today; a relay counts from the moment it spawns. The text below is the intended design. Ruling pending: todo GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION.
+
 Antennas on ghosted vessels relay signal, extending communication network coverage. Other real vessels' probe control and science transmission depend on relay paths. A relay constellation placed by a committed recording must provide coverage during the ghost window. The ghost's physical position matters for line-of-sight checks — a relay behind the Mun cannot relay through the Mun.
 
 Implementation: the recording stores antenna data from each vessel's `ModuleDataTransmitter` parts — specifically `antennaPower`, `antennaCombinable`, and `antennaCombinableExponent`. These are captured in `AntennaSpec` entries on the Recording at commit time. Ghost CommNet nodes are registered at ghost positions using these specs. Nodes are updated each frame (loaded: from GO position; unloaded: from orbital propagation). Nodes are removed when the ghost is destroyed or the chain tip spawns. The stock CommNet API (`CommNetNetwork.Instance.CommNet.Add/Remove`) is used directly — no ProtoVessel or Harmony patches required. The implementation was informed by source code analysis of [CommNetManager](https://github.com/DBooots/CommNetManager) (confirmed stock API works through its delegate chain) and [RemoteTech](https://github.com/RemoteTechnologiesGroup/RemoteTech) (detected at runtime — ghost CommNet registration is skipped when present, since RemoteTech replaces CommNet entirely).
@@ -1735,7 +1737,7 @@ The ghost chain system, spawn safety, time jump, and ghost world presence are im
 | 6c — Spawn Safety | Bounding box collision, ghost extension, terrain correction, trajectory walkback | Done (93 tests) |
 | 6d — UI | Spawn warnings, ghost labels, chain status display | Done (27 tests) |
 | 6e — Relative-State Time Jump | Discrete UT skip, TIME_JUMP event | Done (27 tests) |
-| 6f — Ghost World Presence | Map view, tracking station, CommNet relay (stock API), antenna specs | Done (47 tests) |
+| 6f — Ghost World Presence | Map view, tracking station, CommNet relay (stock API), antenna specs | Done (47 tests); the CommNet relay was never wired, see 15.6 |
 
 New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, VesselGhoster, SpawnCollisionDetector, GhostExtender, TerrainCorrector, SpawnWarningUI, TimeJumpManager, GhostMapPresence, GhostCommNetRelay, AntennaSpec. The recording schema is a single clean-slate contract (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`), not an additive versioned format.
 
