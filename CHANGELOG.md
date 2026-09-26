@@ -1171,6 +1171,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A dropped booster you switch to and fly no longer reports a distance of over 1000 km.**
+  When you switch to a booster Parsek was recording in the background and it flies on near its
+  sibling, part of its track is stored relative to that sibling in metres. The distance worked
+  out when the recording ended read those metres as map coordinates, so a booster that fell 5 km
+  from the pad was listed with a maximum distance of about 1205 km. The distance now comes from
+  the booster's real map positions (the same data Parsek already used for boosters it never
+  switched to), and so does the biome a destroyed vessel ended in. The same booster also no
+  longer logs a background time-limit close after you switched to it: switching now cancels the
+  60 s limit it had as debris.
+
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
   and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
