@@ -15,6 +15,32 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~H22-MISSION-REVEAL-FIXTURE-POINTS-HAVE-NO-BODY: H22 red on a `[Parsek][ERROR]` from a save that landed inside the mission-reveal in-game test~~ [FILED AND FIXED 2026-09-26, branch `fix-h22-reveal-fixture`; PARSEK-FAIL on the daily tier of 2026-09-26 (run `2026-09-26_1946`), reproduced on origin/main `26293f0ae` (run `2026-09-26_2024`)]
+
+`H22-ui-complexity-mode` classified PARSEK-FAIL (`logContracts.forbidden matched: \[Parsek\]\[ERROR\]`)
+with four ERROR lines: `SaveRecordingFiles failed ... ex=InvalidOperationException:Non-null string
+expected in binary string table.` and `OnSave: tree 'Parsek Reveal Probe A/B' ... could not be
+written from memory ... being dropped from this save`. Root cause is the test fixture, not
+production: `MissionRevealInGameTests` (category `UiComplexityMode`, introduced by `dfdc35171`)
+installs two synthetic committed trees whose points are `new TrajectoryPoint { ut = ... }` with no
+`bodyName`, and yields while they are committed. Stock's scene-entry persistent save can land
+inside that window (the harness `LoadGame` seam returns before `onFlightReady`); OnSave then sees
+the trees' sidecars as `trajectory-missing`, rewrites them, and the binary writer rejects the
+null body name (`TrajectorySidecarBinary` string-table `GetIndex`). The 2026-08-01 "green" H22
+run is not a baseline: the reveal test SKIPPED there, and in later runs the save landed before
+`RunTests`. Every production point constructor sets `bodyName` and both readers default it, so
+the writer is not relaxed.
+
+Fix: the fixture authors production-shaped points (`bodyName = "Kerbin"`), and the finally reaps
+any sidecars an interleaved save wrote (`InGameTestSidecarReaper.DeleteSidecarsForIds`, after the
+trees are removed so the reaper's known-id guard allows it); the class doc no longer claims
+nothing reaches disk. Latent same-shape fixtures (synchronous, so no save can interleave today):
+`ReFlyRecoveryBundleRuntimeTest` and `WatchAutoFollowFollowsSupersedeForkRuntimeTest` commit
+points without `bodyName`. Open, low: the `LoadGame` seam returning before `onFlightReady` lets a
+batch start while stock's scene-entry save is still pending.
+
+---
+
 ## ~~PERSISTENT-ROTATION-NEVER-DETECTED: the spin capture never ran on any KSP 1.12 install~~ [FILED AND FIXED 2026-09-26, branch `persistent-rotation`]
 
 `FlightRecorder.InitializeRecordingFlags` detected the mod with
