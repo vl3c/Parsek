@@ -162,10 +162,26 @@ class PinnedModZipPlanTests(unittest.TestCase):
             ["GameData/PersistentRotationX/a.dll", "GameData/persistentrotation/a.dll"],
             ["PersistentRotation"]))
 
-    def test_a_zip_slip_entry_is_left_for_the_escape_guard(self):
-        plan = provlib.plan_pinned_mod_install(["GameData/PR/../../evil.dll"], ["PR"])
-        self.assertEqual(1, len(plan))
-        self.assertTrue(provlib.gamedata_dest_escapes(plan[0][1]))
+    def test_an_entry_that_leaves_its_declared_folder_is_refused(self):
+        names = [
+            "GameData/PersistentRotation/../kRPC/x.dll",      # stays under GameData, wrong mod
+            "GameData/PersistentRotation/../../evil.dll",     # escapes GameData
+            "GameData/PersistentRotation/./Plugins/a.dll",
+            "GameData/PersistentRotation//Plugins/a.dll",
+            "PersistentRotation/Plugins/../../Squad/b.cfg",
+            "GameData/PersistentRotation/Plugins/ok.dll",
+        ]
+        self.assertEqual(
+            [("GameData/PersistentRotation/Plugins/ok.dll", "GameData/PersistentRotation/Plugins/ok.dll")],
+            provlib.plan_pinned_mod_install(names, ["PersistentRotation"]))
+
+    def test_the_folder_guard_cell_by_cell(self):
+        ok = provlib.pinned_mod_entry_stays_in_folder
+        self.assertTrue(ok("PR/Plugins/a.dll", ["PR"]))
+        self.assertTrue(ok("PR/a..b.dll", ["PR"]))    # dots inside a name are fine
+        for bad in ("PR/../kRPC/x", "PR/..", "../PR/a", "PR/./a", "PR//a", "/PR/a",
+                    "C:/PR/a", "PR", "Other/a", "", None):
+            self.assertFalse(ok(bad, ["PR"]), bad)
 
 
 class PinnedModInstallShellTests(unittest.TestCase):

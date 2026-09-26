@@ -33,8 +33,11 @@ namespace Parsek
         public Quaternion orbitalFrameRotation;
 
         /// <summary>
-        /// Vessel-local angular velocity at on-rails boundary (rad/s).
-        /// Recorded as: Inverse(v.transform.rotation) * v.angularVelocity.
+        /// Angular velocity at the on-rails boundary (rad/s), in the VESSEL transform's local
+        /// axes (the frame the spin-forward decode reads: boundaryWorldRot * angularVelocity).
+        /// Recorded as Inverse(v.transform.rotation) * (v.ReferenceTransform.rotation *
+        /// v.angularVelocity), because KSP's Vessel.angularVelocity is local to the control
+        /// reference transform (TrajectoryMath.ComputeSpinAngularVelocityVesselLocal).
         /// Default (0,0,0) = not spinning / no PersistentRotation at recording time.
         /// </summary>
         public Vector3 angularVelocity;

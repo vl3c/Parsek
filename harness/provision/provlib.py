@@ -1235,10 +1235,28 @@ def plan_pinned_mod_install(names: Sequence[str], gamedata_folders: Sequence[str
             continue
         e = n.replace("\\", "/")
         rel = e[len(GAMEDATA_DIR) + 1:] if e.startswith(GAMEDATA_DIR + "/") else e
-        top = rel.split("/", 1)[0]
-        if top in folders and "/" in rel:
-            out.append((n, GAMEDATA_DIR + "/" + rel))
+        if not pinned_mod_entry_stays_in_folder(rel, folders):
+            continue
+        out.append((n, GAMEDATA_DIR + "/" + rel))
     return out
+
+
+def pinned_mod_entry_stays_in_folder(rel: str, gamedata_folders: Sequence[str]) -> bool:
+    """True when ``rel`` (a zip entry relative to GameData, forward slashes) names a file
+    INSIDE one of the declared folders: no ``..`` / ``.`` / empty segment anywhere, no
+    absolute or drive path, and the normalized path still starts with ``<folder>/``. So
+    ``PersistentRotation/../kRPC/x`` is refused even though it starts with a declared
+    folder, which is what keeps a pinned zip from writing into another mod's folder."""
+    rel = (rel or "").replace("\\", "/")
+    if not rel or rel.startswith("/") or ":" in rel:
+        return False
+    segments = rel.split("/")
+    if any(seg in ("", ".", "..") for seg in segments):
+        return False
+    if len(segments) < 2 or segments[0] not in tuple(gamedata_folders or ()):
+        return False
+    norm = posixpath.normpath(rel)
+    return norm.startswith(segments[0] + "/")
 
 
 def artifact_cache_key(sha256: Optional[str]) -> Optional[str]:

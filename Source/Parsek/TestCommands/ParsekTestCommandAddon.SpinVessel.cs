@@ -32,6 +32,18 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // Every refusal is decided before anything is touched, so a refused call has no
+            // side effects.
+            int rigidbodies = 0;
+            for (int i = 0; i < v.parts.Count; i++)
+                if (v.parts[i] != null && v.parts[i].rb != null)
+                    rigidbodies++;
+            if (rigidbodies == 0)
+            {
+                RejectSpinVessel("spinvessel-no-rigidbodies", $"vessel={v.vesselName} parts={Int(v.parts.Count)}");
+                return;
+            }
+
             // SAS would damp the spin straight back out (and PersistentRotation reads the SAS
             // group to pick its stability mode), so the verb owns turning it off.
             bool sasWasOn = v.ActionGroups[KSPActionGroup.SAS];
@@ -52,11 +64,6 @@ namespace Parsek.TestCommands
                 rb.velocity += TestCommandSpinVessel.ComputeTangentialVelocity(
                     omega, rb.worldCenterOfMass, com);
                 applied++;
-            }
-            if (applied == 0)
-            {
-                RejectSpinVessel("spinvessel-no-rigidbodies", $"vessel={v.vesselName} parts={Int(v.parts.Count)}");
-                return;
             }
 
             ParsekLog.Info(Tag, TestCommandSpinVessel.FormatAppliedLine(

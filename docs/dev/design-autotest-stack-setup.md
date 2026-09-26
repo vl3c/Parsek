@@ -405,7 +405,7 @@ GameData folders the zip installs). DOWNLOAD fetches it through the shared artif
 cache exactly like the stack zips (`provlib.pinned_mod_artifacts`, only for a
 profile that names it). INSTALL (`provision._install_pinned_mods`) reads the cache entry
 once and re-hashes it in memory, scoped-deletes each declared folder and extracts it
-(`provlib.plan_pinned_mod_install`, zip-slip guarded). The result is recorded under the
+(`provlib.plan_pinned_mod_install`: an entry with a `..`, `.` or empty segment, or one that leaves its declared folder, is dropped by `pinned_mod_entry_stays_in_folder`, and `gamedata_dest_escapes` still guards every destination). The result is recorded under the
 manifest's top-level `pinnedMods` (folder -> pin, version, zip sha256, tree-hash; not an
 admission key), which VERIFY re-hashes. A drift there has no targeted `--repair`; a plain
 re-provision re-extracts it. The cache seeder (`plan_cache_seed`) accepts pinned-mod zips
