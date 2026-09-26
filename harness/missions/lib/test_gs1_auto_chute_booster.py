@@ -1427,5 +1427,265 @@ class Gs1AirborneExitSchemaTests(unittest.TestCase):
                          spec["driver"]["missionParams"])
 
 
+# ---------------------------------------------------------------------------
+# The focus-impact profile (focusImpactAtExit, CA-1 / D1 commit-abort).
+# ---------------------------------------------------------------------------
+
+CA1_SPEC_PATH = os.path.join(_HARNESS, "scenarios", "CA-1-commit-abort-booster-live.toml")
+
+
+def impact_descent(**over):
+    """``to_descent`` under the focus-impact profile, then two falling frames with
+    the booster airborne, so the airborne streak has reached its debounce."""
+    over.setdefault("focusImpactAtExit", True)
+    state, actions = to_descent(**over)
+    for i in range(2):
+        state, more = fly(state, ut=13.0 + i, altitude=600.0 - 150.0 * i,
+                          vertical_speed=-30.0 - 10.0 * i, situation="FLYING",
+                          available_thrust=0.0)
+        actions = actions + more
+    return state, actions
+
+
+class Gs1FocusImpactInertnessTests(unittest.TestCase):
+    """The OFF path is byte-identical with the key absent or false, frame by frame
+    (the same replay the airborne-exit cell uses), and the ON path parts from it
+    only at the apex, where the nominal machine arms the chute."""
+
+    def _replay(self, **over):
+        return Gs1AirborneExitInertnessTests._replay(
+            Gs1AirborneExitInertnessTests(), **over)
+
+    def test_the_off_path_is_byte_identical_with_the_key_absent_or_false(self):
+        self.assertNotIn("focusImpactAtExit", GS1_PARAMS)
+        absent_state, absent_trace = self._replay()
+        false_state, false_trace = self._replay(focusImpactAtExit=False)
+        self.assertEqual(absent_trace, false_trace)
+        self.assertEqual(absent_state.phase, false_state.phase)
+        self.assertEqual(absent_state.verdict, false_state.verdict)
+
+    def test_the_on_path_diverges_only_at_the_apex(self):
+        _off, off_trace = self._replay()
+        _on, on_trace = self._replay(focusImpactAtExit=True)
+        apex = next(i for i, (phase, _a) in enumerate(off_trace)
+                    if phase == mlib.GS1_DESCENT)
+        self.assertEqual(off_trace[:apex], on_trace[:apex])
+        # The nominal apex frame arms the chute; the profile's never does.
+        self.assertTrue(off_trace[apex][1])
+        self.assertEqual((), on_trace[apex][1])
+
+
+class Gs1FocusImpactTests(unittest.TestCase):
+
+    def test_the_chute_is_never_commanded(self):
+        state, actions = impact_descent()
+        kinds = [a.kind for a in actions]
+        self.assertNotIn(mlib.ACTION_DEPLOY_CHUTE, kinds)
+        self.assertNotIn(mlib.ACTION_SET_CHUTE_DEPLOY_ALTITUDE, kinds)
+        self.assertFalse(state.chute_commanded)
+
+    def test_a_loss_after_the_separation_is_the_impacted_success_terminal(self):
+        state, _ = impact_descent()
+        state, actions = step(state, ut=0.0, vessel_lost=True)
+        self.assertEqual([], actions)
+        self.assertEqual(mlib.GS1_IMPACTED, state.phase)
+        self.assertTrue(state.done)
+        self.assertIsNone(state.verdict)
+        self.assertIsNone(state.loss_reason)
+        self.assertTrue(state.skip_settle_tail)
+        # The stamp is the last LIVE UT, not the lost frame's best-effort 0.
+        self.assertEqual(14.0, state.impact_ut)
+        self.assertEqual("FLYING", state.sibling_outcome)
+
+    def test_the_handoff_to_the_booster_is_the_impacted_terminal(self):
+        """MEASURED on 2026-09-26_0127 / _0132_a2: KSP focuses the booster when the
+        upper stage dies, so telemetry stays readable and only the NAME changes."""
+        state, _ = impact_descent()
+        state, actions = fly(state, ut=15.0, altitude=485.0, vertical_speed=-2.5,
+                             situation="FLYING", available_thrust=0.0,
+                             vessel_name="GS1 Auto-Chute Booster Probe",
+                             craft_chute_state=mlib.CHUTE_STATE_DEPLOYED)
+        self.assertEqual([], actions)
+        self.assertEqual(mlib.GS1_IMPACTED, state.phase)
+        self.assertIsNone(state.verdict)
+        self.assertTrue(state.skip_settle_tail)
+        self.assertEqual("FLYING", state.sibling_outcome)
+        self.assertEqual(15.0, state.impact_ut)
+
+    def test_the_upper_stage_name_is_not_a_handoff(self):
+        state, _ = impact_descent()
+        state, _ = fly(state, ut=15.0, altitude=300.0, vertical_speed=-60.0,
+                       situation="FLYING", available_thrust=0.0,
+                       vessel_name="GS1 Auto-Chute Booster")
+        self.assertEqual(mlib.GS1_DESCENT, state.phase)
+        state, _ = fly(state, ut=16.0, altitude=250.0, vertical_speed=-65.0,
+                       situation="FLYING", available_thrust=0.0, vessel_name="")
+        self.assertEqual(mlib.GS1_DESCENT, state.phase)
+
+    def test_the_profile_off_ignores_the_vessel_name(self):
+        state, _ = to_descent()
+        state, _ = fly(state, ut=15.0, altitude=485.0, vertical_speed=-2.5,
+                       situation="FLYING", available_thrust=0.0,
+                       vessel_name="GS1 Auto-Chute Booster Probe")
+        self.assertEqual(mlib.GS1_DESCENT, state.phase)
+        self.assertFalse(state.done)
+
+    def test_a_handoff_without_an_observed_separation_is_not_an_impact(self):
+        state, _ = impact_descent()
+        # A live engine reading keeps the (cleared) separation latch from being
+        # re-earned on this very frame.
+        state = dataclasses.replace(state, separation_seen=False, separation_streak=0)
+        state, _ = fly(state, ut=15.0, altitude=485.0, vertical_speed=-2.5,
+                       situation="FLYING", available_thrust=LIT,
+                       vessel_name="GS1 Auto-Chute Booster Probe")
+        self.assertFalse(state.separation_seen)
+        self.assertEqual(mlib.GS1_DESCENT, state.phase)
+
+    def test_the_shell_reads_the_vessel_name(self):
+        control = gs1_auto_chute_booster.make_control()
+        self.assertTrue(control._read_vessel_name)
+        self.assertTrue(control._read_chute)
+
+    def test_a_frozen_trip_after_the_separation_is_the_same_terminal(self):
+        state, _ = impact_descent()
+        for i in range(state.params.frozen_sample_limit + 1):
+            state, _ = fly(state, ut=20.0 + i, altitude=71.0, vertical_speed=0.0,
+                           apoapsis=0.0, periapsis=0.0, situation="FLYING",
+                           available_thrust=0.0)
+            if state.done:
+                break
+        self.assertEqual(mlib.GS1_IMPACTED, state.phase)
+        self.assertIsNone(state.verdict)
+
+    def test_a_loss_before_the_apex_stays_an_assert_fail(self):
+        state, _ = to_separation(focusImpactAtExit=True)
+        state, _ = step(state, ut=0.0, vessel_lost=True)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("vessel-lost", state.loss_reason)
+
+    def test_a_loss_without_an_observed_separation_stays_an_assert_fail(self):
+        state, _ = impact_descent()
+        state = dataclasses.replace(state, separation_seen=False)
+        state, _ = step(state, ut=0.0, vessel_lost=True)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+
+    def test_the_profile_off_keeps_a_descent_loss_an_assert_fail(self):
+        state, _ = to_descent()
+        state, _ = step(state, ut=0.0, vessel_lost=True)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+
+    def test_an_intact_touchdown_is_a_named_assert_fail_after_the_debounce(self):
+        state, _ = impact_descent()
+        state, _ = fly(state, ut=20.0, altitude=71.0, vertical_speed=-1.0,
+                       situation="LANDED", available_thrust=0.0)
+        self.assertFalse(state.done, "one landed poll must not condemn the run")
+        state, _ = fly(state, ut=21.0, altitude=71.0, vertical_speed=-0.5,
+                       situation="LANDED", available_thrust=0.0)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("focus-down-intact", state.loss_reason)
+
+    def test_one_landed_poll_then_a_loss_still_impacts(self):
+        state, _ = impact_descent()
+        state, _ = fly(state, ut=20.0, altitude=71.0, vertical_speed=-80.0,
+                       situation="LANDED", available_thrust=0.0)
+        state, _ = step(state, ut=0.0, vessel_lost=True)
+        self.assertEqual(mlib.GS1_IMPACTED, state.phase)
+
+    def test_the_arm_window_give_up_does_not_apply(self):
+        state, _ = impact_descent()
+        for i in range(5):
+            state, _ = fly(state, ut=20.0 + i, altitude=300.0 - 50.0 * i,
+                           vertical_speed=-90.0, situation="FLYING",
+                           available_thrust=0.0)
+        self.assertFalse(state.done)
+        self.assertEqual(mlib.GS1_DESCENT, state.phase)
+
+    def test_a_booster_not_seen_airborne_leaves_the_outcome_empty(self):
+        state, _ = to_descent(focusImpactAtExit=True)
+        state, _ = step(state, ut=13.0, altitude=600.0, vertical_speed=-30.0,
+                        situation="FLYING", available_thrust=0.0,
+                        sibling_present=1, sibling_situation="LANDED")
+        state, _ = step(state, ut=14.0, altitude=450.0, vertical_speed=-40.0,
+                        situation="FLYING", available_thrust=0.0,
+                        sibling_present=1, sibling_situation="LANDED")
+        state, _ = step(state, ut=0.0, vessel_lost=True)
+        self.assertEqual(mlib.GS1_IMPACTED, state.phase)
+        self.assertEqual("", state.sibling_outcome)
+
+    def test_an_unreadable_booster_holds_the_streak(self):
+        state, _ = to_descent(focusImpactAtExit=True)
+        state, _ = fly(state, ut=13.0, altitude=600.0, vertical_speed=-30.0,
+                       situation="FLYING", available_thrust=0.0)
+        self.assertEqual(1, state.sibling_airborne_streak)
+        state, _ = step(state, ut=14.0, altitude=450.0, vertical_speed=-40.0,
+                        situation="FLYING", available_thrust=0.0,
+                        sibling_present=-1)
+        self.assertEqual(1, state.sibling_airborne_streak)
+        state, _ = step(state, ut=15.0, altitude=300.0, vertical_speed=-50.0,
+                        situation="FLYING", available_thrust=0.0,
+                        sibling_present=1, sibling_situation="")
+        self.assertEqual(1, state.sibling_airborne_streak)
+
+
+class Gs1FocusImpactAssertionRowTests(unittest.TestCase):
+
+    def _rows(self, state):
+        return {r.name: r for r in mlib.evaluate_gs1_assertions(
+            [snap(ut=14.0, situation="FLYING")],
+            mlib.gs1_params_from_dict(params(focusImpactAtExit=True)), state=state)}
+
+    def test_the_terminal_rows_are_renamed_and_met_on_an_impact(self):
+        state, _ = impact_descent()
+        state, _ = step(state, ut=0.0, vessel_lost=True)
+        rows = self._rows(state)
+        for nominal in ("craftCanopyObserved", "landedSituation", "boosterConcluded"):
+            self.assertNotIn(nominal, rows)
+        for name in ("craftChuteNeverArmed", "focusImpacted", "boosterAirborneAtImpact"):
+            self.assertTrue(rows[name].met, name)
+        self.assertEqual(14.0, rows["focusImpacted"].value)
+
+    def test_an_intact_touchdown_fails_the_impact_row(self):
+        state, _ = impact_descent()
+        for ut in (20.0, 21.0):
+            state, _ = fly(state, ut=ut, altitude=71.0, vertical_speed=-0.5,
+                           situation="LANDED", available_thrust=0.0)
+        self.assertFalse(self._rows(state)["focusImpacted"].met)
+
+    def test_an_armed_chute_fails_the_never_armed_row(self):
+        state, _ = impact_descent()
+        state = dataclasses.replace(state, chute_commanded=True)
+        self.assertFalse(self._rows(state)["craftChuteNeverArmed"].met)
+
+    def test_an_empty_booster_outcome_fails_the_booster_row(self):
+        state, _ = impact_descent()
+        state, _ = step(state, ut=0.0, vessel_lost=True)
+        state = dataclasses.replace(state, sibling_outcome="")
+        self.assertFalse(self._rows(state)["boosterAirborneAtImpact"].met)
+
+
+class Gs1FocusImpactSpecTests(unittest.TestCase):
+
+    def test_the_schema_declares_the_key_as_an_optional_bool(self):
+        with open(SCHEMA_PATH, "rb") as fh:
+            schema = tomllib.load(fh)
+        row = schema["params"]["focusImpactAtExit"]
+        self.assertFalse(row["required"])
+        self.assertEqual("bool", row["type"])
+
+    def test_the_committed_gs1_spec_does_not_set_it(self):
+        with open(SPEC_PATH, "rb") as fh:
+            spec = tomllib.load(fh)
+        self.assertNotIn("focusImpactAtExit", spec["driver"]["missionParams"])
+
+    def test_the_ca1_spec_flies_gs1s_profile_with_only_the_flag_added(self):
+        """CA-1 is GS-1's flight with the upper chute left unarmed; every other
+        param must stay GS-1's so the live-proven ascent and separation carry over."""
+        with open(CA1_SPEC_PATH, "rb") as fh:
+            ca1 = tomllib.load(fh)["driver"]["missionParams"]
+        self.assertIs(True, ca1.get("focusImpactAtExit"))
+        rest = {k: v for k, v in ca1.items() if k != "focusImpactAtExit"}
+        self.assertEqual(GS1_PARAMS, rest)
+
+
 if __name__ == "__main__":
     unittest.main()

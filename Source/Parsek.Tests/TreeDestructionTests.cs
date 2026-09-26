@@ -322,6 +322,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CommitAbort_ActiveEvaKerbalDestroyedWhilePodLeafLives_AbortsAndKeepsRecording()
+        {
+            // The EVA-shaped abort (the first CA-1 host): the EVA branch leaves the pre-EVA pod
+            // as a non-leaf, the pod continuation as a live NON-debris background leaf,
+            // and the kerbal as the ACTIVE leaf whose vessel just died.
+            var recs = MakeDict(
+                MakeNonLeaf("pod-pre-eva", "Jumping Flea", "bp-eva"),
+                MakeLeaf("pod", "Jumping Flea", null),
+                MakeLeaf("kerbal", "Jebediah Kerman", null));
+
+            bool allLeavesTerminal = RecordingTree.AreAllLeavesTerminal(
+                recs, "kerbal", activeVesselDestroyed: true);
+            bool onlyDebris = RecordingTree.AreAllActiveCrashBlockersDebris(recs, "kerbal");
+            var resolution = ParsekFlight.ClassifyPostDestructionMergeResolution(
+                activeDestroyed: true,
+                allLeavesTerminal: allLeavesTerminal,
+                onlyDebrisBlockersRemain: onlyDebris,
+                pendingCrashResolution: false);
+
+            Assert.False(allLeavesTerminal);
+            Assert.False(onlyDebris);
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.AbortAndKeepRecording, resolution);
+            // The lane pins this census line: two leaves, the dead kerbal terminal, the pod alive.
+            Assert.Contains(logLines, l => l.Contains("[TreeDestruction]")
+                && l.Contains("AreAllLeavesTerminal: leaves=2 terminal=1 alive=1 -> False"));
+        }
+
+        [Fact]
+        public void CommitAbort_SamePodLeafAsDebris_FinalizesInsteadOfAborting()
+        {
+            // Negative mirror: flip only IsDebris on the surviving leaf and the abort
+            // becomes a same-scene finalize, so the abort is keyed on the NON-debris survivor.
+            var recs = MakeDict(
+                MakeNonLeaf("pod-pre-eva", "Jumping Flea", "bp-eva"),
+                new Recording
+                {
+                    RecordingId = "pod",
+                    VesselName = "Jumping Flea Debris",
+                    ChildBranchPointId = null,
+                    TerminalStateValue = null,
+                    IsDebris = true
+                },
+                MakeLeaf("kerbal", "Jebediah Kerman", null));
+
+            var resolution = ParsekFlight.ClassifyPostDestructionMergeResolution(
+                activeDestroyed: true,
+                allLeavesTerminal: RecordingTree.AreAllLeavesTerminal(recs, "kerbal", true),
+                onlyDebrisBlockersRemain: RecordingTree.AreAllActiveCrashBlockersDebris(recs, "kerbal"),
+                pendingCrashResolution: false);
+
+            Assert.Equal(ParsekFlight.PostDestructionMergeResolution.FinalizeNow, resolution);
+        }
+
+        [Fact]
         public void ActiveCrashBlockers_NonDebrisLeafWithSpawnableTerminal_ReturnsFalse()
         {
             var recs = MakeDict(

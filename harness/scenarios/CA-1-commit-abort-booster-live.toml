@@ -1,0 +1,177 @@
+schema = 1
+id = "CA-1-commit-abort-booster-live"
+# =====================================================================================
+# D1 "commit-abort": THE POST-DESTRUCTION AUTO-MERGE IS ABORTED AND THE TREE KEEPS
+# RECORDING. Supervisor ruling 2026-09-26, awaiting operator confirmation; the full
+# definition and the caller-set derivation live on the D1 block of
+# harness/coverage/registry.toml.
+#
+# In gameplay terms: the stage you are flying crashes, but the probe-cored booster you
+# dropped earlier is still coming down under its own parachutes, so Parsek does NOT end
+# the mission. No merge dialog appears, nothing is committed, and the tree goes on
+# recording the booster.
+#
+# CODE PATH. ParsekFlight.OnVesselWillDestroy classifies the ACTIVE vessel's death as
+# DestructionMode.TreeAllLeavesCheck and starts ShowPostDestructionTreeMergeDialog
+# ("Active vessel destroyed in tree mode - scheduling tree destruction check"). A frame
+# later (after any pending split / coalescer work the crash queued) the coroutine reads
+# RecordingTree.AreAllLeavesTerminal (false: the booster leaf is alive) and
+# RecordingTree.AreAllActiveCrashBlockersDebris (false: the booster is NOT debris, it
+# carries a probe core), so ClassifyPostDestructionMergeResolution returns
+# AbortAndKeepRecording, which logs "ShowPostDestructionTreeMergeDialog: not all leaves
+# terminal - other vessels still alive", clears the pending flag and yields out BEFORE
+# FinalizeTreeRecordings / StashPendingTree. The coroutine's only other starter
+# (DeferredDestructionCheck, a BACKGROUND death) starts it only when every leaf is
+# already terminal, so an active-vessel death is the one way to reach the abort.
+#
+# THE HOST IS GS-1's FLIGHT WITH THE UPPER CHUTE LEFT UNARMED. gs1-two-stage-pad's craft
+# puts a probeCoreOcto2 on the booster, so the decoupler split makes it a CONTROLLED,
+# non-debris child ("ProcessBreakupEvent: controlled child created"). The mission's
+# opt-in focusImpactAtExit profile (mlib.GS1_FOCUS_IMPACT_LANDED_DEBOUNCE_K) flies
+# GS-1's ascent and separation verbatim, never arms the upper stage's chute, and
+# concludes on the upper stage's IMPACT once the booster has read airborne on two
+# consecutive frames. Every other mission param is GS-1's (pinned by
+# Gs1FocusImpactSpecTests).
+#
+# WHY NOT THE EVA HOST (flown first, reading run 2026-09-26_0106): EVA-4's mission with
+# the kerbal's chute left stowed. The kerbal RAGDOLLED AND LANDED ALIVE (1597 m in about
+# 32 s, EvaRagdollStarted, terminal=Landed), so the active vessel never died. EVA-4's
+# accidental 2026-07-25 death was a cut canopy at 109 m/s, not a reproducible fall.
+#
+# WarpToUT is the WAIT, not the subject: it lets the booster land, on the physics
+# ladder capped at 2x (and so stock can never lift the ceiling onto the rails ladder
+# while no vessel is active). StopRecording + CommitTree then commit the tree the abort
+# left open, at UT >= 400, hundreds of seconds after the destruction.
+#
+# FIRST FLIGHTS ON THIS HOST (2026-09-26_0127 and its retry _0132_a2) were driver-INVALID
+# on the MISSION, and both carried the whole Parsek shape: "Active vessel destroyed in
+# tree mode", the pending-split wait for the crash debris, "AreAllLeavesTerminal:
+# leaves=2 terminal=1 alive=1 -> False", the abort line, zero ERROR lines. The mission
+# missed the impact because KSP focused the booster the instant the upper stage died
+# ("[FLIGHT GLOBALS]: Switching To Vessel GS1 Auto-Chute Booster Probe"), so kRPC kept
+# reading - the booster - and the machine's intact-touchdown guard fired on the
+# booster's own landing. The profile now also concludes on that HANDOFF (the active
+# vessel's NAME becomes the sibling's), and the shell reads the name.
+#
+# READING RUN 2026-09-26_0138: PASS attempt 1, MISSION-OK (phases ... DESCENT ->
+# IMPACTED, handoff at UT ~52.9). Measured: the abort at the crash (census
+# leaves=2 terminal=1 alive=1, the same on all three flights of this host); KSP focuses
+# the booster; its post-switch promotion is held while warp is active and fires as the
+# warp winds down (`Promoted recording ... from background`, UT ~395); the commit at
+# UT 400.1 finalizes the booster's recording `terminal=Landed` with 91 points; the
+# committed tree holds 2 recordings (terminal states Destroyed 1, Landed 1). ARMED from
+# it: the census is pinned exactly, the survivor's Landed finalize is pinned, and the
+# recordings count is windowed [2, 3] (the crash breakup's debris child is dropped as
+# trivial on this flight and may not be on another).
+#
+# STATUS: ARMED 2026-09-26 from reading 2026-09-26_0138; armed re-flight 2026-09-26_0143 PASS
+# attempt 1 (census, promotion, Landed finalize and commit identical; 90 points). Offline
+# negative control red on 12 of 12 seeded mutations over both logs.
+# =====================================================================================
+tier = "nightly"
+description = "D1 commit-abort: GS-1's two-stage hop with the upper stage's chute left unarmed. The ACTIVE upper stage is destroyed on impact while the probe-cored booster (a non-debris leaf) is still under canopy, so the post-destruction merge is aborted, no dialog or commit happens at the death, and the tree keeps recording until an explicit CommitTree after the booster lands."
+instanceProfile = "stock-minimal"
+tags = ["commit-abort", "GS1", "staging", "controlled-child", "destruction", "flown",
+        "D1", "armed"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  # LOAD-BEARING: the AreAllLeavesTerminal leaf-count line is Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { phase = "mission",                                                   expect = "MISSION-OK", budget = 900 },
+  # The impact lands near UT 50 (separation ~UT 31 on GS-1 / RF-1 flights); the
+  # booster, still at 442 m at UT ~110 on RF-1, is down well before UT 400. About 350
+  # game-seconds at a 2x cap is about 175 real seconds, inside the 540 s budget.
+  { cmd = "WarpToUT",   args = { ut = "400", maxRate = "2", ladder = "phys" }, expect = "OK", budget = 540 },
+  { cmd = "StopRecording",                                               expect = "OK" },
+  { cmd = "CommitTree",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                expect = "OK" },
+]
+
+[driver.missionParams]
+# GS-1's values VERBATIM plus the one flag (Gs1FocusImpactSpecTests pins it).
+throttle = 1.0
+stagingApoapsisMeters = 700.0
+stagingMaxAltMeters = 1500.0
+apoapsisWindowMeters = { min = 600.0, max = 1600.0 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30.0
+chuteFullDeployAltMeters = 600.0
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90.0
+coastTimeoutSeconds = 120.0
+stageTimeoutSeconds = 60.0
+descentTimeoutSeconds = 300.0
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+siblingDownTimeoutSeconds = 240.0
+focusImpactAtExit = true
+
+[dimensionsCovered]
+D1  = ["commit-abort"]   # asserted: the abort line + the forbidden finalize / stash lines
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The launch recording (upper stage, Destroyed) and the booster child (Landed): 2 on
+# the reading run. Ceiling 3 for a crash-breakup debris child a harder impact keeps.
+count = { min = 2, max = 3 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+  # The booster is a CONTROLLED (non-debris) child of the split.
+  "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+  # The ACTIVE (upper stage) death took the TreeAllLeavesCheck branch.
+  "Active vessel destroyed in tree mode",
+  # The leaf census at the abort: the dead upper stage terminal, the booster alive.
+  # Measured identically on all three flights of this host.
+  "AreAllLeavesTerminal: leaves=2 terminal=1 alive=1 -> False",
+  # THE CLAIM TOKEN: ClassifyPostDestructionMergeResolution returned AbortAndKeepRecording.
+  "ShowPostDestructionTreeMergeDialog: not all leaves terminal",
+  # THE TREE KEEPS RECORDING ON THE SURVIVOR: KSP focuses the booster when the upper
+  # stage dies, and once it lands Parsek promotes the booster's background recording
+  # to the live recorder (measured on 2026-09-26_0127 / _0132_a2).
+  "Promoted recording '[0-9a-f]{32}' from background \\(pid=[0-9]+\\)",
+  "warptout complete",
+  # The tree the abort left open is committed LATER, by the explicit step, at the warp
+  # target or after it - hundreds of seconds past the destruction.
+  "CommitTreeFlight: starting tree commit at UT=([4-9][0-9]{2}|[1-9][0-9]{3,})",
+  # ... and it carries the survivor's recording, finalized LANDED with real points:
+  # the recording the abort kept alive, continued to the ground.
+  "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='GS1 Auto-Chute Booster Probe' points=[1-9][0-9]* orbitSegs=0 terminal=Landed",
+  "committree committed=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # NO finalize / stash / merge at the destruction: the lines the coroutine logs only
+  # on its FinalizeNow path.
+  "ShowPostDestructionTreeMergeDialog: all leaves terminal",
+  "ShowPostDestructionTreeMergeDialog: only debris leaves still block",
+  "ShowPostDestructionTreeMergeDialog: finalized tree",
+  "ShowPostDestructionTreeMergeDialog: stashed pending tree",
+  # The survivor must SURVIVE: a later background death of the booster would re-open
+  # the merge through DeferredDestructionCheck and void the "kept recording" half.
+  "All tree leaves now terminal after background destruction",
+]
+
+[runtime]
+# LoadGame max(300,600)+60 = 660 + SetSetting x2 240 + mission 900 + WarpToUT 540
+# (deferred cap) + StopRecording / CommitTree / FlushAndQuit 360 -> 2700.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

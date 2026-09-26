@@ -104,6 +104,30 @@ schema = 1
 #   S0.5 and S0.6 each attributed a possible count to "the stationary-pod
 #   sub-2-point-drop", wording that predates always-tree mode and describes a path
 #   their own commits no longer take; both are corrected in the same change.
+#
+# "commit-abort" (DEFINED 2026-09-26 by SUPERVISOR RULING, PENDING OPERATOR
+# CONFIRMATION; claimed by CA-1-commit-abort-booster-live): the post-destruction
+# auto-merge is ABORTED because the ACTIVE vessel was destroyed while another leaf of
+# the same tree is still a blocker that is NOT debris, and the tree keeps recording
+# instead of finalizing. Code: ParsekFlight.ClassifyPostDestructionMergeResolution
+# (ParsekFlight.TerminalEvents.cs) returns AbortAndKeepRecording, and its one consumer,
+# the ShowPostDestructionTreeMergeDialog coroutine (ParsekFlight.cs), logs "not all
+# leaves terminal" and yields out BEFORE FinalizeTreeRecordings / StashPendingTree, so
+# no merge dialog is owed and nothing is committed at the death.
+#   Re-derived from the FULL caller set, not the comments. The classifier has one
+#   caller (that coroutine); the coroutine has two starters. OnVesselWillDestroy starts
+#   it on DestructionMode.TreeAllLeavesCheck, i.e. the ACTIVE vessel died in tree mode.
+#   DeferredDestructionCheck starts it only after AreAllLeavesTerminal already answered
+#   true for a BACKGROUND death, so that starter lands on FinalizeNow. Abort therefore
+#   means: active vessel destroyed, no pending split / coalescer work (that is
+#   WaitForPendingCrashResolution), AreAllLeavesTerminal false AND
+#   AreAllActiveCrashBlockersDebris false - at least one non-active, non-debris leaf is
+#   either still live (no terminal state) or ended in a SPAWNABLE terminal (Landed,
+#   Splashed, Orbiting, SubOrbital...). That second half is a refinement of the ruling's
+#   "a non-debris leaf is still live": a controlled vessel left standing also blocks.
+#   An EVA kerbal is a non-debris leaf too, in either direction.
+#   In gameplay terms: the vessel you are flying is destroyed but another controlled
+#   vessel of the flight survives, so Parsek does not end the mission.
 values = ["auto-record-launch", "auto-record-eva", "auto-record-first-mod-switch",
           "manual-gloops", "switch-backgrounds-recording", "commit-revert-merge", "commit-scene-exit",
           "commit-abort", "commit-in-foreign-soi", "commit-landed-foreign-body",

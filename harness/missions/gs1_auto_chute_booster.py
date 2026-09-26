@@ -61,8 +61,12 @@ def make_control() -> mission_runner.MissionControl:
     # Raw kRPC (no MechJeb). read_chute=True is LOAD-BEARING, not diagnostic: the
     # craftCanopyObserved row gates on the OBSERVED ParachuteState, never on the
     # machine's own "we commanded it" latch (B1's four-month inert-chute lesson).
+    # read_vessel_name=True is for the opt-in focusImpactAtExit profile: when the upper
+    # stage dies KSP hands the active vessel to the booster, and the NAME is the only
+    # channel that shows the handoff (the telemetry stays readable). The nominal
+    # machine never reads vessel_name, so every other GS-1 lane is unaffected.
     return mission_runner.KrpcMissionControl(use_mechjeb=False, client_name=MISSION_NAME,
-                                             read_chute=True)
+                                             read_chute=True, read_vessel_name=True)
 
 
 SPEC = mission_runner.MissionSpec(

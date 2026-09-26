@@ -19400,8 +19400,12 @@ GS1_COAST = "COAST"
 GS1_DESCENT = "DESCENT"
 GS1_SIBLING_DOWN = "SIBLING-DOWN"
 GS1_LANDED = "LANDED"
+# THE FOCUS-IMPACT TERMINAL (spec key `focusImpactAtExit`, the CA-1 variant). See
+# GS1_FOCUS_IMPACT_LANDED_DEBOUNCE_K for the whole argument.
+GS1_IMPACTED = "IMPACTED"
 GS1_PHASES: Tuple[str, ...] = (GS1_PRELAUNCH, GS1_ASCENT, GS1_STAGE, GS1_COAST,
-                               GS1_DESCENT, GS1_SIBLING_DOWN, GS1_LANDED)
+                               GS1_DESCENT, GS1_SIBLING_DOWN, GS1_LANDED,
+                               GS1_IMPACTED)
 
 # Consecutive agreeing sibling reads before the booster's outcome is settled, in
 # EITHER direction (landed, or gone). Debounced for the reason every other latch here
@@ -19461,6 +19465,41 @@ GS1_SIBLING_DESTROYED = "DESTROYED"
 # the reason this flag produces is `stableLeafUnconcluded` - the one flight 3
 # measured - and NO GS-1 variant can produce `crashed`.
 GS1_SIBLING_AIRBORNE_DEBOUNCE_K = 2
+
+# THE FOCUS-IMPACT PROFILE (spec key `focusImpactAtExit`, the CA-1 variant). OFF
+# unless a spec sets it, and the OFF path is byte-identical to what GS-1 has always
+# driven (`Gs1FocusImpactInertnessTests` replays a whole flight through both
+# settings and compares the per-frame Action lists and phases).
+#
+# WHY IT EXISTS. D1 `commit-abort`: the ACTIVE vessel is destroyed while a
+# NON-DEBRIS leaf of the same tree is still live, so Parsek aborts the
+# post-destruction finalize (`ClassifyPostDestructionMergeResolution` ->
+# AbortAndKeepRecording) and keeps recording. This craft is the one committed shape
+# that carries a controlled child by construction - the booster's probe core makes it
+# a non-debris leaf - so the only thing the variant changes is the UPPER stage's
+# ending: its chute is NEVER armed, it falls from its apex and is destroyed on
+# impact while the booster is still under its own canopy.
+#
+# WHAT IT CHANGES, and nothing else: in DESCENT the arm gate and the
+# arm-window-missed give-up are skipped; the booster's airborne streak is tracked
+# there (the SIBLING-DOWN rule verbatim: only GS1_AIRBORNE_SITUATIONS advance it,
+# an unreadable read holds it); and a loss after the observed separation is the
+# SUCCESS terminal IMPACTED instead of an ASSERT-FAIL. Every other phase's loss stays
+# an ASSERT-FAIL. THREE readings count as the loss, whichever fires first:
+#   - the ACTIVE vessel now reads as the BOOSTER (`vessel_name == siblingVesselName`).
+#     MEASURED on the first two CA-1 flights (2026-09-26_0127 / _0132_a2): when the
+#     upper stage dies KSP hands the active vessel to the nearest craft, the booster
+#     (`[FLIGHT GLOBALS]: Switching To Vessel GS1 Auto-Chute Booster Probe`), so kRPC
+#     telemetry never goes unreadable - it silently starts describing the booster,
+#     which then read LANDED and tripped the intact-touchdown ASSERT-FAIL. This is
+#     why the shell reads the vessel name (`read_vessel_name=True`);
+#   - the runner's `vessel_lost` snapshot (no craft left to hand over to);
+#   - the frozen-telemetry trip (handed to a stale debris piece), exactly as
+#     kx_rewind_watch's IMPACT-COAST reads it.
+# An upper stage that reads landed on this many consecutive frames came down intact,
+# which is the negation of the subject and a named ASSERT-FAIL (debounced so the one
+# poll a pod can read LANDED on its way to exploding cannot condemn the run).
+GS1_FOCUS_IMPACT_LANDED_DEBOUNCE_K = 2
 
 # Consecutive Deployed reads before the canopy latch certifies. Same value and same
 # reasoning as B1_CANOPY_DEBOUNCE_K: stock flips ParachuteState to DEPLOYED at the
@@ -19522,6 +19561,10 @@ class Gs1Params:
     # (spec key siblingAirborneAtExit). See GS1_SIBLING_AIRBORNE_DEBOUNCE_K for the
     # whole argument. Default False = every committed GS-1 lane is untouched.
     sibling_airborne_at_exit: bool = False
+    # Leave the UPPER stage's chute unarmed and conclude on its IMPACT (spec key
+    # focusImpactAtExit). See GS1_FOCUS_IMPACT_LANDED_DEBOUNCE_K. Default False =
+    # every committed GS-1 lane is untouched.
+    focus_impact_at_exit: bool = False
     # AvailableThrust (newtons) at/below which the active vessel counts as having
     # NO live engine. Not zero: a float read of a shut-down engine can carry
     # rounding dust, and the discriminator is unambiguous by orders of magnitude -
@@ -19554,6 +19597,7 @@ def gs1_params_from_dict(params: Dict) -> Gs1Params:
         sibling_vessel_name=str(params.get("siblingVesselName", "") or ""),
         sibling_down_timeout=float(params.get("siblingDownTimeoutSeconds", 240)),
         sibling_airborne_at_exit=bool(params.get("siblingAirborneAtExit", False)),
+        focus_impact_at_exit=bool(params.get("focusImpactAtExit", False)),
         separation_thrust_epsilon=float(params.get("separationThrustEpsilonNewtons", 100)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
@@ -19631,6 +19675,16 @@ class Gs1State:
     last_chute_state: str = ""
     # Consecutive unarmed DESCENT frames read BELOW chuteFullDeployAltMeters.
     below_floor_streak: int = 0
+
+    # --- the focus-impact profile (focusImpactAtExit) -----------------------
+    # The last FINITE UT seen on a live frame, and the impact stamp taken from it
+    # (a vessel_lost snapshot's UT is best-effort and may read 0).
+    last_finite_ut: Optional[float] = None
+    impact_ut: Optional[float] = None
+    # Consecutive DESCENT frames the upper stage read landed under the profile.
+    focus_landed_streak: int = 0
+    # The shell skips its settle tail after IMPACTED: the vessel is gone.
+    skip_settle_tail: bool = False
 
     phases_reached: Tuple[str, ...] = (GS1_PRELAUNCH,)
     verdict: Optional[str] = None
@@ -19714,6 +19768,30 @@ def _gs1_loss_reason(state: Gs1State, base: str) -> str:
     return "%s (%s)" % (base, ", ".join(parts))
 
 
+def _gs1_focus_impact_eligible(state: Gs1State) -> bool:
+    """True iff a loss on this frame is the focus-impact SUCCESS signal rather than
+    a loss: the profile is on, the machine is in DESCENT (past the apex, so the
+    upper stage is falling), and the separation was OBSERVED (a stack that never
+    split would put the booster in the crater too, and the subject needs it alive)."""
+    return (state.params.focus_impact_at_exit
+            and state.phase == GS1_DESCENT
+            and state.separation_seen)
+
+
+def _gs1_enter_impacted(state: Gs1State, peak: Optional[float]) -> Gs1State:
+    """The focus-impact SUCCESS terminal. done=True, NO verdict and NO loss_reason
+    (the assertions decide OK vs ASSERT-FAIL), skip_settle_tail because the vessel
+    is gone. The booster's outcome is settled HERE, from the streak DESCENT built:
+    airborne at the impact, or "" (which fails the booster row)."""
+    airborne = state.sibling_airborne_streak >= GS1_SIBLING_AIRBORNE_DEBOUNCE_K
+    entry_ut = (state.last_finite_ut if state.last_finite_ut is not None
+                else float("nan"))
+    moved = _gs1_enter(state, GS1_IMPACTED, entry_ut, peak)
+    return replace(moved, done=True, skip_settle_tail=True,
+                   impact_ut=state.last_finite_ut,
+                   sibling_outcome=(state.sibling_last_situation if airborne else ""))
+
+
 def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, List[Action]]:
     """Advance the GS-1 machine one frame; return (new_state, actions).
 
@@ -19750,7 +19828,10 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
     A vessel loss in any phase is a deterministic ASSERT-FAIL (there is no
     success-by-destruction terminal here: this scenario's whole subject is a
     ROUTINE flight that must NOT flood Unfinished Flights, so a destroyed active
-    vessel is a different scenario, not a pass).
+    vessel is a different scenario, not a pass) - EXCEPT under the opt-in
+    ``focusImpactAtExit`` profile, where a loss in DESCENT after the observed
+    separation IS the success terminal IMPACTED (see
+    GS1_FOCUS_IMPACT_LANDED_DEBOUNCE_K).
     Once ``done`` the machine is idempotent.
     """
     if state.done:
@@ -19760,6 +19841,9 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
 
     if not snapshot.vessel_lost and _is_finite(snapshot.altitude):
         state = replace(state, last_finite_altitude=snapshot.altitude)
+    focus_impact = state.params.focus_impact_at_exit
+    if focus_impact and not snapshot.vessel_lost and _is_finite(snapshot.ut):
+        state = replace(state, last_finite_ut=snapshot.ut)
 
     # OBSERVED airborne latch. Sticky, live frames only. The LANDED terminal reads
     # it, because KSP reports `situation = LANDED` well past the pad on this craft
@@ -19792,6 +19876,22 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
         if not state.sibling_seen_present:
             state = replace(state, sibling_seen_present=True)
 
+    # FOCUS-IMPACT: the booster's airborne streak, tracked in DESCENT because that
+    # is where the upper stage dies (SIBLING-DOWN is never reached on this profile).
+    # The SIBLING-DOWN rule verbatim: only a real GS1_AIRBORNE_SITUATIONS reading
+    # advances it, another real reading or an observed absence resets it, and an
+    # unreadable read (present-but-"" or -1) holds it.
+    if (focus_impact and not snapshot.vessel_lost
+            and state.phase == GS1_DESCENT):
+        streak = state.sibling_airborne_streak
+        if snapshot.sibling_present == 1 and snapshot.sibling_situation:
+            streak = (streak + 1
+                      if snapshot.sibling_situation in GS1_AIRBORNE_SITUATIONS
+                      else 0)
+        elif snapshot.sibling_present == 0 and state.sibling_seen_present:
+            streak = 0
+        state = replace(state, sibling_airborne_streak=streak)
+
     # OBSERVED separation latch. BEFORE the stage is commanded, remember the last
     # finite POSITIVE available-thrust reading (the "there was an engine" half);
     # AFTER it, count consecutive at-or-below-epsilon readings.
@@ -19813,6 +19913,8 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
                     state = replace(state, separation_streak=0)
 
     if snapshot.vessel_lost:
+        if _gs1_focus_impact_eligible(state):
+            return _gs1_enter_impacted(state, peak), []
         return replace(
             state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
             loss_reason=_gs1_loss_reason(
@@ -19822,6 +19924,9 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
         limit = state.params.frozen_sample_limit
         new_sig, new_count, tripped = _advance_frozen_count(
             state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped and _gs1_focus_impact_eligible(state):
+            return _gs1_enter_impacted(
+                replace(state, frozen_sig=new_sig, frozen_count=new_count), peak), []
         if tripped:
             return replace(
                 state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
@@ -19884,6 +19989,31 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
             state = _gs1_enter(state, GS1_DESCENT, snapshot.ut, peak)
         else:
             return _gs1_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == GS1_DESCENT and focus_impact:
+        # FOCUS-IMPACT DESCENT: no arm, no arm-window give-up. The live-frame exits
+        # are the HANDOFF (the active vessel now reads as the booster: the upper
+        # stage is gone and KSP focused the nearest craft) and the named ASSERT-FAIL
+        # for an upper stage that came down intact; the other success exits are the
+        # losses handled above.
+        if (state.params.sibling_vessel_name
+                and snapshot.vessel_name == state.params.sibling_vessel_name
+                and _gs1_focus_impact_eligible(state)):
+            return _gs1_enter_impacted(state, peak), []
+        landed_now = (state.airborne_seen
+                      and snapshot.situation in state.params.landed_situations)
+        landed_streak = state.focus_landed_streak + 1 if landed_now else 0
+        if landed_streak >= GS1_FOCUS_IMPACT_LANDED_DEBOUNCE_K:
+            return replace(
+                state, peak_apoapsis=peak, focus_landed_streak=landed_streak,
+                done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=_gs1_loss_reason(
+                    state,
+                    "focus-down-intact (focusImpactAtExit wanted the upper stage "
+                    "destroyed on impact and it read %s on %d consecutive frames)"
+                    % (snapshot.situation, landed_streak))), []
+        stayed = _gs1_stay_or_flake(state, snapshot, peak)
+        return replace(stayed, focus_landed_streak=landed_streak), []
 
     if state.phase == GS1_DESCENT:
         actions: List[Action] = []
@@ -20119,6 +20249,9 @@ def evaluate_gs1_assertions(frames, params: Gs1Params,
         {"ceiling": params.staging_max_alt,
          "stageUT": getattr(state, "stage_ut", None)})
 
+    if params.focus_impact_at_exit:
+        return _gs1_focus_impact_rows(params, state, apo, sep, ceiling)
+
     canopy = AssertionOutcome(
         "craftCanopyObserved", bool(getattr(state, "craft_chute_full_seen", False)),
         (getattr(state, "chute_armed_altitude", None)
@@ -20191,6 +20324,46 @@ def evaluate_gs1_assertions(frames, params: Gs1Params,
          "airborneAtExit": bool(params.sibling_airborne_at_exit),
          "airborneAccepted": list(GS1_AIRBORNE_SITUATIONS)})
     return [apo, sep, ceiling, canopy, sit, booster]
+
+
+def _gs1_focus_impact_rows(params: Gs1Params, state,
+                           apo: AssertionOutcome, sep: AssertionOutcome,
+                           ceiling: AssertionOutcome) -> List[AssertionOutcome]:
+    """The focusImpactAtExit row set: the three flight-sanity rows unchanged, and the
+    three terminal rows INVERTED and RENAMED so no nominal row name can be read as
+    met over the opposite fact.
+
+    - ``craftChuteNeverArmed``: the machine never commanded the upper chute.
+    - ``focusImpacted``: the machine reached IMPACTED (a loss in DESCENT after the
+      observed separation), not a timeout or a landed ASSERT-FAIL.
+    - ``boosterAirborneAtImpact``: the booster read airborne on
+      GS1_SIBLING_AIRBORNE_DEBOUNCE_K consecutive DESCENT frames up to the impact.
+      This is the non-debris leaf the Parsek abort needs still live.
+    """
+    armed = bool(getattr(state, "chute_commanded", False))
+    never_armed = AssertionOutcome(
+        "craftChuteNeverArmed", not armed,
+        getattr(state, "last_chute_state", "") or "UNREAD",
+        {"armCommanded": armed})
+    impacted = getattr(state, "phase", None) == GS1_IMPACTED
+    impact_ut = getattr(state, "impact_ut", None)
+    impact = AssertionOutcome(
+        "focusImpacted", impacted,
+        impact_ut if impact_ut is not None else float("nan"),
+        {"phase": getattr(state, "phase", None),
+         "lastAltitude": getattr(state, "last_finite_altitude", None),
+         "separationObserved": bool(getattr(state, "separation_seen", False))})
+    outcome = getattr(state, "sibling_outcome", "") or ""
+    booster = AssertionOutcome(
+        "boosterAirborneAtImpact", outcome in GS1_AIRBORNE_SITUATIONS,
+        outcome or None,
+        {"watchedVessel": params.sibling_vessel_name or None,
+         "debounceK": GS1_SIBLING_AIRBORNE_DEBOUNCE_K,
+         "streakAtImpact": int(getattr(state, "sibling_airborne_streak", 0)),
+         "everObservedPresent": bool(getattr(state, "sibling_seen_present", False)),
+         "lastSituation": getattr(state, "sibling_last_situation", "") or "UNREAD",
+         "airborneAccepted": list(GS1_AIRBORNE_SITUATIONS)})
+    return [apo, sep, ceiling, never_armed, impact, booster]
 
 
 # ---------------------------------------------------------------------------
