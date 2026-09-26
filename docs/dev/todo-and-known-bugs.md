@@ -358,7 +358,7 @@ dequeued recording and whose start is after the rewind UT (the placement is the 
 separate vessel's flight), or (2) keep the side-off policy. The switch-segment scoped Discard already
 owns the member (it walks GroundPartPlaced children by parent id).
 
-## EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. AUTOTEST GAP, open]
+## ~~EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind~~ [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. CLOSED 2026-09-27, branch `eva-placed-spawn-lane`]
 
 EVA-5 picks its part up (Disassembled, never spawned), and every EVA fixture places on the launch pad,
 where a part left behind is retired by the KSC exclusion zone (50 m) instead of spawned. The
@@ -366,6 +366,60 @@ still-placed answer is pinned headlessly (`GroundPartPlacementTests`: a Landed m
 leaf, a Disassembled one is not). A live lane needs an off-pad crewed landed host (a fixture landed more
 than 50 m from the pad, or a walk verb), then: place without picking up, board, commit, rewind to before
 the placement, and assert the member's spawn line after its end UT.
+
+**Fix / proof.** New lane `EVA-6-placed-part-spawn-after-rewind` on `kerbin-splashdown-recorded` (Jeb's
+capsule LANDED about 1,690 km from the pad), with EVA-5's inventory patch. Jeb steps out, a recording
+started on the kerbal (a non-promotion start, so it captures the tree's `parsek_rw_` save) places the
+seismometer and leaves it, commit, Rewind-to-Launch `tree=latest`, then 1x Space Center time. It pins:
+the member line; the rewind loading exactly the save the kerbal's start captured; the committed store
+row of the member `spawned=false pid 0` right after the rewind; `[KSCSpawn] Attempting spawn for #10
+"Grand Slam Passive Seismometer" (id=<member>)` -> `Vessel spawned for #10 ... sit=LANDED`, and the
+store row `spawned=true` with that pid; and forbids `Spawn RETIRED`, an adoption of a surviving part
+after the rewind, and any pick-up. The recommended EVA-4 hop host was tried first: its reading run
+`2026-09-26_2042` was INVALID because Jeb splashed down at sea (lat 0.342, lon -74.201) and stock
+refuses a placement there (`place-gate-timeout ... situation=SPLASHED`). Reading run `2026-09-26_2058`
+on the new host (PARSEK-FAIL on three spec gaps, no product defect, see the spec header), armed run
+`2026-09-26_2106` PASS attempt 1 on automation DLL sha256 `c56f9c5f...0b556e` (equal to the branch
+build). Offline negative controls over both logs through `hlib.evaluate_expectations`: intact PASS;
+the member's KSC spawn pair stripped, a `Spawn RETIRED` injected for it, the pre-fix kerbal answer,
+an adoption after the rewind, and the store row left unspawned each FAIL.
+
+The lane also found a product defect, fixed in the same branch: see
+KERBAL-LEFT-ON-EVA-AFTER-PLACING-NEVER-SPAWNS below. And one separate open finding:
+REWIND-STRIPS-RESUMED-COMMITTED-TIP.
+
+## ~~KERBAL-LEFT-ON-EVA-AFTER-PLACING-NEVER-SPAWNS: a kerbal who places a ground part and stays out on EVA never comes back after a rewind~~ [FILED AND FIXED 2026-09-27, branch `eva-placed-spawn-lane`]
+
+A placement's `GroundPartPlaced` branch point names the placing kerbal as its parent while the kerbal
+keeps recording (design section 4.11: he stays an ordinary leaf). `RecordingTree.IsSpawnableLeaf`
+agreed, but the spawn decision's #114 safety net, `GhostPlaybackLogic.IsNonLeafInTree` (shared by
+`ShouldSpawnAtRecordingEnd` and `IsFinalSpawnSegment`), reads "parent of any branch point" as
+"branched into a continuation", so the kerbal's recording answered `non-leaf in tree (safety net)`
+and never spawned: after a rewind the part came back and the kerbal who placed it did not.
+
+**Fix.** `IsNonLeafInTree` skips `GroundPartPlaced` branch points. Unit test
+`GroundPartPlacementTests.KerbalLeftOnEvaAfterPlacing_IsNotANonLeafForTheSpawnDecision` (red before the
+fix, green after; a real EVA split below the kerbal still reads non-leaf). Live: EVA-6 requires the
+kerbal's own KSC spawn (`Attempting spawn for #9 "Jebediah Kerman" (id=<kerbal rec>)` -> `Vessel spawned
+... sit=LANDED`, after the #573 standalone lift) and forbids the safety-net answer; green on
+`2026-09-26_2058` and `_2106`.
+
+## REWIND-STRIPS-RESUMED-COMMITTED-TIP: a rewind of a later tree strips an earlier tree's resumed tip vessel and nothing re-spawns it [FILED 2026-09-27 from EVA-6's reading run, branch `eva-placed-spawn-lane`. OPEN, not investigated]
+
+**Evidence** (`2026-09-26_2058` and `_2106`, `kerbin-splashdown-recorded`). The boot lands in FLIGHT on
+the fixture's committed tip, the Kerbal X capsule (pid 2708531065), and restores its tree
+(`TryTakeCommittedTreeForSpawnedVesselRestore: cleared prior spawn flags on resumed recording
+'28b6e543...' (wasSpawnedPid=2708531065 ...)`, `ResumeCommittedActiveRecording`); the lane then runs
+the harness boot hygiene (StopRecording, DiscardTree). Jeb leaves the capsule unrecorded, a NEW tree is
+recorded on him and committed, and that new tree is rewound to launch (UT 1279 -> 1264). The rewind's
+OnLoad logs `ResetAllPlaybackState: terminal spawn for recording '28b6e543...' vessel='Kerbal X'
+superseded by continuation 'd1f3243...' vesselPid=2708531065 reason=spawned-pid-match` and `Stripping
+orphaned spawned vessel '#autoLOC_501232' (pid=2708531065 ...) matched recording 'Kerbal X' ...
+same-launch recording match`, and no `[KSCSpawn]` line for any Kerbal X recording follows in the next
+64 s of Space Center time (to UT 1328). The produced save holds four `Kerbal X Debris`, Jeb and the
+seismometer, and no capsule. Open questions: whether the resume (which re-stamped the tip's terminal
+at 1276.7, after the rewind UT) or the harness-only DiscardTree is the trigger, and why the chain tip
+the terminal spawn was handed to never spawned. EVA-6 does not assert anything about the capsule.
 
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 

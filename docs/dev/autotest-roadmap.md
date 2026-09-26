@@ -117,6 +117,8 @@ these rather than editing them by memory; both numbers have moved many times.
 
 ### Coverage: 246 of 246 registry cells (was 245 of 246 on `origin/main` before `MC-5-persistent-rotation` claimed D17 `persistent-rotation` on 2026-09-26; every cell is covered)
 
+RE-DERIVED 2026-09-27 on `eva-placed-spawn-lane`: `hlib.compute_coverage(specs, [], registry)` over the 330 committed specs prints 246 of 246. `EVA-6-placed-part-spawn-after-rewind` (reading `2026-09-26_2058`, armed `_2106`) closes todo EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE and claims no new cell (its D9 / D14 values are already covered).
+
 RE-DERIVED 2026-09-26 on `persistent-rotation` after merging `origin/main`: `hlib.compute_coverage(specs, [], registry)` over the 329 committed specs prints 246 of 246. `MC-5-persistent-rotation` claims D17 `persistent-rotation` (reading `2026-09-26_1849`, armed re-flight `_1853`, offline negative control): the recorder's PersistentRotation detection never matched the KSP 1.12 build and is fixed, and modded-compat now pins the mod (GT-8 closed). D17 is 5 of 5. Nothing is uncovered.
 
 RE-DERIVED 2026-09-26 on `eva-placed-part-member` after merging `origin/main`: `hlib.compute_coverage(specs, [], registry)` over the 328 committed specs prints 245 of 246. EVA-5 is re-armed and claims D7 `inventory-place-remove` (reading `2026-09-26_1840` PASS): the placed part is its own tree member (owner ruling 2026-09-26, design section 4.11 of `docs/parsek-flight-recorder-design.md`), so the claim is visual - the member ghost applies both inventory families `applied=1`. D7 is 16 of 16. Uncovered: D17 `persistent-rotation` only.

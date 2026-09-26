@@ -116,6 +116,11 @@ _(unreleased — entries accumulate here per commit)_
   `scene-editor` (coverage unchanged at 238 of 247). Test staging now creates every staged save's
   `Ships/VAB` and `Ships/SPH` folders the way KSP does for a real save, without which the editor's Launch
   button failed to write its auto-saved ship.
+- **Automated testing: a ground part left behind on EVA comes back after a rewind, in a lane.** A new
+  lane has Jebediah step out of a capsule landed far from the Space Center, place a Breaking Ground
+  seismometer and leave it, then rewinds to before the placement and checks that the Space Center
+  brings the seismometer back as a real vessel once its time comes, and Jebediah with it. It found
+  the kerbal half of that broken (fixed below).
 - **Automated testing: an EVA kerbal places and picks up a Breaking Ground seismometer in a lane.**
   A new test-seam command places a ground-science part from an EVA kerbal's inventory through the
   inventory slot click and the confirm key, and picks it back up through the part's own Pick Up
