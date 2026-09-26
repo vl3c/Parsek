@@ -24,12 +24,14 @@ namespace Parsek.Tests.Logistics
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = null;
         }
 
         private static Route RouteWithSpan(double span, int multiplier)
@@ -230,7 +232,7 @@ namespace Parsek.Tests.Logistics
         }
 
         // M1 (units): the typed value may carry a trailing unit (s / m / min / h /
-        // d = Kerbin day = 21600 s); a plain number is read as seconds. The target in
+        // d = one calendar day, 21600 s on Kerbin time); a plain number is read as seconds. The target in
         // seconds is number * unit, then ceiled to the next whole span multiple. The
         // friendly displayed form (e.g. "14.0m") round-trips back through here.
         [Theory]
@@ -244,6 +246,23 @@ namespace Parsek.Tests.Logistics
         [InlineData("1200", 600.0, 2)]    // plain number still = seconds (backward compat)
         public void ParseAndSnapInterval_ParsesUnitSuffix(string text, double span, int expectedN)
         {
+            bool ok = RouteCadence.ParseAndSnapInterval(text, span, out int n);
+            Assert.True(ok);
+            Assert.Equal(expectedN, n);
+        }
+
+        // catches: "d" parsed as a fixed 21600 s on the Earth calendar too, where a day is
+        // 86400 s. The day length follows ParsekTimeFormat.SecsPerDay on both calendars.
+        [Theory]
+        [InlineData(true, "1d", 21600.0, 1)]    // Kerbin: 1 d = 21600 s = 1 x 21600
+        [InlineData(true, "2d", 21600.0, 2)]
+        [InlineData(false, "1d", 21600.0, 4)]   // Earth: 1 d = 86400 s = 4 x 21600
+        [InlineData(false, "1d", 86400.0, 1)]
+        [InlineData(false, "0.5d", 21600.0, 2)] // Earth: 12 h = 2 x 6 h
+        public void ParseAndSnapInterval_DayUnit_FollowsCalendarSetting(
+            bool kerbinTime, string text, double span, int expectedN)
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = kerbinTime;
             bool ok = RouteCadence.ParseAndSnapInterval(text, span, out int n);
             Assert.True(ok);
             Assert.Equal(expectedN, n);

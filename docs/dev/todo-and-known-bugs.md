@@ -28,17 +28,12 @@ non-Normal value.
 
 Bugs (no ruling needed):
 
-- ~~S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
+- S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
   pre-multiplier value to `subject.science`, then multiplies before `AddScience`; Parsek
   captures `subject.science` (`GameStateRecorder`) and credits it as `ScienceAwarded`, so on
   Easy (x2), Moderate (x0.9) and Hard (x0.6) the ledger drifts from the live pool and a rewind
   resets science to the x1 total. Fix: stamp the multiplier at capture; never read the
-  current multiplier at replay.~~ FIXED 2026-09-26, branch `kss-ledger`: the recorder freezes
-  the multiplier onto `PendingScienceSubject`, the converter stamps it on the row
-  (`GameAction.ScienceGainMultiplier`, sparse key `scienceGainMultiplier`), and `ScienceModule`
-  scales only the pool credit while the subject cap walk, `ScienceSubjectPatch` and the
-  committed-science cache stay pre-multiplier; the pending-KSC-credit hold and the displays read
-  the pool value.
+  current multiplier at replay.
 - ~~S2. `Career.RepLossDeclined` (Normal 1, Hard 3) never reaches the ledger: `ContractDeclined`
   is dropped in `GameStateEventConverter` and `ReputationPenaltySource.ContractDecline` is
   never constructed, so a rewind refunds the reputation. Fix: a KSC-origin reputation
@@ -47,19 +42,18 @@ Bugs (no ruling needed):
   delta is what stock applied) goes through the StrategyInput KSC door into a pre-curved
   `ReputationPenalty(ContractDecline)` row; the reason is exempt from the 1-point rep threshold,
   and a 0 setting fires no event and writes no row.
-- S3. Logistics hard-codes a 21600 s day: `LogisticsWindowUI.FormatDuration` switches to days
+- ~~S3. Logistics hard-codes a 21600 s day: `LogisticsWindowUI.FormatDuration` switches to days
   at 86400 s but divides by 21600 (24 h reads "4.0d"), and `RouteCadence` parses "d" as
-  21600 s on the Earth calendar too. Fix: route both through `ParsekTimeFormat`.
-- ~~S4. A zero starting pool is never seeded (`EnsureInitialFundsSeed` seeds non-zero only;
+  21600 s on the Earth calendar too. Fix: route both through `ParsekTimeFormat`.~~
+  FIXED 2026-09-26, branch `kss-debris`: `FormatDuration` switches to days at and divides by
+  `ParsekTimeFormat.SecsPerDay`, and `RouteCadence.ParseAndSnapInterval` reads "d" as the same
+  value, so a shown "Nd" round-trips on both calendars (cells at Kerbin and Earth time).
+- S4. A zero starting pool is never seeded (`EnsureInitialFundsSeed` seeds non-zero only;
   the stock slider allows 0 funds, Science mode can start at 0 science), and the value wait
   spins its full 600 frames on every load. Also `DeferredSeed` and
   `ApplyBudgetDeductionWhenReady` wait 120 frames for currency singletons Science and
-  Sandbox never create.~~ FIXED 2026-09-26, branch `kss-ledger`: new `CurrencyScenarioReadiness`
-  keys every wait on the mode's singletons and replaces the value wait with a positive
-  "OnLoad ran" signal (the game's `ProtoScenarioModule.moduleRef` is the live singleton); a loaded
-  zero with no history seeds science 0 and funds 0 as a sealed `initialFundsConfirmedZero` seed
-  the stale-zero repair cannot overwrite. The reputation seed's own zero deferral is unchanged.
-- S5. Ghost map vessels count toward the stock vessel budget: `Game.Updated` builds the
+  Sandbox never create.
+- ~~S5. Ghost map vessels count toward the stock vessel budget: `Game.Updated` builds the
   pruned `FlightState` before `ParsekScenario.OnSave` strips ghosts, and ghosts are live,
   `prst=True`, non-Debris vessels in FLIGHT and TRACKSTATION, so each one pushes one real
   debris vessel out of a player-default save (inferred from the decompile, not flown).
@@ -67,13 +61,36 @@ Bugs (no ruling needed):
   state after reload (add a load check and one summary log line); an autoclean recovery
   matches pending-tree recordings by vessel NAME only (low); and
   `ParsekFlight.EnforceMinDebrisPersistence` reflects for a GameSettings field that does not
-  exist in 1.12.5 (delete it).
+  exist in 1.12.5 (delete it).~~
+  FIXED 2026-09-26, branch `kss-debris`: `Patches/FlightStateGhostBudgetPatch.cs` prefixes the
+  parameterless `FlightState()` constructor, raises `GameSettings.MAX_VESSELS_BUDGET` by the
+  number of non-dead ghost map vessels in `FlightGlobals.Vessels` (skipped at -1, one
+  `[GhostMap]` Info line per adjusted build) and restores it in a Harmony finalizer, so the
+  raised value never outlives the build. Unit cells plus an in-game `VesselBudget` cell (real
+  `new FlightState()` in the Tracking Station, undriven by ruling). The reload case is
+  observation only: `BackgroundRecorder.LogMissingBackgroundMembersAtLoad`, run from
+  `ParsekFlight.EnsureBackgroundRecorderAttached`, writes one `[BgRecorder] Load check:`
+  line with count, pids and recording ids. It deliberately does NOT route them through
+  `EndDebrisRecording`: a restored on-rails member has no finalization cache, so that path
+  would stamp `Destroyed` and replay a pruned orbital debris as an explosion. The recovery /
+  termination match (`ParsekScenario.MatchesVessel`) now also requires the pid and a
+  non-conflicting launch guid when both sides know them (name-only fallback otherwise), for
+  the terminal update and the outside-FLIGHT funds routing alike.
+  `EnforceMinDebrisPersistence`, its reflection helper, fields and test are deleted.
+  Follow-up (OPEN, found here): such a missing member keeps its on-rails state, and
+  `BackgroundRecorder.UpdateOnRails` advances its `ExplicitEndUT` to the current UT every
+  30 s for as long as the tree lives, so the recording claims coverage past the save where
+  the vessel stopped existing. Needs a terminal ruling for "dropped from the save" (not
+  Destroyed) before the load check can close the entry.
 
 Owner rulings (2026-09-26):
 
-- S6 (Q4). The `stock-minimal` and `modded-compat` provision profiles run player defaults
+- ~~S6 (Q4). The `stock-minimal` and `modded-compat` provision profiles run player defaults
   (`MAX_VESSELS_BUDGET = 250`, `DECLUTTER_KSC = True`); re-fly the daily tier once after the
-  flip. The S5 fix gets unit and in-game cells, no dedicated low-budget lane.
+  flip. The S5 fix gets unit and in-game cells, no dedicated low-budget lane.~~
+  FIXED 2026-09-26, branch `kss-debris`: both profiles' `[settings]` carry the two keys,
+  pinned by `test_provlib.test_both_profiles_pin_the_player_default_vessel_budget`. Re-fly of
+  the daily tier pending (needs a re-provision first).
 - S7 (Q1). Rewind-to-Separation and Re-Fly IGNORE `Flight.CanQuickLoad` / `Flight.CanRestart`
   (they are Parsek's own time mechanic). Only the re-fly exit must stay reachable: stock
   builds the Esc-menu Revert button only when `CanRestart`, so `ReFlyRevertButtonGate` alone

@@ -233,6 +233,124 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// One background member whose vessel is not in the loaded scene when the recorder
+        /// is rebuilt from a restored tree.
+        /// </summary>
+        internal struct MissingBackgroundMember
+        {
+            public uint VesselPid;
+            public string RecordingId;
+            public bool IsDebris;
+        }
+
+        /// <summary>
+        /// Pure selection for the load-time check: every <c>BackgroundMap</c> entry whose
+        /// recording exists, is not already sealed Destroyed, and whose vessel pid is not in
+        /// the loaded scene. The usual cause is stock's save-time vessel budget
+        /// (<c>MAX_VESSELS_BUDGET</c>, which drops non-persistent Debris-typed vessels) or a
+        /// KSC declutter autoclean between the save and this load. Sorted by pid so the
+        /// summary line is stable.
+        /// </summary>
+        internal static List<MissingBackgroundMember> FindMissingBackgroundMembers(
+            RecordingTree tree,
+            Func<uint, bool> vesselExists)
+        {
+            var missing = new List<MissingBackgroundMember>();
+            if (tree == null || tree.BackgroundMap == null || tree.Recordings == null
+                || vesselExists == null)
+                return missing;
+
+            foreach (var kvp in tree.BackgroundMap)
+            {
+                Recording rec;
+                if (string.IsNullOrEmpty(kvp.Value)
+                    || !tree.Recordings.TryGetValue(kvp.Value, out rec)
+                    || rec == null)
+                    continue; // map/recording drift; reported by the drift check
+                if (rec.VesselDestroyed)
+                    continue; // already sealed; the ctor gives it no tracking state
+                if (vesselExists(kvp.Key))
+                    continue;
+                missing.Add(new MissingBackgroundMember
+                {
+                    VesselPid = kvp.Key,
+                    RecordingId = kvp.Value,
+                    IsDebris = rec.IsDebris
+                });
+            }
+
+            missing.Sort((a, b) => a.VesselPid.CompareTo(b.VesselPid));
+            return missing;
+        }
+
+        internal static string FormatMissingBackgroundMembersSummary(
+            List<MissingBackgroundMember> missing,
+            int backgroundMapCount,
+            string reason)
+        {
+            int debris = 0;
+            var pids = new List<string>();
+            var ids = new List<string>();
+            if (missing != null)
+            {
+                for (int i = 0; i < missing.Count; i++)
+                {
+                    if (missing[i].IsDebris)
+                        debris++;
+                    pids.Add(missing[i].VesselPid.ToString(CultureInfo.InvariantCulture));
+                    ids.Add(string.IsNullOrEmpty(missing[i].RecordingId)
+                        ? "(null)"
+                        : missing[i].RecordingId);
+                }
+            }
+
+            return string.Format(CultureInfo.InvariantCulture,
+                "Load check: {0} of {1} background member(s) have no vessel in the loaded " +
+                "scene (debris={2}; likely dropped by the stock vessel budget or KSC " +
+                "declutter at save): reason={3} pids=[{4}] recIds=[{5}] - left open until " +
+                "tree finalization",
+                missing != null ? missing.Count : 0,
+                backgroundMapCount,
+                debris,
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                string.Join(",", pids.ToArray()),
+                string.Join(",", ids.ToArray()));
+        }
+
+        /// <summary>
+        /// Load-time check run once when a recorder is attached to a restored tree: logs ONE
+        /// summary line naming every background member whose vessel is gone. Observation
+        /// only. The one existing "vessel vanished" terminal path,
+        /// <see cref="EndDebrisRecording"/>, stamps <see cref="TerminalState.Destroyed"/>
+        /// when no finalization cache resolves, which a restored on-rails member never has;
+        /// for debris the stock budget merely left out of the save that would replay as an
+        /// explosion at the save UT, so these entries are left to tree finalization (which
+        /// infers a terminal from the recorded trajectory on scene exit). Returns the
+        /// missing count.
+        /// </summary>
+        internal int LogMissingBackgroundMembersAtLoad(Func<uint, bool> vesselExists, string reason)
+        {
+            if (tree == null || tree.BackgroundMap == null || vesselExists == null)
+                return 0;
+
+            List<MissingBackgroundMember> missing = FindMissingBackgroundMembers(tree, vesselExists);
+            if (missing.Count == 0)
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Load check: all {0} background member(s) have a vessel in the loaded " +
+                        "scene: reason={1}",
+                        tree.BackgroundMap.Count,
+                        string.IsNullOrEmpty(reason) ? "unspecified" : reason));
+                return 0;
+            }
+
+            ParsekLog.Info("BgRecorder",
+                FormatMissingBackgroundMembersSummary(missing, tree.BackgroundMap.Count, reason));
+            return missing.Count;
+        }
+
         internal struct BackgroundStateDriftSummary
         {
             public int BackgroundMapCount;

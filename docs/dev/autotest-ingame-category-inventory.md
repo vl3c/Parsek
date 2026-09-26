@@ -1,4 +1,4 @@
-# In-game test category inventory (all 118 categories)
+# In-game test category inventory (all 119 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -206,14 +206,15 @@ Two limits of this table, stated so nobody over-reads it:
 | `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | H49 (flown 2026-08-28, executes 4 of 4) | A |
 | `UiComplexityMode` | 4 | 4 | 0 | 0 | 0 | 4 | H22 | A |
 | `Unity` | 4 | 4 | 4 | 4 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 4 of 4 - the whole category at FLIGHT with zero skips) | A |
+| `VesselBudget` | 1 | 0 | 0 | 1 | 0 | 1 | NOT DRIVEN (KSP-SETTINGS-AUDIT S5, 2026-09-26, branch `kss-debris`). One TRACKSTATION cell that builds a REAL stock `new FlightState()` with `MAX_VESSELS_BUDGET` set to the scene's real-vessel count and asserts the ghost-exclusion patch (`Patches/FlightStateGhostBudgetPatch.cs`) reached the constructor (its exact `MAX_VESSELS_BUDGET <real> -> <real+ghosts>` line), that no real vessel was dropped, and that the budget is restored. Self-skips with no ghost map vessel in the scene. Its OWN category for the standing reason - a TRACKSTATION cell in `GhostMap` would move H44's derivable split and S1.6's flown `total=25` pin. The owner ruling (S6 / Q4) gave S5 unit and in-game cells and NO dedicated lane, so the row stays unclaimed; the natural host is H44's 274-recording corpus at TRACKSTATION. NEVER FLOWN | B |
 | `WarpToTime` | 1 | 0 | 1 | 0 | 0 | 1 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at SPACECENTER with zero skips; the census found its cell skipping AFTER taking its measurement, so the result was order-dependent, and it is now order-independent. HONEST LIMIT: on this empty-store host the cell's rewind-reachability half is inapplicable and is exercised by no committed lane; what LT-2 pins is the far-future ForwardOnly resolution and the defined UT-0 plan kind) | A |
 | `Watch` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips over the injected corpus) | A |
 | `WaterfallCompat` | 8 | 8 | 0 | 0 | 0 | 7 | MC-1-waterfall-compat (`modded-compat` instance profile, LIVE-PROVEN 2026-08-04 run `2026-08-04_2008`, PASS attempt 1, tally pinned WHOLE at `total=8 passed=7 failed=0 skipped=1`; the one skip is `WaterfallGateClosedOnStockInstall`'s inverse gate, which the profile's real Waterfall install closes by design. This row read `-` until 2026-09-06 and was simply stale - the spec has driven the category since 2026-08-04) | B |
 
 ## Triage
 
-Totals, re-derived: **118 categories / 650 declarations**. Buckets **A 89 categories
-(359 declarations)**, **B 28 categories (286 declarations)**, **C 1 category (5
+Totals, re-derived: **119 categories / 651 declarations**. Buckets **A 89 categories
+(359 declarations)**, **B 29 categories (287 declarations)**, **C 1 category (5
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -320,10 +321,11 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **117 of 118 categories**, covering **645 of 650
+Driven by a committed spec: **117 of 119 categories**, covering **645 of 651
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 650 declarations in
-118 categories over `Source/Parsek`. The 2026-09-26 ghost CommNet relay opened a 118th
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 651 declarations in
+119 categories over `Source/Parsek`. The 2026-09-26 vessel-budget fix (KSP-SETTINGS-AUDIT S5) opened a 119th row,
+`VesselBudget`, UNCLAIMED by the owner's ruling (unit and in-game cells, no dedicated lane). The 2026-09-26 ghost CommNet relay opened a 118th
 row, `GhostCommNet`, UNCLAIMED like `GuiMock` until CN-1 / CN-1T drove it the same day. The 2026-09-08 reading was 112 of 112; the GUI-tree
 dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on
 2026-09-11; the GUI state gallery's P1 opened a 114th on 2026-09-22 and left it
@@ -1087,7 +1089,7 @@ drive WHOLE: `Contracts` (2 of 2, LT-3), `RouteLiveAnchor` (1 of 1, LT-4) and
 to be read against, and LT-1 flew its own 30-constituent pin green the same evening
 (`2026-09-07_2030`, 292 s).
 
-### Bucket B - wireable, but needs something first (28 categories, 286 declarations)
+### Bucket B - wireable, but needs something first (29 categories, 287 declarations)
 
 Not one list but seven reasons, and the reason is what decides whether it is worth
 doing. (Seven since 2026-09-10, when the GUI-tree dump spike added B7; B7 is RETIRED as of

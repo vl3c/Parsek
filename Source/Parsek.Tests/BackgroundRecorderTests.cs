@@ -1007,6 +1007,72 @@ namespace Parsek.Tests
             Assert.Equal(200.0, rec.ExplicitEndUT);
         }
 
+        // KSP-SETTINGS-AUDIT S5: a background member stock dropped from the save (vessel
+        // budget / KSC declutter) has no vessel when the recorder is rebuilt from the
+        // restored tree. The load check names it once and does not seal it.
+        [Fact]
+        public void FindMissingBackgroundMembers_SelectsOnlyLiveRecordingsWithoutAVessel()
+        {
+            var tree = MakeTree((300, "rec_c"), (100, "rec_a"), (200, "rec_b"), (400, "rec_d"));
+            tree.Recordings["rec_a"].IsDebris = true;
+            tree.Recordings["rec_d"].VesselDestroyed = true;
+            tree.BackgroundMap[500] = "rec_absent"; // map drift, owned by the drift check
+            var live = new HashSet<uint> { 200 };
+
+            var missing = BackgroundRecorder.FindMissingBackgroundMembers(tree, live.Contains);
+
+            Assert.Equal(new uint[] { 100, 300 }, missing.Select(m => m.VesselPid).ToArray());
+            Assert.True(missing[0].IsDebris);
+            Assert.Equal("rec_a", missing[0].RecordingId);
+            Assert.False(missing[1].IsDebris);
+        }
+
+        [Fact]
+        public void LogMissingBackgroundMembersAtLoad_LogsOneSummaryAndLeavesTheRecordingOpen()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            var tree = MakeTree((100, "rec_a"), (200, "rec_b"), (300, "rec_c"));
+            tree.Recordings["rec_a"].IsDebris = true;
+            tree.Recordings["rec_c"].IsDebris = true;
+            var bgRecorder = new BackgroundRecorder(tree);
+            var live = new HashSet<uint> { 200 };
+
+            int count = bgRecorder.LogMissingBackgroundMembersAtLoad(live.Contains, "RestoreActiveTreeFromPending");
+
+            Assert.Equal(2, count);
+            var summaries = logLines.Where(l => l.Contains("Load check:")).ToList();
+            Assert.Single(summaries);
+            Assert.Contains("[Parsek][INFO][BgRecorder]", summaries[0]);
+            Assert.Contains("2 of 3 background member(s)", summaries[0]);
+            Assert.Contains("debris=2", summaries[0]);
+            Assert.Contains("reason=RestoreActiveTreeFromPending", summaries[0]);
+            Assert.Contains("pids=[100,300]", summaries[0]);
+            Assert.Contains("recIds=[rec_a,rec_c]", summaries[0]);
+            // Observation only: no terminal, map entry kept (finalization owns the verdict).
+            Assert.True(tree.BackgroundMap.ContainsKey(100));
+            Assert.False(tree.Recordings["rec_a"].TerminalStateValue.HasValue);
+            Assert.Equal(200.0, tree.Recordings["rec_a"].ExplicitEndUT);
+        }
+
+        [Fact]
+        public void LogMissingBackgroundMembersAtLoad_AllPresent_NoInfoLine()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            var tree = MakeTree((100, "rec_a"));
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            int count = bgRecorder.LogMissingBackgroundMembersAtLoad(pid => true, "unit");
+
+            Assert.Equal(0, count);
+            Assert.DoesNotContain(logLines, l => l.Contains("[INFO]") && l.Contains("Load check:"));
+            Assert.Contains(logLines, l => l.Contains("Load check: all 1 background member(s)"));
+        }
+
         [Fact]
         public void CheckDebrisTTL_MissingVessel_AppliesCacheBeforeDestroyedFallback()
         {

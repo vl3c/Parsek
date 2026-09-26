@@ -7851,8 +7851,9 @@ namespace Parsek
             // LedgerOrchestrator.PickRecoveryRecordingId, including through the DEFERRED
             // recovery-funds queue (which stores this struct verbatim), so a recovery paired
             // against a later FundsChanged(VesselRecovery) event still filters by launch. The
-            // guid is NOT part of any name-matching predicate, so context lookup and terminal
-            // state below are unchanged.
+            // payout-context lookup below still pairs by name; the pending-tree terminal
+            // update and the pending-owner check additionally gate on pid + this guid
+            // (MatchesVessel), degrading to name-only when either side is unknown.
             RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
                 pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv));
             if (!identity.HasName) return;
@@ -7864,7 +7865,8 @@ namespace Parsek
                 now,
                 out RecoveryPayoutContext payoutContext);
 
-            bool updated = UpdateRecordingsForTerminalEvent(identity, TerminalState.Recovered, now);
+            bool updated = UpdateRecordingsForTerminalEvent(
+                identity, TerminalState.Recovered, now, pv.persistentId);
             if (updated)
                 ParsekLog.Info("Scenario", $"Vessel '{identity.DisplayName}' recovered — recording(s) updated with Recovered terminal state");
 
@@ -7880,7 +7882,7 @@ namespace Parsek
             // recording end UT. Only patch immediately when no pending-tree recording
             // still owns this vessel; otherwise the commit-time path should emit the
             // recovery action exactly once.
-            if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, identity))
+            if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, identity, pv.persistentId))
                 LedgerOrchestrator.OnVesselRecoveryFunds(
                     now,
                     identity,
@@ -7943,20 +7945,28 @@ namespace Parsek
             if (pv == null) return;
             if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
             if (RewindContext.IsRewinding) return;
-            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(pv.vesselName);
+            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
+                pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv));
             if (!identity.HasName) return;
 
             double now = Planetarium.GetUniversalTime();
             // onVesselTerminated also fires after onVesselRecovered for the same vessel.
             // The guard in UpdateRecordingsForTerminalEvent prevents overwriting Recovered with Destroyed.
-            bool updated = UpdateRecordingsForTerminalEvent(identity, TerminalState.Destroyed, now);
+            bool updated = UpdateRecordingsForTerminalEvent(
+                identity, TerminalState.Destroyed, now, pv.persistentId);
             if (updated)
                 ParsekLog.Info("Scenario", $"Vessel '{identity.DisplayName}' terminated — recording(s) updated with Destroyed terminal state");
         }
 
         /// <summary>
-        /// Finds recordings matching the given vessel name and updates their terminal state.
-        /// Checks pending tree recordings.
+        /// Finds pending-tree recordings of the given vessel and updates their terminal state.
+        /// A recording matches by name AND, when both sides know it, by launch identity: the
+        /// recovered vessel's <paramref name="vesselPid"/> must equal the recording's
+        /// <c>VesselPersistentId</c> and the launch Guids must not conclusively differ (see
+        /// <see cref="MatchesVessel(Recording, RecoveredVesselIdentity, uint)"/>). Without
+        /// the identity gate a stock KSC-declutter autoclean of an unrelated
+        /// "&lt;Craft&gt; Debris" stamped every same-named pending debris recording Recovered
+        /// and dropped its snapshot.
         /// Recovered/Destroyed can overwrite situation-based terminal states (Orbiting, Landed, etc.)
         /// that were set by OnSceneChangeRequested. Only prevents Destroyed from overwriting Recovered
         /// (onVesselTerminated fires after onVesselRecovered for the same vessel).
@@ -7972,7 +7982,8 @@ namespace Parsek
         internal static bool UpdateRecordingsForTerminalEvent(
             RecoveredVesselIdentity identity,
             TerminalState state,
-            double ut)
+            double ut,
+            uint vesselPid = 0)
         {
             bool anyUpdated = false;
 
@@ -7981,7 +7992,7 @@ namespace Parsek
             {
                 foreach (var rec in RecordingStore.PendingTree.Recordings.Values)
                 {
-                    if (MatchesVessel(rec, identity) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
+                    if (MatchesVessel(rec, identity, vesselPid) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
                     {
                         rec.ExplicitEndUT = ut;
                         CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
@@ -8023,10 +8034,11 @@ namespace Parsek
 
         internal static bool ShouldPatchRecoveryFundsOutsideFlight(
             GameScenes scene,
-            RecoveredVesselIdentity identity)
+            RecoveredVesselIdentity identity,
+            uint vesselPid = 0)
         {
             return scene != GameScenes.FLIGHT &&
-                   !HasPendingLedgerRecordingForVessel(identity);
+                   !HasPendingLedgerRecordingForVessel(identity, vesselPid);
         }
 
         /// <summary>
@@ -8040,7 +8052,8 @@ namespace Parsek
         }
 
         internal static bool HasPendingLedgerRecordingForVessel(
-            RecoveredVesselIdentity identity)
+            RecoveredVesselIdentity identity,
+            uint vesselPid = 0)
         {
             if (!identity.HasName || !RecordingStore.HasPendingTree)
                 return false;
@@ -8049,7 +8062,7 @@ namespace Parsek
             {
                 if (rec == null || rec.IsGhostOnly)
                     continue;
-                if (MatchesVessel(rec, identity))
+                if (MatchesVessel(rec, identity, vesselPid))
                     return true;
             }
 
@@ -8085,20 +8098,30 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks if a recording matches the given vessel name.
-        /// Uses name-based matching (ProtoVessel doesn't expose vessel persistentId directly).
+        /// Checks if a recording is the recovered / terminated vessel. The name must match, and
+        /// the launch identity narrows it (the persistentId is craft-baked and names repeat
+        /// across launches and debris): when the recovered vessel's pid and the recording's
+        /// <c>VesselPersistentId</c> are both known (non-zero) they must be equal, and a known
+        /// launch Guid on both sides must not differ. An unknown pid or Guid on either side
+        /// falls back to the name alone, so the gate only ever removes matches.
         /// </summary>
-        private static bool MatchesVessel(Recording rec, string vesselName)
+        internal static bool MatchesVessel(
+            Recording rec,
+            RecoveredVesselIdentity identity,
+            uint vesselPid = 0)
         {
-            return MatchesVessel(rec, RecoveredVesselIdentity.FromRawName(vesselName));
-        }
+            if (rec == null ||
+                !identity.HasName ||
+                string.IsNullOrEmpty(rec.VesselName) ||
+                !identity.MatchesName(rec.VesselName))
+                return false;
 
-        private static bool MatchesVessel(Recording rec, RecoveredVesselIdentity identity)
-        {
-            return rec != null &&
-                   identity.HasName &&
-                   !string.IsNullOrEmpty(rec.VesselName) &&
-                   identity.MatchesName(rec.VesselName);
+            if (vesselPid != 0 && rec.VesselPersistentId != 0
+                && rec.VesselPersistentId != vesselPid)
+                return false;
+
+            return !VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                rec.RecordedVesselGuid, identity.LaunchGuid);
         }
 
         #endregion
