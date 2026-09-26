@@ -746,7 +746,8 @@ values = ["timeline-projection"]
 # the on-disk `.prec` stays byte-identical, and a COLD reload in the same process (the isolated-
 # restore prep + LoadGame) re-reads it with all its points and sweeps the orphan `.tmp`
 # (`CleanOrphanFiles`). Not claimed: a crash of a new PROCESS, and the direct SafeWriteConfigNode
-# callers, whose `.tmp` nothing sweeps (todo SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT).
+# callers, whose `.tmp` each store now deletes on load (todo SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT,
+# fixed 2026-09-26; unit-tested in SafeWriteTempSweepTests, not flown).
 values = ["sidecar-prec", "sidecar-craft", "sidecar-pann",
           "rp-quicksaves", "deflate-snapshots", "txt-mirrors", "alias-mode",
           "sfs-scenario-node", "schema-gate", "path-validation", "safe-write",

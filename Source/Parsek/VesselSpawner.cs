@@ -3833,11 +3833,20 @@ namespace Parsek
                 return;
             }
 
-            // Compute distance from launch
+            // Compute distance from launch. A recording carrying a Relative TrackSection
+            // cannot use the flat Points list: its Relative frames hold anchor-local
+            // Cartesian metres in latitude/longitude/altitude, so it measures over the
+            // sections' body-fixed surfaces instead (see ClassifySnapshotDistanceRoute).
+            bool bodyFixedRoute =
+                ClassifySnapshotDistanceRoute(pending) == SnapshotDistanceRoute.BodyFixedSections;
             var firstPoint = pending.Points[0];
-            CelestialBody bodyFirst = FlightGlobals.Bodies?.Find(b => b.name == firstPoint.bodyName);
-            if (bodyFirst == null)
-                ParsekLog.Warn("Spawner", $"SnapshotVessel: body '{firstPoint.bodyName}' not found — distance computation will be skipped");
+            CelestialBody bodyFirst = null;
+            if (!bodyFixedRoute)
+            {
+                bodyFirst = FlightGlobals.Bodies?.Find(b => b.name == firstPoint.bodyName);
+                if (bodyFirst == null)
+                    ParsekLog.Warn("Spawner", $"SnapshotVessel: body '{firstPoint.bodyName}' not found — distance computation will be skipped");
+            }
 
             if (vesselDestroyed)
             {
@@ -3845,29 +3854,36 @@ namespace Parsek
                 pending.VesselSnapshot = destroyedFallbackSnapshot != null
                     ? destroyedFallbackSnapshot.CreateCopy()
                     : null;
-                // Use last recorded point for distance (may be a different SOI)
-                var lastPoint = pending.Points[pending.Points.Count - 1];
-                CelestialBody bodyLast = FlightGlobals.Bodies?.Find(b => b.name == lastPoint.bodyName);
-                if (bodyFirst != null && bodyLast != null)
+                if (bodyFixedRoute)
                 {
-                    Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
-                        firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
-                    Vector3d lastPos = bodyLast.GetWorldSurfacePosition(
-                        lastPoint.latitude, lastPoint.longitude, lastPoint.altitude);
-                    pending.DistanceFromLaunch = Vector3d.Distance(launchPos, lastPos);
+                    // End position is the latest body-fixed sample (vessel already gone).
+                    ApplySnapshotDistancesFromBodyFixedSurfaces(pending, null, "destroyed");
                 }
+                else
+                {
+                    // Use last recorded point for distance (may be a different SOI)
+                    var lastPoint = pending.Points[pending.Points.Count - 1];
+                    CelestialBody bodyLast = FlightGlobals.Bodies?.Find(b => b.name == lastPoint.bodyName);
+                    if (bodyFirst != null && bodyLast != null)
+                    {
+                        Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
+                            firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
+                        Vector3d lastPos = bodyLast.GetWorldSurfacePosition(
+                            lastPoint.latitude, lastPoint.longitude, lastPoint.altitude);
+                        pending.DistanceFromLaunch = Vector3d.Distance(launchPos, lastPos);
+                    }
 
-                // Compute max distance from launch across all recorded points
-                ComputeMaxDistance(pending, bodyFirst, firstPoint);
+                    // Compute max distance from launch across all recorded points
+                    ComputeMaxDistance(pending, bodyFirst, firstPoint);
+                }
 
                 pending.VesselSituation = pending.VesselSnapshot != null ? "Destroyed (snapshot kept)" : "Destroyed";
 
-                // End biome from last trajectory point (vessel already destroyed)
-                if (pending.Points.Count > 0)
-                {
-                    var lastPt = pending.Points[pending.Points.Count - 1];
-                    pending.EndBiome = TryResolveBiome(lastPt.bodyName, lastPt.latitude, lastPt.longitude);
-                }
+                // End biome from the last body-fixed position (vessel already destroyed).
+                // The flat tail may be a Relative frame, whose lat/lon are anchor-local metres.
+                TrajectoryPoint endBiomePoint;
+                if (TryGetEndBiomeSamplePoint(pending, bodyFixedRoute, out endBiomePoint))
+                    pending.EndBiome = TryResolveBiome(endBiomePoint.bodyName, endBiomePoint.latitude, endBiomePoint.longitude);
 
                 ParsekLog.Info("Spawner", $"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
                     $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Snapshot kept: {pending.VesselSnapshot != null}");
@@ -3888,7 +3904,11 @@ namespace Parsek
             }
 
             // Compute distance from launch position
-            if (bodyFirst != null)
+            if (bodyFixedRoute)
+            {
+                ApplySnapshotDistancesFromBodyFixedSurfaces(pending, vessel.GetWorldPos3D(), "live");
+            }
+            else if (bodyFirst != null)
             {
                 Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
                     firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
@@ -3930,6 +3950,183 @@ namespace Parsek
         {
             if (bodyFirst == null) return;
             ComputeMaxDistanceCore(pending, bodyFirst, firstPoint);
+        }
+
+        /// <summary>
+        /// Which trajectory surface <see cref="SnapshotVessel"/> measures
+        /// <c>DistanceFromLaunch</c> / <c>MaxDistanceFromLaunch</c> over.
+        /// </summary>
+        internal enum SnapshotDistanceRoute
+        {
+            /// <summary>The flat <c>Points</c> list (no Relative section can have poisoned it).</summary>
+            FlatPoints,
+
+            /// <summary>The TrackSections' body-fixed surfaces, as the finalize backfill walks them.</summary>
+            BodyFixedSections,
+        }
+
+        /// <summary>
+        /// Pure routing for the stop-time distance computation. A recording with ANY
+        /// Relative TrackSection takes the body-fixed section walk: the flat <c>Points</c>
+        /// list mirrors a Relative section's frames verbatim, and there
+        /// <c>latitude/longitude/altitude</c> are anchor-local Cartesian metres, not
+        /// body-fixed coordinates (CLAUDE.md "Rotation / world frame"). A promoted debris
+        /// booster that entered RELATIVE mode near its sibling read 1205 km through the flat
+        /// list for a 5 km fall (todo D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME), and the
+        /// frame-correct finalize backfill never ran because
+        /// <see cref="ClassifyMaxDistanceBackfillRoute"/> skips a recording whose maxDist is
+        /// already non-zero. Every other recording keeps the flat list, which is what it
+        /// measured before. Pure: no KSP calls.
+        /// </summary>
+        internal static SnapshotDistanceRoute ClassifySnapshotDistanceRoute(Recording rec)
+        {
+            if (rec == null || rec.TrackSections == null)
+                return SnapshotDistanceRoute.FlatPoints;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                if (rec.TrackSections[i].referenceFrame == ReferenceFrame.Relative)
+                    return SnapshotDistanceRoute.BodyFixedSections;
+            }
+            return SnapshotDistanceRoute.FlatPoints;
+        }
+
+        /// <summary>
+        /// Index of the LATEST body-fixed sample by UT (ties keep the later collection
+        /// order, so a section-boundary duplicate resolves to the later section). Returns -1
+        /// for an empty list. Pure.
+        /// </summary>
+        internal static int ResolveLatestSampleIndex(List<BodyFixedSectionSample> samples)
+        {
+            if (samples == null || samples.Count == 0) return -1;
+            int best = 0;
+            for (int i = 1; i < samples.Count; i++)
+            {
+                if (samples[i].point.ut >= samples[best].point.ut) best = i;
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Pure core of the body-fixed stop-time distances: <paramref name="maxDist"/> is
+        /// <see cref="TryComputeMaxDistanceFromBodyFixedSurfaces"/>'s chord, and
+        /// <paramref name="distanceFromLaunch"/> runs from the same launch reference (the
+        /// earliest body-fixed sample) to <paramref name="endWorldPosition"/> when supplied
+        /// (a live vessel), else to the latest body-fixed sample (a destroyed one). Never
+        /// reads a Relative section's <c>frames</c>. Returns false and writes zeros when the
+        /// recording authors no body-fixed sample or the launch reference does not resolve;
+        /// <paramref name="endResolved"/> is false when the end position did not resolve
+        /// (distanceFromLaunch then stays 0).
+        /// </summary>
+        internal static bool TryComputeSnapshotDistancesFromBodyFixedSurfaces(
+            Recording rec,
+            Func<TrajectoryPoint, Vector3d?> resolveSurfacePosition,
+            Vector3d? endWorldPosition,
+            out double distanceFromLaunch,
+            out double maxDist,
+            out MaxDistanceReferenceSurface referenceSurface,
+            out int sampleCount,
+            out bool endResolved)
+        {
+            distanceFromLaunch = 0.0;
+            endResolved = false;
+            int unresolvedSampleCount;
+            int sectionsWithoutBodyFixedSurface;
+            if (!TryComputeMaxDistanceFromBodyFixedSurfaces(
+                    rec, resolveSurfacePosition, out maxDist, out referenceSurface,
+                    out sampleCount, out unresolvedSampleCount, out sectionsWithoutBodyFixedSurface))
+            {
+                maxDist = 0.0;
+                return false;
+            }
+
+            List<BodyFixedSectionSample> samples =
+                CollectBodyFixedSectionSamples(rec, out sectionsWithoutBodyFixedSurface);
+            Vector3d? launchPos = resolveSurfacePosition(samples[ResolveLaunchReferenceIndex(samples)].point);
+            Vector3d? endPos = endWorldPosition.HasValue
+                ? endWorldPosition
+                : resolveSurfacePosition(samples[ResolveLatestSampleIndex(samples)].point);
+            if (launchPos.HasValue && endPos.HasValue)
+            {
+                distanceFromLaunch = Vector3d.Distance(launchPos.Value, endPos.Value);
+                endResolved = true;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Picks the trajectory sample a destroyed vessel's end biome is resolved at: the
+        /// latest body-fixed sample on the body-fixed route (the flat tail may be a Relative
+        /// frame), else the last flat point. Pure.
+        /// </summary>
+        internal static bool TryGetEndBiomeSamplePoint(
+            Recording rec, bool bodyFixedRoute, out TrajectoryPoint point)
+        {
+            point = default(TrajectoryPoint);
+            if (rec == null) return false;
+            if (bodyFixedRoute)
+            {
+                List<BodyFixedSectionSample> samples = CollectBodyFixedSectionSamples(rec, out int _);
+                int idx = ResolveLatestSampleIndex(samples);
+                if (idx < 0) return false;
+                point = samples[idx].point;
+                return true;
+            }
+            if (rec.Points == null || rec.Points.Count == 0) return false;
+            point = rec.Points[rec.Points.Count - 1];
+            return true;
+        }
+
+        /// <summary>
+        /// Live wrapper of <see cref="TryComputeSnapshotDistancesFromBodyFixedSurfaces"/>
+        /// for <see cref="SnapshotVessel"/>: resolves samples through
+        /// <c>FlightGlobals.Bodies</c> and writes the result. Leaves both distances at their
+        /// current value (0 on a fresh capture) when there is no body-fixed sample - fail
+        /// closed rather than resolve anchor-local metres as lat/lon.
+        /// </summary>
+        private static void ApplySnapshotDistancesFromBodyFixedSurfaces(
+            Recording pending, Vector3d? endWorldPosition, string context)
+        {
+            Func<TrajectoryPoint, Vector3d?> resolver = pt =>
+            {
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
+                if (body == null) return null;
+                return body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
+            };
+
+            double distanceFromLaunch;
+            double maxDist;
+            MaxDistanceReferenceSurface referenceSurface;
+            int sampleCount;
+            bool endResolved;
+            if (!TryComputeSnapshotDistancesFromBodyFixedSurfaces(
+                    pending, resolver, endWorldPosition,
+                    out distanceFromLaunch, out maxDist, out referenceSurface,
+                    out sampleCount, out endResolved))
+            {
+                // Same split as the finalize backfill: no body-fixed sample at all is the
+                // designed fail-closed refusal; samples whose launch body did not resolve
+                // are a real problem.
+                int collectedSamples = CollectBodyFixedSectionSamples(pending, out int _).Count;
+                string refusal =
+                    $"SnapshotVessel: route=body-fixed-sections context={context} rec={pending.RecordingId} " +
+                    $"{(collectedSamples > 0 ? "cannot resolve the launch-reference body" : "no body-fixed surface")} " +
+                    $"(samples={collectedSamples} sections={pending.TrackSections.Count}) - " +
+                    $"distances left at {pending.DistanceFromLaunch:F0}m / {pending.MaxDistanceFromLaunch:F0}m";
+                if (collectedSamples > 0)
+                    ParsekLog.Warn("Spawner", refusal);
+                else
+                    ParsekLog.Verbose("Spawner", refusal);
+                return;
+            }
+
+            pending.MaxDistanceFromLaunch = maxDist;
+            if (endResolved)
+                pending.DistanceFromLaunch = distanceFromLaunch;
+            ParsekLog.Verbose("Spawner",
+                $"SnapshotVessel: route=body-fixed-sections context={context} rec={pending.RecordingId} " +
+                $"distance={pending.DistanceFromLaunch:F0}m maxDist={maxDist:F0}m " +
+                $"from {sampleCount} body-fixed samples reference={DescribeReferenceSurface(referenceSurface)} " +
+                $"endResolved={endResolved}");
         }
 
         /// <summary>

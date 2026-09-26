@@ -1746,6 +1746,13 @@ namespace Parsek
                 otherPreserved++;
             }
 
+            // A deferred epoch advance from an out-of-band flush of the replaced object
+            // must not be lost with it, or the next OnSave would skip the rewrite and keep
+            // the preserved epoch for good. Not counted: it is bookkeeping, not a field
+            // the pending tree lost, and carrying it costs at most one extra rewrite.
+            if (existing.SidecarEpochAdvancePending)
+                incoming.SidecarEpochAdvancePending = true;
+
             // Playback resource cursor.
             if (incoming.LastAppliedResourceIndex == -1
                 && existing.LastAppliedResourceIndex != -1)
@@ -5335,6 +5342,7 @@ namespace Parsek
             RewindContext.EndRewind();
             ClearRewindReplayTargetScope();
             ClearRewindCarriedRewindPoints("rewind-flags-reset");
+            ClearRewindCarriedStagedLists("rewind-flags-reset");
         }
 
         /// <summary>
@@ -5548,6 +5556,12 @@ namespace Parsek
                             $"Dropped {droppedSupersedes} supersede relation(s) rewound out of existence " +
                             $"(rewindUT={RewindAdjustedUT:F1} owner='{dropSupersedeOwner.VesselName}')");
                 }
+
+                // Same stale-persistent reason as the RP capture above, for the supersede,
+                // rewind-retirement and tombstone lists and the merge journal. Taken AFTER the
+                // supersede drop so the capture already holds this rewind's drop and
+                // retirements; the OnLoad re-apply then finds nothing left to do on it.
+                CaptureRewindStagedListsForRewind(ParsekScenario.Instance, messageLabel);
 
                 HighLogic.CurrentGame = game;
                 HighLogic.LoadScene(GameScenes.SPACECENTER);

@@ -1179,6 +1179,63 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Rewind-to-Launch no longer undoes another flight's Re-Fly from a stale save.** A plain
+  rewind reloads the career from `persistent.sfs` as it was last written, and while the
+  recordings, the ledger and (since the earlier fix) the rewind points were kept from memory,
+  the supersede rows, the rewind retirements, the kerbal-death tombstones and the merge journal
+  were read back from that file. Any change to them since the last write was undone: rows
+  added then were lost (a Re-Fly merge finished at load time, whose saves are deferred; the
+  retirements an earlier rewind wrote, so its re-flown flight could show again), and rows
+  removed then came back (a discarded flight's rows, the rows an earlier rewind dropped). The
+  rewind now carries all four from memory, the same way it carries the rewind
+  points; the rewound flight's own Re-Fly is still undone exactly as before. A merge journal
+  still on disk for a merge memory had already finished is dropped instead of being run a
+  second time on the next load. Log: `Staged lists carried across rewind:`.
+
+- **Recordings are no longer lost when the game closes right after loading or committing.**
+  Loading a save and committing a flight both write the changed recordings to disk straight
+  away, and that write advanced each recording file's save counter past the one stored in the
+  save. If the game then closed, crashed or was killed before the next save, the next load read
+  every such recording as belonging to a different save and dropped it (a whole flight when it
+  was the first recording of the tree). That immediate write now keeps the counter the save
+  already holds, so the next load accepts the file, and the next real save advances the counter
+  on the file and in the save together, so a quicksave taken before the write is again
+  recognised as older. Until that save (and for good if the game closes first) such a quicksave
+  loads the rewritten file instead of being rejected. A recording no save has ever stored still
+  gets its first counter from the immediate write.
+
+- **Missions: cloning a looping mission no longer leaves two loops on one flight.** The Clone
+  button copied the Loop setting too, so a copy of a looping mission also read Loop on even though
+  only one mission per flight can loop; the copy did nothing and the log warned on every rebuild
+  until the next load switched it off. The copy is now created with Loop off while the original
+  keeps looping. It keeps the original's loop period and unit, so turning Loop on for the copy
+  later loops it with the same settings (and, as before, switches the original's loop off). The
+  Clone button's tooltip now says so.
+
+- **A save interrupted by a crash no longer leaves a stray `.tmp` file next to Parsek's
+  career files.** Parsek writes each file to a temporary copy and then swaps it into place. A
+  crash before the swap keeps the real file and leaves the temporary copy beside it. Only the
+  recordings folder was cleaned of these copies; the ledger (`ledger.pgld`), game-state events
+  (`events.pgse`), milestones (`milestones.pgsm`), per-UT baselines (`baseline_*.pgsb`) and the
+  install-wide `settings.cfg` kept theirs. Each of those now deletes its own leftover
+  `<file>.tmp` when it loads, before reading the real file, which it never touches. The baselines
+  mattered most: their names change with every save, so their leftovers accumulated instead of
+  being overwritten by the next save. One case is left alone on purpose: when the real file is
+  missing, the temporary copy may be the newest complete save (a crash in the middle of the
+  fallback swap, which parks the previous file as `<file>.bak.<id>` first) or a half-written
+  first save, and the two cannot be told apart. That copy is kept, not deleted and not put in
+  place, and the log warns with its path, size and any `.bak` copy, so it can be recovered by hand.
+
+- **A dropped booster you switch to and fly no longer reports a distance of over 1000 km.**
+  When you switch to a booster Parsek was recording in the background and it flies on near its
+  sibling, part of its track is stored relative to that sibling in metres. The distance worked
+  out when the recording ended read those metres as map coordinates, so a booster that fell 5 km
+  from the pad was listed with a maximum distance of about 1205 km. The distance now comes from
+  the booster's real map positions (the same data Parsek already used for boosters it never
+  switched to), and so does the biome a destroyed vessel ended in. The same booster also no
+  longer logs a background time-limit close after you switched to it: switching now cancels the
+  60 s limit it had as debris.
+
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
   and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
@@ -4454,6 +4511,28 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **Automated testing: a `WarpToUT` refused because time warp is locked now names who holds
+  the lock.** The `warptout refused reason=warp-locked` log line gains a `holders=` field:
+  the ids of the input locks whose mask includes TIMEWARP, sorted and comma-joined, or `none`
+  when no lock entry carries it (the lock mask can be set without an entry). The response the
+  harness reads is unchanged (the reason token stays `warp-locked`). SS-1 hit this refusal for
+  19 s after a load with no way to tell which lock was responsible. Also corrects the
+  `EnterMapView` / `ExitMapView` code comment that promised a REJECTED verdict when stock
+  declines the toggle; the seam answers ERROR there, as it always did.
+
+- **Automated testing: a quarantine for one log-contract defect no longer hides other
+  log-contract failures in the same test.** A test scenario can be marked as expected to fail
+  while a known bug is open, and a matching failure then reads EXPECTED-FAIL, which counts as
+  green. The match was on the failure's class only, so a scenario quarantined for one missing
+  log line also read green when any other expected log line went missing. The expected-fail
+  block now takes an optional `mismatches` list naming the exact failing checks the bug
+  produces; the run reads EXPECTED-FAIL only when its failing checks are exactly that list, and
+  anything extra (or a listed check that stopped failing) stays a real failure. Without the
+  list the behaviour is unchanged. Spec validation rejects a list entry naming a check the
+  scenario does not declare, and any unknown key in the block. No committed scenario uses the
+  list yet: the one active quarantine is on the recording analyzer, which reports no such
+  list. Test-tooling only; no gameplay change.
 
 - **Removed the chain-segment commit path, which always-tree recording never reaches.**
   Before every recording lived in a tree, Parsek committed a flight as a chain of separate

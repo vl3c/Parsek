@@ -6585,6 +6585,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if ef_subkind and ef_subkind not in PARSEK_FAIL_SUBKINDS:
         errors.append("expectedFail.subkind: %r not in %s"
                       % (ef_subkind, list(PARSEK_FAIL_SUBKINDS)))
+    # Unknown keys + the optional per-token signature (expectedFail.mismatches).
+    errors.extend(validate_expected_fail_block(exp_fail, spec.get("expectations")))
 
     # Optional [harvest] block: the produced-save snapshot opt-out. Absent on
     # every committed spec (the default is SNAPSHOT), so this only ever fires
@@ -7258,24 +7260,24 @@ def evaluate_expectations(
         cmin = count_spec.get("min", 0)
         cmax = count_spec.get("max")
         if isinstance(cmin, (int, float)) and recording_count < cmin:
-            mismatches.append("recordings.count %d < min %s" % (recording_count, cmin))
+            mismatches.append(EXPECTATION_COUNT_PREFIX + "%d < min %s" % (recording_count, cmin))
         if isinstance(cmax, (int, float)) and recording_count > cmax:
-            mismatches.append("recordings.count %d > max %s" % (recording_count, cmax))
+            mismatches.append(EXPECTATION_COUNT_PREFIX + "%d > max %s" % (recording_count, cmax))
 
     log_contracts = expectations.get("logContracts", {}) or {}
     text = log_text or ""
     for pat in log_contracts.get("required", []) or []:
         try:
             if re.search(pat, text) is None:
-                mismatches.append("logContracts.required not matched: %s" % (pat,))
+                mismatches.append("%s%s" % (EXPECTATION_REQUIRED_MISS_PREFIX, pat))
         except re.error:
-            mismatches.append("logContracts.required invalid regex: %s" % (pat,))
+            mismatches.append("%s%s" % (EXPECTATION_REQUIRED_INVALID_PREFIX, pat))
     for pat in log_contracts.get("forbidden", []) or []:
         try:
             if re.search(pat, text) is not None:
-                mismatches.append("logContracts.forbidden matched: %s" % (pat,))
+                mismatches.append("%s%s" % (EXPECTATION_FORBIDDEN_HIT_PREFIX, pat))
         except re.error:
-            mismatches.append("logContracts.forbidden invalid regex: %s" % (pat,))
+            mismatches.append("%s%s" % (EXPECTATION_FORBIDDEN_INVALID_PREFIX, pat))
 
     reserved = tuple(b for b in RESERVED_EXPECTATION_BLOCKS if b in expectations)
     status = "PASS" if not mismatches else "FAIL"
@@ -9244,6 +9246,35 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
 # spelling the subkind out.
 NEVER_BUGID_ONLY_SUBKINDS: Tuple[str, ...] = ("mission-outcome",)
 
+# The keys an `[expectedFail]` table may carry. Checked at validation because a
+# misspelled narrowing key (`mismatch` for `mismatches`) would otherwise read as
+# ABSENT, and absent is the WIDER match - the fail-open direction.
+EXPECTED_FAIL_BUG_ID_KEY = "bugId"
+EXPECTED_FAIL_SUBKIND_KEY = "subkind"
+EXPECTED_FAIL_MISMATCHES_KEY = "mismatches"
+EXPECTED_FAIL_KNOWN_KEYS: Tuple[str, ...] = (
+    EXPECTED_FAIL_BUG_ID_KEY, EXPECTED_FAIL_SUBKIND_KEY, EXPECTED_FAIL_MISMATCHES_KEY,
+)
+
+# The PARSEK-FAIL subkinds whose failing verifier reports a per-token mismatch list
+# an `[expectedFail] mismatches = [...]` signature can be compared against. Only the
+# expectations manifest today: its mismatch strings are deterministic literals built
+# from the spec's own patterns (the EXPECTATION_*_PREFIX forms below), so a
+# quarantine can name the exact tokens one defect produces. The gating save-structure
+# / render-composition / ghost-lifecycle rows also carry mismatch lists, but no
+# committed spec arms them and their strings embed measured values; extend this set
+# (and expected_fail_observed_mismatches) when one needs a per-token quarantine.
+EXPECTED_FAIL_SIGNATURE_SUBKINDS: Tuple[str, ...] = ("expectation",)
+
+# The expectations-manifest mismatch shapes (evaluate_expectations builds every
+# mismatch string from these; the expectedFail.mismatches validator accepts only the
+# three a Parsek defect can produce - an invalid regex is a spec bug, not a defect).
+EXPECTATION_COUNT_PREFIX = "recordings.count "
+EXPECTATION_REQUIRED_MISS_PREFIX = "logContracts.required not matched: "
+EXPECTATION_REQUIRED_INVALID_PREFIX = "logContracts.required invalid regex: "
+EXPECTATION_FORBIDDEN_HIT_PREFIX = "logContracts.forbidden matched: "
+EXPECTATION_FORBIDDEN_INVALID_PREFIX = "logContracts.forbidden invalid regex: "
+
 # INVALID subkinds that are retry-once-then-INVALID for the driver/tooling
 # stages (design). Everything else (admission, instance-locked/busy, fixture-*,
 # spec-invalid, boot-crash-repeated) is a terminal INVALID.
@@ -9590,15 +9621,34 @@ class Verdict:
 
 
 def expected_fail_signature_matched(base_verdict: str, base_subkind: str,
-                                    ef_subkind: str) -> bool:
+                                    ef_subkind: str,
+                                    ef_mismatches: Optional[Sequence[str]] = None,
+                                    observed_mismatches: Optional[Sequence[str]] = None
+                                    ) -> bool:
     """Decide whether a computed verdict matches the tracked expected-fail signature
     (S2). Only a PARSEK-FAIL can match. When ``ef_subkind`` is empty the match is
     bugId-only (ANY PARSEK-FAIL matches -- the v1 adaptation the run.py caller warns
     about at demotion time); when set, the base verdict's subkind must equal it, so
     an expected-fail scenario that fails a DIFFERENT way (subkind mismatch) stays
-    PARSEK-FAIL instead of being demoted to EXPECTED-FAIL."""
+    PARSEK-FAIL instead of being demoted to EXPECTED-FAIL.
+
+    ``ef_mismatches`` (the optional ``[expectedFail] mismatches`` list; None = key
+    absent = the subkind-only match above) narrows further to ONE defect: the run's
+    ``observed_mismatches`` (the failing verifier's own list, see
+    ``expected_fail_observed_mismatches``) must EQUAL the declared set, compared as
+    sets. Equality, not subset: an extra red is an unrelated break and must stay
+    PARSEK-FAIL, and a MISSING declared token means the defect changed shape (half
+    fixed, or failing a different way) - also new information a green verdict would
+    hide. Fails closed: a declared list with no subkind, a subkind outside
+    EXPECTED_FAIL_SIGNATURE_SUBKINDS, or no observed list never matches."""
     if base_verdict != VERDICT_PARSEK_FAIL:
         return False
+    if ef_mismatches is not None:
+        if not ef_subkind or ef_subkind not in EXPECTED_FAIL_SIGNATURE_SUBKINDS:
+            return False
+        if base_subkind != ef_subkind or observed_mismatches is None:
+            return False
+        return set(observed_mismatches) == set(ef_mismatches)
     if not ef_subkind:
         # bugId-only demotion, EXCEPT for the subkinds in NEVER_BUGID_ONLY_SUBKINDS. A
         # quarantine key is a statement about ONE tracked Parsek defect; letting it also
@@ -9608,6 +9658,87 @@ def expected_fail_signature_matched(base_verdict: str, base_subkind: str,
         # naming it explicitly (subkind = "mission-outcome").
         return base_subkind not in NEVER_BUGID_ONLY_SUBKINDS
     return base_subkind == ef_subkind
+
+
+def expected_fail_observed_mismatches(base_subkind: str,
+                                      verifier_detail: Optional[Dict]) -> Optional[List[str]]:
+    """The failing verifier's own mismatch list for a PARSEK-FAIL of ``base_subkind``,
+    read from run.py's per-verifier ``detail`` dict, or None when that subkind has no
+    per-token list (not in EXPECTED_FAIL_SIGNATURE_SUBKINDS) or the row is absent.
+    None makes a declared ``[expectedFail] mismatches`` signature fail closed."""
+    if base_subkind not in EXPECTED_FAIL_SIGNATURE_SUBKINDS:
+        return None
+    row = (verifier_detail or {}).get("expectations")
+    if not isinstance(row, dict):
+        return None
+    mismatches = row.get("mismatches")
+    if not isinstance(mismatches, (list, tuple)):
+        return None
+    return [str(m) for m in mismatches]
+
+
+def validate_expected_fail_block(exp_fail: object, expectations: Optional[Dict]) -> List[str]:
+    """Structural errors in a spec's ``[expectedFail]`` table beyond the bugId /
+    subkind checks validate_spec already runs: unknown keys, and the optional
+    ``mismatches`` per-token signature. Pure.
+
+    ``mismatches`` must be a non-empty list of distinct non-empty strings, needs a
+    non-empty ``bugId`` (it is inert without one) and a ``subkind`` in
+    EXPECTED_FAIL_SIGNATURE_SUBKINDS, and every entry must be a mismatch string the
+    expectations verifier can actually emit for THIS spec: a ``recordings.count``
+    line, or a required-miss / forbidden-hit line whose pattern is declared in the
+    spec's own ``[expectations.logContracts]``. A signature naming a pattern the spec
+    no longer declares could never match, so the quarantine would silently stop
+    absorbing its defect; that is caught here rather than at the next flight."""
+    errors: List[str] = []
+    if not isinstance(exp_fail, dict):
+        return ["expectedFail: must be a table"]
+    unknown = sorted(k for k in exp_fail if k not in EXPECTED_FAIL_KNOWN_KEYS)
+    if unknown:
+        errors.append("expectedFail: unknown key(s) %s (accepted: %s)"
+                      % (unknown, list(EXPECTED_FAIL_KNOWN_KEYS)))
+    if EXPECTED_FAIL_MISMATCHES_KEY not in exp_fail:
+        return errors
+    sigs = exp_fail.get(EXPECTED_FAIL_MISMATCHES_KEY)
+    key = "expectedFail.%s" % EXPECTED_FAIL_MISMATCHES_KEY
+    if (not isinstance(sigs, list) or not sigs
+            or not all(isinstance(s, str) and s.strip() for s in sigs)):
+        errors.append("%s: %r must be a non-empty list of non-empty strings" % (key, sigs))
+        return errors
+    if len(set(sigs)) != len(sigs):
+        errors.append("%s: duplicate entries %s" % (
+            key, sorted({s for s in sigs if sigs.count(s) > 1})))
+    if not (exp_fail.get(EXPECTED_FAIL_BUG_ID_KEY, "") or ""):
+        errors.append("%s: requires a non-empty expectedFail.bugId (the signature is "
+                      "inert without one)" % key)
+    ef_subkind = exp_fail.get(EXPECTED_FAIL_SUBKIND_KEY, "") or ""
+    if ef_subkind not in EXPECTED_FAIL_SIGNATURE_SUBKINDS:
+        errors.append("%s: requires expectedFail.subkind in %s (got %r); only those "
+                      "verifiers report a per-token mismatch list"
+                      % (key, list(EXPECTED_FAIL_SIGNATURE_SUBKINDS), ef_subkind))
+        return errors
+    log_contracts = ((expectations or {}).get("logContracts", {}) or {})
+    required = set(log_contracts.get("required", []) or [])
+    forbidden = set(log_contracts.get("forbidden", []) or [])
+    for s in sigs:
+        if s.startswith(EXPECTATION_REQUIRED_MISS_PREFIX):
+            pat = s[len(EXPECTATION_REQUIRED_MISS_PREFIX):]
+            if pat not in required:
+                errors.append("%s: %r names a pattern not in "
+                              "expectations.logContracts.required" % (key, s))
+        elif s.startswith(EXPECTATION_FORBIDDEN_HIT_PREFIX):
+            pat = s[len(EXPECTATION_FORBIDDEN_HIT_PREFIX):]
+            if pat not in forbidden:
+                errors.append("%s: %r names a pattern not in "
+                              "expectations.logContracts.forbidden" % (key, s))
+        elif s.startswith(EXPECTATION_COUNT_PREFIX):
+            pass
+        else:
+            errors.append("%s: %r is not a mismatch the expectations verifier emits "
+                          "(expected a %r, %r or %r line)"
+                          % (key, s, EXPECTATION_REQUIRED_MISS_PREFIX,
+                             EXPECTATION_FORBIDDEN_HIT_PREFIX, EXPECTATION_COUNT_PREFIX))
+    return errors
 
 
 def classify_expected_fail(base: Verdict, bug_id: str, signature_matched: bool) -> Verdict:

@@ -15,6 +15,76 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## KSP-SETTINGS-AUDIT-2026-09-26: stock difficulty, game-mode and settings.cfg values Parsek mishandles or has never run under [FILED 2026-09-26 from the stock-settings audit, branch `ksp-settings-audit`. OPEN; owner rulings taken 2026-09-26 (Q1-Q4); Q5 and Q6 are supervisor defaults the owner did not override]
+
+Audit of every player-facing stock KSP 1.12.5 setting (new-game modes and presets, the 103
+`GameParameters` fields, the 306 `settings.cfg` keys, the Alt+F12 cheats) against what
+Parsek reads or assumes. Report and evidence: `docs/dev/research/ksp-settings-vs-parsek-2026-09-26.md`
+plus its three companion files. Every item below was invisible to the test estate: all
+committed fixtures carry Normal-preset values (x1 multipliers, quickload on, Kerbin
+calendar), and both the dev and the automation KSP instances run `MAX_VESSELS_BUDGET = 10000`,
+`DECLUTTER_KSC = False` where players run 250 / True. Each fix lands with a unit cell at a
+non-Normal value.
+
+Bugs (no ruling needed):
+
+- S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
+  pre-multiplier value to `subject.science`, then multiplies before `AddScience`; Parsek
+  captures `subject.science` (`GameStateRecorder`) and credits it as `ScienceAwarded`, so on
+  Easy (x2), Moderate (x0.9) and Hard (x0.6) the ledger drifts from the live pool and a rewind
+  resets science to the x1 total. Fix: stamp the multiplier at capture; never read the
+  current multiplier at replay.
+- S2. `Career.RepLossDeclined` (Normal 1, Hard 3) never reaches the ledger: `ContractDeclined`
+  is dropped in `GameStateEventConverter` and `ReputationPenaltySource.ContractDecline` is
+  never constructed, so a rewind refunds the reputation. Fix: a KSC-origin reputation
+  penalty row carrying the amount stock applied.
+- S3. Logistics hard-codes a 21600 s day: `LogisticsWindowUI.FormatDuration` switches to days
+  at 86400 s but divides by 21600 (24 h reads "4.0d"), and `RouteCadence` parses "d" as
+  21600 s on the Earth calendar too. Fix: route both through `ParsekTimeFormat`.
+- S4. A zero starting pool is never seeded (`EnsureInitialFundsSeed` seeds non-zero only;
+  the stock slider allows 0 funds, Science mode can start at 0 science), and the value wait
+  spins its full 600 frames on every load. Also `DeferredSeed` and
+  `ApplyBudgetDeductionWhenReady` wait 120 frames for currency singletons Science and
+  Sandbox never create.
+- S5. Ghost map vessels count toward the stock vessel budget: `Game.Updated` builds the
+  pruned `FlightState` before `ParsekScenario.OnSave` strips ghosts, and ghosts are live,
+  `prst=True`, non-Debris vessels in FLIGHT and TRACKSTATION, so each one pushes one real
+  debris vessel out of a player-default save (inferred from the decompile, not flown).
+  Related: a background-recorded debris vessel that stock pruned gets a silent on-rails
+  state after reload (add a load check and one summary log line); an autoclean recovery
+  matches pending-tree recordings by vessel NAME only (low); and
+  `ParsekFlight.EnforceMinDebrisPersistence` reflects for a GameSettings field that does not
+  exist in 1.12.5 (delete it).
+
+Owner rulings (2026-09-26):
+
+- S6 (Q4). The `stock-minimal` and `modded-compat` provision profiles run player defaults
+  (`MAX_VESSELS_BUDGET = 250`, `DECLUTTER_KSC = True`); re-fly the daily tier once after the
+  flip. The S5 fix gets unit and in-game cells, no dedicated low-budget lane.
+- S7 (Q1). Rewind-to-Separation and Re-Fly IGNORE `Flight.CanQuickLoad` / `Flight.CanRestart`
+  (they are Parsek's own time mechanic). Only the re-fly exit must stay reachable: stock
+  builds the Esc-menu Revert button only when `CanRestart`, so `ReFlyRevertButtonGate` alone
+  cannot surface Retry / Discard on the Hard preset (inferred, needs a live check).
+- S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
+  kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.
+- S9 (Q3). Parsek is inert (no recording, ghosts or rewind; one log line) in `MISSION`,
+  `MISSION_BUILDER`, `SCENARIO` and `SCENARIO_NON_RESUMABLE` games.
+
+Supervisor defaults (not overridden):
+
+- S10 (Q5). Parsek IMGUI windows ignore `GameSettings.UI_SCALE`; scale them to match. Separate
+  UI work, not in the fix PR.
+- S11 (Q6). Alt+F12 cheat currency (`TransactionReasons.Cheating`) stays unledgered and
+  clamp-held until the next rewind; log it once per event.
+
+To trace before filing as defects (low): `AllowNegativeCurrency` against reserved funds on
+spends no click-block covers; `AutoHireCrews` hire capture; Set Orbit / Set Position teleports
+inside a live recording; infinite-propellant recordings vs route cost manifests;
+`persistKerbalInventories` vs inventory-carrying recordings; alternate launch sites with
+`AllowOtherLaunchSites` off.
+
+---
+
 ## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
 
 The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
@@ -284,7 +354,28 @@ orbit-only checkpoint branch and Absolute points only - the checkpoint-with-fram
 position, so a small chord term in the residual), body-fixed primary and recorded-anchor RELATIVE
 decodes are implemented and unit-plumbed but not yet read live.
 
-## MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`]
+## ~~MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load~~ [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`; FIXED 2026-09-26 on branch fix-mission-clone-loop, supervisor ruling: clone disarms its loop, CONFIRMED by the operator 2026-09-26]
+
+**Fix:** `MissionStore.Clone` (the only path that inserts a copy into the store; the Clone button
+and `UiAction op=clone` both call it) sets the copy's `LoopPlayback` to false when the source
+loops, so the one-loop-per-tree invariant holds the moment the copy exists and the original keeps
+looping. `Mission.Clone` stays a faithful definition copy (the in-game `RealSaveMissionFinder`
+probes clone and arm a detached probe that never enters the store). The copy keeps the period,
+unit and anchor: the anchor is re-stamped by `SetLoopEnabled` on every enable, and the period /
+unit are what a later enable loops with. Logged as `Clone: copy '<name>' (tree=<id>) created with
+loop OFF because source '<name>' loops (one loop per tree); period=<s> unit=<u> kept for a later
+enable`. Cells: `MissionStoreTests.Clone_OfLoopingMission_LeavesExactlyOneLoopOnTheTree_AndLogsTheDisarm`,
+`Clone_OfNonLoopingMission_CopiesSettings_AndLogsNoDisarm`, and the updated
+`Clone_CopiesSelection_IntoAnIndependentMission`. `MS-1-mission-leg-trim-clone` drops the copy's
+`MissionLoopUnit` token (it only existed because of this defect), pins `loop=false` plus the new
+store line, and forbids `already owned by another looping unit`; those tokens are re-cut from
+source and not yet re-read on a flight. The Clone tooltip now also says a looping mission's copy
+starts with Loop off (operator request with the confirmation; the Loop toggle's own tooltip
+already names the one-loop-per-tree clear). Operator context: mission looping is mostly a
+debugging surface today and its player-facing controls may be removed in a later version, once
+the looping system and Logistics (which depends on it) are proven bug-free. Route backing missions (`RouteBackingMission.BuildMission`) are
+synthesized per frame and never inserted into the store, so they are not a copy path.
+
 
 `Mission.Clone` copies `LoopPlayback` (with the period, unit and anchor) and
 `MissionStore.Clone` inserts the copy without running the one-loop-per-tree clear that
@@ -330,7 +421,7 @@ periapsis. The deferral delays the `CannotSpawnSafely` verdict (and keeps the gh
 meanwhile); `Terminal spawn succeeded after defer` is reachable only if the re-evaluated orbit
 differs from the first one.
 
-## SS1-WARPTOUT-WARP-LOCKED-AFTER-LOAD: `WarpToUT` refused `warp-locked` for at least 19 s after a load that other runs warped from at the same moment [FILED 2026-09-26 from SS-1. OPEN, harness flake]
+## SS1-WARPTOUT-WARP-LOCKED-AFTER-LOAD: `WarpToUT` refused `warp-locked` for at least 19 s after a load that other runs warped from at the same moment [FILED 2026-09-26 from SS-1. OPEN, harness flake; the holder diagnostic LANDED 2026-09-26, the cause waits for the next occurrence]
 
 SS-1 attempt `2026-09-25_2106`: `warptout refused reason=warp-locked ut=715` 3.2 s after
 `Unpacking Kerbal X` / `Unpacking Kerbal X Probe`, and `warptout refused reason=warp-locked
@@ -342,6 +433,17 @@ of which opened; the window locks are CAMERACONTROLS), and KSP.log names no lock
 Fix: make the `warptout refused reason=warp-locked` line name the lock ids
 (`InputLockManager.lockStack` keys whose mask includes TIMEWARP), so the next occurrence says
 who holds it.
+
+~~Diagnostic~~ done (branch `fix-seam-hygiene`): the refusal log line now reads
+`warptout refused reason=warp-locked ut=<ut> holders=<ids>`, built by the pure
+`TestCommandWarpToUT.FormatTimeWarpLockHolders` over `InputLockManager.lockStack`
+(`Dictionary<string, ulong>`, verified by ilspycmd; `IsLocked` is `(lockMask & type) != 0`).
+The ids are ordinal-sorted and comma-joined; `none` means `lockMask` carries TIMEWARP with no
+stack entry (the field is public and settable), `unknown` means the stack read threw. The
+response msg token stays the bare `warp-locked`. Still open, and needs a flight to close: the
+cause itself. When the next `warp-locked` refusal appears in a collected KSP.log, read the
+`holders=` value and file the owner (a stock lock names its own subsystem; a Parsek id means a
+Parsek path does take a TIMEWARP lock here after all).
 
 ## SS1-DUPLICATE-COMPLETION-DELIVERY-IN-WARP: a non-live ghost's PlaybackCompleted is delivered twice in one warp frame pair [FILED 2026-09-26 from SS-1. OPEN, report-only, harmless today]
 
@@ -421,15 +523,39 @@ previous file intact, and the next load must recover. Closed inside ONE boot (su
 **Scope.** The recording-sidecar write path (the staged `.prec`), and a cold load inside the same
 process rather than a new process. The direct `SafeWriteConfigNode` callers are filed below.
 
-## SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT: a crash mid-save leaves `<file>.tmp` next to the ledger, game-state, milestone and settings files and nothing removes it [FILED 2026-09-26, coverage wave 13, branch `cov-safewrite`; OPEN, low: litter, not data loss]
+## ~~SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT: a crash mid-save leaves `<file>.tmp` next to the ledger, game-state, milestone and settings files and nothing removes it~~ [FILED 2026-09-26, coverage wave 13, branch `cov-safewrite`; FIXED 2026-09-26 on branch `fix-safewrite-tmp`]
 
 `Ledger`, `GameStateStore`, `MilestoneStore` and `ParsekSettingsPersistence` write through
 `FileIOUtils.SafeWriteConfigNode` straight to `<file>.tmp` (no `.stage.` name). A crash between the temp
 write and the swap leaves the previous file intact (the ordering contract ST-4 proves on the sidecar
-path) and a `<file>.tmp` beside it. `RecordingStore.CleanOrphanFiles` only scans `Parsek/Recordings/`,
+path) and a `<file>.tmp` beside it, except in one corner: on the move-aside fallback of
+`FileIOUtils.ReplaceDestination` (taken when `File.Replace` throws), a crash after the destination
+moved to `<file>.bak.<guid>` and before the `.tmp` moved into place leaves NO real file, the previous
+bytes in the `.bak.<guid>` and the newest complete bytes only in the `.tmp`. `RecordingStore.CleanOrphanFiles` only scans `Parsek/Recordings/`,
 so nothing deletes that `.tmp`; the next successful write of the same file overwrites it, so it never
 accumulates and is never read. Found by reading the sweep's scope while building ST-4, not by a flight.
-Fix if wanted: a load-time delete of `<file>.tmp` for those four known paths.
+
+**Fix:** `FileIOUtils.SweepStaleSafeWriteTemp(path, tag)` deletes `<path>.tmp` when `<path>` exists
+(Info-logged with its size, fail-open on IO errors, never touches `<path>` or the swap fallback's
+`.bak.<guid>`). When `<path>` is MISSING it keeps the `.tmp` and Warns with its path, size and any
+`<path>.bak.*` sibling: that `.tmp` is either the only copy of the newest save (the fallback-swap
+corner above) or a partial first-ever save, indistinguishable, so it is neither deleted nor promoted
+and is left for recovery by hand. Each store calls it at the top of its LOAD path before reading the real file: `Ledger.LoadFromFile`,
+`GameStateStore.LoadEventFile`, `MilestoneStore.LoadMilestoneFile`,
+`ParsekSettingsPersistence.LoadIfNeeded`. `GameStateStore.SaveBaseline` also writes through the same
+helper to per-UT `baseline_<ut>.pgsb` names that never repeat, so its residue DID accumulate;
+`LoadBaselines` sweeps them with the directory form `SweepStaleSafeWriteTemps(dir, "baseline_*.pgsb")`.
+Safe to delete at load: safe-writes are synchronous on the main thread and Parsek starts no threads,
+so no write of the same file can be in flight during its load; with the real file present the
+residue is deleted, not promoted, because the load already reads the real file. The directory form
+applies the same per-file rule and logs `deleted= keptRealMissing= failed=`. The recordings sweep keeps its own pattern scan (recording-id classification,
+`.stage.` / `.bak.` names, the known-ids guard) and now shares only the `SafeWriteTempSuffix`
+constant with the producer and this helper. Not swept: `RenderCompositionRecorder`'s manifest (an
+automation-only write-only export at the KSP root that nothing loads; the next export overwrites
+it) and the `SafeWriteBytes` writes of `persistent.sfs` by the in-game test batch isolation, whose
+save-root `.tmp` is outside Parsek's own folders. Cells in `SafeWriteTempSweepTests` (helper
+behavior including the kept-when-real-missing and interrupted-fallback-swap cells, plus each store's
+real load path against a temp dir; removing the five call sites reds all six store cells).
 ## STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show [FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`)]
 
 The first real-game look at the annotations: 25 PNGs on the committed `stock-screen-census`
@@ -1290,13 +1416,13 @@ derived `max = 0`. GS-7's comment and the roadmap item are corrected.
 - GS-7 re-read: see the defect paragraph; its comment is corrected.
 
 **Residue.** See RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT below for the other staged
-lists this fix does not carry. The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
+lists this fix does not carry (carried since 2026-09-26). The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
 host save's UT, which is 60 s BEFORE the RP UT, so a fixture re-fly runs with the clock before
 its own RP. Nothing on the committed lanes calls CanInvoke inside a fixture session, but a
 Retry from Rewind Point there would read the gate; production RP quicksaves are written after
 the RP stamps its UT and never have this shape.
 
-## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. OPEN]
+## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. FIXED 2026-09-26 on branch `fix-rewind-staged-lists` (headless only, not flown). The related open question below stays OPEN]
 
 `LoadRewindStagingState` rebuilds RECORDING_SUPERSEDES, RECORDING_REWIND_RETIREMENTS,
 LEDGER_TOMBSTONES and the merge journal from the same OnLoad node, and on a plain rewind that
@@ -1306,6 +1432,45 @@ Re-Fly merge in ANOTHER tree after the last persistent write would lose its supe
 tombstones on the next Rewind-to-Launch, while its RP now survives from memory. Not measured
 live; derived from the mechanism. Fix direction: carry every staged list the same way (the
 supersede re-apply `ReapplyRewindSupersedeDropAfterLoad` would then run on the carried list).
+
+**Which writes miss the file.** A live Re-Fly merge is NOT one of them: `MergeJournalOrchestrator`
+saves persistent.sfs synchronously at Durable Saves #1-#3. What leaves the file behind memory:
+a merge finished by the load-time finisher (its durable saves are deferred), the Re-Fly invoke's
+resurrected-recovery tombstones, a tree discard purge (removals, so the file resurrects rows),
+and an earlier rewind's own drop and retirements (a second Rewind-to-Launch in another tree
+before any persistent write re-read the dropped rows and lost the retirements, so the first
+rewind's re-flown fork could show again).
+
+**Repro** (`RewindStagedListsCarryTests`, real `SaveRewindStagingState` / `LoadRewindStagingState`
+through reflection, then the OnLoad order): on origin/main the two-tree case read supersedes
+`["rel_gone"]` instead of `["rel_b"]` (tree B's memory-only row lost, a purged row resurrected).
+
+**Fix.** Per list, memory wins wholesale, exactly like the RP carry (no union, so a row both hold
+appears once as the in-memory instance and a row memory removed stays removed):
+`RecordingStore.CaptureRewindStagedListsForRewind` (new partial
+`RecordingStore.RewindStagedListsCarry.cs`) runs in `ExecuteRewindSaveLoad` AFTER the pre-load
+supersede drop and before the scene load, so the capture already holds this rewind's drop and
+retirements; `ParsekScenario.OnLoad` calls `ReinstallRewindCarriedStagedListsAfterLoad` right
+after the RP carry and BEFORE `ReapplyRewindSupersedeDropAfterLoad`, so the re-apply runs on the
+carried list (a no-op in production, the live drop is already in it; the test without the
+pre-load drop proves the re-apply still drops the rewound tree's fork). Same gating as the RP
+carry: installed only while `RewindContext.IsRewinding`, dropped by `ResetRewindFlags` and by a
+non-rewind load. Log `Staged lists carried across rewind: supersedes installed= loadedFromSave=
+restored= staleDropped=; retirements ...; tombstones ...; journal installed= loadedFromSave=`.
+- Supersedes: what a rewind undoes is unchanged - the rewound tree's rows whose forks start at or
+  after the rewind UT, via the same drop. Other trees' rows are kept, as the RP carry keeps
+  other trees' RPs.
+- Retirements: the rewind only adds them (through the drop); carried wholesale.
+- Tombstones: the rewind never touched them on the disk path either; carried wholesale, which
+  also keeps them consistent with the ledger, which the rewind keeps in memory. NOT changed and
+  left as a product question: the rewound tree's own Re-Fly tombstones survive the drop that
+  un-supersedes their origin (both before and after this fix).
+- Merge journal: carried only when the capture is null or `Complete`
+  (`ShouldCarryMergeJournal`). Both plain-rewind entry points refuse an in-flight in-memory
+  journal, so the capture is always that; a journal on disk is then one memory already drove
+  or rolled back, and installing null keeps the next load's `RunFinisher` from driving it a
+  second time after the rewind cleared the Re-Fly marker (the rewind branch runs no finisher).
+  An in-flight capture (unreachable) keeps the loaded journal and Warns.
 
 Related open question (UNVERIFIED): `DropSupersedesRewoundOutOfExistence` drops the owner
 tree's non-canon supersede rows whose forks start after the rewind UT. An RP that survives
@@ -1475,7 +1640,17 @@ PASS attempt 1 with every token as written; EX-1 armed `_1820` PASS on the fix-u
 `756a9ce6...` (`746e6c48e`), negative control `_1822` red on exactly its one seed. LF-1 / LF-2
 were not re-flown on the fix-up DLL (the fix-ups do not touch a subject outside the zone).
 
-## D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: a promoted staging booster still has its debris TTL armed [FILED 2026-09-23 off GS-11. OPEN, low]
+## ~~D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: a promoted staging booster still has its debris TTL armed~~ [FILED 2026-09-23 off GS-11. FIXED 2026-09-26 on branch fix-promoted-debris]
+
+**FIXED 2026-09-26 on branch fix-promoted-debris.** Fix: `BackgroundRecorder.OnVesselRemovedFromBackground`
+now removes the pid from `debrisTTLExpiry` and logs `Debris TTL cancelled: pid=<p> expiryUT=<u>
+reason=removed-from-background` (Info, only when an entry existed). Every caller is a vessel
+leaving the background for good (promotion, dock/board merge, switch-segment consume, EVA-board
+promotion, background-parent split); `EndDebrisRecording` removes the entry itself before routing
+there, so a real TTL close logs no cancel. Headless cells in `BackgroundRecorderTests`
+(`OnVesselRemovedFromBackground_CancelsDebrisTTL_AndLogsIt` and two neighbours). Not changed: a
+promoted booster switched AWAY from again is re-backgrounded without a new TTL (as before). Not
+re-flown; GS-11 fact (3) now expects the cancel line instead of `Debris TTL expired`.
 
 Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the booster pid 2353949206
 was promoted to the FOREGROUND recorder at UT ~71.5 (`Promoted recording 'baa46b97...' from
@@ -1493,7 +1668,26 @@ Fix: remove the pid from `debrisTTLExpiry` in `OnVesselRemovedFromBackground` (o
 promotion path only), and log it. GS-11's header names the line as expected; flip that note
 when fixed.
 
-## D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance [FILED 2026-09-23 off GS-11. OPEN]
+## ~~D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance~~ [FILED 2026-09-23 off GS-11. FIXED 2026-09-26 on branch fix-promoted-debris]
+
+**FIXED 2026-09-26 on branch fix-promoted-debris.** Source found: not live bookkeeping but
+`VesselSpawner.SnapshotVessel` at recorder stop, which resolved the capture's flat `Points`
+(first point, last point, `ComputeMaxDistance`) through `GetWorldSurfacePosition`; the promoted
+foreground recorder had entered RELATIVE mode near the sibling booster, so the flat list carried
+anchor-local metres. The finalize backfill never corrected it because
+`ClassifyMaxDistanceBackfillRoute` skips a recording whose maxDist is already non-zero. Fix: a pure
+`ClassifySnapshotDistanceRoute` sends any capture with a Relative TrackSection through
+`TryComputeSnapshotDistancesFromBodyFixedSurfaces`, which reuses
+`TryComputeMaxDistanceFromBodyFixedSurfaces` / `CollectBodyFixedSectionSamples` (Absolute `frames`
++ Relative `bodyFixedFrames`, earliest sample as the launch reference) for `MaxDistanceFromLaunch`,
+and measures `DistanceFromLaunch` from the same reference to the live vessel or, when destroyed, to
+the latest body-fixed sample. Mirror site fixed too: the destroyed path's `EndBiome` now resolves
+at the latest body-fixed sample (`TryGetEndBiomeSamplePoint`), not the flat tail. Captures with no
+Relative section keep the flat list. Headless cells: `PromotedDebrisSnapshotDistanceTests`. Not
+re-flown. Residual (not changed): the capture's distance is measured from the promotion point,
+not the booster's own first background sample, and `TryAppendCapturedToTree` keeps the larger of
+the two values; and a capture built on the vessel-switch stop path while a Relative section is
+still OPEN (not yet in the deep-copied `TrackSections`) would still take the flat route.
 
 Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the promoted booster fell
 about 5 km from the pad, yet its death snapshot reads `Vessel was destroyed during recording.
@@ -1880,7 +2074,7 @@ destroy of the ghost in between. EX-1 is un-quarantined and claims D18
 pre-fix armed log `2026-09-23_0010` misses the two new required tokens and hits the
 forbidden stale-destroy form.
 
-**Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions.
+**Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions. (Historical: EX-1 is un-quarantined, and since 2026-09-26 a quarantine can pin its exact tokens with `[expectedFail] mismatches`.)
 
 ## ~~HELD-GHOST-SECOND-COMPLETION-AFTER-RELEASE: a past-end slot re-fires its completion (and one more spawn attempt) the frame after any destroy~~ [FILED 2026-09-23 from the #1776 review. RULED 2026-09-23: keep it as a last retry]
 
@@ -1903,7 +2097,25 @@ just after the timeout gets that one late attempt. Question: should `DestroyGhos
 completion mark for a slot that is still past end (the dedup the comment on
 `completedEventFired` describes), or is the extra attempt wanted? Not driven by a lane.
 
-## EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an expectedFail key matches on the PARSEK-FAIL subkind only, so a quarantine for one log-contract defect absorbs any other log-contract red [FILED 2026-09-23 from the #1772 review. OPEN; harness, small]
+## ~~EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an expectedFail key matches on the PARSEK-FAIL subkind only, so a quarantine for one log-contract defect absorbs any other log-contract red~~ [FILED 2026-09-23 from the #1772 review. FIXED 2026-09-26 on branch fix-expectedfail-signature]
+
+**Fix:** `[expectedFail]` takes an optional `mismatches = [...]` list of the exact
+expectations-verifier mismatch strings the defect produces (copied from a red run's
+`verifiers.expectations.mismatches`). `hlib.expected_fail_signature_matched` demotes only
+when the run's mismatch SET EQUALS the declared set (read through
+`hlib.expected_fail_observed_mismatches`); an extra red, or a declared token that stopped
+failing, stays PARSEK-FAIL, and run.py Warn-logs the `unexpected=` / `missing=` difference.
+Equality rather than subset so a half-reproduced defect also surfaces (rationale in
+`design-autotest-harness-core.md`, "Per-token signatures"). Supported for
+`subkind = "expectation"` only (`hlib.EXPECTED_FAIL_SIGNATURE_SUBKINDS`); fails closed
+otherwise. `hlib.validate_expected_fail_block` rejects unknown `[expectedFail]` keys, a
+malformed list, a list without `bugId` or a supported `subkind`, and any entry naming a
+pattern the spec does not declare. Key absent = the subkind-only match, unchanged. No
+committed spec carries the key: EX-1 was un-quarantined by the held-ghost fix, and the one
+live quarantine (`EVA-5-ground-science-place-pickup`, `subkind = "analyzer"`) is on a row
+with no per-token list. Unit cells `ExpectedFailMismatchSignatureTests` (test_hlib.py) and
+`ExpectedFailMismatchSignatureSmokeTests` (test_run_smoke.py, through run.run_attempt).
+
 
 `hlib.expected_fail_signature_matched` demotes a PARSEK-FAIL to EXPECTED-FAIL when its
 subkind equals `[expectedFail] subkind` (or on any subkind when none is named). For
@@ -3504,7 +3716,7 @@ state map plus facade), the KNOTS greedy cuts and the upward-edge count; the rem
 items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
 ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
 
-## TQ-1-mapview-refused-doc-says-rejected: the `MapViewToggleOutcome.Refused` XML doc promises a REJECTED verdict but the seam emits ERROR [FILED 2026-09-15 off test-quality-audit, evidence `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24@4aedb0a`]
+## ~~TQ-1-mapview-refused-doc-says-rejected: the `MapViewToggleOutcome.Refused` XML doc promises a REJECTED verdict but the seam emits ERROR~~ [FILED 2026-09-15 off test-quality-audit, evidence `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24@4aedb0a`; FIXED 2026-09-26, branch `fix-seam-hygiene`]
 
 **What is true.** `RefusalVerdict` (`TestCommandMapViewVerbs.cs:171-177`) returns `"REJECTED"` only
 for `Unavailable` (the pre-call `MapView.fetch == null` gate) and `"ERROR"` for `Refused` (stock was
@@ -3522,6 +3734,11 @@ mismatches against the ERROR the seam emits.
 **Fix.** Documentation only: change the last sentence of the `MapViewToggleOutcome.Refused` doc to
 say ERROR with the per-direction reason (and, optionally, point at `RefusalVerdict` for the
 REJECTED/ERROR rule). Do not touch `RefusalVerdict` - the behavior is the contract.
+
+**Done.** The `Refused` doc now says ERROR with the per-direction reason and points at
+`RefusalVerdict`. Behavior re-checked before the edit: `ParsekTestCommandAddon.MapView.cs` takes
+its verdict from `RefusalVerdict`, which returns ERROR for `Refused`, and the existing pin
+`RefusalVerdict_IsRejectedOnlyBeforeStockIsCalled` asserts it. No code or test changed.
 
 ## TQ-2-wheel-damage-guard-needs-live-transform: `GhostVisualBuilder.IsRendererOnDamagedTransform`'s names guard and ancestor walk have no test that can fail [FILED 2026-09-22 off test-quality-audit Phase B, row F-catchall-060-02. A COVERAGE gap, not a defect. OPEN]
 
@@ -19765,7 +19982,21 @@ A 2026-06-10 online sweep of what KSP players actually fly (stock career contrac
 
 ---
 
-## TODO - RunOptimizationPass's FlushDirtyFiles bumps SidecarEpoch outside OnSave (observed 2026-08-29 while fixing the Ensure-pass integrity pair, NOT fixed - pre-existing, out of scope)
+## ~~TODO - RunOptimizationPass's FlushDirtyFiles bumps SidecarEpoch outside OnSave~~ [observed 2026-08-29 while fixing the Ensure-pass integrity pair; FIXED 2026-09-26, branch `fix-optimizer-epoch`]
+
+**Fixed 2026-09-26.** Reproduced headlessly first (`OptimizerFlushSidecarEpochTests.LoadOptimizeQuitWithoutSave_NextColdLoadStillHydratesTheSidecar`, real writer through `RecordingPaths.SaveRootOverrideForTesting`, which `EnsureRecordingsDirectory` now also honours): OnSave at epoch 1 -> cold load -> dirty -> `RunOptimizationPass` -> no save -> cold load of the same `.sfs` failed with `reason=stale-sidecar-epoch sfsEpoch=1 precEpoch=2`. On cold load that failure is not cosmetic: `DropFailedSidecarHydrationRecordings` drops the recording, and the whole tree when it is the root. The load path is reachable in the game: decompiled `SpaceCenterMain.Start` reloads `persistent` without saving when the game has a flight state, so after a cold load nothing writes `persistent.sfs` until a scene change or quit-to-menu, and a crash or kill in that window hits it.
+
+The full caller set was walked, not just the load pass. `FlushDirtyFiles` has four callers: `RunOptimizationPass` (load and every commit), `CommitRecordingDirect`, `CommitGloopsRecording` and `CommitTree`. All four are out-of-band (none is `OnSave`), and the commit ones are worse than the load one: their stated purpose is closing the crash window, yet for a recording the last `.sfs` already carries (the pending / active tree written by the scene-exit save) the bump made the crash-window write itself the thing that dropped the recording on the post-crash load. So the rule is applied in `FlushDirtyFiles` for every caller: `RecordingStore.ShouldAdvanceSidecarEpochOnFlush` preserves a positive epoch (the documented bug-#290 out-of-band rule) and defers its advance to the next OnSave, and seeds epoch 1 for a recording at epoch 0.
+
+The mirror direction has two guards. **Deferred advance:** preserving the epoch alone would be permanent, not temporary - the flush clears `FilesDirty` and leaves `.prec` epoch == `rec.SidecarEpoch`, so `ParsekScenario.EnsureRecordingFilesCurrentForSave`'s skip-when-current path (`FilesDirty || !filesCurrent`) never rewrites the recording and a pre-flush quicksave would match the rewritten content forever (review finding on PR #1863; mutation-checked - dropping the new trigger reds two cells). So a preserved flush also sets the runtime-only `Recording.SidecarEpochAdvancePending`; `EnsureRecordingFilesCurrentForSave` treats it like dirty and rewrites with `incrementEpoch: true`, so `.prec` and the tree node move to N+1 in the same OnSave, and any epoch-advancing write clears the flag. All three OnSave passes (committed, active, pending tree) go through that one function, and the active tree's classify pass lists every recording as a write candidate, so none can skip it. The flag lives on the recording object: committed recordings are static in `RecordingStore`, so it survives scene changes in the process; the sites that REPLACE the object carry it (`Recording.DeepClone`, `RecordingStore.PreserveLiveRuntimeFieldsOnReplace`, both hydration-repair refresh sites). **Epoch-0 seed:** a recording at epoch 0 (new commits, optimizer split second halves) is written at 1 instead, because 0 skips `ShouldSkipStaleSidecar` entirely and a flush-written 0 would never be advanced; seeding strands nothing (every `.sfs` that can name it holds 0 or nothing). Cells: `FlushThenRealOnSave_AdvancesPrecAndSfsTogether_AndAPreFlushQuicksaveReadsStale` (drives the real `ParsekScenario.SaveTreeRecordings`), `AdvancePendingClearsAfterTheSave_AndTheNextSaveLeavesTheEpochAlone`, `AdvancePending_SurvivesTheObjectSwapsItCanMeet`, `FlushOfANeverSavedRecording_SeedsEpochOne_SoStaleDetectionIsArmed`.
+
+**The accepted window**, the one this entry flagged: between a flush and the next OnSave - and for good if the process ends first, since the flag is not persisted - a quicksave taken before the flush reads the flushed content at a matching epoch instead of being rejected as stale. That is the state bug #290 already accepted for the BG-recorder and scene-exit force-writes, which run just before the commit flush on the same recordings. What that old `.sfs` then reads, per flush kind:
+- **Normalization** (checkpoint-bridge Ensure, re-sort): equivalent content, nothing lost.
+- **Optimizer split**: the original's `.prec` holds only the first half; the old `.sfs` pairs it with the original's pre-split terminal state and vessel snapshot, and the old `_vessel.craft` is still on disk (the split moves the snapshot to the second half and `SaveRecordingFiles` never deletes a snapshot sidecar when the in-memory one is null), so the recording ends at the split and then reports / spawns the whole flight's ending. The second half's recording is unknown to that `.sfs` (orphaned). Previously the whole original was dropped as stale (the tree, when it was the root).
+- **Optimizer merge**: the absorbed recording's sidecars were deleted, so it loads with no trajectory (kept as an empty metadata-only recording, since the drop pass exempts `trajectory-missing` with zero points), and the target plays both spans under its pre-merge metadata. Previously both were lost the same way (target stale-dropped, absorbed empty).
+Every case is equal or less lossy than the old drop. The flush log line now carries `epochPreserved=N epochSeeded=M`, and OnSave logs `advancing deferred sidecar epoch` when it takes the deferred rewrite. Note for routes: the deferred advance moves `SidecarEpoch` at the next save, so a route over a flushed recording sees `sidecar-epoch-drift` exactly as it did when the flush itself bumped - unchanged, not a regression.
+
+Original entry, kept for the analysis:
 
 `RecordingStore.RunOptimizationPass` ends in `FlushDirtyFiles`, which calls `SaveRecordingFiles(rec)` with the default `incrementEpoch: true`. That is an OUT-OF-BAND write (the pass runs inside `ParsekScenario.OnLoad`'s `loadPhase = "optimization"`, and from the commit paths - never from `OnSave`), so it advances the `.prec`'s epoch while the on-disk `.sfs` still carries the previous one. `RecordingSidecarStore.SaveRecordingFiles`'s own bug-#270/#290 comment states the opposite rule for exactly this case: *"On out-of-band writes (incrementEpoch=false): preserve the current epoch so the .prec matches the last OnSave's .sfs. Without this, BgRecorder and scene-exit force-writes would advance the epoch independently, causing false-positive staleness on quickload (bug #290)."* If no save follows the load (load -> quit to desktop), the next cold load hydrates `rec.SidecarEpoch` from the stale `.sfs`, `ShouldSkipStaleSidecar` sees `.prec` one ahead, and the trajectory sidecar is rejected - permanently, since the `.sfs` never catches up.
 
