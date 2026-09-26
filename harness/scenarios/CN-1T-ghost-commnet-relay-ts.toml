@@ -1,6 +1,7 @@
 # CN-1T: the ghost CommNet relay (design 15.6) against the real stock network, TRACKING
-# STATION half. NEVER FLOWN. Same subject and cells as CN-1-ghost-commnet-relay (read its
-# header first): the `ghost-commnet-relay` preset on gloops-airshow, category GhostCommNet.
+# STATION half. FLOWN AND ARMED 2026-09-26 (see STATUS below). Same subject and cells as
+# CN-1-ghost-commnet-relay (read its header first): the `ghost-commnet-relay` preset on
+# gloops-airshow, category GhostCommNet.
 #
 # WHY THE LANE BOOTS TO FLIGHT FIRST. The Tracking Station notes a recording's playhead
 # (PlaybackScopeTracker.NotePlayhead) only on its map-presence paths, and the create path
@@ -19,20 +20,30 @@
 # In the Tracking Station a node's position is A's map ProtoVessel (built from the same
 # orbit segment) and B's orbit segment (a hidden recording has no ProtoVessel).
 #
-# THE CELLS. PREDICTED `passed=4 skipped=5`: the 5 FLIGHT cells scene-skip and the four
-# TRACKSTATION cells (synthetic route, registered-node state, the real registered-node route
-# with its negative control and the control-source hop, the preset rulings) execute. Regexed
-# until the first flight (INTERIM_PIN_IDS); pin it whole off the reading run.
+# THE CELLS. MEASURED `passed=4 skipped=5`, as predicted: the 5 FLIGHT cells scene-skip and
+# the four TRACKSTATION cells (synthetic route, registered-node state, the real
+# registered-node route with its negative control and the control-source hop, the preset
+# rulings) execute.
 #
-# COVERAGE: with CN-1, meant to claim D6 `commnet-relay` after a passing flight; not declared
-# yet.
+# STATUS. First flight 2026-09-26_1122: PARSEK-FAIL on ONE cell,
+# GhostRelayNodeBridgesEndpointToHome_TrackingStation, the same TEST geometry defect as
+# CN-1's first flight (the synthetic endpoint reached a registered preset relay directly),
+# fixed in commit 9eee0e80e; every product cell passed. READING RUN 2026-09-26_1131
+# (automation DLL sha256 fcbe2979...): PASS attempt 1, 60 s, `total=9 passed=4 failed=0
+# skipped=5`, zero GhostCommNet WARN / ERROR lines, the TRACKSTATION registrations and cell
+# lines field-for-field identical to CN-1's. ARMED from it (the id left INTERIM_PIN_IDS);
+# offline negative control in docs/dev/autotest-status.md. Armed confirmation re-flight
+# pending.
+#
+# COVERAGE: claims D6 `commnet-relay` with CN-1, in the Tracking Station.
 
 schema = 1
 id = "CN-1T-ghost-commnet-relay-ts"
 tier = "operator"
-description = "NEVER FLOWN. The ghost CommNet relay (design 15.6) in the TRACKING STATION over gloops-airshow plus the ghost-commnet-relay preset (A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over), entered FLIGHT -> LoadGame scene=trackstation so the relays are latched in replay scope: run the in-game GhostCommNet category and require that A and B register nodes, a free endpoint routes home through each real registered node and is cut off without it, A is a multi-hop control source, B relays while hidden, and C registers nothing."
+description = "The ghost CommNet relay (design 15.6) in the TRACKING STATION over gloops-airshow plus the ghost-commnet-relay preset (A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over), entered FLIGHT -> LoadGame scene=trackstation so the relays are latched in replay scope: run the in-game GhostCommNet category and require that A and B register nodes, a free endpoint routes home through each real registered node and is cut off without it, A is a multi-hop control source, B relays while hidden, and C registers nothing."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "tracking-station", "CN-1T", "reading-run"]
+tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "tracking-station", "CN-1T",
+        "flown", "D6", "armed"]
 
 [fixture]
 saveTemplate = "fixtures/saves/gloops-airshow"
@@ -66,6 +77,7 @@ steps = [
 ]
 
 [dimensionsCovered]
+D6  = ["commnet-relay"]   # asserted: A and B registered, the real-node route and its cut control
 D14 = ["sandbox", "scene-ksc"]
 
 [expectations]
@@ -76,13 +88,13 @@ count = { min = 3, max = 3 }
 
 [expectations.logContracts]
 required  = [
-  "BATCH_COMPLETE v1 total=9 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostCommNet scene=TRACKSTATION",
+  "BATCH_COMPLETE v1 total=9 passed=4 failed=0 skipped=5 category=GhostCommNet scene=TRACKSTATION",
   "\\[GhostCommNet\\] Stock CommNet available in scene TRACKSTATION: ghost CommNet nodes enabled",
-  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=TRACKSTATION reason=in-window .* relay=2000000000 .*control=True multiHop=True",
-  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-b node=ParsekGhost:cn-relay-b vessel=\"CN Relay B\" scene=TRACKSTATION reason=in-window .* relay=2000000000 .*control=False multiHop=True",
-  "\\[TestRunner\\] GhostCommNet routing probe \\(TRACKSTATION\\): .* viaGhost=True negativeControl=cut",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=TRACKSTATION reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=True multiHop=True antennas=3",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-b node=ParsekGhost:cn-relay-b vessel=\"CN Relay B\" scene=TRACKSTATION reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
+  "\\[TestRunner\\] GhostCommNet routing probe \\(TRACKSTATION\\): home=\"[^\"]+\" homePower=40000 hops=2 viaGhost=True negativeControl=cut",
   "\\[TestRunner\\] GhostCommNet registered nodes \\(TRACKSTATION\\): checked=2 dark=0",
-  "\\[TestRunner\\] GhostCommNet registered relay route \\(TRACKSTATION\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 ",
+  "\\[TestRunner\\] GhostCommNet registered relay route \\(TRACKSTATION\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 homes=9 keys=cn-relay-a,cn-relay-b\\s",
   "\\[TestRunner\\] GhostCommNet preset rulings \\(TRACKSTATION\\): relayA=registered control=True multiHop=True relay=2000000000 relayB=registered playbackEnabled=False control=False relay=2000000000 relayC=unregistered loop=True reason=historical-never-replayed",
 ]
 forbidden = [

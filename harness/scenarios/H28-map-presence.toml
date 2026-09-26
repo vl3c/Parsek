@@ -57,9 +57,9 @@ tags = ["ingame-batch", "map-presence", "B6", "H28"]
 # WHAT INJECTION DOES NOT FIX, so nobody re-derives it: AntennaSpecsProduceRelayPower
 # is vacuous under EVERY committed asset - no generator ever sets
 # Recording.AntennaSpecs (grep Source/Parsek.Tests/Generators: zero writers), so
-# the D6 commnet-relay cell stays unclaimable off this spec. Closing it is
-# generator work (a RecordingBuilder.WithAntennaSpecs), not spec authoring.
-# Filed in the wave notes in todo-and-known-bugs.md.
+# the D6 commnet-relay cell stays unclaimable off this spec. (2026-09-26: the field and
+# that cell are gone; the rebuilt ghost CommNet relay, design 15.6, has its own category
+# and lanes, CN-1 / CN-1T, which claim D6 commnet-relay.)
 saveTemplate = "fixtures/saves/gloops-airshow"
 injectedRecordings = "all-synthetic"
 craft = []
@@ -93,8 +93,8 @@ steps = [
 # claim survives on the synthetic-ghost half alone, which is genuine
 # ghost-map-presence exercise; it is thinner than the pre-2026-08-05 wording
 # implied, and S1.4 remains the cell's first claim.
-# NOT claimed: D6 commnet-relay (see the fixture note - the only cell that would
-# back it is vacuous under every committed asset).
+# NOT claimed: D6 commnet-relay (CN-1 / CN-1T claim it; this category no longer
+# carries a relay cell).
 D6  = ["ghost-map-presence"]
 D14 = ["sandbox", "scene-flight"]
 D16 = ["sidecar-prec", "schema-gate"]
@@ -152,8 +152,9 @@ count = { min = 274, max = 274 }
 #    skips below) was deleted together with the dead Recording.AntennaSpecs field
 #    it walked. The ghost CommNet relay is now covered by its own GhostCommNet
 #    category (design 15.6). Removing a cell that measurably skipped moves
-#    total 5 -> 4 and skipped 3 -> 2 and leaves passed=2 untouched; re-measure on
-#    the next H28 flight.
+#    total 5 -> 4 and skipped 3 -> 2 and leaves passed=2 untouched. FLIGHT-CONFIRMED
+#    the same day: run 2026-09-26_1123_H28-map-presence, PASS attempt 1, printed
+#    total=4 passed=2 failed=0 skipped=2 token for token.
 #  - skipped=2 was MEASURED as 3 (the deleted cell included), not derived. The ATTRIBUTE floor is still 0 (nothing
 #    scene-skips at FLIGHT, nothing is batch-disabled); all three are run-time
 #    InGameAssert.Skip firings, declared in

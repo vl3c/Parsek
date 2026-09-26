@@ -113,7 +113,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `GameActionsHealth` | 4 | 4 | 4 | 4 | 0 | 3 | B10 / L1 | B |
 | `GhostAudio` | 9 | 8 | 3 | 2 | 0 | 1 | H30 | A |
 | `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | H50 (flown 2026-08-28, executes 4 of 4) | A |
-| `GhostCommNet` | 9 | 5 | 0 | 4 | 0 | 9 | CN-1-ghost-commnet-relay (FLIGHT) and CN-1T-ghost-commnet-relay-ts (TRACKSTATION), both NEVER FLOWN (2026-09-26), over the `ghost-commnet-relay` preset (three copies of one RC-L01 + RA-2 relay craft on a Kerbin-synchronous orbit: A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over). The ghost CommNet relay / control point of design 15.6: a synthetic three-node route with a negative control, a per-node state check against the scene's position resolver and derived powers, the REAL registered nodes carrying a free endpoint home only through themselves (the node taken out cuts it off; a control-source node is the endpoint's closest control source), the preset's operator rulings (A multi-hop control source, B registered while hidden, C unregistered), and a FLIGHT cell for an active vessel linked only to ghost relays, which skips on these lanes' pad vessel (it links KSC directly). Its OWN category for the standing reason (a cell added to `MapPresence` would move H28's pinned tally). Predicted split per lane 4 passed / 5 skipped, regexed until the reading runs; bucket **B** (B7) until a flight pins it whole | B |
+| `GhostCommNet` | 9 | 5 | 0 | 4 | 0 | 9 | CN-1-ghost-commnet-relay (FLIGHT) and CN-1T-ghost-commnet-relay-ts (TRACKSTATION), both LIVE-PROVEN 2026-09-26 (reading runs `2026-09-26_1130` / `_1131`, PASS attempt 1), over the `ghost-commnet-relay` preset (three copies of one RC-L01 + RA-2 relay craft on a Kerbin-synchronous orbit: A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over). The ghost CommNet relay / control point of design 15.6: a synthetic three-node route with a negative control, a per-node state check against the scene's position resolver and derived powers, the REAL registered nodes carrying a free endpoint home only through themselves (the node taken out cuts it off; a control-source node is the endpoint's closest control source), the preset's operator rulings (A multi-hop control source, B registered while hidden, C unregistered), and a FLIGHT cell for an active vessel linked only to ghost relays, which skips on these lanes' pad vessel (it links KSC directly). Its OWN category for the standing reason (a cell added to `MapPresence` would move H28's pinned tally). Measured split per lane 4 passed / 5 skipped, as predicted, and pinned whole by both specs. Stays bucket **B** (B7) on the promotion rule: each lane drives a scene SLICE (4 of 9; the other scene's 4 cells scene-skip), and `ActiveVesselControlPathUsesGhostRelay` skips on both hosts, so no lane drives the category whole | B |
 | `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 4 of 17 over `gloops-airshow` + the `part-showcase` preset with a TimeJump to UT 55, so the showcase ghosts are spawned and five seconds into playback when the batch fires. MOVED OUT OF LT-1 in the same commit: LT-1's host has a corpus but nothing PLAYING at its batch UT, where it measured 2 of 17, so the category now sits on the lane that gives its cells active ghosts. The 13 skips want a loop recording (M1 owns loop units) or two overlapping recordings of one vessel - see the 2026-08-04 body read below, whose ~4-of-17 prediction this host MEASURES at exactly 4. A SLICE at 4 of 17, so the promotion rule below does NOT fire and the bucket stays **B** on `Logistics`' standing precedent, with the residue named here) | B |
 | `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6, H44 (TRACKSTATION slice, flown 2026-08-28, executes 9 of 25 - the WHOLE TS slice, zero run-time skips) | B |
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the map cell wants ghost map vessels, which no unattended FLIGHT batch arms). NOT an LT-2 constituent: its SPACECENTER slice measured the same skip on the census | B |
@@ -217,7 +217,8 @@ Totals, re-derived: **118 categories / 650 declarations**. Buckets **A 89 catego
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
-the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it, never flown.
+the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
+same day and it stays **B** (each lane is a scene slice, 4 of 9).
 The same day `MapPresence` lost one declaration (A 360 -> 359). All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
@@ -1637,11 +1638,15 @@ is not a free swap: `eva3-pad-3crew` would buy it, but its launch clamps trip
 `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so it trades one cell for
 another rather than closing the lane.
 
-**B7 - spec landed, never flown: `GhostCommNet` (9 declarations, 2026-09-26).** Driven by
-`CN-1-ghost-commnet-relay` (FLIGHT) and `CN-1T-ghost-commnet-relay-ts` (TRACKSTATION) over
-the `ghost-commnet-relay` preset, `total=9` literal with the split regexed
-(`IngameBatchWiringGroupTests.INTERIM_PIN_IDS`). It moves to **A** when a reading run
-pins the tally whole. The sub-reason had been RETIRED since 2026-09-11 with the entry
+**B7 - spec landed and flown, a scene slice per lane: `GhostCommNet` (9 declarations,
+2026-09-26).** Driven by `CN-1-ghost-commnet-relay` (FLIGHT) and
+`CN-1T-ghost-commnet-relay-ts` (TRACKSTATION) over the `ghost-commnet-relay` preset. Both
+reading runs (`2026-09-26_1130` / `_1131`) measured `total=9 passed=4 failed=0 skipped=5`
+and both specs pin it whole (the ids left `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`).
+The promotion rule's second half does not fire: each lane drives 4 of 9 (the other scene's
+four cells scene-skip, and `ActiveVesselControlPathUsesGhostRelay` needs a vessel out of KSC
+range with only a ghost relay in reach, which neither pad host has). It stays in **B** on
+`Logistics`' standing precedent for slices. The sub-reason had been RETIRED since 2026-09-11 with the entry
 below, kept for its reasoning.
 
 **B7 (earlier) - RETIRED 2026-09-11: spec landed, first flight measured everything except

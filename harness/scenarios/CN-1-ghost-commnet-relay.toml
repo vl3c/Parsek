@@ -1,6 +1,7 @@
 # CN-1: the ghost CommNet relay (design 15.6) against the real stock network, FLIGHT half.
-# NEVER FLOWN. The TRACKSTATION half is CN-1T-ghost-commnet-relay-ts (one RunTests batch per
-# spec, hlib.SINGLE_BATCH_SELECTOR_RULE, so the two scenes are two lanes).
+# FLOWN AND ARMED 2026-09-26 (see STATUS below). The TRACKSTATION half is
+# CN-1T-ghost-commnet-relay-ts (one RunTests batch per spec, hlib.SINGLE_BATCH_SELECTOR_RULE,
+# so the two scenes are two lanes).
 #
 # THE SUBJECT: the `ghost-commnet-relay` injected preset
 # (SyntheticRecordingTests.GhostCommNetRelayPreset, fact InjectGhostCommNetRelays) adds to
@@ -33,10 +34,10 @@
 # render. The eight RecordingState steps are ~4 s of 1x flight time before the batch, so the
 # relays' window is open when it runs; the rulings cell skips (never fails) if it is not.
 #
-# THE CELLS (category GhostCommNet, 9 declarations: 5 FLIGHT, 4 TRACKSTATION). PREDICTED
-# `passed=4 skipped=5` here: the 4 TRACKSTATION cells scene-skip, and
-# ActiveVesselControlPathUsesGhostRelay skips at run time because the pad vessel links KSC
-# directly. The four that should execute:
+# THE CELLS (category GhostCommNet, 9 declarations: 5 FLIGHT, 4 TRACKSTATION). MEASURED
+# `passed=4 skipped=5` here, as predicted before the first flight: the 4 TRACKSTATION cells
+# scene-skip, and ActiveVesselControlPathUsesGhostRelay skips at run time because the pad
+# vessel links KSC directly. The four that execute:
 #   GhostRelayNodeBridgesEndpointToHome_Flight   synthetic three-node route + negative control;
 #   RegisteredGhostNodesMatchDerivedState_Flight every registered node in the network, at the
 #                                                resolver's point, with the derived powers;
@@ -48,18 +49,35 @@
 #   PresetRelayRulings_Flight                    A control=True multiHop=True; B (hidden)
 #                                                registered, control=False; C (looped)
 #                                                unregistered, reason historical-never-replayed.
-# The split is regexed until the first flight (INTERIM_PIN_IDS in harness/lib/test_hlib.py);
-# pin it whole off the reading run.
 #
-# COVERAGE: this lane (with CN-1T) is meant to claim D6 `commnet-relay`. The claim is NOT
-# declared below until a flight passes; add `D6 = ["commnet-relay"]` in the arming commit.
+# STATUS. First flight 2026-09-26_1121: PARSEK-FAIL on ONE cell,
+# GhostRelayNodeBridgesEndpointToHome_Flight ("the endpoint's path home does not hop
+# through the ghost node"): its synthetic endpoint was in direct range of a REGISTERED
+# preset relay, so the path skipped the probe's own ghost node. A TEST geometry defect,
+# fixed in commit 9eee0e80e (the endpoint is sized against every node in the network);
+# every product cell passed on that flight too. READING RUN 2026-09-26_1130 (automation
+# DLL sha256 fcbe2979...): PASS attempt 1, 62 s, `total=9 passed=4 failed=0 skipped=5`,
+# zero GhostCommNet WARN / ERROR lines. Measured: routing probe `home="#autoLOC_8002112"
+# homePower=40000 hops=2 viaGhost=True negativeControl=cut`; route cell `probed=2
+# viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 homes=9
+# keys=cn-relay-a,cn-relay-b`; A and B register `hold=False dark=False relay=2000000000
+# transmit=5000`, A `antennas=3`, B `antennas=2`. ARMED from it: the batch line is pinned
+# whole (the id left INTERIM_PIN_IDS) and the registration / probe / route tokens carry
+# the measured fields (UTs stay regexed). Offline negative control
+# (hlib.evaluate_expectations) green on the reading log, red on every seeded fault: see
+# docs/dev/autotest-status.md. Armed confirmation re-flight pending.
+#
+# COVERAGE: claims D6 `commnet-relay` (with CN-1T): a committed relay recording in its
+# ghost window is a node of the REAL stock CommNet network in FLIGHT, and a free endpoint
+# reaches home only through it.
 
 schema = 1
 id = "CN-1-ghost-commnet-relay"
 tier = "operator"
-description = "NEVER FLOWN. The ghost CommNet relay (design 15.6) in FLIGHT over gloops-airshow plus the ghost-commnet-relay preset (three copies of one RC-L01 + RA-2 relay craft on a Kerbin-synchronous orbit: A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over): run the in-game GhostCommNet category and require that A and B register nodes, a free endpoint routes home through each real registered node and is cut off without it, A is a multi-hop control source, B relays while hidden, and C registers nothing."
+description = "The ghost CommNet relay (design 15.6) in FLIGHT over gloops-airshow plus the ghost-commnet-relay preset (three copies of one RC-L01 + RA-2 relay craft on a Kerbin-synchronous orbit: A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over): run the in-game GhostCommNet category and require that A and B register nodes, a free endpoint routes home through each real registered node and is cut off without it, A is a multi-hop control source, B relays while hidden, and C registers nothing."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "CN-1", "reading-run"]
+tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "CN-1", "flown",
+        "D6", "armed"]
 
 [fixture]
 saveTemplate = "fixtures/saves/gloops-airshow"
@@ -86,6 +104,7 @@ steps = [
 ]
 
 [dimensionsCovered]
+D6  = ["commnet-relay"]   # asserted: A and B registered, the real-node route and its cut control
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]
@@ -96,17 +115,17 @@ count = { min = 3, max = 3 }
 
 [expectations.logContracts]
 required  = [
-  "BATCH_COMPLETE v1 total=9 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostCommNet scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=9 passed=4 failed=0 skipped=5 category=GhostCommNet scene=FLIGHT",
   "\\[GhostCommNet\\] Stock CommNet available in scene FLIGHT: ghost CommNet nodes enabled",
   # The derivation: A's crewed RC-L01 with a Pilot the roster knows.
-  "\\[GhostCommNet\\] Derived antennas: key=cn-relay-a vessel=\"CN Relay A\" source=vessel-snapshot type=Relay parts=3 relayAntennas=1 .*controlPoints=1 relayEnablers=0 crew=1 knownCrew=1 pilots=1 unknownCrew=0 partsMissingPrefab=0",
+  "\\[GhostCommNet\\] Derived antennas: key=cn-relay-a vessel=\"CN Relay A\" source=vessel-snapshot type=Relay parts=3 relayAntennas=1 .*controlPoints=1 relayEnablers=0 crew=1 knownCrew=1 pilots=1 unknownCrew=0 partsMissingPrefab=0 moduleSnapshotsMissing=0 timelineStates=1 capable=True",
   # Registration (GhostCommNetMath.LogRegistered), one line per copy that relays.
-  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT reason=in-window .* relay=2000000000 .*control=True multiHop=True",
-  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-b node=ParsekGhost:cn-relay-b vessel=\"CN Relay B\" scene=FLIGHT reason=in-window .* relay=2000000000 .*control=False multiHop=True",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-a node=ParsekGhost:cn-relay-a vessel=\"CN Relay A\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=True multiHop=True antennas=3",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn-relay-b node=ParsekGhost:cn-relay-b vessel=\"CN Relay B\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
   # The cells' own summaries.
-  "\\[TestRunner\\] GhostCommNet routing probe \\(FLIGHT\\): .* viaGhost=True negativeControl=cut",
+  "\\[TestRunner\\] GhostCommNet routing probe \\(FLIGHT\\): home=\"[^\"]+\" homePower=40000 hops=2 viaGhost=True negativeControl=cut",
   "\\[TestRunner\\] GhostCommNet registered nodes \\(FLIGHT\\): checked=2 dark=0",
-  "\\[TestRunner\\] GhostCommNet registered relay route \\(FLIGHT\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 ",
+  "\\[TestRunner\\] GhostCommNet registered relay route \\(FLIGHT\\): probed=2 viaGhost=2 negativeControlCut=2 controlSourceAtGhost=1 noRelay=0 homes=9 keys=cn-relay-a,cn-relay-b\\s",
   "\\[TestRunner\\] GhostCommNet preset rulings \\(FLIGHT\\): relayA=registered control=True multiHop=True relay=2000000000 relayB=registered playbackEnabled=False control=False relay=2000000000 relayC=unregistered loop=True reason=historical-never-replayed",
 ]
 forbidden = [

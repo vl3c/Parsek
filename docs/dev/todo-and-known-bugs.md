@@ -4792,7 +4792,7 @@ it to the stock screen.
 alternative (honour the stock edits by writing through `Record*` on the stock path) was not
 taken: the stock screen would still be a second surface for developer diagnostics.
 
-## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch. RE-INVESTIGATED 2026-09-26 (branch `commnet-relay-decision`): the gap is deeper than a missing call site. RULED 2026-09-26: A (wire it up), with relay AND control point; IMPLEMENTED on the same branch 2026-09-26, OPEN pending flight proof (no lane yet; D6 `commnet-relay` stays unclaimed until one flies)]
+## ~~GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION~~ [FILED 2026-09-11 by the GUI fix batch. RE-INVESTIGATED 2026-09-26 (branch `commnet-relay-decision`): the gap is deeper than a missing call site. RULED 2026-09-26: A (wire it up), with relay AND control point; IMPLEMENTED on the same branch 2026-09-26. DONE 2026-09-26 (PR #1857): lanes CN-1 / CN-1T flown green, reading runs `2026-09-26_1130` / `_1131`, D6 `commnet-relay` claimed. Follow-ups filed: GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP, GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED]
 
 **What the player gets today.** Ghosts carry no CommNet signal. A relay placed by a
 committed recording counts for signal exactly as in stock from the moment it spawns as a
@@ -4941,7 +4941,8 @@ unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by de
   `ParsekTrackingStation` at its 0.25 s lifecycle cadence (position: the map ProtoVessel, else
   the covering orbit segment, else body-fixed frames covering the UT). Known seam: the
   Tracking Station learns a spawn hold only past EndUT, so a held node there can be dark for
-  up to one 0.25 s tick at its EndUT; FLIGHT bridges that seam.
+  up to one 0.25 s tick at its EndUT; FLIGHT bridges that seam (tracked with the other
+  Tracking Station follow-up in GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED).
 - Proof so far: unit tests with hand-derived stock numbers, and a new in-game `GhostCommNet`
   category (routing probe with a negative control in FLIGHT and TRACKSTATION, per-node state
   checks, active-vessel control path). Never flown. `VesselSnapshotBuilder.RelaySatellite`
@@ -4952,6 +4953,54 @@ unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by de
   over the KSC, B playback-disabled, C looped with its real run over), with four new GhostCommNet
   cells (the real registered nodes route a free endpoint home and are the only way through; the
   rulings on A / B / C). NEVER FLOWN; D6 `commnet-relay` is claimed after the first PASS.
+- **Flight proof (2026-09-26, PR #1857).** First flights `2026-09-26_1121` (CN-1) and `_1122`
+  (CN-1T) were PARSEK-FAIL on the synthetic routing cell `GhostRelayNodeBridgesEndpointToHome_*`
+  alone: its endpoint was in direct range of a registered preset relay, so the path skipped the
+  probe's own node. A test geometry defect, fixed in `9eee0e80e`; every product cell passed.
+  Reading runs `2026-09-26_1130` (CN-1) and `_1131` (CN-1T) on automation DLL sha256
+  `fcbe2979...`: PASS attempt 1, `total=9 passed=4 failed=0 skipped=5`, A and B registered, C
+  not, each real ghost node the only way home for its endpoint and the path cut once the node is
+  removed, zero GhostCommNet WARN / ERROR. Both specs armed off them and D6 `commnet-relay`
+  claimed (coverage 243 -> 244 of 247); offline negative control red on 22 of 22 seeded faults.
+  H28 re-flown `2026-09-26_1123` PASS, confirming its derived `total=4 skipped=2` pin.
+
+## GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15, PARTIAL]
+
+Design 15.6 scenario 15 says a real vessel despawned because a committed future recording claims
+it keeps relaying until the claim resolves. What ships covers only the stretch BEFORE the first
+claim: `GhostCommNetManager` relays a chain-ghosted vessel from its despawn snapshot's orbit until
+the claim UT. From the first claim to the vessel's reappearance (the chain tip's spawn) it has a
+node only when a committed recording carrying it is itself in its ghost window and eligible
+(real run, playback on, CommNet-capable). Otherwise it drops out of the network.
+
+Why: chain ghosts are never positioned. `ParsekFlight.PositionChainGhosts` skips an entry when
+`info.ghostGO == null`, and `VesselGhoster.GhostVessel` never creates one (`ghostGO = null`,
+"Ghost GO creation deferred to 6b-4"), so there is no chain-ghost position to hang a node on
+after the claim.
+
+Fix: when chain ghosts get a position (6b-4, or a mesh-independent chain-ghost position resolver
+like `TryResolvePlaybackWorldPosition`), feed it to the manager for the claim-to-tip span. Until
+then the design's scenario 15 row should read "until the first claim". Low: the case needs a
+committed future recording that docks with or boards a real relay the player depends on.
+
+## GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED: a Tracking Station entered first excludes a playback-disabled recording from the ghost CommNet [FILED 2026-09-26 from the GUI-D3 closure; low]
+
+The Tracking Station ghost CommNet driver (`ParsekTrackingStation`, the `PlaybackScopeTracker
+.IsHistoricalNeverReplayed` read) honours the replay-scope latch but never notes a playhead
+itself. The TS notes playheads only on its map-presence paths (`GhostMapPresence`), and the
+create path declines a playback-disabled recording before reaching them. So when the Tracking
+Station is the FIRST scene to see a playback-disabled recording's start, that recording is never
+latched and its ghost relay is excluded as `historical-never-replayed`. In normal play the TS is
+always reached through the Space Center or a flight, and both note every committed recording
+every frame, so the latch is set long before; only `LoadGame scene=trackstation` from the main
+menu (a harness road) skips them. CN-1T boots FLIGHT first for this reason.
+
+Same host, second seam (moved here from GUI-D3): the Tracking Station learns a spawn hold only
+past EndUT, so a held node there can be dark for up to one 0.25 s lifecycle tick at its EndUT;
+FLIGHT bridges that seam.
+
+Fix: note the playhead for every committed recording in the TS ghost CommNet driver's own pass
+(as `ParsekFlight` / `ParsekKSC` do), and read the spawn hold at EndUT rather than after it.
 
 ## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
 

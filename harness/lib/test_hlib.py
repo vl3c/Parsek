@@ -4051,10 +4051,11 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         #     measured run says otherwise - the set is empty for the whole
         #     driven batch WITH the corpus injected, so it is a fixture property
         #     of the driven FLIGHT batch, not a missing injection.
-        #   The third measured skip, AntennaSpecsProduceRelayPower, was DELETED
+    #   The third measured skip, AntennaSpecsProduceRelayPower, was DELETED
         #     2026-09-26 with the dead Recording.AntennaSpecs field it walked; the
-        #     ghost CommNet relay has its own category (GhostCommNet). Derived,
-        #     not re-measured: removing a cell that skipped moves skipped 3 -> 2.
+        #     ghost CommNet relay has its own category (GhostCommNet). Derived first
+        #     (removing a cell that skipped moves skipped 3 -> 2), then MEASURED the
+        #     same day: run 2026-09-26_1123 printed total=4 passed=2 failed=0 skipped=2.
         "H28-map-presence": 2,
         # H31: three, MEASURED on run 2026-08-05_1857, on top of an attribute
         # floor of 1 (the SPACECENTER-scoped CrewAutoAssignPatch cell scene-skips
@@ -4287,14 +4288,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # added the Active-row / Cancel-block cell (it skips on H45's host, which has no Active
     # contract), so the pin is `total=10` literal with the split regexed until first flight.
     #
-    # CN-1-ghost-commnet-relay and CN-1T-ghost-commnet-relay-ts ENTERED on 2026-09-26, never
-    # flown: the GhostCommNet category's FLIGHT and TRACKSTATION halves over the
-    # ghost-commnet-relay preset, `total=9` literal, split regexed (predicted 4 / 5 each).
-    # Like GUI-1 before them they are not H-series ids, so this class's own cells never read
-    # them; CommittedBatchTallySourceSyncTests gates their `total=`. They leave this set when
-    # a reading run pins the split whole.
-    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay",
-                            "CN-1-ghost-commnet-relay", "CN-1T-ghost-commnet-relay-ts"}
+    # CN-1-ghost-commnet-relay and CN-1T-ghost-commnet-relay-ts ENTERED on 2026-09-26 (the
+    # GhostCommNet category's FLIGHT and TRACKSTATION halves over the ghost-commnet-relay
+    # preset, `total=9` literal, split regexed, predicted 4 / 5 each) and LEFT the same day:
+    # their reading runs 2026-09-26_1130 / _1131 (PASS attempt 1) measured the prediction,
+    # `passed=4 failed=0 skipped=5`, and both specs took the line WHOLE. Like GUI-1 they are
+    # not H-series ids, so this class's own cells never read them;
+    # CommittedBatchTallySourceSyncTests gates their `total=`.
+    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -10306,10 +10307,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "GL-2-gloops-sub-2-point-drop.toml": "tier=operator by the calibration discipline; NEVER FLOWN. The mirror of GL-1 on the same knob - samplingDensity=0 (Low, 8.0 s max interval) with the stop step ADJACENT to the start - so the take cannot reach two points and CommitGloopsRecorderData must refuse it. That refusal IS gated (the production `not enough points (< 2)` Warn, the seam `committed=false`, the `dropped=too-short` payload token, count pinned 0..0), because it is deterministic by construction rather than derived: S0.5 and S0.6 already name the same drop in their headers and WIDEN their assertions to tolerate it, which is the evidence it happens and the reason nothing gated it until now. The reading-run question left open is narrower and is about the VALIDATOR, not the product: whether validate-ksp-log treats a designed refusal Warn on the WRN surface as an unexpected one.",
         # THE GHOST COMMNET RELAY PAIR, 2026-09-26. Operator-tier by the CALIBRATION
         # discipline: first flights of a new in-game category over a new preset, with the
-        # batch split and the probe geometry derived rather than measured. Neither owes
-        # outstanding HUMAN work; what each owes is a reading run.
-        "CN-1-ghost-commnet-relay.toml": "tier=operator by the calibration discipline; NEVER FLOWN. First driven run of the GhostCommNet category (FLIGHT half) over the ghost-commnet-relay preset. Its batch split is PREDICTED (4 passed, 5 skipped: four TRACKSTATION scene-skips plus the active-vessel control-path cell, whose pad vessel links KSC directly) and regexed until the reading run pins it whole; the relays' synchronous-orbit phase is derived from the pad vessel's own ORBIT node and pinned offline by the GhostCommNetRelay_PhaseCalibration* xUnit cells. D6 commnet-relay is claimed in the arming commit, not before.",
-        "CN-1T-ghost-commnet-relay-ts.toml": "tier=operator by the calibration discipline; NEVER FLOWN. The TRACKSTATION half of CN-1 on the same preset, entered FLIGHT -> LoadGame scene=trackstation so the playback-disabled relay is latched in replay scope (the Tracking Station notes no hidden recording's playhead). Same predicted 4 / 5 split, regexed until the reading run.",
+        # batch split and the probe geometry derived rather than measured. Both flew their
+        # reading runs and were armed the same day; neither owes HUMAN work. What is left
+        # is the armed confirmation re-flight and then the operator -> nightly PROMOTION
+        # call, a cadence decision and not a review debt.
+        "CN-1-ghost-commnet-relay.toml": "tier=operator by the calibration discipline; FLOWN AND ARMED 2026-09-26. First driven run of the GhostCommNet category (FLIGHT half) over the ghost-commnet-relay preset. First flight 2026-09-26_1121 PARSEK-FAIL on the synthetic routing cell alone (its endpoint reached a registered preset relay directly, a TEST geometry defect fixed in 9eee0e80e); reading run 2026-09-26_1130 PASS attempt 1 measured the predicted split (4 passed, 5 skipped: four TRACKSTATION scene-skips plus the active-vessel control-path cell, whose pad vessel links KSC directly) and the spec pinned it whole; offline negative control red on 11 of 11 seeds. Claims D6 commnet-relay with CN-1T.",
+        "CN-1T-ghost-commnet-relay-ts.toml": "tier=operator by the calibration discipline; FLOWN AND ARMED 2026-09-26. The TRACKSTATION half of CN-1 on the same preset, entered FLIGHT -> LoadGame scene=trackstation so the playback-disabled relay is latched in replay scope (the Tracking Station notes no hidden recording's playhead). First flight 2026-09-26_1122 red on the same synthetic-geometry test defect; reading run 2026-09-26_1131 PASS attempt 1, the same 4 / 5 split, pinned whole; offline negative control red on 11 of 11 seeds.",
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 
