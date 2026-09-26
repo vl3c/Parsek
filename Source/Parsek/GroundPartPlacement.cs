@@ -76,6 +76,29 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The created vessel's part count and first part name as the gate reads them. In
+        /// the placement frame <c>Game.AddVessel</c> has loaded the ProtoVessel but the live
+        /// <c>Vessel.parts</c> list is still empty (measured: EVA-5 flight
+        /// <c>2026-09-26_1831</c> refused the real placement as
+        /// <c>CreatedVesselNotSinglePart</c>), so the ProtoVessel's part snapshots - the
+        /// single PART node stock built - are authoritative; the live list is the fallback.
+        /// </summary>
+        internal static void ResolveCreatedPartShape(
+            int protoPartCount, string protoFirstPartName,
+            int livePartCount, string liveFirstPartName,
+            out int partCount, out string firstPartName)
+        {
+            if (protoPartCount > 0)
+            {
+                partCount = protoPartCount;
+                firstPartName = protoFirstPartName;
+                return;
+            }
+            partCount = livePartCount;
+            firstPartName = livePartCount > 0 ? liveFirstPartName : null;
+        }
+
+        /// <summary>
         /// Builds the branch point and the member recording. The member is a fresh
         /// background-recorded vessel: NOT debris (no TTL), NO parent-anchor contract (it
         /// is static on the ground), generation = parent + 1.
@@ -290,15 +313,19 @@ namespace Parsek
 
         internal static string FormatPlacementSkipLog(
             GroundPartPlacementVerdict verdict, string placedPartName,
-            uint createdVesselPid, uint activeVesselPid)
+            uint createdVesselPid, uint activeVesselPid,
+            int createdPartCount = 0, string createdPartName = null)
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Ground part placement not recorded: reason={0} part='{1}' createdVesselPid={2} activePid={3}",
+                "Ground part placement not recorded: reason={0} part='{1}' createdVesselPid={2} activePid={3} " +
+                "createdParts={4} createdPart='{5}'",
                 verdict,
                 string.IsNullOrEmpty(placedPartName) ? "(null)" : placedPartName,
                 createdVesselPid,
-                activeVesselPid);
+                activeVesselPid,
+                createdPartCount,
+                string.IsNullOrEmpty(createdPartName) ? "(null)" : createdPartName);
         }
     }
 }

@@ -477,7 +477,10 @@ and `ChildRecordingIds = [the placed part's recording]`. The kerbal's recording 
 `ChildBranchPointId` is NOT set: placing a part does not change the kerbal, the single-slot pointer stays
 free for the kerbal's own later split or merge (the board), and the kerbal stays an ordinary leaf instead
 of relying on the breakup-continuous "effective leaf" rule. The child is reached through its own
-`ParentBranchPointId`, the way foreground debris children are once their parent splits again. The type
+`ParentBranchPointId`, the way foreground debris children are once their parent splits again; a walk
+that must own the placing recording's products finds it by parent id (the switch-segment subtree
+behind scoped Discard and the no-op auto-discard, `RecordingStore.CollectSwitchSegmentSubtreeRecordingIds`,
+so discarding a segment discards what its kerbal placed, and a placement makes the segment meaningful). The type
 is non-claiming for ghost chains (the kerbal's vessel is unchanged), is not a structural mutation for
 Re-Fly auto-seal, and reads "Placed" in the Missions composition.
 

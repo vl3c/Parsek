@@ -153,7 +153,26 @@ the route built from it - the supply-route hand-off). Also measured on the same 
 NOT claimed: the drill tree's synthetic `m2-drill-delivery` window lets
 `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` pass on this host (41 / 6 against
 H38's 39 / 8); that is a shape check over a synthetic window, not a recorded dock capture.
-## EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL: a ground-science part a kerbal places on EVA is recorded against a pid the kerbal's recording does not carry, so the analyzer reds and the ghost never shows the placed part [FILED 2026-09-26 by coverage wave 10, run `2026-09-25_2341` (`EVA-5-ground-science-place-pickup`). PRODUCT DEFECT, open; DESIGN QUESTION FOR THE OPERATOR below. EVA-5 is `[expectedFail]` on this id]
+## ~~EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL: a ground-science part a kerbal places on EVA is recorded against a pid the kerbal's recording does not carry, so the analyzer reds and the ghost never shows the placed part~~ [FILED 2026-09-26 by coverage wave 10, run `2026-09-25_2341` (`EVA-5-ground-science-place-pickup`). FIXED 2026-09-26, branch `eva-placed-part-member`, owner ruling 2026-09-26: option (1)]
+
+**Fix.** The placed part gets its OWN recording and ghost, a tree member created at the placement
+(design: `docs/parsek-flight-recorder-design.md` section 4.11). A new additive
+`BranchPointType.GroundPartPlaced = 9` (no schema generation bump) has parent = the kerbal's
+recording, which keeps recording (its `ChildBranchPointId` is not set, so it stays an ordinary leaf),
+and child = the member: background-recorded, not debris, no parent-anchor contract,
+`RecordedVesselGuid` from the placed vessel. `InventoryPartPlaced` / `InventoryPartRemoved` now go on
+the MEMBER keyed by the placed part's own pid, so INV4 resolves by construction and the ghost shows the
+part until the pick-up. The pick-up stamps the member `Disassembled` (reason `GroundPartRetrieved`)
+through the existing disassembly seam, from the first Removed signal or a live
+`ModuleGroundPart.deployedOnGround == false` read (the Central Station fires no Removed event). A part
+still placed at the end is a spawnable leaf like any other vessel the tree leaves behind. The
+switch-segment subtree walk (scoped Discard, no-op auto-discard) finds the member by parent id.
+Pure helpers `GroundPartPlacement` + `ParsekFlight.GroundPartPlacement.cs`; cells in
+`GroundPartPlacementTests`; generators `RecordingBuilder.AsPlacedGroundPart` and
+`ScenarioWriter.GroundPartPlacedBranch` / `MaterializeTree(..., branchPoints)`. EVA-5 is re-armed (no
+`[expectedFail]`) and claims D7 `inventory-place-remove`. Follow-ups filed:
+REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS, EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE.
+
 
 **Fingerprint.** The offline analyzer's `INV4-PARTEVENT-PID` rule, `unresolved-pid`:
 `FAIL INV4-PARTEVENT-PID ... INV4 unresolved-pid recording=541b245cfda94d9580b3651faeb51d64 pid=4140861083 event=InventoryPartPlaced`
@@ -189,7 +208,18 @@ with playback spawning a static ghost part at the Placed event and removing it a
 Either shape makes INV4 resolvable by construction; the current shape cannot be. Re-arm EVA-5 by removing
 its `[expectedFail]` table once the chosen fix lands: its contract set already passed offline on `_2341`.
 
-## INVENTORY-PLACED-FIRES-ON-ANY-LANDED-EXPERIMENT-LOAD: the recorder logs `InventoryPartPlaced` for every unlinked ground experiment whose part starts while recording, not only for a placement [FILED 2026-09-26 by coverage wave 10, from the decompile. REPORT-ONLY, not observed in a flight]
+## ~~INVENTORY-PLACED-FIRES-ON-ANY-LANDED-EXPERIMENT-LOAD: the recorder logs `InventoryPartPlaced` for every unlinked ground experiment whose part starts while recording, not only for a placement~~ [FILED 2026-09-26 by coverage wave 10, from the decompile. FIXED 2026-09-26 with EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL, branch `eva-placed-part-member`]
+
+**Fix.** `onGroundSciencePartDeployed` is no longer a placement signal and records nothing (a Verbose
+diagnostic only). A placement is stock's `onDeployGroundPart(partName)`, which fires only from the
+confirm press in `ModuleInventoryPart.OnUpdate` on the ACTIVE vessel, matched to the vessel
+`Game.AddVessel` announced through `onNewVesselCreated` in the same frame (single part in its
+ProtoVessel, same part name, not already a tree member), while the active vessel is the EVA kerbal the
+tree records in the foreground (pure gate `GroundPartPlacement.EvaluatePlacement`; every refusal logs
+`Ground part placement not recorded: reason=...`). The double `onGroundSciencePartRemoved` per pick-up
+is deduplicated: the first records `InventoryPartRemoved` on the member, the second logs
+`repeat pick-up signal ... deduplicated`.
+
 
 Decompiled `ModuleGroundSciencePart.OnStart` fires `GameEvents.onGroundSciencePartDeployed` whenever the
 part starts landed, is not a `DroppedPart`, is not a Central Station (`ModuleGroundExpControl`), and has
@@ -202,6 +232,27 @@ EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL). Whichever fix that entry's ru
 which starts count as a placement. Also measured on `2026-09-25_2341`: one pick-up fires
 `onGroundSciencePartRemoved` TWICE (`ModuleGroundPart.RetrievePart`, then `OnRetractCompleted` about 4.7 s
 later), so the recording carries two `InventoryPartRemoved` events per pick-up.
+
+## REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS: re-flying an EVA kerbal does not supersede a ground part it placed in the re-flown interval [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. DESIGN DECISION, open]
+
+A placed ground part's member recording has its own pid, so the Re-Fly supersede closure
+(`EffectiveState.ComputeSubtreeClosureInternal`) treats it as a side-off branch: the same-pid gate skips
+it, and `EnqueueDebrisChildren` admits debris only, by explicit design ("a separate design decision").
+Re-flying the kerbal from an EVA rewind point therefore keeps the old placement's ghost and its
+end-of-flight spawn next to whatever the new flight places, exactly as a controlled-decoupled child is
+kept today. Options: (1) admit GroundPartPlaced children whose branch point's parents include the
+dequeued recording and whose start is after the rewind UT (the placement is the kerbal's action, not a
+separate vessel's flight), or (2) keep the side-off policy. The switch-segment scoped Discard already
+owns the member (it walks GroundPartPlaced children by parent id).
+
+## EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. AUTOTEST GAP, open]
+
+EVA-5 picks its part up (Disassembled, never spawned), and every EVA fixture places on the launch pad,
+where a part left behind is retired by the KSC exclusion zone (50 m) instead of spawned. The
+still-placed answer is pinned headlessly (`GroundPartPlacementTests`: a Landed member is a spawnable
+leaf, a Disassembled one is not). A live lane needs an off-pad crewed landed host (a fixture landed more
+than 50 m from the pad, or a walk verb), then: place without picking up, board, commit, rewind to before
+the placement, and assert the member's spawn line after its end UT.
 
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 
@@ -13081,8 +13132,8 @@ UPDATE 2026-09-26 (coverage wave 10): the two `InventoryPart*` families are now 
 rather than by kRPC or a craft. `EvaGroundScience action=place|pickup` drives the stock EVA inventory slot
 click plus the confirm key, and the ground part's own Pick Up event (not EVA construction mode: a
 ground-science placement is inventory placement). Lane `EVA-5-ground-science-place-pickup` flies it; it is
-EXPECTED-FAIL on EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL, and the D7 cell stays unclaimed until
-that design ruling.
+re-armed 2026-09-26: the placed part is its own tree member (GroundPartPlaced), and EVA-5 claims the D7
+`inventory-place-remove` cell off the member's ghost applying both families `applied=1`.
 
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 

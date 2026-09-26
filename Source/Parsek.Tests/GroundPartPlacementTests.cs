@@ -99,8 +99,30 @@ namespace Parsek.Tests
                 GroundPartPlacementVerdict.ActiveVesselNotEva, PartName, PlacedVesselPid, KerbalPid);
             Assert.Equal(
                 "Ground part placement not recorded: reason=ActiveVesselNotEva part='DeployedSeismicSensor' " +
-                "createdVesselPid=880280830 activePid=111",
+                "createdVesselPid=880280830 activePid=111 createdParts=0 createdPart='(null)'",
                 line);
+            Assert.EndsWith("createdParts=2 createdPart='evaChute'", GroundPartPlacement.FormatPlacementSkipLog(
+                GroundPartPlacementVerdict.CreatedVesselNotSinglePart, PartName, 1u, 2u, 2, "evaChute"));
+        }
+
+        [Fact]
+        public void ResolveCreatedPartShape_PrefersTheProtoVesselInThePlacementFrame()
+        {
+            // The placement frame: the ProtoVessel holds the one PART node, the live list is empty.
+            GroundPartPlacement.ResolveCreatedPartShape(1, PartName, 0, null, out int count, out string name);
+            Assert.Equal(1, count);
+            Assert.Equal(PartName, name);
+            Assert.Equal(GroundPartPlacementVerdict.Record,
+                Evaluate(createdPartCount: count, createdPartName: name));
+
+            // No proto snapshot: fall back to the live parts.
+            GroundPartPlacement.ResolveCreatedPartShape(0, null, 1, "evaChute", out count, out name);
+            Assert.Equal(1, count);
+            Assert.Equal("evaChute", name);
+
+            GroundPartPlacement.ResolveCreatedPartShape(0, null, 0, "stale", out count, out name);
+            Assert.Equal(0, count);
+            Assert.Null(name);
         }
 
         // ---- the tree shape ----
@@ -195,6 +217,27 @@ namespace Parsek.Tests
             var evaChild = new Recording { RecordingId = "c", ParentBranchPointId = "evaBp" };
             tree.BranchPoints.Add(new BranchPoint { Id = "evaBp", Type = BranchPointType.EVA });
             Assert.False(GroundPartPlacement.IsPlacedPartMember(tree, evaChild));
+        }
+
+        [Fact]
+        public void SwitchSegmentSubtree_IncludesAPartPlacedByTheSegmentsKerbal()
+        {
+            // The placed member hangs off a GroundPartPlaced point the kerbal does NOT
+            // reference through ChildBranchPointId; scoped Discard and the no-op classifier
+            // both read this walk, so a placement must be inside the segment's subtree.
+            var (tree, kerbal, member, _) = BuildPlacedTree();
+            var session = new SwitchSegmentSession
+            {
+                SessionId = Guid.NewGuid(),
+                TreeId = tree.Id,
+                ActiveSegmentRecordingId = kerbal.RecordingId
+            };
+
+            HashSet<string> ids = RecordingStore.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
+
+            Assert.Equal(2, ids.Count);
+            Assert.Contains(kerbal.RecordingId, ids);
+            Assert.Contains(member.RecordingId, ids);
         }
 
         // ---- the pick-up ----

@@ -123,6 +123,30 @@ namespace Parsek.TestCommands
         /// <c>partFullyCreated</c>; <paramref name="spotPlaceable"/> the conjunction the
         /// confirm branch itself tests (on terrain, inside the cap, no collisions).
         /// </summary>
+        /// <summary>Frames an unplaceable preview is given before the face-away turn is
+        /// applied again.</summary>
+        internal const int ReTurnFrames = 60;
+
+        /// <summary>Upper bound on the face-away re-turns of one placement.</summary>
+        internal const int MaxReTurns = 5;
+
+        /// <summary>
+        /// Should the face-away turn be applied again? A kerbal released from the ladder
+        /// can still be settling when the first turn is applied, and stock re-reads
+        /// <c>vesselTransform.forward</c> every frame for the preview spot, so a spot that
+        /// stays unplaceable (the terrain ray lands on the hull) is retried with a fresh
+        /// turn, a bounded number of times, and never once a confirm press was sent.
+        /// </summary>
+        internal static bool ShouldReTurn(
+            bool faceAway, bool previewBuilt, bool spotPlaceable, int pressesSoFar,
+            int framesSinceTurn, int reTurnsSoFar)
+        {
+            if (!faceAway || !previewBuilt || spotPlaceable) return false;
+            if (pressesSoFar > 0) return false;
+            if (reTurnsSoFar >= MaxReTurns) return false;
+            return framesSinceTurn >= ReTurnFrames;
+        }
+
         internal static GroundPlaceConfirmDecision DecideConfirm(
             bool previewUp, bool previewBuilt, bool spotPlaceable,
             int pressesSoFar, int framesSinceLastPress)

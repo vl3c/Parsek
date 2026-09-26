@@ -32,9 +32,14 @@ namespace Parsek
             Vessel active = FlightGlobals.ActiveVessel;
             Vessel created = lastCreatedVesselForGroundPart;
             bool createdThisFrame = created != null && lastCreatedVesselFrame == Time.frameCount;
-            string createdPartName = created != null && created.parts != null && created.parts.Count > 0
-                ? created.parts[0]?.partInfo?.name
-                : null;
+            var protoParts = created?.protoVessel?.protoPartSnapshots;
+            GroundPartPlacement.ResolveCreatedPartShape(
+                protoParts?.Count ?? 0,
+                protoParts != null && protoParts.Count > 0 ? protoParts[0]?.partName : null,
+                created?.parts?.Count ?? 0,
+                created != null && created.parts != null && created.parts.Count > 0
+                    ? created.parts[0]?.partInfo?.name : null,
+                out int createdPartCount, out string createdPartName);
             uint createdPid = created != null ? created.persistentId : 0u;
 
             Recording activeRec = null;
@@ -53,7 +58,7 @@ namespace Parsek
                 activeRecordingVesselPid: activeRec != null ? activeRec.VesselPersistentId : 0u,
                 createdVesselPresent: created != null,
                 createdThisFrame: createdThisFrame,
-                createdPartCount: created?.parts?.Count ?? 0,
+                createdPartCount: createdPartCount,
                 createdPartName: createdPartName,
                 placedPartName: partName,
                 createdVesselIsTreeMember: isTreeMember);
@@ -65,7 +70,8 @@ namespace Parsek
             if (verdict != GroundPartPlacementVerdict.Record)
             {
                 ParsekLog.Info("Flight", GroundPartPlacement.FormatPlacementSkipLog(
-                    verdict, partName, createdPid, active != null ? active.persistentId : 0u));
+                    verdict, partName, createdPid, active != null ? active.persistentId : 0u,
+                    createdPartCount, createdPartName));
                 return;
             }
 
