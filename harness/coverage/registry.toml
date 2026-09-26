@@ -719,6 +719,15 @@ values = ["timeline-projection"]
 # and compares with the snapshot the product loaded, and writes a snapshot captured from
 # the live active vessel through the product writer and reads it back equal
 # (`deflate snapshot sidecars: files=41 vessel=21 ghost=20 ... liveRoundTrips=1`).
+#
+# `safe-write` IS CLAIMED by coverage wave 13 (2026-09-26) on ST-4-safe-write-crash-after-temp,
+# SCOPED TO THE RECORDING-SIDECAR PATH AND ONE BOOT. The automation-only crash-after-temp hook
+# (FileIOUtils, armed by the `SafeWriteCrash` seam verb only under PARSEK_TEST_COMMANDS=1) throws
+# after the staged `.prec`'s `.tmp` is written and before the swap; the product catch path runs,
+# the on-disk `.prec` stays byte-identical, and a COLD reload in the same process (the isolated-
+# restore prep + LoadGame) re-reads it with all its points and sweeps the orphan `.tmp`
+# (`CleanOrphanFiles`). Not claimed: a crash of a new PROCESS, and the direct SafeWriteConfigNode
+# callers, whose `.tmp` nothing sweeps (todo SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT).
 values = ["sidecar-prec", "sidecar-craft", "sidecar-pann",
           "rp-quicksaves", "deflate-snapshots", "txt-mirrors", "alias-mode",
           "sfs-scenario-node", "schema-gate", "path-validation", "safe-write",

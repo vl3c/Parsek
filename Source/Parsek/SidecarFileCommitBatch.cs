@@ -39,7 +39,9 @@ namespace Parsek
             {
                 writer(stagedPath);
             }
-            catch
+            // The automation-only crash-after-temp hook stands in for a process death, which
+            // runs no catch block: its residue must reach the next load's orphan sweep.
+            catch (Exception ex) when (!(ex is FileIOUtils.SafeWriteInjectedCrashException))
             {
                 DeleteTransientArtifact(stagedPath);
                 DeleteTransientArtifact(stagedPath + ".tmp");

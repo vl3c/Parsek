@@ -1,0 +1,138 @@
+schema = 1
+id = "ST-4-safe-write-crash-after-temp"
+tier = "nightly"
+# =====================================================================================
+# D16 `safe-write`: a crash after FileIOUtils wrote `<path>.tmp` and before the swap
+# leaves the previous file intact, and the next load recovers. Catalog item F5; todo
+# SAFE-WRITE-CRASH-AFTER-TEMP-HAS-NO-LANE.
+#
+# ONE BOOT, NO RELAUNCH (supervisor ruling 2026-09-25, pending operator confirmation).
+#   1. `SafeWriteCrash phase=arm recording=<id>` digests the committed recording's `.prec`,
+#      arms FileIOUtils' one-shot crash-after-temp hook on `<id>.prec` and marks the
+#      recording dirty.
+#   2. `SaveGame` runs the product OnSave. The sidecar commit batch writes the trajectory
+#      to `<id>.prec.stage.<guid>` through SafeWriteBytes; the hook fires after
+#      `<...>.stage.<guid>.tmp` is on disk and throws SafeWriteInjectedCrashException.
+#      The product's own catch path handles it: SaveRecordingFiles logs its Error and
+#      returns false, and SaveTreeRecordings carries the tree's last-known-good node
+#      forward from the on-disk save. The staged cleanup in SidecarFileCommitBatch.StageWrite
+#      lets the injected exception pass (a dead process runs no catch block), so the
+#      orphan `.tmp` stays on disk exactly as a crash would leave it.
+#   3. `phase=probe` BEFORE the reload proves the crash state is really on disk:
+#      residue=1 and the final `.prec` still equals the armed digest.
+#   4. `phase=coldreload` + `LoadGame scene=spacecenter`: the isolated-restore prep the
+#      in-game test runner uses, so the reload takes the COLD OnLoad path a process
+#      restart would (sidecars re-read from disk, RecordingStore.CleanOrphanFiles). A
+#      same-process LoadGame of the same save would keep the in-memory store and run no
+#      sweep, proving nothing.
+# READING RUN `2026-09-26_0019` (PASS attempt 1, DLL sha256 370d1268...) printed every
+# hypothesis token as written; the cold-path tokens were then added from its log.
+# ARMED RE-FLIGHT `2026-09-26_0021` PASS attempt 1 on the pinned contract. NEGATIVE CONTROL
+# offline (hlib.evaluate_expectations over the armed log with seeded edits): hook silent,
+# destination overwritten, orphan not swept, warm reload and residue cleaned in-process each
+# red on exactly their tokens (3 / 3 / 4 / 3 / 1 mismatches).
+#   5. `phase=probe` AFTER the reload: the `.prec` parsed (loaded, loadFailed=false, the
+#      armed point count) and still holds the PREVIOUS bytes (digest equal to the armed
+#      one), and the orphan was swept (residue=0, the sweep's own Deleted line).
+#
+# SCOPE, STATED: the claim is the RECORDING SIDECAR write path (the staged `.prec`). The
+# direct SafeWriteConfigNode callers (ledger, game-state store, milestones, settings) leave
+# `<file>.tmp` on a crash and nothing sweeps it; the next write overwrites it, so it is
+# litter, not loss (filed under the todo entry). "Next load" is a cold load inside the same
+# process, not a new process: statics outside the eight stores the prep resets survive.
+#
+# HOST: career-earned-ksc (KB-1 / H45's KSC host), committed tree "Jumping Flea" with two
+# recordings; the subject is 1d611e7533a64508ae6f3b305a51615e (510 points in the save).
+# =====================================================================================
+description = "D16 safe-write, one boot (LIVE-PROVEN 2026-09-26: reading `2026-09-26_0019` and armed `2026-09-26_0021` PASS attempt 1, automation DLL sha256 370d1268..., offline negative control red on five seeds): arm the automation-only crash-after-temp hook on a committed recording's .prec, SaveGame so the sidecar commit batch dies after the staged .tmp is written (product catch path: SaveRecordingFiles fails, tree carried forward), probe the on-disk crash state, then a cold reload (isolated-restore prep + LoadGame) that re-reads the untouched .prec (previous digest and point count) and sweeps the orphan .tmp."
+instanceProfile = "stock-minimal"
+tags = ["ST-4", "storage", "safe-write", "fault-injection", "cold-reload", "career", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-earned-ksc"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The sweep's per-file Deleted line is Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SafeWriteCrash", args = { phase = "arm", recording = "1d611e7533a64508ae6f3b305a51615e" }, expect = "OK" },
+  { cmd = "SaveGame",   args = { name = "persistent" },                          expect = "OK" },
+  { cmd = "SafeWriteCrash", args = { phase = "probe" },                          expect = "OK" },
+  { cmd = "SafeWriteCrash", args = { phase = "coldreload" },                     expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SafeWriteCrash", args = { phase = "probe" },                          expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: `safe-write` rides required tokens the reading run `2026-09-26_0019`
+# printed: the hook firing on the staged .prec after its .tmp landed (tmpBytes=37138,
+# destUntouched=True), the product catch path (SaveRecordingFiles failed + tree carried
+# forward), the pre-reload probe (residue=1, unchanged), the COLD reload re-reading the
+# epoch-4 .prec (510 points), the sweep deleting that exact .tmp, and the final probe
+# (residue=0, digest ac50d94cb9e08fb7 == the armed baseline, back-referenced by the harness).
+D16 = ["safe-write"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required = [
+  "\\[SafeWrite\\] crash-after-temp armed pattern=1d611e7533a64508ae6f3b305a51615e\\.prec phase=after-temp",
+  "safewritecrash armed recording=1d611e7533a64508ae6f3b305a51615e pattern=1d611e7533a64508ae6f3b305a51615e\\.prec baselineDigest=[0-9a-f]{16} baselinePoints=510",
+  # The hook fires on the STAGED trajectory write, after its .tmp landed.
+  "\\[SafeWrite\\] crash-after-temp fired phase=after-temp path='[^']*1d611e7533a64508ae6f3b305a51615e\\.prec\\.stage\\.[0-9a-f]{32}' tmp='[^']*\\.tmp' tmpBytes=[1-9][0-9]* destExists=False destUntouched=True",
+  # The product's own catch path.
+  "\\[RecordingStore\\] SaveRecordingFiles failed: .*SafeWriteInjectedCrashException",
+  "OnSave: carried forward last-known-good RECORDING_TREE node for 'Jumping Flea'",
+  # Before the reload: the crash residue is on disk and the final .prec is untouched.
+  "safewritecrash probe recording=1d611e7533a64508ae6f3b305a51615e fired=1 armed=false digest=[0-9a-f]{16} unchanged=true residue=1 loaded=true loadFailed=false points=510 baselinePoints=510",
+  "safewritecrash coldreload prepare scenarioPresent=true",
+  # The reload is the COLD path: stores rebuilt from the file, the .prec re-read from disk.
+  # sidecarEpoch=4 is the on-disk file's epoch; the crashed staged write carried epoch 5
+  # (OnSave bumps it before writing and SaveRecordingFiles restores it on failure).
+  "OnLoad: initial load .* loading external files",
+  "OnLoad initial: cleared CommittedTrees, loading 1 tree\\(s\\)",
+  "TryProbeTrajectorySidecar: encoding=BinaryV0 .* recording=1d611e7533a64508ae6f3b305a51615e sidecarEpoch=4",
+  "ReadBinaryTrajectoryFile: recording=1d611e7533a64508ae6f3b305a51615e .* rebuiltPoints=510 ",
+  # The cold load's orphan sweep.
+  "Deleted transient sidecar artifact: 1d611e7533a64508ae6f3b305a51615e\\.prec\\.stage\\.[0-9a-f]{32}\\.tmp",
+  "Cleaned orphan files: .*deleted 1 transient sidecar artifact\\(s\\)",
+  # After the reload: parsed, previous content, residue swept.
+  "safewritecrash probe recording=1d611e7533a64508ae6f3b305a51615e fired=1 armed=false digest=[0-9a-f]{16} unchanged=true residue=0 loaded=true loadFailed=false points=510 baselinePoints=510",
+  # The harness checks the digest equality itself, independently of the C# `unchanged=`.
+  "(?s)baselineDigest=([0-9a-f]{16}) baselinePoints=510.*safewritecrash probe recording=\\S+ fired=1 armed=false digest=\\1 unchanged=true residue=0",
+]
+forbidden = [
+  # The one ERROR the injected crash is expected to produce is SaveRecordingFiles'.
+  "\\[Parsek\\]\\[ERROR\\](?!\\[RecordingStore\\] SaveRecordingFiles failed: )",
+  "safewritecrash rejected",
+  "crash-after-temp arm refused",
+  "safewritecrash probe .*(unchanged=false|loadFailed=true|loaded=false)",
+  "safewritecrash probe .* fired=[02-9]",
+  "Failed to delete transient sidecar artifact",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): max(step_budget, 600) + 60 per DEFERRED verb (LoadGame x2)
+# and max(step_budget, dispatch + 60) for the rest:
+#   LoadGame x2 1320   SetSetting x2 240   SafeWriteCrash x4 480   SaveGame 120
+#   RecordingState 120   FlushAndQuit 120                                -> sum 2400
+# 2800 clears it by 400.
+budgetSeconds = 2800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

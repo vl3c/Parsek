@@ -305,19 +305,43 @@ rows. The in-game cell encodes the same rule: its exclusion set is route types o
 action row typed `LegacyEvent` or whose text is the raw enum name. Unit cells in
 `TimelineBuilderTests`.
 
-## SAFE-WRITE-CRASH-AFTER-TEMP-HAS-NO-LANE: D16 `safe-write` needs a crash hook between the temp write and the swap [FILED 2026-09-25, coverage wave 4, branch `cov-ingame`; OPEN, harness + small C#]
+## ~~SAFE-WRITE-CRASH-AFTER-TEMP-HAS-NO-LANE: D16 `safe-write` needs a crash hook between the temp write and the swap~~ [FILED 2026-09-25, coverage wave 4, branch `cov-ingame`; CLOSED 2026-09-26 by `ST-4-safe-write-crash-after-temp`, coverage wave 13, branch `cov-safewrite`]
 
-Catalog item F5 asks for a driven witness that a crash after `FileIOUtils.SafeWriteConfigNode` wrote
-`<path>.tmp` but before `ReplaceDestination` swapped it leaves the previous file intact and the next
-load recovers. The brief modelled it on the `CrashAfterJournalPhase` seam verb, but that verb is
-RESERVED (recognized, `not-implemented-v1`) in `TestCommandVerbs.ReservedVerbs`, so there is no crash
-hook to copy. The work is: a one-shot test hook in `FileIOUtils` that throws (or `Application.Quit`s
-hard) after the temp write for one named path, a seam verb to arm it, a lane that runs two boots of
-one save (the harness has no relaunch-after-kill step today) and a next-load check that the
-destination still parses and the orphan `.tmp` is swept (`RecordingStore.OrphanCleanup` sweeps sidecar
-`.tmp` files; other callers do not). Estimated well over the 150-line budget the wave allowed, so
-skipped. The pure ordering contract (`ReplaceDestination` never loses the previous file) is covered
-headlessly by the FileIOUtils xUnit cells.
+Catalog item F5: a crash after `FileIOUtils` wrote `<path>.tmp` but before the swap must leave the
+previous file intact, and the next load must recover. Closed inside ONE boot (supervisor ruling
+2026-09-25, pending operator confirmation), with no relaunch:
+
+- **Hook.** `FileIOUtils.MaybeInjectCrashAfterTemp` runs in `SafeWriteBytes` and `SafeWriteConfigNode`
+  after the temp file is verified and before the swap. It is armed only by `ArmCrashAfterTemp(pattern,
+  seamArmed)`, whose one caller passes the command addon's `PARSEK_TEST_COMMANDS=1` flag, fires once on
+  the first path containing the pattern, disarms before it throws `SafeWriteInjectedCrashException`, and
+  logs `[SafeWrite] crash-after-temp fired phase=after-temp path= tmp= tmpBytes= destExists=
+  destUntouched=`. `SidecarFileCommitBatch.StageWrite`'s staged-file cleanup lets that one exception type
+  through, because a dead process runs no catch block and its residue must reach the next load.
+- **Verb.** `SafeWriteCrash phase=arm|probe|coldreload` (contract in `design-autotest-command-seam.md`).
+  `coldreload` runs the in-game runner's isolated-restore prep, because a same-process `LoadGame` of the
+  same save keeps the in-memory store and never runs `CleanOrphanFiles`.
+- **Lane.** `ST-4-safe-write-crash-after-temp` on `career-earned-ksc`: the hook fires on the staged
+  `1d611e75....prec.stage.<guid>` after its `.tmp` landed (`tmpBytes=37138 destExists=False
+  destUntouched=True`); the product's catch path runs (`SaveRecordingFiles failed ...
+  SafeWriteInjectedCrashException`, the tree carried forward from the on-disk save); the probe before the
+  reload reads `residue=1 unchanged=true`; the cold reload re-reads the epoch-4 `.prec` (`rebuiltPoints=510`)
+  and deletes exactly that `.tmp`; the final probe reads `residue=0` with the digest equal to the armed one
+  (`ac50d94cb9e08fb7`). Reading `2026-09-26_0019` and armed `2026-09-26_0021` PASS, both attempt 1,
+  automation DLL sha256 `370d1268...`; offline negative control red on each of five seeded faults.
+
+**Scope.** The recording-sidecar write path (the staged `.prec`), and a cold load inside the same
+process rather than a new process. The direct `SafeWriteConfigNode` callers are filed below.
+
+## SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT: a crash mid-save leaves `<file>.tmp` next to the ledger, game-state, milestone and settings files and nothing removes it [FILED 2026-09-26, coverage wave 13, branch `cov-safewrite`; OPEN, low: litter, not data loss]
+
+`Ledger`, `GameStateStore`, `MilestoneStore` and `ParsekSettingsPersistence` write through
+`FileIOUtils.SafeWriteConfigNode` straight to `<file>.tmp` (no `.stage.` name). A crash between the temp
+write and the swap leaves the previous file intact (the ordering contract ST-4 proves on the sidecar
+path) and a `<file>.tmp` beside it. `RecordingStore.CleanOrphanFiles` only scans `Parsek/Recordings/`,
+so nothing deletes that `.tmp`; the next successful write of the same file overwrites it, so it never
+accumulates and is never read. Found by reading the sweep's scope while building ST-4, not by a flight.
+Fix if wanted: a load-time delete of `<file>.tmp` for those four known paths.
 ## STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show [FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`)]
 
 The first real-game look at the annotations: 25 PNGs on the committed `stock-screen-census`

@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane checks that an interrupted file save never loses the previous
+  file.** Parsek writes each save file to a temporary copy first and then swaps it into place. An
+  automation-only fault, which a player build can never arm, now stops a save of one recording's
+  trajectory file right after the temporary copy is written, the way a crash at that instant
+  would. The new lane `ST-4-safe-write-crash-after-temp` checks that the save failure is handled
+  (the mission is kept from the previous save), that the trajectory file on disk is byte-identical
+  to before, and that after a reload from disk the recording loads with all its points and the
+  leftover temporary file is cleaned up. Coverage 238 -> 239 of 247 (D16 complete).
 - **Automated testing: a lane checks that a background-recorded vessel is claimed for a ghost chain
   by its own part event.** The new injected preset `background-claim` adds to a test save a recording
   of a real, loaded, non-focused probe that the tree recorded in the background, with no parent and

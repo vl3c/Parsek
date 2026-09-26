@@ -1089,7 +1089,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # ADDITION by two: the reserved envelope never carried a scene-route verb.
         # 42 / 5 after EvaGroundScience, an ADDITION by one: the reserved envelope never
         # carried an inventory verb.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 42)
+        # 43 / 5 after SafeWriteCrash, an ADDITION by one: CrashAfterJournalPhase names a
+        # merge-journal phase, not a file write, and stays reserved.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 43)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -15588,6 +15590,49 @@ class StockScreenSourceSyncTests(unittest.TestCase):
         self.assertIn("pane-not-for-screen", v(0, {"screen": "rnd", "act": "open", "pane": "active"})[0])
         # The closed spellings are the table's job, and it names the owner verb.
         self.assertEqual("StockScreen", hlib.VERB_SCOPED_CLOSED_ARGS["screen"][0])
+
+
+class SafeWriteCrashSourceSyncTests(unittest.TestCase):
+    """The SafeWriteCrash seam verb (D16 `safe-write`). Reads OUTSIDE harness/: the phase
+    vocabulary (the `Phase*` consts `Phases` is built from) and the refusal reasons (the
+    `Reasons` array, IN ORDER) of the comment-stripped TestCommands/TestCommandSafeWriteCrash.cs."""
+
+    def _source(self):
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandSafeWriteCrash.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# SafeWriteCrash tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return fh.read()
+
+    def test_the_phase_values_and_reasons_mirror_the_c_sharp(self):
+        text = "\n".join(strip_cs_line_comment(l) for l in self._source().splitlines())
+        consts = dict(re.findall(r'internal const string (Phase\w*) = "([a-z]+)";', text))
+        self.assertEqual("phase", consts.pop("PhaseKey"))
+        self.assertEqual(sorted(hlib.SAFEWRITECRASH_PHASE_VALUES), sorted(consts.values()))
+        self.assertEqual(list(hlib.SAFEWRITECRASH_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        for reason in hlib.SAFEWRITECRASH_REASONS:
+            with self.subTest(reason=reason):
+                self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason),
+                              ("driver-arg", "driver-gate"))
+
+    def test_the_verb_is_registered_on_every_axis(self):
+        self.assertIn("SafeWriteCrash", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn("SafeWriteCrash", hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn("SafeWriteCrash", hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, hlib.SEAM_VERB_TAIL_ROLE["SafeWriteCrash"])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                         hlib.SEAM_VERB_POST_MISSION_ROLE["SafeWriteCrash"])
+        self.assertEqual("SafeWriteCrash", hlib.VERB_SCOPED_CLOSED_ARGS["phase"][0])
+
+    def test_the_step_validator(self):
+        v = hlib.validate_safe_write_crash_step
+        self.assertEqual([], v(0, {"phase": "arm", "recording": "abc"}))
+        self.assertEqual([], v(0, {"phase": "probe"}))
+        self.assertEqual([], v(0, {"phase": "coldreload"}))
+        self.assertIn("phase-arg-missing", v(0, {})[0])
+        self.assertIn("recording-arg-missing", v(0, {"phase": "arm"})[0])
+        self.assertIn("only phase=arm", v(0, {"phase": "probe", "recording": "abc"})[0])
 
 
 class GuiCensusSeamVerbTests(unittest.TestCase):

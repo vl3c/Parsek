@@ -106,6 +106,7 @@ namespace Parsek
             }
 
             string tmpPath = path + ".tmp";
+            DestState destBefore = crashAfterTempPattern != null ? ProbeDest(path) : default(DestState);
 
             bool saved;
             try
@@ -141,6 +142,7 @@ namespace Parsek
                     $"'{path}' was left untouched");
             }
 
+            MaybeInjectCrashAfterTemp(tmpPath, path, destBefore);
             ReplaceOrDiscardTemp(tmpPath, path, tag);
         }
 
@@ -164,6 +166,7 @@ namespace Parsek
             }
 
             string tmpPath = path + ".tmp";
+            DestState destBefore = crashAfterTempPattern != null ? ProbeDest(path) : default(DestState);
             try
             {
                 File.WriteAllBytes(tmpPath, data ?? Array.Empty<byte>());
@@ -177,7 +180,108 @@ namespace Parsek
                 throw;
             }
 
+            MaybeInjectCrashAfterTemp(tmpPath, path, destBefore);
             ReplaceOrDiscardTemp(tmpPath, path, tag);
+        }
+
+        // ----- Crash-after-temp fault hook (automation only; D16 `safe-write`) -----
+
+        /// <summary>
+        /// The exception the crash-after-temp hook throws. A dedicated type so the one
+        /// in-process cleanup that would otherwise erase a real crash's residue
+        /// (<c>SidecarFileCommitBatch.StageWrite</c>'s staged-file delete) can let it pass:
+        /// a process that dies runs no catch block, so the orphan <c>.tmp</c> must survive
+        /// for the next load to sweep. Never thrown unless the seam armed the hook.
+        /// </summary>
+        internal sealed class SafeWriteInjectedCrashException : IOException
+        {
+            internal SafeWriteInjectedCrashException(string message) : base(message) { }
+        }
+
+        internal struct DestState
+        {
+            internal bool Exists;
+            internal long Length;
+            internal long WriteTicks;
+        }
+
+        /// <summary>Path substring the armed hook fires on; null = disarmed (every player build).</summary>
+        private static string crashAfterTempPattern;
+
+        /// <summary>How many times the hook has fired this process (read by the seam probe).</summary>
+        internal static int CrashAfterTempFiredCount { get; private set; }
+
+        internal static bool IsCrashAfterTempArmed => crashAfterTempPattern != null;
+
+        /// <summary>
+        /// Arms the one-shot crash-after-temp hook for the next safe-write whose destination
+        /// path contains <paramref name="pathPattern"/>. Refused unless
+        /// <paramref name="seamArmed"/> is true: the only production caller is the
+        /// <c>SafeWriteCrash</c> seam verb, which passes the command addon's own arm flag
+        /// (<c>PARSEK_TEST_COMMANDS=1</c>, read once at Awake), so no player build can arm it.
+        /// </summary>
+        internal static bool ArmCrashAfterTemp(string pathPattern, bool seamArmed)
+        {
+            if (!seamArmed || string.IsNullOrEmpty(pathPattern))
+            {
+                ParsekLog.Warn("SafeWrite",
+                    $"crash-after-temp arm refused seamArmed={seamArmed} " +
+                    $"pattern={(string.IsNullOrEmpty(pathPattern) ? "<empty>" : pathPattern)}");
+                return false;
+            }
+            crashAfterTempPattern = pathPattern;
+            ParsekLog.Info("SafeWrite", $"crash-after-temp armed pattern={pathPattern} phase=after-temp");
+            return true;
+        }
+
+        /// <summary>Disarms the hook and zeroes the fire count (test teardown).</summary>
+        internal static void ResetCrashAfterTempForTesting()
+        {
+            crashAfterTempPattern = null;
+            CrashAfterTempFiredCount = 0;
+        }
+
+        /// <summary>Pure fire predicate: armed, and the destination path contains the pattern.</summary>
+        internal static bool ShouldCrashAfterTemp(string armedPattern, string path)
+        {
+            return !string.IsNullOrEmpty(armedPattern) && !string.IsNullOrEmpty(path)
+                && path.IndexOf(armedPattern, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>Pure: the destination is untouched when its existence, length and write
+        /// time all equal what they were when the safe-write started.</summary>
+        internal static bool IsDestUntouched(DestState before, DestState now)
+        {
+            return before.Exists == now.Exists && before.Length == now.Length
+                && before.WriteTicks == now.WriteTicks;
+        }
+
+        internal static DestState ProbeDest(string path)
+        {
+            var info = new FileInfo(path);
+            return info.Exists
+                ? new DestState { Exists = true, Length = info.Length, WriteTicks = info.LastWriteTimeUtc.Ticks }
+                : default(DestState);
+        }
+
+        private static void MaybeInjectCrashAfterTemp(string tmpPath, string path, DestState destBefore)
+        {
+            string pattern = crashAfterTempPattern;
+            if (!ShouldCrashAfterTemp(pattern, path))
+                return;
+
+            // One-shot: disarm BEFORE the throw, so the product's own retry / next save
+            // writes normally.
+            crashAfterTempPattern = null;
+            CrashAfterTempFiredCount++;
+            DestState destNow = ProbeDest(path);
+            long tmpBytes = File.Exists(tmpPath) ? new FileInfo(tmpPath).Length : -1;
+            ParsekLog.Info("SafeWrite",
+                $"crash-after-temp fired phase=after-temp path='{path}' tmp='{tmpPath}' " +
+                $"tmpBytes={tmpBytes} destExists={destNow.Exists} " +
+                $"destUntouched={IsDestUntouched(destBefore, destNow)} pattern={pattern}");
+            throw new SafeWriteInjectedCrashException(
+                $"Injected crash after temp write '{tmpPath}' (pattern '{pattern}'); '{path}' not swapped");
         }
 
         /// <summary>

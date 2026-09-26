@@ -3546,6 +3546,47 @@ which is its OWN vessel, so the kerbal's recording carries a pid its snapshot la
 `EVA-5-ground-science-place-pickup` is EXPECTED-FAIL on todo
 EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL.
 
+#### SafeWriteCrash (additive; D16 `safe-write` crash-after-temp, one boot)
+
+**Why.** Catalog item F5 asks for a driven witness that a crash after
+`FileIOUtils.SafeWrite*` wrote `<path>.tmp` but before the swap leaves the previous file
+intact and the next load recovers. A real crash needs a relaunch the harness does not have;
+this verb injects the crash inside one boot (supervisor ruling 2026-09-25).
+
+**Grammar.** `cmd=SafeWriteCrash phase=<arm|probe|coldreload> [recording=<id>]`
+(`recording=` is required by `arm` and read by nothing else).
+
+- `arm recording=<id>`: the committed recording (looked up in the committed trees) must
+  have a `.prec` on disk. Records its SHA-256 prefix and point count, calls
+  `FileIOUtils.ArmCrashAfterTemp("<id>.prec", seamArmed: <addon armed>)` and marks the
+  recording dirty so the next save rewrites it. Line: `safewritecrash armed recording=
+  pattern= baselineDigest= baselinePoints=`.
+- `probe`: read-only. `safewritecrash probe recording= fired= armed= digest= unchanged=
+  residue= loaded= loadFailed= points= baselinePoints=`; `residue` counts the recording's
+  `.prec` transient artifacts by `RecordingStore.IsTransientSidecarArtifactFile`.
+- `coldreload`: runs `ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore` (the
+  in-game runner's isolated-restore prep), so the NEXT `LoadGame` takes the cold OnLoad
+  path (sidecars re-read from disk, `CleanOrphanFiles`). A same-process `LoadGame` of the
+  same save otherwise keeps the in-memory store and runs no sweep.
+
+**The hook.** `FileIOUtils.MaybeInjectCrashAfterTemp` runs in `SafeWriteBytes` and
+`SafeWriteConfigNode` after the temp file is verified and before `ReplaceOrDiscardTemp`.
+Armed only through `ArmCrashAfterTemp` with `seamArmed == true` (the addon's own
+`PARSEK_TEST_COMMANDS=1` flag), so no player build can arm it. It fires once on the first
+destination path containing the pattern, disarms itself BEFORE throwing, logs `[SafeWrite]
+crash-after-temp fired phase=after-temp path= tmp= tmpBytes= destExists= destUntouched=
+pattern=` and throws `SafeWriteInjectedCrashException`. The product's own catch path
+handles it; the one in-process cleanup a dead process would never run,
+`SidecarFileCommitBatch.StageWrite`'s staged-file delete, lets that exception type pass, so
+the orphan `<id>.prec.stage.<guid>.tmp` survives to the next load like real crash residue.
+
+**Phases.** SINGLE-PHASE, `RequiresGameLoaded`, default budget. **Refusals** (REJECTED):
+`safewritecrash-phase-arg-missing|invalid`, `-recording-arg-missing`,
+`-recording-not-found`, `-no-sidecar` (arg-class) and `-already-armed`, `-arm-refused`,
+`-no-baseline` (gate-class). hlib mirrors them (`SAFEWRITECRASH_*`, pinned by
+`SafeWriteCrashSourceSyncTests`) and `validate_safe_write_crash_step` checks the arg shape
+pre-launch. Lane: `ST-4-safe-write-crash-after-temp`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`

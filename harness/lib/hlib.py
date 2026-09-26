@@ -512,6 +512,13 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # Removed events the recorder hooks; the seam fires none. Two-phase on a 120 s
     # budget (the EvaExit size), so NOT a DEFERRED_SEAM_VERB.
     "EvaGroundScience",
+    # SafeWriteCrash. ADDITIVE (42 -> 43 implemented, reserved unchanged at 5): the D16
+    # `safe-write` fault injection inside one boot. phase=arm arms FileIOUtils' one-shot
+    # crash-after-temp hook on a committed recording's `.prec` and marks it dirty;
+    # phase=coldreload runs the isolated-restore prep so the next LoadGame is a COLD load
+    # (sidecars re-read, orphan sweep); phase=probe reports the sidecar digest, residue and
+    # point count against the armed baseline. Single-phase on the default budget.
+    "SafeWriteCrash",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1075,6 +1082,9 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # EvaGroundScience puts a part into the world as a new vessel, or takes one back into
     # a kerbal's inventory: an irreversible in-world action, the PlantFlag class.
     "EvaGroundScience": TAIL_ROLE_WORLD_MUTATING,
+    # SafeWriteCrash is WORLD-MUTATING: arm dirties a committed recording and plants a
+    # fault in the next save, coldreload wipes the in-memory stores ahead of a load.
+    "SafeWriteCrash": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1257,6 +1267,8 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # the ground" / "the part is back in the kerbal's inventory", a physical in-world state
     # no other verifier re-derives.
     "EvaGroundScience": POST_MISSION_ROLE_OUTCOME,
+    # SafeWriteCrash is `recording`: its verdict is about Parsek's sidecar persistence.
+    "SafeWriteCrash": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -3026,6 +3038,46 @@ def validate_stock_screen_step(index: int, step_args: Dict) -> List[str]:
     return errors
 
 
+# SafeWriteCrash (D16 `safe-write`): mirrored from TestCommands/TestCommandSafeWriteCrash.cs
+# (SafeWriteCrashSourceSyncTests keeps them byte-equal). `phase` is closed and rides
+# VERB_SCOPED_CLOSED_ARGS; `recording` is an open committed-recording id, REQUIRED by
+# phase=arm and read by no other phase.
+SAFEWRITECRASH_VERB = "SafeWriteCrash"
+SAFEWRITECRASH_PHASE_KEY = "phase"
+SAFEWRITECRASH_PHASE_VALUES: Tuple[str, ...] = ("arm", "probe", "coldreload")
+SAFEWRITECRASH_RECORDING_KEY = "recording"
+SAFEWRITECRASH_REASONS: Tuple[str, ...] = (
+    "safewritecrash-phase-arg-missing", "safewritecrash-phase-arg-invalid",
+    "safewritecrash-recording-arg-missing", "safewritecrash-recording-not-found",
+    "safewritecrash-no-sidecar", "safewritecrash-already-armed",
+    "safewritecrash-arm-refused", "safewritecrash-no-baseline",
+)
+
+
+def validate_safe_write_crash_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape checks for one ``SafeWriteCrash`` step: ``phase=`` is REQUIRED
+    (its spelling is the VERB_SCOPED_CLOSED_ARGS row's job) and ``recording=`` is
+    required by phase=arm and read by no other phase."""
+    errors: List[str] = []
+    phase = step_args.get(SAFEWRITECRASH_PHASE_KEY)
+    has_rec = bool(step_args.get(SAFEWRITECRASH_RECORDING_KEY))
+    if phase is None:
+        errors.append(
+            "driver.steps[%d].args.%s: SafeWriteCrash REQUIRES it (one of %s); the seam "
+            "answers REJECTED safewritecrash-phase-arg-missing"
+            % (index, SAFEWRITECRASH_PHASE_KEY,
+               " or ".join(repr(v) for v in SAFEWRITECRASH_PHASE_VALUES)))
+    elif phase == "arm" and not has_rec:
+        errors.append(
+            "driver.steps[%d].args.%s: phase=arm needs it; the seam answers REJECTED "
+            "safewritecrash-recording-arg-missing" % (index, SAFEWRITECRASH_RECORDING_KEY))
+    elif phase != "arm" and SAFEWRITECRASH_RECORDING_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: only phase=arm reads it; it would be silently "
+            "ignored" % (index, SAFEWRITECRASH_RECORDING_KEY))
+    return errors
+
+
 def validate_dump_gui_tree_step(index: int, step_args: Dict) -> List[str]:
     """Pre-launch shape checks for one ``DumpGuiTree`` step.
 
@@ -3796,6 +3848,7 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     STOCKSCREEN_SCREEN_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_SCREEN_VALUES),
     STOCKSCREEN_ACT_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_ACT_VALUES),
     STOCKSCREEN_PANE_KEY: (STOCKSCREEN_VERB, STOCKSCREEN_PANE_VALUES),
+    SAFEWRITECRASH_PHASE_KEY: (SAFEWRITECRASH_VERB, SAFEWRITECRASH_PHASE_VALUES),
 }
 
 
@@ -5892,6 +5945,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_stock_screen_step(i, step_args))
         elif cmd == EDITORROUTE_GO_VERB:
             errors.extend(validate_go_to_editor_step(i, step_args))
+        elif cmd == SAFEWRITECRASH_VERB:
+            errors.extend(validate_safe_write_crash_step(i, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
         # be well-formed AND name an EARLIER seam step that expects OK. A fault here
         # would otherwise put a literal ${...} on the wire, where the seam resolves an
@@ -9252,6 +9307,17 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "stockscreen-career-only": "driver-gate",
     "stockscreen-open-failed": "driver-gate",
     "stockscreen-not-settled": "driver-gate",
+    # SafeWriteCrash: a missing / misspelt arg, an unknown recording id or a fixture
+    # recording with no .prec is arg-class; an already-armed hook, a seam-refused arm or a
+    # probe with no armed baseline is a gate the lane asked for and did not get.
+    "safewritecrash-phase-arg-missing": "driver-arg",
+    "safewritecrash-phase-arg-invalid": "driver-arg",
+    "safewritecrash-recording-arg-missing": "driver-arg",
+    "safewritecrash-recording-not-found": "driver-arg",
+    "safewritecrash-no-sidecar": "driver-arg",
+    "safewritecrash-already-armed": "driver-gate",
+    "safewritecrash-arm-refused": "driver-gate",
+    "safewritecrash-no-baseline": "driver-gate",
     # KscAction: dispatch not-ready + career-state declines are career-class; unknown /
     # missing targets are arg-class.
     "career-not-ready": "driver-career",
