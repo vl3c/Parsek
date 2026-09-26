@@ -556,7 +556,7 @@ provisioned kRPC settings stamp `mainWindowVisible = False` (the servers start f
 
 ---
 
-## COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave [FILED 2026-09-25, branch `cov-wave1`. RULINGS OPERATOR-CONFIRMED 2026-09-26; OPEN only for the D14 `atmosphere` residue below]
+## ~~COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave~~ [FILED 2026-09-25, branch `cov-wave1`. CLOSED 2026-09-26: rulings operator-confirmed, and the `atmosphere` residue closed by AT-1]
 
 **Operator-confirmed 2026-09-26 (supervisor rulings 2026-09-25, applied in the registry):**
 retire D13 `proximity-offset` (code removed, VesselSpawner.cs:19), D12 `reservation-auto-hire`
@@ -576,11 +576,12 @@ from D6 `spawn-at-end-pid-dedup`.
 - ~~D16 `deflate-snapshots`~~ DONE 2026-09-26 (same lane): instead of a load-side log line, the
   cell probes every committed sidecar's DeflateV1 header, decodes it against the snapshot the
   product loaded, and round-trips a live vessel snapshot through the product writer and reader.
-- D14 `atmosphere` is claimed on an ORBITAL Laythe replay; a replay descending into a non-Kerbin
-  atmosphere is not gated anywhere.
-  2026-09-26: `AT-1-duna-atmospheric-descent` is authored on `duna-park-recorded`, whose recording
-  `acf1435a` descends through Duna's atmosphere; the claim moves to it once its reading and armed
-  runs are green.
+- ~~D14 `atmosphere` is claimed on an ORBITAL Laythe replay; a replay descending into a non-Kerbin
+  atmosphere is not gated anywhere.~~ DONE 2026-09-26: the claim moved to
+  `AT-1-duna-atmospheric-descent`, which replays `duna-park-recorded`'s recording `acf1435a`
+  (all Atmospheric on Duna) through the mission loop's descent trigger; the engine drives and
+  spawns the ghost on Duna at 26,913.5 m. Reading `2026-09-26_1816`, armed `_1819`, negative
+  control offline.
 
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect]
 

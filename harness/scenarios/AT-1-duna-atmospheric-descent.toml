@@ -30,9 +30,8 @@ id = "AT-1-duna-atmospheric-descent"
 # The re-aimed transfer reaches Duna's SOI at 5,357,228,586 (ReaimSeam synth geometry),
 # BEFORE the loiter entry, so the descent follows the arrival.
 #
-# THE DRIVE. TimeJump into the loiter (the trace opens the cycle's window and prints
-# `DESCENT WINDOW ... descent renders at [trigger, ...]`, which is where a re-pin reads
-# the trigger), then TimeJump to trigger + 100 s and trigger + 200 s, both inside member
+# THE DRIVE. TimeJump into the loiter (the engine's `phase=Loiter` line; a re-pin reads
+# the trigger off the RENDERED line's `trigger=`), then TimeJump to trigger + 100 s and trigger + 200 s, both inside member
 # 12's slice, with RecordingState spacers so frames run at each instant.
 #
 # THE WITNESS, three independent lines from the flight engine:
@@ -46,11 +45,25 @@ id = "AT-1-duna-atmospheric-descent"
 # The active vessel stays at KSC, so FX (reentry, audio) are distance-suppressed and are
 # NOT the witness.
 #
-# READING-RUN STATE: NEVER FLOWN. The UTs above are predictions; the reading run
-# confirms them or re-pins from the DESCENT WINDOW line.
+# READING RUN `2026-09-26_1816` (automation DLL sha256 4429ebbd..., origin/main
+# 716c9acdc + docs): every witness printed as predicted. MEASURED trigger
+# 5,357,413,107.2956 (predicted .27), head at the first descent frame 2,570,542,480.695,
+# spawn altitude 26,913.5 m on Duna. It red on ONE token, `DESCENT WINDOW cycle=0`, which
+# the lifecycle trace never printed: the trace's first frame for this unit was already
+# the loiter (the TimeJump lands there from before arrival), so no Inert->Loiter
+# transition opened a window. Replaced by the engine's own Loiter line, and the trigger
+# is now pinned off the RENDERED line (a 15 s band around the measured value).
+#
+# ARMED RUN `2026-09-26_1819`: PASS attempt 1 on the same DLL, the same numbers
+# (trigger 5,357,413,107.29558, head 2,570,542,480.695, altitude 26,913.5).
+# NEGATIVE CONTROL, offline through `hlib.evaluate_expectations` over the armed log:
+# 12 of 12 seeded faults red - the Descent engine line removed, its head moved out of
+# member 12's window, render=False, the spawn at 56 km, on Laythe, at a landed-member UT or
+# removed, RENDERED removed, the trigger moved 30 s, the Loiter line removed, a DESCENT
+# SKIPPED added, and the trigger-engaged line removed.
 # =====================================================================================
-tier = "nightly"
-description = "D14 atmosphere, behavioural declarer: loop duna-park-recorded's Kerbal X #2 mission, TimeJump into the Duna loiter and then twice into the descent trigger's atmospheric slice (member 12, recording acf1435a, all Atmospheric on Duna), and require the engine to drive and spawn the ghost on Duna below 50 km. NEVER FLOWN; UTs predicted offline from V25M's log."
+tier = "nightly"  # live-proven 2026-09-26 (reading _1816, armed _1819, negative control offline)
+description = "D14 atmosphere, behavioural declarer: loop duna-park-recorded's Kerbal X #2 mission, TimeJump into the Duna loiter and then twice into the descent trigger's atmospheric slice (member 12, recording acf1435a, all Atmospheric on Duna), and require the engine to drive and spawn the ghost on Duna below 50 km. Reading 2026-09-26_1816, armed _1819 PASS, negative control offline 12 of 12."
 instanceProfile = "stock-minimal"
 tags = ["AT1", "atmosphere", "duna", "descent-trigger", "loop-playback", "reaim"]
 
@@ -92,7 +105,10 @@ steps = [
 ]
 
 [dimensionsCovered]
-D14 = ["duna", "scene-flight", "sandbox"]
+# D14 `atmosphere` - the engine drives (`phase=Descent render=True`, head in member
+# 12's window) and spawns (`body='Duna' altitude=` below 50 km) the ghost on a recording
+# that is entirely Atmospheric on Duna. Moved here from V16M (an orbital Laythe replay).
+D14 = ["atmosphere", "duna", "scene-flight", "sandbox"]
 
 [expectations]
 allowedAnomalies = []
@@ -108,11 +124,11 @@ required = [
   "SetLoopEnabled: loop ON",
   "startloopplayback initiated:",
   "DESCENT TRIGGER engaged dest=Duna members=\\[9,10,12,13\\]",
-  "DESCENT WINDOW cycle=0: loitering now; descent renders at \\[",
+  "engine descent trigger member=12 cycle=0 phase=Loiter render=False liveUT=5357371500\\.",
   # member 12's window is [2570542381.03, 2570542620.24]; the head regex spans it.
   "engine descent trigger member=12 cycle=0 phase=Descent render=True liveUT=[0-9.E+]+ head=2570542(38[1-9]|39[0-9]|[45][0-9]{2}|60[0-9]|61[0-9])\\.",
   "Pending playback interpolation: vessel='Kerbal X' UT=2570542(38[1-9]|39[0-9]|[45][0-9]{2}|60[0-9]|61[0-9])\\.[0-9] resolved from [^\\r\\n]* body='Duna' altitude=([0-9]{1,4}|[1-4][0-9]{4})\\.[0-9]",
-  "DESCENT RENDERED cycle=0 member=",
+  "DESCENT RENDERED cycle=0 member=12: a frame landed in the window at liveUT=5357413207 \\(trigger=53574131(0[5-9]|1[0-9])\\.",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

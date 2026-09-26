@@ -15,7 +15,9 @@ _(unreleased — entries accumulate here per commit)_
   1x-warp, editor-scene and commit-abort definitions, the scoped synthetic claims and the rest) are
   confirmed. D17 `remotetech-commnet` is retired: Parsek's only RemoteTech behaviour is switching
   ghost CommNet off, which stays unit-tested, and ghost relays under RemoteTech are not planned.
-  Coverage 244 of 247 -> 244 of 246.
+  The "replays around a non-Kerbin atmospheric body" cell moves from an orbital Laythe replay to a
+  new lane that replays a recorded descent through Duna's atmosphere and checks the ghost is
+  driven and spawned on Duna below 50 km. Coverage 244 of 247 -> 244 of 246.
 - **Ghost relays and control points now count for CommNet during the ghost window.** A ghost
   replaying a committed recording now takes part in CommNet as the vessel it replays, from the
   start of its recording until the vessel spawns. Its relay antennas carry signal for the

@@ -653,11 +653,16 @@ values = ["bbox-block", "trajectory-walkback", "terrain-correction",
 # cells (D1 commit-landed-foreign-body / commit-in-foreign-soi, D13
 # situation-correction). The retirement lowers the denominator by one.
 #
-# `atmosphere` IS DEFINED (operator-confirmed 2026-09-26) as "a recording replays correctly around a non-Kerbin atmospheric
-# body". DECLARER: V16M-laythe-player-loop, off its already-required Laythe
-# body-orbit render line plus the faithful-parity and seam-endpoint summaries.
-# SCOPE: that replay is orbital around Laythe; a replay descending INTO a
-# non-Kerbin atmosphere is not yet gated anywhere.
+# `atmosphere` IS DEFINED (operator-confirmed 2026-09-26) as "a recording replays
+# correctly around a non-Kerbin atmospheric body". DECLARER (since 2026-09-26):
+# AT-1-duna-atmospheric-descent, a replay DESCENDING THROUGH Duna's atmosphere. It loops
+# `duna-park-recorded` and jumps into the descent trigger's slice for recording `acf1435a`
+# (three Atmospheric TrackSections on Duna, 49,991 m -> 4,534 m); the flight engine drives
+# the ghost on it (`engine descent trigger member=12 ... phase=Descent render=True`, head in
+# the member's window) and spawns it on Duna inside the air (`Pending playback
+# interpolation: ... body='Duna' altitude=26913.5`). Reading `2026-09-26_1816`, armed
+# `_1819`, negative control offline (12 of 12 seeds red). The first declarer,
+# V16M-laythe-player-loop, replayed an ORBIT around Laythe and gave the claim up.
 #
 # `warp-1x` IS DEFINED (operator-confirmed 2026-09-26) as "ghosts replayed at 1x, seen in the render warp histogram".
 # DECLARER: V14M-ike-player-loop, off its armed renderComposition block's
