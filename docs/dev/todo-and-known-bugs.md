@@ -11021,6 +11021,10 @@ Every other live-gated case from that pass now has a lane (S4.3, S4.4, L6; the l
 
 **Fix (as built).** The additive seam verb `DeleteRecording index=<n>`: `RequiresGameLoaded` (not AnyScene - it mutates a save-scoped store, the SetSetting / logistics-pair shape) with the logistics pair's `load-in-flight` / `merge-journal-in-flight` rejects; routed exactly as the table routes a click - FLIGHT ghost-only row to `ParsekFlight.DeleteGhostOnlyRecording`, FLIGHT any other row to `ParsekFlight.DeleteRecording` (its `CanDeleteRecording` guard checked first and typed `flight-delete-blocked`, since the production call refuses silently), everything else to `RecordingStore.DeleteRecordingFull`; `index-arg-invalid` / `index-out-of-range` typed REJECTED; verified by read-back BY REFERENCE (every production call is void) else `ERROR delete-not-applied`. One deliberate widening, stated in the contract: any committed row, not only `IsGhostOnly` ones, because only the Gloops recorder produces those and the removal this lane exists to drive is a mid-list one under living ghosts. The lane is `S0.11-ksc-table-delete`: it arms V22K's mission loop, jumps to 22082 so the loop clock lands mid member-window (member #1 renders continuously, not the inter-cycle wait V22K's 22825 hits), boots to SPACECENTER, then `DeleteRecording index=8` removes a leaf debris while that member ghost is live, pinning the store's two removal lines and `[KSCGhost] KSC ghost state reindexed after committed removal at #8` (Verbose; printed only when a KSC ghost is alive, so a green cannot be vacuous). It deletes a LEAF, not the ascent parent, to avoid DELETE-OF-PARENT-DANGLES-CHILD-ANCHORS below. Contract: `design-autotest-command-seam.md` -> `#### DeleteRecording`. Two product defects the verb's widening exposed are recorded below.
 
+**Retired 2026-09-26.** The verb and its lane `S0.11-ksc-table-delete` were removed with the
+Recordings-table delete (recordings are never player-deletable); the `ParsekKSC` reindex stays
+pinned headlessly by `CommittedListNotificationTests`.
+
 ## ~~DELETE-LEAVES-TREE-MEMBERSHIP: `RecordingStore.RemoveRecordingAt` removed a recording from the flat committed list but left it in the committed tree that owns it, so the next OnSave re-materialized its sidecars and the next load resurrected it~~ [FOUND 2026-09-02 by `S0.11-ksc-table-delete` run 1 (log `logs/2026-09-02_1114_S0.11-ksc-table-delete/KSP.log`). FIXED the same day on branch `ksc-delete-verb`]
 
 **What the flight showed.** `deleterecording complete ... committedBefore=9 committedAfter=8` with `DeleteRecordingFiles` logging all five `Deleted file:` lines; then the FlushAndQuit `OnSave: saving 8 committed recordings` - and the produced `persistent.sfs` carried NINE `RECORDING` nodes under the `RECORDING_TREE`, the deleted id among them, its five sidecars back on disk at a save-time mtime. `saveParse` read `recordings 9 > max 8`.
@@ -11029,7 +11033,31 @@ Every other live-gated case from that pass now has a lane (S4.3, S4.4, L6; the l
 
 **Fix.** `RemoveRecordingAt` now prunes the id from every committed tree through the existing `PruneTaggedRecordingsFromCommittedTrees` (the Re-Fly session removal's helper: membership, branch-point endpoint refs, stale root / active ids, background map rebuild) before deleting the files, gated by a new `pruneFromCommittedTrees` param so the bulk session sweep keeps its own fallback-aware prune. Pinned by `RemoveRecordingAtTreePruneTests`; the S0.11 report-only `recordings = 8` structure pin reads it live.
 
-## DELETE-OF-PARENT-DANGLES-CHILD-ANCHORS: deleting a parent recording leaves its parent-anchored children (debris / controlled-decoupled) with dangling `ParentAnchorRecordingId` / `anchorRecordingId` references [FOUND 2026-09-02 by `S0.11-ksc-table-delete` run 5 (log `logs/2026-09-02_1201_S0.11-ksc-table-delete/KSP.log`). REPORT-ONLY - NOT player-reachable, and the repair is a design decision. Not fixed]
+## ~~DELETE-OF-PARENT-DANGLES-CHILD-ANCHORS: deleting a parent recording leaves its parent-anchored children (debris / controlled-decoupled) with dangling `ParentAnchorRecordingId` / `anchorRecordingId` references~~ [FOUND 2026-09-02 by `S0.11-ksc-table-delete` run 5 (log `logs/2026-09-02_1201_S0.11-ksc-table-delete/KSP.log`). CLOSED 2026-09-26 AS UNREACHABLE BY DESIGN: recordings are never player-deletable]
+
+**Closed 2026-09-26, unreachable by design.** Operator ruling: recordings are never
+player-deletable (a deletion breaks the timeline and the ledger). The only path that ever
+reached this - the `DeleteRecording` seam verb's deliberate widening to any committed row -
+was removed with the Recordings table's ghost-only `X`, `ParsekFlight.DeleteRecording` and
+the Settings wipes, and `S0.11-ksc-table-delete` retired with it. Caller set re-derived from
+source on the removal branch (every caller of the notifying single-row primitives
+`RecordingStore.RemoveRecordingAt` / `DeleteRecordingFull` / `RemoveCommittedInternal` /
+`RemoveCommittedById`, production code only):
+- `DeleteRecordingFull` has ONE caller, the merge-journal rollback's legacy by-id sweep of
+  the session-provisional Re-Fly recording (`MergeJournalOrchestrator.RemoveCommittedRecordingById`,
+  reached only when the session-tagged sweep removed nothing).
+- `RemoveRecordingAt` is otherwise called by `RemoveSessionProvisionalRecordings` (the
+  session-tagged rollback, which removes the provisional and its session-tagged children
+  TOGETHER) and by `ParsekFlight.DeleteGhostOnlyRecording`, whose only caller is the Gloops
+  window's "Discard Recording" over the last standalone ghost-only Gloops take (a row nothing
+  anchors to; the window's launcher is retired in every mode and leaves with the Gloops
+  extraction, GLOOPS-STANDALONE-WINDDOWN).
+- `RemoveCommittedInternal` / `RemoveCommittedById` are Re-Fly provisional removals
+  (`RewindInvoker`, `MergeDialog.ReFlyDiscard`, `LoadTimeSweep`'s zombie sweep, the
+  splitter's TIP rollback) and `RemoveCommittedTreeById`'s whole-tree removal.
+So no remaining remover deletes a committed parent the player chose while leaving its
+children behind. The original reading and the deferred design question are kept below as
+the record.
 
 **What the flight showed.** Run 5 deleted committed index 0, the ascent parent `28b6e543d67c4d1c9e4763b451c01df5`. The verb worked (committed 9 -> 8, both store lines, the reindex line fired), but the analyzer red'd on INV7-TREE-TOPOLOGY with 12 findings: each of the six `Kerbal X Debris` recordings carried `ParentAnchorRecordingId = 28b6e543...` AND a `TrackSection.anchorRecordingId = 28b6e543...`, both now DANGLING because their anchor recording was deleted (`FAIL INV7-TREE-TOPOLOGY ... field=ParentAnchorRecordingId ... kind=dangling`, and the same per `anchorRecordingId`). `RemoveRecordingAt` removes the row and prunes it from its own tree, but does NOT walk the OTHER committed recordings to fix references that pointed AT the deleted one.
 
@@ -12579,6 +12607,13 @@ the edge-case-11 in-progress guard all remain. Pinned by
 `design-ui-basic-advanced.md` (2026-08-28). **Remaining:** the actual extraction
 (move `GloopsRecorderUI` + the gloops recorder paths out of Parsek) and deciding
 which further looping surfaces wind down next — both unscheduled.
+
+**2026-09-26:** the Gloops window's "Discard Recording" (`ParsekFlight.DiscardLastGloopsRecording`
+-> `DeleteGhostOnlyRecording`) is the last recording removal in Parsek with a player-facing
+button, kept only for the Gloops take it discards; it leaves Parsek with the extraction.
+Every other player deletion path (the Settings wipes, the Recordings-table ghost-only `X`,
+`ParsekFlight.DeleteRecording`) was removed by the ruling that recordings are never
+player-deletable.
 
 ## SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE: the colour-changer cabin-light apply line never fires on the showcase ghosts, so whether the emissive actually toggles is unmeasurable [MEASURED 2026-08-28 on S1.9 reading run 2 (`2026-08-28_2010`): all 25 colour-changer rows spawned meshes, zero `applied color changer cabin light` lines. OBSERVATION, report-only - possibly a real ghost-render gap, possibly Pattern-A discovery correctly finding nothing on these parts]
 

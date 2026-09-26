@@ -8,8 +8,10 @@ deletion breaks the timeline and the ledger). The Settings window's Data Managem
 GONE with both its buttons (`Wipe All Recordings (N)`, `Wipe All Milestones (N)`), their two
 confirm dialogs (`Confirm: Wipe Recordings`, `Confirm: Wipe Milestones`) and their two
 `All ... wiped` screen messages, so the dialog population is **19** (was 21) and the Settings
-window draws five sections (3.8, 3.12). The per-row Archive (Hidden) checkbox is the only way a
-player stops seeing a recording. The coverage tallies below are the historical record of the
+window draws five sections (3.8, 3.12). The Recordings table's `X` on ghost-only rows is gone
+too (3.2, Recordings tab), and with it `ParsekFlight.DeleteRecording` and its `Recording '...'
+deleted` screen message; a ghost-only row now draws only its `G`. The per-row Archive (Hidden)
+checkbox is the only way a player stops seeing a recording. The coverage tallies below are the historical record of the
 flights that took them and are not rewritten; where they count a wipe dialog, that row no
 longer exists.
 
@@ -153,7 +155,7 @@ structure:
 | `void OnGUI()` in production | **5** hosts: `ParsekFlight.cs:2087`, `ParsekKSC.cs:227`, `ParsekTrackingStation.cs:350`, `CurrencyReservationOverlay.cs:87`, `InGameTests/TestRunnerShortcut.cs:177` (`OverlayBadge.cs` was the sixth until 2026-09-25, when the stock-UI badges moved to stock mechanisms and the file was deleted) |
 | IMGUI draw calls outside `UI/` | 6 files: `CurrencyReservationOverlay.cs`, `MapMarkerRenderer.cs`, `ParsekFlight.cs`, `ParsekKSC.cs`, `ParsekUI.cs`, `WatchModeController.cs` (`OverlayBadge.cs` deleted 2026-09-25) |
 | `UiSurfaceVisibility.IsVisible(` | **12** call sites in 5 files; 4 of the 14 enum keys have none |
-| `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` | 107 raw, **95** real producers at `4eb427e9e`; **93** since the two `All ... wiped` toasts left with the Settings wipes (2026-09-26) |
+| `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` | 107 raw, **95** real producers at `4eb427e9e`; **92** since the two `All ... wiped` toasts left with the Settings wipes and `ParsekFlight.DeleteRecording`'s toast with it (2026-09-26) |
 
 ## 2. How the picture was taken
 
@@ -503,7 +505,7 @@ Notable control semantics in the body:
 | per-row Archive toggle | `rec.Hidden` + `NotifyTimelineOfArchiveChange` | REFUSED with a Warn + ScreenMessage when the row is an Unfinished Flight (`:2158-2167`) |
 | folder Archive toggle | writes every descendant `Hidden` (`:2860`) | never. See finding P17 |
 | `G` | `groupPicker.OpenForRecording / ForChain / ForRecordings / ForGroup` | never disabled; adds later rejected by `CanAddToUserGroup` (`UI/GroupPickerUI.cs:24`) |
-| `X` on a row | `DeleteGhostOnlyRecording` (`:4570`), NO confirmation | only when `rec.IsGhostOnly && Mode != TrackingStation` (`:1982`, `:4611`) |
+| `X` on a row | REMOVED 2026-09-26 (recordings are never player-deletable); was `DeleteGhostOnlyRecording` (`:4570`), NO confirmation | was only when `rec.IsGhostOnly && Mode != TrackingStation` (`:1982`, `:4611`) |
 | `X` on a folder | `ShowDisbandGroupConfirmation` (`:4399`) | only for a non-permanent group |
 | `W` / `W*` | `flight.EnterWatchMode(ri)` | `IsWatchButtonEnabled` (`:947`); column hidden outside flight |
 | `FF` / `R` | `ShowFastForwardConfirmation` (`:4496`) / `ShowRewindConfirmation` (`:4450`) | `RecordingStore.CanFastForward` / `CanRewind`, refusal as tooltip; `R` is suppressed entirely on an unfinished-flight row (`:3754`) |
@@ -1399,7 +1401,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | id | item | file:line |
 |---|---|---|
 | H26 | `LoopStartUT` / `LoopEndUT` / `LoopAnchorVesselId` are written only by `ApplyAutoLoopRange`, so the same Loop checkbox produces a different loop WINDOW depending on where it was clicked | `Recording.cs:63-66`, `UI/RecordingsTableUI.cs:5735`, `:1338`, `:2643` |
-| H27 | Deleting a single non-ghost-only recording has no player path; the only one is the all-or-nothing wipe | `RecordingStore.cs:4287`, `ParsekFlight.cs:19787` |
+| H27 | Deleting a single non-ghost-only recording has no player path; the only one is the all-or-nothing wipe | `RecordingStore.cs:4287`, `ParsekFlight.cs:19787`. BY DESIGN since 2026-09-26: no player deletion path exists at all (the wipe and the ghost-only `X` were removed, and `ParsekFlight.DeleteRecording` with them) |
 | D9 | Four store operations with no production caller, three destructive | `RecordingStore.cs:3813`, `:3782`, `:5079`, `:4522` |
 | P9 | Rename refusals (group, re-parent) discard the typed name with a Warn | `UI/RecordingsTableUI.cs:4346`, `:4353`, `:4364`, `GroupHierarchyStore.cs:150` |
 | P17 | Group hide-all writes `Hidden` over every descendant with no Unfinished-Flight check | `UI/RecordingsTableUI.cs:2859` vs the per-row guard `:2164-2172` |

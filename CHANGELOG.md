@@ -1803,8 +1803,13 @@ _(unreleased — entries accumulate here per commit)_
 - **Recordings can no longer be deleted.** A committed recording is part of the timeline and the
   career ledger, and deleting one broke both. The Settings window's Data Management section is
   gone, with its "Wipe All Recordings" and "Wipe All Milestones" buttons and their confirmation
-  dialogs. To stop seeing a recording, tick its Archive checkbox in the Recordings tab. Saves
-  that already used a wipe stay as they are.
+  dialogs, and so is the "X" delete button on ghost-only rows of the Recordings table (those rows
+  keep their "G" button). To stop seeing a recording, tick its Archive checkbox in the
+  Recordings tab. Saves that already used a wipe or a delete stay as they are.
+- **Dev: the `DeleteRecording` test-command verb and its lane `S0.11-ksc-table-delete` are
+  removed** with the table delete they reproduced (43 implemented seam verbs). The dialog census
+  lane `GUI-10` raises four dialogs instead of six and `GUI-14` photographs the default Settings
+  density where the greyed wipe buttons were; both need a re-read flight.
 - **Settings: a round of fixes to the Settings window.**
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics. Basic
     shows Interface and Ghosts.

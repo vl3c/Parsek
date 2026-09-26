@@ -3918,8 +3918,9 @@ namespace Parsek
         /// ghost teardown and the index reindex. Crew unreservation stays with the caller.
         /// </summary>
         /// <param name="pruneFromCommittedTrees">
-        /// When true (the single-delete default: the recordings-table delete via
-        /// <see cref="DeleteRecordingFull"/> / <see cref="ParsekFlight"/>), also prune the
+        /// When true (the single-row default: the merge-journal rollback via
+        /// <see cref="DeleteRecordingFull"/> and the Gloops discard via
+        /// <see cref="ParsekFlight"/>), also prune the
         /// removed row from the committed tree that owns it, so
         /// <c>SaveTreeRecordings</c> does not re-materialize its sidecars on the next OnSave
         /// and resurrect it (DELETE-LEAVES-TREE-MEMBERSHIP). The bulk session sweep
@@ -4260,11 +4261,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Deletes a recording from the committed list, cleans up sidecar files, and
-        /// unreserves crew. Use when there are no active ghosts (e.g. KSC scene).
-        /// In flight scene, use ParsekFlight.DeleteRecording instead (handles ghost cleanup).
+        /// INTERNAL ROLLBACK ONLY: removes a recording from the committed list, cleans up its
+        /// sidecar files and unreserves its crew. Its one caller is the merge-journal
+        /// rollback's legacy by-id sweep of a session-provisional Re-Fly recording
+        /// (<c>MergeJournalOrchestrator.RemoveCommittedRecordingById</c>). No player path
+        /// reaches it: recordings are never player-deletable (a deletion breaks the timeline
+        /// and the ledger). Ghost teardown and index shifts ride on the store's
+        /// Removing / Removed notifications.
         /// </summary>
-        public static void DeleteRecordingFull(int index)
+        internal static void DeleteRecordingFull(int index)
         {
             if (index < 0 || index >= committedRecordings.Count)
             {

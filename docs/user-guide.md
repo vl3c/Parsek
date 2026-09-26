@@ -39,7 +39,7 @@ The Gloops Flight Recorder — a manual ghost-only recorder — is being spun of
 standalone mod, and its button and window have been removed from the Parsek UI.
 Ghost-only recordings you already made keep working: they still appear in the
 **Gloops - Ghosts Only** group in the Recordings Manager, still play back as ghosts,
-keep their **X** quick-delete button in the Group column, and remain purely visual
+can be archived like any other recording, and remain purely visual
 (no funds, crew reservations, contracts, science, or milestones).
 
 ### Merge Dialog
@@ -128,7 +128,7 @@ Columns:
 - **Duration** - compact format (e.g. "56s", "2m 30s", "1h 15m").
 - **Info columns** (shown when the **Info** toggle at the bottom of the window is expanded) - Max altitude, max speed, distance travelled, point count, start/end positions.
 - **Status** - `future` / `active` / countdown `T-Xd Xh Xm Xs` for unspawned recordings, `past` or a terminal state (`Orbiting`, `Landed`, `Splashed`, `Docked`, `Recovered`, `Destroyed`) for finished ones. Color-coded. Hovering shows chain status when flying alongside an active ghost.
-- **Group** - "G" button opens a group picker; custom (user-created) groups add an "X" button to disband the group; ghost-only recordings add an "X" button to delete the recording.
+- **Group** - "G" button opens a group picker; custom (user-created) groups add an "X" button to disband the group. Recordings themselves cannot be deleted; use **Archive** to hide one.
 - **Loop Ghost** - per-row loop toggle. Header checkbox toggles all rows. See Loop Playback below.
 - **Period** - launch-to-launch loop period with a unit button that cycles `sec -> min -> hr -> auto`. "auto" inherits the default from Settings -> Looping.
 - **Watch** (flight only) - "W" / "W*" button. See Watch Mode below.

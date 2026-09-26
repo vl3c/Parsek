@@ -20197,42 +20197,9 @@ namespace Parsek
             watchMode.OnOverlapGhostsDestroyed(recIdx);
         }
 
-        public bool CanDeleteRecording =>
-            !IsRecording && !chainManager.IsTrackingContinuation && !chainManager.IsTrackingUndockContinuation;
-
-        public void DeleteRecording(int index)
-        {
-            var committed = RecordingStore.CommittedRecordings;
-            if (index < 0 || index >= committed.Count)
-            {
-                ParsekLog.Warn("Flight", $"DeleteRecording ignored: index={index} out of range (count={committed.Count})");
-                return;
-            }
-
-            if (!CanDeleteRecording)
-            {
-                ParsekLog.Warn("Flight",
-                    $"DeleteRecording blocked: index={index}, isRecording={IsRecording}, " +
-                    $"chainManager.ContinuationRecordingIdx={chainManager.ContinuationRecordingIdx}, chainManager.UndockContinuationRecIdx={chainManager.UndockContinuationRecIdx}");
-                return;
-            }
-
-            var rec = committed[index];
-            Log($"Deleting recording '{rec.VesselName}' at index {index}");
-
-            // Unreserve crew
-            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-
-            // Remove from store (chain degradation + file deletion). Its Removing / Removed
-            // notifications drive the ghost teardown and the index reindex below.
-            RecordingStore.RemoveRecordingAt(index);
-
-            ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
-        }
-
         /// <summary>
-        /// A committed recording is about to leave the list (any remover: a delete, an
-        /// optimizer merge). The list is still unshifted, so the engine's OnGhostDestroyed
+        /// A committed recording is about to leave the list (any internal remover: an
+        /// optimizer merge, a Re-Fly rollback, the Gloops discard). The list is still unshifted, so the engine's OnGhostDestroyed
         /// subscribers (GhostMapPresence's index-keyed teardown) read the right recording,
         /// and a retained ghost-less map presence at the slot is torn down too.
         /// </summary>
@@ -20299,9 +20266,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Deletes a ghost-only recording without the CanDeleteRecording guard.
-        /// Ghost-only recordings are independent of the auto-recording system,
-        /// so they can safely be deleted even while auto-recording is active.
+        /// Deletes a ghost-only recording. Its only caller is the Gloops window's
+        /// "Discard Recording" (<see cref="DiscardLastGloopsRecording"/>), which leaves
+        /// Parsek with the Gloops extraction. Ghost-only recordings are independent of the
+        /// auto-recording system, so they can safely be deleted even while auto-recording
+        /// is active.
         /// </summary>
         internal void DeleteGhostOnlyRecording(int index)
         {
