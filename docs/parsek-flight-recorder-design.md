@@ -215,8 +215,8 @@ Recording
   VesselSpawned:            bool — has this Recording's vessel been spawned into the game?
   SpawnedVesselPersistentId: uint — PID of the spawned vessel (0 = not spawned)
 
-  // Antenna data (for CommNet ghost registration)
-  AntennaSpecs:             list of AntennaSpec
+  // No stored antenna data: the ghost CommNet node derives it at load from
+  // VesselSnapshot plus part prefabs (section 15.6).
 ```
 
 **VesselSnapshot explained:** A snapshot is a KSP `ConfigNode` produced by `vessel.BackupVessel()`. It contains the complete serialized vessel state: the entire part tree with every module's persistent data, crew assignments, resource levels, orbital elements, vessel situation, action group states, and discovery info. Snapshots are captured at two points: (1) at recording commit time (stored on the Recording), and (2) at ghost conversion time (captured from the live vessel before despawn). For chain-tip spawning, the snapshot from the tip Recording is used — for a chain bare-S -> S+A -> S+A+B, the S+A+B snapshot comes from R2's Recording of the merged vessel at its endpoint.
@@ -327,15 +327,7 @@ ControllerInfo
   partPersistentId: uint
 ```
 
-**AntennaSpec** — antenna data for CommNet ghost registration.
-
-```
-AntennaSpec
-  partName:                   string
-  antennaPower:               double — from ModuleDataTransmitter
-  antennaCombinable:          bool
-  antennaCombinableExponent:  double
-```
+**GhostAntennaSpec** (`GhostCommNet.cs`) - in-memory antenna data for a ghost CommNet node, derived from the vessel snapshot and the part prefabs and never serialized (KSP does not persist antenna power in a snapshot). See section 15.6.
 
 ### 4.4 The Segment Boundary Rule
 
@@ -1463,7 +1455,7 @@ Ghosts do not physically interact with anything:
 - The player cannot click on or select ghosts for vessel control.
 - EVA kerbals pass through ghosts without interaction.
 
-Ghosts are visible scenery. They make the world feel alive but do not participate in game mechanics.
+Ghosts are visible scenery. They make the world feel alive but do not participate in game mechanics. The one exception is communications: a ghost relays signal and can be a probe control point exactly as the real vessel would (section 15.6).
 
 ### 15.4 Ghost Visual Identity
 
@@ -1485,15 +1477,59 @@ Ghosts represent vessels that exist in the world pending chain resolution. They 
 
 **Unloaded ghosts (outside physics bubble):** No Unity object. A CommNet node at the orbital-propagated position, plus a tracking station entry and map view marker. This is the minimum representation for a ghost that is far from the player but still participates in the communication network.
 
-**Implementation: ProtoVessel-based map presence.** Each ghost chain with orbital data gets a lightweight ProtoVessel (single `sensorBarometer` part, `DiscoveryLevels.Owned`). This provides automatic tracking station entries, orbit lines via `OrbitRenderer`, map icons via `MapObject`, and `ITargetable` navigation targeting — all from a single `ProtoVessel.Load()` call. Ghost ProtoVessels are prevented from entering physics simulation via a Harmony prefix on `Vessel.GoOffRails`. They are stripped from saves in `ParsekScenario.OnSave` and reconstructed from recording data on load. A `CommNetVessel.OnStart` patch suppresses the duplicate CommNet node (GhostCommNetRelay handles CommNet separately). Tracking station Fly/Delete/Recover actions are blocked via Harmony patches on `SpaceTracking` methods. All `FlightGlobals.Vessels` iteration sites and vessel GameEvent handlers in Parsek have `GhostMapPresence.IsGhostMapVessel(pid)` guards (27 sites across 9 files). Full design in `docs/dev/done/research/ghost-map-presence-design.md`.
+**Implementation: ProtoVessel-based map presence.** Each ghost chain with orbital data gets a lightweight ProtoVessel (single `sensorBarometer` part, `DiscoveryLevels.Owned`). This provides automatic tracking station entries, orbit lines via `OrbitRenderer`, map icons via `MapObject`, and `ITargetable` navigation targeting — all from a single `ProtoVessel.Load()` call. Ghost ProtoVessels are prevented from entering physics simulation via a Harmony prefix on `Vessel.GoOffRails`. They are stripped from saves in `ParsekScenario.OnSave` and reconstructed from recording data on load. A `CommNetVessel.OnStart` patch suppresses the duplicate CommNet node (the ghost's CommNet node is `GhostCommNetManager`'s, section 15.6). Tracking station Fly/Delete/Recover actions are blocked via Harmony patches on `SpaceTracking` methods. All `FlightGlobals.Vessels` iteration sites and vessel GameEvent handlers in Parsek have `GhostMapPresence.IsGhostMapVessel(pid)` guards (27 sites across 9 files). Full design in `docs/dev/done/research/ghost-map-presence-design.md`.
 
 **Ghosts are invisible to the recording system.** Ghost mesh GameObjects are raw Unity objects (not KSP Vessels). Ghost map ProtoVessels ARE in `FlightGlobals.Vessels`, but every recording system path has an `IsGhostMapVessel` guard that excludes them. The background recorder, flight recorder, spawn collision detector, and all vessel event handlers skip ghost ProtoVessels. If a ghost flies through the physics bubble during an active recording session, the recorder does not see it.
 
 ### 15.6 Ghost CommNet Relay
 
-Antennas on ghosted vessels relay signal, extending communication network coverage. Other real vessels' probe control and science transmission depend on relay paths. A relay constellation placed by a committed recording must provide coverage during the ghost window. The ghost's physical position matters for line-of-sight checks — a relay behind the Mun cannot relay through the Mun.
+**The rule (operator ruling 2026-09-26).** For CommNet, a ghost replaying a committed recording IS the vessel it replays. While that ghost exists in the timeline, its antennas relay signal for live vessels, and it is a probe control point when its recorded crew qualifies, exactly as the real vessel would be at that moment. When the recording ends and the vessel spawns, the real vessel's own stock CommNet node takes over and the ghost node goes away.
 
-Implementation: the recording stores antenna data from each vessel's `ModuleDataTransmitter` parts — specifically `antennaPower`, `antennaCombinable`, and `antennaCombinableExponent`. These are captured in `AntennaSpec` entries on the Recording at commit time. Ghost CommNet nodes are registered at ghost positions using these specs. Nodes are updated each frame (loaded: from GO position; unloaded: from orbital propagation). Nodes are removed when the ghost is destroyed or the chain tip spawns. The stock CommNet API (`CommNetNetwork.Instance.CommNet.Add/Remove`) is used directly — no ProtoVessel or Harmony patches required. The implementation was informed by source code analysis of [CommNetManager](https://github.com/DBooots/CommNetManager) (confirmed stock API works through its delegate chain) and [RemoteTech](https://github.com/RemoteTechnologiesGroup/RemoteTech) (detected at runtime — ghost CommNet registration is skipped when present, since RemoteTech replaces CommNet entirely).
+**Gameplay scenarios (binding).**
+
+1. **Relay on its way.** The player records a relay flying to Duna and commits it, rewinds, and launches a probe. While the relay's ghost replays the transfer, the probe routes signal through it. When the recording ends at Duna, the relay spawns as a real vessel and stock CommNet carries on without a gap.
+2. **Constellation dropped off mid-mission.** A carrier deploys three relays. Each separated relay is its own recording and relays from its separation onward. The carrier relays only with the antennas it keeps.
+3. **Crewed ship with a control point.** A crewed Duna ship ghost carries an RC-L01 remote guidance unit and a pilot. A probe the player flies now stays under full control through the ghost even when there is no path to KSC (Duna behind the Sun, or the ghost has only direct antennas).
+4. **Mun far side, early career.** A crewed control-point ghost in Mun orbit lets a lander be flown on the far side with no relay network at all.
+5. **Jool mothership.** The ghost mothership makes the Jool system flyable for probes launched later, for the length of its ghost window.
+6. **Control unit without qualifying crew.** It relays only, no control, as in stock.
+7. **Science.** Transmissions route through ghost relays. As in stock, the first hop's relay power sets the transmit rate.
+8. **Occlusion.** The node sits at the ghost's recorded position at the current UT, so a ghost relay behind the Mun cannot relay through the Mun.
+9. **Deployable antennas.** A deployable antenna relays only while its recorded state is extended. A relay that unfolds after fairing separation joins the network at its recorded deploy event and leaves it at a recorded retract or break.
+10. **Destroyed vessels.** A vessel that is destroyed in its recording relays until the recorded destruction and never afterwards.
+11. **Loops.** Only the real run relays: the recording's own window up to its spawn. Loop replays and overlap copies are visual repeats and carry no signal.
+12. **Hidden ghosts.** A recording whose playback is switched off still relays. Hiding is display only, and the timeline still spawns the vessel.
+13. **Recordings no longer on the timeline.** Superseded, rewind-retired and historical-never-replayed recordings get no node. Neither does a recording suppressed because its real vessel already exists; the real vessel carries its own node.
+14. **Vessel types stock ignores.** Debris, flags, deployed science parts and space objects get no node, as in stock.
+15. **Chain-ghosted real vessels (FLIGHT).** A real vessel despawned because a committed future recording claims it keeps relaying, from its despawn snapshot, until the claim resolves.
+16. **Held ghosts.** A ghost held past its end while its spawn is retried keeps relaying until the vessel spawns or the hold gives up.
+
+**Scenes.** FLIGHT (flight view and map view) and the TRACKING STATION, which draws the links. The Space Center and the editors have no consumer, so there are no nodes there.
+
+**The node.** One free `CommNode` subclass per recording, keyed by recording id (never by the craft-baked pid).
+- It overrides `position` to return `precisePosition`, because stock's getter reads a transform the node does not have and the CommNet UI would throw.
+- `name` is `ParsekGhost:<recordingId>` and `displayName` is the vessel name.
+- Both antennas carry a range curve. Stock evaluates it on every link, so a null curve breaks the whole network.
+- The position is set in the node's CommNet pre-update hook, at the current UT, from the recorded trajectory. It does not depend on a ghost mesh existing. When the position cannot be resolved (for example a Relative section whose anchor is missing), the node's powers are zeroed for that rebuild; it is never left at a stale position.
+- Registration and removal run from the scene host's Update, never inside the pre-update hook, which stock iterates by index.
+- On `GameEvents.CommNet.OnNetworkInitialized` (a network reset or a settings change) every node is re-added with its powers recomputed.
+
+**Antenna power.** Derived, never stored; the recording format is unchanged.
+- Antennas come from the recording's vessel snapshot. That is the end state, or the start-state visual snapshot when the vessel was destroyed.
+- For each antenna, its part prefab supplies power (including upgrades, through `CommPowerUnloaded`), type, combinability, exponent and range curve.
+- Powers are combined by stock's algorithm (`CommNetVessel.UpdateComm`), including the relay/transmit split, then scaled by `CommNetParams.rangeModifier`.
+- A deployable antenna follows its recorded `DeployableExtended` / `DeployableRetracted` / `DeployableBroken` events; otherwise the snapshot state (`CanCommUnloaded`) decides.
+
+**Control point.** Stock's rule, applied to the recorded vessel:
+- a `ModuleProbeControlPoint` that can operate;
+- at least `minimumCrew` recorded crew with pilot skill (`FullVesselControlSkill`), looked up by name in the roster (an unknown name does not count);
+- multi-hop from the module's own flag.
+
+**Other mods.**
+- **CommNet off.** When CommNet is disabled, by difficulty or by RemoteTech (which replaces CommNet), stock creates no CommNet scenario, so no ghost node is registered. Ghosts do not count under RemoteTech's own network.
+- **Mods that replace CommNet types** (RealAntennas, CommNetManager-derived networks): ghost nodes register only when the network and range-model types are stock ones; otherwise a one-time log line records the skip.
+
+**Ghost map ProtoVessels** keep their `CommNetVessel` suppressed (`GhostCommNetVesselPatch`). The marker is a single barometer part and must not become a second, zero-power node for the same ghost.
 
 ### 15.7 Passive Resource Generation During Ghost Windows
 
@@ -1606,7 +1642,6 @@ Sidecar files (one .prec file per RecordingTree):
   - SegmentEvents (per Recording)
   - TrackSections (environment, reference frame, source, boundaries)
   - VesselSnapshot and GhostVisualSnapshot (ConfigNode blobs)
-  - AntennaSpecs (per Recording)
   - TerrainHeightAtEnd (per Recording)
   - ControllerInfo list (per Recording)
 ```
@@ -1735,9 +1770,9 @@ The ghost chain system, spawn safety, time jump, and ghost world presence are im
 | 6c — Spawn Safety | Bounding box collision, ghost extension, terrain correction, trajectory walkback | Done (93 tests) |
 | 6d — UI | Spawn warnings, ghost labels, chain status display | Done (27 tests) |
 | 6e — Relative-State Time Jump | Discrete UT skip, TIME_JUMP event | Done (27 tests) |
-| 6f — Ghost World Presence | Map view, tracking station, CommNet relay (stock API), antenna specs | Done (47 tests) |
+| 6f — Ghost World Presence | Map view, tracking station, CommNet relay (stock API), antenna specs | Done (47 tests); CommNet relay: see 15.6 |
 
-New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, VesselGhoster, SpawnCollisionDetector, GhostExtender, TerrainCorrector, SpawnWarningUI, TimeJumpManager, GhostMapPresence, GhostCommNetRelay, AntennaSpec. The recording schema is a single clean-slate contract (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`), not an additive versioned format.
+New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, VesselGhoster, SpawnCollisionDetector, GhostExtender, TerrainCorrector, SpawnWarningUI, TimeJumpManager, GhostMapPresence, and (rebuilt 2026-09-26 per section 15.6) GhostCommNet + GhostCommNetManager in place of the never-wired GhostCommNetRelay / AntennaSpec. The recording schema is a single clean-slate contract (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`), not an additive versioned format.
 
 ### 21.3 Deferred Items
 

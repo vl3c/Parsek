@@ -3969,7 +3969,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H25-serialization":         ("Serialization", 4, "FLIGHT"),
         "H26-log-contracts":         ("LogContracts", 10, "FLIGHT"),
         "H27-diagnostics":           ("Diagnostics", 6, "FLIGHT"),
-        "H28-map-presence":          ("MapPresence", 5, "FLIGHT"),
+        "H28-map-presence":          ("MapPresence", 4, "FLIGHT"),
         "H29-localized-name":        ("LocalizedName", 3, "FLIGHT"),
         "H30-ghost-audio":           ("GhostAudio", 9, "FLIGHT"),
         "H31-crew-reservation":      ("CrewReservation", 15, "FLIGHT"),
@@ -4039,7 +4039,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # counts belong here.
     RUNTIME_SKIPS = {
         "H26-log-contracts": 1,
-        # H28: three, all MEASURED on run 2026-08-05_1855 and all three the
+        # H28: two, MEASURED on run 2026-08-05_1855 (three then) and both
         # W2-VACUOUS-CELLS conversions for this category (they used to bail
         # through a silent `return` and report PASSED, which is why the old
         # passed=5 pin was green).
@@ -4051,10 +4051,12 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         #     measured run says otherwise - the set is empty for the whole
         #     driven batch WITH the corpus injected, so it is a fixture property
         #     of the driven FLIGHT batch, not a missing injection.
-        #   * AntennaSpecsProduceRelayPower skips because no recording among the
-        #     306 committed carries AntennaSpecs - no generator sets the field
-        #     at all, so this one is corpus-INDEPENDENT.
-        "H28-map-presence": 3,
+    #   The third measured skip, AntennaSpecsProduceRelayPower, was DELETED
+        #     2026-09-26 with the dead Recording.AntennaSpecs field it walked; the
+        #     ghost CommNet relay has its own category (GhostCommNet). Derived first
+        #     (removing a cell that skipped moves skipped 3 -> 2), then MEASURED the
+        #     same day: run 2026-09-26_1123 printed total=4 passed=2 failed=0 skipped=2.
+        "H28-map-presence": 2,
         # H31: three, MEASURED on run 2026-08-05_1857, on top of an attribute
         # floor of 1 (the SPACECENTER-scoped CrewAutoAssignPatch cell scene-skips
         # at FLIGHT) for a pinned skipped=4. ReplacementsAreValid,
@@ -4285,6 +4287,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # R&D / Astronaut Complex badge cells were replaced by six stock-mechanism cells; PR 3
     # added the Active-row / Cancel-block cell (it skips on H45's host, which has no Active
     # contract), so the pin is `total=10` literal with the split regexed until first flight.
+    #
+    # CN-1-ghost-commnet-relay and CN-1T-ghost-commnet-relay-ts ENTERED on 2026-09-26 (the
+    # GhostCommNet category's FLIGHT and TRACKSTATION halves over the ghost-commnet-relay
+    # preset, `total=9` literal, split regexed, predicted 4 / 5 each) and LEFT the same day:
+    # their reading runs 2026-09-26_1130 / _1131 (PASS attempt 1) measured the prediction,
+    # `passed=4 failed=0 skipped=5`, and both specs took the line WHOLE. Like GUI-1 they are
+    # not H-series ids, so this class's own cells never read them;
+    # CommittedBatchTallySourceSyncTests gates their `total=`.
     INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -10295,6 +10305,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # run is for. Neither owes outstanding HUMAN work; what each owes is a flight.
         "GL-1-gloops-manual-lifecycle.toml": "tier=operator by the calibration discipline; NEVER FLOWN. First driven run of the MANUAL Gloops (ghost-only) recorder, which had no seam producer at all before the GloopsStart / GloopsStop pair. Its ONE derived quantity is deliberately ungated: whether eight inert RecordingState round trips at samplingDensity=2 (High, 1.0 s max interval) let a stationary pod reach TWO points, which is what separates a committed take from GL-2's drop. The lane therefore requires only the production start line and both seam terminals, with `gloopsstop committed=` matched outcome-agnostically and count ranged 0..1; arming the commit token and tightening the count is the operator call AFTER the reading run. A second reading question is recorded in its header rather than assumed: the REC log rules stay suppressed because spec_expects_live_recording keys on a StartRecording step this lane does not have.",
         "GL-2-gloops-sub-2-point-drop.toml": "tier=operator by the calibration discipline; NEVER FLOWN. The mirror of GL-1 on the same knob - samplingDensity=0 (Low, 8.0 s max interval) with the stop step ADJACENT to the start - so the take cannot reach two points and CommitGloopsRecorderData must refuse it. That refusal IS gated (the production `not enough points (< 2)` Warn, the seam `committed=false`, the `dropped=too-short` payload token, count pinned 0..0), because it is deterministic by construction rather than derived: S0.5 and S0.6 already name the same drop in their headers and WIDEN their assertions to tolerate it, which is the evidence it happens and the reason nothing gated it until now. The reading-run question left open is narrower and is about the VALIDATOR, not the product: whether validate-ksp-log treats a designed refusal Warn on the WRN surface as an unexpected one.",
+        # THE GHOST COMMNET RELAY PAIR, 2026-09-26. Operator-tier by the CALIBRATION
+        # discipline: first flights of a new in-game category over a new preset, with the
+        # batch split and the probe geometry derived rather than measured. Both flew their
+        # reading runs and were armed the same day; neither owes HUMAN work. What is left
+        # is the armed confirmation re-flight and then the operator -> nightly PROMOTION
+        # call, a cadence decision and not a review debt.
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 

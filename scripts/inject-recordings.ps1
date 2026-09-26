@@ -27,6 +27,7 @@ $injectFilterByPreset = @{
     "spawn-control-target"  = "InjectSpawnControlTarget"
     "drill-harvest-route"   = "InjectDrillHarvestRoute"
     "background-claim"      = "InjectBackgroundClaim"
+    "ghost-commnet-relay"   = "InjectGhostCommNetRelays"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -46,6 +47,7 @@ $defaultSaveByPreset = @{
     "spawn-control-target"  = "spawn-control-target-fixture"
     "drill-harvest-route"   = "drill-harvest-route-fixture"
     "background-claim"      = "background-claim-fixture"
+    "ghost-commnet-relay"   = "ghost-commnet-relay-fixture"
 }
 
 $ErrorActionPreference = "Stop"

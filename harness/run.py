@@ -147,6 +147,8 @@ RP_SIDECAR_BY_PRESET = {
     "drill-harvest-route": None,
     # CI-5's background-claim tree: one committed two-recording tree, no RP.
     "background-claim": None,
+    # CN-1 / CN-1T's three relay copies: three committed single-recording trees, no RP.
+    "ghost-commnet-relay": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

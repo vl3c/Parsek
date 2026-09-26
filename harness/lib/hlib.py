@@ -228,7 +228,21 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # injector refuses a target save at
                                         # another UT. No RP. Consumer:
                                         # CI-5-background-event-claim.
-                                        "background-claim")
+                                        "background-claim",
+                                        # ghost-commnet-relay: THREE committed
+                                        # single-recording trees, one relay craft
+                                        # (RC-L01 + RA-2) on a Kerbin-synchronous
+                                        # equatorial orbit each: A crewed
+                                        # (Valentina, a Pilot) over the KSC, B
+                                        # playback-disabled 30 deg east, C looped
+                                        # with its real run before the save's
+                                        # clock. A and B open 1 s after the save
+                                        # UT and run 100000 s. `--filter
+                                        # InjectGhostCommNetRelays`; authored
+                                        # against gloops-airshow. No RP.
+                                        # Consumers: CN-1-ghost-commnet-relay,
+                                        # CN-1T-ghost-commnet-relay-ts.
+                                        "ghost-commnet-relay")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
