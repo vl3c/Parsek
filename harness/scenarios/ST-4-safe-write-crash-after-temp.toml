@@ -6,7 +6,7 @@ tier = "nightly"
 # leaves the previous file intact, and the next load recovers. Catalog item F5; todo
 # SAFE-WRITE-CRASH-AFTER-TEMP-HAS-NO-LANE.
 #
-# ONE BOOT, NO RELAUNCH (supervisor ruling 2026-09-25, pending operator confirmation).
+# ONE BOOT, NO RELAUNCH (operator-confirmed 2026-09-26).
 #   1. `SafeWriteCrash phase=arm recording=<id>` digests the committed recording's `.prec`,
 #      arms FileIOUtils' one-shot crash-after-temp hook on `<id>.prec` and marks the
 #      recording dirty.
