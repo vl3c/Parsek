@@ -18,6 +18,18 @@ namespace Parsek.Tests
     // instead of silently degrading every label to the fallback.
     public class MissionPresentationTests
     {
+        // Budget: the Missions tab echoes tooltips in the Recordings window's single-line strip
+        // (1355 px, TooltipEchoBudgetTests), which the literal scan there cannot see for
+        // MissionPresentation consts.
+        [Fact]
+        public void CloneButtonTooltip_SaysALoopingCopyStartsWithLoopOff_AndFitsTheStrip()
+        {
+            Assert.Contains("copy starts with Loop off", MissionPresentation.CloneButtonTooltip);
+            Assert.True(MissionPresentation.CloneButtonTooltip.Length
+                <= TooltipEchoBudgetTests.BudgetChars(1355f, TooltipEchoBox.SingleLine),
+                "Clone tooltip is " + MissionPresentation.CloneButtonTooltip.Length + " chars");
+        }
+
         // ---- fixture helpers (mirrors MissionCompositionTests) ----
 
         private static Recording Leg(

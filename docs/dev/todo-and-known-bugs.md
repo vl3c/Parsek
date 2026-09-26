@@ -284,7 +284,7 @@ orbit-only checkpoint branch and Absolute points only - the checkpoint-with-fram
 position, so a small chord term in the residual), body-fixed primary and recorded-anchor RELATIVE
 decodes are implemented and unit-plumbed but not yet read live.
 
-## ~~MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load~~ [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`; FIXED 2026-09-26 on branch fix-mission-clone-loop, supervisor ruling: clone disarms its loop, pending operator confirmation]
+## ~~MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load~~ [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`; FIXED 2026-09-26 on branch fix-mission-clone-loop, supervisor ruling: clone disarms its loop, CONFIRMED by the operator 2026-09-26]
 
 **Fix:** `MissionStore.Clone` (the only path that inserts a copy into the store; the Clone button
 and `UiAction op=clone` both call it) sets the copy's `LoopPlayback` to false when the source
@@ -299,8 +299,11 @@ enable`. Cells: `MissionStoreTests.Clone_OfLoopingMission_LeavesExactlyOneLoopOn
 `Clone_CopiesSelection_IntoAnIndependentMission`. `MS-1-mission-leg-trim-clone` drops the copy's
 `MissionLoopUnit` token (it only existed because of this defect), pins `loop=false` plus the new
 store line, and forbids `already owned by another looping unit`; those tokens are re-cut from
-source and not yet re-read on a flight. The Clone tooltip ("its own include set, loop period, and
-Archive flag") stays true. Route backing missions (`RouteBackingMission.BuildMission`) are
+source and not yet re-read on a flight. The Clone tooltip now also says a looping mission's copy
+starts with Loop off (operator request with the confirmation; the Loop toggle's own tooltip
+already names the one-loop-per-tree clear). Operator context: mission looping is mostly a
+debugging surface today and its player-facing controls may be removed in a later version, once
+the looping system and Logistics (which depends on it) are proven bug-free. Route backing missions (`RouteBackingMission.BuildMission`) are
 synthesized per frame and never inserted into the store, so they are not a copy path.
 
 
