@@ -43,6 +43,19 @@ _(unreleased — entries accumulate here per commit)_
   recording hidden from playback relays there too), and a ghost that is about to be held for its
   spawn no longer blinks out for a moment at the end of its recording in the Tracking Station.
 
+- **Automated testing: two new ghost CommNet lanes, not yet flown.** `CN-2-ghost-commnet-live-probe`
+  checks ghost relays from a real probe's point of view: the uncrewed Duna probe of an existing
+  test save is warped to where Duna blocks its signal home, and three injected ghosts on its own
+  orbit must behave as stock would treat real vessels there - a relay at the limb carries the probe
+  home (and it is cut off without that relay), a crewed ghost with a probe control point and no
+  relay gives it control when it has no path home, and a relay hidden behind Duna with the probe
+  carries nothing through the planet. `CN-3-ghost-commnet-timeline-warp` warps across three
+  recorded events: a deployable antenna that starts relaying at its recorded deploy, a relay
+  destroyed in its recording that stops at its destruction, and a relay whose recording ends
+  during the warp, which keeps relaying from its final orbit while the warp holds its spawn and
+  hands over to the spawned vessel's own CommNet connection afterwards. Verbose logs now print
+  where a held ghost relay sits while it waits to spawn, once every few seconds.
+
 - **Automated testing: a lane checks that losing the vessel you fly does not end a mission while
   another vessel of it survives.** When the active vessel is destroyed but another controlled
   vessel of the same flight is still alive, Parsek keeps recording instead of wrapping the mission

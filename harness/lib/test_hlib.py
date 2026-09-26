@@ -4295,7 +4295,15 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # `passed=4 failed=0 skipped=5`, and both specs took the line WHOLE. Like GUI-1 they are
     # not H-series ids, so this class's own cells never read them;
     # CommittedBatchTallySourceSyncTests gates their `total=`.
-    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
+    #
+    # CN-2-ghost-commnet-live-probe and CN-3-ghost-commnet-timeline-warp ENTERED on
+    # 2026-09-26 (the new GhostCommNetLive / GhostCommNetTimeline categories, 3 FLIGHT
+    # cells each, `total=3` literal with the split regexed, predicted 3 / 0 each). Like
+    # CN-1 they are not H-series ids, so this class's own cells never read them;
+    # CommittedBatchTallySourceSyncTests gates their `total=`. They leave when a reading
+    # run measures the split and the specs pin the line whole.
+    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay", "CN-2-ghost-commnet-live-probe",
+                            "CN-3-ghost-commnet-timeline-warp"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -9660,6 +9668,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE GHOST COMMNET LIVE-VESSEL AND TIMELINE LANES, 2026-09-26.
+        "CN-2-ghost-commnet-live-probe.toml": "tier=operator on the calibration-discipline shape, NOT debt: never flown; its warp target and every geometry window are DERIVED (stock ephemeris pinned against recorded SOI crossings, the host probe's ORBIT node) rather than measured, and the header pre-registers what RED / INVALID mean. What is owed is the reading flight",
+        "CN-3-ghost-commnet-timeline-warp.toml": "tier=operator on the calibration-discipline shape, NOT debt: never flown; the transition UT bands in its log contract are predicted from the preset's clock and the warp cap, and the header pre-registers what RED / INVALID mean. What is owed is the reading flight",
         # THE D17 MAKING-HISTORY LANE, 2026-09-25.
         "MC-4-making-history-desert.toml": "tier=operator BY THE REGISTRY'S OWN DEFINITION of the cell (D17 comment, operator ruling B5: a GS-4 clone, operator tier, one reading flight), NOT debt: it is a reading-run lane whose GREEN / INVALID readings are named in its header (a MechJeb ascent failure from the Desert is driver-INVALID). What is owed is the flight, which the lane itself is",
         # THE G3b RENDER-SURFACE LANE, 2026-09-07, same shape as H59 below.

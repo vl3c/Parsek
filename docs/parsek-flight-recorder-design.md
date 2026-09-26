@@ -1606,6 +1606,8 @@ Ghosts represent vessels that exist in the world pending chain resolution. They 
 
 **Ghost map ProtoVessels** keep their `CommNetVessel` suppressed (`GhostCommNetVesselPatch`). The marker is a single barometer part and must not become a second, zero-power node for the same ghost.
 
+**Live proof by lane (2026-09-26).** Flown and armed: `CN-1-ghost-commnet-relay` / `CN-1T-ghost-commnet-relay-ts` (FLIGHT / Tracking Station) prove scenarios 6 (an uncrewed RC-L01 relays without control), 11 (a looped recording whose real run is over has no node) and 12 (a playback-disabled recording relays), and that a registered ghost node is the only way home for a free endpoint (the relay half of 1, and the control-source half of 3). Authored, NOT YET FLOWN: `CN-2-ghost-commnet-live-probe` proves 1, 3 and 8 on a real live probe's own `ControlPath` (the DD1 probe behind Duna); `CN-3-ghost-commnet-timeline-warp` proves 9, 10, 16 and the spawn hand-off of 1 across one rails warp. Scenarios 2, 4, 5, 7, 13, 14 and 15 are unit-tested only.
+
 ### 15.7 Passive Resource Generation During Ghost Windows
 
 Passive background processes (science lab processing, ore drilling, ISRU conversion) generate resources on real vessels over time. When a vessel is ghosted, these processes are not running — the ghost is a Unity GameObject, not a KSP Vessel.

@@ -5305,6 +5305,18 @@ unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by de
   removed, zero GhostCommNet WARN / ERROR. Both specs armed off them and D6 `commnet-relay`
   claimed (coverage 243 -> 244 of 247); offline negative control red on 22 of 22 seeded faults.
   H28 re-flown `2026-09-26_1123` PASS, confirming its derived `total=4 skipped=2` pin.
+- **Follow-on lanes (2026-09-26, branch `commnet-lanes`), NEVER FLOWN.** The in-game cell
+  `ActiveVesselControlPathUsesGhostRelay` skips on every committed host (the pad vessel links KSC
+  directly) and no committed fixture has a probe out of home RANGE, so a live vessel's own node is
+  proven by OCCLUSION instead: `CN-2-ghost-commnet-live-probe` warps `duna-park-probe`'s DD1 into
+  the window where Duna hides home from it, with three injected ghosts on its own orbit (new
+  category `GhostCommNetLive`: scenarios 1, 3 and 8 on the probe's `ControlPath` /
+  `IsConnectedHome`, each with a negative control). `CN-3-ghost-commnet-timeline-warp` crosses a
+  deploy event, a destroyed end and a warp-deferred spawn in one rails warp (new category
+  `GhostCommNetTimeline`: scenarios 9, 10, 16 and the spawn hand-off of 1), and adds the verbose
+  `Held ghost node position:` line (`GhostCommNetMath.FormatHeldPosition`) so a hold's position
+  is visible in the log. Both derivations are pinned by `GhostCommNetLaneGeometryTests` (the stock
+  ephemeris against three recorded SOI crossings). Remaining: the two reading flights.
 
 ## GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST: the continuation-hold pass has no manager-level dedupe test, and FLIGHT scans for it every frame [FILED 2026-09-26 by the commnet-followups review. OPEN, low; test and performance hygiene, no live defect]
 

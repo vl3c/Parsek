@@ -242,7 +242,34 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # against gloops-airshow. No RP.
                                         # Consumers: CN-1-ghost-commnet-relay,
                                         # CN-1T-ghost-commnet-relay-ts.
-                                        "ghost-commnet-relay")
+                                        "ghost-commnet-relay",
+                                        # ghost-commnet-live: THREE committed
+                                        # single-recording trees on
+                                        # duna-park-probe's DD1 probe's own
+                                        # Duna orbit (mean anomaly offset): an
+                                        # RA-100 relay 90 deg ahead (the limb),
+                                        # an RA-100 relay 5 deg ahead (behind
+                                        # Duna with the probe), a crewed RC-L01
+                                        # control point with no relay 5 deg
+                                        # behind. `--filter
+                                        # InjectGhostCommNetLive`; the injector
+                                        # refuses a target save at another UT.
+                                        # No RP. Consumer:
+                                        # CN-2-ghost-commnet-live-probe.
+                                        "ghost-commnet-live",
+                                        # ghost-commnet-timeline: THREE
+                                        # committed single-recording trees on
+                                        # gloops-airshow, Kerbin-synchronous:
+                                        # an HG-5 deployable relay with one
+                                        # deploy event, a relay ending
+                                        # Destroyed, a relay ending Orbiting
+                                        # (spawnable), all three transitions
+                                        # inside the lane's warp. `--filter
+                                        # InjectGhostCommNetTimeline`; the
+                                        # injector refuses a target save at
+                                        # another UT. No RP. Consumer:
+                                        # CN-3-ghost-commnet-timeline-warp.
+                                        "ghost-commnet-timeline")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
