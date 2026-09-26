@@ -348,7 +348,7 @@ periapsis. The deferral delays the `CannotSpawnSafely` verdict (and keeps the gh
 meanwhile); `Terminal spawn succeeded after defer` is reachable only if the re-evaluated orbit
 differs from the first one.
 
-## SS1-WARPTOUT-WARP-LOCKED-AFTER-LOAD: `WarpToUT` refused `warp-locked` for at least 19 s after a load that other runs warped from at the same moment [FILED 2026-09-26 from SS-1. OPEN, harness flake]
+## SS1-WARPTOUT-WARP-LOCKED-AFTER-LOAD: `WarpToUT` refused `warp-locked` for at least 19 s after a load that other runs warped from at the same moment [FILED 2026-09-26 from SS-1. OPEN, harness flake; the holder diagnostic LANDED 2026-09-26, the cause waits for the next occurrence]
 
 SS-1 attempt `2026-09-25_2106`: `warptout refused reason=warp-locked ut=715` 3.2 s after
 `Unpacking Kerbal X` / `Unpacking Kerbal X Probe`, and `warptout refused reason=warp-locked
@@ -360,6 +360,17 @@ of which opened; the window locks are CAMERACONTROLS), and KSP.log names no lock
 Fix: make the `warptout refused reason=warp-locked` line name the lock ids
 (`InputLockManager.lockStack` keys whose mask includes TIMEWARP), so the next occurrence says
 who holds it.
+
+~~Diagnostic~~ done (branch `fix-seam-hygiene`): the refusal log line now reads
+`warptout refused reason=warp-locked ut=<ut> holders=<ids>`, built by the pure
+`TestCommandWarpToUT.FormatTimeWarpLockHolders` over `InputLockManager.lockStack`
+(`Dictionary<string, ulong>`, verified by ilspycmd; `IsLocked` is `(lockMask & type) != 0`).
+The ids are ordinal-sorted and comma-joined; `none` means `lockMask` carries TIMEWARP with no
+stack entry (the field is public and settable), `unknown` means the stack read threw. The
+response msg token stays the bare `warp-locked`. Still open, and needs a flight to close: the
+cause itself. When the next `warp-locked` refusal appears in a collected KSP.log, read the
+`holders=` value and file the owner (a stock lock names its own subsystem; a Parsek id means a
+Parsek path does take a TIMEWARP lock here after all).
 
 ## SS1-DUPLICATE-COMPLETION-DELIVERY-IN-WARP: a non-live ghost's PlaybackCompleted is delivered twice in one warp frame pair [FILED 2026-09-26 from SS-1. OPEN, report-only, harmless today]
 
@@ -3593,7 +3604,7 @@ state map plus facade), the KNOTS greedy cuts and the upward-edge count; the rem
 items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
 ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
 
-## TQ-1-mapview-refused-doc-says-rejected: the `MapViewToggleOutcome.Refused` XML doc promises a REJECTED verdict but the seam emits ERROR [FILED 2026-09-15 off test-quality-audit, evidence `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24@4aedb0a`]
+## ~~TQ-1-mapview-refused-doc-says-rejected: the `MapViewToggleOutcome.Refused` XML doc promises a REJECTED verdict but the seam emits ERROR~~ [FILED 2026-09-15 off test-quality-audit, evidence `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24@4aedb0a`; FIXED 2026-09-26, branch `fix-seam-hygiene`]
 
 **What is true.** `RefusalVerdict` (`TestCommandMapViewVerbs.cs:171-177`) returns `"REJECTED"` only
 for `Unavailable` (the pre-call `MapView.fetch == null` gate) and `"ERROR"` for `Refused` (stock was
@@ -3611,6 +3622,11 @@ mismatches against the ERROR the seam emits.
 **Fix.** Documentation only: change the last sentence of the `MapViewToggleOutcome.Refused` doc to
 say ERROR with the per-direction reason (and, optionally, point at `RefusalVerdict` for the
 REJECTED/ERROR rule). Do not touch `RefusalVerdict` - the behavior is the contract.
+
+**Done.** The `Refused` doc now says ERROR with the per-direction reason and points at
+`RefusalVerdict`. Behavior re-checked before the edit: `ParsekTestCommandAddon.MapView.cs` takes
+its verdict from `RefusalVerdict`, which returns ERROR for `Refused`, and the existing pin
+`RefusalVerdict_IsRejectedOnlyBeforeStockIsCalled` asserts it. No code or test changed.
 
 ## TQ-2-wheel-damage-guard-needs-live-transform: `GhostVisualBuilder.IsRendererOnDamagedTransform`'s names guard and ancestor walk have no test that can fail [FILED 2026-09-22 off test-quality-audit Phase B, row F-catchall-060-02. A COVERAGE gap, not a defect. OPEN]
 

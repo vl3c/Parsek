@@ -4478,6 +4478,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: a `WarpToUT` refused because time warp is locked now names who holds
+  the lock.** The `warptout refused reason=warp-locked` log line gains a `holders=` field:
+  the ids of the input locks whose mask includes TIMEWARP, sorted and comma-joined, or `none`
+  when no lock entry carries it (the lock mask can be set without an entry). The response the
+  harness reads is unchanged (the reason token stays `warp-locked`). SS-1 hit this refusal for
+  19 s after a load with no way to tell which lock was responsible. Also corrects the
+  `EnterMapView` / `ExitMapView` code comment that promised a REJECTED verdict when stock
+  declines the toggle; the seam answers ERROR there, as it always did.
+
 - **Automated testing: a quarantine for one log-contract defect no longer hides other
   log-contract failures in the same test.** A test scenario can be marked as expected to fail
   while a known bug is open, and a matching failure then reads EXPECTED-FAIL, which counts as

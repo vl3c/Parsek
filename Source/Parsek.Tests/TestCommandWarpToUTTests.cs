@@ -217,6 +217,89 @@ namespace Parsek.Tests
                 TestCommandWarpToUT.EvaluateFeasibility(warpControllerPresent: true, warpLocked: false));
         }
 
+        // ----- The warp-locked holder list (log-only detail) -----
+
+        private static readonly ulong TimeWarpBit = (ulong)ControlTypes.TIMEWARP;
+
+        [Fact]
+        public void FormatTimeWarpLockHolders_EmptyOrNullStack_ReadsNone()
+        {
+            Assert.Equal("none", TestCommandWarpToUT.FormatTimeWarpLockHolders(
+                new Dictionary<string, ulong>(), TimeWarpBit));
+            Assert.Equal("none", TestCommandWarpToUT.FormatTimeWarpLockHolders(null, TimeWarpBit));
+        }
+
+        [Fact]
+        public void FormatTimeWarpLockHolders_OneHolder_ReadsItsId()
+        {
+            var stack = new Dictionary<string, ulong> { { "ParsekMergeDialog", (ulong)ControlTypes.All } };
+            Assert.Equal("ParsekMergeDialog",
+                TestCommandWarpToUT.FormatTimeWarpLockHolders(stack, TimeWarpBit));
+        }
+
+        [Fact]
+        public void FormatTimeWarpLockHolders_SeveralHolders_AllListedCommaJoined()
+        {
+            var stack = new Dictionary<string, ulong>
+            {
+                { "zeta", TimeWarpBit },
+                { "alpha", (ulong)ControlTypes.All },
+                { "mid", TimeWarpBit | (ulong)ControlTypes.CAMERACONTROLS },
+            };
+            Assert.Equal("alpha,mid,zeta",
+                TestCommandWarpToUT.FormatTimeWarpLockHolders(stack, TimeWarpBit));
+        }
+
+        [Fact]
+        public void FormatTimeWarpLockHolders_MasksWithoutTheTimeWarpBit_AreExcluded()
+        {
+            // The Parsek window locks are CAMERACONTROLS: present on the stack, not holders.
+            var stack = new Dictionary<string, ulong>
+            {
+                { "ParsekWindowLock", (ulong)ControlTypes.CAMERACONTROLS },
+                { "zeroMask", 0UL },
+                { "holder", TimeWarpBit },
+                { "", TimeWarpBit },
+            };
+            Assert.Equal("holder", TestCommandWarpToUT.FormatTimeWarpLockHolders(stack, TimeWarpBit));
+
+            stack.Remove("holder");
+            Assert.Equal("none", TestCommandWarpToUT.FormatTimeWarpLockHolders(stack, TimeWarpBit));
+
+            // A zero query mask matches nothing, rather than every entry.
+            Assert.Equal("none", TestCommandWarpToUT.FormatTimeWarpLockHolders(
+                new Dictionary<string, ulong> { { "x", ulong.MaxValue } }, 0UL));
+        }
+
+        [Fact]
+        public void FormatTimeWarpLockHolders_OrderIsOrdinalAndIndependentOfInsertionAndCulture()
+        {
+            var forward = new List<KeyValuePair<string, ulong>>
+            {
+                new KeyValuePair<string, ulong>("I-lock", TimeWarpBit),
+                new KeyValuePair<string, ulong>("b-lock", TimeWarpBit),
+                new KeyValuePair<string, ulong>("i-lock", TimeWarpBit),
+                new KeyValuePair<string, ulong>("B-lock", TimeWarpBit),
+            };
+            var reversed = Enumerable.Reverse(forward).ToList();
+
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                // tr-TR folds dotted/dotless i differently and sorts case-insensitively
+                // under a culture comparer; the ordinal sort must not move.
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("tr-TR");
+                string a = TestCommandWarpToUT.FormatTimeWarpLockHolders(forward, TimeWarpBit);
+                string b = TestCommandWarpToUT.FormatTimeWarpLockHolders(reversed, TimeWarpBit);
+                Assert.Equal("B-lock,I-lock,b-lock,i-lock", a);
+                Assert.Equal(a, b);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
         // ----- The rate ladder -----
 
         [Fact]
