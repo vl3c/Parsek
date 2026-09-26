@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel): 44 verbs. The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel): 43 verbs (DeleteRecording removed 2026-09-26). The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -136,19 +136,10 @@ namespace Parsek.TestCommands
             // Ordered so seal-then-create is the readable pair.
             "SealSlot",
             "RouteCommand",
-            // DeleteRecording. ADDITIVE (30 -> 31 implemented, reserved unchanged at 5),
-            // like SaveGame and the EVA family: the reserved envelope never carried a
-            // recording-deletion verb. It is the Recordings table's per-row delete
-            // (RecordingsTableUI.DeleteGhostOnlyRecording: the flight host's
-            // ParsekFlight.DeleteGhostOnlyRecording for a ghost-only row in FLIGHT,
-            // RecordingStore.DeleteRecordingFull everywhere else), driven by committed-list
-            // index. Deliberately WIDER than the button on one axis - it deletes any
-            // committed row, not only ghost-only ones - because the button's ghost-only
-            // gate is an OFFERING policy over rows only the Gloops recorder produces, and
-            // the removal seam this verb exists to drive live (a mid-list removal under
-            // living KSC / flight ghosts, AUTOMATION-GAP-KSC-TABLE-DELETE) needs a row with
-            // ghosts ABOVE it, which an appended ghost-only row can never be.
-            "DeleteRecording",
+            // (DeleteRecording, the Recordings-table per-row delete, was here from
+            // 2026-09-02 to 2026-09-26. It was removed with the table's delete button by
+            // the ruling that recordings are never player-deletable; the KSC reindex it
+            // drove stays pinned headlessly by CommittedListNotificationTests.)
             // ListHandles. ADDITIVE (31 -> 32 implemented, reserved unchanged at 5), the
             // ExportRenderManifest shape: an OBSERVATION verb that was never in the
             // reserved envelope and is read-only with respect to the game world. It

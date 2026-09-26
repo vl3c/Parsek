@@ -1187,6 +1187,26 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
+  Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
+  "recovered" ending from committed recordings that Parsek had marked as handled, which hit
+  almost every debris recording. The recording then played back as if its vessel had never
+  ended, and the ending was not saved again. Committed endings are now left alone on both
+  paths. Spawn tracking still resets as before, and revert and rewind still differ in the same
+  way: a revert throws the reverted flight away, a rewind commits it.
+
+- **Science is no longer over-credited when the same experiment is submitted more than once.**
+  Parsek recorded a science subject's running total at each submission, and the ledger adds
+  every submission, so a second transmission of the same experiment (or a transmit followed
+  by recovering the data) credited the first one again. Breaking Ground deployed
+  experiments, which send their results in about ten chunks, reached an experiment's full
+  value after three or four sends. Each submission now records only the science it added,
+  so your science total matches stock. Saves already carrying the extra science keep it.
+- **Breaking Ground deployed-experiment science is never attributed to the vessel you are
+  flying.** Science from deployed experiments is recorded like science earned at the Space
+  Center, so re-flying a flight no longer removes it and it no longer locks a re-fly as if
+  you had earned it on that vessel.
+
 - **Repairing a KSC building that your committed timeline already repairs later is now
   refused, so it is no longer charged twice.** After a rewind to between a building's
   destruction and its committed repair, repairing it again charged both repairs. The
@@ -1780,9 +1800,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Recordings can no longer be deleted.** A committed recording is part of the timeline and the
+  career ledger, and deleting one broke both. The Settings window's Data Management section is
+  gone, with its "Wipe All Recordings" and "Wipe All Milestones" buttons and their confirmation
+  dialogs, and so is the "X" delete button on ghost-only rows of the Recordings table (those rows
+  keep their "G" button). To stop seeing a recording, tick its Archive checkbox in the
+  Recordings tab. Saves that already used a wipe or a delete stay as they are.
+- **Dev: the `DeleteRecording` test-command verb and its lane `S0.11-ksc-table-delete` are
+  removed** with the table delete they reproduced (43 implemented seam verbs). The dialog census
+  lane `GUI-10` raises four dialogs instead of six and `GUI-14` photographs the default Settings
+  density where the greyed wipe buttons were; both need a re-read flight.
 - **Settings: a round of fixes to the Settings window.**
-  - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
-    Management. Basic still shows Interface, Ghosts and Data Management.
+  - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics. Basic
+    shows Interface and Ghosts.
   - Basic / Advanced and Low / Medium / High draw the selected option as a pressed button, the
     way the Timeline, Kerbals and Career windows do, instead of a grey box, and every option
     keeps one fixed width, so the row no longer jumps when you switch.

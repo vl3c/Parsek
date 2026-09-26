@@ -1090,7 +1090,7 @@ namespace Parsek
             if (missions == null || missions.Count == 0)
             {
                 // Capture and apply straddle a frame boundary, so a list emptied in between
-                // (Wipe All Recordings, a load-time sweep) could otherwise leave an armed
+                // (a load-time sweep, an internal removal) could otherwise leave an armed
                 // offset behind that applies, silently, whenever the list refills.
                 DropPendingReveal("the list is empty");
                 pendingRevealScrollY = float.NaN;

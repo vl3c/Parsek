@@ -393,16 +393,6 @@ namespace Parsek.Tests
             Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
         }
 
-        [Fact]
-        public void Clear_ResetsStateToFinalized()
-        {
-            var tree = MakeTree("tree_a", "Mun", 2);
-            RecordingStore.StashPendingTree(tree, PendingTreeState.Limbo);
-            RecordingStore.Clear();
-            Assert.Null(RecordingStore.PendingTree);
-            Assert.Equal(PendingTreeState.Finalized, RecordingStore.PendingTreeStateValue);
-        }
-
         // ============================================================
         // IsActiveTreeNode dispatch
         // ============================================================

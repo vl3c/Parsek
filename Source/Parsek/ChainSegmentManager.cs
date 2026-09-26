@@ -351,7 +351,7 @@ namespace Parsek
         {
             if (pid == 0) return;
 
-            // Guard against stale index (e.g. user wiped recordings from UI)
+            // Guard against stale index (e.g. an internal removal shrank the list)
             if (recIdx < 0 ||
                 recIdx >= RecordingStore.CommittedRecordings.Count)
             {

@@ -378,20 +378,11 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # neither joins DEFERRED_SEAM_VERBS and both ride the 60 s default budget - which
     # bounds only their game-not-loaded dispatch defer.
     "SealSlot", "RouteCommand",
-    # DeleteRecording. ADDITIVE (30 -> 31 implemented, reserved unchanged at 5): the
-    # reserved envelope never carried a recording-deletion verb. It is the Recordings
-    # table's per-row delete driven by committed-list `index=`, routed exactly as the
-    # table routes it: ParsekFlight.DeleteGhostOnlyRecording for a ghost-only row in
-    # FLIGHT, ParsekFlight.DeleteRecording (behind its CanDeleteRecording guard) for any
-    # other row in FLIGHT, RecordingStore.DeleteRecordingFull everywhere else - the KSC
-    # branch included. Deliberately WIDER than the table's "X" button on one axis - any
-    # committed row, not only ghost-only ones - because the removal seam it exists to
-    # drive live is a mid-list removal under living ghosts
-    # (AUTOMATION-GAP-KSC-TABLE-DELETE), which needs a row with ghosts ABOVE it, and the
-    # only rows that button offers (Gloops recordings) are appended last. SINGLE-PHASE
-    # (a synchronous list mutation whose Removing / Removed notifications fan out
-    # inside the call, verified by read-back), so it rides the 60 s default budget.
-    "DeleteRecording",
+    # (DeleteRecording, the Recordings-table per-row delete, sat here from 2026-09-02 to
+    # 2026-09-26. It was removed with the table's delete button by the ruling that
+    # recordings are never player-deletable; its lane S0.11-ksc-table-delete retired with
+    # it, and the KSC reindex it drove stays pinned headlessly by
+    # CommittedListNotificationTests.)
     # ListHandles, the R10 handle-list verb. ADDITIVE (31 -> 32 implemented, reserved
     # unchanged at 5): the reserved envelope never carried an enumeration verb. It is
     # the SEAM half of the runtime-handle path whose harness half is the ${step.field}
@@ -1044,10 +1035,6 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     #     unmet tail exists to stop firing.
     "SealSlot": TAIL_ROLE_WORLD_MUTATING,
     "RouteCommand": TAIL_ROLE_WORLD_MUTATING,
-    # DeleteRecording destroys durable recorded data (the row, its sidecar files, its
-    # chain siblings' linkage) - DiscardTree's exact reasoning: driving it on an unmet
-    # run would delete the forensics the collect-logs snapshot exists to preserve.
-    "DeleteRecording": TAIL_ROLE_WORLD_MUTATING,
     # ListHandles is `inert` for RecordingState's reason exactly: it walks in-memory
     # state and answers, changing nothing in the game, the save or the career, so it is
     # safe on an unmet tail. It is SKIPPED there anyway - not because it is dangerous
@@ -1240,10 +1227,6 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # Both are WORLD-MUTATING on the tail axis; the two axes disagree by design.
     "SealSlot": POST_MISSION_ROLE_RECORDING,
     "RouteCommand": POST_MISSION_ROLE_RECORDING,
-    # DeleteRecording is `recording`: its OK means "the committed row is gone and the
-    # index-keyed hosts were told", a read-back of PARSEK's own store - a claim about a
-    # feature under test, never about a kerbal's physical in-world state.
-    "DeleteRecording": POST_MISSION_ROLE_RECORDING,
     # ListHandles is `recording`: its OK is a read-back of Parsek's OWN store (which
     # RewindPoints / committed recordings / background members exist), never a claim
     # about a kerbal's physical in-world state, which is the whole content of `outcome`.
@@ -1386,8 +1369,8 @@ BASELINE_RULE_PREFIX = "BASELINE-"
 # (design-autotest-harness-core.md -> "Runtime handles").
 #
 # The one missing data path is runtime -> spec. Every seam verb that addresses a
-# LIVE object (InvokeRewind rp=, SealSlot rp=, SimulateStockSwitchClick pid=,
-# DeleteRecording index=) took an id the TOML author had to know in advance, and a
+# LIVE object (InvokeRewind rp=, SealSlot rp=, SimulateStockSwitchClick pid=, and
+# the since-removed DeleteRecording index=) took an id the TOML author had to know in advance, and a
 # live id is a fresh Guid or a launch-assigned pid. R10 captures an OK step's
 # response payload and lets a LATER step name a field of it.
 #
@@ -2694,7 +2677,7 @@ ANSWERMERGE_DIALOG_VALUES: Tuple[str, ...] = ("merge",)
 # `dialog=` is already AnswerMergeDialog's - so a `dialog=` here would be rejected
 # pre-launch as "only the AnswerMergeDialog verb reads it".
 #
-# THE SET IS SEVEN OF THE 21, and the absences are the design rather than a backlog: a
+# THE SET IS EIGHT OF THE 19, and the absences are the design rather than a backlog: a
 # row is here only when its spawn is reachable by a pure in-process call with data the
 # host already carries. The tree merge dialog needs a RecordingTree whose commit would
 # write invented history; the pre-switch dialog needs a live Vessel and RE-SPAWNS ITSELF
@@ -2710,8 +2693,9 @@ UIACTION_POPUP_VALUES: Tuple[str, ...] = (
     # The two that need nothing at all from the host, and the only two with no mutating
     # button: both are informational and carry a single OK.
     "actionblocked", "savefailed",
-    # The two Settings wipe confirmations: a count and ParsekUI.ActiveInstance.
-    "wiperecordings", "wipemilestones",
+    # (The two Settings wipe confirmations, "wiperecordings" / "wipemilestones", left
+    # with the Settings Data Management section on 2026-09-26: recordings are never
+    # player-deletable.)
     # The three that need a committed recording from the effective set. `rewind`
     # additionally needs one whose rewind OWNER resolves, which its spawn site silently
     # returns on - the seam answers REJECTED dialog-target-unavailable instead.
@@ -2726,7 +2710,7 @@ UIACTION_POPUP_VALUES: Tuple[str, ...] = (
 # `op=dismiss press=`: press one button instead of dismissing the popup outright.
 #
 # ABSENT IS THE DEFAULT AND MEANS "dismiss without pressing", because most of these
-# confirms MUTATE the save - a wipe deletes every recording, a seal is permanent, a warp
+# confirms MUTATE the save - a route delete is permanent, a seal is permanent, a warp
 # moves UT - so a census lane that pressed them would destroy the fixture it is
 # photographing. The seam refuses every mutating confirm (`press-not-allowed`), which is
 # why this closed set is exactly the two harmless labels.
