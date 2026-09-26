@@ -1822,7 +1822,7 @@ destroy of the ghost in between. EX-1 is un-quarantined and claims D18
 pre-fix armed log `2026-09-23_0010` misses the two new required tokens and hits the
 forbidden stale-destroy form.
 
-**Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions.
+**Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions. (Historical: EX-1 is un-quarantined, and since 2026-09-26 a quarantine can pin its exact tokens with `[expectedFail] mismatches`.)
 
 ## ~~HELD-GHOST-SECOND-COMPLETION-AFTER-RELEASE: a past-end slot re-fires its completion (and one more spawn attempt) the frame after any destroy~~ [FILED 2026-09-23 from the #1776 review. RULED 2026-09-23: keep it as a last retry]
 
@@ -1845,7 +1845,25 @@ just after the timeout gets that one late attempt. Question: should `DestroyGhos
 completion mark for a slot that is still past end (the dedup the comment on
 `completedEventFired` describes), or is the extra attempt wanted? Not driven by a lane.
 
-## EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an expectedFail key matches on the PARSEK-FAIL subkind only, so a quarantine for one log-contract defect absorbs any other log-contract red [FILED 2026-09-23 from the #1772 review. OPEN; harness, small]
+## ~~EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an expectedFail key matches on the PARSEK-FAIL subkind only, so a quarantine for one log-contract defect absorbs any other log-contract red~~ [FILED 2026-09-23 from the #1772 review. FIXED 2026-09-26 on branch fix-expectedfail-signature]
+
+**Fix:** `[expectedFail]` takes an optional `mismatches = [...]` list of the exact
+expectations-verifier mismatch strings the defect produces (copied from a red run's
+`verifiers.expectations.mismatches`). `hlib.expected_fail_signature_matched` demotes only
+when the run's mismatch SET EQUALS the declared set (read through
+`hlib.expected_fail_observed_mismatches`); an extra red, or a declared token that stopped
+failing, stays PARSEK-FAIL, and run.py Warn-logs the `unexpected=` / `missing=` difference.
+Equality rather than subset so a half-reproduced defect also surfaces (rationale in
+`design-autotest-harness-core.md`, "Per-token signatures"). Supported for
+`subkind = "expectation"` only (`hlib.EXPECTED_FAIL_SIGNATURE_SUBKINDS`); fails closed
+otherwise. `hlib.validate_expected_fail_block` rejects unknown `[expectedFail]` keys, a
+malformed list, a list without `bugId` or a supported `subkind`, and any entry naming a
+pattern the spec does not declare. Key absent = the subkind-only match, unchanged. No
+committed spec carries the key: EX-1 was un-quarantined by the held-ghost fix, and the one
+live quarantine (`EVA-5-ground-science-place-pickup`, `subkind = "analyzer"`) is on a row
+with no per-token list. Unit cells `ExpectedFailMismatchSignatureTests` (test_hlib.py) and
+`ExpectedFailMismatchSignatureSmokeTests` (test_run_smoke.py, through run.run_attempt).
+
 
 `hlib.expected_fail_signature_matched` demotes a PARSEK-FAIL to EXPECTED-FAIL when its
 subkind equals `[expectedFail] subkind` (or on any subkind when none is named). For
