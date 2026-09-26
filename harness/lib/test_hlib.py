@@ -10820,9 +10820,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # V28M / V29M / V30M (coverage wave 11, G9): `rewind` (all max 0)
                        # + `structure` (V16M's windows: trees {1,2}, committedTrees 1,
                        # recordings 1, Orbiting >= 1), armed off each lane's own reading
-                       # run (V28M `2026-09-26_0007`); armed re-flights and the offline
+                       # run (V28M `2026-09-26_0007`, V29M `_0012`, V30M `_0013`); armed re-flights and the offline
                        # negative control are in autotest-status.md.
                        "V28M-tylo-player-loop.toml",
+                       "V29M-bop-player-loop.toml",
+                       "V30M-pol-player-loop.toml",
                        # V17M: `rewind` (all max 0 - the family's replay-observation
                        # claim, now across a SELF-OVERLAPPING 20-instance loop whose
                        # re-arms the jumps repeatedly cross) + `structure` (trees

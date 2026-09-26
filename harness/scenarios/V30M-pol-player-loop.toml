@@ -27,6 +27,14 @@ id = "V30M-pol-player-loop"
 #                -> 32809894  (74.7 s clear of the recording's end)
 # THE RE-PIN RECIPE: read `phaseAnchorUt=` off `missionconfig applied:` and
 # `relaunchUt=` off `startloopplayback initiated:`; every jump is anchor-relative.
+# ARMED off reading run `2026-09-26_0013`: PASS attempt 1. The product
+#   echoed phaseAnchorUt=30,493,028.510 against the derived 30,493,028.550 (0.040 s),
+#   cadence 2,316,941 -> 2,705,708 = 3*P, and printed `[Orbital(Pol) same-parent ...
+#   off=2314066.645]`, `PhaseLock APPLIED ... method=single-orbital ... zeroDrift=no`,
+#   `factory chain ... reaimed=False`, `Split summary ... seamSkipped=0
+#   exoCoastBodyChangeKept=1`, five ProtoOrbitLine lines with body=Pol and
+#   `seam-endpoint summary evaluated=2 outsideSoi=0`; saveParse read 1 recording, 410
+#   points, every rewind facet 0.
 # =====================================================================================
 tier = "operator"
 description = "THE POL REPLAY LANE (G9, coverage wave 11): V16M's player-loop shape, one cycle, on `pol-orbit-recorded` (B35 run `2026-09-25_2357`, a Jool-rooted recording captured around Pol). Arms loop playback, jumps across the replayed Jool->Pol seam and into the replayed park, dwells, and requires V16M's two replay witnesses on Pol: the ghost's map orbit line drawn in Pol's frame and the seam-endpoint census with every replayed SOI-entry endpoint inside Pol's sphere. Claims D14 `pol`."
@@ -95,6 +103,10 @@ required  = [
   "startloopplayback initiated:",
   "FastForwardToEventUT: jumping to UT=",
   "Orbital\\(Pol\\) same-parent",
+  "support=Supported constraints=1",
+  "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no",
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+  "Split summary: rec=\\w+ .*seamSkipped=0 exoCoastBodyChangeKept=1",
   "phase=body-orbit surface=ProtoOrbitLine .*body=Pol",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=[1-9]\\d* outsideSoi=0",
@@ -109,9 +121,17 @@ forbidden = [
 ]
 
 [expectations.rewind]
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
 
 [runtime]
 budgetSeconds = 2400
