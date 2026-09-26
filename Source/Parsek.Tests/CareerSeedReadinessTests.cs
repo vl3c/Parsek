@@ -87,7 +87,7 @@ namespace Parsek.Tests
             // all-present helper or a bare singleton read. Anchoring on only one of them
             // would let the gate pass while the other one still ran before any yield.
             int firstProbe = EarliestIndexOf(body,
-                "AllCurrencySingletonsPresent()",
+                "CurrencyScenarioReadiness.",
                 "Funding.Instance",
                 "ResearchAndDevelopment.Instance",
                 "Reputation.Instance");
@@ -104,32 +104,53 @@ namespace Parsek.Tests
                 "in the save and seeds only those.");
 
             // Anchor the LOOP CONDITION itself, not just any mention of the helper: the
-            // diagnostic line below the loop also calls AllCurrencySingletonsPresent(), so a
-            // bare Assert.Contains stays green even if the wait is rewritten to spin on
-            // Funding alone - which is the original defect.
+            // diagnostic line below the loop also calls AllExpectedPresent(), so a bare
+            // Assert.Contains stays green even if the wait is rewritten to spin on Funding
+            // alone - which is the original defect.
             string waitLine = FindNormalizedLineContaining(body, "while (maxWait-- > 0");
             Assert.False(waitLine == null,
                 "DeferredSeedAndRecalculate must keep a bounded 'while (maxWait-- > 0 ...)' " +
                 "singleton wait");
-            Assert.Contains("!AllCurrencySingletonsPresent()", waitLine);
+            Assert.Contains("!CurrencyScenarioReadiness.AllExpectedPresent()", waitLine);
+
+            // KSP-SETTINGS-AUDIT S4: the phase-2 wait is keyed on the positive OnLoad-done
+            // signal, never on a non-zero pool (a zero-funds career paid 600 frames).
+            string valueWaitLine = FindNormalizedLineContaining(body, "while (maxValueWait-- > 0");
+            Assert.False(valueWaitLine == null,
+                "DeferredSeedAndRecalculate must keep a bounded phase-2 wait");
+            Assert.Contains("!CurrencyScenarioReadiness.AllPresentLoaded()", valueWaitLine);
+            Assert.DoesNotContain("== 0", valueWaitLine);
         }
 
         [Fact]
-        public void AllCurrencySingletonsPresent_RequiresAllThreeNotAnyOne()
+        public void CareerExpectsAllThreeSingletonsNotAnyOne()
         {
-            // Brace-matched to the method's own closing brace: the "</summary>" anchor used to
-            // run the scan past the body and into the NEXT member's doc comment, so the negative
-            // below read comment prose as code (a "||" written in that comment red'd this cell
-            // with AllCurrencySingletonsPresent unchanged).
-            string body = ReadMethodBodyToClosingBrace(
-                "private static bool AllCurrencySingletonsPresent()");
+            // The "any one is enough" gate is what dropped the science seed: in career the
+            // expected set is all three, and covering it needs every one of them.
+            var expected = CurrencyScenarioReadiness.ExpectedFor(Game.Modes.CAREER);
+            Assert.Equal(CurrencySingletons.All, expected);
+            Assert.False(CurrencyScenarioReadiness.Covers(expected, CurrencySingletons.Funding));
+            Assert.False(CurrencyScenarioReadiness.Covers(expected,
+                CurrencySingletons.Funding | CurrencySingletons.Reputation));
+            Assert.True(CurrencyScenarioReadiness.Covers(expected, CurrencySingletons.All));
+        }
 
-            // Every singleton is required (&&). An || here would restore the "any one is
-            // enough" gate that dropped the science seed.
-            Assert.Contains("Funding.Instance != null", body);
-            Assert.Contains("ResearchAndDevelopment.Instance != null", body);
-            Assert.Contains("Reputation.Instance != null", body);
-            Assert.DoesNotContain("||", body);
+        [Fact]
+        public void BudgetDeductionAndRewindAdjustment_WaitOnlyForTheModesSingletons()
+        {
+            string budget = ReadMethodBody(
+                "private IEnumerator ApplyBudgetDeductionWhenReady()",
+                "if (budgetDeductionApplied)");
+            string budgetWait = FindNormalizedLineContaining(budget, "while (maxWait-- > 0");
+            Assert.False(budgetWait == null, "ApplyBudgetDeductionWhenReady must keep a bounded wait");
+            Assert.Contains("!CurrencyScenarioReadiness.AllExpectedPresent()", budgetWait);
+
+            string rewind = ReadMethodBody(
+                "private IEnumerator ApplyRewindResourceAdjustment()",
+                "LedgerOrchestrator.RecalculateAndPatch(");
+            string rewindWait = FindNormalizedLineContaining(rewind, "while (maxWait-- > 0");
+            Assert.False(rewindWait == null, "ApplyRewindResourceAdjustment must keep a bounded wait");
+            Assert.Contains("!CurrencyScenarioReadiness.AllExpectedPresent()", rewindWait);
         }
 
         [Fact]
@@ -198,28 +219,6 @@ namespace Parsek.Tests
             Assert.True(File.Exists(scenarioPath),
                 $"ParsekScenario.cs not found at {scenarioPath}");
             return File.ReadAllText(scenarioPath);
-        }
-
-        /// <summary>
-        /// The method's declaration plus its body, ending at the body's own closing brace.
-        /// Read from comment-stripped, literal-masked source, so neither a comment nor a brace
-        /// inside a string literal can be read as code by the caller's needles.
-        /// </summary>
-        private static string ReadMethodBodyToClosingBrace(string signature)
-        {
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekScenarioSource());
-            int start = prepared.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(start >= 0, $"'{signature}' not found in ParsekScenario.cs");
-            int open = prepared.IndexOf('{', start);
-            Assert.True(open > start, $"no block body after '{signature}' in ParsekScenario.cs");
-            int depth = 0, close = -1;
-            for (int i = open; i < prepared.Length; i++)
-            {
-                if (prepared[i] == '{') depth++;
-                else if (prepared[i] == '}' && --depth == 0) { close = i; break; }
-            }
-            Assert.True(close > open, $"unbalanced braces in '{signature}' in ParsekScenario.cs");
-            return prepared.Substring(start, close - start + 1);
         }
 
         private static string ReadMethodBody(string signature, string endAnchor)

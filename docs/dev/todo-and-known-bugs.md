@@ -28,24 +28,37 @@ non-Normal value.
 
 Bugs (no ruling needed):
 
-- S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
+- ~~S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
   pre-multiplier value to `subject.science`, then multiplies before `AddScience`; Parsek
   captures `subject.science` (`GameStateRecorder`) and credits it as `ScienceAwarded`, so on
   Easy (x2), Moderate (x0.9) and Hard (x0.6) the ledger drifts from the live pool and a rewind
   resets science to the x1 total. Fix: stamp the multiplier at capture; never read the
-  current multiplier at replay.
-- S2. `Career.RepLossDeclined` (Normal 1, Hard 3) never reaches the ledger: `ContractDeclined`
+  current multiplier at replay.~~ FIXED 2026-09-26, branch `kss-ledger`: the recorder freezes
+  the multiplier onto `PendingScienceSubject`, the converter stamps it on the row
+  (`GameAction.ScienceGainMultiplier`, sparse key `scienceGainMultiplier`), and `ScienceModule`
+  scales only the pool credit while the subject cap walk, `ScienceSubjectPatch` and the
+  committed-science cache stay pre-multiplier; the pending-KSC-credit hold and the displays read
+  the pool value.
+- ~~S2. `Career.RepLossDeclined` (Normal 1, Hard 3) never reaches the ledger: `ContractDeclined`
   is dropped in `GameStateEventConverter` and `ReputationPenaltySource.ContractDecline` is
   never constructed, so a rewind refunds the reputation. Fix: a KSC-origin reputation
-  penalty row carrying the amount stock applied.
+  penalty row carrying the amount stock applied.~~ FIXED 2026-09-26, branch `kss-ledger`:
+  `ReputationChanged(ContractDecline)` (fired by stock after the curved subtraction, so its
+  delta is what stock applied) goes through the StrategyInput KSC door into a pre-curved
+  `ReputationPenalty(ContractDecline)` row; the reason is exempt from the 1-point rep threshold,
+  and a 0 setting fires no event and writes no row.
 - S3. Logistics hard-codes a 21600 s day: `LogisticsWindowUI.FormatDuration` switches to days
   at 86400 s but divides by 21600 (24 h reads "4.0d"), and `RouteCadence` parses "d" as
   21600 s on the Earth calendar too. Fix: route both through `ParsekTimeFormat`.
-- S4. A zero starting pool is never seeded (`EnsureInitialFundsSeed` seeds non-zero only;
+- ~~S4. A zero starting pool is never seeded (`EnsureInitialFundsSeed` seeds non-zero only;
   the stock slider allows 0 funds, Science mode can start at 0 science), and the value wait
   spins its full 600 frames on every load. Also `DeferredSeed` and
   `ApplyBudgetDeductionWhenReady` wait 120 frames for currency singletons Science and
-  Sandbox never create.
+  Sandbox never create.~~ FIXED 2026-09-26, branch `kss-ledger`: new `CurrencyScenarioReadiness`
+  keys every wait on the mode's singletons and replaces the value wait with a positive
+  "OnLoad ran" signal (the game's `ProtoScenarioModule.moduleRef` is the live singleton); a loaded
+  zero with no history seeds science 0 and funds 0 as a sealed `initialFundsConfirmedZero` seed
+  the stale-zero repair cannot overwrite. The reputation seed's own zero deferral is unchanged.
 - S5. Ghost map vessels count toward the stock vessel budget: `Game.Updated` builds the
   pruned `FlightState` before `ParsekScenario.OnSave` strips ghosts, and ghosts are live,
   `prst=True`, non-Debris vessels in FLIGHT and TRACKSTATION, so each one pushes one real
@@ -74,8 +87,11 @@ Supervisor defaults (not overridden):
 
 - S10 (Q5). Parsek IMGUI windows ignore `GameSettings.UI_SCALE`; scale them to match. Separate
   UI work, not in the fix PR.
-- S11 (Q6). Alt+F12 cheat currency (`TransactionReasons.Cheating`) stays unledgered and
-  clamp-held until the next rewind; log it once per event.
+- ~~S11 (Q6). Alt+F12 cheat currency (`TransactionReasons.Cheating`) stays unledgered and
+  clamp-held until the next rewind; log it once per event.~~ FIXED 2026-09-26, branch
+  `kss-ledger`: each captured `Cheating` funds / science / reputation change writes one Info line
+  (`GameStateRecorder.LogUnledgeredCheatCurrency`) saying it is not ledgered and the next rewind
+  undoes it.
 
 To trace before filing as defects (low): `AllowNegativeCurrency` against reserved funds on
 spends no click-block covers; `AutoHireCrews` hire capture; Set Orbit / Set Position teleports

@@ -1052,6 +1052,17 @@ namespace Parsek
             {
                 if (actions[i].Type == GameActionType.FundsInitial)
                 {
+                    // A CONFIRMED zero (read off a loaded Funding with no funds history) is
+                    // a real career start, not a stale seed: repairing it from a later
+                    // pool would fold every earning since into UT0.
+                    if (actions[i].InitialFundsConfirmedZero)
+                    {
+                        ParsekLog.Verbose("Ledger",
+                            $"SeedInitialFunds: FundsInitial is a confirmed zero, ignoring new seed " +
+                            $"amount={initialFunds.ToString("R", CultureInfo.InvariantCulture)}");
+                        return;
+                    }
+
                     // Update a stale 0-value seed: during a previous load, the seed may
                     // have been created with 0 before KSP populated Funding.Instance.
                     if (actions[i].InitialFunds == 0f && initialFunds != 0.0)
@@ -1091,6 +1102,50 @@ namespace Parsek
             BumpStateVersion();
             ParsekLog.Info("Ledger",
                 $"Seeded initial funds: amount={initialFunds.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
+        }
+
+        /// <summary>
+        /// Seeds (or confirms an existing legacy 0-value) FundsInitial as a CONFIRMED zero:
+        /// the caller read 0 off a Funding singleton whose OnLoad has run and found no funds
+        /// history in the ledger (KSP-SETTINGS-AUDIT S4, a StartingFunds = 0 career). A
+        /// non-zero seed is left untouched.
+        /// </summary>
+        internal static void SeedConfirmedZeroFunds()
+        {
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var existing = actions[i];
+                if (existing.Type != GameActionType.FundsInitial)
+                    continue;
+
+                if (existing.InitialFunds != 0f || existing.InitialFundsConfirmedZero)
+                {
+                    ParsekLog.Verbose("Ledger",
+                        $"SeedConfirmedZeroFunds: FundsInitial already settled " +
+                        $"(amount={existing.InitialFunds.ToString("R", CultureInfo.InvariantCulture)}, " +
+                        $"confirmedZero={existing.InitialFundsConfirmedZero}) - no change");
+                    return;
+                }
+
+                existing.InitialFundsConfirmedZero = true;
+                BumpStateVersion();
+                ParsekLog.Info("Ledger",
+                    "SeedConfirmedZeroFunds: confirmed the existing 0-value FundsInitial " +
+                    "(Funding loaded at 0, no funds history)");
+                return;
+            }
+
+            actions.Add(new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.FundsInitial,
+                InitialFunds = 0f,
+                InitialFundsConfirmedZero = true
+            });
+            BumpStateVersion();
+            ParsekLog.Info("Ledger",
+                $"Seeded initial funds: amount=0 confirmedZero=True (Funding loaded at 0, no funds history), " +
+                $"total={actions.Count}");
         }
 
         /// <summary>
