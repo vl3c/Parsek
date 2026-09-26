@@ -2040,10 +2040,10 @@ Unit-proven only (no flight). BDOCK-1's copy should classify idle, since its lau
 0.8 s after the re-adoption, so the next BDOCK-1 flight should log the discard instead of
 `showing tree merge dialog (fallback)`.
 
-## FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING: a tree the fresh-rollout refusal keeps still lingers in the pending slot [FILED 2026-09-23 from the FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME fix. OPEN; mod-driven launches from FLIGHT only]
+## ~~FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING: a tree the fresh-rollout refusal keeps still lingers in the pending slot~~ [FILED 2026-09-23 from the FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME fix. FIXED 2026-09-26, operator ruling 2026-09-26: commit at the refusal; mod-driven launches from FLIGHT only]
 
-The discard covers idle resumed committed copies only. Every other refused tree keeps
-today's behaviour: it stays pending as Limbo, a later `StashPendingTree` overwrites it with
+The discard covered idle resumed committed copies only. Every other refused tree kept
+the old behaviour: it stayed pending as Limbo, a later `StashPendingTree` overwrote it with
 only the `overwriting existing pending tree` Warn (orphaning its sidecars), and an
 outsider-chain `LimboVesselSwitch` stash stays `LimboVesselSwitch` for the scene only
 (`refused tree has no revertible pre-transition`). The kept cases are:
@@ -2062,8 +2062,65 @@ outsider-chain `LimboVesselSwitch` stash stays `LimboVesselSwitch` for the scene
   dirty committed-overlap trees are never serialized.
 
 Stock play cannot reach any of them (a stock launch leaves FLIGHT, which commits the tree
-first). The resolution is a product choice (commit at the refusal, keep through the next
-stash, or surface it for merge), not settled by the design docs.
+first). The case lines above are the pre-fix log shapes.
+
+**Ruling (operator, 2026-09-26): commit it at the refusal**, the same way a stock launch
+commits the tree when it leaves FLIGHT, instead of leaving it pending for the next stash.
+Idle resumed copies stay discarded as before.
+
+**Fix.** `ParsekFlight.ClassifyFreshRolloutRefusedTree` keeps its guards and their order
+(replaced slot, Re-Fly session or invocation, active merge journal: keep pending, logged as
+before) and its discard of idle resumed committed copies. The two former keep outcomes are
+now `CommitNotACommittedCopy` (cases 1 and 3: no committed tree shares the id) and
+`CommitMeaningfulResumedCopy` (case 2). `DisposeFreshRolloutRefusedPendingTree` routes both
+to the new `CommitFreshRolloutRefusedPendingTree`, which runs the route a Limbo stash takes
+when FLIGHT is left under autoMerge (`AutoCommitPendingTreeOutsideFlight`'s Limbo-preserving
+full-fidelity branch): `MergeDialog.BuildDefaultVesselDecisions` then `MergeDialog.MergeCommit`
+(CommitPendingTree + MarkTreeAsApplied, the optimizer, `NotifyLedgerTreeCommitted`, the
+crew swap, the switch-segment / restore-attempt clears, `OnTreeCommitted`). There is no
+private commit copy. Both coroutines now test `IsFreshRolloutRefusedTreeResolved` (discard
+or commit), so a committed tree takes the same early exit a discarded one did: the quickload
+restore skips the Limbo give-up, and the vessel-switch restore skips the pre-transition
+revert and its `no revertible pre-transition` Warn, which now only a guard-kept tree reaches.
+
+- Case 1 (genuinely new tree): added as its own committed tree.
+- Case 2 (meaningful resumed copy): the copy shares the committed tree's id and recording
+  ids. `RecordingStore.CommitTree`'s same-id branch (`ShouldReplaceCommittedTree`) replaces
+  the committed tree slot and each shared recording slot in place, exactly as when a resumed
+  committed tree is committed at scene exit or after a switch segment. No second tree with
+  that id and no duplicate recording is created, and the committed history is kept because
+  the copy is a superset of it. If the replace gate refuses (the committed tree changed
+  underneath the copy), CommitTree's existing duplicate-skip keeps the original and the new
+  line `committed store kept its original tree ... (CommitTree duplicate-skip)` Warns.
+- Case 3 (clean clone whose committed original was detached on load): no committed twin, so
+  it is added back as the committed tree with every recording once. The classifier cannot
+  tell case 3 from case 1, and it does not need to: both are committed.
+
+The quicksave is not refreshed (the commit is automatic, and overwriting the player's F5 point
+without a player action would destroy it, the same reasoning as the discard). `persistent.sfs`
+is written by the next ordinary save. A commit that throws or leaves the tree in the slot
+returns `KeepCommitFailed` and Warns `still pending after the commit attempt; left pending`.
+Grep-stable lines: `Fresh-rollout refusal (<site>): committing kept tree '<name>' (id=...,
+state=..., recordings=N, spawnable=N, committedTwinRecordings=N|none, serialized=...,
+refusedPid=..., kind=meaningful-resumed-copy postLoadSpan=... postLoadPoints=... reason=...
+| not-a-committed-copy ...)`, then `committed kept tree '<name>' (id=..., replaced committed
+original | added as a committed tree, committedTrees=N, committedRecordings=N)`.
+
+**Tests.** `FreshRolloutRefusedTreeDiscardTests` (30 cells). New or changed: a meaningful
+copy is committed over its original (one tree with the id, the copy is the committed object,
+3 recordings with no duplicate id, pre-load and post-load points kept, sidecars kept, restore
+attempt cleared, StateVersion bumped, no quicksave, `User chose: Tree Merge` present, no
+`skipping duplicate`). A genuinely new tree is added next to the untouched station tree. A
+detached clean clone is committed back with every recording once. A committed tree saves as
+an ordinary committed node, and a later stash does not warn. The guard cells (merge journal,
+Re-Fly) assert that nothing is committed. A guard-kept tree still gets the overwrite Warn
+(control). Also a classifier cell showing the guards beat a commit, a resolved-predicate
+cell, and source gates re-anchored on `IsFreshRolloutRefusedTreeResolved`. Mutation: making
+the `MergeCommit` call dead reds the five commit cells.
+
+Unit-proven only (no flight). BDOCK-1's refused copy is expected to classify idle and be
+discarded. If it classifies meaningful, it is now committed over its original instead of
+kept, which can change the committed-recording count that lane pins (min 19, max 20).
 
 ## ~~D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME: the non-chain "held" ghost is destroyed by the engine's stale past-end cleanup in the very frame the policy holds it, so no ghost is ever visible past EndUT~~ [FILED 2026-09-23 from EX-1's reading run `2026-09-23_0000`. FIXED 2026-09-23 on branch `held-ghost-fix`; EX-1 is its live witness]
 
@@ -5681,6 +5738,10 @@ sidecars untouched) with no fallback merge dialog. Unit-proven only; the next BD
 is the live check, and it should land the no-dialog shape the spec header says it has never
 measured (no gating token depends on either shape). If it logs `keeping resumed copy of
 committed tree` instead, the dialog shape stays and the logged reason says why.
+Update 2026-09-26 (FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING ruling): a copy that is not idle
+is no longer kept; it logs `committing kept tree ... kind=meaningful-resumed-copy` and is
+committed over its original at the refusal, so no fallback dialog appears in that shape
+either.
 
 **How the wave handled it.** BDOCK-1's count min was raised to 19 (attributed per
 type, every member produced before or apart from the stash) and the max kept at 20. The
