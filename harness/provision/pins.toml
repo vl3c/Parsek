@@ -127,3 +127,44 @@ releaseZipSha256 = "3b4d6689452d5c2d1b2a3d68711aa65e5458a2a14bba46341b54dc768c63
 #   https://github.com/Genhis/KRPC.MechJeb/releases
 #   https://github.com/darchambault/KRPC.MechJeb/releases
 # matching the "Updated for kRPC <ver>" line to the pinned kRPC + MJ build.
+
+# ---------------------------------------------------------------------------
+# Pinned GameData mods (kind = "gamedata-mod"). Not stack components: a profile opts
+# in through an [[optionalMods]] entry carrying `pin = "<table>"`, DOWNLOAD fetches the
+# zip through the shared artifact cache (automation/.artifact-cache/<sha256>, re-hashed
+# on every use) and INSTALL extracts the declared `gamedataFolders` into the instance
+# GameData. A profile that names none (stock-minimal) never touches these.
+# ---------------------------------------------------------------------------
+
+[persistentrotation]
+# GT-8 CLOSED 2026-09-26 (D17 persistent-rotation): the only KSP 1.12 build of
+# PersistentRotation is linuxgurugamer's PersistentRotationUpgraded 1.9.2.1, pinned
+# via the CKAN-meta record
+# KSP-CKAN/CKAN-meta/PersistentRotationUpgraded/PersistentRotationUpgraded-1.9.2.1.ckan
+# (URL, 37629 bytes and sha256 operator-approved 2026-09-26; the one download hashed to
+# exactly this value and populated the artifact cache). Zip layout confirmed at that
+# download: GameData/PersistentRotation/ with Plugins/PersistentRotationUpgraded.dll
+# (AssemblyName PersistentRotationUpgraded, [KSPAssembly("Persistent Rotation
+# Upgraded", 1, 9, 2)]). The DLL references ToolbarControl + ClickThroughBlocker, both
+# dev-sourced in modded-compat.
+mode = "release"
+kind = "gamedata-mod"
+version = "1.9.2.1"
+downloadUrl = "https://github.com/linuxgurugamer/PersistentRotation/releases/download/1.9.2.1/PersistentRotationUpgraded-1.12.5-1.9.2.1.zip"
+sha256 = "f455e527cc3618cfd36c9fe1d80d0697edf8af45a9adf914f2c8e510e169121b"
+gamedataFolders = ["PersistentRotation"]
+
+[spacetuxlibrary]
+# PersistentRotationUpgraded's CKAN-declared dependency, pinned via the CKAN-meta record
+# KSP-CKAN/CKAN-meta/SpaceTuxLibrary/SpaceTuxLibrary-0.0.9.ckan (URL, 498350 bytes and
+# sha256 operator-approved 2026-09-26; the one download hashed to exactly this value).
+# Zip layout confirmed at that download: GameData/SpaceTuxLibrary/ (Plugins: KSP_Log,
+# ButtonManager, SpaceTuxUtility, VesselModuleSave, KSP_ColorPicker,
+# KSP_PartHighlighter). Note: the PersistentRotationUpgraded 1.9.2.1 DLL itself
+# references none of these assemblies; it is installed because CKAN declares it.
+mode = "release"
+kind = "gamedata-mod"
+version = "0.0.9"
+downloadUrl = "https://github.com/linuxgurugamer/SpaceTuxLibrary/releases/download/0.0.9/SpaceTuxLibrary-1.12.0-0.0.9.zip"
+sha256 = "e916b6907e8310e08baa49532d04f92068864cb38b93afd664bf712b190197f1"
+gamedataFolders = ["SpaceTuxLibrary"]

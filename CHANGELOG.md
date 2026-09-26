@@ -1187,6 +1187,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Spinning vessels recorded with PersistentRotation now replay spinning.** Parsek never
+  recognised the KSP 1.12 build of PersistentRotation (PersistentRotationUpgraded), so a
+  vessel that went into time warp while spinning was always replayed holding its attitude.
+  Parsek now recognises the mod by any of its names, logged as `PersistentRotation mod
+  detected: True (matched=...)` at recording start. A recording that goes on rails while
+  spinning faster than 0.05 rad/s stores the spin, and the ghost turns at that rate for
+  the whole on-rails stretch. The stored spin axis is now correct too: KSP reports a
+  vessel's angular velocity relative to its control part, and the old code read it as a
+  world vector. That was harmless while the mod was never recognised.
+
 - **A ground part a kerbal places on EVA is now recorded as its own vessel and replays as a
   ghost.** Breaking Ground experiments, power and comms units and the Central Station become
   their own vessel when a kerbal places them, and Parsek used to record the placement on the
@@ -4531,6 +4541,20 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **Automated testing: PersistentRotation on the modded-compat instance, a `SpinVessel` seam
+  verb, and lane MC-5.** Profiles can now name a pinned optional mod (`pin = "<pins.toml
+  table>"`, a `kind = "gamedata-mod"` pin). Provisioning downloads it through the shared
+  artifact cache like the stack zips, re-hashes the cache entry every time it is used, and
+  extracts the pin's `gamedataFolders` into the instance. The manifest records it under
+  `pinnedMods` and VERIFY re-hashes it. The dev GameData is never consulted for a pinned
+  mod. modded-compat now requires PersistentRotationUpgraded 1.9.2.1 and its CKAN
+  dependency SpaceTuxLibrary 0.0.9, both pinned via their CKAN-meta records (GT-8 closed).
+  The automation-only `SpinVessel rate=<rad/s>` verb turns SAS off and spins the active
+  vessel about its roll axis. `MC-5-persistent-rotation` records a spinning Kerbal X
+  through rails warp and loop-replays it. Both flights passed and the lane is armed on the
+  replayed ghost's attitude sweep. D17 `persistent-rotation` is claimed, and with it every
+  registry cell is covered (246 of 246).
 
 - **Automated testing: a `WarpToUT` refused because time warp is locked now names who holds
   the lock.** The `warptout refused reason=warp-locked` log line gains a `holders=` field:
