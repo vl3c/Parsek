@@ -24,9 +24,13 @@ namespace Parsek.Tests
     {
         private readonly List<string> logLines = new List<string>();
         private readonly string saveRoot;
+        private readonly GameScenes originalScene;
 
         public OptimizerFlushSidecarEpochTests()
         {
+            originalScene = HighLogic.LoadedScene;
+            HighLogic.LoadedScene = GameScenes.SPACECENTER;
+            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
@@ -43,6 +47,9 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
+            HighLogic.LoadedScene = originalScene;
+            RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
+            ParsekScenario.PersistentSavePathOverrideForTesting = null;
             RecordingPaths.SaveRootOverrideForTesting = null;
             try
             {
@@ -161,31 +168,116 @@ namespace Parsek.Tests
             Assert.Equal(sfsEpoch, loaded.SidecarEpoch);
         }
 
-        [Fact]
-        public void FlushWithoutBump_ThenOnSave_StillDetectsAnOlderSaveAsStale()
+        private static RecordingTree CommitInTree(Recording rec, string treeId)
         {
-            // Mirror direction: not advancing on the flush must not reopen bug #270. The
-            // next OnSave that rewrites the recording still advances, so a quicksave taken
-            // before it reads the newer .prec as stale.
+            rec.TreeId = treeId;
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Epoch Probe Tree",
+                RootRecordingId = rec.RecordingId,
+            };
+            tree.AddOrReplaceRecording(rec);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddCommittedInternal(rec);
+            return tree;
+        }
+
+        /// <summary>The real OnSave recording pass; returns the saved RECORDING node.</summary>
+        private static ConfigNode RealOnSave(string recordingId)
+        {
+            var scenarioNode = new ConfigNode("ParsekScenario");
+            ParsekScenario.SaveTreeRecordings(scenarioNode);
+            ConfigNode[] trees = scenarioNode.GetNodes("RECORDING_TREE");
+            Assert.Single(trees);
+            foreach (ConfigNode recNode in trees[0].GetNodes("RECORDING"))
+            {
+                if (recNode.GetValue("recordingId") == recordingId)
+                    return recNode;
+            }
+            Assert.True(false, "saved tree node has no RECORDING for " + recordingId);
+            return null;
+        }
+
+        [Fact]
+        public void FlushThenRealOnSave_AdvancesPrecAndSfsTogether_AndAPreFlushQuicksaveReadsStale()
+        {
+            // Mirror direction: the flush keeps the epoch so a crash before the next save
+            // loads cleanly, but the content it wrote changed under that epoch, so a
+            // quicksave taken before it would match for good unless the next real OnSave
+            // (which skips a non-dirty, current recording) is told to advance.
+            RecordingStore.SuppressLogging = false;
             const string id = "optflushepoch1mirror";
 
             var flown = MakeRecording(id);
             Assert.True(RecordingStore.SaveRecordingFiles(flown, incrementEpoch: true));
-            ConfigNode quicksave = SnapshotSfs(flown);
-
-            RecordingStore.AddCommittedInternal(flown);
-            flown.MarkFilesDirty();
-            RecordingStore.RunOptimizationPass();
+            ConfigNode preFlushQuicksave = SnapshotSfs(flown);
             Assert.Equal(1, flown.SidecarEpoch);
 
+            CommitInTree(flown, "optflushepochtree1");
             flown.MarkFilesDirty();
-            Assert.True(RecordingStore.SaveRecordingFiles(flown, incrementEpoch: true));
+            RecordingStore.RunOptimizationPass();
+
+            Assert.False(flown.FilesDirty);
+            Assert.True(flown.SidecarEpochAdvancePending);
+            Assert.Equal(1, flown.SidecarEpoch);
+            Assert.Equal(1, ProbePrecEpoch(id));
+
+            ConfigNode savedRec = RealOnSave(id);
+
+            Assert.Equal("2", savedRec.GetValue("sidecarEpoch"));
             Assert.Equal(2, ProbePrecEpoch(id));
+            Assert.Equal(2, flown.SidecarEpoch);
+            Assert.False(flown.SidecarEpochAdvancePending);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]") && l.Contains("advancing deferred sidecar epoch")
+                && l.Contains("id=" + id));
 
             bool hydrated;
-            Recording stale = ColdLoad(quicksave, out hydrated);
+            Recording stale = ColdLoad(preFlushQuicksave, out hydrated);
             Assert.False(hydrated);
             Assert.Equal("stale-sidecar-epoch", stale.SidecarLoadFailureReason);
+
+            Recording fresh = ColdLoad(savedRec, out hydrated);
+            Assert.True(hydrated, "the save's own node must hydrate: " + fresh.SidecarLoadFailureReason);
+        }
+
+        [Fact]
+        public void AdvancePendingClearsAfterTheSave_AndTheNextSaveLeavesTheEpochAlone()
+        {
+            const string id = "optflushepoch3clear";
+
+            var flown = MakeRecording(id);
+            Assert.True(RecordingStore.SaveRecordingFiles(flown, incrementEpoch: true));
+            CommitInTree(flown, "optflushepochtree3");
+            flown.MarkFilesDirty();
+            RecordingStore.RunOptimizationPass();
+            Assert.True(flown.SidecarEpochAdvancePending);
+
+            Assert.Equal("2", RealOnSave(id).GetValue("sidecarEpoch"));
+            Assert.False(flown.SidecarEpochAdvancePending);
+
+            // A later save with nothing changed takes the skip-when-current path again.
+            Assert.Equal("2", RealOnSave(id).GetValue("sidecarEpoch"));
+            Assert.Equal(2, ProbePrecEpoch(id));
+        }
+
+        [Fact]
+        public void AdvancePending_SurvivesTheObjectSwapsItCanMeet()
+        {
+            // Committed recordings live in the static RecordingStore, so a scene change
+            // keeps the object and its flag. The places that REPLACE the object carry it.
+            var source = new Recording { RecordingId = "optflushepoch4swap", SidecarEpoch = 3 };
+            source.SidecarEpochAdvancePending = true;
+
+            Assert.True(Recording.DeepClone(source).SidecarEpochAdvancePending);
+
+            var incoming = new Recording { RecordingId = "optflushepoch4swap", SidecarEpoch = 3 };
+            bool savePreserved;
+            int otherPreserved;
+            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+                source, incoming, out savePreserved, out otherPreserved);
+            Assert.True(incoming.SidecarEpochAdvancePending);
         }
 
         [Fact]

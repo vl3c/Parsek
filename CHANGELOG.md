@@ -1160,9 +1160,11 @@ _(unreleased — entries accumulate here per commit)_
   save. If the game then closed, crashed or was killed before the next save, the next load read
   every such recording as belonging to a different save and dropped it (a whole flight when it
   was the first recording of the tree). That immediate write now keeps the counter the save
-  already holds, like Parsek's other between-save writes, so the next load accepts the file. A
-  recording no save has ever stored still gets its first counter from that write, and an actual
-  save still advances it, so an older quicksave is still recognised as older.
+  already holds, so the next load accepts the file, and the next real save advances the counter
+  on the file and in the save together, so a quicksave taken before the write is again
+  recognised as older. Until that save (and for good if the game closes first) such a quicksave
+  loads the rewritten file instead of being rejected. A recording no save has ever stored still
+  gets its first counter from the immediate write.
 
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,

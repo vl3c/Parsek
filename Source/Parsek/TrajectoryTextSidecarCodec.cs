@@ -631,10 +631,9 @@ namespace Parsek
         /// byte-identical" - and the flat POINT list this heals is DERIVED from the
         /// sections, re-derived on every read and re-derived again on the write side by
         /// <see cref="GetFlatFallbackPointsForWrite"/>, so persisting it buys nothing.
-        /// It can cost, though: a dirtied recording is rewritten, a rewrite by
-        /// <c>OnSave</c> advances <see cref="Recording.SidecarEpoch"/> (the load-time
-        /// <c>FlushDirtyFiles</c> keeps a positive epoch, but only when it runs and
-        /// succeeds first), and
+        /// It costs, though: a dirtied recording is rewritten and its
+        /// <see cref="Recording.SidecarEpoch"/> advances at the next <c>OnSave</c>
+        /// (directly, or deferred there by the load-time <c>FlushDirtyFiles</c>), and
         /// <see cref="Parsek.Logistics.RouteSourceRef.SidecarEpoch"/> is a route's
         /// proof-of-source field - so every committed route whose member recording
         /// healed on load parked in

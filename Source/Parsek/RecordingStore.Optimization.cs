@@ -474,6 +474,13 @@ namespace Parsek
         /// sidecar as stale and drop the recording). An epoch of 0 means no .sfs has ever
         /// carried one, and 0 disables the stale check on load, so the flush seeds 1:
         /// that strands nothing and keeps bug #270's detector armed for the recording.
+        /// A preserved epoch sets <see cref="Recording.SidecarEpochAdvancePending"/>: the
+        /// content changed under an epoch an older quicksave may also carry, so the next
+        /// OnSave rewrites the recording with the epoch advanced and .prec and .sfs move
+        /// to N+1 together. Between the flush and that save (and for good if the process
+        /// ends first, since the flag is not persisted) a pre-flush quicksave reads the
+        /// flushed content at a matching epoch; that is the window bug #290 already
+        /// accepted for the BG-recorder and scene-exit force-writes.
         /// </summary>
         internal static bool ShouldAdvanceSidecarEpochOnFlush(Recording rec)
         {
@@ -484,7 +491,8 @@ namespace Parsek
         /// Saves all dirty recordings to disk immediately. Called after commit and
         /// after the optimization pass to close the crash window where data exists
         /// only in RAM. Failures are logged but non-fatal - OnSave will retry.
-        /// Never advances an existing epoch; see <see cref="ShouldAdvanceSidecarEpochOnFlush"/>.
+        /// Never advances an existing epoch (it defers the advance to the next OnSave);
+        /// see <see cref="ShouldAdvanceSidecarEpochOnFlush"/>.
         /// </summary>
         private static void FlushDirtyFiles(List<Recording> recordings)
         {
@@ -496,8 +504,15 @@ namespace Parsek
                 if (SaveRecordingFiles(recordings[i], incrementEpoch: advanceEpoch))
                 {
                     saved++;
-                    if (advanceEpoch) epochSeeded++;
-                    else epochPreserved++;
+                    if (advanceEpoch)
+                    {
+                        epochSeeded++;
+                    }
+                    else
+                    {
+                        epochPreserved++;
+                        recordings[i].SidecarEpochAdvancePending = true;
+                    }
                 }
                 else
                     failed++;
@@ -505,7 +520,8 @@ namespace Parsek
             if (saved > 0 || failed > 0)
                 ParsekLog.Info("RecordingStore",
                     $"FlushDirtyFiles: saved {saved}, failed {failed} " +
-                    $"(epochPreserved={epochPreserved} epochSeeded={epochSeeded})");
+                    $"(epochPreserved={epochPreserved} epochSeeded={epochSeeded}; " +
+                    "preserved epochs advance at the next OnSave)");
         }
 
         /// <summary>

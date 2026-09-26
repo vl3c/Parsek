@@ -1953,8 +1953,19 @@ namespace Parsek
 
             string currentReason;
             bool filesCurrent = RecordingStore.AreRecordingFilesCurrentForSave(rec, out currentReason);
-            if (rec.FilesDirty || !filesCurrent)
+            // SidecarEpochAdvancePending: an out-of-band flush rewrote the content under a
+            // preserved epoch; the skip-when-current fast path would keep that epoch
+            // forever, so this save rewrites with the epoch advanced (the .sfs written
+            // after this call then carries the same N+1).
+            if (rec.FilesDirty || rec.SidecarEpochAdvancePending || !filesCurrent)
             {
+                if (!RecordingStore.SuppressLogging && filesCurrent && !rec.FilesDirty)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"OnSave: advancing deferred sidecar epoch for recording='{rec.VesselName ?? "<unnamed>"}' " +
+                        $"id={rec.RecordingId ?? "<none>"} treeKind={treeKind} epoch={rec.SidecarEpoch} " +
+                        "(content was flushed out-of-band without advancing it)");
+                }
                 if (!RecordingStore.SuppressLogging && !filesCurrent)
                 {
                     ParsekLog.Info("Scenario",
