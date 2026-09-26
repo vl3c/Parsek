@@ -380,9 +380,51 @@ policy = "once"                      # once | none  (retry-once-then-INVALID for
 # subkind must be one of the classifier's PARSEK-FAIL subkinds:
 # {batch-crashed, analyzer, log-contract, results, anomaly, expectation, ledger,
 #  mission-outcome}; an unknown subkind fails spec validation.
+# The OPTIONAL mismatches list narrows the match further, to ONE defect (see
+# "Per-token signatures" below). Absent = the subkind-only match above.
 bugId   = ""                         # e.g. "R10-reaim-heliocentric-in-plane"
 subkind = ""                         # e.g. "analyzer" to match only an analyzer PARSEK-FAIL
+# mismatches = ["logContracts.required not matched: <pattern>"]
 ```
+
+**Per-token signatures (`[expectedFail] mismatches`, 2026-09-26).** A subkind is a
+failure CLASS, not a defect: with `subkind = "expectation"`, every unrelated
+required-token miss or forbidden-token hit in the same spec also read EXPECTED-FAIL
+(green), so a quarantine for one log-contract defect absorbed the next one. The
+optional `mismatches` key lists the exact mismatch strings the tracked defect
+produces, copied from a red run's `verifiers.expectations.mismatches` in
+`results/<runId>.json` (the shapes are `logContracts.required not matched:
+<pattern>`, `logContracts.forbidden matched: <pattern>` and `recordings.count <n> <
+min <m>` / `> max <m>`, built from the `hlib.EXPECTATION_*_PREFIX` constants). A run
+demotes only when its mismatch set EQUALS the declared set (order and duplicates
+ignored); `hlib.expected_fail_signature_matched` decides, reading the failing row
+through `hlib.expected_fail_observed_mismatches`.
+
+Equality, not subset, deliberately. Subset (demote when every observed mismatch is
+declared) would also keep a run green when only PART of the defect reproduces, and a
+defect that changed shape - half fixed, or now failing a different way - is new
+information the quarantine exists to surface, the same reasoning that makes a clean
+run XPASS rather than PASS. The cost is that a defect whose tokens reproduce
+intermittently reds on the runs that show a partial signature; that is the correct
+cost, since such a quarantine is not describing one stable defect. An extra mismatch
+stays PARSEK-FAIL under either rule. run.py Warn-logs the difference
+(`mismatch signature not met: runSubkind=... unexpected=[...] missing=[...]`) when a
+declared signature does not match a PARSEK-FAIL.
+
+The key is supported only for the subkinds in `hlib.EXPECTED_FAIL_SIGNATURE_SUBKINDS`,
+today `{expectation}`: its mismatch strings are deterministic literals built from the
+spec's own patterns. (A `log-contract` PARSEK-FAIL is the C# log validator, which
+reports no per-token list; the gating save-structure / render-composition /
+ghost-lifecycle rows are armed by no committed spec and their strings embed measured
+values.) It fails closed: a declared list never matches a different subkind, a run
+with no observed list, or a subkind outside that set. Spec validation
+(`hlib.validate_expected_fail_block`) rejects: an unknown `[expectedFail]` key (a
+misspelled narrowing key would otherwise read as absent, the WIDER match); a
+`mismatches` value that is not a non-empty list of distinct non-empty strings; a
+`mismatches` without a non-empty `bugId` or without a supported `subkind`; and any
+entry that is not one of the three shapes above, or that names a pattern the spec's
+own `[expectations.logContracts]` does not declare (such a signature could never
+match, so the quarantine would silently stop absorbing its defect).
 
 Spec-validation rules (pure, `hlib.validate_spec`): `id` unique + filename-safe;
 `tier` in the enum; `instanceProfile` in `{stock-minimal, modded-compat}`;
@@ -406,7 +448,9 @@ must clear the seam's deferral budget with margin (see Budget enforcement, S8);
 every `dimensionsCovered` key and value present in the registry;
 `runtime.budgetSeconds > 0`; `retry.policy` in the enum; if `expectedFail.bugId`
 set, it must resolve in the todo doc (warn, not hard-fail, so a scenario can land
-slightly ahead of the doc entry).
+slightly ahead of the doc entry); `[expectedFail]` carries only the keys
+`bugId` / `subkind` / `mismatches`, and a `mismatches` signature passes the checks in
+"Per-token signatures" above.
 
 **Anti-vacuity rule for batch contracts (added 2026-07-26).** A spec that owns a
 batch must carry a `logContracts.required` pin that an EMPTY or ALL-SKIPPED batch
@@ -1709,8 +1753,9 @@ retry_policy)` maps to the taxonomy:
   PASS-side `flakedThenPassed` note (attempt-1 INVALID -> attempt-2 PASS), and a
   PARSEK-FAIL is never retried, so no green/red retry pair exists to reclassify.
 - **EXPECTED-FAIL**: the scenario carries an `expectedFail.bugId` AND this run's
-  PARSEK-FAIL signature matches the expected failure (the failing verifier + a
-  bug-id-associated marker). Recorded green-for-triage (does not red the nightly).
+  PARSEK-FAIL signature matches the expected failure (the failing verifier's
+  subkind, and - when the spec declares `[expectedFail] mismatches` - that
+  verifier's exact mismatch set; see "Per-token signatures"). Recorded green-for-triage (does not red the nightly).
   Promotion to a live guard is NOT automatic (N8): the bug id CLOSING is the trigger
   and an XPASS run is the evidence, but the actual promotion is always a HUMAN spec
   edit removing the `expectedFail.bugId` key -- the harness only ambers until that
@@ -2188,6 +2233,11 @@ in-game-sweep-needs-operator).
   whose bug id targets the analyzer, failing on the analyzer -> EXPECTED-FAIL;
   the SAME scenario failing on a log-contract instead -> PARSEK-FAIL (a different,
   unexpected break). Fails if "expected-fail" swallows an unrelated regression.
+  The per-token row: a spec quarantined with `subkind = "expectation"` and
+  `mismatches = [<its defect's tokens>]` reads EXPECTED-FAIL when exactly those
+  tokens fail, and PARSEK-FAIL when an unrelated extra token also fails (or a
+  declared one stops failing); with no `mismatches` key the subkind-only match is
+  unchanged. Fails if a per-token quarantine absorbs a second log-contract red.
 - **Coverage computation.** Given specs + results + registry, a value covered by a
   PASS run shows `lastGreen`; a value covered only by a PARSEK-FAIL run shows
   `lastGreen=never`; a value with no covering spec is UNCOVERED; an XPASS surfaces

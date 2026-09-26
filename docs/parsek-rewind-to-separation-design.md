@@ -1083,7 +1083,7 @@ Purging a tree's rewind-state is the **only** path that deletes supersede relati
 
 File: `Source/Parsek/RewindPointDiskUsage.cs`.
 
-Surfaced in Settings → Diagnostics as `Rewind point disk usage: <size> (<N> files)`. Backed by a 10-second snapshot cache — the directory is walked once per cache miss, so the Settings window doesn't thrash the filesystem on every repaint. The follow-up adds split buckets next to the byte/file total, derived from each slot's effective tip MergeState: live crashed-open RPs (a NotCommitted tip), live stable-open RPs (a CommittedProvisional tip), and concluded RPs (all tips Immutable). Buckets are explanatory and may overlap when a single RP contains both concluded and still-open slots; this is monitoring only, not an auto-purge trigger.
+Surfaced in Settings → Diagnostics as `Rewind points on disk: <size> (<N> files)`, with the live bucket counts in its hover. Backed by a 10-second snapshot cache — the directory is walked once per cache miss, so the Settings window doesn't thrash the filesystem on every repaint. The follow-up adds split buckets next to the byte/file total, derived from each slot's effective tip MergeState: live crashed-open RPs (a NotCommitted tip), live stable-open RPs (a CommittedProvisional tip), and concluded RPs (all tips Immutable). Buckets are explanatory and may overlap when a single RP contains both concluded and still-open slots; this is monitoring only, not an auto-purge trigger.
 
 ### 6.19 The Unfinished Flights predicate (v0.9.1)
 

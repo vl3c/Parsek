@@ -65,7 +65,9 @@ namespace Parsek.Tests
                 SettingsWindowPresentation.BuildDefaults();
 
             Assert.True(defaults.VerboseLogging);
-            Assert.True(defaults.WriteReadableSidecarMirrors);
+            // OFF for players since 2026-09-26; the dev instances keep their stored ON.
+            Assert.False(defaults.WriteReadableSidecarMirrors);
+            Assert.Equal(new ParsekSettings().writeReadableSidecarMirrors, defaults.WriteReadableSidecarMirrors);
             Assert.True(defaults.ShowRouteLines);
             Assert.Equal(SamplingDensity.Medium, defaults.SamplingDensityLevel);
             Assert.Equal((double)(float)LoopTiming.DefaultLoopIntervalSeconds, (double)defaults.AutoLoopIntervalSeconds, 6);

@@ -70,8 +70,10 @@ namespace Parsek.TestCommands
         /// <para><c>mission</c> / <c>copy</c> are the source and new ids (the copy id is what
         /// a later step captures as <c>${label.copy}</c>); <c>name</c> is the copy's display
         /// name; <c>missions</c> the store count AFTER the clone; <c>excluded</c> /
-        /// <c>links</c> / <c>loop</c> the include set and loop flag the copy CARRIED, which
-        /// is what makes a clone a second include set over the same recordings.</para>
+        /// <c>links</c> the include set the copy CARRIED, which is what makes a clone a second
+        /// include set over the same recordings; <c>loop</c> the copy's loop flag, always
+        /// false since <c>MissionStore.Clone</c> disarms the copy of a looping mission (one
+        /// loop per tree).</para>
         /// </summary>
         internal static List<KeyValuePair<string, string>> BuildClonePayload(
             string window, string sourceId, string copyId, string copyName, int missions,

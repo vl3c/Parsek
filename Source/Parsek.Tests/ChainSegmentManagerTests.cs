@@ -857,10 +857,5 @@ namespace Parsek.Tests
         }
 
         #endregion
-
-        // Note: CommitSegmentCore and all public commit methods (CommitBoundarySplit,
-        // CommitChainSegment, CommitDockUndockSegment, CommitVesselSwitchTermination)
-        // cannot be unit-tested because they hit FlightGlobals.ActiveVessel which has
-        // a static initializer that requires Unity runtime (Quaternion.Euler).
     }
 }
