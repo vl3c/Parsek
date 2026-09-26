@@ -80,7 +80,8 @@
 
 schema = 1
 id = "CN-2-ghost-commnet-live-probe"
-tier = "operator"
+# PROMOTED to nightly 2026-09-27 by operator decision after the armed re-flights.
+tier = "nightly"
 description = "The ghost CommNet relay (design 15.6) from a REAL live probe's own CommNet node: duna-park-probe's uncrewed DD1, warped to where Duna hides every home from it, with the ghost-commnet-live preset's three recordings on its own orbit (a relay at the limb, a relay behind Duna, a crewed RC-L01 control point with no relay). Run the in-game GhostCommNetLive category and require that the probe reaches home only through the limb relay ghost (its ControlPath and IsConnectedHome, cut without it), takes control from the ghost control point when no path home exists (none without it), and is not carried home by the occluded relay."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "warp", "CN-2", "flown",

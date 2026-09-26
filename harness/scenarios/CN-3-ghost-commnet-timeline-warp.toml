@@ -83,7 +83,8 @@
 
 schema = 1
 id = "CN-3-ghost-commnet-timeline-warp"
-tier = "operator"
+# PROMOTED to nightly 2026-09-27 by operator decision after the armed re-flights.
+tier = "nightly"
 description = "A ghost CommNet relay's recorded timeline through a real rails warp (design 15.6) on gloops-airshow with the ghost-commnet-timeline preset: an HG-5 deployable relay that joins the network at its recorded deploy event, a relay destroyed in its recording that relays to its end and never after, and a relay whose Orbiting end falls inside the warp, whose spawn the warp defers and whose ghost node is handed to the spawned vessel's own stock CommNet node at EndUT, in the same frame as the spawn. Run the in-game GhostCommNetTimeline category after the warp and read each transition off the log."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "warp", "CN-3", "flown",
