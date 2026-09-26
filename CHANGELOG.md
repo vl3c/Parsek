@@ -4402,6 +4402,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Automated testing: a `WarpToUT` refused because time warp is locked now names who holds
+  the lock.** The `warptout refused reason=warp-locked` log line gains a `holders=` field:
+  the ids of the input locks whose mask includes TIMEWARP, sorted and comma-joined, or `none`
+  when no lock entry carries it (the lock mask can be set without an entry). The response the
+  harness reads is unchanged (the reason token stays `warp-locked`). SS-1 hit this refusal for
+  19 s after a load with no way to tell which lock was responsible. Also corrects the
+  `EnterMapView` / `ExitMapView` code comment that promised a REJECTED verdict when stock
+  declines the toggle; the seam answers ERROR there, as it always did.
+
 - **Dev tooling: the fixture harvest clears rewind-save names inside rewind-point
   quicksaves too.** `harness/tools/harvest_bdock_station.py` drops the saves that
   Rewind-to-Launch uses (`Parsek/Saves/parsek_rw_*.sfs`) but cleared the names pointing at
