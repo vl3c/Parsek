@@ -69,7 +69,8 @@ namespace Parsek
 
         internal const string CloneButtonTooltip =
             "Duplicate this mission as a second selection over the same recordings " +
-            "(its own include set, loop period, and Archive flag).";
+            "(its own include set, loop period, and Archive flag). A looping mission's copy " +
+            "starts with Loop off.";
 
         internal const string ArchiveCheckboxTooltip =
             "Hide this mission from the list while the Archive filter is on. Does not change " +

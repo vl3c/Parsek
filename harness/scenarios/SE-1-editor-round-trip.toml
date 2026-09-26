@@ -5,7 +5,7 @@ instanceProfile = "stock-minimal"
 # =====================================================================================
 # D14 `scene-editor`. COVERAGE WAVE 12 (2026-09-26, branch `cov-editor`).
 #
-# THE DEFINITION (supervisor ruling 2026-09-25, pending operator confirmation, recorded
+# THE DEFINITION (operator-confirmed 2026-09-26, recorded
 # in the registry comment for the cell): a player with committed recordings whose ghosts
 # are pending goes to the VAB/SPH mid-timeline, then launches. Afterwards the timeline
 # and ghosts are intact - no recordings lost or duplicated, ghosts still replay, the
