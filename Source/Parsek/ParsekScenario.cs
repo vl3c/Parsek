@@ -6383,16 +6383,19 @@ namespace Parsek
 
             // Phase 1: wait for the currency singletons to exist (non-null).
             //
-            // Waits for ALL of them, not just any one: seeding funds from a frame where R&D
-            // has not appeared yet is what dropped the science seed. Career carries all three;
-            // sandbox carries none and science-mode carries a subset, so this is a bounded
-            // wait that falls through on timeout and seeds whatever is actually present.
+            // Waits for ALL of the ones this game mode creates, not just any one: seeding
+            // funds from a frame where R&D has not appeared yet is what dropped the science
+            // seed. Career carries all three, Science only R&D, Sandbox none
+            // (CurrencyScenarioReadiness.ExpectedFor), so Science and Sandbox no longer pay
+            // the full 120-frame timeout for singletons stock never builds. Still bounded:
+            // an unknown mode keeps the legacy all-three wait and falls through on timeout.
+            var expectedSingletons = CurrencyScenarioReadiness.ExpectedForCurrentGame();
             int maxWait = CurrencySingletonWaitMaxFrames;
-            while (maxWait-- > 0 && !AllCurrencySingletonsPresent())
+            while (maxWait-- > 0 && !CurrencyScenarioReadiness.AllExpectedPresent())
                 yield return null;
 
             int singletonFramesWaited = (CurrencySingletonWaitMaxFrames - 1) - maxWait;
-            bool allSingletonsPresent = AllCurrencySingletonsPresent();
+            bool allSingletonsPresent = CurrencyScenarioReadiness.AllExpectedPresent();
 
             if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
                 && Reputation.Instance == null)
@@ -6402,18 +6405,20 @@ namespace Parsek
                 yield break;
             }
 
-            // Phase 2: wait for singletons to have NON-ZERO values.
-            // KSP creates singletons immediately but populates their data from the
-            // save file on a separate schedule (can be many seconds on heavy saves).
-            // Spin until at least one singleton reports a non-zero value, or timeout.
+            // Phase 2: wait for every present singleton to have LOADED its save value.
+            //
+            // The readiness signal is positive, not a non-zero value: a singleton is loaded
+            // once the game's ProtoScenarioModule for it holds it as moduleRef, which stock
+            // assigns only after the module's OnLoad returned
+            // (CurrencyScenarioReadiness.IsScenarioModuleLoaded). The old gate spun until
+            // SOME pool read non-zero, so a StartingFunds = 0 career or a Science game at 0
+            // science paid the full 600 frames on every load (KSP-SETTINGS-AUDIT S4). A
+            // career with non-zero pools exits on the first check either way.
             int maxValueWait = 600; // ~10 seconds at 60fps
-            while (maxValueWait-- > 0
-                   && (Funding.Instance == null || Funding.Instance.Funds == 0.0)
-                   && (ResearchAndDevelopment.Instance == null || ResearchAndDevelopment.Instance.Science == 0f)
-                   && (Reputation.Instance == null || Math.Abs(Reputation.Instance.reputation) < 0.01f))
+            while (maxValueWait-- > 0 && !CurrencyScenarioReadiness.AllPresentLoaded())
                 yield return null;
 
-            int framesWaited = 599 - maxValueWait; // post-decrement: 600→599 on first check
+            int framesWaited = 599 - maxValueWait; // post-decrement: 600->599 on first check
 
             // Phase 3 (BUG-F): wait for the universe clock to be initialized before deciding
             // whether to apply a current-UT ledger cutoff. On a cold load
@@ -6442,8 +6447,9 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Verbose("Scenario",
-                $"DeferredSeed: singletons all present={allSingletonsPresent} after " +
-                $"{singletonFramesWaited} frames, values ready after {framesWaited} frames, " +
+                $"DeferredSeed: expected singletons={CurrencyScenarioReadiness.Format(expectedSingletons)} " +
+                $"present={allSingletonsPresent} after " +
+                $"{singletonFramesWaited} frames, loaded after {framesWaited} frames, " +
                 $"clock ready={clockReady} after {utFramesWaited} frames (currentUT={currentUT.ToString("R", ic)}) — " +
                 $"Funding={(Funding.Instance != null ? Funding.Instance.Funds.ToString("F0", ic) : "null")}, " +
                 $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
@@ -6525,26 +6531,6 @@ namespace Parsek
         private const int CurrencySingletonWaitMaxFrames = 120;
 
         /// <summary>
-        /// True when all three of KSP's currency singletons exist.
-        ///
-        /// <para>
-        /// The readiness signal is PRESENCE, not a non-zero value: KSP's
-        /// <c>ScenarioRunner.AddModule(ConfigNode)</c> constructs a module and calls its
-        /// <c>Load(node)</c> in one synchronous call, so from a per-frame coroutine's vantage
-        /// a singleton can never be observed existing-but-unloaded. A pool that genuinely sits
-        /// at zero (a fresh career's science, a career that started at reputation 0) is
-        /// therefore indistinguishable from an unloaded one by value, which is exactly why
-        /// presence is the right gate and a non-zero-value gate is not.
-        /// </para>
-        /// </summary>
-        private static bool AllCurrencySingletonsPresent()
-        {
-            return Funding.Instance != null
-                   && ResearchAndDevelopment.Instance != null
-                   && Reputation.Instance != null;
-        }
-
-        /// <summary>
         /// Reads the universe clock for the deferred-seed readiness wait, returning true only
         /// when the clock is initialized to a real positive UT. Wrapped in try/catch because
         /// <see cref="Planetarium.GetUniversalTime"/> can throw during very early load / scene
@@ -6585,17 +6571,17 @@ namespace Parsek
         /// </summary>
         private IEnumerator ApplyBudgetDeductionWhenReady()
         {
-            // Wait until ALL resource singletons are available (may take a few frames
-            // after scene load). Use || so we wait while ANY singleton is still null.
-            int maxWait = 120; // ~2 seconds at 60fps
-            while (maxWait-- > 0
-                   && (Funding.Instance == null
-                       || ResearchAndDevelopment.Instance == null
-                       || Reputation.Instance == null))
+            // Wait until every resource singleton THIS GAME MODE creates is available (may
+            // take a few frames after scene load). Science and Sandbox never build Funding /
+            // Reputation, so keying on all three made them pay the full 120 frames.
+            var expectedSingletons = CurrencyScenarioReadiness.ExpectedForCurrentGame();
+            int maxWait = CurrencySingletonWaitMaxFrames; // ~2 seconds at 60fps
+            while (maxWait-- > 0 && !CurrencyScenarioReadiness.AllExpectedPresent())
                 yield return null;
 
             ParsekLog.Verbose("Scenario",
-                $"ApplyBudgetDeduction: singletons ready after {120 - maxWait} frames. " +
+                $"ApplyBudgetDeduction: singletons ready after {CurrencySingletonWaitMaxFrames - maxWait} frames " +
+                $"(expected={CurrencyScenarioReadiness.Format(expectedSingletons)}). " +
                 $"Funding={Funding.Instance != null}, R&D={ResearchAndDevelopment.Instance != null}, Rep={Reputation.Instance != null}");
 
             if (budgetDeductionApplied)
@@ -6651,13 +6637,10 @@ namespace Parsek
                     $"(post-set check: {Planetarium.GetUniversalTime().ToString("F1", ic)})");
             }
 
-            // Wait for resource singletons (career mode only).
-            // In sandbox/science mode these are permanently null — skip gracefully.
-            int maxWait = 120; // ~2 seconds at 60fps
-            while (maxWait-- > 0
-                   && (Funding.Instance == null
-                       || ResearchAndDevelopment.Instance == null
-                       || Reputation.Instance == null))
+            // Wait for the resource singletons this game mode creates (all three in career,
+            // R&D only in Science, none in Sandbox - the rest are permanently null there).
+            int maxWait = CurrencySingletonWaitMaxFrames; // ~2 seconds at 60fps
+            while (maxWait-- > 0 && !CurrencyScenarioReadiness.AllExpectedPresent())
                 yield return null;
 
             // Pass the adjusted UT captured BEFORE `yield return null` above.

@@ -1171,6 +1171,25 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
+  zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
+  Normal preset every test save uses:
+  - Science on Easy, Moderate or Hard (or any custom science-reward slider) now counts at the
+    rate stock paid. Parsek recorded the experiment value before stock's science multiplier, so
+    on Easy it credited half the science stock gave you and on Hard more than stock gave, and a
+    rewind reset your science to that wrong total. The multiplier in effect when the science
+    arrives is now saved with it (changing the slider later does not rewrite past science),
+    while the per-experiment "how much is left" math stays in stock's own units.
+  - Declining a contract now costs the reputation stock took (the difficulty's "reputation lost
+    on decline", 1 on Normal and 3 on Hard) in Parsek's timeline too, instead of being handed
+    back by the next rewind. Nothing is recorded when the setting is 0.
+  - A career that starts with 0 funds, or a Science game at 0 science, now has its starting
+    balance recorded, so Parsek can keep the balance in step, and loading such a save no longer
+    waits about 10 seconds before Parsek sets its balances. Science and Sandbox games also stop
+    waiting 2 seconds on every load for funds and reputation, which those modes do not have.
+  - Currency from the Alt+F12 cheat menu is still not recorded (by design, the next rewind
+    removes it); each cheat now writes one log line saying so.
+
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
   and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6

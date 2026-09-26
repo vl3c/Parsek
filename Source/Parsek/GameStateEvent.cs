@@ -533,5 +533,14 @@ namespace Parsek
         public double captureUT;
         public string reasonKey;
         public string recordingId;
+
+        /// <summary>
+        /// <c>Career.ScienceGainMultiplier</c> in effect when stock credited this subject.
+        /// <see cref="science"/> is the PRE-multiplier subject value (stock adds to
+        /// <c>subject.science</c> before it multiplies); the pool received
+        /// <c>science * scienceGainMultiplier</c>. 0 (the struct default) means "not
+        /// captured" and reads as 1 through <see cref="GameAction.NormalizeScienceGainMultiplier"/>.
+        /// </summary>
+        public float scienceGainMultiplier;
     }
 }

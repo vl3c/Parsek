@@ -24,7 +24,7 @@ namespace Parsek
             {
                 case GameActionType.ScienceEarning:
                     return string.Format(IC, "{0} +{1:0.#} sci",
-                        action.SubjectId ?? "unknown", action.ScienceAwarded);
+                        action.SubjectId ?? "unknown", action.GetScienceAwardedPoolCredit());
 
                 case GameActionType.ScienceSpending:
                     return string.Format(IC, "Tech: {0} -{1:0.#} sci",

@@ -362,7 +362,7 @@ namespace Parsek
 
                 case GameActionType.ScienceEarning:
                     return string.Format(IC, "{0} +{1:0.#} sci",
-                        HumanizeSubjectId(action.SubjectId ?? "unknown"), action.ScienceAwarded);
+                        HumanizeSubjectId(action.SubjectId ?? "unknown"), action.GetScienceAwardedPoolCredit());
 
                 case GameActionType.KerbalAssignment:
                 {
