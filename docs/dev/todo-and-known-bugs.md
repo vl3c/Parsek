@@ -7585,7 +7585,7 @@ deaths came back on TIP2 (`Dead 20..53`). Three changes, each mutation-checked:
   them all (`TombstoneEligibility.IsSupersedeTombstoneEligible`), so the death's paired
   KerbalDeath reputation penalty, stamped at the vessel-loss event (normally the
   recording's end), travels with the death and a re-fly of the second segment retires
-  both (one edge filed below as DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT). Row content is left to the next load's
+  both (one edge filed below as DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT, since fixed). Row content is left to the next load's
   `MigrateKerbalAssignments`, which re-derives it under the same ids (ruling a1), exactly
   as it does after a Re-Fly split. Why retag and not re-derive at the split: a1 pairs by
   (recording, kerbal), so re-deriving would leave the death's ActionId on the first half's
@@ -7661,9 +7661,32 @@ trigger's shape, on a re-fly whose crew are alive, so no death is involved and t
 read `permanent=0`; TIP itself was not split on that load. #1775's split retag is what
 now moves those rows with the end states.
 
-## DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT: a split cut just before a crash can put the death on one segment and its reputation penalty on the other [FOUND 2026-09-23 by the PR #1775 review. OPEN, analysis only, needs a ruling]
+## ~~DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT~~: a split cut just before a crash can put the death on one segment and its reputation penalty on the other [FOUND 2026-09-23 by the PR #1775 review. FIXED 2026-09-26 on branch `fix-death-penalty-split`, operator ruling 2026-09-26: move them together]
 
-Both splits (the Re-Fly split's step 2.9 and the optimizer split pass) place a row by
+Fix: a KerbalDeath-source `ReputationPenalty` is now screened by its paired death.
+`TombstoneAttributionHelper.ComputeAttributionUT(action, ledgerContext)` returns, for such a
+penalty, the latest per-row key (`EndUT`) of the tombstone-eligible death rows on the same
+recording (`TombstoneEligibility.IsEligible`); no paired death, or any other penalty source,
+keeps the per-row key. BOTH sides of the seam read that one function: the retag predicate
+`RecordingTreeSplitter.ShouldRetagLedgerActionToTip` (shared by step 2.9 and the optimizer
+split's `Ledger.RetagActionsForSplitSecondHalf`) and the tombstone guard
+`IsPreRewindAttributedAction`, which now both take the ledger, so the guard stays the exact
+complement of the retag. Both retags decide every row against the UNMUTATED ledger first
+(`RecordingTreeSplitter.SelectLedgerActionsForSecondHalf`) and retag after, since a death
+retagged earlier in a single-pass walk would hide itself from its penalty. Logged as
+`deathPenaltiesByDeath=N` on both retag lines and a separate
+`PreRewindTombstoneGuard: N KerbalDeath rep penalty row(s) screened by their paired death`
+line (the existing guard lines are harness-pinned and unchanged). Mirror direction covered:
+a penalty stamped after the cut follows a death before it back onto the first segment.
+Tests: headless repros for both splits (`TombstoneReloadMigrationTests`
+`OptimizerSplit_DeathPenaltyBeforeTheCut_*`, `ReFlySplit_DeathPenaltyBeforeTheRewind_*`,
+`ReFlySplit_DeathBeforeTheRewind_PenaltyAfterIt_*`; on main the first two retired the death
+and left the penalty in ELS) plus pure seam cells in `TombstoneScreeningMirrorTests`
+(other sources, death on another recording, non-death crew, several deaths, NaN EndUT,
+no context, two-phase selection). Mutation-checked: dropping the context from the retag
+reds 4 cells, from the guard 2, a single-pass optimizer retag 1.
+
+ORIGINAL ANALYSIS. Both splits (the Re-Fly split's step 2.9 and the optimizer split pass) place a row by
 `TombstoneAttributionHelper.ComputeAttributionUT`: a KerbalAssignment death by its float
 `EndUT`, every other row by its `UT`. The paired KerbalDeath `ReputationPenalty` is stamped
 at the VesselLoss event nearest the recording's end (`LedgerOrchestrator`,
