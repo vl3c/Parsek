@@ -37,12 +37,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The Defaults button's hover help. Names the one drawn setting it does NOT reset,
-        /// so the button no longer promises "all settings" while leaving the interface mode
-        /// where it was. Budgeted by the Settings row of <c>TooltipEchoBudgetTests</c>.
+        /// The Defaults button's hover help. The click resets every value in
+        /// <see cref="SettingsDefaults"/>, including the Looping, Sample Density and
+        /// Diagnostics settings Basic does not draw, and leaves only the interface mode
+        /// alone, so the text says both. Budgeted by the Settings row of
+        /// <c>TooltipEchoBudgetTests</c>.
         /// </summary>
         internal const string DefaultsButtonTooltip =
-            "Resets every setting here except the Basic / Advanced interface mode.";
+            "Resets all settings, Advanced-only ones too, except the interface mode.";
 
         internal static bool TryResolveAutoLoopEdit(
             string text,
@@ -71,7 +73,9 @@ namespace Parsek
             return new SettingsDefaults
             {
                 VerboseLogging = true,
-                WriteReadableSidecarMirrors = true,
+                // OFF for players: the .txt copies are a debugging aid that costs disk.
+                // Matches the ParsekSettings field initializer.
+                WriteReadableSidecarMirrors = false,
                 ShowRouteLines = true,
                 SamplingDensityLevel = SamplingDensity.Medium,
                 AutoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds,
@@ -81,6 +85,44 @@ namespace Parsek
                 // ParsekSettings.ghostAudioVolume field initializer.
                 GhostAudioVolume = 0.7f
             };
+        }
+
+        /// <summary>
+        /// Horizontal chrome of the Settings window (the opaque window style's left +
+        /// right padding), the same allowance <c>TimelineWindowUI.ComputeFilterCellWidth</c>
+        /// uses for the same style.
+        /// </summary>
+        private const float OptionRowChromePx = 22f;
+
+        /// <summary>
+        /// Horizontal margin of the Settings option toggle style. IMGUI collapses adjacent
+        /// margins to the larger one, so a row of n cells spends this much outside each end
+        /// plus once per gap.
+        /// </summary>
+        internal const int OptionToggleMarginPx = 4;
+
+        /// <summary>
+        /// Width of one cell of an n-option pressed-toggle row (Basic / Advanced, Low /
+        /// Medium / High) so every option is the same width, the row spans the window, and
+        /// nothing changes width when the selection moves. Floored at 1 cell and 30 px.
+        /// </summary>
+        internal static float OptionCellWidth(float windowWidth, int cells)
+        {
+            if (cells < 1) cells = 1;
+            float marginBudget = OptionToggleMarginPx * (cells + 1);
+            float avail = windowWidth - OptionRowChromePx - marginBudget;
+            return Mathf.Max(30f, avail / cells);
+        }
+
+        /// <summary>
+        /// Whether a ghost-audio slider change that has not been persisted yet should be
+        /// written now. Only once the drag is over (<paramref name="hotControl"/> is 0, no
+        /// control holds the mouse): the slider reports a new value every frame while it
+        /// moves, and each record is a settings-file write.
+        /// </summary>
+        internal static bool ShouldFlushGhostAudioVolume(bool pending, int hotControl)
+        {
+            return pending && hotControl == 0;
         }
 
         /// <summary>

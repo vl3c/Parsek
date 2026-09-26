@@ -35,8 +35,9 @@ tier = "nightly"
 # READING RUN `2026-09-25_2043` (fix DLL sha256 ea2d667b..., same INVALID EvaExit step,
 # batch executed whole) measured every token below; the pins are those numbers.
 #
-# writeReadableSidecarMirrors is set explicitly: the harness settings baseline leaves
-# that key to the fixture, and the mirror cell restores whatever value it found.
+# writeReadableSidecarMirrors is set explicitly even though the harness settings
+# baseline stamps it ON (players default OFF since 2026-09-26): the mirror cell must
+# not depend on the baseline, and it restores whatever value it found.
 description = "Run the Timeline and Storage in-game categories on the earned career: the timeline projects the effective ledger (every action one humanized row or a route exclusion, UT-sorted), recording-id path validation on the save's live ids, and the readable .txt mirrors reconciled off and on and decoded back."
 instanceProfile = "stock-minimal"
 tags = ["ST-1", "ingame-batch", "multi-category", "storage", "timeline", "career"]

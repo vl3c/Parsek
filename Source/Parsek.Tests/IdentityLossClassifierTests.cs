@@ -1117,10 +1117,10 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyPersistenceArtifactsFrom_CopiesControllers()
         {
-            // Sanity-pin: the chain commit path (ChainSegmentManager.CommitSegmentCore →
-            // rec.ApplyPersistenceArtifactsFrom(captured)) must forward Controllers
-            // from CaptureAtStop to the committed Recording, or the BG identity-loss
-            // override will see Controllers == null on chain-committed recordings.
+            // Sanity-pin: the persistence-artifact copy (rec.ApplyPersistenceArtifactsFrom,
+            // shared by CloneWithPersistenceArtifacts and the hydration repair) must forward
+            // Controllers, or the BG identity-loss override will see Controllers == null on
+            // the copied recording.
             var source = new Recording
             {
                 Controllers = new List<ControllerInfo>

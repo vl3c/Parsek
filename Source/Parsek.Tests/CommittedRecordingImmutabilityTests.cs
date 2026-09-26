@@ -129,53 +129,14 @@ namespace Parsek.Tests
         }
 
         // ────────────────────────────────────────────────────────────
-        //  Item 2: EVA boarding preserves snapshot
+        //  Item 2: continuation fields leave the committed snapshot
         // ────────────────────────────────────────────────────────────
 
-        [Fact]
-        public void EvaBoardingContinuationStop_PreservesVesselSnapshot()
-        {
-            // Setup: committed recording representing a vessel segment that a continuation
-            // has been extending (boundary + pre-continuation copies staged as
-            // CommitChainSegment's vessel-segment branch stages them).
-            var rec = MakeCommittedRecording();
-            rec.ContinuationBoundaryIndex = rec.Points.Count;
-            rec.PreContinuationVesselSnapshot = rec.VesselSnapshot.CreateCopy();
-            rec.PreContinuationGhostSnapshot = rec.GhostVisualSnapshot.CreateCopy();
-            RecordingStore.AddRecordingWithTreeForTesting(rec);
-
-            // Drive the EVA-boarding continuation stop (EVA to vessel). CommitChainSegment
-            // needs a KSP runtime, but the whole write its boarding branch applies to the
-            // committed recording is this call, so the old rec.VesselSnapshot = null lands here.
-            ChainSegmentManager.ApplyBoardingContinuationStop(rec);
-
-            // The continuation data is baked...
-            Assert.Equal(-1, rec.ContinuationBoundaryIndex);
-            Assert.Null(rec.PreContinuationVesselSnapshot);
-            Assert.Null(rec.PreContinuationGhostSnapshot);
-
-            // ...and the committed snapshots survive it (bug #95).
-            Assert.NotNull(rec.VesselSnapshot);
-            Assert.NotNull(rec.GhostVisualSnapshot);
-
-            // Snapshot should remain usable for spawn after revert
-            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec,
-                isActiveChainMember: false,
-                isChainLooping: false);
-
-            Assert.True(needsSpawn, "Vessel segment should be spawn-eligible after boarding continuation stops");
-        }
-
-        // NAME SCOPE (audit F-recording-tree-050-08): this cell never runs the
-        // boarding path - CommitChainSegment needs a live FlightRecorder - so
-        // the asserted [Chain] line is the ChainSegmentManager CONSTRUCTOR log,
-        // not a boarding-preservation message. What it owns is: building a
-        // manager with continuation fields set neither clears the committed
-        // snapshot nor skips the ctor log. The boarding write itself is pinned
-        // by EvaBoardingContinuationStop_PreservesVesselSnapshot above; the
-        // preservation wording at ChainSegmentManager.cs:846 is in-game
-        // territory and stays untested here.
+        // NAME SCOPE (audit F-recording-tree-050-08): this cell runs no boarding
+        // path (always-tree mode has no chain boarding commit), so the asserted
+        // [Chain] line is the ChainSegmentManager CONSTRUCTOR log. What it owns is:
+        // building a manager with continuation fields set neither clears the
+        // committed snapshot nor skips the ctor log.
         [Fact]
         public void ChainSegmentManagerWithContinuationFields_LogsCreation_AndLeavesCommittedSnapshot()
         {
@@ -189,11 +150,6 @@ namespace Parsek.Tests
             mgr.ActiveChainNextIndex = 1;
             mgr.ContinuationVesselPid = rec.VesselPersistentId;
             mgr.ContinuationRecordingIdx = recIdx;
-
-            // Simulate EVA boarding: CommitChainSegment with EVA segment
-            // We can't easily call CommitChainSegment without a FlightRecorder,
-            // but we can verify the snapshot is preserved after the code path
-            // that would have nulled it.
 
             // The key invariant: after any chain operation, committed snapshot is preserved
             Assert.NotNull(RecordingStore.CommittedRecordings[recIdx].VesselSnapshot);

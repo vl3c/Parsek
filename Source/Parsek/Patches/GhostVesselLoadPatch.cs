@@ -468,10 +468,10 @@ namespace Parsek.Patches
 
     /// <summary>
     /// Prevents ghost map ProtoVessels from registering their own CommNet node.
-    /// Ghost CommNet relay is handled separately by GhostCommNetRelay using the
-    /// CommNet API directly with proper antenna specs from the recording.
-    /// Without this patch, the ghost ProtoVessel's CommNetVessel would register
-    /// a duplicate zero-power node in the CommNet network graph.
+    /// A ghost's CommNet presence is GhostCommNetManager's free node (antennas derived
+    /// from the recorded vessel snapshot, design section 15.6). The map marker is a single
+    /// barometer part, so without this patch its CommNetVessel would register a second,
+    /// zero-power node for the same ghost.
     /// </summary>
     [HarmonyPatch(typeof(CommNetVessel), "OnStart")]
     internal static class GhostCommNetVesselPatch
@@ -489,7 +489,7 @@ namespace Parsek.Patches
 
                 ParsekLog.Verbose("GhostMap",
                     $"Suppressed CommNetVessel for ghost '{v.vesselName}' " +
-                    $"pid={v.persistentId} — GhostCommNetRelay handles CommNet");
+                    $"pid={v.persistentId} — GhostCommNetManager owns the ghost's CommNet node");
                 return false;
             }
             return true;

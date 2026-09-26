@@ -20,8 +20,6 @@ namespace Parsek
             None,
             ContinueOnEva,
             ChainToVessel,  // EVA recording -> boarded a vessel
-            DockMerge,      // Vessel absorbed into dock target (pid changed)
-            UndockSwitch,   // Player switched to undocked sibling vessel
             TransitionToBackground,   // active recording -> background (orbit segment)
             PromoteFromBackground     // background recording -> active (resume physics sampling)
         }
@@ -263,10 +261,6 @@ namespace Parsek
         public bool RecordingStartedAsEva { get; private set; }
         public bool VesselDestroyedDuringRecording { get; set; }
         public bool ChainToVesselPending { get; internal set; }
-        public bool DockMergePending { get; set; }
-        public bool UndockSwitchPending { get; set; }
-        // Set by ParsekFlight to enable sibling vessel switch detection in OnPhysicsFrame
-        public uint UndockSiblingPid { get; set; }
 
         // Tree mode: set by ParsekFlight when a recording tree is active
         public RecordingTree ActiveTree { get; set; }
@@ -8888,7 +8882,7 @@ namespace Parsek
 
         /// <summary>
         /// Handles vessel PID change detected during OnPhysicsFrame.
-        /// Decides whether to continue (EVA), background (tree), capture+stop, or chain.
+        /// Decides whether to continue (EVA), background (tree), or capture+stop (boarding).
         /// Returns true if the frame should be skipped (recording stopped/backgrounded).
         /// </summary>
         private bool HandleVesselSwitchDuringRecording(Vessel v)
@@ -8906,14 +8900,10 @@ namespace Parsek
                 return true;
             }
 
-            // 1. Dock merge guard — must be first. DockMergePending was set by
-            //    OnPartCouple; let the existing capture+stop flow handle it below.
-            //    Do NOT enter tree decision logic for dock PID changes.
-            VesselSwitchDecision decision = DockMergePending
-                ? VesselSwitchDecision.DockMerge
-                : DecideOnVesselSwitch(
-                    RecordingVesselId, v.persistentId, v.isEVA, RecordingStartedAsEva,
-                    UndockSiblingPid, activeTree: ActiveTree);
+            // 1. Classify the pid change.
+            VesselSwitchDecision decision = DecideOnVesselSwitch(
+                RecordingVesselId, v.persistentId, v.isEVA, RecordingStartedAsEva,
+                activeTree: ActiveTree);
 
             ParsekLog.Verbose("Recorder", $"Vessel switch detected: decision={decision}, " +
                 $"oldPid={RecordingVesselId}, newPid={v.persistentId}, " +
@@ -8979,20 +8969,6 @@ namespace Parsek
             {
                 ChainToVesselPending = true;
                 ParsekLog.Verbose("Recorder", $"EVA boarded vessel (was pid={RecordingVesselId}, now pid={v.persistentId}) — chain pending");
-                return true;
-            }
-
-            if (decision == VesselSwitchDecision.DockMerge)
-            {
-                DockMergePending = true;
-                ParsekLog.Verbose("Recorder", $"Dock merge detected (was pid={RecordingVesselId}, now pid={v.persistentId}) — dock pending");
-                return true;
-            }
-
-            if (decision == VesselSwitchDecision.UndockSwitch)
-            {
-                UndockSwitchPending = true;
-                ParsekLog.Verbose("Recorder", $"Undock sibling switch (was pid={RecordingVesselId}, now pid={v.persistentId}) — undock switch pending");
                 return true;
             }
 
@@ -11725,21 +11701,16 @@ namespace Parsek
 
         internal static VesselSwitchDecision DecideOnVesselSwitch(
             uint recordingVesselId, uint currentVesselId, bool currentIsEva,
-            bool recordingStartedAsEva, uint undockSiblingPid = 0,
-            RecordingTree activeTree = null)
+            bool recordingStartedAsEva, RecordingTree activeTree = null)
         {
             if (currentVesselId == recordingVesselId)
                 return VesselSwitchDecision.None;
-            // Player switched to undocked sibling vessel
-            if (undockSiblingPid != 0 && currentVesselId == undockSiblingPid)
-                return VesselSwitchDecision.UndockSwitch;
             // Avoid mixed-mode tracks (ship trajectory followed by EVA walking).
             // Continue-on-EVA is only valid for recordings that started as EVA.
             if (currentIsEva && recordingStartedAsEva)
                 return VesselSwitchDecision.ContinueOnEva;
-            // EVA kerbal boarded a vessel — potential chain continuation.
-            // ParsekFlight checks activeChainId before actually continuing the chain;
-            // if not in a chain, this is treated as a normal stop.
+            // EVA kerbal boarded a vessel: ParsekFlight's tree board merge consumes it when the
+            // boarding is confirmed, otherwise it ends as a normal stop.
             if (!currentIsEva && recordingStartedAsEva)
                 return VesselSwitchDecision.ChainToVessel;
 

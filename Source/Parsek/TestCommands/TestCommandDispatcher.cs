@@ -246,13 +246,9 @@ namespace Parsek.TestCommands
         // Distinct from StartRecording / StopRecording above: those drive the AUTO-RECORD
         // tree that commits into the career, these drive the PARALLEL ghost-only recorder
         // behind the Gloops window's primary button. They are the only seam VERB whose
-        // SUBJECT is a sub-2-point commit drop - NOT the only producer of one: the
-        // dock/undock chain path (ParsekFlight.HandleDockUndockCommitRestart ->
-        // ChainSegmentManager.CommitDockUndockSegment -> CommitSegmentCore) reaches the
-        // same factory with no always-tree guard, and logs its own "segment too short"
-        // instead. (That literal carries an EM DASH before "aborting"
-        // (ChainSegmentManager.cs:659), so anything citing the whole line as a regex must
-        // not pin it as ASCII.)
+        // SUBJECT is a sub-2-point commit drop, and outside the abnormal split-edge aborts
+        // the Gloops stop is the only producer of one: every other recording commits
+        // through a tree, which never reaches that factory.
         void GloopsStart(ParsedCommand cmd);
         void GloopsStop(ParsedCommand cmd);
 

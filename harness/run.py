@@ -147,6 +147,8 @@ RP_SIDECAR_BY_PRESET = {
     "drill-harvest-route": None,
     # CI-5's background-claim tree: one committed two-recording tree, no RP.
     "background-claim": None,
+    # CN-1 / CN-1T's three relay copies: three committed single-recording trees, no RP.
+    "ghost-commnet-relay": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 
@@ -835,8 +837,9 @@ def settings_sidecar_path(instance_dir: str) -> str:
 
 
 def reset_settings_sidecar(instance_dir: str, logger: HarnessLogger, phase: str) -> bool:
-    """Write the deterministic tracers-OFF baseline into the instance's Parsek
-    settings sidecar. Returns True when the file is left holding the baseline.
+    """Write the deterministic baseline (tracers OFF, readable mirrors ON) into
+    the instance's Parsek settings sidecar. Returns True when the file is left
+    holding the baseline.
 
     WHY (see hlib's section comment for the full contract): `SetSetting` on any of
     the eight sidecar-tracked settings persists INSTANCE-WIDE, and Parsek applies
@@ -879,7 +882,7 @@ def reset_settings_sidecar(instance_dir: str, logger: HarnessLogger, phase: str)
                                 "a stale tracer flag may leak into this or a later run"
                     % (phase, path, type(exc).__name__, exc))
         return False
-    logger.info("Settings", "settings-sidecar baseline written phase=%s tracers=off%s"
+    logger.info("Settings", "settings-sidecar baseline written phase=%s tracers=off readableMirrors=on%s"
                 % (phase,
                    (" (cleared leaked: %s)" % ",".join(was_on)) if was_on else ""))
     return True

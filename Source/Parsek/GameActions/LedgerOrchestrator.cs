@@ -316,8 +316,8 @@ namespace Parsek
             // 2. Convert pending science subjects.
             // When called from NotifyLedgerTreeCommitted, an override list is passed —
             // non-null means "use this exact routed subset". When the override is null
-            // (the single-recording commit paths in ChainSegmentManager.CommitSegmentCore
-            // and ParsekFlight.FallbackCommitSplitRecorder), fall back to the static list.
+            // (the single-recording commit path ParsekFlight.FallbackCommitSplitRecorder),
+            // fall back to the static list.
             IReadOnlyList<PendingScienceSubject> pendingSource =
                 pendingScienceOverride ?? GameStateRecorder.PendingScienceSubjects;
             var scienceActions = GameStateEventConverter.ConvertScienceSubjects(

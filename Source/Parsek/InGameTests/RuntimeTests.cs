@@ -10200,40 +10200,6 @@ namespace Parsek.InGameTests
             }
         }
 
-        [InGameTest(Category = "MapPresence",
-            Description = "Recordings with antenna specs produce positive relay power")]
-        public void AntennaSpecsProduceRelayPower()
-        {
-            var recordings = RecordingStore.CommittedRecordings;
-            int withAntennas = 0, withRelayPower = 0;
-
-            foreach (var rec in recordings)
-            {
-                if (rec.AntennaSpecs == null || rec.AntennaSpecs.Count == 0) continue;
-                withAntennas++;
-
-                double power = GhostCommNetRelay.ComputeCombinedAntennaPower(rec.AntennaSpecs);
-                if (power > 0) withRelayPower++;
-
-                // Individual antenna powers should be non-negative
-                foreach (var spec in rec.AntennaSpecs)
-                {
-                    InGameAssert.IsTrue(spec.antennaPower >= 0,
-                        $"Negative antenna power on '{spec.partName}': {spec.antennaPower}");
-                }
-            }
-
-            if (withAntennas == 0)
-                InGameAssert.Skip($"no recording among {recordings.Count} committed carries " +
-                    "AntennaSpecs, so the relay-power assertions walked zero specs — no " +
-                    "committed save or synthetic corpus row populates Recording.AntennaSpecs " +
-                    "today; closing the gap needs RecordingBuilder.WithAntennaSpecs plus a " +
-                    "corpus row (D6 commnet-relay stays unclaimed until then).");
-
-            ParsekLog.Info("TestRunner",
-                $"Antenna specs: {withAntennas} recordings with antennas, {withRelayPower} with positive combined power");
-        }
-
         private static Recording BuildSyntheticFlightTargetRecording(Vessel active, double currentUT)
         {
             CelestialBody body = active.mainBody;
