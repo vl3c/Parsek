@@ -267,6 +267,8 @@ namespace Parsek.TestCommands
         void LaunchFromEditor(ParsedCommand cmd);
         // ----- SafeWriteCrash (D16 safe-write: crash after the temp write, one boot) -----
         void SafeWriteCrash(ParsedCommand cmd);
+        // ----- SpinVessel (D17 persistent-rotation: a spinning vessel to put on rails) -----
+        void SpinVessel(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -499,6 +501,8 @@ namespace Parsek.TestCommands
                 // SafeWriteCrash. RequiresGameLoaded: it reads committed trees and a
                 // save-scoped sidecar path, in any scene.
                 ["SafeWriteCrash"] = VerbSceneRequirement.RequiresGameLoaded,
+                // SpinVessel. RequiresFlight: it acts on the active vessel's rigidbodies.
+                ["SpinVessel"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>

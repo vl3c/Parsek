@@ -531,6 +531,11 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # (sidecars re-read, orphan sweep); phase=probe reports the sidecar digest, residue and
     # point count against the armed baseline. Single-phase on the default budget.
     "SafeWriteCrash",
+    # SpinVessel. ADDITIVE (43 -> 44 implemented, reserved unchanged at 5): the D17
+    # `persistent-rotation` host. Sets the active unpacked vessel spinning about its roll
+    # axis (SAS off first) so a lane can put a rotating vessel on rails. Single-phase on
+    # the default budget.
+    "SpinVessel",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1097,6 +1102,8 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # SafeWriteCrash is WORLD-MUTATING: arm dirties a committed recording and plants a
     # fault in the next save, coldreload wipes the in-memory stores ahead of a load.
     "SafeWriteCrash": TAIL_ROLE_WORLD_MUTATING,
+    # SpinVessel changes the live vessel's attitude motion (and turns SAS off).
+    "SpinVessel": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1281,6 +1288,9 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     "EvaGroundScience": POST_MISSION_ROLE_OUTCOME,
     # SafeWriteCrash is `recording`: its verdict is about Parsek's sidecar persistence.
     "SafeWriteCrash": POST_MISSION_ROLE_RECORDING,
+    # SpinVessel is `recording`: it sets up the subject a recording claim is about; its OK
+    # is "the rigidbodies were given a spin", which the recorder's own lines re-derive.
+    "SpinVessel": POST_MISSION_ROLE_RECORDING,
 }
 
 

@@ -35,21 +35,24 @@ namespace Parsek
         /// a headless test rather than by reading a flight log.
         /// </summary>
         internal static string FormatDisassembledTerminalLog(
-            string vesselName, uint pid, int partCount, string recordingId, double ut)
+            string vesselName, uint pid, int partCount, string recordingId, double ut,
+            string reason = "last-part-stored")
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Recording terminal: kind=Disassembled reason=last-part-stored vessel='{0}' " +
+                "Recording terminal: kind=Disassembled reason={5} vessel='{0}' " +
                 "pid={1} parts={2} rec={3} ut={4:F3}",
                 string.IsNullOrEmpty(vesselName) ? "(null)" : vesselName,
                 pid,
                 partCount,
                 string.IsNullOrEmpty(recordingId) ? "(null)" : recordingId,
-                ut);
+                ut,
+                reason);
         }
 
         /// <summary>
-        /// Live seam for the EVA-construction pocket. Called synchronously from
+        /// Live seam for the EVA-construction pocket, and for the pick-up of a placed
+        /// ground part (docs/parsek-flight-recorder-design.md section 4.11). Called synchronously from
         /// <c>OnVesselWillDestroy</c> while the <see cref="Vessel"/> and the KSP UI
         /// singletons are still valid; the live reads sit behind
         /// <see cref="VesselDisassemblyClassifier.TryReadVesselDeathEvidenceCore"/>'s
@@ -79,14 +82,28 @@ namespace Parsek
             VesselDeathEvidence evidence;
             VesselDeathKind deathKind =
                 VesselDisassemblyClassifier.ClassifyLiveVesselDeath(v, out evidence);
+            string stampReason = "EvaConstructionPocket";
+            string logReason = "last-part-stored";
+
+            // A placed ground part picked up by a kerbal: stock stores it in the
+            // kerbal's inventory and then calls vessel.Die() from OnRetractCompleted,
+            // with the EVA construction panel closed, so the pocket classifier above
+            // answers Destroyed.
+            if (deathKind != VesselDeathKind.Disassembled && IsGroundPartRetrievalDeath(v, rec))
+            {
+                deathKind = VesselDeathKind.Disassembled;
+                stampReason = GroundPartPlacement.RetrievedTerminalReason;
+                logReason = GroundPartPlacement.RetrievedLogReason;
+            }
+
             if (!ShouldStampDisassembledTerminal(deathKind, rec))
                 return false;
 
             double ut = Planetarium.GetUniversalTime();
-            ApplyDisassembledTerminal(rec, ut);
+            ApplyDisassembledTerminal(rec, ut, stampReason);
 
             ParsekLog.Info("Flight", FormatDisassembledTerminalLog(
-                v.vesselName, v.persistentId, evidence.PartCount, rec.RecordingId, ut));
+                v.vesselName, v.persistentId, evidence.PartCount, rec.RecordingId, ut, logReason));
             return true;
         }
 
@@ -107,10 +124,11 @@ namespace Parsek
         /// its terminal verdict and lose its frames. Nothing needs the flag: every
         /// spawn and termination gate this state touches reads the terminal value.</para>
         /// </summary>
-        internal static void ApplyDisassembledTerminal(Recording rec, double ut)
+        internal static void ApplyDisassembledTerminal(
+            Recording rec, double ut, string reason = "EvaConstructionPocket")
         {
             if (rec == null) return;
-            rec.StampTerminalState(TerminalState.Disassembled, "EvaConstructionPocket");
+            rec.StampTerminalState(TerminalState.Disassembled, reason);
             rec.ExplicitEndUT = ut;
         }
 

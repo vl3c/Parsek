@@ -1141,6 +1141,124 @@ def pinned_release_artifacts(pins: Dict) -> List[PinnedArtifact]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Pinned GameData mods (GT-8 closure, D17 persistent-rotation). A profile's
+# [[optionalMods]] entry that names ``pin = "<pins.toml table>"`` is NOT sourced from
+# the dev GameData: its release zip is fetched through the same shared artifact cache
+# as the stack zips (content-addressed by the committed sha256, re-hashed on every use)
+# and extracted into the instance GameData at INSTALL. The pins table carries
+# ``kind = "gamedata-mod"`` and the ``gamedataFolders`` the zip installs.
+# ---------------------------------------------------------------------------
+
+PINNED_MOD_KIND = "gamedata-mod"
+
+OPTIONAL_MOD_SOURCE_PINNED = "pinned"
+OPTIONAL_MOD_SOURCE_DEV_COPY = "dev-copy"
+OPTIONAL_MOD_SOURCE_ABSENT = "absent-source"
+OPTIONAL_MOD_SOURCE_ABORT = "abort-required-absent"
+
+
+def decide_optional_mod_source(opt: Dict, dev_present: bool) -> str:
+    """How CLONE / INSTALL source one ``[[optionalMods]]`` entry. A ``pin`` key wins
+    (the dev GameData is never consulted, so a stale dev copy cannot shadow the pinned
+    bytes); otherwise a present dev folder is copied, an absent required one aborts
+    (EC-12) and an absent optional one is recorded ``absent-source``."""
+    if (opt or {}).get("pin"):
+        return OPTIONAL_MOD_SOURCE_PINNED
+    if dev_present:
+        return OPTIONAL_MOD_SOURCE_DEV_COPY
+    if bool((opt or {}).get("required", False)):
+        return OPTIONAL_MOD_SOURCE_ABORT
+    return OPTIONAL_MOD_SOURCE_ABSENT
+
+
+def profile_pinned_mods(profile: Dict) -> List[Tuple[str, str]]:
+    """``(optionalMods name, pins table key)`` for every pinned optional mod, in
+    profile order."""
+    out: List[Tuple[str, str]] = []
+    for opt in (profile or {}).get("optionalMods", []) or []:
+        key = (opt or {}).get("pin")
+        if key:
+            out.append((opt.get("name", ""), str(key)))
+    return out
+
+
+def validate_pinned_mod_pin(key: str, pin: Optional[Dict]) -> Optional[str]:
+    """None when ``pins[key]`` is a usable gamedata-mod pin, else the reason. The
+    url / sha256 themselves are DOWNLOAD's to judge (OPEN -> EC-13, mismatch -> EC-3)."""
+    if not pin:
+        return "pins.toml has no [%s] table" % key
+    if pin.get("kind") != PINNED_MOD_KIND:
+        return "[%s] kind=%r, expected %r" % (key, pin.get("kind"), PINNED_MOD_KIND)
+    folders = pin.get("gamedataFolders")
+    if not isinstance(folders, list) or not folders or not all(
+            isinstance(f, str) and f and "/" not in f and "\\" not in f and f not in (".", "..")
+            for f in folders):
+        return "[%s] gamedataFolders must be a non-empty list of plain folder names" % key
+    return None
+
+
+def pinned_mod_artifacts(pins: Dict, profile: Dict) -> List[PinnedArtifact]:
+    """The release zips DOWNLOAD fetches for THIS profile's pinned optional mods (a
+    profile that names none fetches none, so stock-minimal never touches them)."""
+    out: List[PinnedArtifact] = []
+    for _name, key in profile_pinned_mods(profile):
+        pin = (pins or {}).get(key, {}) or {}
+        out.append(PinnedArtifact(key, pin.get("downloadUrl"), pin.get("sha256"),
+                                  "%s release zip" % key))
+    return out
+
+
+def all_pinned_artifacts(pins: Dict) -> List[PinnedArtifact]:
+    """Every pinned artifact pins.toml knows: the stack zips plus every gamedata-mod
+    table (sorted by key). The cache seeder uses this set, independent of profile."""
+    out = list(pinned_release_artifacts(pins))
+    for key in sorted((pins or {}).keys()):
+        pin = pins.get(key)
+        if isinstance(pin, dict) and pin.get("kind") == PINNED_MOD_KIND:
+            out.append(PinnedArtifact(key, pin.get("downloadUrl"), pin.get("sha256"),
+                                      "%s release zip" % key))
+    return out
+
+
+def plan_pinned_mod_install(names: Sequence[str], gamedata_folders: Sequence[str]
+                            ) -> List[Tuple[str, str]]:
+    """``(zip_entry, dest_relpath)`` for a pinned mod's zip: entries under
+    ``GameData/<folder>/`` land as-is and a bare-rooted ``<folder>/...`` is wrapped
+    under ``GameData/``, for each declared folder only. Directory entries and anything
+    outside the declared folders (a README at the zip root, a second mod bundled in)
+    are skipped. The orchestrator still runs ``gamedata_dest_escapes`` on each dest."""
+    folders = tuple(gamedata_folders or ())
+    out: List[Tuple[str, str]] = []
+    for n in names:
+        if n.endswith("/"):
+            continue
+        e = n.replace("\\", "/")
+        rel = e[len(GAMEDATA_DIR) + 1:] if e.startswith(GAMEDATA_DIR + "/") else e
+        if not pinned_mod_entry_stays_in_folder(rel, folders):
+            continue
+        out.append((n, GAMEDATA_DIR + "/" + rel))
+    return out
+
+
+def pinned_mod_entry_stays_in_folder(rel: str, gamedata_folders: Sequence[str]) -> bool:
+    """True when ``rel`` (a zip entry relative to GameData, forward slashes) names a file
+    INSIDE one of the declared folders: no ``..`` / ``.`` / empty segment anywhere, no
+    absolute or drive path, and the normalized path still starts with ``<folder>/``. So
+    ``PersistentRotation/../kRPC/x`` is refused even though it starts with a declared
+    folder, which is what keeps a pinned zip from writing into another mod's folder."""
+    rel = (rel or "").replace("\\", "/")
+    if not rel or rel.startswith("/") or ":" in rel:
+        return False
+    segments = rel.split("/")
+    if any(seg in ("", ".", "..") for seg in segments):
+        return False
+    if len(segments) < 2 or segments[0] not in tuple(gamedata_folders or ()):
+        return False
+    norm = posixpath.normpath(rel)
+    return norm.startswith(segments[0] + "/")
+
+
 def artifact_cache_key(sha256: Optional[str]) -> Optional[str]:
     """The cache entry name for a pinned sha256: the lowercase 64-hex digest itself,
     or None when the pin carries no usable digest (OPEN, empty, malformed). Content
@@ -1224,7 +1342,7 @@ def plan_cache_seed(pins: Dict, candidates: Dict[str, str],
     matching path in sorted order); ``already-cached`` when that key is present in
     ``cached_keys`` (the orchestrator re-verifies those bytes before trusting them)."""
     wanted: Dict[str, str] = {}
-    for art in pinned_release_artifacts(pins):
+    for art in all_pinned_artifacts(pins):
         key = artifact_cache_key(art.sha256)
         if key is not None:
             wanted.setdefault(key, art.comp)
@@ -1775,6 +1893,14 @@ def build_action_plan(pins: Dict, profile: Dict) -> List[PlannedAction]:
         plan.append(PlannedAction("INSTALL", "COPY",
             "%s -> %s/%s (stack component)"
             % (name, instance_dir, stack_component_install_folder(name))))
+
+    for opt_name, key in profile_pinned_mods(profile):
+        pin = pins.get(key, {}) or {}
+        plan.append(PlannedAction("INSTALL", "COPY",
+            "%s (pin %s %s, sha256 %s) -> %s from the artifact cache (pinned optional mod)"
+            % (opt_name, key, pin.get("version"), pin.get("sha256"),
+               ", ".join("%s/GameData/%s" % (instance_dir, f)
+                         for f in (pin.get("gamedataFolders") or [])))))
 
     if "krpc" in (profile.get("stackComponents", []) or []):
         plan.append(PlannedAction("INSTALL", "WRITE",

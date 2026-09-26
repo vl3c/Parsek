@@ -1070,6 +1070,9 @@ namespace Parsek
         // Per-committed-index relay window inputs, filled by ComputePlaybackFlags.
         private GhostCommNetEligibilityInput[] ghostCommNetInputs = new GhostCommNetEligibilityInput[0];
         private readonly List<GhostCommNetCandidate> ghostCommNetCandidates = new List<GhostCommNetCandidate>();
+        private readonly List<double> ghostCommNetClaimScratch = new List<double>();
+        private readonly List<KeyValuePair<double, double>> ghostCommNetCarrierScratch =
+            new List<KeyValuePair<double, double>>();
         private GhostCommNetManager ghostCommNet;
         private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
         private readonly Dictionary<string, int> reFlyAnchorHoldStartFrameByAnchor =
@@ -1314,6 +1317,8 @@ namespace Parsek
             GameEvents.onVesselsUndocking.Add(OnVesselsUndocking);
             GameEvents.onGroundSciencePartDeployed.Add(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
+            GameEvents.onNewVesselCreated.Add(OnNewVesselCreatedForGroundPart);
+            GameEvents.onDeployGroundPart.Add(OnDeployGroundPart);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
             GameEvents.onVesselWasModified.Add(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
@@ -2277,6 +2282,8 @@ namespace Parsek
             GameEvents.onVesselsUndocking.Remove(OnVesselsUndocking);
             GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
+            GameEvents.onNewVesselCreated.Remove(OnNewVesselCreatedForGroundPart);
+            GameEvents.onDeployGroundPart.Remove(OnDeployGroundPart);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
             GameEvents.onVesselWasModified.Remove(OnVesselWasModified);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
@@ -11681,44 +11688,6 @@ namespace Parsek
             pendingUndockRootPartSeed = null;
         }
 
-        void OnGroundSciencePartDeployed(ModuleGroundSciencePart deployedPart)
-        {
-            RecordInventoryPlacementEvent(
-                deployedPart,
-                PartEventType.InventoryPartPlaced,
-                "onGroundSciencePartDeployed");
-        }
-
-        void OnGroundSciencePartRemoved(ModuleGroundSciencePart removedPart)
-        {
-            RecordInventoryPlacementEvent(
-                removedPart,
-                PartEventType.InventoryPartRemoved,
-                "onGroundSciencePartRemoved");
-        }
-
-        void RecordInventoryPlacementEvent(
-            ModuleGroundSciencePart module,
-            PartEventType eventType,
-            string sourceEvent)
-        {
-            if (recorder == null || !recorder.IsRecording) return;
-            Part p = module?.part;
-            if (p == null) return;
-
-            var evt = new PartEvent
-            {
-                ut = Planetarium.GetUniversalTime(),
-                partPersistentId = p.persistentId,
-                eventType = eventType,
-                partName = p.partInfo?.name ?? "unknown",
-                moduleIndex = 0
-            };
-            recorder.PartEvents.Add(evt);
-
-            Log($"Part event captured: {eventType} '{evt.partName}' pid={evt.partPersistentId} via {sourceEvent}");
-        }
-
         /// <summary>
         /// Pauses all ghost audio when the KSP pause menu (ESC) opens. Stock KSP audio
         /// mutes on pause but ghost AudioSources don't respond to any global mute.
@@ -19020,7 +18989,7 @@ namespace Parsek
                 // Ghost CommNet relay window inputs (design 15.6): the same gates as the
                 // ghost, minus the display-only playback toggle, plus the real-run scope
                 // gate (the spawn variant, so a loop member's first run is gated too).
-                ghostCommNetInputs[i] = new GhostCommNetEligibilityInput
+                GhostCommNetEligibilityInput commNetInput = new GhostCommNetEligibilityInput
                 {
                     HasRecordingId = !string.IsNullOrEmpty(rec.RecordingId),
                     IsDebris = rec.IsDebris,
@@ -19040,6 +19009,19 @@ namespace Parsek
                     IsMidChain = isMidChain,
                     ChainEndUT = chainEndUT,
                 };
+                // Scenario 15: a vessel whose terminal spawn a later continuation owns (an
+                // intermediate ghost-chain link, or a superseded terminal spawn) stays on rails
+                // at its end state until that continuation takes it over; its node is held there.
+                if (hasData && !rec.IsDebris && !supersededByRelation && !rewindRetired
+                    && !spawnHistoricalNeverReplayed)
+                {
+                    GhostCommNetMath.ApplyContinuationHold(
+                        ref commNetInput, rec, committed, activeGhostChains,
+                        spawnResult.needsSpawn && chainSuppressed.suppressed,
+                        GhostPlaybackLogic.RealVesselExistsForRecording,
+                        "FLIGHT", ghostCommNetClaimScratch, ghostCommNetCarrierScratch);
+                }
+                ghostCommNetInputs[i] = commNetInput;
 
                 flags[i] = new TrajectoryPlaybackFlags
                 {
@@ -19378,7 +19360,9 @@ namespace Parsek
 
                 // Chain-ghosted real vessels: before the first claim the despawned vessel sits
                 // on rails, so it relays from its despawn snapshot. From the claim on, the
-                // committed recordings that carry it relay instead.
+                // committed recordings that carry it relay instead, and between two of them
+                // (a recording ended, the next claim or recording of the vessel not started)
+                // the ended one's continuation hold keeps the vessel at its end state.
                 if (activeGhostChains != null && vesselGhoster != null)
                 {
                     foreach (var kv in activeGhostChains)

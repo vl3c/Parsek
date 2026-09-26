@@ -1,39 +1,37 @@
 schema = 1
 id = "EVA-5-ground-science-place-pickup"
-# COVERAGE WAVE 10 (D7 `inventory-place-remove`, NOT CLAIMED - see EXPECTED-FAIL below).
+# COVERAGE WAVE 10 producer, RE-ARMED 2026-09-26 on the placed-part tree member (D7
+# `inventory-place-remove` CLAIMED here).
 #
-# EXPECTED-FAIL on todo EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL. The reading run
-# `2026-09-25_2341` flew every step OK and then reddened PARSEK-FAIL(analyzer) on
-# `INV4-PARTEVENT-PID unresolved-pid pid=4140861083 event=InventoryPartPlaced`: the recorder
-# keys the event to the placed part's pid, which stock makes its OWN vessel, so the pid is
-# never in the kerbal recording's snapshot and the ghost never shows the placed part. The
-# analyzer red short-circuits every later verifier, so the lane is quarantined on that
-# subkind until the operator rules on the design question the todo entry states. THE
-# CONTRACT SET BELOW PASSED OFFLINE on `_2341`'s KSP.log (hlib.evaluate_expectations:
-# recordings 4 of 4, every required token present, no forbidden hit), so removing the
-# `[expectedFail]` table re-arms the lane as-is once the defect is fixed.
+# HISTORY. The reading run `2026-09-25_2341` flew every step OK and reddened
+# PARSEK-FAIL(analyzer) on `INV4-PARTEVENT-PID unresolved-pid`: the recorder keyed the event to
+# the placed part's pid on the KERBAL's recording, but stock makes a placed part its OWN vessel.
+# Owner ruling 2026-09-26 (todo EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL, option 1): the
+# placed part gets its own recording and ghost, a tree member created at the placement
+# (docs/parsek-flight-recorder-design.md section 4.11). The `[expectedFail]` table is gone.
 #
-# THE SUBJECT. The recorder hooks exactly two stock events for this family,
-# GameEvents.onGroundSciencePartDeployed / onGroundSciencePartRemoved
-# (ParsekFlight.OnGroundSciencePartDeployed / Removed -> RecordInventoryPlacementEvent,
-# `Part event captured: InventoryPartPlaced|InventoryPartRemoved '<part>' pid=<pid> via
-# <event>`). Decompiled KSP 1.12.5: the Deployed event fires from the NEW ground vessel's
-# ModuleGroundSciencePart.OnStart (landed, not a DroppedPart, no ModuleGroundExpControl,
-# DeployedScience.Instance live, ControlUnitId == 0 - so NOT for the Central Station),
-# and the Removed event fires from inside ModuleGroundPart.RetrievePart (and again from
-# its OnRetractCompleted), the part's own "Pick Up" PAW button.
+# THE SUBJECT. The placement is detected from stock's `onDeployGroundPart(partName)`, matched to
+# the vessel `onNewVesselCreated` announced in the same frame (Game.AddVessel), while the active
+# vessel is the recorded EVA kerbal - never from `onGroundSciencePartDeployed`, which also fires
+# when an old unlinked experiment merely loads (todo
+# INVENTORY-PLACED-FIRES-ON-ANY-LANDED-EXPERIMENT-LOAD). One frame later a GroundPartPlaced
+# branch point (parent = the kerbal's recording, which keeps recording) adds the member:
+# `Ground part placed: tree member created ...`, with `InventoryPartPlaced` on the MEMBER keyed
+# by the part's own pid. The pick-up's first `onGroundSciencePartRemoved` records ONE
+# `InventoryPartRemoved` on the member (the second, from OnRetractCompleted, is deduplicated),
+# and the vessel's Die() stamps the member `Disassembled reason=ground-part-retrieved`.
 #
 # THE DRIVER. kRPC 0.5.4 has no inventory or construction API, so the lane is seam-driven
-# through the new EvaGroundScience verb, which fires NO GameEvent itself:
+# through the EvaGroundScience verb, which fires NO GameEvent itself:
 #   action=place  - ModuleInventoryPart.DeployInventoryItem(slot), the inventory PAW slot
 #                   icon's own call (UIPartActionInventory.StartPartPlacement), then ONE
 #                   frame of GameSettings.EVA_Jump, the binding ModuleInventoryPart.OnUpdate
 #                   confirms a placement with (a scoped Harmony prefix on
 #                   KeyBinding.GetKeyDown, installed only for the press). Stock then runs
-#                   DeployGroundPart -> HighLogic.CurrentGame.AddVessel, and the new vessel's
-#                   OnStart fires the Deployed event. faceAway=true first turns the kerbal
-#                   away from the pod: a kerbal just off the ladder faces the hull, and stock
-#                   puts the preview straight ahead of it.
+#                   DeployGroundPart -> HighLogic.CurrentGame.AddVessel -> onNewVesselCreated,
+#                   then fires onDeployGroundPart. faceAway=true first turns the kerbal away
+#                   from the pod: a kerbal just off the ladder faces the hull, and stock puts
+#                   the preview straight ahead of it.
 #   action=pickup - the ground part's RetrievePart KSPEvent invoked through its BaseEvent,
 #                   exactly as the PAW button does.
 #
@@ -46,18 +44,20 @@ id = "EVA-5-ground-science-place-pickup"
 # step's `start ... inventory=` line is the proof the patch landed, because stock silently
 # drops an unavailable CSV name.
 #
-# THE GHOST EVIDENCE, and what it can and cannot say. After the commit the tree's mission
-# loop is armed and StartLoopPlayback replays it; TimeJump steps walk the clock across both
-# events so the kerbal ghost's cursor consumes them and GhostPartEventApplyLog writes one
-# `apply family=InventoryPart... surface=inventory` line each. Stock places the part as its
-# OWN vessel, so the pid the recorder captured on the kerbal's recording is never a part of
-# the kerbal's ghost: the honest outcome is `no-info-for-part`, and this wave changed the
-# applier to REPORT that (it previously reported `applied` unconditionally, a visual write
-# that did not happen). The lane therefore proves the replay DISPATCHED both events on the
-# kerbal's ghost and pins that no visual exists - todo
-# EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL - rather than claiming a ghost seismometer.
+# THE GHOST EVIDENCE. After the commit the tree's mission loop is armed and StartLoopPlayback
+# replays it with ghostRenderTracing on; TimeJump steps walk the clock across the placement and
+# the pick-up. The member's ghost is built (`phase=MeshSpawned ... recId=<member>
+# reason=ghost-created`), and its own two events apply to a part the ghost CARRIES
+# (`applied=1 ... reason=applied`, pid = the placed part's pid), so the replay shows the
+# seismometer standing where it was placed until the pick-up. A `no-info-for-part` inventory
+# line is now forbidden: nothing records an inventory event against a ghost that lacks the part.
+#
+# SPAWN AT END is not witnessed here: this member is picked up (Disassembled, never spawned),
+# and a part left on the pad would be retired by the KSC exclusion zone rather than spawned.
+# The still-placed spawnable-leaf answer is pinned headlessly (GroundPartPlacementTests); the
+# off-pad spawn-after-rewind lane is todo EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE.
 tier = "nightly"
-description = "Ground EVA on the pad with a Breaking Ground seismometer in the kerbal's inventory: exit, place it through the stock inventory slot + confirm key, pick it back up through its own Pick Up event, board, commit, then replay the tree's mission loop. The recorder's InventoryPartPlaced / InventoryPartRemoved captures (same pid as the placed part) and the replay's inventory-surface apply lines are required."
+description = "Ground EVA on the pad with a Breaking Ground seismometer in the kerbal's inventory: exit, place it through the stock inventory slot + confirm key, pick it back up through its own Pick Up event, board, commit, then replay the tree's mission loop. The placed part becomes its own tree member (GroundPartPlaced branch point, ends Disassembled on the pick-up), and its ghost is built and shows / hides the part through its own InventoryPartPlaced / InventoryPartRemoved events."
 instanceProfile = "stock-minimal"
 tags = ["eva", "inventory", "ground-science", "breaking-ground", "loop-playback", "D7"]
 
@@ -76,6 +76,7 @@ steps = [
   { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting",       args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",       args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "StartRecording",                                                       expect = "OK" },
   { cmd = "MissionMark",      args = { label = "eva5 exit" },                     expect = "OK" },
   { cmd = "EvaExit",          args = { release = "true" },                        expect = "OK", budget = 120 },
@@ -109,18 +110,17 @@ steps = [
 ]
 
 [dimensionsCovered]
-# D7 `inventory-place-remove` is deliberately NOT declared while the lane is EXPECTED-FAIL
-# (operator ruling 2026-09-26): an EXPECTED-FAIL run is green in compute_coverage, and the
-# cell would read covered on a lane whose own product defect is open.
+D7  = ["inventory-place-remove"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-# EVA-1's topology (root pod 1, + 2 for the EVA split, + 1 for the board merge). The
-# placed seismometer is a separate vessel outside the tree and must not add one.
-count = { min = 4, max = 4 }
+# EVA-1's topology (root pod 1, + 2 for the EVA split, + 1 for the board merge) plus the
+# placed seismometer's own member (GroundPartPlaced). The kerbal's recording does NOT split
+# at the placement.
+count = { min = 5, max = 5 }
 
 [expectations.logContracts]
 required  = [
@@ -129,25 +129,36 @@ required  = [
   # The patch landed: the kerbal carries the seismometer in slot 1.
   "evagroundscience place start kerbal=Jebediah Kerman part=DeployedSeismicSensor slot=1 inventory=0:evaChute,1:DeployedSeismicSensor",
   "evagroundscience place confirmed part=DeployedSeismicSensor presses=[1-9]",
-  # THE RECORDER WITNESS, tied to the placed part by pid across the stock event, the place
-  # completion, the pick-up and the Removed capture.
-  "Part event captured: InventoryPartPlaced 'DeployedSeismicSensor' pid=([0-9]+) via onGroundSciencePartDeployed[\\s\\S]*evagroundscience place complete part=DeployedSeismicSensor partPid=\\1 [\\s\\S]*evagroundscience pickup start kerbal=Jebediah Kerman part=DeployedSeismicSensor partPid=\\1 [\\s\\S]*Part event captured: InventoryPartRemoved 'DeployedSeismicSensor' pid=\\1 via onGroundSciencePartRemoved",
+  # THE PLACEMENT: stock's onDeployGroundPart matched to the same-frame created vessel.
+  "Ground part placement detected: part='DeployedSeismicSensor' vesselPid=[0-9]+ kerbalRec=[0-9a-f]+ ",
+  # THE MEMBER, tied by vessel pid / part pid / recording id across its creation, the
+  # pick-up the seam drives, the ONE Removed capture and the Disassembled stamp at Die().
+  "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=([0-9]+) rec=([0-9a-f]+) parentRec=[0-9a-f]+ bp=[0-9a-f]+ ut=[0-9.]+ snapshot=True[\\s\\S]*evagroundscience pickup start kerbal=Jebediah Kerman part=DeployedSeismicSensor partPid=\\2 vesselPid=\\1 [\\s\\S]*Part event captured: InventoryPartRemoved 'DeployedSeismicSensor' pid=\\2 via onGroundSciencePartRemoved rec=\\3[\\s\\S]*Recording terminal: kind=Disassembled reason=ground-part-retrieved vessel='[^'\\r\\n]*' pid=\\1 parts=1 rec=\\3 ",
+  "Ground part placed: tree member created [^\\r\\n]*partPid=([0-9]+) rec=([0-9a-f]+) [\\s\\S]*Part event captured: InventoryPartPlaced 'DeployedSeismicSensor' pid=\\1 via onDeployGroundPart rec=\\2",
+  "evagroundscience place complete part=DeployedSeismicSensor partPid=[0-9]+ ",
+  # The second stock Removed signal (OnRetractCompleted) is deduplicated, not recorded.
+  "repeat pick-up signal for part='DeployedSeismicSensor' [^\\r\\n]*deduplicated",
   "evagroundscience pickup complete part=DeployedSeismicSensor",
   "Tree board merge completed",
   "committree committed=true",
   "missionconfig applied: .* loop=True .*unitBuilt=True",
   "startloopplayback complete:",
-  # THE GHOST EVIDENCE: the replay consumed both events on the kerbal's ghost, and the
-  # applier reports that the ghost carries no such part.
-  "MISSIONMARK label=eva5 replay[\\s\\S]*\\[GhostPartEvents\\] apply family=InventoryPartPlaced surface=inventory rec=[0-9]+ pid=[0-9]+ applied=0 skipped=[1-9][0-9]* reason=no-info-for-part",
-  "MISSIONMARK label=eva5 replay[\\s\\S]*\\[GhostPartEvents\\] apply family=InventoryPartRemoved surface=inventory rec=[0-9]+ pid=[0-9]+ applied=0 skipped=[1-9][0-9]* reason=no-info-for-part",
+  # THE GHOST EVIDENCE: the member's ghost is built, and its own events apply to the part it
+  # carries (pid = the placed part's pid), so the replay shows the part until the pick-up.
+  "Ground part placed: tree member created [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*startloopplayback complete:[\\s\\S]*phase=MeshSpawned rec=\\S+ recId=\\1 [^\\r\\n]*reason=ghost-created",
+  "Ground part placed: tree member created [^\\r\\n]*partPid=([0-9]+) [\\s\\S]*startloopplayback complete:[\\s\\S]*\\[GhostPartEvents\\] apply family=InventoryPartPlaced surface=inventory rec=[0-9]+ pid=\\1 applied=1 skipped=0 reason=applied",
+  "Ground part placed: tree member created [^\\r\\n]*partPid=([0-9]+) [\\s\\S]*startloopplayback complete:[\\s\\S]*\\[GhostPartEvents\\] apply family=InventoryPartRemoved surface=inventory rec=[0-9]+ pid=\\1 applied=1 skipped=0 reason=applied",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "evagroundscience failed",
   "evagroundscience refused",
-  # The pre-wave vacuous report: an `applied` inventory line for a pid the ghost lacks.
-  "apply family=InventoryPart(?:Placed|Removed) surface=inventory rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
+  "Ground part placement not recorded",
+  "Ground part placement dropped",
+  # ONE Removed capture per pick-up.
+  "Part event captured: InventoryPartRemoved[^\\r\\n]*[\\s\\S]*Part event captured: InventoryPartRemoved",
+  # Nothing records an inventory event against a ghost that lacks the part any more.
+  "apply family=InventoryPart(?:Placed|Removed) surface=inventory [^\\r\\n]*reason=no-info-for-part",
 ]
 
 [runtime]
@@ -157,7 +168,3 @@ budgetSeconds = 1800
 
 [retry]
 policy = "once"
-
-[expectedFail]
-bugId = "EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL"
-subkind = "analyzer"
