@@ -50,8 +50,9 @@ namespace Parsek
     /// reporting. This pass does not make a residue save analyze RED=0.</para>
     ///
     /// <para>IN MEMORY ONLY. The applier never calls <see cref="Recording.MarkFilesDirty"/>:
-    /// dirtying at load makes the next FlushDirtyFiles advance
-    /// <see cref="Recording.SidecarEpoch"/>, which is a route's captured proof-of-source
+    /// a recording dirtied at load is rewritten, and a rewrite by OnSave (the load-time
+    /// FlushDirtyFiles keeps a positive epoch, but only when it runs and succeeds first)
+    /// advances <see cref="Recording.SidecarEpoch"/>, which is a route's captured proof-of-source
     /// field, parking every route over the recording in
     /// <c>SourceChanged/sidecar-epoch-drift</c> permanently. That is the rule PR #1637
     /// established for the load-time flat-list heal, and this pass follows it. The retire

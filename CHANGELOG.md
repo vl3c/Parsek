@@ -1154,6 +1154,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Recordings are no longer lost when the game closes right after loading or committing.**
+  Loading a save and committing a flight both write the changed recordings to disk straight
+  away, and that write advanced each recording file's save counter past the one stored in the
+  save. If the game then closed, crashed or was killed before the next save, the next load read
+  every such recording as belonging to a different save and dropped it (a whole flight when it
+  was the first recording of the tree). That immediate write now keeps the counter the save
+  already holds, like Parsek's other between-save writes, so the next load accepts the file. A
+  recording no save has ever stored still gets its first counter from that write, and an actual
+  save still advances it, so an older quicksave is still recognised as older.
+
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
   and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6

@@ -466,24 +466,46 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Epoch rule for <see cref="FlushDirtyFiles"/>, an OUT-OF-BAND write: the .sfs
+        /// on disk still carries the epoch of the last OnSave, and every .sfs that names
+        /// a recording holds an epoch no greater than the in-memory one. A positive epoch
+        /// is therefore preserved (advancing it would leave .prec = .sfs + 1 until the
+        /// next save, and a load followed by a quit or crash would then reject the
+        /// sidecar as stale and drop the recording). An epoch of 0 means no .sfs has ever
+        /// carried one, and 0 disables the stale check on load, so the flush seeds 1:
+        /// that strands nothing and keeps bug #270's detector armed for the recording.
+        /// </summary>
+        internal static bool ShouldAdvanceSidecarEpochOnFlush(Recording rec)
+        {
+            return rec != null && rec.SidecarEpoch <= 0;
+        }
+
+        /// <summary>
         /// Saves all dirty recordings to disk immediately. Called after commit and
         /// after the optimization pass to close the crash window where data exists
-        /// only in RAM. Failures are logged but non-fatal — OnSave will retry.
+        /// only in RAM. Failures are logged but non-fatal - OnSave will retry.
+        /// Never advances an existing epoch; see <see cref="ShouldAdvanceSidecarEpochOnFlush"/>.
         /// </summary>
         private static void FlushDirtyFiles(List<Recording> recordings)
         {
-            int saved = 0, failed = 0;
+            int saved = 0, failed = 0, epochSeeded = 0, epochPreserved = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 if (!recordings[i].FilesDirty) continue;
-                if (SaveRecordingFiles(recordings[i]))
+                bool advanceEpoch = ShouldAdvanceSidecarEpochOnFlush(recordings[i]);
+                if (SaveRecordingFiles(recordings[i], incrementEpoch: advanceEpoch))
+                {
                     saved++;
+                    if (advanceEpoch) epochSeeded++;
+                    else epochPreserved++;
+                }
                 else
                     failed++;
             }
             if (saved > 0 || failed > 0)
                 ParsekLog.Info("RecordingStore",
-                    $"FlushDirtyFiles: saved {saved}, failed {failed}");
+                    $"FlushDirtyFiles: saved {saved}, failed {failed} " +
+                    $"(epochPreserved={epochPreserved} epochSeeded={epochSeeded})");
         }
 
         /// <summary>
