@@ -589,8 +589,17 @@ def _fetch_artifact(ctx: ProvisionContext, art: "provlib.PinnedArtifact"
 def phase_download(ctx: ProvisionContext) -> None:
     """Fetch + verify the pinned release zips (live only), consulting the shared
     umbrella artifact cache (``provlib.ARTIFACT_CACHE_RELDIR``) by committed sha256
-    before any download and populating it from every verified download."""
-    for art in provlib.pinned_release_artifacts(ctx.pins):
+    before any download and populating it from every verified download. The profile's
+    pinned optional mods (``provlib.pinned_mod_artifacts``) ride the same path."""
+    for opt_name, key in provlib.profile_pinned_mods(ctx.profile):
+        reason = provlib.validate_pinned_mod_pin(key, ctx.pins.get(key))
+        if reason is not None:
+            log(ctx, "Error", "Download", "pinned mod %s: %s (EC-13)" % (opt_name, reason))
+            if not ctx.dry_run:
+                abort(ctx, "Download", "EC-13", "pinned mod %s pin unusable" % opt_name)
+                return
+    for art in (provlib.pinned_release_artifacts(ctx.pins)
+                + provlib.pinned_mod_artifacts(ctx.pins, ctx.profile)):
         comp, url, sha, name = art.comp, art.url, art.sha256, art.name
         if provlib.is_open_pin(sha):
             if ctx.dry_run:
@@ -780,19 +789,23 @@ def phase_clone(ctx: ProvisionContext):
                 if link.startswith("GameData/") else "junction-stock-tree")
         log(ctx, "Info", "Clone", "junction %s -> %s (%s)" % (link, target, kind))
 
-    # EC-12: optional mods (e.g. PersistentRotation) may be absent from the dev
-    # GameData. required=false -> record absent-source + WARN; required=true and
-    # absent -> ABORT. Present ones join the copy set.
+    # EC-12: optional mods may be absent from the dev GameData. required=false ->
+    # record absent-source + WARN; required=true and absent -> ABORT. Present ones join
+    # the copy set. A PINNED entry (``pin = "<pins table>"``, e.g. PersistentRotation)
+    # is never looked up here: INSTALL extracts it from the shared artifact cache.
     copy_mods: List[str] = list(dev)
     for opt in ctx.profile.get("optionalMods", []) or []:
         oname = opt.get("name", "")
-        required = bool(opt.get("required", False))
         src = os.path.join(ctx.dev_install, "GameData", oname)
-        present = os.path.isdir(src)
-        if present:
+        source = provlib.decide_optional_mod_source(opt, os.path.isdir(src))
+        if source == provlib.OPTIONAL_MOD_SOURCE_PINNED:
+            log(ctx, "Info", "Clone",
+                "optional mod %s pinned (pin=%s) -> INSTALL extracts it from the artifact cache"
+                % (oname, opt.get("pin")))
+        elif source == provlib.OPTIONAL_MOD_SOURCE_DEV_COPY:
             log(ctx, "Info", "Clone", "optional mod %s present -> copy" % oname)
             copy_mods.append(oname)
-        elif required:
+        elif source == provlib.OPTIONAL_MOD_SOURCE_ABORT:
             abort(ctx, "Clone", "EC-12", "required mod %s absent from dev GameData" % oname)
             return junctions, dev_status
         else:
@@ -1223,8 +1236,12 @@ def phase_install(ctx: ProvisionContext) -> None:
                 "would stamp GameData/kRPC/PluginData/settings.cfg "
                 "(autoStartServers=True/autoAcceptConnections=True/confirmRemoveClient=False) "
                 "and record krpcSettingsSha256")
+        _install_pinned_mods(ctx)
         return
     _install_stack(ctx, stack)
+    if ctx.aborted:
+        return
+    _install_pinned_mods(ctx)
 
 
 def phase_mm_cache(ctx: ProvisionContext) -> None:
@@ -1273,6 +1290,11 @@ def phase_manifest(ctx: ProvisionContext, resolved: Dict[str, str],
             "parsek": parsek_info,
         },
         "devSourcedMods": dev_status,
+        # Pinned optional mods, keyed by the GameData folder each installs: the pin, the
+        # zip sha256 re-verified from the artifact cache, and the instance tree-hash
+        # VERIFY re-hashes. Not an admission key (the harness admits on the self-projected
+        # manifest either way); VERIFY is the check.
+        "pinnedMods": getattr(ctx, "pinned_mods", None) or {},
         # SF10: per-stack-component installed-file inventory (relpath + sha256).
         # Top-level (NOT under "components", an admission key) so the harness admit
         # path is unaffected; VERIFY does the inventory-vs-disk added/missing diff.
@@ -1461,6 +1483,24 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
             "dev-sourced mod %s content-hash %s manifest" % (name, "==" if match else "!="))
         if not match:
             _drift("devSourcedMods.%s" % name, recorded, cur)
+
+    # Pinned optional mods: re-hash each installed folder against the tree-hash INSTALL
+    # recorded (same PluginData-pruned digest as the dev-sourced mods).
+    for folder, rec in (manifest.get("pinnedMods", {}) or {}).items():
+        recorded = (rec or {}).get("treeHash")
+        if not recorded:
+            continue
+        modpath = os.path.join(ctx.instance_dir, "GameData", folder)
+        if not os.path.isdir(modpath):
+            log(ctx, "Error", "Verify", "pinned mod %s MISSING from instance GameData" % folder)
+            _drift("pinnedMods.%s" % folder, recorded, None)
+            continue
+        cur = _content_tree_hash(modpath, ctx)
+        match = cur == recorded
+        log(ctx, "Info" if match else "Error", "Verify",
+            "pinned mod %s content-hash %s manifest" % (folder, "==" if match else "!="))
+        if not match:
+            _drift("pinnedMods.%s" % folder, recorded, cur)
 
     # SF10: per-stack-component installed-file inventory diff. Re-scan each install
     # folder and diff it against the recorded inventory: a recorded file missing or
@@ -1804,6 +1844,8 @@ def _precheck_free_space(ctx: ProvisionContext) -> bool:
     import shutil
     copy_mods = list(ctx.profile.get("devSourcedMods", []) or [])
     for opt in ctx.profile.get("optionalMods", []) or []:
+        if opt.get("pin"):
+            continue
         if os.path.isdir(os.path.join(ctx.dev_install, "GameData", opt.get("name", ""))):
             copy_mods.append(opt.get("name", ""))
     est = _measure_copy_bytes(ctx, copy_mods)
@@ -2312,6 +2354,85 @@ def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
             log(ctx, "Info", "Install", "MechJeb2 extracted files=%d" % len(written))
         else:
             log(ctx, "Warn", "Install", "MechJeb2 zip not cached (pin OPEN); skipped")
+
+
+def _install_pinned_mods(ctx: ProvisionContext) -> None:
+    """Extract each pinned optional mod (``provlib.profile_pinned_mods``) into the
+    instance GameData from the SHARED ARTIFACT CACHE entry named by its committed
+    sha256. The entry is read once and re-hashed in memory on this use (DOWNLOAD already
+    verified or populated it; nothing trusts that), so the bytes judged are the bytes
+    extracted. Every declared folder is scoped-deleted first (no stale file, and the
+    mod's runtime PluginData from earlier flights is dropped) and always re-extracted:
+    the zips are small and the extraction is the proof. Records ``ctx.pinned_mods``."""
+    import io
+    import zipfile
+    status: Dict[str, Dict[str, object]] = {}
+    ctx.pinned_mods = status  # type: ignore[attr-defined]
+    for name, key in provlib.profile_pinned_mods(ctx.profile):
+        pin = ctx.pins.get(key, {}) or {}
+        reason = provlib.validate_pinned_mod_pin(key, pin)
+        if reason is not None:
+            abort(ctx, "Install", "EC-13", "pinned mod %s: %s" % (name, reason))
+            return
+        folders = list(pin.get("gamedataFolders") or [])
+        sha = str(pin.get("sha256") or "").strip().lower()
+        if ctx.dry_run:
+            log(ctx, "Info", "Install",
+                "would extract pinned mod %s (pin=%s version=%s sha256=%s) from the artifact "
+                "cache into %s" % (name, key, pin.get("version"), sha,
+                                   ", ".join("GameData/%s" % f for f in folders)))
+            continue
+        entry = _artifact_cache_entry(ctx, sha)
+        data: Optional[bytes] = None
+        if entry is not None and os.path.isfile(entry):
+            try:
+                with open(entry, "rb") as fh:
+                    data = fh.read()
+            except OSError as exc:
+                log(ctx, "Warn", "Install", "pinned mod %s cache read failed %s: %s" % (name, entry, exc))
+        actual = sha256_bytes(data) if data is not None else None
+        ok = actual is not None and actual == sha
+        log(ctx, "Info" if ok else "Error", "Install",
+            "pinned mod %s artifact-cache %s re-hash expected=%s actual=%s %s"
+            % (name, entry, sha, actual, "OK" if ok else "FAIL"))
+        if not ok:
+            abort(ctx, "Install", "EC-3" if data is not None else "EC-4",
+                  "pinned mod %s cache entry %s"
+                  % (name, "does not hash to the pin" if data is not None else "absent"))
+            return
+        gd_instance = os.path.join(ctx.instance_dir, "GameData")
+        for folder in folders:
+            dst = os.path.join(gd_instance, folder)
+            if os.path.isdir(dst) and not _scoped_delete_instance_subtree(ctx, dst):
+                abort(ctx, "Install", "EC-3",
+                      "pinned mod %s: stale %s could not be cleared" % (name, dst))
+                return
+        written: List[str] = []
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            plan = provlib.plan_pinned_mod_install(zf.namelist(), folders)
+            for zentry, dest_rel in plan:
+                if provlib.gamedata_dest_escapes(dest_rel):
+                    abort(ctx, "Install", "EC-3",
+                          "zip-slip: pinned mod %s entry %s -> dest %s escapes instance GameData"
+                          % (name, zentry, dest_rel))
+                    return
+                dest_abs = os.path.join(ctx.instance_dir, dest_rel.replace("/", os.sep))
+                os.makedirs(_long(os.path.dirname(dest_abs)), exist_ok=True)
+                with zf.open(zentry) as src, open(_long(dest_abs), "wb") as out:
+                    out.write(src.read())
+                written.append(dest_rel)
+        if not written:
+            abort(ctx, "Install", "EC-3", "pinned mod %s: zip carries none of the declared folders %s"
+                  % (name, ",".join(folders)))
+            return
+        for folder in folders:
+            dst = os.path.join(gd_instance, folder)
+            tree = _content_tree_hash(dst, ctx) if os.path.isdir(dst) else None
+            status[folder] = {"pin": key, "version": pin.get("version"), "sha256": sha,
+                              "treeHash": tree}
+            log(ctx, "Info", "Install", "pinned mod %s installed GameData/%s tree-hash=%s (files=%d)"
+                % (name, folder, tree,
+                   sum(1 for w in written if w.startswith("GameData/%s/" % folder))))
 
 
 def _krpc_settings_path(ctx: ProvisionContext) -> str:

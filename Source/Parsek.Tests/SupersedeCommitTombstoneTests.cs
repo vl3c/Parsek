@@ -938,7 +938,7 @@ namespace Parsek.Tests
         public void IsPreRewindAttributedAction_StrictlyBeforeCutoff_True()
         {
             var a = FundsEarning("rec_origin", 99.0);
-            Assert.True(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, 100.0));
+            Assert.True(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, 100.0, null));
         }
 
         [Fact]
@@ -947,18 +947,18 @@ namespace Parsek.Tests
             // RecordingTreeSplitter step 2.9 retags `a.UT >= rewindUT` to TIP. The
             // boundary sample belongs to the REPLACED half, so it must stay tombstonable.
             var a = FundsEarning("rec_origin", 100.0);
-            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, 100.0));
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, 100.0, null));
         }
 
         [Fact]
         public void IsPreRewindAttributedAction_NaNCutoffOrNaNActionUT_False()
         {
             var a = FundsEarning("rec_origin", 10.0);
-            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, double.NaN));
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, double.NaN, null));
 
             var nanUt = FundsEarning("rec_origin", double.NaN);
-            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(nanUt, 100.0));
-            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(null, 100.0));
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(nanUt, 100.0, null));
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(null, 100.0, null));
         }
 
         [Theory]

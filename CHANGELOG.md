@@ -1187,6 +1187,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A crew death's reputation penalty now stays with the death when a recording is split.**
+  When the optimizer or a Re-Fly split cut a recording between the moment a crashed vessel's
+  reputation penalty was stamped and the crew's death, the death went to the later part and
+  the penalty stayed on the earlier one, so re-flying the later part brought the crew back but
+  kept the reputation loss. The penalty now always lands on the same part as its death, on both
+  splits, and a re-fly that undoes the death undoes the penalty too. Penalties from contracts
+  and other sources are placed as before.
+
+- **Spinning vessels recorded with PersistentRotation now replay spinning.** Parsek never
+  recognised the KSP 1.12 build of PersistentRotation (PersistentRotationUpgraded), so a
+  vessel that went into time warp while spinning was always replayed holding its attitude.
+  Parsek now recognises the mod by any of its names, logged as `PersistentRotation mod
+  detected: True (matched=...)` at recording start. A recording that goes on rails while
+  spinning faster than 0.05 rad/s stores the spin, and the ghost turns at that rate for
+  the whole on-rails stretch. The stored spin axis is now correct too: KSP reports a
+  vessel's angular velocity relative to its control part, and the old code read it as a
+  world vector. That was harmless while the mod was never recognised.
+
 - **A ground part a kerbal places on EVA is now recorded as its own vessel and replays as a
   ghost.** Breaking Ground experiments, power and comms units and the Central Station become
   their own vessel when a kerbal places them, and Parsek used to record the placement on the
@@ -1535,7 +1553,22 @@ _(unreleased — entries accumulate here per commit)_
   coasted for up to a minute: no staging, docking, burn, new branch or new recording), it is
   discarded on the spot, as the merge dialog's Discard would do. The committed mission and its
   files are kept as they were, and only those idle seconds go. A copy that did record
-  something meaningful, and a tree that was never committed, are kept as before.
+  something meaningful, and a tree that was never committed, are committed on the spot
+  instead (next entry).
+- **A tree Parsek refuses to attach to a launch from flight is now committed, not left
+  waiting to be overwritten.** In the same situation (a craft launched from flight by a mod
+  such as kRPC), a refused tree that is not an idle copy used to stay behind as an unfinished
+  stash until the next scene change replaced it with only a log warning, losing what it held.
+  That covered a mission that was never committed (you were recording craft A when B was
+  launched), a resumed committed mission that recorded something meaningful after the load
+  (a switch segment, a new branch, a burn, or more than a minute of flight), and a resumed
+  mission whose committed copy the load had set aside, where the stash was the only copy of
+  that committed history. Each is now committed the moment the launch is refused, through the
+  same commit that runs when you leave the flight scene: a never-committed tree is added, and
+  a resumed mission replaces its committed version in place, so no mission or recording
+  appears twice. Nothing is committed while a Re-Fly is in progress or a merge is still being
+  finished; those keep the old behaviour. Stock KSP cannot reach this, since a stock launch
+  leaves the flight scene first.
 - **KSC building destructions and repairs are now part of the career history.** A building
   repaired at the Space Center never became a ledger action: Parsek recorded it only at the
   next scene change, with no cost and no owner, so nothing kept it. A building knocked down
@@ -4543,6 +4576,20 @@ _(unreleased — entries accumulate here per commit)_
   that every child of a committed tree is the same object in the committed recordings list
   and the committed tree, and carries the tree's id; a cell deleted with the old budget
   totals used to carry that fact implicitly. No gameplay change.
+
+- **Automated testing: PersistentRotation on the modded-compat instance, a `SpinVessel` seam
+  verb, and lane MC-5.** Profiles can now name a pinned optional mod (`pin = "<pins.toml
+  table>"`, a `kind = "gamedata-mod"` pin). Provisioning downloads it through the shared
+  artifact cache like the stack zips, re-hashes the cache entry every time it is used, and
+  extracts the pin's `gamedataFolders` into the instance. The manifest records it under
+  `pinnedMods` and VERIFY re-hashes it. The dev GameData is never consulted for a pinned
+  mod. modded-compat now requires PersistentRotationUpgraded 1.9.2.1 and its CKAN
+  dependency SpaceTuxLibrary 0.0.9, both pinned via their CKAN-meta records (GT-8 closed).
+  The automation-only `SpinVessel rate=<rad/s>` verb turns SAS off and spins the active
+  vessel about its roll axis. `MC-5-persistent-rotation` records a spinning Kerbal X
+  through rails warp and loop-replays it. Both flights passed and the lane is armed on the
+  replayed ghost's attitude sweep. D17 `persistent-rotation` is claimed, and with it every
+  registry cell is covered (246 of 246).
 
 - **Automated testing: a `WarpToUT` refused because time warp is locked now names who holds
   the lock.** The `warptout refused reason=warp-locked` log line gains a `holders=` field:
