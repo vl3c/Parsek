@@ -469,8 +469,12 @@ four row kinds. Columns, left to right, with the shared header/body width consta
 `Duration` 80, then the Info-only band `Phase` 90 / `Site` 90 / `MaxAlt` 65 / `MaxSpd` 65
 (drawn only when `showExpandedStats`; Phase and Site moved in from the always-shown set and
 `Dist` / `Pts` / `Start` / `End` were dropped 2026-09-26), `Status` 120, `Group` 60, `Loop` 60,
-`Period` 90, `Watch` 50 (flight only, `:1346`), `Rewind` 60, `Re-Fly` 90, `Archive` 80, plus a
-scrollbar-width spacer (`:1384`). Every header cell is forced to `ColHeaderHeight = 32`
+`Period` 90, `Watch` 50 (flight only, `:1346`), `Rewind` 60, `Re-Fly` 90, `Archive` 80. Since
+2026-09-26 the table is on the house table styles: the pinned header row opens with
+`GetTableHeaderRowStyle()` (the scrollbar gutter is its right padding; it was a trailing
+spacer), the four row kinds with `GetTableRowStyle()`, the list area with
+`GetTableBodyBoxStyle()`, and the body labels are built on `GetTableCellStyle()`
+(`TableRowInsetAlignmentTests`, including a four-row-kind column-sequence gate). Every header cell is forced to `ColHeaderHeight = 32`
 (`:73`). Seven headers are sortable (`#`, Name, Launch, Duration, Status, and Phase / Site
 while Info is open); `SortColumn.LaunchTime` ascending is the default (`DefaultSortColumn`),
 and collapsing Info while sorted by Phase or Site falls back to it (`SetShowExpandedStats`).

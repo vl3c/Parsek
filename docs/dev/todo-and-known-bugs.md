@@ -55,6 +55,18 @@ and the other loopable descendants WITHOUT (`SplitAbsorbedLoopWrite`, both count
 its Group cell becomes `G` + `S`, where `S` is the block's "every segment to folders" picker
 (`OpenForRecordings`). The block's aggregate R/FF duplicated the folder's and is dropped.
 
+Fix (commit 4): the Recordings tab (not the Missions tab, GUI-MISSIONS-WINDOW-MERGED-FIRST-
+HEADER-CELL) is on the house table styles: the pinned header opens with
+`GetTableHeaderRowStyle()` (the scrollbar gutter as its right padding, replacing the trailing
+`GUILayout.Space`), all four row kinds with `GetTableRowStyle()`, the list area with
+`GetTableBodyBoxStyle()`, and every body label style is built on `GetTableCellStyle()` (vertical
+padding kept at 0, the table's row pitch). The header's merged toggle + `#` container width is
+`HeaderMergedEnableIndexWidth`. `TableRowInsetAlignmentTests` carries a `TableSite` for the tab
+(column helpers counted through `CallWidths`) and
+`RecordingsTabEveryRowKindDrawsTheHeaderColumnSequence`, which holds the leaf, folder, block and
+STASH rows to the header's column sequence including the Info and flight-only guards
+(mutation-checked: an unguarded Watch cell in the block row reds it).
+
 ## RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE: a debris row's MaxSpd reads 318.4 km/s over a 1.9 km flight [FILED 2026-09-26 from the recordings-tab round (census run `2026-09-21_2316_GUI-25-census-missions-state-sort-edit`, capture `ib-missions-recordings-expandedstats-advanced`). OPEN, not fixed]
 
 The Info columns of recording #27 `Kerbal X Debris` on the `interbody-route-recorded` host

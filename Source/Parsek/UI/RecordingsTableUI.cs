@@ -104,6 +104,12 @@ namespace Parsek
         private const float ColHeaderHeight = 32f;
         private const float ColW_Site = 90f;
         private const float ColW_Group = 60f;
+        // The header's merged [select-all toggle + "#"] cell: the two body cells it sits over
+        // plus the 8 px of margin budget between them (see DrawRecordingsTableHeader). Named
+        // outside the ColW_ family on purpose: it is a HEADER-only container around the two
+        // real columns, whose own ColW_Enable / ColW_Index widths the header's inner toggle
+        // and "#" button draw, so the header and every row declare one column sequence.
+        private const float HeaderMergedEnableIndexWidth = ColW_Enable + ColW_Index + 8f;
 
         // Reusable per-frame buffers (avoid allocation each frame)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
@@ -731,10 +737,6 @@ namespace Parsek
         private GUIStyle statusStyleStatic;
         private GUIStyle statusStyleStationary;
 
-        // Zero-horizontal-padding body-box style: preserves the dark list-area
-        // background without shifting rows inward (so column left edges align with
-        // the fixed header above the scroll view).
-        private GUIStyle tableBodyBoxStyle;
         private GUIStyle boldHeaderInnerLabel;
         private GUIStyle indexRowStyle;
         private GUIStyle bodyCellLabel;
@@ -759,10 +761,6 @@ namespace Parsek
         // Space(5) before Name shifts Name text right inside the ExpandWidth cell so it
         // sits under the header "Name" text (which is 5 px inset by its colHdr box padding).
         private const float NameColumnLeadGap = 5f;
-        // padding.left applied to every fixed-width body cell after Name. Matches the
-        // visual text inset produced by the header's colHdr box padding, so body text
-        // lands under header text without moving the body cells' layout boundaries.
-        private const int BodyCellTextIndent = 5;
         // Left-only inset for DrawBodyCenteredButton and the Period wrap: the button
         // / Period val visible rect starts this many px into the cell and extends to
         // the cell's right edge, shifting the rectangle right (asymmetric inset) so
@@ -1053,31 +1051,44 @@ namespace Parsek
             recordingsWindowHasInputLock = false;
         }
 
+        /// <summary>A body label style on the house table cell (header-matched horizontal
+        /// text inset), with this table's zero vertical padding. Must run inside a draw.</summary>
+        private GUIStyle NewTableCellLabelStyle()
+        {
+            GUIStyle tableCell = parentUI.GetTableCellStyle();
+            return new GUIStyle(tableCell)
+            {
+                padding = new RectOffset(tableCell.padding.left, tableCell.padding.right, 0, 0)
+            };
+        }
+
         private void EnsurePhaseStyles()
         {
             if (phaseStyleAtmo != null) return;
 
-            var cellLabelPadding = new RectOffset(BodyCellTextIndent, 0, 0, 0);
-            phaseStyleAtmo = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            // Every left-aligned body label (and the tinted phase / status labels) is built on
+            // the house table cell style, whose HORIZONTAL padding is the column header's, so
+            // cell text starts at its header's text x (the old hand-set L5 indent read 1px
+            // right of the header's L4). Vertical padding stays 0, the row pitch this table
+            // always had (the cross-link scroll steps 22 px per row).
+            phaseStyleAtmo = NewTableCellLabelStyle();
             phaseStyleAtmo.normal.textColor = new Color(0.4f, 0.7f, 1f); // blue
 
-            phaseStyleExo = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            phaseStyleExo = NewTableCellLabelStyle();
             phaseStyleExo.normal.textColor = new Color(0.75f, 0.55f, 1f); // light purple
 
-            phaseStyleSpace = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            phaseStyleSpace = NewTableCellLabelStyle();
             phaseStyleSpace.normal.textColor = new Color(0.2f, 1f, 0.6f); // lime green
 
-            phaseStyleApproach = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            phaseStyleApproach = NewTableCellLabelStyle();
             phaseStyleApproach.normal.textColor = new Color(0.3f, 0.8f, 1f); // cyan
 
-            phaseStyleSurface = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            phaseStyleSurface = NewTableCellLabelStyle();
             phaseStyleSurface.normal.textColor = new Color(1f, 0.6f, 0.2f); // orange
 
-            // Generic body-cell label style (used by Site/Launch/Duration/expanded stats/
-            // Period placeholder/Watch placeholder/Rewind placeholder). Same padding as
-            // phaseStyle* so every left-aligned body label has a consistent text inset
-            // matching the header's colHdr box padding.
-            bodyCellLabel = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            // Generic body-cell label style (Launch / Duration / the Info band / every blank
+            // placeholder cell).
+            bodyCellLabel = NewTableCellLabelStyle();
             // Zero horizontal margin variant for use inside DrawBodyCenteredButton wrap.
             bodyCellButtonFlush = new GUIStyle(GUI.skin.button)
             {
@@ -1100,14 +1111,6 @@ namespace Parsek
             bodyCellWrapStyle = new GUIStyle
             {
                 margin = new RectOffset(4, 4, 0, 0)
-            };
-
-            // Body box: dark background only, zero horizontal padding. Keeps the
-            // Career-State-style list surface without pushing row columns inward.
-            tableBodyBoxStyle = new GUIStyle(GUI.skin.box)
-            {
-                padding = new RectOffset(0, 0, 2, 2),
-                margin = new RectOffset(0, 0, 0, 0)
             };
 
             // Bold label for header cells that share their box with a toggle (Loop /
@@ -1583,8 +1586,11 @@ namespace Parsek
 
         private void DrawRecordingsTableHeader(IReadOnlyList<Recording> committed)
         {
-            // Header row
-            GUILayout.BeginHorizontal();
+            // Header row: the house pinned-header row container (shared left inset, and the
+            // scroll view's scrollbar gutter as its own right padding - see
+            // ParsekUI.VerticalScrollbarGutterWidth), so the header ends where the body rows
+            // below the forced vertical scrollbar do.
+            GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle());
 
             // Select-all enable toggle + "#" sortable header live in ONE boxed cell
             // so the column reads as a single unit (toggle above column 0's toggles,
@@ -1601,7 +1607,7 @@ namespace Parsek
             // Without the +8, the merged container is 8 px narrower than the body pair, so
             // every column right of # drifts 8 px relative to its header cell.
             GUILayout.BeginHorizontal(colHdrCellContainerStyle,
-                GUILayout.Width(ColW_Enable + ColW_Index + 8f),
+                GUILayout.Width(HeaderMergedEnableIndexWidth),
                 GUILayout.Height(ColHeaderHeight));
             bool newAllEnabled = GUILayout.Toggle(allEnabled,
                 new GUIContent("",
@@ -1756,16 +1762,9 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.HideActive}");
             }
 
-            // Reserve the vertical-scrollbar gutter so the fixed header's right edge
-            // aligns with the row cells' right edges: the scroll view claims a strip on
-            // the right, and the body's list-area box spends a cell margin of its own.
-            // One shared derivation (ParsekUI.VerticalScrollbarGutterWidth) so this
-            // header cannot drift from the pinned-header tables. Reserving only
-            // fixedWidth left this header 5px too wide: the 2026-09-11 census
-            // (bd-missions-recordings-expanded-advanced) put header cells at 1330 and
-            // row cells at 1325.
-            GUILayout.Space(ParsekUI.VerticalScrollbarGutterWidth());
-
+            // No trailing gutter Space: the header row style above already reserves the
+            // scrollbar gutter as its right padding, and its last cell (the Archive container,
+            // margin R0) ends exactly there. A Space here as well would reserve it twice.
             GUILayout.EndHorizontal();
 
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured && Event.current.type == EventType.Repaint)
@@ -2032,9 +2031,10 @@ namespace Parsek
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
-                // Dark list-area background (matches Career State) without horizontal
-                // padding so row columns align with the header above.
-                GUILayout.BeginVertical(tableBodyBoxStyle);
+                // Dark list-area background: the house table body box, which adds no
+                // horizontal inset of its own, and every row below opens with the house row
+                // container, so row columns align with the header above.
+                GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
 
                 // Rebuild if a header click invalidated during this frame
                 RebuildSortedIndices(committed, now);
@@ -2222,7 +2222,7 @@ namespace Parsek
             }
             renderedRowCounter++;
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             bool captureThisRow = alignmentDebugArmed && !alignmentDebugRowCaptured;
 
             // Enable checkbox (always at column 0)
@@ -2841,7 +2841,7 @@ namespace Parsek
             float indent = SelfConnectorIndent(depth);
 
             // -- Group header --
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
 
             // Enable checkbox (always at column 0)
             int enabledCount = 0;
@@ -3595,7 +3595,7 @@ namespace Parsek
             if (memberCount == 0)
                 return false;
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
 
             // -- Enable checkbox (aggregate) --
             int enabledCount = 0;
@@ -4761,7 +4761,7 @@ namespace Parsek
 
             float indent = SelfConnectorIndent(depth);
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
 
             int blockEnabledCount = 0;
             for (int m = 0; m < members.Count; m++)
@@ -6929,17 +6929,17 @@ namespace Parsek
         {
             if (statusStyleFuture != null) return;
 
-            var statusPadding = new RectOffset(BodyCellTextIndent, 0, 0, 0);
-            statusStyleFuture = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            // Built on the house table cell style like every other body label.
+            statusStyleFuture = NewTableCellLabelStyle();
             statusStyleFuture.normal.textColor = Color.white;
 
-            statusStyleActive = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            statusStyleActive = NewTableCellLabelStyle();
             statusStyleActive.normal.textColor = Color.green;
 
-            statusStylePast = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            statusStylePast = NewTableCellLabelStyle();
             statusStylePast.normal.textColor = new Color(0.5f, 0.5f, 0.5f);
 
-            statusStyleStatic = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            statusStyleStatic = NewTableCellLabelStyle();
             statusStyleStatic.normal.textColor = new Color(1f, 0.72f, 0.25f);
 
             // L4: only the Stationary cyan matches the shared house palette
@@ -6947,7 +6947,7 @@ namespace Parsek
             // four recording-lifecycle colors above (white / green / 0.5 grey / orange)
             // are a separate semantic set and stay local literals so the Recordings
             // window colors do not shift.
-            statusStyleStationary = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            statusStyleStationary = NewTableCellLabelStyle();
             statusStyleStationary.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Cyan);
         }
 

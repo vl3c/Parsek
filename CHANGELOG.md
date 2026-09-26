@@ -1667,6 +1667,9 @@ _(unreleased — entries accumulate here per commit)_
     vessel's segments the way that row did (trimming each loop to the interesting part) and
     the rest of the mission the way the folder always did, and its Group cell gains an `S`
     button that picks folders for every segment of the launched vessel at once.
+  - The table now uses the same row, header, list-area and cell styles as the Career, Kerbals,
+    Real Spawn Control and Structure tables, so every cell's text starts exactly under its
+    heading (it sat one pixel to the right).
 
 - **Settings: a round of fixes to the Settings window.**
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
