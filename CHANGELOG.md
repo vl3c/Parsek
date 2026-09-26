@@ -4402,6 +4402,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Removed the chain-segment commit path, which always-tree recording never reaches.**
+  Before every recording lived in a tree, Parsek committed a flight as a chain of separate
+  segments at EVA, boarding, docking, undocking, atmosphere / altitude / SOI boundaries and
+  vessel switches. Every recording now runs in a tree, and none of those commits could fire:
+  each one waited on state that only the chain commit itself, or nothing at all, ever set,
+  and none of 756 collected verbose `KSP.log`s carries a chain-commit line. Removed:
+  `ChainSegmentManager.CommitSegmentCore` and its four wrappers, the undock continuation
+  start, the chain branches of the EVA, boarding, dock / undock, vessel-switch and boundary
+  handlers in `ParsekFlight`, the non-tree half of `OnPartCouple`, and the recorder's
+  `DockMerge` / `UndockSwitch` switch decisions with their pending flags. Behavior is
+  unchanged: the boundary handlers still suppress the split in tree mode, an unconfirmed
+  boarding still ends as a normal stop, and chain metadata on saved recordings is still read
+  and played back. The chain identity fields and the continuation-sampling state stay for
+  now, because they subscribe to the committed-list index contract (todo
+  CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL). Comments in the test-command seam, `hlib.py`,
+  the GL-2 spec and the coverage registry that called the dock chain path a live producer of
+  the sub-2-point drop are corrected.
+
 - **Dev tooling: the fixture harvest clears rewind-save names inside rewind-point
   quicksaves too.** `harness/tools/harvest_bdock_station.py` drops the saves that
   Rewind-to-Launch uses (`Parsek/Saves/parsek_rw_*.sfs`) but cleared the names pointing at

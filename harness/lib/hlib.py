@@ -469,11 +469,9 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     commit never passes through that factory at all (it appends through
     #     TryAppendCapturedToTree, which KEEPS a 1-point recording), the remaining
     #     split-edge callers are abnormal aborts no seam verb can provoke on demand, and
-    #     the dock/undock chain-segment path IS live and reaches the same factory
-    #     (ParsekFlight.HandleDockUndockCommitRestart ->
-    #     ChainSegmentManager.CommitDockUndockSegment -> CommitSegmentCore) with no
-    #     always-tree guard on that chain - it logs its own "segment too short" rather
-    #     than the Gloops Warn a lane gates. The S0.5 / S0.6 headers that called the same
+    #     no chain-segment commit exists in always-tree mode (the dock/undock chain path
+    #     that once reached the factory was unreachable and has been removed). The S0.5 /
+    #     S0.6 headers that called the same
     #     outcome a TOLERATED accident of a stationary-pod start/stop predate always-tree
     #     mode and are corrected in the same change.
     # BOTH SINGLE-PHASE and neither is a DEFERRED_SEAM_VERB: the recorder attaches to

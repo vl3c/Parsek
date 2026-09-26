@@ -15,6 +15,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
+
+The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
+`StartUndockContinuation` and their `ParsekFlight` / `FlightRecorder` gates) was removed as
+unreachable in always-tree mode; the reachability proof is the closed entry
+CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED. That removal
+left state whose only producers were the removed commits, kept on purpose:
+
+- Chain identity: `ActiveChainId` (now assigned only `null`), `ActiveChainNextIndex`,
+  `ActiveChainPrevId`, `ActiveChainCrewName`, `PendingContinuation` (only ever `false`),
+  `PendingIsBoarding`, `PendingEvaName`, `PendingBoundaryAnchor`, `HasActiveChain`,
+  `ApplyChainMetadataTo` (a no-op while `ActiveChainId` is null), `ClearChainIdentity`, and
+  `StartRecording`'s `isContinuation` (always false). `RecorderStateSnapshot` logs some of
+  them in every `RecState` line (`chain.*` fields).
+- Continuation sampling: `ContinuationVesselPid` / `UndockContinuationPid` and their index,
+  id, velocity and UT fields are never set non-zero, so `UpdateContinuationSampling`,
+  `UpdateUndockContinuationSampling`, `StopAllContinuations`, the snapshot refreshes and the
+  `ParsekFlight` bake-and-stop blocks on switch / split / destroy never act.
+- `ChainSegmentManager.OnCommittedRecordingRemoved` / `OnCommittedRecordingInserted` /
+  `RebindContinuationIndices` are the "chain continuation indices" subscriber of the
+  committed-list index contract (`RecordingStore.CommittedListNotifications.cs`), and
+  `absorbedIntoByRecordingId` is written there with no reader left.
+
+Removing these touches the index-contract subscriber set and the `RecState` log format, so
+it was held back for an operator decision rather than folded into the dead-commit removal.
+The `Recording` revert-rollback fields `ContinuationBoundaryIndex` and the
+`PreContinuation*` snapshots were set only by the removed commits too, so the
+`RecordingStore` rollback that reads them and the hydration-repair copy go with this
+cleanup. Recording-side chain DATA (`ChainId`, `ChainIndex`, `ChainBranch`,
+`ParentRecordingId`, `EvaCrewName`) is serialized and read by playback and must stay.
+
 ## ~~D1-COMMIT-ABORT-UNDEFINED: D1 `commit-abort` had no definition and no lane~~ [FILED AND CLOSED 2026-09-26 by `CA-1-commit-abort-booster-live`, coverage wave 14, branch `cov-commitabort`; the definition is a supervisor ruling PENDING OPERATOR CONFIRMATION]
 
 **Definition (registry D1 block).** The post-destruction auto-merge is ABORTED because the ACTIVE
