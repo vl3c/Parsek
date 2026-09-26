@@ -227,14 +227,14 @@ values = ["basic-playback", "loop-period-modes", "self-overlap", "overlap-expiry
           "watch-entry-distance-cutoff"]
 
 [D7]  # part events
-# `inventory-place-remove` SCOPE NOTE (coverage wave 10, 2026-09-26): UNCLAIMED, pending
-# the operator's design ruling on todo EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL.
-# `EVA-5-ground-science-place-pickup` drives the stock placement and pick-up (seam verb
-# EvaGroundScience) and is EXPECTED-FAIL on the analyzer's INV4 unresolved-pid finding. Its
-# evidence is DISPATCH-ONLY: the recorder captures InventoryPartPlaced / Removed with the
-# placed part's pid and the replay consumes both on the kerbal's ghost (reason
-# no-info-for-part), but the ghost never shows the placed part. A future claim off EVA-5
-# alone would therefore be a dispatch claim, and must say so here.
+# `inventory-place-remove` SCOPE NOTE (re-armed 2026-09-26): CLAIMED by
+# `EVA-5-ground-science-place-pickup` under the owner ruling on todo
+# EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL (option 1). A placed ground part is its own
+# tree member (BranchPointType.GroundPartPlaced, docs/parsek-flight-recorder-design.md section
+# 4.11), so the claim is VISUAL, not dispatch-only: the member's ghost is built and its own
+# InventoryPartPlaced / InventoryPartRemoved events apply `applied=1` to the part it carries.
+# Spawn-at-end of a still-placed part is not part of this claim (todo
+# EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE).
 values = ["decouple-stage-destroy", "engine-fx-legacy", "engine-fx-effects",
           "engine-fx-waterfall-fallback", "rcs", "chute-two-phase", "chute-cut", "shroud",
           "fairing", "panels-antennas-radiators", "gear", "bays", "lights", "dock-undock",

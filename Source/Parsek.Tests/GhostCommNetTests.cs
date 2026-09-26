@@ -720,6 +720,276 @@ namespace Parsek.Tests
             Assert.Null(parts[1].GetNode("MODULE").GetValue("antennaPower"));
         }
 
+        // ---------------------------------------------------------------- continuation hold (scenario 15)
+
+        private const string GuidA = "aaaaaaaa-0000-0000-0000-00000000000a";
+        private const string GuidB = "bbbbbbbb-0000-0000-0000-00000000000b";
+
+        private static Recording Rec(string id, uint pid, string guid, double start, double end,
+            TerminalState? terminal = TerminalState.Orbiting)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = "Station " + id,
+                VesselPersistentId = pid,
+                RecordedVesselGuid = guid,
+                ExplicitStartUT = start,
+                ExplicitEndUT = end,
+                TerminalStateValue = terminal,
+            };
+        }
+
+        [Fact]
+        public void Eligibility_ContinuationHold_HoldsUntilTakeover()
+        {
+            var i = InWindowInput();
+            i.HasContinuationHold = true;
+            i.ContinuationHoldUntilUT = 500;
+            var inWindow = GhostCommNetMath.EvaluateEligibility(i, 150);
+            Assert.True(inWindow.Eligible);
+            Assert.True(inWindow.ExpectHoldPastEnd);
+            var held = GhostCommNetMath.EvaluateEligibility(i, 300);
+            Assert.True(held.Eligible);
+            Assert.True(held.HoldAtEnd);
+            Assert.Equal("continuation-gap-hold", held.Reason);
+            // The takeover UT releases the node (the continuation's own node carries on).
+            Assert.Equal("window-ended", GhostCommNetMath.EvaluateEligibility(i, 500).Reason);
+            // No hold flag, no hold, whatever the UT field says.
+            i.HasContinuationHold = false;
+            Assert.Equal("window-ended", GhostCommNetMath.EvaluateEligibility(i, 300).Reason);
+            Assert.False(GhostCommNetMath.ExpectsHoldPastEnd(i));
+        }
+
+        [Fact]
+        public void Eligibility_ContinuationHold_NeverOverridesExclusionsOrSpawn()
+        {
+            var i = InWindowInput();
+            i.HasContinuationHold = true;
+            i.ContinuationHoldUntilUT = 500;
+            i.VesselSpawned = true;
+            Assert.Equal("vessel-spawned", GhostCommNetMath.EvaluateEligibility(i, 300).Reason);
+            i.VesselSpawned = false;
+            i.HistoricalNeverReplayed = true;
+            Assert.Equal("historical-never-replayed", GhostCommNetMath.EvaluateEligibility(i, 300).Reason);
+            i.HistoricalNeverReplayed = false;
+            i.NeedsSpawn = true;
+            Assert.Equal("held-for-spawn", GhostCommNetMath.EvaluateEligibility(i, 300).Reason);
+            // A hold that ends at or before EndUT is no hold.
+            var j = InWindowInput();
+            j.HasContinuationHold = true;
+            j.ContinuationHoldUntilUT = 200;
+            Assert.False(GhostCommNetMath.ExpectsHoldPastEnd(j));
+            Assert.Equal("window-ended", GhostCommNetMath.EvaluateEligibility(j, 200.5).Reason);
+        }
+
+        [Fact]
+        public void ResolveContinuationHoldUntilUT_EarliestTakeover()
+        {
+            var noCarriers = new List<KeyValuePair<double, double>>();
+            // Claims before the end are history; the first claim at or after it wins.
+            Assert.Equal(900.0, GhostCommNetMath.ResolveContinuationHoldUntilUT(
+                200, new List<double> { 50, 900, 1200 }, noCarriers));
+            // A claim exactly at the end (within tolerance) ends the hold at once.
+            Assert.Equal(200.0, GhostCommNetMath.ResolveContinuationHoldUntilUT(
+                200.0005, new List<double> { 200 }, noCarriers));
+            // A later carrier recording of the vessel starts before the next claim.
+            Assert.Equal(700.0, GhostCommNetMath.ResolveContinuationHoldUntilUT(
+                200, new List<double> { 900 },
+                new List<KeyValuePair<double, double>> { new KeyValuePair<double, double>(700, 950) }));
+            // Carriers that ended by our end are history.
+            Assert.Equal(900.0, GhostCommNetMath.ResolveContinuationHoldUntilUT(
+                200, new List<double> { 900 },
+                new List<KeyValuePair<double, double>> { new KeyValuePair<double, double>(10, 150) }));
+            // A carrier already running at our end carries the vessel itself: no hold.
+            Assert.True(double.IsNaN(GhostCommNetMath.ResolveContinuationHoldUntilUT(
+                200, new List<double> { 900 },
+                new List<KeyValuePair<double, double>> { new KeyValuePair<double, double>(150, 400) })));
+            // No known takeover: never held open-ended.
+            Assert.True(double.IsNaN(GhostCommNetMath.ResolveContinuationHoldUntilUT(
+                200, new List<double> { 100 }, noCarriers)));
+            Assert.True(double.IsNaN(GhostCommNetMath.ResolveContinuationHoldUntilUT(200, null, null)));
+            Assert.True(double.IsNaN(GhostCommNetMath.ResolveContinuationHoldUntilUT(
+                double.NaN, new List<double> { 900 }, null)));
+        }
+
+        [Theory]
+        // chainWouldSpawn, superseded, spawnable, leaf, debris, ghostOnly, branch, spawnedOrDestroyed, expected
+        [InlineData(true, false, false, false, false, false, false, false, true)]
+        [InlineData(true, false, true, true, true, false, false, false, false)]
+        [InlineData(true, false, true, true, false, false, false, true, false)]
+        [InlineData(false, false, true, true, false, false, false, false, false)]
+        [InlineData(false, true, true, true, false, false, false, false, true)]
+        [InlineData(false, true, false, true, false, false, false, false, false)]
+        [InlineData(false, true, true, false, false, false, false, false, false)]
+        [InlineData(false, true, true, true, false, true, false, false, false)]
+        [InlineData(false, true, true, true, false, false, true, false, false)]
+        [InlineData(false, true, true, true, false, false, false, true, false)]
+        public void ContinuationOwnsTerminalSpawn_Cases(
+            bool chainWouldSpawn, bool superseded, bool spawnable, bool leaf, bool debris,
+            bool ghostOnly, bool branch, bool spawnedOrDestroyed, bool expected)
+        {
+            Assert.Equal(expected, GhostCommNetMath.ContinuationOwnsTerminalSpawn(
+                chainWouldSpawn, superseded, spawnable, leaf, debris, ghostOnly, branch, spawnedOrDestroyed));
+        }
+
+        [Fact]
+        public void TryResolveContinuationHold_SupersededTip_HeldUntilLaterRecordingOfSameLaunch()
+        {
+            // The bdock-second-dock shape: mission A's tip (station, Orbiting) ends at 8950.61;
+            // its terminal spawn is superseded by mission B's post-dock recording (11794.68).
+            // Earlier recordings of the same launch are history; another launch of the same
+            // craft (same baked pid, other guid) is not the vessel.
+            Recording tipA = Rec("tipA", 42, GuidA, 8950.59, 8950.61);
+            tipA.TerminalSpawnSupersededByRecordingId = "mergedB";
+            var committed = new List<Recording>
+            {
+                Rec("launch", 42, GuidA, 26, 196, null),
+                Rec("dockA", 42, GuidA, 8949.27, 8950.59, null),
+                tipA,
+                Rec("relaunch", 42, GuidB, 9000, 12000),
+                Rec("mergedB", 42, GuidA, 11794.68, 11803.74),
+            };
+            var chain = new GhostChain { OriginalVesselPid = 42, LaunchGuid = GuidA };
+            chain.Links.Add(new ChainLink { recordingId = "x", ut = 8949.3 });
+            chain.Links.Add(new ChainLink { recordingId = "y", ut = 11794.68 });
+
+            Assert.True(GhostCommNetMath.TryResolveContinuationHold(
+                tipA, committed, chain, null, null, out double until, out string source));
+            Assert.Equal(11794.68, until, 6);
+            Assert.Equal("later-recording-of-vessel", source);
+
+            // Without the chain the superseding recording alone still ends the hold.
+            Assert.True(GhostCommNetMath.TryResolveContinuationHold(
+                tipA, committed, null, null, null, out until, out source));
+            Assert.Equal(11794.68, until, 6);
+        }
+
+        [Fact]
+        public void TryResolveContinuationHold_DockMergeSuperseder_OtherPid_EndsAtItsStart()
+        {
+            // Dock-merge supersession: the continuation carries the SURVIVOR's pid, so it is
+            // matched by id, not by launch identity.
+            Recording rover = Rec("rover", 7, GuidA, 100, 200, TerminalState.Landed);
+            rover.TerminalSpawnSupersededByRecordingId = "merged";
+            var committed = new List<Recording> { rover, Rec("merged", 99, GuidB, 640, 900) };
+            Assert.True(GhostCommNetMath.TryResolveContinuationHold(
+                rover, committed, null, new List<double>(), new List<KeyValuePair<double, double>>(),
+                out double until, out _));
+            Assert.Equal(640.0, until, 6);
+        }
+
+        [Fact]
+        public void TryResolveContinuationHold_ChainClaimBeforeAnyCarrier()
+        {
+            // A later dock (MERGE claim) folds the vessel into another vessel whose own
+            // recording carries it: the hold ends at the claim, not at some later recording.
+            Recording seg = Rec("seg", 42, GuidA, 100, 200);
+            var committed = new List<Recording> { seg, Rec("later", 42, GuidA, 1500, 1600) };
+            var chain = new GhostChain { OriginalVesselPid = 42, LaunchGuid = GuidA };
+            chain.Links.Add(new ChainLink { recordingId = "c1", ut = 50 });
+            chain.Links.Add(new ChainLink { recordingId = "c2", ut = 900 });
+            Assert.True(GhostCommNetMath.TryResolveContinuationHold(
+                seg, committed, chain, null, null, out double until, out string source));
+            Assert.Equal(900.0, until, 6);
+            Assert.Equal("ghost-chain-claim", source);
+        }
+
+        [Fact]
+        public void ApplyContinuationHold_GatesAndLogs()
+        {
+            Recording tipA = Rec("applyTip", 42, GuidA, 100, 200);
+            tipA.TerminalSpawnSupersededByRecordingId = "applyNext";
+            var committed = new List<Recording> { tipA, Rec("applyNext", 42, GuidA, 800, 900) };
+
+            var input = InWindowInput();
+            GhostCommNetMath.ApplyContinuationHold(ref input, tipA, committed, null, false,
+                r => false, "FLIGHT", null, null);
+            Assert.True(input.HasContinuationHold);
+            Assert.Equal(800.0, input.ContinuationHoldUntilUT, 6);
+            Assert.Contains(logLines, l => l.Contains("[GhostCommNet]")
+                && l.Contains("Continuation hold: key=applyTip") && l.Contains("scene=FLIGHT")
+                && l.Contains("until=800.0") && l.Contains("takeover=later-recording-of-vessel"));
+
+            // The real vessel carries its own stock node: never held.
+            input = InWindowInput();
+            GhostCommNetMath.ApplyContinuationHold(ref input, tipA, committed, null, false,
+                r => true, "FLIGHT", null, null);
+            Assert.False(input.HasContinuationHold);
+            Assert.Contains(logLines, l => l.Contains("Continuation hold: key=applyTip")
+                && l.Contains("real vessel exists"));
+
+            // Already spawned: never held.
+            tipA.VesselSpawned = true;
+            input = InWindowInput();
+            GhostCommNetMath.ApplyContinuationHold(ref input, tipA, committed, null, false,
+                r => false, "TRACKSTATION", null, null);
+            Assert.False(input.HasContinuationHold);
+
+            // Neither chain-suppressed nor superseded: no hold and no log line.
+            Recording plain = Rec("applyPlain", 43, GuidA, 100, 200);
+            int before = logLines.Count;
+            input = InWindowInput();
+            input.HasContinuationHold = true;
+            GhostCommNetMath.ApplyContinuationHold(ref input, plain, committed, null, false,
+                r => false, "FLIGHT", null, null);
+            Assert.False(input.HasContinuationHold);
+            Assert.Equal(before, logLines.Count);
+        }
+
+        [Fact]
+        public void ApplyContinuationHold_ChainIntermediateLink_UsesItsChainClaims()
+        {
+            // The walker's second intermediate-link clause: a recording of the chain's vessel
+            // that ends before the chain's tip spawn.
+            Recording seg = Rec("chainSeg", 42, GuidA, 100, 200);
+            var chains = new Dictionary<uint, GhostChain>();
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 42,
+                LaunchGuid = GuidA,
+                SpawnUT = 5000,
+                TipRecordingId = "tip",
+            };
+            chain.Links.Add(new ChainLink { recordingId = "c1", ut = 50 });
+            chain.Links.Add(new ChainLink { recordingId = "c2", ut = 3000 });
+            chains[42] = chain;
+            Assert.Same(chain, GhostChainWalker.FindIntermediateLinkChain(chains, seg));
+            Assert.True(GhostChainWalker.IsIntermediateChainLink(chains, seg));
+
+            var input = InWindowInput();
+            GhostCommNetMath.ApplyContinuationHold(ref input, seg, new List<Recording> { seg }, chains, true,
+                r => false, "FLIGHT", null, null);
+            Assert.True(input.HasContinuationHold);
+            Assert.Equal(3000.0, input.ContinuationHoldUntilUT, 6);
+        }
+
+        [Fact]
+        public void HoldPrediction_OnlyNearTheEnd()
+        {
+            double look = GhostCommNetMath.HoldPredictionLookaheadSeconds(0.25, 1.0);
+            Assert.Equal(1.0, look, 9);
+            Assert.Equal(500.0, GhostCommNetMath.HoldPredictionLookaheadSeconds(0.25, 1000.0), 9);
+            Assert.Equal(1.0, GhostCommNetMath.HoldPredictionLookaheadSeconds(0.25, double.NaN), 9);
+            Assert.True(GhostCommNetMath.ShouldPredictHoldPastEnd(199.5, 200, look));
+            Assert.True(GhostCommNetMath.ShouldPredictHoldPastEnd(200, 200, look));
+            Assert.False(GhostCommNetMath.ShouldPredictHoldPastEnd(150, 200, look));
+            Assert.False(GhostCommNetMath.ShouldPredictHoldPastEnd(200.1, 200, look));
+            Assert.False(GhostCommNetMath.ShouldPredictHoldPastEnd(double.NaN, 200, look));
+        }
+
+        [Fact]
+        public void RegistrationPass_Precedence()
+        {
+            Assert.Equal(1, GhostCommNetMath.RegistrationPass(false, "in-window"));
+            Assert.Equal(1, GhostCommNetMath.RegistrationPass(false, "held-for-spawn"));
+            Assert.Equal(1, GhostCommNetMath.RegistrationPass(false, "chain-gap-hold"));
+            Assert.Equal(1, GhostCommNetMath.RegistrationPass(false, "window-ended"));
+            Assert.Equal(2, GhostCommNetMath.RegistrationPass(true, "chain-pre-claim"));
+            Assert.Equal(2, GhostCommNetMath.RegistrationPass(true, "continuation-gap-hold"));
+            Assert.Equal(3, GhostCommNetMath.RegistrationPass(false, "continuation-gap-hold"));
+        }
+
         // ---------------------------------------------------------------- logging
 
         [Fact]

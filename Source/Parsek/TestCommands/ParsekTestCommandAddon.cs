@@ -1504,6 +1504,8 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.LaunchFromEditor(ParsedCommand cmd) => LaunchFromEditorImpl(cmd);
         // SafeWriteCrash: body in the sibling ParsekTestCommandAddon.SafeWriteCrash.cs.
         void ITestCommandExecutor.SafeWriteCrash(ParsedCommand cmd) => SafeWriteCrashImpl(cmd);
+        // SpinVessel: body in the sibling ParsekTestCommandAddon.SpinVessel.cs.
+        void ITestCommandExecutor.SpinVessel(ParsedCommand cmd) => SpinVesselImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1567,6 +1569,7 @@ namespace Parsek.TestCommands
                 case "GoToEditor": exec.GoToEditor(cmd); break;
                 case "LaunchFromEditor": exec.LaunchFromEditor(cmd); break;
                 case "SafeWriteCrash": exec.SafeWriteCrash(cmd); break;
+                case "SpinVessel": exec.SpinVessel(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

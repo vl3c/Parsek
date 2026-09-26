@@ -3583,6 +3583,30 @@ the orphan `<id>.prec.stage.<guid>.tmp` survives to the next load like real cras
 `SafeWriteCrashSourceSyncTests`) and `validate_safe_write_crash_step` checks the arg shape
 pre-launch. Lane: `ST-4-safe-write-crash-after-temp`.
 
+#### SpinVessel (additive; D17 `persistent-rotation`, a spinning vessel to put on rails)
+
+**Why.** Parsek's PersistentRotation interaction (the go-on-rails angular-velocity capture
+in `FlightRecorder.CreateOrbitSegmentWithRotation` and the spin-forward replay in
+`ParsekFlight.ComputeOrbitalRotation`) needs a vessel that is genuinely rotating when it
+goes on rails. No earlier verb moves a vessel's attitude, and a raw-input kRPC mission
+would be a whole mission library entry for one impulse.
+
+**Grammar.** `cmd=SpinVessel rate=<rad/s>`, rate in (0, 2] (invariant culture; NaN,
+infinities, zero and negatives refused). Always a roll spin: about the active vessel's
+control reference `up` (the nose).
+
+**Behavior.** Refuses unless there is an active, loaded, unpacked vessel. Turns SAS off
+first (SAS would damp the spin, and PersistentRotation reads the SAS group to pick its
+stability mode), then gives every part rigidbody the same world angular velocity plus the
+tangential velocity `omega x (partCoM - vesselCoM)` a rigid body turning about the vessel
+CoM carries, so the joints see one rigid spin. Line: `spinvessel applied: vessel= pid=
+rate=<F4> axis=roll parts= sasWasOn=`; payload `spun=true parts= sasWasOn=`.
+
+**Phases.** SINGLE-PHASE, `RequiresFlight`, default budget. **Refusals** (REJECTED):
+`spinvessel-rate-arg-missing|invalid` (arg-class) and `spinvessel-no-active-vessel`,
+`-vessel-packed`, `-no-rigidbodies` (gate-class). World-mutating tail role, `recording`
+post-mission role. Pure half `TestCommandSpinVessel`. Lane: `MC-5-persistent-rotation`.
+
 ### Addon lifecycle
 
 `ParsekTestCommandAddon` mirrors `TestRunnerShortcut`: `[KSPAddon(KSPAddon.Startup.Instantly, true)]`
