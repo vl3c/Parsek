@@ -28,9 +28,11 @@ max-merge; only the provisional `GameStateStore.CommitScienceActions` cache writ
 max, and the recalc's rebuild replaces it with the summed ledger.
 
 Scope: ALL science, not only deployed experiments. Any subject submitted more than once
-over-credited: a second transmission, a transmit then a recovery, two canisters of the same
-subject in one recovery, and a subject whose `subject.science` already carried committed
-science injected by `ScienceSubjectPatch`. Breaking Ground deployed experiments hit it
+over-credited: a second transmission, a transmit then a recovery, and a subject whose
+`subject.science` already carried committed science injected by `ScienceSubjectPatch`. (Two
+canisters of the same subject in ONE recovery did not over-credit: the second row is dropped by
+`LedgerOrchestrator.DeduplicateAgainstLedger`, which is the separate under-credit
+SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED.) Breaking Ground deployed experiments hit it
 hardest: they send about ten chunks per subject, so a subject reached its cap after three or
 four sends while stock was at a third of it, and in the KSC scene the patch-back of the
 inflated credit into `subject.science` compounded each later send.
@@ -54,6 +56,21 @@ Not migrated: ledger rows already written with running totals by older builds ke
 over-credit (no migration path, like every other ledger capture fix). S1 of
 KSP-SETTINGS-AUDIT-2026-09-26 (the multiplier is not applied to ledger science) is unchanged
 and still open; the increment stays in subject units so a stamped multiplier can apply on top.
+
+## SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED: a second science award for the same subject within 0.1 s is dropped from the ledger [FILED 2026-09-26 from the PR #1883 review. OPEN, under-credit, pre-existing]
+
+`LedgerOrchestrator.DeduplicateAgainstLedger` treats two `ScienceEarning` rows with the same
+`SubjectId` whose capture moments are within 0.1 s as one row and drops the second. That guard
+exists to stop a KSC row written live from being filed again at recording commit, but it also
+drops a GENUINE second award at the same instant: two canisters of the same experiment and
+subject recovered together (stock calls `SubmitScienceData` once per data item), or two deployed
+stations sending the same subject in the same frame. The ledger then credits only the first
+award while stock credits both. Pre-existing (with the old running-total rows the second row was
+dropped the same way) and neither fixed nor worsened by the running-total fix, which now makes
+each row an independent increment, so a distinguishing key (for example the stock award amount,
+or a per-burst sequence number) would let the guard tell a re-filed row from a second award. Not
+measured on a flight. Fix direction: key science dedup on the live-row identity (the row a KSC
+write already filed, by action id or capture sequence) rather than on subject + time window.
 
 ## DEPLOYED-SCIENCE-IS-ALWAYS-UNTAGGED: Breaking Ground deployed-experiment science is never tagged to the flown recording [OPERATOR RULING 2026-09-26; IMPLEMENTED 2026-09-26, branch `fix-deployed-science-ledger`]
 
