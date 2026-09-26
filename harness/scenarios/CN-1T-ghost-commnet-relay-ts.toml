@@ -39,7 +39,8 @@
 
 schema = 1
 id = "CN-1T-ghost-commnet-relay-ts"
-tier = "operator"
+# PROMOTED to nightly 2026-09-26 by operator decision after the armed re-flights.
+tier = "nightly"
 description = "The ghost CommNet relay (design 15.6) in the TRACKING STATION over gloops-airshow plus the ghost-commnet-relay preset (A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over), entered FLIGHT -> LoadGame scene=trackstation so the relays are latched in replay scope: run the in-game GhostCommNet category and require that A and B register nodes, a free endpoint routes home through each real registered node and is cut off without it, A is a multi-hop control source, B relays while hidden, and C registers nothing."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "tracking-station", "CN-1T",
