@@ -1,0 +1,163 @@
+# CN-2: the ghost CommNet relay (design 15.6) seen from a REAL live probe's own CommNet node.
+# FLOWN AND ARMED 2026-09-26 (see STATUS below). Proves 15.6 scenarios 1 (a live vessel routes through a
+# ghost relay), 3 (a crewed ghost control point controls a probe that has no path home) and
+# 8 (a ghost relay behind a body carries nothing through it). CN-1 / CN-1T prove the node
+# against a test-made endpoint; here the endpoint is the active vessel itself.
+#
+# THE HOST: `duna-park-probe` (Parsek-stripped, sandbox, UT 9,160,396.76), whose ACTIVE
+# vessel is the uncrewed DD1 Duna Direct Probe (octo core + three RA-2 relays, 4.56e9
+# combined) on a 718 km Duna orbit. Its antennas reach the KSC's DSN (2.5e11, sandbox
+# facilities maxed) out to about 33.8 Gm and Kerbin is 10.7 Gm away, so it normally links
+# home DIRECTLY; the one thing that cuts it off is Duna itself, for about 900 s of every
+# 12,108 s orbit (stock occluder radius 320 km x occlusionMultiplierAtm 0.75 = 240 km). No
+# committed fixture has a probe out of home RANGE (a probe core's 5000 INTERNAL antenna
+# reaches the DSN to 35,000 km, and every far probe in the fixture set is a DD1 with RA-2s),
+# so occlusion is the only honest way to take home away from a real vessel.
+#
+# THE PRESET `ghost-commnet-live` (SyntheticRecordingTests.GhostCommNetLivePreset, fact
+# InjectGhostCommNetLive; the injector refuses any save clock but duna-park-probe's): three
+# committed single-recording trees on the probe's OWN orbit (its ORBIT node verbatim, mean
+# anomaly offset), each one point at save + 1 s plus one orbit segment to save + 100,001 s:
+#   cn2-limb-relay     "CN Limb Relay"     RC-L01 + RA-100, 90 deg ahead (1,467 km): at the
+#                                           limb, sees the probe and Kerbin;
+#   cn2-shadow-relay   "CN Shadow Relay"   RC-L01 + RA-100, 3 deg ahead (54 km): links the
+#                                           probe, behind Duna itself;
+#   cn2-control-point  "CN Control Point"  RC-L01 + Mk1 pod seating Valentina Kerman (a Pilot,
+#                                           Available in this roster), NO relay antenna, 5 deg
+#                                           behind (90 km).
+# THE WARP TARGET 9162597 (save + 2,200 s) is DERIVED, not measured: the stock ephemeris
+# (StockEphemeris, pinned against the Kerbin exit and Duna entry recorded in
+# duna-direct-recorded and the Ike entry in ike-orbit-recorded, residuals 1.3 km / 2.1 km /
+# 9 m at the SOI radius) and the probe's ORBIT node (its saved latitude and altitude
+# reproduced to 2e-6 deg / 0.3 m) put the probe AND the shadow relay behind Duna from
+# about save + 1,801 s to save + 2,600 s. The target leaves 400 s for the batch after the
+# warp. GhostCommNetLaneGeometryTests pins the window and, over the first 200 s after the
+# target, every clearance (the limb relay about 800 km clear of the occluder, Ike more than
+# 1,000 km off every line), every occlusion depth and every range.
+#
+# THE CELLS (category GhostCommNetLive, 3 FLIGHT declarations). MEASURED `passed=3 skipped=0`,
+# as predicted before the first flight:
+#   LiveProbeReachesHomeOnlyThroughGhostRelay_Flight   the probe links no home, home is in its
+#       range, Duna is between: FindHome and the probe's own ControlPath hop through the limb
+#       relay ghost, IsConnectedHome is true; with that node out, both go false (negative
+#       control), and back in, true again;
+#   LiveProbeControlledThroughGhostControlPoint_Flight  with the limb relay out (no path home)
+#       the probe's closest control source is the control point ghost one hop away and its
+#       ControlPath ends there (IsConnected true, IsConnectedHome false); with the control
+#       point out too, it has no control source (negative control);
+#   OccludedGhostRelayDoesNotCarryLiveProbe_Flight     the shadow relay links the probe, is in
+#       range of home and links none (Duna between); with the limb relay out the probe cannot
+#       reach home through it.
+#
+# WHAT COULD MAKE THE FIRST FLIGHT RED OR INVALID (pre-registered):
+# - `warptout refused reason=warp-locked` right after the load (SS-1's shape): driver-INVALID;
+#   the settle steps before the warp are there for it.
+# - A stock rails-rate clamp slower than predicted over a 2,150 s span: WarpToUT's budget.
+# - The cells' premise failing (the probe still linked home at the batch UT): the cells FAIL
+#   with the UT in the message, meaning the derivation or the warp landing is wrong, not the
+#   product. Read the batch UT against the window above before filing anything.
+# - A preset ghost not registered (`holds no ghost node: excluded (...)`): a product finding
+#   (replay-scope latch, derivation) and the reason is in the message.
+#
+# STATUS. READING RUN 2026-09-26_2030 (automation DLL sha256 a92379703364..., built from
+# branch commnet-lanes): PASS attempt 1, 167 s, the first flight, `total=3 passed=3
+# failed=0 skipped=0`, zero GhostCommNet WARN / ERROR lines. The warp landed at
+# reachedUT=9162596.8 (44 s wall, no warp-locked refusal) and the batch read the probe
+# behind Duna as derived: `homeLinked=False homeInRange=True occludedBy=Duna
+# connectedHome=True hops=2 viaGhost=cn2-limb-relay negativeControl=cut restored=True`,
+# the control point `controlSource=cn2-control-point hops=1 negativeControl=no-control`,
+# the shadow relay `linkedToProbe=True homeLinked=False ... probeHomeWithoutLimb=False`.
+# Registrations measured: both RA-100 relays `relay=100000000000 transmit=5000 ...
+# control=False multiHop=True antennas=2`, the control point `relay=0 transmit=5000 ...
+# control=True multiHop=True antennas=2`. ARMED from it: the batch line is pinned whole
+# (the id left INTERIM_PIN_IDS) and the Derived / registration / cell tokens carry the
+# measured fields (UTs and windows stay regexed). Offline negative control
+# (hlib.evaluate_expectations) green on the reading log, red on every seeded fault: see
+# docs/dev/autotest-status.md. Armed confirmation re-flight pending.
+#
+# COVERAGE: claims no new cell (D6 `commnet-relay` is CN-1's); this lane is its live-vessel
+# depth.
+
+schema = 1
+id = "CN-2-ghost-commnet-live-probe"
+# PROMOTED to nightly 2026-09-27 by operator decision after the armed re-flights.
+tier = "nightly"
+description = "The ghost CommNet relay (design 15.6) from a REAL live probe's own CommNet node: duna-park-probe's uncrewed DD1, warped to where Duna hides every home from it, with the ghost-commnet-live preset's three recordings on its own orbit (a relay at the limb, a relay behind Duna, a crewed RC-L01 control point with no relay). Run the in-game GhostCommNetLive category and require that the probe reaches home only through the limb relay ghost (its ControlPath and IsConnectedHome, cut without it), takes control from the ghost control point when no path home exists (none without it), and is not carried home by the occluded relay."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "warp", "CN-2", "flown",
+        "armed"]
+
+[fixture]
+saveTemplate = "fixtures/saves/duna-park-probe"
+injectedRecordings = "ghost-commnet-live"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # Settle at 1x before the warp (a WarpToUT sent before the unpack is refused
+  # `warp-locked`); the preset opens at save + 1 s and is latched in these frames.
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  # Into the window where Duna hides home from the probe. Must match
+  # SyntheticRecordingTests.GhostCommNetLiveWarpTargetUT (GhostCommNetLaneGeometryTests).
+  { cmd = "WarpToUT",   args = { ut = "9162597", maxRate = "100" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "RunTests",   args = { category = "GhostCommNetLive" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required  = [
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=GhostCommNetLive scene=FLIGHT",
+  "\\[GhostCommNet\\] Stock CommNet available in scene FLIGHT: ghost CommNet nodes enabled",
+  # The control point: a crewed RC-L01 with a Pilot the roster knows, and no relay antenna.
+  "\\[GhostCommNet\\] Derived antennas: key=cn2-control-point vessel=\"CN Control Point\" source=vessel-snapshot type=Probe parts=2 relayAntennas=0 otherAntennas=2 deployGated=0 controlPoints=1 relayEnablers=0 crew=1 knownCrew=1 pilots=1 unknownCrew=0 partsMissingPrefab=0 moduleSnapshotsMissing=0 timelineStates=1 capable=True",
+  # Registration (GhostCommNetMath.LogRegistered): two relays, one control point.
+  "\\[GhostCommNet\\] Registered ghost node: key=cn2-limb-relay node=ParsekGhost:cn2-limb-relay vessel=\"CN Limb Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=100000000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn2-shadow-relay node=ParsekGhost:cn2-shadow-relay vessel=\"CN Shadow Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=100000000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn2-control-point node=ParsekGhost:cn2-control-point vessel=\"CN Control Point\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=0 transmit=5000 relayCombined=False transmitCombined=False control=True multiHop=True antennas=2",
+  # The cells' own summaries, one per scenario.
+  "\\[TestRunner\\] GhostCommNet live probe relay \\(FLIGHT\\): probe=\"DD1 Duna Direct Probe\" homeLinked=False homeInRange=True occludedBy=Duna connectedHome=True hops=2 viaGhost=cn2-limb-relay negativeControl=cut restored=True",
+  "\\[TestRunner\\] GhostCommNet live probe control point \\(FLIGHT\\): probe=\"DD1 Duna Direct Probe\" connectedHome=False connected=True controlSource=cn2-control-point hops=1 multiHop=True negativeControl=no-control",
+  "\\[TestRunner\\] GhostCommNet occluded relay \\(FLIGHT\\): shadow=cn2-shadow-relay linkedToProbe=True homeInRange=True homeLinked=False occludedBy=Duna limb=cn2-limb-relay limbHomeLinked=True probeHomeWithoutLimb=False",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Ghost node pre-update threw",
+  "DriveGhostCommNet threw",
+  "Ghost node dark this rebuild: key=cn2-[a-z-]+ vessel=\"[^\"]*\" reason=(position-unresolved|exception)",
+  "No ghost node for key=cn2-[a-z-]+ vessel=\"[^\"]*\": (?!before-window)",
+  "Removed ghost node: key=cn2-[a-z-]+ .* reason=(?!ParsekFlight destroyed)",
+]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

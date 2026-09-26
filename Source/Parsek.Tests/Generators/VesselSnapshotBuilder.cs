@@ -133,8 +133,11 @@ namespace Parsek.Tests.Generators
         /// nodes carry only the persisted <c>canComm</c> state, exactly as KSP saves them.
         /// Pass <paramref name="pilot"/> to add a crewed Mk1 pod (<c>mk1pod.v2</c>) so the
         /// RC-L01 qualifies as a control point when that kerbal is a pilot in the roster.
+        /// <paramref name="relayPart"/> picks a different fixed relay antenna (for example
+        /// <c>RelayAntenna100</c>, the RA-100, RELAY 1e11).
         /// </summary>
-        public static VesselSnapshotBuilder RelaySatellite(string name, uint pid, string pilot = null)
+        public static VesselSnapshotBuilder RelaySatellite(string name, uint pid, string pilot = null,
+            string relayPart = "RelayAntenna5")
         {
             var b = new VesselSnapshotBuilder();
             b.name = name;
@@ -144,7 +147,7 @@ namespace Parsek.Tests.Generators
             b.AddModuleToPart(0, "ModuleProbeControlPoint");
             b.AddModuleToPart(0, "ModuleCommand");
             b.AddModuleToPart(0, "ModuleDataTransmitter", ("xmitIncomplete", "False"), ("canComm", "True"));
-            b.AddPart("RelayAntenna5", position: "0,0.6,0", parentIndex: 0);      // index 1
+            b.AddPart(relayPart, position: "0,0.6,0", parentIndex: 0);            // index 1
             b.AddModuleToPart(1, "ModuleDataTransmitter", ("xmitIncomplete", "False"), ("canComm", "True"));
             if (pilot != null)
             {
@@ -152,6 +155,58 @@ namespace Parsek.Tests.Generators
                 b.AddModuleToPart(2, "ModuleCommand");
                 b.AddModuleToPart(2, "ModuleDataTransmitter", ("xmitIncomplete", "False"), ("canComm", "True"));
             }
+            return b;
+        }
+
+        /// <summary>
+        /// A crewed probe control point with NO relay antenna (ghost CommNet lanes, design
+        /// 15.6 scenario 3): the RC-L01 (<c>probeStackLarge</c>, INTERNAL 5000 antenna,
+        /// <c>ModuleProbeControlPoint</c> minimumCrew=1 multiHop=True) plus a Mk1 pod
+        /// (<c>mk1pod.v2</c>, INTERNAL antenna) seating <paramref name="pilot"/>. It is a
+        /// control source when that kerbal is a pilot in the roster, and it can never relay.
+        /// </summary>
+        public static VesselSnapshotBuilder ControlPointSatellite(string name, uint pid, string pilot)
+        {
+            var b = new VesselSnapshotBuilder();
+            b.name = name;
+            b.persistentId = pid;
+            b.type = "Probe";
+            b.AddPart("probeStackLarge");                                          // index 0: root
+            b.AddModuleToPart(0, "ModuleProbeControlPoint");
+            b.AddModuleToPart(0, "ModuleCommand");
+            b.AddModuleToPart(0, "ModuleDataTransmitter", ("xmitIncomplete", "False"), ("canComm", "True"));
+            b.AddPart("mk1pod.v2", pilot, position: "0,-1.0,0", parentIndex: 0);   // index 1
+            b.AddModuleToPart(1, "ModuleCommand");
+            b.AddModuleToPart(1, "ModuleDataTransmitter", ("xmitIncomplete", "False"), ("canComm", "True"));
+            return b;
+        }
+
+        /// <summary>
+        /// A relay satellite whose relay antenna is DEPLOYABLE (design 15.6 scenario 9): the
+        /// RC-L01 root plus the HG-5 High Gain Antenna (<c>HighGainAntenna5.v2</c>, runtime
+        /// name of <c>HighGainAntenna5_v2</c>: RELAY 5e6 combinable, its
+        /// <c>ModuleDataTransmitter</c> gated by <c>DeployFxModules = 0</c>, the part's
+        /// <c>ModuleDeployableAntenna</c>). <paramref name="extended"/> writes the persisted
+        /// <c>deployState</c>; a recording's deploy events decide the relay window, the
+        /// snapshot state only when there are none.
+        /// </summary>
+        public static VesselSnapshotBuilder DeployableRelaySatellite(string name, uint pid, bool extended)
+        {
+            var b = new VesselSnapshotBuilder();
+            b.name = name;
+            b.persistentId = pid;
+            b.type = "Relay";
+            b.AddPart("probeStackLarge");                                          // index 0: root
+            b.AddModuleToPart(0, "ModuleProbeControlPoint");
+            b.AddModuleToPart(0, "ModuleCommand");
+            b.AddModuleToPart(0, "ModuleDataTransmitter", ("xmitIncomplete", "False"), ("canComm", "True"));
+            b.AddPart("HighGainAntenna5.v2", position: "0,0.6,0", parentIndex: 0); // index 1
+            b.AddModuleToPart(1, "ModuleDeployableAntenna",
+                ("deployState", extended ? "EXTENDED" : "RETRACTED"),
+                ("storedAnimationTime", extended ? "1" : "0"),
+                ("storedAnimationSpeed", "1"));
+            b.AddModuleToPart(1, "ModuleDataTransmitter", ("xmitIncomplete", "False"),
+                ("canComm", extended ? "True" : "False"));
             return b;
         }
 

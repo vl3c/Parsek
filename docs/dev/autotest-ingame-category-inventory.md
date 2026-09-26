@@ -114,6 +114,8 @@ Two limits of this table, stated so nobody over-reads it:
 | `GhostAudio` | 9 | 8 | 3 | 2 | 0 | 1 | H30 | A |
 | `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | H50 (flown 2026-08-28, executes 4 of 4) | A |
 | `GhostCommNet` | 9 | 5 | 0 | 4 | 0 | 9 | CN-1-ghost-commnet-relay (FLIGHT) and CN-1T-ghost-commnet-relay-ts (TRACKSTATION), both LIVE-PROVEN 2026-09-26 (reading runs `2026-09-26_1130` / `_1131`, PASS attempt 1), over the `ghost-commnet-relay` preset (three copies of one RC-L01 + RA-2 relay craft on a Kerbin-synchronous orbit: A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over). The ghost CommNet relay / control point of design 15.6: a synthetic three-node route with a negative control, a per-node state check against the scene's position resolver and derived powers, the REAL registered nodes carrying a free endpoint home only through themselves (the node taken out cuts it off; a control-source node is the endpoint's closest control source), the preset's operator rulings (A multi-hop control source, B registered while hidden, C unregistered), and a FLIGHT cell for an active vessel linked only to ghost relays, which skips on these lanes' pad vessel (it links KSC directly). Its OWN category for the standing reason (a cell added to `MapPresence` would move H28's pinned tally). Measured split per lane 4 passed / 5 skipped, as predicted, and pinned whole by both specs. Stays bucket **B** (B7) on the promotion rule: each lane drives a scene SLICE (4 of 9; the other scene's 4 cells scene-skip), and `ActiveVesselControlPathUsesGhostRelay` skips on both hosts, so no lane drives the category whole | B |
+| `GhostCommNetLive` | 3 | 3 | 0 | 0 | 0 | 3 | CN-2-ghost-commnet-live-probe (authored 2026-09-26 and LIVE-PROVEN the same day: reading run `2026-09-26_2030`, the first flight, PASS attempt 1, `total=3 passed=3 failed=0 skipped=0` as predicted, pinned WHOLE off it). The ghost CommNet relay of design 15.6 from a REAL live vessel's own CommNet node: `duna-park-probe`'s uncrewed DD1, warped to where Duna hides every home from it, with the `ghost-commnet-live` preset's three recordings on its own orbit. The probe's `ControlPath` / `IsConnectedHome` go through the limb relay ghost and are cut without it (scenario 1), a crewed RC-L01 ghost with no relay is its control source when no path home exists (scenario 3), an occluded relay ghost links it but carries nothing home (scenario 8). Its OWN category so `GhostCommNet`'s `total=9`, pinned whole by CN-1 / CN-1T, does not move. Every cell self-skips outside its preset | A |
+| `GhostCommNetTimeline` | 3 | 3 | 0 | 0 | 0 | 3 | CN-3-ghost-commnet-timeline-warp (authored 2026-09-26 and LIVE-PROVEN the same day: first flight `2026-09-26_2034` PARSEK-FAIL(expectation) on the spec's held-window tokens alone with all three cells passing, reading run `2026-09-26_2053` PASS attempt 1, `total=3 passed=3 failed=0 skipped=0` as predicted, pinned WHOLE off it). A relay's recorded timeline through a real rails warp over the `ghost-commnet-timeline` preset on `gloops-airshow`: after the warp the cells read what each transition left - an HG-5 deployable relay relaying from its recorded deploy event (scenario 9), a relay whose recording ended Destroyed holding no node (scenario 10), a relay whose Orbiting end fell inside the warp spawned and carrying its own stock CommNet node with no ghost node beside it (the hand-off half of scenario 1: the warp-deferred spawn is retried and succeeds in the same frame at EndUT, so no node is ever held and scenario 16's held position is unit-tested only); the transitions themselves are the lane's log contract. Its own category for the same reason. Every cell self-skips outside its preset | A |
 | `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 4 of 17 over `gloops-airshow` + the `part-showcase` preset with a TimeJump to UT 55, so the showcase ghosts are spawned and five seconds into playback when the batch fires. MOVED OUT OF LT-1 in the same commit: LT-1's host has a corpus but nothing PLAYING at its batch UT, where it measured 2 of 17, so the category now sits on the lane that gives its cells active ghosts. The 13 skips want a loop recording (M1 owns loop units) or two overlapping recordings of one vessel - see the 2026-08-04 body read below, whose ~4-of-17 prediction this host MEASURES at exactly 4. A SLICE at 4 of 17, so the promotion rule below does NOT fire and the bucket stays **B** on `Logistics`' standing precedent, with the residue named here) | B |
 | `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6, H44 (TRACKSTATION slice, flown 2026-08-28, executes 9 of 25 - the WHOLE TS slice, zero run-time skips) | B |
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the map cell wants ghost map vessels, which no unattended FLIGHT batch arms). NOT an LT-2 constituent: its SPACECENTER slice measured the same skip on the census | B |
@@ -212,14 +214,19 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **118 categories / 650 declarations**. Buckets **A 89 categories
-(359 declarations)**, **B 28 categories (286 declarations)**, **C 1 category (5
+Totals, re-derived: **120 categories / 656 declarations**. Buckets **A 91 categories
+(365 declarations)**, **B 28 categories (286 declarations)**, **C 1 category (5
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
 the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
 same day and it stays **B** (each lane is a scene slice, 4 of 9).
-The same day `MapPresence` lost one declaration (A 360 -> 359). All re-derived
+The same day `MapPresence` lost one declaration (A 360 -> 359), and the two ghost CommNet
+follow-on categories `GhostCommNetLive` (CN-2) and `GhostCommNetTimeline` (CN-3) landed WITH
+their never-flown lanes, 3 FLIGHT cells each, straight into **A** (A1, `H36`'s standing: an
+interim pin until the reading run measures the split), A 89 -> 91 categories, 359 -> 365
+declarations. Both flew the same day (CN-2 `2026-09-26_2030`, CN-3 `2026-09-26_2053`, PASS
+attempt 1, 3 of 3 each) and the pins are now WHOLE. All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
@@ -320,10 +327,11 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **117 of 118 categories**, covering **645 of 650
+Driven by a committed spec: **119 of 120 categories**, covering **651 of 656
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 650 declarations in
-118 categories over `Source/Parsek`. The 2026-09-26 ghost CommNet relay opened a 118th
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 656 declarations in
+120 categories over `Source/Parsek`. The 119th and 120th rows, `GhostCommNetLive` and
+`GhostCommNetTimeline`, arrived 2026-09-26 already driven by CN-2 / CN-3. The 2026-09-26 ghost CommNet relay opened a 118th
 row, `GhostCommNet`, UNCLAIMED like `GuiMock` until CN-1 / CN-1T drove it the same day. The 2026-09-08 reading was 112 of 112; the GUI-tree
 dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on
 2026-09-11; the GUI state gallery's P1 opened a 114th on 2026-09-22 and left it
@@ -714,7 +722,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (89 categories, 359 declarations)
+### Bucket A - wired now (91 categories, 365 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.

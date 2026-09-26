@@ -21,7 +21,7 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class SyntheticRecordingTests
     {
-        private static string ProjectRoot => ResolveProjectRoot();
+        internal static string ProjectRoot => ResolveProjectRoot();
 
         /// <summary>
         /// Walks up from the test working directory probing for
@@ -7509,7 +7509,7 @@ namespace Parsek.Tests
             return TerminalOrbitSma * (1.0 - e * Math.Cos(eccAnomaly)) - SpawnSafetyKerbinRadius;
         }
 
-        private static Recording MaterializeSpawnSafetyRecording(RecordingBuilder builder, string id)
+        internal static Recording MaterializeSpawnSafetyRecording(RecordingBuilder builder, string id)
         {
             RecordingTree tree = ScenarioWriter.MaterializeTree(new[] { builder });
             Recording rec = tree.Recordings[id];
@@ -8011,15 +8011,19 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// One copy of the relay craft on a Kerbin-synchronous equatorial orbit over
-        /// <paramref name="surfaceLonDeg"/>. The orbit takes the pad vessel's shape (LAN of the
-        /// KSC meridian at the start, argPe 270 so the true anomaly at the start is the
-        /// longitude offset from the KSC). <paramref name="pilot"/> seats a roster kerbal in a
-        /// Mk1 pod, which makes the RC-L01 (minimumCrew 1) a control point.
+        /// A committed recording of a craft on a Kerbin-synchronous equatorial circular orbit
+        /// over <paramref name="surfaceLonDeg"/>: ONE point at <paramref name="startUT"/> plus
+        /// ONE orbit segment to <paramref name="endUT"/>, in the pad vessel's orbit shape (LAN
+        /// of the KSC meridian at the start, argPe 270, so the true anomaly at the start is the
+        /// longitude offset from the KSC). <paramref name="vesselSnapshot"/> may return null
+        /// (a destroyed vessel has no end snapshot); an Orbiting end also stamps the terminal
+        /// orbit its spawn propagates. Snapshot factories take the derived part-vessel pid.
         /// </summary>
-        internal static RecordingBuilder GhostCommNetRelayRecording(
-            string recordingId, string vesselName, double startUT, double endUT,
-            double surfaceLonDeg, string pilot, bool playbackEnabled, bool loop)
+        internal static RecordingBuilder GhostCommNetSynchronousRecording(
+            string recordingId, string vesselName, double startUT, double endUT, double surfaceLonDeg,
+            Func<uint, VesselSnapshotBuilder> vesselSnapshot,
+            Func<uint, VesselSnapshotBuilder> ghostVisualSnapshot,
+            TerminalState terminal)
         {
             double sma = GhostCommNetSynchronousSma();
             double lan = GhostCommNetKscLanAt(startUT);
@@ -8036,16 +8040,37 @@ namespace Parsek.Tests
             b.AddPoint(startUT, 0.0, surfaceLonDeg, alt);
             b.AddOrbitSegment(startUT, endUT,
                 inc: 0.0, ecc: 0.0, sma: sma, lan: lan, argPe: argPe, mna: mna, epoch: startUT);
-            b.WithTerminalState((int)TerminalState.Orbiting);
-            b.WithTerminalOrbit("Kerbin", sma, 0.0, 0.0, lan, argPe, mna, startUT);
-            b.WithVesselSnapshot(
-                VesselSnapshotBuilder.RelaySatellite(vesselName, pid, pilot)
-                    .WithLaunchGuid(guid)
-                    .AsOrbiting(sma, 0.0, 0.0, lan: lan, argPe: argPe, mna: mna, epoch: startUT));
+            b.WithTerminalState((int)terminal);
+            if (terminal == TerminalState.Orbiting)
+                b.WithTerminalOrbit("Kerbin", sma, 0.0, 0.0, lan, argPe, mna, startUT);
+            VesselSnapshotBuilder vessel = vesselSnapshot != null ? vesselSnapshot(pid) : null;
+            if (vessel != null)
+                b.WithVesselSnapshot(
+                    vessel.WithLaunchGuid(guid)
+                        .AsOrbiting(sma, 0.0, 0.0, lan: lan, argPe: argPe, mna: mna, epoch: startUT));
             b.WithGhostVisualSnapshot(
-                VesselSnapshotBuilder.RelaySatellite(vesselName, pid, pilot)
+                ghostVisualSnapshot(pid)
                     .WithLaunchGuid(guid)
                     .AsOrbiting(sma, 0.0, 0.0, lan: lan, argPe: argPe, mna: mna, epoch: startUT));
+            return b;
+        }
+
+        /// <summary>
+        /// One copy of the relay craft on a Kerbin-synchronous equatorial orbit over
+        /// <paramref name="surfaceLonDeg"/>. The orbit takes the pad vessel's shape (LAN of the
+        /// KSC meridian at the start, argPe 270 so the true anomaly at the start is the
+        /// longitude offset from the KSC). <paramref name="pilot"/> seats a roster kerbal in a
+        /// Mk1 pod, which makes the RC-L01 (minimumCrew 1) a control point.
+        /// </summary>
+        internal static RecordingBuilder GhostCommNetRelayRecording(
+            string recordingId, string vesselName, double startUT, double endUT,
+            double surfaceLonDeg, string pilot, bool playbackEnabled, bool loop)
+        {
+            RecordingBuilder b = GhostCommNetSynchronousRecording(
+                recordingId, vesselName, startUT, endUT, surfaceLonDeg,
+                pid => VesselSnapshotBuilder.RelaySatellite(vesselName, pid, pilot),
+                pid => VesselSnapshotBuilder.RelaySatellite(vesselName, pid, pilot),
+                TerminalState.Orbiting);
             if (!playbackEnabled)
                 b.WithPlaybackEnabled(false);
             if (loop)
@@ -8084,7 +8109,7 @@ namespace Parsek.Tests
             };
         }
 
-        private static string ReadFixtureVesselBlock(string fixture, string vesselName)
+        internal static string ReadFixtureVesselBlock(string fixture, string vesselName)
         {
             string path = Path.Combine(ProjectRoot, "harness", "fixtures", "saves", fixture, "persistent.sfs");
             Assert.True(File.Exists(path), "fixture save missing: " + path);
@@ -8097,14 +8122,14 @@ namespace Parsek.Tests
             return m.Groups["body"].Value;
         }
 
-        private static double ReadVesselValue(string block, string key)
+        internal static double ReadVesselValue(string block, string key)
         {
             var m = Regex.Match("\n" + block, @"\n\t\t\t" + Regex.Escape(key) + @" = ([^\n]+)");
             Assert.True(m.Success, "VESSEL key missing: " + key);
             return double.Parse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture);
         }
 
-        private static double ReadOrbitValue(string block, string key)
+        internal static double ReadOrbitValue(string block, string key)
         {
             var orbit = Regex.Match(block, @"\t\t\tORBIT\n\t\t\t\{\n(?<o>.*?)\n\t\t\t\}", RegexOptions.Singleline);
             Assert.True(orbit.Success, "VESSEL has no ORBIT node");
@@ -8386,6 +8411,271 @@ namespace Parsek.Tests
                     Assert.Contains(Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayARecordingId, content);
                     Assert.Contains(Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayBRecordingId, content);
                     Assert.Contains(Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayCRecordingId, content);
+                });
+        }
+
+        // ----- ghost-commnet-live (CN-2): relay, control point and occlusion around a LIVE probe -----
+        //
+        // The subject of lane CN-2, which proves design 15.6 on a REAL vessel's own CommNet node
+        // rather than on a test-made endpoint. Host: duna-park-probe, whose ACTIVE vessel is the
+        // uncrewed DD1 Duna Direct Probe (octo core + three RA-2 relays, 4.56e9 combined) on a
+        // 718 km Duna orbit. Its antennas reach the KSC's DSN (2.5e11 in sandbox) out to about
+        // 33.8 Gm and Kerbin is 10.7 Gm away, so the ONLY thing that cuts it off from home is
+        // Duna itself: for about 900 s of every 12,108 s orbit the probe is behind Duna (stock
+        // occluder radius 320 km x occlusionMultiplierAtm 0.75 = 240 km). The lane warps into
+        // that window. Three committed single-recording trees ride the probe's OWN orbit (its
+        // ORBIT node copied verbatim, mean anomaly offset), so the geometry relative to the probe
+        // holds whenever the probe is behind Duna and does not hang on Kerbin's exact direction:
+        //   cn2-limb-relay     "CN Limb Relay"     RC-L01 + RA-100, 90 deg ahead: at the limb,
+        //                                           sees both the probe and Kerbin;
+        //   cn2-shadow-relay   "CN Shadow Relay"   RC-L01 + RA-100, 3 deg ahead (54 km): links the
+        //                                           probe but is behind Duna too, so it cannot
+        //                                           carry it home (scenario 8, occlusion);
+        //   cn2-control-point  "CN Control Point"  RC-L01 + Mk1 pod seating Valentina Kerman (a
+        //                                           Pilot, Available, on no vessel), NO relay
+        //                                           antenna, 5 deg behind (scenario 3).
+        // All three open 1 s after the save's clock (so the load latches them into replay scope)
+        // and run 100,000 s, so nothing ends or spawns during the lane. Where the probe is behind
+        // Duna is derived from the stock ephemeris (StockEphemeris, pinned against two recorded
+        // SOI crossings) and the probe's ORBIT node in GhostCommNetLaneGeometryTests, which also
+        // pins GhostCommNetLiveWarpTargetUT inside the window the probe AND the shadow relay are
+        // both occluded in, and every clearance and range the cells rely on.
+
+        internal const double DunaParkProbeSaveUT = 9160396.7636916172;
+        internal const string DunaParkProbeVesselName = "DD1 Duna Direct Probe";
+        /// <summary>DD1's saved ORBIT node in duna-park-probe, verbatim (REF 6 = Duna).</summary>
+        internal static readonly FixtureOrbitElements DunaParkProbeOrbit = new FixtureOrbitElements
+        {
+            Sma = 1038214.9499945882,
+            Ecc = 0.0012696218422829151,
+            IncDeg = 1.9668953082225138,
+            LanDeg = 283.66711761433078,
+            ArgPeDeg = 18.78926772112812,
+            MnaRad = 1.6826751904359671,
+            Epoch = 9160396.7636916172,
+        };
+        /// <summary>DD1's saved surface longitude, which calibrates Duna's rotation at the save UT.</summary>
+        internal const double DunaParkProbeSavedLon = 15.529229975808326;
+        internal const double DunaRotationPeriodSeconds = 65517.859375;
+        internal const int DunaFlightGlobalsIndex = 6;
+        internal const string GhostCommNetLivePilot = "Valentina Kerman";
+        internal const string GhostCommNetLiveLimbName = "CN Limb Relay";
+        internal const string GhostCommNetLiveShadowName = "CN Shadow Relay";
+        internal const string GhostCommNetLiveControlName = "CN Control Point";
+        internal const string GhostCommNetLiveRelayPart = "RelayAntenna100";
+        internal const double GhostCommNetLiveStartOffsetSeconds = 1.0;
+        internal const double GhostCommNetLiveWindowSeconds = 100000.0;
+        internal const double GhostCommNetLiveLimbLeadDeg = 90.0;
+        internal const double GhostCommNetLiveShadowLeadDeg = 3.0;
+        internal const double GhostCommNetLiveControlLeadDeg = -5.0;
+        /// <summary>
+        /// CN-2's WarpToUT target (the spec literal): 2,200 s after the save, inside the
+        /// window where both the probe and the shadow relay are behind Duna (derived and pinned
+        /// by GhostCommNetLaneGeometryTests).
+        /// </summary>
+        internal const double GhostCommNetLiveWarpTargetUT = 9162597.0;
+
+        /// <summary>
+        /// Surface longitude on Duna of a Duna-relative element-frame vector at a UT. Duna's
+        /// rotation angle is read off DD1's own saved longitude at the save UT and advanced at
+        /// the sidereal rate.
+        /// </summary>
+        internal static double DunaSurfaceLonDeg(FixtureVec3 dunaRelative, double ut)
+        {
+            double probeAngle = StockEphemeris.ElementAngleDeg(
+                StockEphemeris.Position(DunaParkProbeOrbit, StockEphemeris.DunaGravParameter, DunaParkProbeSaveUT));
+            double rotationAtSave = probeAngle - DunaParkProbeSavedLon;
+            return StockEphemeris.Wrap180(StockEphemeris.ElementAngleDeg(dunaRelative) - rotationAtSave
+                - 360.0 * (ut - DunaParkProbeSaveUT) / DunaRotationPeriodSeconds);
+        }
+
+        /// <summary>
+        /// One committed recording on DD1's own Duna orbit, <paramref name="leadDeg"/> of mean
+        /// anomaly ahead of the probe: ONE point at the start (Duna lat / lon / alt of that
+        /// orbit position) plus ONE orbit segment to its end, terminal Orbiting with the same
+        /// terminal orbit.
+        /// </summary>
+        internal static RecordingBuilder GhostCommNetDunaParkRecording(
+            string recordingId, string vesselName, double startUT, double endUT, double leadDeg,
+            Func<uint, VesselSnapshotBuilder> snapshot)
+        {
+            FixtureOrbitElements el = DunaParkProbeOrbit.WithMeanAnomalyOffset(leadDeg * Math.PI / 180.0);
+            el.MnaRad = Wrap360(el.MnaRad * 180.0 / Math.PI) * Math.PI / 180.0;
+            FixtureVec3 p = StockEphemeris.Position(el, StockEphemeris.DunaGravParameter, startUT);
+            double lat = StockEphemeris.LatitudeDeg(p);
+            double lon = DunaSurfaceLonDeg(p, startUT);
+            double alt = p.Magnitude - StockEphemeris.DunaRadius;
+            uint pid = ScenarioWriter.DeriveVesselPersistentId(recordingId);
+            string guid = ScenarioWriter.DeriveVesselLaunchGuid(recordingId);
+
+            var b = new RecordingBuilder(vesselName)
+                .WithRecordingId(recordingId)
+                .WithRecordedVesselGuid(guid)
+                .WithRecordingGroup("Synthetic");
+            b.AddPoint(startUT, lat, lon, alt, body: "Duna");
+            b.AddOrbitSegment(startUT, endUT,
+                inc: el.IncDeg, ecc: el.Ecc, sma: el.Sma, lan: el.LanDeg, argPe: el.ArgPeDeg,
+                mna: el.MnaRad, epoch: el.Epoch, body: "Duna");
+            b.WithTerminalState((int)TerminalState.Orbiting);
+            b.WithTerminalOrbit("Duna", el.Sma, el.Ecc, el.IncDeg, el.LanDeg, el.ArgPeDeg, el.MnaRad, el.Epoch);
+            b.WithVesselSnapshot(snapshot(pid).WithLaunchGuid(guid)
+                .AsOrbiting(el.Sma, el.Ecc, el.IncDeg, el.LanDeg, el.ArgPeDeg, el.MnaRad, el.Epoch,
+                    refBody: DunaFlightGlobalsIndex));
+            b.WithGhostVisualSnapshot(snapshot(pid).WithLaunchGuid(guid)
+                .AsOrbiting(el.Sma, el.Ecc, el.IncDeg, el.LanDeg, el.ArgPeDeg, el.MnaRad, el.Epoch,
+                    refBody: DunaFlightGlobalsIndex));
+            return b;
+        }
+
+        /// <summary>The three CN-2 recordings, clocked off the host save's UT.</summary>
+        internal static RecordingBuilder[] GhostCommNetLivePreset(double baseUT)
+        {
+            double start = baseUT + GhostCommNetLiveStartOffsetSeconds;
+            double end = start + GhostCommNetLiveWindowSeconds;
+            return new[]
+            {
+                GhostCommNetDunaParkRecording(
+                    Parsek.InGameTests.GhostCommNetLiveInGameTests.LimbRelayRecordingId,
+                    GhostCommNetLiveLimbName, start, end, GhostCommNetLiveLimbLeadDeg,
+                    pid => VesselSnapshotBuilder.RelaySatellite(GhostCommNetLiveLimbName, pid,
+                        relayPart: GhostCommNetLiveRelayPart)),
+                GhostCommNetDunaParkRecording(
+                    Parsek.InGameTests.GhostCommNetLiveInGameTests.ShadowRelayRecordingId,
+                    GhostCommNetLiveShadowName, start, end, GhostCommNetLiveShadowLeadDeg,
+                    pid => VesselSnapshotBuilder.RelaySatellite(GhostCommNetLiveShadowName, pid,
+                        relayPart: GhostCommNetLiveRelayPart)),
+                GhostCommNetDunaParkRecording(
+                    Parsek.InGameTests.GhostCommNetLiveInGameTests.ControlPointRecordingId,
+                    GhostCommNetLiveControlName, start, end, GhostCommNetLiveControlLeadDeg,
+                    pid => VesselSnapshotBuilder.ControlPointSatellite(GhostCommNetLiveControlName, pid,
+                        GhostCommNetLivePilot)),
+            };
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="GhostCommNetLivePreset"/> (the <c>ghost-commnet-live</c>
+        /// preset behind <c>CN-2-ghost-commnet-live-probe</c>): three committed
+        /// single-recording trees, no RewindPoint sidecar. The geometry is derived against
+        /// duna-park-probe's DD1 at that save's UT, so any other clock is refused.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("ghost-commnet-live-fixture")]
+        public void InjectGhostCommNetLive()
+        {
+            InjectSingleSubjectPreset("ghost-commnet-live-fixture",
+                (writer, baseUT) =>
+                {
+                    Assert.True(Math.Abs(baseUT - DunaParkProbeSaveUT) < 1e-3,
+                        "ghost-commnet-live is derived against duna-park-probe's DD1 at UT "
+                        + DunaParkProbeSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                        + "; the target save reads UT=" + baseUT.ToString("R", CultureInfo.InvariantCulture));
+                    foreach (RecordingBuilder b in GhostCommNetLivePreset(baseUT))
+                        writer.AddRecordingAsTree(b);
+                },
+                content =>
+                {
+                    Assert.Contains("vesselName = " + GhostCommNetLiveLimbName, content);
+                    Assert.Contains("vesselName = " + GhostCommNetLiveShadowName, content);
+                    Assert.Contains("vesselName = " + GhostCommNetLiveControlName, content);
+                    Assert.Contains("name = " + DunaParkProbeVesselName, content);
+                });
+        }
+
+        // ----- ghost-commnet-timeline (CN-3): a relay's timeline through a rails warp -----
+        //
+        // The subject of lane CN-3, on gloops-airshow (pad vessel, sandbox, save UT 21.16).
+        // Three committed single-recording trees on Kerbin-synchronous orbits east of the KSC
+        // (GhostCommNetSynchronousRecording, the CN-1 orbit shape), all opening 1 s after the
+        // save's clock; the lane's rails warp (WarpToUT 621, maxRate 10) crosses one recorded
+        // transition of each:
+        //   cn3-deploy-relay  "CN Deploy Relay"  RC-L01 + HG-5 (deployable RELAY 5e6), a
+        //                                         DeployableExtended event at save + 150 s:
+        //                                         registered with no relay power, relays from
+        //                                         the event on (scenario 9);
+        //   cn3-doomed-relay  "CN Doomed Relay"  RC-L01 + RA-2, terminal Destroyed at save +
+        //                                         250 s, no end snapshot: relays to its end and
+        //                                         never after (scenario 10);
+        //   cn3-held-relay    "CN Held Relay"    RC-L01 + RA-2, terminal Orbiting at save +
+        //                                         350 s: the warp defers its spawn, the retry
+        //                                         spawns it in the same frame at EndUT (no
+        //                                         node is held), and the node is handed to
+        //                                         the spawned vessel's own stock node (the
+        //                                         hand-off half of scenario 1).
+
+        internal const double GhostCommNetTimelineSaveUT = 21.159999999999638;
+        internal const string GhostCommNetTimelineDeployName = "CN Deploy Relay";
+        internal const string GhostCommNetTimelineDoomedName = "CN Doomed Relay";
+        internal const string GhostCommNetTimelineHeldName = "CN Held Relay";
+        internal const double GhostCommNetTimelineStartOffsetSeconds = 1.0;
+        internal const double GhostCommNetTimelineWindowSeconds = 100000.0;
+        internal const double GhostCommNetTimelineDeployOffsetSeconds = 150.0;
+        internal const double GhostCommNetTimelineDoomedEndOffsetSeconds = 250.0;
+        internal const double GhostCommNetTimelineHeldEndOffsetSeconds = 350.0;
+        internal const double GhostCommNetTimelineDeployLonOffsetDeg = 60.0;
+        internal const double GhostCommNetTimelineDoomedLonOffsetDeg = 90.0;
+        internal const double GhostCommNetTimelineHeldLonOffsetDeg = 120.0;
+        /// <summary>The HG-5 is part index 1 of DeployableRelaySatellite (100000 + 1 * 1111).</summary>
+        internal const uint GhostCommNetTimelineDeployPartPid = 101111u;
+        internal const string GhostCommNetTimelineDeployPartName = "HighGainAntenna5.v2";
+        /// <summary>CN-3's WarpToUT target (the spec literal): past all three transitions.</summary>
+        internal const double GhostCommNetTimelineWarpTargetUT = 621.0;
+
+        /// <summary>The three CN-3 recordings, clocked off the host save's UT.</summary>
+        internal static RecordingBuilder[] GhostCommNetTimelinePreset(double baseUT)
+        {
+            double start = baseUT + GhostCommNetTimelineStartOffsetSeconds;
+            RecordingBuilder deploy = GhostCommNetSynchronousRecording(
+                Parsek.InGameTests.GhostCommNetTimelineInGameTests.DeployRelayRecordingId,
+                GhostCommNetTimelineDeployName, start, start + GhostCommNetTimelineWindowSeconds,
+                Wrap180(GhostCommNetKscLon + GhostCommNetTimelineDeployLonOffsetDeg),
+                pid => VesselSnapshotBuilder.DeployableRelaySatellite(GhostCommNetTimelineDeployName, pid, extended: true),
+                pid => VesselSnapshotBuilder.DeployableRelaySatellite(GhostCommNetTimelineDeployName, pid, extended: false),
+                TerminalState.Orbiting);
+            deploy.AddPartEvent(baseUT + GhostCommNetTimelineDeployOffsetSeconds,
+                GhostCommNetTimelineDeployPartPid, (int)PartEventType.DeployableExtended,
+                GhostCommNetTimelineDeployPartName);
+            RecordingBuilder doomed = GhostCommNetSynchronousRecording(
+                Parsek.InGameTests.GhostCommNetTimelineInGameTests.DoomedRelayRecordingId,
+                GhostCommNetTimelineDoomedName, start, baseUT + GhostCommNetTimelineDoomedEndOffsetSeconds,
+                Wrap180(GhostCommNetKscLon + GhostCommNetTimelineDoomedLonOffsetDeg),
+                null,
+                pid => VesselSnapshotBuilder.RelaySatellite(GhostCommNetTimelineDoomedName, pid),
+                TerminalState.Destroyed);
+            RecordingBuilder held = GhostCommNetSynchronousRecording(
+                Parsek.InGameTests.GhostCommNetTimelineInGameTests.HeldRelayRecordingId,
+                GhostCommNetTimelineHeldName, start, baseUT + GhostCommNetTimelineHeldEndOffsetSeconds,
+                Wrap180(GhostCommNetKscLon + GhostCommNetTimelineHeldLonOffsetDeg),
+                pid => VesselSnapshotBuilder.RelaySatellite(GhostCommNetTimelineHeldName, pid),
+                pid => VesselSnapshotBuilder.RelaySatellite(GhostCommNetTimelineHeldName, pid),
+                TerminalState.Orbiting);
+            return new[] { deploy, doomed, held };
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="GhostCommNetTimelinePreset"/> (the
+        /// <c>ghost-commnet-timeline</c> preset behind <c>CN-3-ghost-commnet-timeline-warp</c>):
+        /// three committed single-recording trees, no RewindPoint sidecar. The lane's warp
+        /// target is a literal against gloops-airshow's clock, so any other clock is refused.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("ghost-commnet-timeline-fixture")]
+        public void InjectGhostCommNetTimeline()
+        {
+            InjectSingleSubjectPreset("ghost-commnet-timeline-fixture",
+                (writer, baseUT) =>
+                {
+                    Assert.True(Math.Abs(baseUT - GhostCommNetTimelineSaveUT) < 1e-3,
+                        "ghost-commnet-timeline is clocked against gloops-airshow at UT "
+                        + GhostCommNetTimelineSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                        + "; the target save reads UT=" + baseUT.ToString("R", CultureInfo.InvariantCulture));
+                    foreach (RecordingBuilder b in GhostCommNetTimelinePreset(baseUT))
+                        writer.AddRecordingAsTree(b);
+                },
+                content =>
+                {
+                    Assert.Contains("vesselName = " + GhostCommNetTimelineDeployName, content);
+                    Assert.Contains("vesselName = " + GhostCommNetTimelineDoomedName, content);
+                    Assert.Contains("vesselName = " + GhostCommNetTimelineHeldName, content);
                 });
         }
 
