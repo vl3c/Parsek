@@ -717,8 +717,7 @@ steps = [
 #       subject, and although the recording's first six ORBIT_SEGMENTs are Duna-framed
 #       nothing in THIS spec's contract gates a Duna-framed render. Claim it at arming
 #       if the reading shows a gateable Duna token.
-#   D14 `warp-1x` (CLAIMED 2026-09-25, supervisor ruling 2026-09-25, pending operator
-#       confirmation: the cell means "ghosts replayed at 1x, seen in the render warp
+#   D14 `warp-1x` (CLAIMED 2026-09-25, operator-confirmed 2026-09-26: the cell means "ghosts replayed at 1x, seen in the render warp
 #       histogram") <- the armed renderComposition block's `warpBuckets = ["warp1x"]`:
 #       RC-WARP FAILs the run when the manifest counts zero 1x frames inside a dwell.
 #       Measured {warp1x: 173} (reading), 177 (armed re-flight `2026-08-25_1050`).
@@ -997,8 +996,8 @@ terminalStates = { Orbiting = { min = 1 } }
 #     `rendercompose.SEAM_KINDS_REQUIRABLE` and admits no other token.
 #
 #   warpBuckets = ["warp1x"]              MEASURED {warp1x: 173} / 177, every other
-#     bucket 0. ADDED 2026-09-25 for the D14 `warp-1x` claim (supervisor ruling
-#     2026-09-25, pending operator confirmation). Every clock move on this lane is an
+#     bucket 0. ADDED 2026-09-25 for the D14 `warp-1x` claim (operator-confirmed
+#     2026-09-26). Every clock move on this lane is an
 #     instantaneous TimeJump, so the histogram is 1x-only BY CONSTRUCTION, and that is
 #     exactly the cell's definition ("ghosts replayed at 1x, seen in the render warp
 #     histogram"): the clause reds when the manifest carries no 1x dwell frame at all.

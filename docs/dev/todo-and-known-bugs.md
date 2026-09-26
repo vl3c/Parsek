@@ -73,7 +73,7 @@ applier route tables, and the hlib / run smoke baseline cells.
 
 ---
 
-## ~~D1-COMMIT-ABORT-UNDEFINED: D1 `commit-abort` had no definition and no lane~~ [FILED AND CLOSED 2026-09-26 by `CA-1-commit-abort-booster-live`, coverage wave 14, branch `cov-commitabort`; the definition is a supervisor ruling PENDING OPERATOR CONFIRMATION]
+## ~~D1-COMMIT-ABORT-UNDEFINED: D1 `commit-abort` had no definition and no lane~~ [FILED AND CLOSED 2026-09-26 by `CA-1-commit-abort-booster-live`, coverage wave 14, branch `cov-commitabort`; the definition is OPERATOR-CONFIRMED 2026-09-26]
 
 **Definition (registry D1 block).** The post-destruction auto-merge is ABORTED because the ACTIVE
 vessel was destroyed while another leaf of the same tree is a NON-DEBRIS blocker (still live, or
@@ -134,10 +134,10 @@ save folder and its Launch threw `UnauthorizedAccessException` writing the auto-
 in the spec, read off the log (the clock stopped 10 s before the loop departure), not a replay defect; the armed
 re-flight `2026-09-25_2338` with a `TimeJump` into the replay window is green.
 
-## HARVEST-PROVENANCE-CLAIMED-ON-A-SYNTHETIC-DRILL: D10 `harvest-provenance` rests on the M2 synthetic drill tree, not on a flown drill [FILED 2026-09-25 by coverage wave 2 (branch `cov-wave2`). OPEN, low; an operator confirmation, not a defect]
+## ~~HARVEST-PROVENANCE-CLAIMED-ON-A-SYNTHETIC-DRILL: D10 `harvest-provenance` rests on the M2 synthetic drill tree, not on a flown drill~~ [FILED 2026-09-25 by coverage wave 2 (branch `cov-wave2`). CLOSED 2026-09-26: the scoped claim is operator-confirmed]
 
 `HV-1-harvest-route-analysis` claims the cell SCOPED to "the route planner treats drilled
-cargo as its own origin" (supervisor ruling 2026-09-25): the synthetic tree
+cargo as its own origin" (operator-confirmed 2026-09-26): the synthetic tree
 `tree-drill-harvest-m2` (two witnessed harvest windows on an undocked-start Minmus run)
 makes `RouteAnalysisEngine.AnalyzeTree` take its harvest-origin branch in-game
 (`undocked start fully harvest-covered -> harvest origin originRec=m2-drill-root`,
@@ -147,8 +147,8 @@ windows into a recording that a route is then built from. The capture half has i
 evidence (H38's `Harvest funnel consumed at transition` token; the catch-up cell still
 self-skips for want of a drill rig landed on ore).
 
-**Owed:** the operator confirms the scoped claim, or rules that the cell needs the
-live-drill flight (a drill rig landed on ore, recorded, docked at a depot, committed, then
+**Confirmed 2026-09-26:** the operator confirmed the scoped claim; the
+live-drill flight stays optional (a drill rig landed on ore, recorded, docked at a depot, committed, then
 the route built from it - the supply-route hand-off). Also measured on the same run and
 NOT claimed: the drill tree's synthetic `m2-drill-delivery` window lets
 `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` pass on this host (41 / 6 against
@@ -425,8 +425,8 @@ action row typed `LegacyEvent` or whose text is the raw enum name. Unit cells in
 ## ~~SAFE-WRITE-CRASH-AFTER-TEMP-HAS-NO-LANE: D16 `safe-write` needs a crash hook between the temp write and the swap~~ [FILED 2026-09-25, coverage wave 4, branch `cov-ingame`; CLOSED 2026-09-26 by `ST-4-safe-write-crash-after-temp`, coverage wave 13, branch `cov-safewrite`]
 
 Catalog item F5: a crash after `FileIOUtils` wrote `<path>.tmp` but before the swap must leave the
-previous file intact, and the next load must recover. Closed inside ONE boot (supervisor ruling
-2026-09-25, pending operator confirmation), with no relaunch:
+previous file intact, and the next load must recover. Closed inside ONE boot (operator-confirmed
+2026-09-26), with no relaunch:
 
 - **Hook.** `FileIOUtils.MaybeInjectCrashAfterTemp` runs in `SafeWriteBytes` and `SafeWriteConfigNode`
   after the temp file is verified and before the swap. It is armed only by `ArmCrashAfterTemp(pattern,
@@ -543,16 +543,15 @@ provisioned kRPC settings stamp `mainWindowVisible = False` (the servers start f
 
 ---
 
-## COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave [FILED 2026-09-25, branch `cov-wave1`. OPEN]
+## COVERAGE-WAVE-1-RULINGS-AND-RESIDUE: operator confirmation of six registry rulings, and three cells left for a later wave [FILED 2026-09-25, branch `cov-wave1`. RULINGS OPERATOR-CONFIRMED 2026-09-26; OPEN only for the D14 `atmosphere` residue below]
 
-**Pending operator confirmation (supervisor rulings 2026-09-25, applied in the registry):**
+**Operator-confirmed 2026-09-26 (supervisor rulings 2026-09-25, applied in the registry):**
 retire D13 `proximity-offset` (code removed, VesselSpawner.cs:19), D12 `reservation-auto-hire`
 (never produced; stand-ins replaced it) and D14 `situation` (an axis, not a behaviour); define
 D14 `atmosphere` ("a recording replays correctly around a non-Kerbin atmospheric body", claimed
 on V16M) and `warp-1x` ("ghosts replayed at 1x, seen in the render warp histogram", claimed on
 V14M); count EX-1's pad retirement as D13 `ksc-exclusion`; D13 `pid-dedup` is a separate cell
-from D6 `spawn-at-end-pid-dedup`. If any is overruled, revert that registry entry and the
-matching `[dimensionsCovered]` line.
+from D6 `spawn-at-end-pid-dedup`.
 
 **Left uncovered on purpose:**
 - ~~D16 `alias-mode`~~ DONE 2026-09-26 (coverage wave 5, branch `cov-wave5`): claimed on
@@ -1377,8 +1376,8 @@ handlers commit or discard the live tree, and the consume then takes
 `ParsekFlight.TryRouteCommittedSpawnedClone` path B, which clones the half's OWN committed tree and
 attaches the segment under the half's own tip - lineage, exactly what run `2026-09-22_2239`
 measured. Answering the boot dialog changes which dialog stands, not where the segment lands.
-Route B (supervisor ruling 2026-09-25, accepted by the coordinator, pending operator
-confirmation): the injected `background-claim` preset gives `eva2-lko-crewed` one committed tree
+Route B (accepted by the coordinator, operator-confirmed
+2026-09-26): the injected `background-claim` preset gives `eva2-lko-crewed` one committed tree
 whose second recording is a PARENTLESS, branch-point-free background recording of the save's real
 Kerbal X Probe (pid 2614652043) with an engine ignite / shutdown - the shape
 `PrepareActiveTreeForFreshPostSwitchRecording` (no `FreshStartParentRecordingId`) and
@@ -12943,7 +12942,7 @@ a recorder AND applier change. BAY-1 sidesteps it: its fixture copy of the Malla
 bays to `deployPercent = 100`, so the lane gates a full door cycle and this gap stays visible
 here rather than being flown away.
 
-## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. OPERATOR CONFIRMATION PENDING on the supervisor's ruling]
+## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. The route-driven ruling is OPERATOR-CONFIRMED 2026-09-26]
 
 The registry names the road (roadmap routing roads: a rendezvous mission relaunched against
 the station's live orbit). V18T is the only lane whose extraction emits a `VesselOrbital`

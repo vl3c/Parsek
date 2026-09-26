@@ -2,8 +2,8 @@
 # (D18 `background-event-claims`), SCOPED TO THE CHAIN-WALKER DECISION ON A BACKGROUND
 # RECORDING (a synthetic one).
 #
-# SCOPE (supervisor ruling 2026-09-25, route B, accepted by the coordinator 2026-09-26 on the
-# route-A code evidence below; pending operator confirmation): the claimed
+# SCOPE (route B, accepted by the coordinator 2026-09-26 on the route-A code evidence
+# below; operator-confirmed 2026-09-26): the claimed
 # recording is HAND-BUILT (the `background-claim` injected preset), not harvested from a
 # flight. What this lane proves is the chain walker's background-event decision and its
 # downstream effect in a real flight scene, on a production-shaped tree; it does NOT prove
