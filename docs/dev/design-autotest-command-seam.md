@@ -545,7 +545,9 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > verb takes any committed index. It is NOT wider in what it calls: every route is a
 > production entry point (see the contract below).
 >
-> Full contract below (`#### DeleteRecording`).
+> Full contract below (`#### DeleteRecording`). **REMOVED 2026-09-26** with the table's
+> delete button (recordings are never player-deletable); the section below records the
+> removal.
 
 > Update (the GUI census, 2026-09-10): TWO further ADDITIVE verbs, `CaptureScreenshot
 > label=<name> [superSize=<1-4>]` and
@@ -1261,81 +1263,17 @@ route= statusBefore= status=". The shared funnel emits its own `[Route]`
 "CreatePausedFromCandidate created tree= route= name= status= interval= transit= cadence=
 manualLoopsCleared=" line, which is what a spec pins for the creation itself.
 
-#### DeleteRecording (additive; the Recordings-table per-row delete)
+#### DeleteRecording (REMOVED 2026-09-26)
 
-**Contract.** Precondition `RequiresGameLoaded` and the logistics pair's two dispatch
-rejects (`load-in-flight`, `merge-journal-in-flight`, load-first), for the same reasons: a
-merge journal mid-finalize is rewriting the supersede rows and committed list a delete
-removes from, and a `LoadGame` would swap the store out between the bound check and the
-removal so the index would name a different recording. NO `recording-active` guard: the
-verb acts on COMMITTED rows and the table offers the delete with a recorder live.
-SINGLE-PHASE: the removal is a synchronous list mutation whose notifications fan out
-inside the call, so the read-back is a final answer and the verb rides the 60 s default
-budget.
-
-**Every route is a production entry point.** The verb reproduces
-`RecordingsTableUI.DeleteGhostOnlyRecording`'s scene branch and adds the table's other
-delete:
-
-| scene | row | production call |
-|---|---|---|
-| FLIGHT (flight host present) | `IsGhostOnly` | `ParsekFlight.DeleteGhostOnlyRecording(index)` - the "X" button |
-| FLIGHT (flight host present) | any other | `ParsekFlight.DeleteRecording(index)` - behind `CanDeleteRecording`, checked HERE first |
-| anything else (SPACECENTER, TRACKSTATION) | any | `RecordingStore.DeleteRecordingFull(index)` - the KSC branch |
-
-All three end in `RecordingStore.RemoveRecordingAt`, which degrades chain siblings, deletes
-the sidecar files and removes the row through `RemoveCommittedAtWithNotifications` - the
-one primitive every mid-list mutation shares - so the flight / KSC / TS hosts shift their
-index-keyed state exactly as they do for a player's click.
-
-**Arguments.** `index=<n>` REQUIRED: a non-negative InvariantCulture integer naming a
-committed-LIST index (raw, not ERS - the hosts key on the same list; the applier file is
-`[ERS-exempt]` for that reason). No auto-select and no id selector: a delete with no
-target is a spec error, and `RecordingState` exposes no committed ids, so a lane pins the
-index off its fixture's bytes the way V22K pins its tree id.
-
-**Verified by read-back, never by the call returning.** All three production calls are
-`void` and swallow a refusal with a Warn (an out-of-range index, a not-ghost-only row on
-the ghost-only path, a blocked flight delete). The verdict therefore rests on the row being
-GONE from the committed list afterwards - by REFERENCE, since the old index now names the
-row's former neighbour and an id can be null or duplicated - else `ERROR
-delete-not-applied`.
-
-**Typed-error taxonomy.**
-
-| verdict | `msg` | when |
-|---|---|---|
-| REJECTED | `index-arg-invalid` | `index=` absent, negative, fractional, locale-comma or unparseable |
-| REJECTED | `index-out-of-range` | `index >= committed.Count` (no side effect) |
-| REJECTED | `flight-delete-blocked` | FLIGHT, non-ghost-only row, `CanDeleteRecording` false (a live recorder or a tracked chain continuation); typed here because the production call refuses silently |
-| ERROR | `delete-not-applied` | the routed call returned with the row still present |
-
-The harness maps the two index refusals to `driver-arg` through the existing
-`_SEAM_REFUSAL_SUBKINDS` rows (keyed by msg token, shared with EnterWatchMode).
-
-**Payload (OK).** `index`, `recId`, `vessel`, `ghostOnly`, `route`
-(`store` | `flight-ghost-only` | `flight-full`), `committedBefore`, `committedAfter` - the
-count pair is there because `RecordingState` reports no committed count, so this is the
-only seam-side read of the removal.
-
-**Diagnostic logging.** `Info` "deleterecording start index= recId= vessel= ghostOnly=
-route= committed= scene=", then "deleterecording complete index= recId= route=
-committedBefore= committedAfter="; `Warn` "deleterecording rejected reason=..." and `Error`
-"deleterecording error reason=delete-not-applied ...". The production path's own lines
-still fire and are what a spec pins for the removal itself: `[RecordingStore]
-DeleteRecordingFull: deleting '<name>' at index N` (store route), `Removed recording
-'<name>' (id=...) at index N`, and the hosts' shift lines - `[KSCGhost] KSC ghost state
-reindexed after committed removal at #N: primary= overlapSets=` (Verbose, and only when a
-KSC ghost was alive) or `[Flight] Committed recording #N removed - reindexed engine, held,
-map, watch and chain state`.
-
-**Harness roles.** `SEAM_VERB_TAIL_ROLE`: world-mutating (it destroys durable recorded
-data - `DiscardTree`'s reasoning). `SEAM_VERB_POST_MISSION_ROLE`: `recording` (its OK is a
-read-back of Parsek's own store, never a kerbal claim).
-
-**First consumer.** `S0.11-ksc-table-delete`: V22K's boot into SPACECENTER with the loop
-member rendered, a short dwell, `DeleteRecording index=1`, a longer dwell - pinning the
-KSC host's reindex line with the deleted index literal.
+The verb, its applier (`ParsekTestCommandAddon.DeleteRecording.cs`) and its lane
+`S0.11-ksc-table-delete` were removed with the Recordings table's delete button, by the
+operator ruling that recordings are never player-deletable (a deletion breaks the timeline
+and the ledger). The table goes back to **43 implemented / 5 reserved**. The `ParsekKSC`
+committed-list subscriber the verb existed to drive stays pinned headlessly by
+`CommittedListNotificationTests`, and its only remaining single-row removers are internal
+(the merge-journal rollback of a session-provisional Re-Fly recording, the Gloops
+"Discard Recording", Re-Fly and load-time sweeps). A spec that names the verb is refused
+pre-launch by `validate_spec`, and the seam answers it as an unknown verb.
 
 #### ListHandles (additive; the R10 handle-list verb)
 

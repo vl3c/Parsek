@@ -248,7 +248,7 @@ namespace Parsek.TestCommands
     ///
     /// <para><c>close</c>, <c>tab</c>, <c>complexity</c> and <c>describe</c> stay
     /// SINGLE-PHASE - a synchronous write followed by a read-back, the
-    /// <c>EnterMapView</c> / <c>DeleteRecording</c> shape. The one that LOOKS deferred is
+    /// <c>EnterMapView</c> / <c>SealSlot</c> shape. The one that LOOKS deferred is
     /// <c>complexity</c>: <c>ParsekUI.SetUiComplexityMode</c> only QUEUES the draw-visible
     /// value, which a later <c>Update</c> latches through
     /// <c>ApplyPendingUiComplexityModeIfAny</c>. The seam pump itself runs in <c>Update</c>,

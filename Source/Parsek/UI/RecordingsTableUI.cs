@@ -699,11 +699,6 @@ namespace Parsek
         // copied from GUI.skin.button.active). Mirrors KerbalsWindowUI / CareerStateWindowUI.
         private GUIStyle toggleButtonStyle;
 
-        // Deferred ghost-only recording deletion (avoids mid-layout list mutation).
-        // Captured by RecordingId and resolved on consume: the committed list can be
-        // restructured between the click frame and the next OnGUI.
-        private string pendingDeleteGhostOnlyRecordingId;
-
         // Window drag tracking for position logging
         private Rect lastRecordingsWindowRect;
 
@@ -1873,20 +1868,6 @@ namespace Parsek
             }
 
             // ===== Recordings tab =====
-            // Process deferred ghost-only recording deletion (avoids mid-layout list mutation).
-            // Captured by id: the list may have been restructured since the click.
-            if (pendingDeleteGhostOnlyRecordingId != null)
-            {
-                string delId = pendingDeleteGhostOnlyRecordingId;
-                pendingDeleteGhostOnlyRecordingId = null;
-                int delIdx = RecordingStore.IndexOfRecordingId(RecordingStore.CommittedRecordings, delId);
-                if (delIdx >= 0)
-                    DeleteGhostOnlyRecording(delIdx);
-                else
-                    ParsekLog.Warn("UI",
-                        $"Deferred ghost-only delete skipped: recording id={delId} is no longer in the committed list");
-            }
-
             // [ERS-exempt] reason: the recordings-table window is the authoritative
             // management surface — it lists, sorts, renames, groups, and deletes
             // recordings by index into the raw committed list (including
@@ -2275,36 +2256,16 @@ namespace Parsek
             GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowStatus");
 
-            // Group assignment button (split with X delete for ghost-only recordings)
-            if (rec.IsGhostOnly)
+            // Group assignment button. No row carries a delete: recordings are never
+            // player-deletable (a deletion breaks the timeline and the ledger); the per-row
+            // Archive checkbox is the only way to stop seeing one.
+            if (DrawBodyCenteredButton(
+                    new GUIContent("G", "Choose which folders this recording belongs to."),
+                    ColW_Group))
             {
-                bool ghostGClicked, ghostXClicked;
-                DrawBodyCenteredTwoButtons(
-                    new GUIContent("G", "Choose which folders this recording belongs to."), true,
-                    new GUIContent("X", "Delete this ghost-only recording permanently. It carries no real flight data to keep."), true,
-                    ColW_Group, out ghostGClicked, out ghostXClicked);
-                if (ghostGClicked)
-                {
-                    var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
-                    groupPicker.OpenForRecording(ri, mousePos);
-                    ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
-                }
-                if (ghostXClicked)
-                {
-                    pendingDeleteGhostOnlyRecordingId = rec.RecordingId;
-                    ParsekLog.Verbose("UI", $"Delete ghost-only recording clicked: index={ri} id={rec.RecordingId} name='{rec.VesselName}'");
-                }
-            }
-            else
-            {
-                if (DrawBodyCenteredButton(
-                        new GUIContent("G", "Choose which folders this recording belongs to."),
-                        ColW_Group))
-                {
-                    var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
-                    groupPicker.OpenForRecording(ri, mousePos);
-                    ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
-                }
+                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                groupPicker.OpenForRecording(ri, mousePos);
+                ParsekLog.Verbose("UI", $"Group popup opened for recording index={ri} name='{rec.VesselName}'");
             }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowGroup");
 
@@ -4968,48 +4929,6 @@ namespace Parsek
                     })
                 ),
                 false, HighLogic.UISkin);
-        }
-
-        /// <summary>
-        /// Deletes a ghost-only recording by index. No confirmation dialog — ghost-only
-        /// recordings are low-commitment.
-        /// </summary>
-        private void DeleteGhostOnlyRecording(int index)
-        {
-            // [ERS-exempt] reason: delete operates by index into the raw
-            // committed list. See TODO(phase 6+) on DrawRecordingsWindow.
-            // No per-mode gate: the only mode this was ever refused in was
-            // UIMode.TrackingStation, which nothing constructed (GUI census D11). Both
-            // remaining modes host this window and both delete branches below are live.
-            var committed = RecordingStore.CommittedRecordings;
-            if (index < 0 || index >= committed.Count)
-            {
-                ParsekLog.Warn("UI", $"DeleteGhostOnlyRecording: index {index} out of range");
-                return;
-            }
-
-            var rec = committed[index];
-            if (!rec.IsGhostOnly)
-            {
-                ParsekLog.Warn("UI", $"DeleteGhostOnlyRecording: recording at index {index} is not ghost-only");
-                return;
-            }
-
-            var flight = parentUI.Flight;
-            if (flight != null && parentUI.InFlightMode)
-            {
-                // Flight scene: use ParsekFlight.DeleteRecording for ghost cleanup
-                flight.DeleteGhostOnlyRecording(index);
-            }
-            else
-            {
-                // KSC scene: direct store deletion
-                RecordingStore.DeleteRecordingFull(index);
-            }
-
-            InvalidateSort();
-            ParsekLog.Info("UI",
-                $"Deleted ghost-only recording \"{rec.VesselName}\" (id={rec.RecordingId})");
         }
 
         private void DrawSortableHeader(string label, SortColumn col, float width,

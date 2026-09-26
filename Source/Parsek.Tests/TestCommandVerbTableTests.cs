@@ -43,7 +43,6 @@ namespace Parsek.Tests
         [InlineData("SealSlot")]
         [InlineData("RouteCommand")]
         [InlineData("ExportRenderManifest")]
-        [InlineData("DeleteRecording")]
         [InlineData("ListHandles")]
         [InlineData("WarpToUT")]
         [InlineData("CaptureScreenshot")]
@@ -127,8 +126,10 @@ namespace Parsek.Tests
             // StashSlot and FlySlot deliberately stay behind: FlySlot's mechanism is
             // already driveable as InvokeRewind, and nothing needs StashSlot's slot-OPEN
             // direction.
-            // DeleteRecording is ADDITIVE (30 -> 31; reserved unchanged at 5): the
-            // reserved envelope never carried a recording-deletion verb.
+            // DeleteRecording was ADDITIVE (30 -> 31; reserved unchanged at 5): the
+            // reserved envelope never carried a recording-deletion verb. It was REMOVED
+            // 2026-09-26 (44 -> 43) with the Recordings table's delete button, by the
+            // ruling that recordings are never player-deletable.
             // ListHandles is ADDITIVE for the same reason (31 -> 32; reserved unchanged
             // at 5): the reserved envelope never carried a handle-enumeration verb.
             // WarpToUT is ADDITIVE for the same reason again (32 -> 33; reserved
@@ -169,7 +170,8 @@ namespace Parsek.Tests
             // crash-after-temp injection, not a promotion of CrashAfterJournalPhase.
             // SpinVessel is ADDITIVE (43 -> 44; reserved unchanged at 5): the D17
             // persistent-rotation host; the reserved envelope never carried a physics verb.
-            Assert.Equal(44, TestCommandVerbs.ImplementedVerbNames.Count);
+            // DeleteRecording's removal (see above) takes it back to 43.
+            Assert.Equal(43, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
