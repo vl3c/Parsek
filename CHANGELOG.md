@@ -1208,11 +1208,14 @@ _(unreleased — entries accumulate here per commit)_
   Space Center), Parsek marked every same-named recording in the pending flight as recovered
   and dropped its end snapshot. It now also checks that the recording is of that very vessel
   (same vessel id and launch), and falls back to the name only when either side lacks the id.
-- **The log now says when a debris vessel your recording followed is gone after a reload.**
-  When KSP left a background-recorded vessel out of the save (the vessel budget or the Space
-  Center clean-up), the reloaded recording went on silently without it. Parsek now writes one
-  line naming every such vessel and recording. The recording is still finished the usual way
-  when the flight ends.
+- **A debris vessel KSP drops from the save now ends where it was last seen.** When KSP left a
+  background-recorded vessel out of the save (its vessel budget), the reloaded recording kept
+  claiming the vessel existed, stretching its end forward every 30 seconds, and a Commit Flight
+  could then mark it destroyed and replay it as an explosion. After a reload Parsek now closes
+  each such recording at the last moment the vessel was recorded, as orbiting, landed,
+  splashed down or sub-orbital from its own recorded path, with no explosion; one it already
+  marked recovered (the Space Center clean-up of landed debris is a recovery) keeps that. One
+  log line names every such vessel, its recording and how it was closed.
 - **Parsek stays off in Making History missions, the mission builder and stock training or
   scenario saves.** These games script their own facility locks, recovery rules and endings,
   and Parsek was never built for them; worse, after playing a career and then loading one of

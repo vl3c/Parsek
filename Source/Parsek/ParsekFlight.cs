@@ -4384,10 +4384,11 @@ namespace Parsek
             // Callers attach either to a fresh tree (empty map, nothing to check) or to one
             // restored from a save or the committed list, so this is the load-time point at
             // which a background member stock dropped from the save (vessel budget / KSC
-            // declutter) is first seen without a vessel.
+            // declutter) is first seen without a vessel. It is closed here, before the first
+            // UpdateOnRails tick could advance its end UT past the save.
             HashSet<uint> livePids = TryBuildLiveVesselPidSet();
             if (livePids != null && activeTree.BackgroundMap.Count > 0)
-                backgroundRecorder.LogMissingBackgroundMembersAtLoad(livePids.Contains, reason);
+                backgroundRecorder.CloseMissingBackgroundMembersAtLoad(livePids.Contains, reason);
         }
 
         /// <summary>
@@ -16409,7 +16410,7 @@ namespace Parsek
 
         internal static Func<string, double?> TerminalInferenceBodyRadiusResolverForTesting;
 
-        private static bool HasStableOrbitEvidenceForTerminalInference(OrbitSegment lastOrbit)
+        internal static bool HasStableOrbitEvidenceForTerminalInference(OrbitSegment lastOrbit)
         {
             if (lastOrbit.eccentricity >= 1.0 || string.IsNullOrEmpty(lastOrbit.bodyName))
                 return false;
@@ -16607,7 +16608,7 @@ namespace Parsek
             return ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(rec, out reason);
         }
 
-        static void PopulateTerminalPositionFromLastPoint(Recording rec, TerminalState inferredState)
+        internal static void PopulateTerminalPositionFromLastPoint(Recording rec, TerminalState inferredState)
         {
             if (rec?.Points == null || rec.Points.Count == 0)
                 return;
