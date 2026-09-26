@@ -1417,7 +1417,17 @@ PASS attempt 1 with every token as written; EX-1 armed `_1820` PASS on the fix-u
 `756a9ce6...` (`746e6c48e`), negative control `_1822` red on exactly its one seed. LF-1 / LF-2
 were not re-flown on the fix-up DLL (the fix-ups do not touch a subject outside the zone).
 
-## D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: a promoted staging booster still has its debris TTL armed [FILED 2026-09-23 off GS-11. OPEN, low]
+## ~~D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: a promoted staging booster still has its debris TTL armed~~ [FILED 2026-09-23 off GS-11. FIXED 2026-09-26 on branch fix-promoted-debris]
+
+**FIXED 2026-09-26 on branch fix-promoted-debris.** Fix: `BackgroundRecorder.OnVesselRemovedFromBackground`
+now removes the pid from `debrisTTLExpiry` and logs `Debris TTL cancelled: pid=<p> expiryUT=<u>
+reason=removed-from-background` (Info, only when an entry existed). Every caller is a vessel
+leaving the background for good (promotion, dock/board merge, switch-segment consume, EVA-board
+promotion, background-parent split); `EndDebrisRecording` removes the entry itself before routing
+there, so a real TTL close logs no cancel. Headless cells in `BackgroundRecorderTests`
+(`OnVesselRemovedFromBackground_CancelsDebrisTTL_AndLogsIt` and two neighbours). Not changed: a
+promoted booster switched AWAY from again is re-backgrounded without a new TTL (as before). Not
+re-flown; GS-11 fact (3) now expects the cancel line instead of `Debris TTL expired`.
 
 Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the booster pid 2353949206
 was promoted to the FOREGROUND recorder at UT ~71.5 (`Promoted recording 'baa46b97...' from
@@ -1435,7 +1445,26 @@ Fix: remove the pid from `debrisTTLExpiry` in `OnVesselRemovedFromBackground` (o
 promotion path only), and log it. GS-11's header names the line as expected; flip that note
 when fixed.
 
-## D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance [FILED 2026-09-23 off GS-11. OPEN]
+## ~~D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance~~ [FILED 2026-09-23 off GS-11. FIXED 2026-09-26 on branch fix-promoted-debris]
+
+**FIXED 2026-09-26 on branch fix-promoted-debris.** Source found: not live bookkeeping but
+`VesselSpawner.SnapshotVessel` at recorder stop, which resolved the capture's flat `Points`
+(first point, last point, `ComputeMaxDistance`) through `GetWorldSurfacePosition`; the promoted
+foreground recorder had entered RELATIVE mode near the sibling booster, so the flat list carried
+anchor-local metres. The finalize backfill never corrected it because
+`ClassifyMaxDistanceBackfillRoute` skips a recording whose maxDist is already non-zero. Fix: a pure
+`ClassifySnapshotDistanceRoute` sends any capture with a Relative TrackSection through
+`TryComputeSnapshotDistancesFromBodyFixedSurfaces`, which reuses
+`TryComputeMaxDistanceFromBodyFixedSurfaces` / `CollectBodyFixedSectionSamples` (Absolute `frames`
++ Relative `bodyFixedFrames`, earliest sample as the launch reference) for `MaxDistanceFromLaunch`,
+and measures `DistanceFromLaunch` from the same reference to the live vessel or, when destroyed, to
+the latest body-fixed sample. Mirror site fixed too: the destroyed path's `EndBiome` now resolves
+at the latest body-fixed sample (`TryGetEndBiomeSamplePoint`), not the flat tail. Captures with no
+Relative section keep the flat list. Headless cells: `PromotedDebrisSnapshotDistanceTests`. Not
+re-flown. Residual (not changed): the capture's distance is measured from the promotion point,
+not the booster's own first background sample, and `TryAppendCapturedToTree` keeps the larger of
+the two values; and a capture built on the vessel-switch stop path while a Relative section is
+still OPEN (not yet in the deep-copied `TrackSections`) would still take the flat route.
 
 Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the promoted booster fell
 about 5 km from the pad, yet its death snapshot reads `Vessel was destroyed during recording.
