@@ -15,6 +15,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~D14-JOOL-MOONS-TYLO-BOP-POL: no recording had been flown to, or replayed around, Tylo, Bop or Pol~~ [FILED AND CLOSED 2026-09-26 by coverage wave 11, branch `cov-joolmoons`; roadmap G9's moon half]
+
+**CLOSED 2026-09-26.** D14 `tylo`, `bop` and `pol` were the last uncovered body cells. Harvest lanes
+`B33-tylo-orbit`, `B34-bop-orbit` and `B35-pol-orbit` reuse the `b25_laythe_orbit` mission module
+unchanged (target in missionParams) from the Parsek-stripped `jool-park-nerv` park; all three flew
+PASS on attempt 1 (`2026-09-25_2246` / `_2346` / `_2357`) and were harvested into
+`tylo-orbit-recorded`, `bop-orbit-recorded` and `pol-orbit-recorded`. Replay lanes `V28M` / `V29M` /
+`V30M` loop them for one cycle and require the moon-frame ProtoOrbitLine plus `seam-endpoint summary
+evaluated=2 outsideSoi=0`; readings and armed re-flights all PASS attempt 1 (status rows in
+`autotest-status.md`). Measurements worth keeping for the next arrival lane (delivered/requested
+arrival periapsis k): Tylo 0.13 at req/SOI 9.2%, Bop 0.50 at 20.5%, Pol 1.27 at 19.2% - the corpus
+spread is wide and is not a law. Bop (15 deg, e 0.235) and Pol (e 0.171) route
+`method=single-orbital` exactly as Gilly did. Open, not filed as work: deep-space return shapes
+(the other half of G9) and TS-scene variants of the three V lanes (the V16T shape), neither needed for
+a cell.
+
 ## ~~D14-SCENE-EDITOR-NO-SEAM-ROUTE: no verb could put a run in the VAB / SPH or launch from there~~ [FILED AND CLOSED 2026-09-26 by `SE-1-editor-round-trip`, coverage wave 12, branch `cov-editor`]
 
 `DecideLoadRoute` reached FLIGHT, SPACECENTER and TRACKSTATION only, and `StockScreen screen=editor` is CAREER-only

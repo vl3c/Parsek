@@ -1,0 +1,143 @@
+schema = 1
+id = "V30M-pol-player-loop"
+# =====================================================================================
+# V30M-pol-player-loop: THE POL REPLAY LANE (roadmap G9, coverage wave 11). The V16M player-loop
+# shape, one cycle, on `pol-orbit-recorded` - the B35 harvest (run `2026-09-25_2357`): a Jool-rooted
+# recording that transfers inward from B22's 584,321 km park and captures around
+# Pol. The lane arms loop playback on that tree, jumps across the replayed
+# Jool->Pol seam and into the replayed park, dwells, and requires the two replay
+# witnesses V16M uses on Laythe: the ghost's map orbit line drawn in Pol's frame
+# (`phase=body-orbit surface=ProtoOrbitLine ... body=Pol`) and the seam-endpoint
+# census finding every replayed SOI-entry endpoint inside Pol's sphere
+# (`outsideSoi=0`). That pair is what "a recording replays correctly around Pol"
+# means here, and it is what claims D14 `pol`.
+#
+# THE JUMP TABLE, derived off the fixture's own bytes with V16M's recipe (the same
+# derivation reproduces V16M's committed jumps to the second on `laythe-orbit-recorded`):
+#   UT0 (explicitStartUT)  27,787,320.660
+#   explicitEndUT          30,104,260.340      span 2,316,939.681 s
+#   save UT (FLIGHTSTATE)  30,104,262.560
+#   Jool->Pol seam      30,101,387.284      offset 2,314,066.625
+#   last Pol segment end 30,104,005.340  (parked tail 255.000 s)
+#   P(Pol)              901,902.630 s
+#   phaseAnchorUt = UT0 + k*P, k = ceil((max(saveUT, endUT) - UT0)/P) = 3
+#                 = 30,493,028.550
+#   seam bracket -180 / -60 / +140  -> 32806915 / 32807035 / 32807235
+#   park epoch   anchor + seam offset + (last segment end - seam) + 0.707 * tail
+#                -> 32809894  (74.7 s clear of the recording's end)
+# THE RE-PIN RECIPE: read `phaseAnchorUt=` off `missionconfig applied:` and
+# `relaunchUt=` off `startloopplayback initiated:`; every jump is anchor-relative.
+# ARMED off reading run `2026-09-26_0013`: PASS attempt 1. The product
+#   echoed phaseAnchorUt=30,493,028.510 against the derived 30,493,028.550 (0.040 s),
+#   cadence 2,316,941 -> 2,705,708 = 3*P, and printed `[Orbital(Pol) same-parent ...
+#   off=2314066.645]`, `PhaseLock APPLIED ... method=single-orbital ... zeroDrift=no`,
+#   `factory chain ... reaimed=False`, `Split summary ... seamSkipped=0
+#   exoCoastBodyChangeKept=1`, five ProtoOrbitLine lines with body=Pol and
+#   `seam-endpoint summary evaluated=2 outsideSoi=0`; saveParse read 1 recording, 410
+#   points, every rewind facet 0.
+# =====================================================================================
+tier = "operator"
+description = "THE POL REPLAY LANE (G9, coverage wave 11): V16M's player-loop shape, one cycle, on `pol-orbit-recorded` (B35 run `2026-09-25_2357`, a Jool-rooted recording captured around Pol). Arms loop playback, jumps across the replayed Jool->Pol seam and into the replayed park, dwells, and requires V16M's two replay witnesses on Pol: the ghost's map orbit line drawn in Pol's frame and the seam-endpoint census with every replayed SOI-entry endpoint inside Pol's sphere. Claims D14 `pol`."
+instanceProfile = "stock-minimal"
+tags = ["V30", "player-loop", "loop-playback", "pol", "jool", "same-parent", "moon",
+        "jool-moon"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/pol-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "05d66e3b02ff4e16872defbee8da1a54", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "05d66e3b02ff4e16872defbee8da1a54" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "32806915" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "32807035" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "32807235" }, expect = "OK", budget = 300 },
+  { cmd = "TimeJump", args = { ut = "32809894" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["fast-forward"]
+D14 = ["pol", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "FastForwardToEventUT: jumping to UT=",
+  "Orbital\\(Pol\\) same-parent",
+  "support=Supported constraints=1",
+  "PhaseLock APPLIED: mission=.*method=single-orbital.*zeroDrift=no",
+  "factory chain rec=\\w+ idx=\\d+ inst=\\d+ phases=\\d+ reaimed=False",
+  "Split summary: rec=\\w+ .*seamSkipped=0 exoCoastBodyChangeKept=1",
+  "phase=body-orbit surface=ProtoOrbitLine .*body=Pol",
+  "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
+  "seam-endpoint summary evaluated=[1-9]\\d* outsideSoi=0",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "\\[ReaimDiag\\]",
+  "ENGAGED re-aim",
+  "FORCED FAITHFUL",
+  "timejump refused reason=backward-jump",
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+[expectations.rewind]
+gating = true
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+gating = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1 } }
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

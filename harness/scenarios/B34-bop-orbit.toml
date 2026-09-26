@@ -1,0 +1,160 @@
+schema = 1
+id = "B34-bop-orbit"
+# =====================================================================================
+# B34: THE BOP SUBJECT HARVEST (roadmap G9, coverage wave 11). B25's exact machine
+# and fixture, re-pointed from Laythe to TYLO: the crewed Duna Rocket starts parked
+# in B22's 584,321 km Jool orbit (`jool-park-nerv`, Parsek-stripped so the seam
+# StartRecording mints a fresh standalone Jool-rooted tree), transfers INWARD to
+# Bop, captures + circularizes, holds the park and commits the tree there. THE
+# RECORDING IS THE PRODUCT: its produced save is harvested --keep-parsek into
+# `bop-orbit-recorded`, which V29M replays.
+#
+# MISSION REUSE. `mission = "b25_laythe_orbit"` is deliberate: that module is a
+# thin alias over `mlib.b5_decide` whose whole target-specific content lives in
+# this spec's `missionParams` (the B23 -> B24 -> B25 lineage changed values only).
+# No mlib change and no new mission file.
+#
+# THE VALUES THAT DIFFER FROM B25, each derived (stock elements, mu_Jool 2.82528e14):
+#   Bop   a 128,500,000 m, e 0.235, i 15 deg, R 65,000 m, mu 2.4868349e9,
+#         SOI 1,221,061 m, P 544,507.4 s, highest terrain ~21.8 km, no atmosphere.
+#         THE INCLINED-AND-ECCENTRIC MOON (G9's reason for Bop), the B24 Gilly
+#         shape (i 12.9, e 0.55) at a gas-giant parent; B24 flew it on the same
+#         OperationTransfer + course-correction machine.
+#   synodic vs the park (P 5,361,505 s) = 1/(1/544,507 - 1/5,361,505) = 606,050 s
+#         -> transferBurnTimeoutSeconds 1,500,000.
+#   Bop's radius band is 98.3-158.7 Mm, so the transfer ecc is 0.57-0.71 and B25's
+#         0.55 floor would sit on the band's low edge; ejectionEccFloor 0.45.
+#   transfer coast = half the transfer period, 1.14-1.36 Ms -> coast 4,000,000.
+#   v_inf ~600-900 m/s (the 15 deg plane mismatch dominates).
+#   requested arrival periapsis 250 km = 20.5% of the SOI, the Gilly/Jool k ~ 0.75-1
+#         regime of the delivered-periapsis corpus; B25's Laythe k = 0.29 gives
+#         ~73 km, a 3x-long miss 750 km, all inside the 1,156 km SOI shell and
+#         above the 45 km arrival floor (lower predictions get arrival extras).
+#   capture at 250 km: v_pe ~711, v_circ 90 -> ~620 m/s (~800 at v_inf 900), a
+#         120-160 s burn; B25's finite-burn drop scales to ~5 km at this radius,
+#         so the park floor (25 km) sits 3.2 km above Bop's highest terrain.
+#   dv worst hop: ejection 322 + capture 800 + 4 x 200 = 1,922 m/s of 3,967.
+# THE CROSSING: the descent crosses Pol's orbital shell, so every other Jool moon
+# is a named poison.
+# =====================================================================================
+tier = "operator"
+description = "THE BOP SUBJECT HARVEST (G9, coverage wave 11): B25's orbit-start machine re-pointed at BOP, the inclined (15 deg) and eccentric (0.235) Jool moon. The crewed Duna Rocket starts parked in B22's 584,321 km Jool orbit (`jool-park-nerv`), transfers INWARD to Bop, captures into a Bop park above its ~21.8 km terrain and commits the tree there. Its produced save is harvested --keep-parsek as `bop-orbit-recorded`, the subject V29M replays. Reuses the `b25_laythe_orbit` mission module unchanged. Dv worst hop 1,922 m/s against 3,967 available."
+instanceProfile = "stock-minimal"
+tags = ["B34", "bop", "jool", "same-parent", "moon", "jool-moon", "inward-transfer",
+        "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi",
+        "orbit-start", "crewed"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/jool-park-nerv"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b25_laythe_orbit"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 5400 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 250000000
+startInOrbitMaxApoapsisMeters   = 800000000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+homeBodyName               = "Jool"
+targetBodyName             = "Bop"
+interplanetaryTransfer     = false
+returnBodyName             = "Jool"
+transferMinApoapsisMeters  = 0
+ejectionEccFloor           = 0.45
+courseCorrectPeriapsisMeters = 250000
+correctionTriggerAltsMeters = [0]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+transferBurnTimeoutSeconds = 1500000
+coastTimeoutSeconds        = 4000000
+flybyTimeoutSeconds        = 60000
+coastWarpFactor            = 5
+soiLeadSeconds             = 3000
+approachWindowSeconds      = 10000
+approachMaxWarpFactor      = 3
+flybyWarpFactor            = 2
+flybyMaxWarpFactor         = 3
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 45000
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 25000
+parkMaxApoapsisMeters      = 1100000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+maxCorrectionDvMps         = 200
+
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["jool", "bop", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 2 }
+
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Jool to Bop",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Bop",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "SOI change boundary suppressed in tree mode: \\w+ to Laythe",
+  "SOI change boundary suppressed in tree mode: Laythe to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Vall",
+  "SOI change boundary suppressed in tree mode: Vall to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Tylo",
+  "SOI change boundary suppressed in tree mode: Tylo to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Pol",
+  "SOI change boundary suppressed in tree mode: Pol to \\w+",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+budgetSeconds = 6000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
