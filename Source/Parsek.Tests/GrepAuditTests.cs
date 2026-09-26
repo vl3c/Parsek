@@ -99,7 +99,7 @@ namespace Parsek.Tests
                          "            Ledger.AddActions(actions);",
                          "            CrewReservationManager.ClearReplacementsInternal();",
                          "            RS.ResetForTesting();",
-                         "            RecordingStore.ClearCommitted();",
+                         "            RecordingStore.ClearCommittedInternal();",
                          "            MissionStore.Missions.Clear();",
                          "            RouteStore.CommittedRoutes.Clear();",
                          "            EffectiveState.ComputeERS();",

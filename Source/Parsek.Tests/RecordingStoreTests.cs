@@ -149,18 +149,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Clear_ClearsEverything()
-        {
-            // Create + commit one
-            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "First");
-            RecordingStore.CommitRecordingDirect(rec1);
-
-            RecordingStore.Clear();
-
-            Assert.Empty(RecordingStore.CommittedRecordings);
-        }
-
-        [Fact]
         public void Recording_StartUT_EndUT_Computed()
         {
             var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, startUT: 200), "Ship");

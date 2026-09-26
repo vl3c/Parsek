@@ -180,51 +180,6 @@ namespace Parsek.Tests
             Assert.Equal("Ship", RecordingStore.CommittedRecordings[0].VesselName);
         }
 
-        [Fact]
-        public void Clear_RemovesAll()
-        {
-            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Rec1");
-            Assert.NotNull(rec1);
-            RecordingStore.CommitRecordingDirect(rec1);
-
-            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Rec2");
-            Assert.NotNull(rec2);
-            RecordingStore.CommitRecordingDirect(rec2);
-
-            RecordingStore.Clear();
-
-            Assert.Empty(RecordingStore.CommittedRecordings);
-        }
-
-        [Fact]
-        public void ClearCommitted_OnlyClearsCommitted()
-        {
-            var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "A");
-            Assert.NotNull(rec);
-            RecordingStore.CommitRecordingDirect(rec);
-
-            // The ONLY half of the name: a stashed pending tree must survive
-            // ClearCommitted (RecordingStore.Clear is the call that also drops
-            // it). Without a pending tree stashed, this cell would only pin the
-            // clearing half, which TreeCommitTests.ClearCommitted_ClearsTreesToo
-            // already covers.
-            var pendingTree = new RecordingTree
-            {
-                Id = "tree_pending",
-                TreeName = "tree_pending",
-                RootRecordingId = "rec-root",
-                ActiveRecordingId = "rec-root",
-            };
-            RecordingStore.StashPendingTree(pendingTree);
-            Assert.True(RecordingStore.HasPendingTree);
-
-            RecordingStore.ClearCommitted();
-
-            Assert.Empty(RecordingStore.CommittedRecordings);
-            Assert.True(RecordingStore.HasPendingTree);
-            Assert.Same(pendingTree, RecordingStore.PendingTree);
-        }
-
         #endregion
 
         #region ValidateChains

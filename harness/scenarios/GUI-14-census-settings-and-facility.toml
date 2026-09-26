@@ -1,7 +1,7 @@
 schema = 1
 id = "GUI-14-census-settings-and-facility"
 tier = "operator"
-# THE GUI CENSUS: THE SETTINGS WINDOW'S GREYED HALF, ITS THREE DENSITY STATES AND ITS
+# THE GUI CENSUS: THE SETTINGS WINDOW'S THREE DENSITY STATES AND ITS
 # DIAGNOSTICS SECTION ARMED - then a REAL facility upgrade, photographed in the Timeline's
 # Facilities view before and after.
 #
@@ -16,8 +16,17 @@ tier = "operator"
 # The paragraphs below that describe the Career captures are the record of the flights
 # that took them.
 #
-# WHY THIS HOST. `fresh-career` is the empty-career fixture, and empty is exactly what
-# two of this window's controls need in order to be GREY: `Wipe All Recordings` is
+# 2026-09-26: THE WIPE BUTTONS ARE GONE. The Settings Data Management section (`Wipe All
+# Recordings` / `Wipe All Milestones`) was removed by the operator ruling that recordings
+# are never player-deletable, so STATE 1 no longer photographs two greyed buttons: it is
+# now the window at its default Medium density on the untouched empty career, the
+# baseline STATE 2 and 3 are read against (label `fc-settings-densitymedium-advanced`).
+# The paragraphs below that describe the greyed wipe buttons are the record of the
+# flights that photographed them. This lane needs a re-read flight after the change.
+#
+# WHY THIS HOST (as first written; the wipe buttons it names are gone since 2026-09-26).
+# `fresh-career` is the empty-career fixture, and empty is exactly what
+# two of this window's controls needed in order to be GREY: `Wipe All Recordings` is
 # disabled when there are no recordings and `Wipe All Milestones` when there are no
 # milestones (SettingsWindowUI). Every existing Settings capture was taken on a dense
 # career or a pad craft, so both buttons were live in all of them and the window's only
@@ -95,7 +104,7 @@ tier = "operator"
 # `FacilityUpgrade` is NOT a Milestones row - that tab still read
 # `(no milestones credited)` under a label saying `credited`, which is the failed capture
 # the relabel and the moved min-size step below fix.
-description = "GUI census: the Settings window with both Wipe buttons greyed on an empty career, its Low and High sample-density states and its five Diagnostics toggles armed, then a real Tracking Station upgrade photographed in the Timeline's Facilities career view before (empty) and after (one dated upgrade row)."
+description = "GUI census: the Settings window on an empty career at its default Medium, Low and High sample-density states and its five Diagnostics toggles armed, then a real Tracking Station upgrade photographed in the Timeline's Facilities career view before (empty) and after (one dated upgrade row)."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "settings", "career", "GUI-14", "pending-operator"]
 
@@ -131,17 +140,17 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "718" }, expect = "OK" },
 
-  # STATE 1: BOTH Wipe buttons greyed, measured reading `Wipe All Recordings (0)` and
-  # `Wipe All Milestones (0)` with `enabled=false` in the dump. This is the capture the
-  # lane exists for. Density here is Medium (`Sampling: every 0.20-3.0s, 2.0 deg / 5%
-  # thresholds`), the baseline the two below are read against. NOT "every Diagnostics
+  # STATE 1: the window at its default Medium density (`Sampling: every 0.20-3.0s,
+  # 2.0 deg / 5% thresholds`) on the untouched empty career, the baseline the two below
+  # are read against. (Until 2026-09-26 this state photographed the two greyed Wipe
+  # buttons, which left with the Data Management section.) NOT "every Diagnostics
   # toggle off", which an earlier draft claimed and the first flight refuted:
   # `verboseLogging` is on from the fixture and `writeReadableSidecarMirrors` is
   # stamped on by `run.py`'s settings baseline (players default it OFF since
   # 2026-09-26), so two of the five are already true here and the STATE 4 capture
   # moves the other three.
-  { cmd = "CaptureScreenshot", args = { label = "fc-settings-wipesdisabled-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "fc-settings-wipesdisabled-advanced" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fc-settings-densitymedium-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fc-settings-densitymedium-advanced" }, expect = "OK" },
 
   # STATE 2 and 3: the two sample-density states no capture had. Each selection redraws
   # its own summary string beside the radio set.
@@ -209,10 +218,7 @@ D14 = ["career", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# ZERO, and this is the anti-vacuity gate for the Settings half rather than a formality:
-# `Wipe All Recordings` is greyed BECAUSE there are no recordings, so a run that somehow
-# staged one would have photographed the enabled form under the disabled label. Nothing
-# in this lane records.
+# ZERO: the host is the empty career, and nothing in this lane records.
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
@@ -229,10 +235,10 @@ required = [
   "kscaction action=upgrade-facility .* applied=true",
   "Game state: FacilityUpgraded",
   # --- one capture, proving the write-and-settle path end to end ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=fc-settings-wipesdisabled-advanced",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=fc-settings-densitymedium-advanced",
   # --- every dump, each pinning the arm-time funnel reading for its own frame ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-main-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-wipesdisabled-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-densitymedium-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-densitylow-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-densityhigh-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fc-settings-diagnosticson-advanced .*patched=17/17",
