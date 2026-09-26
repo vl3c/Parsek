@@ -5305,7 +5305,7 @@ unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by de
   removed, zero GhostCommNet WARN / ERROR. Both specs armed off them and D6 `commnet-relay`
   claimed (coverage 243 -> 244 of 247); offline negative control red on 22 of 22 seeded faults.
   H28 re-flown `2026-09-26_1123` PASS, confirming its derived `total=4 skipped=2` pin.
-- **Follow-on lanes (2026-09-26, branch `commnet-lanes`), NEVER FLOWN.** The in-game cell
+- **Follow-on lanes (2026-09-26, branch `commnet-lanes`), FLOWN AND ARMED.** The in-game cell
   `ActiveVesselControlPathUsesGhostRelay` skips on every committed host (the pad vessel links KSC
   directly) and no committed fixture has a probe out of home RANGE, so a live vessel's own node is
   proven by OCCLUSION instead: `CN-2-ghost-commnet-live-probe` warps `duna-park-probe`'s DD1 into
@@ -5313,10 +5313,19 @@ unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by de
   category `GhostCommNetLive`: scenarios 1, 3 and 8 on the probe's `ControlPath` /
   `IsConnectedHome`, each with a negative control). `CN-3-ghost-commnet-timeline-warp` crosses a
   deploy event, a destroyed end and a warp-deferred spawn in one rails warp (new category
-  `GhostCommNetTimeline`: scenarios 9, 10, 16 and the spawn hand-off of 1), and adds the verbose
+  `GhostCommNetTimeline`: scenarios 9, 10 and the spawn hand-off of 1), and adds the verbose
   `Held ghost node position:` line (`GhostCommNetMath.FormatHeldPosition`) so a hold's position
   is visible in the log. Both derivations are pinned by `GhostCommNetLaneGeometryTests` (the stock
-  ephemeris against three recorded SOI crossings). Remaining: the two reading flights.
+  ephemeris against three recorded SOI crossings). CN-2 reading run `2026-09-26_2030` PASS
+  attempt 1 (the first flight). CN-3's first flight `2026-09-26_2034` was PARSEK-FAIL(expectation)
+  on its held-window tokens alone: an orbital end spawns in the same frame at its EndUT even
+  during warp (`Deferred spawn during warp`, then `Held ghost spawn succeeded on retry ...
+  held=0.0s`, the ghost node removed `reason=vessel-spawned ut=371.2`), so no node is ever held
+  and scenario 16 is not reachable on this lane (it stays unit-tested); the spec was corrected in
+  `c0ede5d03` and the reading run `2026-09-26_2053` passed attempt 1. Both batches
+  `total=3 passed=3 failed=0 skipped=0`, automation DLL sha256 `a92379703364...`; both specs
+  armed off the readings, offline negative control red on every seeded fault. Remaining: the
+  armed confirmation re-flights and the operator -> nightly promotion call.
 
 ## GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST: the continuation-hold pass has no manager-level dedupe test, and FLIGHT scans for it every frame [FILED 2026-09-26 by the commnet-followups review. OPEN, low; test and performance hygiene, no live defect]
 

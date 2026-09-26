@@ -1,5 +1,5 @@
 # CN-3: a ghost relay's recorded timeline carried through a real rails warp (design 15.6).
-# NEVER FLOWN (authored 2026-09-26). Proves 15.6 scenarios 9 (a deployable antenna relays
+# FLOWN AND ARMED 2026-09-26 (see STATUS below). Proves 15.6 scenarios 9 (a deployable antenna relays
 # from its recorded deploy event), 10 (a vessel destroyed in its recording relays until the
 # destruction and never after) and the hand-off half of 1 (at EndUT the spawned vessel's own
 # stock node takes over in the same frame and the ghost node goes, no gap). Scenario 16's
@@ -39,7 +39,8 @@
 #   and that frame's tick removes the ghost node `reason=vessel-spawned` at ut=371.x, the
 #   recording's EndUT (measured on 2026-09-26_2034: spawn and removal both at ut=371.2).
 #
-# THE CELLS (category GhostCommNetTimeline, 3 FLIGHT declarations). PREDICTED `passed=3 skipped=0`:
+# THE CELLS (category GhostCommNetTimeline, 3 FLIGHT declarations). MEASURED `passed=3 skipped=0`,
+# as predicted before the first flight:
 #   DeployableRelayJoinsAtItsDeployEvent_Flight  the node is registered; its timeline has no
 #       relay before the event and relays from it; the live node relays the derived power now;
 #   DestroyedRelayHasNoNodeAfterItsEnd_Flight    no node, exclusion `window-ended`, no network
@@ -54,18 +55,39 @@
 #   each event at the 10x cap; a slower frame rate can push one a second later (re-read, then
 #   widen - never a product finding on its own).
 # - The held relay's completion arriving at 1x (a warp that lowered early) spawns without a
-#   deferral: `Deferred spawn during warp` would be absent and the hold lines shorter.
+#   deferral: the required `Deferred spawn during warp` token would be absent.
 # - The HG-5 prefab not deploy-gated in this install (`deployGated=0` on the Derived line):
 #   the registration would print a nonzero relay and the deploy cell would red.
 #
-# COVERAGE: claims nothing until flown.
+# STATUS. First flight 2026-09-26_2034: PARSEK-FAIL(expectation) on the held-window tokens
+# ALONE (the `in-window -> held-for-spawn` window line and the two held-position lines):
+# the orbital end spawned in the same frame during the warp, so no node was ever held (a
+# spec premise, fixed in c0ede5d03; all three cells passed, the batch line was
+# `total=3 passed=3 failed=0 skipped=0`). READING RUN 2026-09-26_2053 (automation DLL sha256
+# a92379703364..., built from branch commnet-lanes): PASS attempt 1, 183 s, the same batch
+# line, zero GhostCommNet WARN / ERROR lines. Measured, identical on both flights: the HG-5
+# relay registered `relay=0 transmit=5000 ... antennas=1` and changed at ut=171.2 to
+# `relay=20000000 ... antennas=2`; the doomed relay registered `relay=2000000000
+# transmit=5000 ... antennas=2` and left `reason=window-ended ut=271.2`; the held relay
+# registered the same and, at ut=371.2, `Deferred spawn during warp` -> `Orbital vessel
+# spawn` -> `Held ghost spawn succeeded on retry ... held=0.0s` -> `Removed ghost node ...
+# reason=vessel-spawned ut=371.2`, all in one frame. ARMED from it: the batch line is
+# pinned whole (the id left INTERIM_PIN_IDS), the Derived / registration / state-change /
+# cell tokens carry the measured fields (UT bands stay regexed; the held relay's removal
+# band widened to 371-374 like the other two), and the spawn's `held=` stays regexed.
+# Offline negative control (hlib.evaluate_expectations) green on the reading log, red on
+# every seeded fault: see docs/dev/autotest-status.md. Armed confirmation re-flight pending.
+#
+# COVERAGE: claims no new cell (D6 `commnet-relay` is CN-1's); this lane is its timeline
+# depth.
 
 schema = 1
 id = "CN-3-ghost-commnet-timeline-warp"
 tier = "operator"
-description = "A ghost CommNet relay's recorded timeline through a real rails warp (design 15.6) on gloops-airshow with the ghost-commnet-timeline preset: an HG-5 deployable relay that joins the network at its recorded deploy event, a relay destroyed in its recording that relays to its end and never after, and a relay whose Orbiting end falls inside the warp, held on its terminal orbit while the warp defers its spawn and handed to the spawned vessel's own stock CommNet node when the warp ends. Run the in-game GhostCommNetTimeline category after the warp and read each transition off the log."
+description = "A ghost CommNet relay's recorded timeline through a real rails warp (design 15.6) on gloops-airshow with the ghost-commnet-timeline preset: an HG-5 deployable relay that joins the network at its recorded deploy event, a relay destroyed in its recording that relays to its end and never after, and a relay whose Orbiting end falls inside the warp, whose spawn the warp defers and whose ghost node is handed to the spawned vessel's own stock CommNet node at EndUT, in the same frame as the spawn. Run the in-game GhostCommNetTimeline category after the warp and read each transition off the log."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "warp", "CN-3"]
+tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "warp", "CN-3", "flown",
+        "armed"]
 
 [fixture]
 saveTemplate = "fixtures/saves/gloops-airshow"
@@ -112,27 +134,27 @@ count = { min = 3, max = 3 }
 
 [expectations.logContracts]
 required  = [
-  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostCommNetTimeline scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=GhostCommNetTimeline scene=FLIGHT",
   "\\[GhostCommNet\\] Stock CommNet available in scene FLIGHT: ghost CommNet nodes enabled",
   # Scenario 9: the HG-5 is deploy-gated, registered dark as a relay, lit at its event.
-  "\\[GhostCommNet\\] Derived antennas: key=cn3-deploy-relay vessel=\"CN Deploy Relay\" source=vessel-snapshot type=Relay parts=2 relayAntennas=1 otherAntennas=1 deployGated=1 .*timelineStates=2 capable=True",
-  "\\[GhostCommNet\\] Registered ghost node: key=cn3-deploy-relay node=ParsekGhost:cn3-deploy-relay vessel=\"CN Deploy Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=0 transmit=[0-9]+ ",
-  "\\[GhostCommNet\\] Ghost node state change: key=cn3-deploy-relay vessel=\"CN Deploy Relay\" ut=17[1-4]\\.[0-9] relay=[1-9][0-9]* ",
+  "\\[GhostCommNet\\] Derived antennas: key=cn3-deploy-relay vessel=\"CN Deploy Relay\" source=vessel-snapshot type=Relay parts=2 relayAntennas=1 otherAntennas=1 deployGated=1 controlPoints=1 relayEnablers=0 crew=0 knownCrew=0 pilots=0 unknownCrew=0 partsMissingPrefab=0 moduleSnapshotsMissing=0 timelineStates=2 capable=True",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn3-deploy-relay node=ParsekGhost:cn3-deploy-relay vessel=\"CN Deploy Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,[0-9.]+\\] hold=False dark=False relay=0 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=1",
+  "\\[GhostCommNet\\] Ghost node state change: key=cn3-deploy-relay vessel=\"CN Deploy Relay\" ut=17[1-4]\\.[0-9] relay=20000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
   # Scenario 10: the destroyed relay's spec comes from its start snapshot; it relays, then
   # leaves at its end.
-  "\\[GhostCommNet\\] Derived antennas: key=cn3-doomed-relay vessel=\"CN Doomed Relay\" source=ghost-visual-snapshot type=Relay parts=2 relayAntennas=1 .*capable=True",
-  "\\[GhostCommNet\\] Registered ghost node: key=cn3-doomed-relay node=ParsekGhost:cn3-doomed-relay vessel=\"CN Doomed Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,271\\.2\\] hold=False dark=False relay=[1-9][0-9]* ",
+  "\\[GhostCommNet\\] Derived antennas: key=cn3-doomed-relay vessel=\"CN Doomed Relay\" source=ghost-visual-snapshot type=Relay parts=2 relayAntennas=1 otherAntennas=1 deployGated=0 controlPoints=1 relayEnablers=0 crew=0 knownCrew=0 pilots=0 unknownCrew=0 partsMissingPrefab=0 moduleSnapshotsMissing=0 timelineStates=1 capable=True",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn3-doomed-relay node=ParsekGhost:cn3-doomed-relay vessel=\"CN Doomed Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,271\\.2\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
   "\\[GhostCommNet\\] Removed ghost node: key=cn3-doomed-relay vessel=\"CN Doomed Relay\" scene=FLIGHT reason=window-ended ut=27[1-4]\\.[0-9]",
   # Scenario 1's handoff: the spawn and the ghost node's removal both land at EndUT.
-  "\\[GhostCommNet\\] Registered ghost node: key=cn3-held-relay node=ParsekGhost:cn3-held-relay vessel=\"CN Held Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,371\\.2\\] hold=False dark=False relay=[1-9][0-9]* ",
+  "\\[GhostCommNet\\] Registered ghost node: key=cn3-held-relay node=ParsekGhost:cn3-held-relay vessel=\"CN Held Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,371\\.2\\] hold=False dark=False relay=2000000000 transmit=5000 relayCombined=False transmitCombined=False control=False multiHop=True antennas=2",
   "\\[Policy\\] Deferred spawn during warp: #[0-9]+ \"CN Held Relay\"",
   "\\[Policy\\] Held ghost spawn succeeded on retry: #[0-9]+ \"CN Held Relay\" id=cn3-held-relay held=[0-9.]+s",
   "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(CN Held Relay\\) pid=[0-9]+ .*terminal=Orbiting",
-  "\\[GhostCommNet\\] Removed ghost node: key=cn3-held-relay vessel=\"CN Held Relay\" scene=FLIGHT reason=vessel-spawned ut=371\\.[0-9]",
+  "\\[GhostCommNet\\] Removed ghost node: key=cn3-held-relay vessel=\"CN Held Relay\" scene=FLIGHT reason=vessel-spawned ut=37[1-4]\\.[0-9]",
   # The cells' own summaries, read after the warp.
-  "\\[TestRunner\\] GhostCommNet deployable relay \\(FLIGHT\\): key=cn3-deploy-relay eventUT=171\\.2 relayBefore=0 relayAfter=[1-9][0-9]* nodeRelay=[1-9][0-9]* timelineStates=2",
+  "\\[TestRunner\\] GhostCommNet deployable relay \\(FLIGHT\\): key=cn3-deploy-relay eventUT=171\\.2 relayBefore=0 relayAfter=20000000 nodeRelay=20000000 timelineStates=2",
   "\\[TestRunner\\] GhostCommNet destroyed relay \\(FLIGHT\\): key=cn3-doomed-relay endUT=271\\.2 registered=False reason=window-ended networkNode=False",
-  "\\[TestRunner\\] GhostCommNet spawned relay handoff \\(FLIGHT\\): key=cn3-held-relay endUT=371\\.2 pid=[0-9]+ stockNode=True relay=[1-9][0-9]* ghostNode=False reason=vessel-spawned",
+  "\\[TestRunner\\] GhostCommNet spawned relay handoff \\(FLIGHT\\): key=cn3-held-relay endUT=371\\.2 pid=[0-9]+ stockNode=True relay=2000000000 ghostNode=False reason=vessel-spawned",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

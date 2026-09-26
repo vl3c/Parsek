@@ -26,7 +26,9 @@ namespace Parsek.Tests
     ///       Ike out of the way;</description></item>
     ///   <item><description>CN-3's timeline ordering and each recording's production shape
     ///       (deploy gate, destroyed end, spawnable held end);</description></item>
-    ///   <item><description>both specs' WarpToUT literals and CN-3's held-radius token.</description></item>
+    ///   <item><description>both specs' WarpToUT literals (CN-3 carries no held-position token:
+    ///       its orbital end spawns in the same frame even during warp, so no node is
+    ///       held).</description></item>
     /// </list>
     /// </summary>
     [Collection("Sequential")]
@@ -573,18 +575,6 @@ namespace Parsek.Tests
             Assert.Equal(SyntheticRecordingTests.GhostCommNetTimelineWarpTargetUT, SpecWarpTarget(timeline));
             Assert.Contains("injectedRecordings = \"ghost-commnet-timeline\"", timeline);
             Assert.Contains("saveTemplate = \"fixtures/saves/gloops-airshow\"", timeline);
-        }
-
-        [Fact]
-        public void Specs_TheHeldRadiusTokenMatchesTheSynchronousOrbit()
-        {
-            // CN-3 pins the held node's radius from the centre of Kerbin to the metre band the
-            // synchronous orbit's sma formats into (FormatHeldPosition prints radius F0).
-            string timeline = ReadSpec("CN-3-ghost-commnet-timeline-warp.toml");
-            Match m = Regex.Match(timeline, @"radius=(\d+)\[0-9\]");
-            Assert.True(m.Success, "CN-3 carries no radius= token");
-            string radius = SyntheticRecordingTests.GhostCommNetSynchronousSma().ToString("F0", CultureInfo.InvariantCulture);
-            Assert.Equal(m.Groups[1].Value, radius.Substring(0, radius.Length - 1));
         }
     }
 }

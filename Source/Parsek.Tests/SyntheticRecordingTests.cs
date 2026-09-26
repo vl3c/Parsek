@@ -8596,10 +8596,11 @@ namespace Parsek.Tests
         //                                         250 s, no end snapshot: relays to its end and
         //                                         never after (scenario 10);
         //   cn3-held-relay    "CN Held Relay"    RC-L01 + RA-2, terminal Orbiting at save +
-        //                                         350 s: its spawn is deferred by the warp, its
-        //                                         node held on the terminal orbit, then handed
-        //                                         to the spawned vessel's own stock node
-        //                                         (scenarios 1 and 16).
+        //                                         350 s: the warp defers its spawn, the retry
+        //                                         spawns it in the same frame at EndUT (no
+        //                                         node is held), and the node is handed to
+        //                                         the spawned vessel's own stock node (the
+        //                                         hand-off half of scenario 1).
 
         internal const double GhostCommNetTimelineSaveUT = 21.159999999999638;
         internal const string GhostCommNetTimelineDeployName = "CN Deploy Relay";

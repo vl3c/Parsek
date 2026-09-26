@@ -13,9 +13,11 @@ namespace Parsek.InGameTests
     ///       <c>DeployableExtended</c> event on and not before (scenario 9);</description></item>
     ///   <item><description>a relay whose recording ends Destroyed has no node once its end
     ///       has passed (scenario 10);</description></item>
-    ///   <item><description>a relay whose Orbiting end fell inside the warp (its spawn deferred,
-    ///       its node held on the terminal orbit) has spawned, and the real vessel carries its
-    ///       own stock CommNet node while the ghost node is gone (scenarios 1 and 16).</description></item>
+    ///   <item><description>a relay whose Orbiting end fell inside the warp (its spawn deferred
+    ///       by the warp, then retried and spawned in the same frame at its EndUT, so its node
+    ///       is never held) has spawned, and the real vessel carries its own stock CommNet
+    ///       node while the ghost node is gone (the hand-off half of scenario 1). Scenario
+    ///       16's held-node position is not reachable here and stays unit-tested.</description></item>
     /// </list>
     /// The transitions themselves happen during the warp, so the lane's log contract carries
     /// their evidence; these cells check the state they leave behind. Outside that preset
