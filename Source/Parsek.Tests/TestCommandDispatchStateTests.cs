@@ -61,6 +61,7 @@ namespace Parsek.Tests
             public void LaunchFromEditor(ParsedCommand cmd) => Calls.Add("LaunchFromEditor");
             public void EvaGroundScience(ParsedCommand cmd) => Calls.Add("EvaGroundScience");
             public void SafeWriteCrash(ParsedCommand cmd) => Calls.Add("SafeWriteCrash");
+            public void SpinVessel(ParsedCommand cmd) => Calls.Add("SpinVessel");
         }
 
         [Fact]
@@ -173,6 +174,7 @@ namespace Parsek.Tests
         [InlineData("GoToEditor", "RequiresGameLoaded")]
         [InlineData("LaunchFromEditor", "RequiresGameLoaded")]
         [InlineData("SafeWriteCrash", "RequiresGameLoaded")]
+        [InlineData("SpinVessel", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -226,6 +228,7 @@ namespace Parsek.Tests
             fake.LaunchFromEditor(cmd);
             fake.EvaGroundScience(cmd);
             fake.SafeWriteCrash(cmd);
+            fake.SpinVessel(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

@@ -15,6 +15,33 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~PERSISTENT-ROTATION-NEVER-DETECTED: the spin capture never ran on any KSP 1.12 install~~ [FILED AND FIXED 2026-09-26, branch `persistent-rotation`]
+
+`FlightRecorder.InitializeRecordingFlags` detected the mod with
+`AssemblyLoader.loadedAssemblies.Any(a => a.name == "PersistentRotation")`. The only KSP
+1.12 build, linuxgurugamer's PersistentRotationUpgraded 1.9.2.1, ships
+`Plugins/PersistentRotationUpgraded.dll` with `[KSPAssembly("Persistent Rotation
+Upgraded", 1, 9, 2)]`, and KSP's `LoadedAssembly` sets `dllName` from the file name and
+then overwrites `name` with the KSPAssembly name (decompiled KSP 1.12.5). Neither is
+"PersistentRotation", so `hasPersistentRotation` was always false, and the go-on-rails
+angular-velocity capture (`CreateOrbitSegmentWithRotation`) and the spin-forward replay
+(`ComputeOrbitalRotation`, `TrajectoryMath.IsSpinning`) were dead on every install. No other
+site detects the mod: the replay keys off the stored `OrbitSegment.angularVelocity` alone.
+
+Found behind it once the capture could run: `Vessel.angularVelocity` is local to
+`vessel.ReferenceTransform` (`VesselPrecalculate`: `Inverse(ReferenceTransform.rotation) *
+rb.angularVelocity`), but the capture rotated it by `Inverse(v.transform.rotation)` as if it
+were world. The stored vector is read in the vessel frame (`boundaryWorldRot *
+angularVelocity`), so the axis was wrong whenever the vessel was not aligned with world axes.
+
+**Fix.** `FlightRecorder.MatchPersistentRotationAssembly(name, dllName)` accepts
+"PersistentRotation", "PersistentRotationUpgraded" and "Persistent Rotation Upgraded" on
+either field. The detection line reads `PersistentRotation mod detected: True
+(matched=<spelling>)`. `TrajectoryMath.ComputeSpinAngularVelocityVesselLocal` lifts the
+reference-local vector to world and then into the vessel frame. Both have unit tests
+(`PersistentRotationDetectionTests`), including the decode direction. Live lane:
+`MC-5-persistent-rotation` on modded-compat, which now pins the mod (GT-8 closed).
+
 ## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
 
 The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,

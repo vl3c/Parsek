@@ -56,6 +56,7 @@ namespace Parsek.Tests
         [InlineData("LaunchFromEditor")]
         [InlineData("EvaGroundScience")]
         [InlineData("SafeWriteCrash")]
+        [InlineData("SpinVessel")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -166,7 +167,9 @@ namespace Parsek.Tests
             // envelope never carried an inventory verb.
             // SafeWriteCrash is ADDITIVE (42 -> 43; reserved unchanged at 5): the D16
             // crash-after-temp injection, not a promotion of CrashAfterJournalPhase.
-            Assert.Equal(43, TestCommandVerbs.ImplementedVerbNames.Count);
+            // SpinVessel is ADDITIVE (43 -> 44; reserved unchanged at 5): the D17
+            // persistent-rotation host; the reserved envelope never carried a physics verb.
+            Assert.Equal(44, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

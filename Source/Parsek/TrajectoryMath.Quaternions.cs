@@ -120,6 +120,26 @@ namespace Parsek
         internal const float SpinThreshold = 0.05f;
 
         /// <summary>
+        /// The spin vector an <see cref="OrbitSegment.angularVelocity"/> stores: the vessel's
+        /// angular velocity expressed in the VESSEL transform's local axes, which is the frame
+        /// the spin-forward decode reads it in (<c>boundaryWorldRot * angularVelocity</c>, where
+        /// <c>boundaryWorldRot</c> is the decoded <c>v.transform.rotation</c>).
+        /// <para>
+        /// KSP's <c>Vessel.angularVelocity</c> is NOT world: <c>VesselPrecalculate</c> builds it
+        /// as <c>Inverse(vessel.ReferenceTransform.rotation) * rb.angularVelocity</c> (decompiled
+        /// KSP 1.12.5), i.e. local to the CONTROL reference transform, which is not the vessel
+        /// transform when a non-root part is "control from here". So the local vector is lifted
+        /// to world through the reference rotation first and then brought into the vessel frame.
+        /// </para>
+        /// </summary>
+        internal static Vector3 ComputeSpinAngularVelocityVesselLocal(
+            Quaternion vesselRotation, Quaternion referenceRotation, Vector3 referenceLocalAngularVelocity)
+        {
+            Vector3 world = PureRotateVector(referenceRotation, referenceLocalAngularVelocity);
+            return PureRotateVector(PureInverse(vesselRotation), world);
+        }
+
+        /// <summary>
         /// Returns true if the segment has recorded orbital-frame rotation data.
         /// Default struct value (0,0,0,0) = no data.
         /// </summary>
