@@ -94,6 +94,29 @@ namespace Parsek
 
         internal static string EnsureRecordingsDirectory()
         {
+            // Test seam (null in the game): the sidecar writer resolves its file paths
+            // through ResolveSaveScopedPath, which already honours the override, so the
+            // directory it ensures must come from the same root or a headless
+            // SaveRecordingFiles could never reach the write.
+            string overrideRoot = SaveRootOverrideForTesting;
+            if (!string.IsNullOrEmpty(overrideRoot))
+            {
+                try
+                {
+                    string overrideDir = Path.GetFullPath(
+                        Path.Combine(overrideRoot, Path.Combine("Parsek", "Recordings")));
+                    Directory.CreateDirectory(overrideDir);
+                    return overrideDir;
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error("Paths",
+                        $"EnsureRecordingsDirectory failed for test save root override " +
+                        $"ex={ex.GetType().Name}:{ex.Message}");
+                    return null;
+                }
+            }
+
             if (!TryGetSaveContext(
                     "EnsureRecordingsDirectory",
                     "ensure-recordings-missing-context",

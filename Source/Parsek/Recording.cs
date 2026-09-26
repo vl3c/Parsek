@@ -81,6 +81,15 @@ namespace Parsek
         // Save/LoadRecordingInto so the epoch survives scene reloads.
         internal int SidecarEpoch;
 
+        // Set when an out-of-band write (RecordingStore.FlushDirtyFiles) rewrote the
+        // sidecars WITHOUT advancing SidecarEpoch, so the .prec content changed under an
+        // epoch an older .sfs (a quicksave) may also carry. The next OnSave treats it like
+        // FilesDirty and rewrites with incrementEpoch=true, putting .prec and .sfs on N+1
+        // together; any epoch-advancing write clears it. Process-lifetime only: committed
+        // recordings live in the static RecordingStore, so it survives scene changes, and
+        // it is lost on quit, which is the accepted window (see the flush's docs).
+        [NonSerialized] internal bool SidecarEpochAdvancePending;
+
         // Runtime-only hydration state: LoadRecordingFiles can fail because the current save
         // point does not have a compatible sidecar for this recording. These flags are used to
         // avoid destructive follow-on behavior (for example pruning an empty leaf that only
@@ -1065,6 +1074,7 @@ namespace Parsek
             clone.RouteHarvestWindows = RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;
+            clone.SidecarEpochAdvancePending = source.SidecarEpochAdvancePending;
             clone.SidecarLoadFailed = source.SidecarLoadFailed;
             clone.SidecarLoadFailureReason = source.SidecarLoadFailureReason;
             clone.LoopSyncParentIdx = source.LoopSyncParentIdx;

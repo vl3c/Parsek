@@ -1171,6 +1171,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Recordings are no longer lost when the game closes right after loading or committing.**
+  Loading a save and committing a flight both write the changed recordings to disk straight
+  away, and that write advanced each recording file's save counter past the one stored in the
+  save. If the game then closed, crashed or was killed before the next save, the next load read
+  every such recording as belonging to a different save and dropped it (a whole flight when it
+  was the first recording of the tree). That immediate write now keeps the counter the save
+  already holds, so the next load accepts the file, and the next real save advances the counter
+  on the file and in the save together, so a quicksave taken before the write is again
+  recognised as older. Until that save (and for good if the game closes first) such a quicksave
+  loads the rewritten file instead of being rejected. A recording no save has ever stored still
+  gets its first counter from the immediate write.
+
 - **Missions: cloning a looping mission no longer leaves two loops on one flight.** The Clone
   button copied the Loop setting too, so a copy of a looping mission also read Loop on even though
   only one mission per flight can loop; the copy did nothing and the log warned on every rebuild
