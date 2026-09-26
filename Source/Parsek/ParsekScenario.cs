@@ -3845,42 +3845,17 @@ namespace Parsek
                     }
 
                     // Restore tree recording mutable state from RECORDING_TREE nodes.
-                    // First, reset ALL tree recordings to defaults. On revert, the launch
-                    // quicksave has no tree nodes so this reset is the only thing that runs,
-                    // ensuring VesselSpawned/SpawnedPid/etc. don't carry over from the
-                    // committed flight (whose vessels were undone by the revert).
-                    // On scene change, the reset is overwritten by the saved values below.
-                    //
-                    // TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE: the reset's
-                    // ClearPostSpawnTerminalState leg is NOT self-repairing the way the
-                    // plain-field legs are. `terminalState` lives in the STRUCTURAL half of
-                    // the codec (RecordingTreeRecordCodec.SaveRecordingInto), and this
-                    // in-session branch reconciles the already-in-memory committed store
-                    // rather than rebuilding it through the codec — so nothing below used to
-                    // put the verdict back, and the next OnSave wrote the recording with no
-                    // `terminalState` key at all. Record which recordings the clear actually
-                    // fired on and re-restore them from the saved node below (same shape as
-                    // the BUG-C terminal-abandon restore). Recordings that stay in the set
-                    // are the revert case (restore gated off), where the clear is correct.
+                    // First, reset ALL tree recordings' spawn-tracking fields to defaults, so
+                    // VesselSpawned/SpawnedPid/etc. never carry over from a flight whose
+                    // vessels a revert undid; the tree-state-restore loop below then puts
+                    // back what the saved RECORDING_TREE nodes say. Those nodes are present
+                    // on revert too: the launch/prelaunch GameBackup the revert loads was
+                    // written through OnSave, so it carries every tree committed before the
+                    // launch. Terminal verdicts are NOT reset here: a committed recording's
+                    // terminalState is recorded content (see
+                    // ResetTreeRecordingMutableStateForLoad).
                     loadPhase = "tree-mutable-state";
-                    var clearedPostSpawnTerminalIds = new HashSet<string>();
-                    for (int i = 0; i < recordings.Count; i++)
-                    {
-                        if (!recordings[i].IsTreeRecording) continue;
-
-                        RecordingStore.RollbackContinuationData(recordings[i]);
-                        if (ClearPostSpawnTerminalState(recordings[i], "tree recording")
-                            && !string.IsNullOrEmpty(recordings[i].RecordingId))
-                            clearedPostSpawnTerminalIds.Add(recordings[i].RecordingId);
-
-                        recordings[i].VesselSpawned = false;
-                        recordings[i].SpawnAttempts = 0;
-                        recordings[i].SpawnDeathCount = 0;
-                        recordings[i].SpawnedVesselPersistentId = 0;
-                        TerminalOrbitSpawnSafety.Clear(recordings[i]);
-
-                        recordings[i].LastAppliedResourceIndex = -1;
-                    }
+                    ResetTreeRecordingMutableStateForLoad(recordings);
 
                     // Strip orphaned spawned vessels from flightState on revert.
                     // These vessels were spawned by Parsek in a previous flight but their
@@ -3919,7 +3894,8 @@ namespace Parsek
                         CrewReservationManager.RescueOrphanedCrew(
                             HighLogic.CurrentGame.flightState.protoVessels);
 
-                    // Then restore from saved tree nodes (present on scene change, absent on revert)
+                    // Then restore from saved tree nodes (present on scene change and on revert:
+                    // the revert target was written through OnSave at launch).
                     loadPhase = "tree-state-restore";
                     ConfigNode[] savedTreeNodes = node.GetNodes("RECORDING_TREE");
                     if (savedTreeNodes.Length > 0)
@@ -3969,44 +3945,12 @@ namespace Parsek
                                         // terminal-orbit vessel re-spawns after every scene change.
                                         RestorePersistedTerminalAbandon(recordings[i], savedTreeRecNode);
 
-                                        // TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE: put back
-                                        // the terminal verdict the tree-mutable-state reset
-                                        // cleared above, from the same authoritative saved node
-                                        // every other field on this line is restored from.
-                                        //
-                                        // Scoped OFF the revert branch on purpose. On revert the
-                                        // retraction is the INTENDED outcome (the spawn is undone,
-                                        // so a verdict earned by the spawned vessel is stale), and
-                                        // the measured defect is a non-revert one. Whether a revert
-                                        // ALSO over-clears a genuine pre-flight verdict that its
-                                        // target save still carries is a separate, unmeasured
-                                        // question — see REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL
-                                        // in docs/dev/todo-and-known-bugs.md. Keeping the gate here
-                                        // makes this fix provably zero-delta for revert.
-                                        if (!isRevert)
-                                            RestoreClearedPostSpawnTerminalState(
-                                                recordings[i], savedTreeRecNode,
-                                                clearedPostSpawnTerminalIds, "tree recording");
-
                                         break;
                                     }
                                 }
                             }
                         }
                     }
-
-                    // Batch summary for the terminal-verdict reset/restore pair. A non-empty
-                    // residue is EXPECTED on revert (the restore is gated off that branch —
-                    // the clear is the intended outcome there) and is a data-loss signal on
-                    // any other path, so the line names the branch that produced it.
-                    if (clearedPostSpawnTerminalIds.Count > 0)
-                        ParsekLog.Info("Scenario",
-                            $"OnLoad: {clearedPostSpawnTerminalIds.Count} post-spawn terminal verdict(s) " +
-                            $"cleared and NOT restored (isRevert={isRevert} " +
-                            $"savedTreeNodes={savedTreeNodes.Length}) — " +
-                            (isRevert
-                                ? "expected on revert (spawn undone, verdict stale)"
-                                : "unexpected outside revert; recordings will persist with no terminalState key"));
 
                     // Reconcile spawn state after all restore + strip operations (#168).
                     // If a recording's SpawnedVesselPersistentId points to a vessel that was
@@ -6712,98 +6656,52 @@ namespace Parsek
         #region Recording Serialization
 
         /// <summary>
-        /// Clears terminal state (Recovered/Destroyed) that was set after a vessel was spawned.
-        /// On revert, the spawn is undone so the terminal state from the previous flight is stale.
+        /// The OnLoad <c>tree-mutable-state</c> reset (in-session branch: revert, scene
+        /// change, quickload). Rolls back uncommitted continuation data and zeroes the
+        /// spawn-tracking fields of every committed tree recording; the
+        /// <c>tree-state-restore</c> loop that follows puts back what the saved
+        /// <c>RECORDING_TREE</c> nodes say.
         ///
-        /// <para>Returns true when a verdict was actually retracted. The OnLoad
-        /// tree-mutable-state reset uses that to build the id set
-        /// <see cref="RestoreClearedPostSpawnTerminalState"/> consumes: outside revert the
-        /// retraction must be undone from the saved node, because unlike every other field
-        /// that reset touches, <c>terminalState</c> is not re-read on the in-session
-        /// scene-change / quickload branch (it lives in the structural half of
-        /// <c>RecordingTreeRecordCodec</c>, which that branch never runs).</para>
+        /// <para>Terminal verdicts are deliberately left alone. A committed recording's
+        /// <c>TerminalStateValue</c> is recorded content: real-vessel terminal events only
+        /// stamp the pending tree (<c>UpdateRecordingsForTerminalEvent</c>), so nothing a
+        /// spawned vessel does after commit can reach it, and a Destroyed / Recovered
+        /// verdict is never spawnable anyway. Retracting it on reset erased genuine
+        /// endings (overwhelmingly debris, whose <c>VesselSpawned</c> is only the
+        /// crew-auto-unreserve marker) and made the trajectory's end read as a live,
+        /// spawnable vessel. The rewind path
+        /// (<c>RecordingStore.ResetRecordingPlaybackFields</c>) follows the same rule.</para>
+        ///
+        /// Returns the number of tree recordings reset.
         /// </summary>
-        internal static bool ClearPostSpawnTerminalState(Recording rec, string context = "recording")
+        internal static int ResetTreeRecordingMutableStateForLoad(IReadOnlyList<Recording> recordings)
         {
-            if (rec.VesselSpawned && rec.TerminalStateValue.HasValue)
+            if (recordings == null) return 0;
+            int reset = 0;
+            int keptTerminal = 0;
+            for (int i = 0; i < recordings.Count; i++)
             {
-                var ts = rec.TerminalStateValue.Value;
-                if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
-                {
-                    ParsekLog.Verbose("Scenario",
-                        $"Clearing post-spawn terminal state {ts} for {context} '{rec.VesselName}'");
-                    // Retraction: crew end states from the original flight are kept
-                    // (see KerbalsModule.InvalidateCrewEndStatesForTerminalStamp).
-                    rec.StampTerminalState(null, "ClearPostSpawnTerminalState");
-                    return true;
-                }
+                var rec = recordings[i];
+                if (rec == null || !rec.IsTreeRecording) continue;
+
+                RecordingStore.RollbackContinuationData(rec);
+
+                rec.VesselSpawned = false;
+                rec.SpawnAttempts = 0;
+                rec.SpawnDeathCount = 0;
+                rec.SpawnedVesselPersistentId = 0;
+                TerminalOrbitSpawnSafety.Clear(rec);
+
+                rec.LastAppliedResourceIndex = -1;
+                reset++;
+                if (rec.TerminalStateValue.HasValue) keptTerminal++;
             }
-            return false;
-        }
-
-        /// <summary>
-        /// TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE. Undoes a
-        /// <see cref="ClearPostSpawnTerminalState"/> retraction from the authoritative saved
-        /// <c>RECORDING</c> node, on the OnLoad in-session branch (scene change / quickload)
-        /// that reconciles the already-in-memory committed store instead of rebuilding it
-        /// through <c>RecordingTreeRecordCodec</c>. Same shape and the same saved node as the
-        /// BUG-C <see cref="RestorePersistedTerminalAbandon"/> restore that sits beside it.
-        ///
-        /// <para>Deliberately scoped to <paramref name="clearedIds"/> — the ids the reset
-        /// ACTUALLY retracted this pass — rather than to "the node has a verdict": a
-        /// recording whose verdict was retracted on purpose elsewhere (the
-        /// <c>RecordingOptimizer.SplitAtUT</c> HEAD carve-out, whose terminal is nulled while
-        /// its crew end states stay) must never be re-stamped from a node that predates the
-        /// retraction. The id is consumed on a successful restore so the caller's residue is
-        /// exactly the set that stays cleared (the revert case, which the caller gates off
-        /// entirely because there the clear is the intended outcome).</para>
-        ///
-        /// <para>A saved node with no <c>terminalState</c> key leaves the recording cleared and
-        /// consumes the id: that is the quickload-to-before-the-stamp case, where null IS the
-        /// save-point truth. An unparseable / out-of-range value is left cleared, NOT consumed,
-        /// and warns — a corrupt key must surface in the caller's residue line, not read as a
-        /// legitimate null.</para>
-        ///
-        /// Returns true when a verdict was restored.
-        /// </summary>
-        internal static bool RestoreClearedPostSpawnTerminalState(
-            Recording rec, ConfigNode savedTreeRecNode,
-            HashSet<string> clearedIds, string context)
-        {
-            if (rec == null || savedTreeRecNode == null || clearedIds == null)
-                return false;
-            if (string.IsNullOrEmpty(rec.RecordingId) || !clearedIds.Contains(rec.RecordingId))
-                return false;
-
-            string savedTerminal = savedTreeRecNode.GetValue("terminalState");
-            if (savedTerminal == null)
-            {
-                // Save point predates the verdict — cleared IS the restored state.
-                clearedIds.Remove(rec.RecordingId);
-                ParsekLog.Verbose("Scenario",
-                    $"Post-spawn terminal state stays cleared for {context} '{rec.VesselName}' " +
-                    $"(id={rec.RecordingId}) — saved node carries no terminalState key");
-                return false;
-            }
-
-            int terminalInt;
-            if (!int.TryParse(savedTerminal, NumberStyles.Integer, CultureInfo.InvariantCulture, out terminalInt)
-                || !Enum.IsDefined(typeof(TerminalState), terminalInt))
-            {
-                ParsekLog.Warn("Scenario",
-                    $"Cannot restore post-spawn terminal state for {context} '{rec.VesselName}' " +
-                    $"(id={rec.RecordingId}) — saved terminalState='{savedTerminal}' is not a valid " +
-                    "TerminalState; leaving the recording unclassified");
-                return false;
-            }
-
-            var restored = (TerminalState)terminalInt;
-            clearedIds.Remove(rec.RecordingId);
-            rec.StampTerminalState(restored, "RestoreClearedPostSpawnTerminalState");
             ParsekLog.Verbose("Scenario",
-                $"Restored post-spawn terminal state {restored} for {context} '{rec.VesselName}' " +
-                $"(id={rec.RecordingId}) from saved tree node");
-            return true;
+                "OnLoad tree-mutable-state: reset spawn tracking on " +
+                reset.ToString(CultureInfo.InvariantCulture) + " tree recording(s); " +
+                keptTerminal.ToString(CultureInfo.InvariantCulture) +
+                " recorded terminal verdict(s) kept");
+            return reset;
         }
 
         /// <summary>

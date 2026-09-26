@@ -1187,6 +1187,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
+  Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
+  "recovered" ending from committed recordings that Parsek had marked as handled, which hit
+  almost every debris recording. The recording then played back as if its vessel had never
+  ended, and the ending was not saved again. Committed endings are now left alone on both
+  paths. Spawn tracking still resets as before, and revert and rewind still differ in the same
+  way: a revert throws the reverted flight away, a rewind commits it.
+
 - **Science is no longer over-credited when the same experiment is submitted more than once.**
   Parsek recorded a science subject's running total at each submission, and the ledger adds
   every submission, so a second transmission of the same experiment (or a transmit followed
