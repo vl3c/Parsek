@@ -231,7 +231,8 @@ BranchPoint
   UT:                       double — universal time
   Type:                     BranchPointType enum:
                               Undock=0, EVA=1, Dock=2, Board=3, JointBreak=4,
-                              Launch=5, Breakup=6, Terminal=7
+                              Launch=5, Breakup=6, Terminal=7,
+                              VesselSwitchContinuation=8, GroundPartPlaced=9 (Section 4.11)
   ParentRecordingIds:       list of string — Recordings that ended here
   ChildRecordingIds:        list of string — Recordings that began here
 
@@ -445,6 +446,77 @@ LAUNCH (capsule + transfer + booster)
   |              |    +- [capsule] -- RECOVERED
   |              |    +- [transfer] -- DESTROYED
 ```
+
+### 4.11 Placement Events (EVA ground parts)
+
+Owner ruling 2026-09-26 (todo EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL, option 1): a ground
+part a kerbal places on EVA (Breaking Ground experiments, power and comms units, the Central Station)
+gets its OWN recording and ghost, as a member of the flight's tree created at the moment of placement.
+
+**What stock does (decompiled KSP 1.12.5).** The confirm press in `ModuleInventoryPart.OnUpdate`
+(gated on `vessel.isActiveVessel`, so only the active EVA kerbal can place) calls
+`DeployGroundPart` -> `GetProtoVesselNode` -> `Game.AddVessel`, which loads the ProtoVessel and fires
+`onNewVesselCreated(vessel)` synchronously; back in `OnUpdate`, stock then fires
+`onDeployGroundPart(partName)`. The new vessel is single-part and `LANDED`, and a frame or two later its
+`ModuleGroundSciencePart.OnStart` fires `onGroundSciencePartDeployed`. The pick-up is the part's own
+`RetrievePart` event: it clears `deployedOnGround`, stores the part in the kerbal's inventory, fires
+`onGroundSciencePartRemoved`, plays the retract animation, and `OnRetractCompleted` fires
+`onGroundSciencePartRemoved` a SECOND time and calls `vessel.Die()`.
+
+**What counts as a placement.** Only `onDeployGroundPart`, matched to the vessel `onNewVesselCreated`
+announced in the SAME frame (single part, same part name, not already a tree member), while the active
+vessel is the EVA kerbal the tree is recording in the foreground. `onGroundSciencePartDeployed` is not a
+placement signal: it also fires whenever an unlinked experiment merely starts landed (a load into physics
+range, a Central Station removal), so nothing is recorded from it any more (sibling todo
+INVENTORY-PLACED-FIRES-ON-ANY-LANDED-EXPERIMENT-LOAD). Pure gate: `GroundPartPlacement.EvaluatePlacement`.
+
+**Tree shape.** A new `BranchPointType.GroundPartPlaced = 9` (a purely additive enum member: no key,
+field or layout changes, so no schema generation bump; an older build reads it through the codec's
+existing unknown-type fallback). The branch point has `ParentRecordingIds = [the kerbal's recording]`
+and `ChildRecordingIds = [the placed part's recording]`. The kerbal's recording does NOT end and its
+`ChildBranchPointId` is NOT set: placing a part does not change the kerbal, the single-slot pointer stays
+free for the kerbal's own later split or merge (the board), and the kerbal stays an ordinary leaf instead
+of relying on the breakup-continuous "effective leaf" rule. The child is reached through its own
+`ParentBranchPointId`, the way foreground debris children are once their parent splits again. The type
+is non-claiming for ghost chains (the kerbal's vessel is unchanged), is not a structural mutation for
+Re-Fly auto-seal, and reads "Placed" in the Missions composition.
+
+**What is recorded.** The member is an ordinary background-recorded tree recording:
+`VesselPersistentId` = the placed vessel's pid, `RecordedVesselGuid` = its `Vessel.id` (fresh per
+placement, so the pid-vs-guid identity rules hold), `ExplicitStartUT` = the placement UT, `Generation` =
+parent + 1, `IsDebris = false` (it records until it ends, no debris TTL) and NO parent-anchor contract
+(it is static on the ground; anchoring it to a walking kerbal would record meaningless RELATIVE offsets).
+Its `VesselSnapshot` / `GhostVisualSnapshot` are captured from the live vessel one frame after the
+placement (in the placement frame the parts exist but have not started), and it joins the
+`BackgroundMap`, so the background recorder samples its static pose and refreshes its end state like
+any other member. Two part events go on the MEMBER, keyed by the placed part's own pid (which IS in the
+member's snapshot, so INV4 resolves by construction): `InventoryPartPlaced` at the placement UT and
+`InventoryPartRemoved` at the FIRST pick-up signal (the second `onGroundSciencePartRemoved`, from
+`OnRetractCompleted`, is deduplicated). Nothing is recorded on the kerbal's recording.
+
+**How the pick-up ends the member.** The first `onGroundSciencePartRemoved` for a member marks it
+retrieval-pending; when `vessel.Die()` reaches `OnVesselWillDestroy`, the existing disassembly seam
+(`TryStampDisassembledTerminal`) stamps `TerminalState.Disassembled` (reason `GroundPartRetrieved`)
+instead of the crash path's `Destroyed`. The Central Station has no `ModuleGroundSciencePart` and fires no
+Removed event, so the seam also accepts a live `ModuleGroundPart.deployedOnGround == false` read (stock
+clears it at the start of `RetrievePart`; a crash leaves it true). Disassembled is already non-spawnable
+and never a recovery (no funds, science or reputation), and the part really is back in an inventory.
+
+**Spawn at end.** Nothing new: the member is a leaf. If it is still placed when the tree ends, it
+finalizes `Landed` with a snapshot and is a spawnable leaf, so after a rewind it comes back as a real
+vessel at its recorded end pose like any other vessel the tree leaves behind (the KSC exclusion-zone
+retirement applies to it like to any vessel: a part left on the pad is retired, not spawned). A
+picked-up member ends `Disassembled` and is never spawned.
+
+**The ghost.** The member's ghost is the placed part standing where it was placed: visible from the
+placement UT (the Placed event), hidden at the pick-up (the Removed event), and gone when the recording
+ends at the vessel's `Die()` about 4.7 s later.
+
+**Re-Fly.** The member's pid differs from the kerbal's, so the Re-Fly supersede closure treats it as a
+side-off branch, exactly like a controlled-decoupled child: re-flying the kerbal does not supersede a
+part it placed in the re-flown interval. That is the existing closure policy
+(`EffectiveState.EnqueueDebrisChildren` admits debris only, by explicit design); widening it is a
+separate decision, filed as todo REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS.
 
 ---
 

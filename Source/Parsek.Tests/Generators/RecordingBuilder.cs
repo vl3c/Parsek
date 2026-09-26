@@ -768,6 +768,29 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
+        /// Shapes this recording as an EVA-placed ground part's tree member (design:
+        /// docs/parsek-flight-recorder-design.md section 4.11): an
+        /// <c>InventoryPartPlaced</c> event at <paramref name="placedUT"/> keyed by the
+        /// placed part's own pid, and, when <paramref name="pickedUpUT"/> is given, ONE
+        /// <c>InventoryPartRemoved</c> event there plus the <c>Disassembled</c> terminal
+        /// the pick-up stamps. Pair it with a single-part snapshot, whose part pid is
+        /// <c>100000</c> (<see cref="VesselSnapshotBuilder"/>), and wire the tree with
+        /// <see cref="ScenarioWriter.GroundPartPlacedBranch"/>.
+        /// </summary>
+        public RecordingBuilder AsPlacedGroundPart(
+            uint partPid, string partName, double placedUT, double? pickedUpUT = null)
+        {
+            AddPartEvent(placedUT, partPid, (int)PartEventType.InventoryPartPlaced, partName);
+            if (pickedUpUT.HasValue)
+            {
+                AddPartEvent(pickedUpUT.Value, partPid, (int)PartEventType.InventoryPartRemoved, partName);
+                terminalState = (int)TerminalState.Disassembled;
+            }
+            isDebris = false;
+            return this;
+        }
+
+        /// <summary>
         /// Marks this recording as debris (vessel has no controller parts).
         /// </summary>
         public RecordingBuilder AsDebris()

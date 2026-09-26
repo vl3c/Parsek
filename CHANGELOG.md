@@ -1171,6 +1171,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A ground part a kerbal places on EVA is now recorded as its own vessel and replays as a
+  ghost.** Breaking Ground experiments, power and comms units and the Central Station become
+  their own vessel when a kerbal places them, and Parsek used to record the placement on the
+  kerbal instead, so the replay showed the kerbal walking up to an empty patch of ground. The
+  placed part now gets its own recording in the flight's tree from the moment it is placed:
+  its ghost stands where it was placed and disappears when the kerbal picks it up. A part
+  that is still placed when the flight ends comes back as a real vessel after a rewind, like
+  any other vessel the flight leaves behind; a part that was picked up ends as "Disassembled"
+  and is never spawned. Only a real placement by the kerbal you are recording counts: an old
+  experiment that merely loads nearby no longer adds anything to the recording, and one
+  pick-up records one pick-up (stock reports it twice).
+
 - **Rewind-to-Launch no longer undoes another flight's Re-Fly from a stale save.** A plain
   rewind reloads the career from `persistent.sfs` as it was last written, and while the
   recordings, the ledger and (since the earlier fix) the rewind points were kept from memory,
