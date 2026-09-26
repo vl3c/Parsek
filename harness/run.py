@@ -147,6 +147,8 @@ RP_SIDECAR_BY_PRESET = {
     "drill-harvest-route": None,
     # CI-5's background-claim tree: one committed two-recording tree, no RP.
     "background-claim": None,
+    # CN-1 / CN-1T's three relay copies: three committed single-recording trees, no RP.
+    "ghost-commnet-relay": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 
@@ -3748,14 +3750,26 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         ef = spec.get("expectedFail", {}) or {}
         bug_id = ef.get("bugId", "") or ""
         ef_subkind = ef.get("subkind", "") or ""
+        ef_mismatches = ef.get(hlib.EXPECTED_FAIL_MISMATCHES_KEY)
         base = hlib.classify_verdict(driver_facts, facts["verifiers"], {}, attempt,
                                      (spec.get("retry", {}) or {}).get("policy", "once"))
         # Signature match (S2): expectedFail.subkind narrows the demotion to one
         # PARSEK-FAIL class; an empty subkind falls back to bugId-only matching (any
         # PARSEK-FAIL demotes), warned here at demotion time so the bugId-only scope
-        # is visible in the log.
+        # is visible in the log. An optional expectedFail.mismatches narrows it to
+        # ONE defect: the failing verifier's mismatch set must equal the declared one.
+        observed_mismatches = hlib.expected_fail_observed_mismatches(
+            base.subkind, facts.get("detail"))
         signature_matched = hlib.expected_fail_signature_matched(
-            base.verdict, base.subkind, ef_subkind)
+            base.verdict, base.subkind, ef_subkind, ef_mismatches, observed_mismatches)
+        if (bug_id and ef_mismatches is not None
+                and base.verdict == hlib.VERDICT_PARSEK_FAIL and not signature_matched):
+            declared = set(ef_mismatches)
+            seen = set(observed_mismatches or [])
+            logger.warn("Classify", "expected-fail bugId=%s mismatch signature not met: "
+                                    "runSubkind=%s unexpected=%s missing=%s (stays PARSEK-FAIL)"
+                        % (bug_id, base.subkind, sorted(seen - declared),
+                           sorted(declared - seen)))
         if bug_id and base.verdict == hlib.VERDICT_PARSEK_FAIL and not ef_subkind:
             logger.warn("Classify", "expected-fail bugId=%s has no subkind; matching on bugId only (any PARSEK-FAIL demotes to EXPECTED-FAIL)"
                         % bug_id)

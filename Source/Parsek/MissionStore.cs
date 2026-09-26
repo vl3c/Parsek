@@ -799,6 +799,16 @@ namespace Parsek
             if (source == null)
                 return null;
             Mission copy = source.Clone(Guid.NewGuid().ToString("N"));
+            // One loop per tree: the copy shares its source's tree, so a looping source would
+            // leave two looping missions over the same committed indices (the builder skips the
+            // second unit with a WRN on every rebuild until NormalizeOneLoopPerTree at the next
+            // load). The copy starts with its loop OFF; the source keeps looping. The period,
+            // unit and anchor stay copied: arming the copy is a separate SetLoopEnabled click,
+            // which re-stamps the anchor and clears the source's loop, so the copy then loops
+            // with the source's period.
+            bool loopDisarmed = copy.LoopPlayback;
+            if (loopDisarmed)
+                copy.LoopPlayback = false;
             // Insert the copy directly after its source so a clone sits next to the
             // original it was made from (and shares its tree index in the UI). Falls
             // back to append if the source is somehow not in the list.
@@ -810,6 +820,12 @@ namespace Parsek
             if (!SuppressLogging)
                 ParsekLog.Info("Mission",
                     $"Cloned mission '{source.Name}' -> '{copy.Name}' (tree={source.TreeId})");
+            if (loopDisarmed && !SuppressLogging)
+                ParsekLog.Info("Mission",
+                    $"Clone: copy '{copy.Name}' (tree={source.TreeId}) created with loop OFF " +
+                    $"because source '{source.Name}' loops (one loop per tree); period=" +
+                    copy.LoopIntervalSeconds.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    $" unit={copy.LoopTimeUnit} kept for a later enable");
             return copy;
         }
 

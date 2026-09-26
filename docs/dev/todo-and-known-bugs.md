@@ -84,6 +84,39 @@ sub-orbital debris segment's periapsis sits deep inside Kerbin (radius near zero
 segment and may be similarly off. A fix would skip, or clamp at the surface, a segment whose
 periapsis lies below the body's radius; verify against the fixture's sidecar first.
 
+## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
+
+The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
+`StartUndockContinuation` and their `ParsekFlight` / `FlightRecorder` gates) was removed as
+unreachable in always-tree mode; the reachability proof is in the entry (closed by PR #1864)
+CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED. That removal
+left state whose only producers were the removed commits, kept on purpose:
+
+- Chain identity: `ActiveChainId` (now assigned only `null`), `ActiveChainNextIndex`,
+  `ActiveChainPrevId`, `ActiveChainCrewName`, `PendingContinuation` (only ever `false`),
+  `PendingIsBoarding`, `PendingEvaName`, `PendingBoundaryAnchor`, `HasActiveChain`,
+  `ApplyChainMetadataTo` (a no-op while `ActiveChainId` is null), `ClearChainIdentity`, and
+  `StartRecording`'s `isContinuation` (always false). `RecorderStateSnapshot` logs some of
+  them in every `RecState` line (`chain.*` fields).
+- Continuation sampling: `ContinuationVesselPid` / `UndockContinuationPid` and their index,
+  id, velocity and UT fields are never set non-zero, so `UpdateContinuationSampling`,
+  `UpdateUndockContinuationSampling`, `StopAllContinuations`, the snapshot refreshes and the
+  `ParsekFlight` bake-and-stop blocks on switch / split / destroy never act.
+- `ChainSegmentManager.OnCommittedRecordingRemoved` / `OnCommittedRecordingInserted` /
+  `RebindContinuationIndices` are the "chain continuation indices" subscriber of the
+  committed-list index contract (`RecordingStore.CommittedListNotifications.cs`), and
+  `absorbedIntoByRecordingId` is written there with no reader left.
+
+Removing these touches the index-contract subscriber set and the `RecState` log format, so
+it was held back for an operator decision rather than folded into the dead-commit removal.
+The `Recording` revert-rollback fields `ContinuationBoundaryIndex` and the
+`PreContinuation*` snapshots were set only by the removed commits too, so the
+`RecordingStore` rollback that reads them and the hydration-repair copy go with this
+cleanup. Recording-side chain DATA (`ChainId`, `ChainIndex`, `ChainBranch`,
+`ParentRecordingId`, `EvaCrewName`) is serialized and read by playback and must stay.
+
+---
+
 ## ~~SETTINGS-WINDOW-ROUND-2026-09-26: eleven Settings-window findings from the read-only review at `dd9c1682b`~~ [FILED AND FIXED 2026-09-26, branch `settings-window-round`]
 
 The review found the Basic hover leaving out Kerbals; readable `.txt` mirrors ON for every
@@ -320,7 +353,25 @@ orbit-only checkpoint branch and Absolute points only - the checkpoint-with-fram
 position, so a small chord term in the residual), body-fixed primary and recorded-anchor RELATIVE
 decodes are implemented and unit-plumbed but not yet read live.
 
-## MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`]
+## ~~MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load~~ [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`; FIXED 2026-09-26 on branch fix-mission-clone-loop, supervisor ruling: clone disarms its loop, pending operator confirmation]
+
+**Fix:** `MissionStore.Clone` (the only path that inserts a copy into the store; the Clone button
+and `UiAction op=clone` both call it) sets the copy's `LoopPlayback` to false when the source
+loops, so the one-loop-per-tree invariant holds the moment the copy exists and the original keeps
+looping. `Mission.Clone` stays a faithful definition copy (the in-game `RealSaveMissionFinder`
+probes clone and arm a detached probe that never enters the store). The copy keeps the period,
+unit and anchor: the anchor is re-stamped by `SetLoopEnabled` on every enable, and the period /
+unit are what a later enable loops with. Logged as `Clone: copy '<name>' (tree=<id>) created with
+loop OFF because source '<name>' loops (one loop per tree); period=<s> unit=<u> kept for a later
+enable`. Cells: `MissionStoreTests.Clone_OfLoopingMission_LeavesExactlyOneLoopOnTheTree_AndLogsTheDisarm`,
+`Clone_OfNonLoopingMission_CopiesSettings_AndLogsNoDisarm`, and the updated
+`Clone_CopiesSelection_IntoAnIndependentMission`. `MS-1-mission-leg-trim-clone` drops the copy's
+`MissionLoopUnit` token (it only existed because of this defect), pins `loop=false` plus the new
+store line, and forbids `already owned by another looping unit`; those tokens are re-cut from
+source and not yet re-read on a flight. The Clone tooltip ("its own include set, loop period, and
+Archive flag") stays true. Route backing missions (`RouteBackingMission.BuildMission`) are
+synthesized per frame and never inserted into the store, so they are not a copy path.
+
 
 `Mission.Clone` copies `LoopPlayback` (with the period, unit and anchor) and
 `MissionStore.Clone` inserts the copy without running the one-loop-per-tree clear that
@@ -366,7 +417,7 @@ periapsis. The deferral delays the `CannotSpawnSafely` verdict (and keeps the gh
 meanwhile); `Terminal spawn succeeded after defer` is reachable only if the re-evaluated orbit
 differs from the first one.
 
-## SS1-WARPTOUT-WARP-LOCKED-AFTER-LOAD: `WarpToUT` refused `warp-locked` for at least 19 s after a load that other runs warped from at the same moment [FILED 2026-09-26 from SS-1. OPEN, harness flake]
+## SS1-WARPTOUT-WARP-LOCKED-AFTER-LOAD: `WarpToUT` refused `warp-locked` for at least 19 s after a load that other runs warped from at the same moment [FILED 2026-09-26 from SS-1. OPEN, harness flake; the holder diagnostic LANDED 2026-09-26, the cause waits for the next occurrence]
 
 SS-1 attempt `2026-09-25_2106`: `warptout refused reason=warp-locked ut=715` 3.2 s after
 `Unpacking Kerbal X` / `Unpacking Kerbal X Probe`, and `warptout refused reason=warp-locked
@@ -378,6 +429,17 @@ of which opened; the window locks are CAMERACONTROLS), and KSP.log names no lock
 Fix: make the `warptout refused reason=warp-locked` line name the lock ids
 (`InputLockManager.lockStack` keys whose mask includes TIMEWARP), so the next occurrence says
 who holds it.
+
+~~Diagnostic~~ done (branch `fix-seam-hygiene`): the refusal log line now reads
+`warptout refused reason=warp-locked ut=<ut> holders=<ids>`, built by the pure
+`TestCommandWarpToUT.FormatTimeWarpLockHolders` over `InputLockManager.lockStack`
+(`Dictionary<string, ulong>`, verified by ilspycmd; `IsLocked` is `(lockMask & type) != 0`).
+The ids are ordinal-sorted and comma-joined; `none` means `lockMask` carries TIMEWARP with no
+stack entry (the field is public and settable), `unknown` means the stack read threw. The
+response msg token stays the bare `warp-locked`. Still open, and needs a flight to close: the
+cause itself. When the next `warp-locked` refusal appears in a collected KSP.log, read the
+`holders=` value and file the owner (a stock lock names its own subsystem; a Parsek id means a
+Parsek path does take a TIMEWARP lock here after all).
 
 ## SS1-DUPLICATE-COMPLETION-DELIVERY-IN-WARP: a non-live ghost's PlaybackCompleted is delivered twice in one warp frame pair [FILED 2026-09-26 from SS-1. OPEN, report-only, harmless today]
 
@@ -457,15 +519,39 @@ previous file intact, and the next load must recover. Closed inside ONE boot (su
 **Scope.** The recording-sidecar write path (the staged `.prec`), and a cold load inside the same
 process rather than a new process. The direct `SafeWriteConfigNode` callers are filed below.
 
-## SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT: a crash mid-save leaves `<file>.tmp` next to the ledger, game-state, milestone and settings files and nothing removes it [FILED 2026-09-26, coverage wave 13, branch `cov-safewrite`; OPEN, low: litter, not data loss]
+## ~~SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT: a crash mid-save leaves `<file>.tmp` next to the ledger, game-state, milestone and settings files and nothing removes it~~ [FILED 2026-09-26, coverage wave 13, branch `cov-safewrite`; FIXED 2026-09-26 on branch `fix-safewrite-tmp`]
 
 `Ledger`, `GameStateStore`, `MilestoneStore` and `ParsekSettingsPersistence` write through
 `FileIOUtils.SafeWriteConfigNode` straight to `<file>.tmp` (no `.stage.` name). A crash between the temp
 write and the swap leaves the previous file intact (the ordering contract ST-4 proves on the sidecar
-path) and a `<file>.tmp` beside it. `RecordingStore.CleanOrphanFiles` only scans `Parsek/Recordings/`,
+path) and a `<file>.tmp` beside it, except in one corner: on the move-aside fallback of
+`FileIOUtils.ReplaceDestination` (taken when `File.Replace` throws), a crash after the destination
+moved to `<file>.bak.<guid>` and before the `.tmp` moved into place leaves NO real file, the previous
+bytes in the `.bak.<guid>` and the newest complete bytes only in the `.tmp`. `RecordingStore.CleanOrphanFiles` only scans `Parsek/Recordings/`,
 so nothing deletes that `.tmp`; the next successful write of the same file overwrites it, so it never
 accumulates and is never read. Found by reading the sweep's scope while building ST-4, not by a flight.
-Fix if wanted: a load-time delete of `<file>.tmp` for those four known paths.
+
+**Fix:** `FileIOUtils.SweepStaleSafeWriteTemp(path, tag)` deletes `<path>.tmp` when `<path>` exists
+(Info-logged with its size, fail-open on IO errors, never touches `<path>` or the swap fallback's
+`.bak.<guid>`). When `<path>` is MISSING it keeps the `.tmp` and Warns with its path, size and any
+`<path>.bak.*` sibling: that `.tmp` is either the only copy of the newest save (the fallback-swap
+corner above) or a partial first-ever save, indistinguishable, so it is neither deleted nor promoted
+and is left for recovery by hand. Each store calls it at the top of its LOAD path before reading the real file: `Ledger.LoadFromFile`,
+`GameStateStore.LoadEventFile`, `MilestoneStore.LoadMilestoneFile`,
+`ParsekSettingsPersistence.LoadIfNeeded`. `GameStateStore.SaveBaseline` also writes through the same
+helper to per-UT `baseline_<ut>.pgsb` names that never repeat, so its residue DID accumulate;
+`LoadBaselines` sweeps them with the directory form `SweepStaleSafeWriteTemps(dir, "baseline_*.pgsb")`.
+Safe to delete at load: safe-writes are synchronous on the main thread and Parsek starts no threads,
+so no write of the same file can be in flight during its load; with the real file present the
+residue is deleted, not promoted, because the load already reads the real file. The directory form
+applies the same per-file rule and logs `deleted= keptRealMissing= failed=`. The recordings sweep keeps its own pattern scan (recording-id classification,
+`.stage.` / `.bak.` names, the known-ids guard) and now shares only the `SafeWriteTempSuffix`
+constant with the producer and this helper. Not swept: `RenderCompositionRecorder`'s manifest (an
+automation-only write-only export at the KSP root that nothing loads; the next export overwrites
+it) and the `SafeWriteBytes` writes of `persistent.sfs` by the in-game test batch isolation, whose
+save-root `.tmp` is outside Parsek's own folders. Cells in `SafeWriteTempSweepTests` (helper
+behavior including the kept-when-real-missing and interrupted-fallback-swap cells, plus each store's
+real load path against a temp dir; removing the five call sites reds all six store cells).
 ## STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show [FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`)]
 
 The first real-game look at the annotations: 25 PNGs on the committed `stock-screen-census`
@@ -1326,13 +1412,13 @@ derived `max = 0`. GS-7's comment and the roadmap item are corrected.
 - GS-7 re-read: see the defect paragraph; its comment is corrected.
 
 **Residue.** See RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT below for the other staged
-lists this fix does not carry. The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
+lists this fix does not carry (carried since 2026-09-26). The fixture RP quicksaves (`ScenarioWriter.BuildRewindPointQuicksave`) keep the
 host save's UT, which is 60 s BEFORE the RP UT, so a fixture re-fly runs with the clock before
 its own RP. Nothing on the committed lanes calls CanInvoke inside a fixture session, but a
 Retry from Rewind Point there would read the gate; production RP quicksaves are written after
 the RP stamps its UT and never have this shape.
 
-## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. OPEN]
+## RP-REWIND-STAGED-LISTS-FROM-STALE-PERSISTENT: a Rewind-to-Launch rebuilds the other Re-Fly lists from a stale persistent.sfs [FILED 2026-09-23 from the #1788 review. FIXED 2026-09-26 on branch `fix-rewind-staged-lists` (headless only, not flown). The related open question below stays OPEN]
 
 `LoadRewindStagingState` rebuilds RECORDING_SUPERSEDES, RECORDING_REWIND_RETIREMENTS,
 LEDGER_TOMBSTONES and the merge journal from the same OnLoad node, and on a plain rewind that
@@ -1342,6 +1428,45 @@ Re-Fly merge in ANOTHER tree after the last persistent write would lose its supe
 tombstones on the next Rewind-to-Launch, while its RP now survives from memory. Not measured
 live; derived from the mechanism. Fix direction: carry every staged list the same way (the
 supersede re-apply `ReapplyRewindSupersedeDropAfterLoad` would then run on the carried list).
+
+**Which writes miss the file.** A live Re-Fly merge is NOT one of them: `MergeJournalOrchestrator`
+saves persistent.sfs synchronously at Durable Saves #1-#3. What leaves the file behind memory:
+a merge finished by the load-time finisher (its durable saves are deferred), the Re-Fly invoke's
+resurrected-recovery tombstones, a tree discard purge (removals, so the file resurrects rows),
+and an earlier rewind's own drop and retirements (a second Rewind-to-Launch in another tree
+before any persistent write re-read the dropped rows and lost the retirements, so the first
+rewind's re-flown fork could show again).
+
+**Repro** (`RewindStagedListsCarryTests`, real `SaveRewindStagingState` / `LoadRewindStagingState`
+through reflection, then the OnLoad order): on origin/main the two-tree case read supersedes
+`["rel_gone"]` instead of `["rel_b"]` (tree B's memory-only row lost, a purged row resurrected).
+
+**Fix.** Per list, memory wins wholesale, exactly like the RP carry (no union, so a row both hold
+appears once as the in-memory instance and a row memory removed stays removed):
+`RecordingStore.CaptureRewindStagedListsForRewind` (new partial
+`RecordingStore.RewindStagedListsCarry.cs`) runs in `ExecuteRewindSaveLoad` AFTER the pre-load
+supersede drop and before the scene load, so the capture already holds this rewind's drop and
+retirements; `ParsekScenario.OnLoad` calls `ReinstallRewindCarriedStagedListsAfterLoad` right
+after the RP carry and BEFORE `ReapplyRewindSupersedeDropAfterLoad`, so the re-apply runs on the
+carried list (a no-op in production, the live drop is already in it; the test without the
+pre-load drop proves the re-apply still drops the rewound tree's fork). Same gating as the RP
+carry: installed only while `RewindContext.IsRewinding`, dropped by `ResetRewindFlags` and by a
+non-rewind load. Log `Staged lists carried across rewind: supersedes installed= loadedFromSave=
+restored= staleDropped=; retirements ...; tombstones ...; journal installed= loadedFromSave=`.
+- Supersedes: what a rewind undoes is unchanged - the rewound tree's rows whose forks start at or
+  after the rewind UT, via the same drop. Other trees' rows are kept, as the RP carry keeps
+  other trees' RPs.
+- Retirements: the rewind only adds them (through the drop); carried wholesale.
+- Tombstones: the rewind never touched them on the disk path either; carried wholesale, which
+  also keeps them consistent with the ledger, which the rewind keeps in memory. NOT changed and
+  left as a product question: the rewound tree's own Re-Fly tombstones survive the drop that
+  un-supersedes their origin (both before and after this fix).
+- Merge journal: carried only when the capture is null or `Complete`
+  (`ShouldCarryMergeJournal`). Both plain-rewind entry points refuse an in-flight in-memory
+  journal, so the capture is always that; a journal on disk is then one memory already drove
+  or rolled back, and installing null keeps the next load's `RunFinisher` from driving it a
+  second time after the rewind cleared the Re-Fly marker (the rewind branch runs no finisher).
+  An in-flight capture (unreachable) keeps the loaded journal and Warns.
 
 Related open question (UNVERIFIED): `DropSupersedesRewoundOutOfExistence` drops the owner
 tree's non-canon supersede rows whose forks start after the rewind UT. An RP that survives
@@ -1511,7 +1636,17 @@ PASS attempt 1 with every token as written; EX-1 armed `_1820` PASS on the fix-u
 `756a9ce6...` (`746e6c48e`), negative control `_1822` red on exactly its one seed. LF-1 / LF-2
 were not re-flown on the fix-up DLL (the fix-ups do not touch a subject outside the zone).
 
-## D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: a promoted staging booster still has its debris TTL armed [FILED 2026-09-23 off GS-11. OPEN, low]
+## ~~D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED: a promoted staging booster still has its debris TTL armed~~ [FILED 2026-09-23 off GS-11. FIXED 2026-09-26 on branch fix-promoted-debris]
+
+**FIXED 2026-09-26 on branch fix-promoted-debris.** Fix: `BackgroundRecorder.OnVesselRemovedFromBackground`
+now removes the pid from `debrisTTLExpiry` and logs `Debris TTL cancelled: pid=<p> expiryUT=<u>
+reason=removed-from-background` (Info, only when an entry existed). Every caller is a vessel
+leaving the background for good (promotion, dock/board merge, switch-segment consume, EVA-board
+promotion, background-parent split); `EndDebrisRecording` removes the entry itself before routing
+there, so a real TTL close logs no cancel. Headless cells in `BackgroundRecorderTests`
+(`OnVesselRemovedFromBackground_CancelsDebrisTTL_AndLogsIt` and two neighbours). Not changed: a
+promoted booster switched AWAY from again is re-backgrounded without a new TTL (as before). Not
+re-flown; GS-11 fact (3) now expects the cancel line instead of `Debris TTL expired`.
 
 Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the booster pid 2353949206
 was promoted to the FOREGROUND recorder at UT ~71.5 (`Promoted recording 'baa46b97...' from
@@ -1529,7 +1664,26 @@ Fix: remove the pid from `debrisTTLExpiry` in `OnVesselRemovedFromBackground` (o
 promotion path only), and log it. GS-11's header names the line as expected; flip that note
 when fixed.
 
-## D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance [FILED 2026-09-23 off GS-11. OPEN]
+## ~~D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: a promoted parent-anchored debris recording reports a 1205 km max distance~~ [FILED 2026-09-23 off GS-11. FIXED 2026-09-26 on branch fix-promoted-debris]
+
+**FIXED 2026-09-26 on branch fix-promoted-debris.** Source found: not live bookkeeping but
+`VesselSpawner.SnapshotVessel` at recorder stop, which resolved the capture's flat `Points`
+(first point, last point, `ComputeMaxDistance`) through `GetWorldSurfacePosition`; the promoted
+foreground recorder had entered RELATIVE mode near the sibling booster, so the flat list carried
+anchor-local metres. The finalize backfill never corrected it because
+`ClassifyMaxDistanceBackfillRoute` skips a recording whose maxDist is already non-zero. Fix: a pure
+`ClassifySnapshotDistanceRoute` sends any capture with a Relative TrackSection through
+`TryComputeSnapshotDistancesFromBodyFixedSurfaces`, which reuses
+`TryComputeMaxDistanceFromBodyFixedSurfaces` / `CollectBodyFixedSectionSamples` (Absolute `frames`
++ Relative `bodyFixedFrames`, earliest sample as the launch reference) for `MaxDistanceFromLaunch`,
+and measures `DistanceFromLaunch` from the same reference to the live vessel or, when destroyed, to
+the latest body-fixed sample. Mirror site fixed too: the destroyed path's `EndBiome` now resolves
+at the latest body-fixed sample (`TryGetEndBiomeSamplePoint`), not the flat tail. Captures with no
+Relative section keep the flat list. Headless cells: `PromotedDebrisSnapshotDistanceTests`. Not
+re-flown. Residual (not changed): the capture's distance is measured from the promotion point,
+not the booster's own first background sample, and `TryAppendCapturedToTree` keeps the larger of
+the two values; and a capture built on the vessel-switch stop path while a Relative section is
+still OPEN (not yet in the deep-copied `TrackSections`) would still take the flat route.
 
 Measured on `GS-11-kerbalx-debris-promotion` run `2026-09-23_1953`: the promoted booster fell
 about 5 km from the pad, yet its death snapshot reads `Vessel was destroyed during recording.
@@ -1916,7 +2070,7 @@ destroy of the ghost in between. EX-1 is un-quarantined and claims D18
 pre-fix armed log `2026-09-23_0010` misses the two new required tokens and hits the
 forbidden stale-destroy form.
 
-**Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions.
+**Reading EX-1's verdict.** `subkind = "expectation"` makes ANY log-contract or recordings.count mismatch read EXPECTED-FAIL (`hlib.expected_fail_signature_matched` compares the subkind only), so until hlib gains per-token signatures (todo EXPECTEDFAIL-PER-TOKEN-SIGNATURES) every EX-1 EXPECTED-FAIL needs its `verifiers.expectations.mismatches` list read to confirm it is exactly the two defect assertions. (Historical: EX-1 is un-quarantined, and since 2026-09-26 a quarantine can pin its exact tokens with `[expectedFail] mismatches`.)
 
 ## ~~HELD-GHOST-SECOND-COMPLETION-AFTER-RELEASE: a past-end slot re-fires its completion (and one more spawn attempt) the frame after any destroy~~ [FILED 2026-09-23 from the #1776 review. RULED 2026-09-23: keep it as a last retry]
 
@@ -1939,7 +2093,25 @@ just after the timeout gets that one late attempt. Question: should `DestroyGhos
 completion mark for a slot that is still past end (the dedup the comment on
 `completedEventFired` describes), or is the extra attempt wanted? Not driven by a lane.
 
-## EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an expectedFail key matches on the PARSEK-FAIL subkind only, so a quarantine for one log-contract defect absorbs any other log-contract red [FILED 2026-09-23 from the #1772 review. OPEN; harness, small]
+## ~~EXPECTEDFAIL-PER-TOKEN-SIGNATURES: an expectedFail key matches on the PARSEK-FAIL subkind only, so a quarantine for one log-contract defect absorbs any other log-contract red~~ [FILED 2026-09-23 from the #1772 review. FIXED 2026-09-26 on branch fix-expectedfail-signature]
+
+**Fix:** `[expectedFail]` takes an optional `mismatches = [...]` list of the exact
+expectations-verifier mismatch strings the defect produces (copied from a red run's
+`verifiers.expectations.mismatches`). `hlib.expected_fail_signature_matched` demotes only
+when the run's mismatch SET EQUALS the declared set (read through
+`hlib.expected_fail_observed_mismatches`); an extra red, or a declared token that stopped
+failing, stays PARSEK-FAIL, and run.py Warn-logs the `unexpected=` / `missing=` difference.
+Equality rather than subset so a half-reproduced defect also surfaces (rationale in
+`design-autotest-harness-core.md`, "Per-token signatures"). Supported for
+`subkind = "expectation"` only (`hlib.EXPECTED_FAIL_SIGNATURE_SUBKINDS`); fails closed
+otherwise. `hlib.validate_expected_fail_block` rejects unknown `[expectedFail]` keys, a
+malformed list, a list without `bugId` or a supported `subkind`, and any entry naming a
+pattern the spec does not declare. Key absent = the subkind-only match, unchanged. No
+committed spec carries the key: EX-1 was un-quarantined by the held-ghost fix, and the one
+live quarantine (`EVA-5-ground-science-place-pickup`, `subkind = "analyzer"`) is on a row
+with no per-token list. Unit cells `ExpectedFailMismatchSignatureTests` (test_hlib.py) and
+`ExpectedFailMismatchSignatureSmokeTests` (test_run_smoke.py, through run.run_attempt).
+
 
 `hlib.expected_fail_signature_matched` demotes a PARSEK-FAIL to EXPECTED-FAIL when its
 subkind equals `[expectedFail] subkind` (or on any subkind when none is named). For
@@ -3540,7 +3712,7 @@ state map plus facade), the KNOTS greedy cuts and the upward-edge count; the rem
 items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
 ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
 
-## TQ-1-mapview-refused-doc-says-rejected: the `MapViewToggleOutcome.Refused` XML doc promises a REJECTED verdict but the seam emits ERROR [FILED 2026-09-15 off test-quality-audit, evidence `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24@4aedb0a`]
+## ~~TQ-1-mapview-refused-doc-says-rejected: the `MapViewToggleOutcome.Refused` XML doc promises a REJECTED verdict but the seam emits ERROR~~ [FILED 2026-09-15 off test-quality-audit, evidence `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24@4aedb0a`; FIXED 2026-09-26, branch `fix-seam-hygiene`]
 
 **What is true.** `RefusalVerdict` (`TestCommandMapViewVerbs.cs:171-177`) returns `"REJECTED"` only
 for `Unavailable` (the pre-call `MapView.fetch == null` gate) and `"ERROR"` for `Refused` (stock was
@@ -3558,6 +3730,11 @@ mismatches against the ERROR the seam emits.
 **Fix.** Documentation only: change the last sentence of the `MapViewToggleOutcome.Refused` doc to
 say ERROR with the per-direction reason (and, optionally, point at `RefusalVerdict` for the
 REJECTED/ERROR rule). Do not touch `RefusalVerdict` - the behavior is the contract.
+
+**Done.** The `Refused` doc now says ERROR with the per-direction reason and points at
+`RefusalVerdict`. Behavior re-checked before the edit: `ParsekTestCommandAddon.MapView.cs` takes
+its verdict from `RefusalVerdict`, which returns ERROR for `Refused`, and the existing pin
+`RefusalVerdict_IsRejectedOnlyBeforeStockIsCalled` asserts it. No code or test changed.
 
 ## TQ-2-wheel-damage-guard-needs-live-transform: `GhostVisualBuilder.IsRendererOnDamagedTransform`'s names guard and ancestor walk have no test that can fail [FILED 2026-09-22 off test-quality-audit Phase B, row F-catchall-060-02. A COVERAGE gap, not a defect. OPEN]
 
@@ -4886,19 +5063,215 @@ it to the stock screen.
 alternative (honour the stock edits by writing through `Record*` on the stock path) was not
 taken: the stock screen would still be a second surface for developer diagnostics.
 
-## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION~~ [FILED 2026-09-11 by the GUI fix batch. RE-INVESTIGATED 2026-09-26 (branch `commnet-relay-decision`): the gap is deeper than a missing call site. RULED 2026-09-26: A (wire it up), with relay AND control point; IMPLEMENTED on the same branch 2026-09-26. DONE 2026-09-26 (PR #1857): lanes CN-1 / CN-1T flown green, reading runs `2026-09-26_1130` / `_1131`, D6 `commnet-relay` claimed. Follow-ups filed: GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP, GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED]
 
-**Evidence.** `GhostCommNetRelay.ShouldRegisterCommNet` (`:207`), `RegisterNode` (`:239`),
-`ComputeCombinedRelayPower` (`:35`) and `IsRemoteTechPresent` (`:389`) have no production
-caller. Meanwhile `GhostCommNetVesselPatch.Prefix`
-(`Patches/GhostVesselLoadPatch.cs:446`) destroys each ghost's `CommNetVessel` citing
-"GhostCommNetRelay handles CommNet" (`:459`) - a live patch justified by dead code. Ghost
-relays contribute nothing to CommNet.
+**What the player gets today.** Ghosts carry no CommNet signal. A relay placed by a
+committed recording counts for signal exactly as in stock from the moment it spawns as a
+real vessel at the end of its recording. The gap is the ghost window only:
+- after a rewind, a relay that a committed mission put up does not count until that
+  mission's recording ends and the relay spawns;
+- a pre-existing real vessel that a committed future recording docks with or boards is
+  despawned by `VesselGhoster.GhostVessel` (`vessel.Die()`) until its chain tip, so it
+  drops out of a network it was already part of.
 
-**Decision:** a CommNet ruling. Should a ghost relay carry signal (wire the class up), or
-should ghosts be CommNet-inert (delete the class and re-word the patch's justification to
-say what it actually does)? Either is fine; the current state documents a behaviour that
-does not happen.
+A probe flown in that window can read No Signal where the design says a ghost relay would
+carry it. With RemoteTech installed there is no ghost relay under any option.
+
+**Evidence (origin/main `958314016`, 2026-09-26).**
+1. **Never instantiated.** `new GhostCommNetRelay` occurs only in
+   `GhostCommNetRelayTests.cs` (`:665`, `:677`). Nothing in production calls `RegisterNode`,
+   `UpdateNodePosition`, `RemoveNode` or `ReregisterAllNodes`, and nothing subscribes to
+   CommNet network init.
+2. **No writer.** `Recording.AntennaSpecs` (`Recording.cs:258`) is only copied
+   (`Recording.cs:940`, `RecordingOptimizer.cs:926`, `:1286`).
+   `AntennaSpecExtractor.ExtractFromSnapshot` (`AntennaSpec.cs:36`) is called only from
+   `AntennaSpecTests`.
+3. **Not serialized.** No codec, sidecar or `ParsekScenario` key mentions antennas (grep of
+   `Source/Parsek` for "antenna"), so a spec set in memory would be lost at the next
+   save/load.
+4. **The data source cannot work on real saves.** The extractor reads `antennaPower`,
+   `antennaCombinable`, `antennaCombinableExponent` and `antennaType` from the snapshot's
+   `MODULE` node. KSP does not persist those; they are part-config fields. The dev-instance
+   saves hold 2021 `ModuleDataTransmitter` nodes and the committed fixtures 286, and none of
+   them has an `antennaPower` key. They persist `isEnabled`, `xmitIncomplete`,
+   `stagingEnabled`, `canComm` and `UPGRADESAPPLIED`. Wiring the extractor as written would
+   therefore produce power-0 specs, and `ShouldRegisterCommNet` would refuse every ghost.
+   Stock resolves the power of an unloaded antenna from the part prefab plus the snapshot's
+   `UPGRADESAPPLIED` (`ModuleDataTransmitter.CommPowerUnloaded`, decompiled), then scales the
+   vessel node by `CommNetParams.rangeModifier` (`CommNetVessel`). `RegisterNode` applies
+   neither.
+5. **Why the coverage cell is stuck.** The only in-game test,
+   `RuntimeTests.AntennaSpecsProduceRelayPower` (`:10205`), skips honestly. D6
+   `commnet-relay` is not "vacuous until a generator writes AntennaSpecs": the product never
+   produces the data, so a `RecordingBuilder.WithAntennaSpecs` would prove only the pure
+   power formula, not a relay.
+6. **Live code cites it.** `GhostCommNetVesselPatch` (`Patches/GhostVesselLoadPatch.cs:469`)
+   destroys every ghost map ProtoVessel's `CommNetVessel`, citing "GhostCommNetRelay handles
+   CommNet". `GhostMapPresence.cs:11144` says the same. The patch is right to exist (a ghost
+   marker must not be a CommNet node); only its stated reason is false.
+7. **Docs describe it as shipped.** `docs/parsek-flight-recorder-design.md` section 15.6
+   ("captured ... at commit time", nodes "registered at ghost positions") and its 6f row
+   ("Done (47 tests)"), and the "Ghost world presence" line in `docs/roadmap.md`. The
+   intended design is section 15.6 plus the paradox addendum section 7.3
+   (`docs/dev/done/recording-system-redesign/parsek-vessel-interaction-paradox-addendum-time-jump.md`).
+   The class comment's "Section 13.2" does not match: 13.2 of the design doc is Chain-Aware
+   Spawn, and the constraint it quotes is from addendum 7.3.
+
+**Options.**
+- **(A) Wire it up.** This means rebuilding the feature, not just adding a call site.
+  - *Spec source:* resolve each antenna part's power, type and combinability from its prefab
+    (`PartLoader`, dot-form names), plus the snapshot's `UPGRADESAPPLIED` and
+    `canComm` / deploy state. Derive the specs at load from the recording's existing
+    `_vessel.craft` sidecar, which needs NO codec or schema change (the field stays
+    in-memory and derived). Chain-ghosted vessels use the despawn snapshot that
+    `VesselGhoster` already keeps.
+  - *Runtime:* one relay instance per FLIGHT scene (including map view) and per
+    TRACKSTATION scene.
+    - Register when a non-loop ghost with antenna power enters its window.
+    - Position the node from the ghost map ProtoVessel's orbit when unloaded, or from the
+      ghost transform when loaded.
+    - Remove it at spawn, at ghost destroy and at scene exit, and re-register on CommNet
+      network init.
+    - Apply `rangeModifier`, skip when `EnableCommNet` is off, and exclude loop and overlap
+      copies, which would otherwise add one relay per loop cycle.
+  - *RemoteTech (`remoteTechDetected`):* keep the skip. RemoteTech replaces CommNet, so ghost
+    relays would not count under it. Supporting it means RemoteTech's own satellite API,
+    which is out of scope. `IsRemoteTechPresent` matches any assembly name containing
+    "RemoteTech", which is acceptable for a skip. CommNet-extending mods (the
+    CommNetManager family) would be untested.
+  - *Proof:*
+    - unit tests for spec resolution and the lifecycle decisions;
+    - an in-game test asserting that a probe's control path runs through a ghost node;
+    - a harness lane to claim D6 (a CommNet-enabled fixture, a relay recording, and a probe
+      hidden behind the Mun).
+  - *Size:* roughly 800-1200 lines including tests, over 2-3 PRs plus one new lane. The risk
+    is the CommNet node lifecycle across scene switches and warp, not the maths.
+  - *Narrower variant:* wire only chain-ghosted real vessels, the one case where the player
+    loses coverage they already had. Not recommended, because chain ghosting itself is
+    half-built: `GhostVessel` creates no ghost object, and the 6b-4 visual is deferred.
+- **(B) Remove.**
+  - *Delete:* `GhostCommNetRelay.cs` (427 lines), `AntennaSpec.cs` (127 lines),
+    `Recording.AntennaSpecs` and its three copy sites, `GhostCommNetRelayTests`,
+    `AntennaSpecTests`, the antenna cases in `BugFixTests`,
+    `RecordingOptimizerTests.SplitAtSection_CopiesAntennaSpecsToBoth`, and the in-game test.
+    Removing the in-game test lowers H28's `MapPresence` batch tally by one skip, so re-pin
+    H28 or `CommittedBatchTallySourceSyncTests` reds.
+  - *Keep:* `GhostCommNetVesselPatch`. Re-word its comment and `GhostMapPresence.cs:11144`
+    to say that ghost markers are CommNet-inert by design.
+  - *Retire:* D6 `commnet-relay` in `harness/coverage/registry.toml` and the catalog. D6
+    becomes complete, and the coverage denominator drops by one.
+  - *Docs:* rewrite design 15.6 as "ghosts are CommNet-inert; relays count from spawn", and
+    fix the 6f row and `docs/roadmap.md`.
+  - *Size:* one small mechanical PR.
+- **(C) Remove now, park the recipe.** Do everything in B. In addition, section 15.6 keeps
+  a short "not implemented; if revived" note with the corrected recipe from A: powers
+  resolved from the prefab, derived from the existing sidecar, no schema change,
+  ProtoVessel positions, loops excluded, `rangeModifier` applied. A later revival then does
+  not start from the wrong premise.
+
+**Recommendation: C.** This code is not a nearly finished feature waiting for one call
+site. Its data source cannot work on a real save, so A costs about what a new feature
+would. The gameplay gap covers only ghost windows, and relays count from the moment they
+spawn. Keeping ghosts CommNet-inert costs nothing. Removing the class stops the docs and a
+live patch comment from promising behaviour that does not happen, and it retires a coverage
+cell no lane could ever claim. Revive it through the parked recipe if a comms-heavy career
+shows the gap in play.
+
+**Decision (operator, 2026-09-26): A.** A ghost replaying a committed recording counts for
+CommNet as the real vessel: it relays, and it is a probe control point when its recorded crew
+qualifies (stock parity). Only the real run relays; loop replays do not. The binding
+scenarios and mechanics are in `docs/parsek-flight-recorder-design.md` section 15.6. The
+recommendation above (C) was not taken.
+
+**Implementation (2026-09-26, branch `commnet-relay-decision`).** The dead code is gone:
+`GhostCommNetRelay.cs`, `AntennaSpec.cs`, `Recording.AntennaSpecs` and its copy sites, their
+unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by derivation to
+`total=4 skipped=2`). In its place:
+- `GhostCommNet.cs` (pure, unit-tested in `GhostCommNetTests`): stock `CommNetVessel.UpdateComm`
+  antenna combination transcribed verbatim (including the no-direct-antenna raw-sum quirk and
+  the relay-enabler promotion), the stock control-point rule, a piecewise-constant per-recording
+  timeline over `DeployableExtended` / `Retracted` / `Broken` (deploy-gated antennas) and
+  `Decoupled` (subtree) / `Destroyed` part events, the relay-window predicate, the stock
+  vessel-type exclusions, the mod guard and the register / remove diff.
+- `GhostCommNetManager.cs` (live shell): specs derived from the vessel snapshot (end state, or the
+  start-state visual snapshot when destroyed) through the part prefabs (`CanCommUnloaded`,
+  `CommPowerUnloaded`, `CanControlUnloaded`, stock `FindModule` matching), crew qualified by name
+  through the roster (`FullVesselControlSkill`); one free `GhostCommNetNode` per recording id
+  whose `position` returns `precisePosition`, positioned and powered in its own CommNet pre-update
+  hook (dark for a rebuild when the position cannot resolve, and dark past EndUT unless held),
+  registered only against stock CommNet types, re-added on `OnNetworkInitialized`. A node
+  held past EndUT (spawn pending, warp-deferred spawns included, or a chain gap) keeps the
+  END antenna state but sits where the vessel about to spawn is NOW: the recorded terminal
+  surface point, else the terminal orbit the spawn path builds
+  (`VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn`) propagated to the current UT, else
+  a body-fixed end sample; an orbit / anchor end with no buildable orbit is dark.
+- Hosts: `ParsekFlight` ticks it every frame after the spawn passes, re-reading each
+  recording's spawn state so a spawn hands over in the same frame (window inputs from
+  `ComputePlaybackFlags`, position from the mesh-independent `TryResolvePlaybackWorldPosition`,
+  chain-ghosted real vessels from their despawn snapshot's orbit before the first claim);
+  `ParsekTrackingStation` at its 0.25 s lifecycle cadence (position: the map ProtoVessel, else
+  the covering orbit segment, else body-fixed frames covering the UT). Known seam: the
+  Tracking Station learns a spawn hold only past EndUT, so a held node there can be dark for
+  up to one 0.25 s tick at its EndUT; FLIGHT bridges that seam (tracked with the other
+  Tracking Station follow-up in GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED).
+- Proof so far: unit tests with hand-derived stock numbers, and a new in-game `GhostCommNet`
+  category (routing probe with a negative control in FLIGHT and TRACKSTATION, per-node state
+  checks, active-vessel control path). Never flown. `VesselSnapshotBuilder.RelaySatellite`
+  authors an RC-L01 + RA-2 snapshot for a future lane; no lane or synthetic corpus row uses it
+  yet. Remaining to close: a harness lane that flies a probe through a ghost relay (D6).
+- Lane (2026-09-26, branch `commnet-relay-lane`): `CN-1-ghost-commnet-relay` (FLIGHT) and
+  `CN-1T-ghost-commnet-relay-ts` (TRACKSTATION) over the new `ghost-commnet-relay` preset (A crewed
+  over the KSC, B playback-disabled, C looped with its real run over), with four new GhostCommNet
+  cells (the real registered nodes route a free endpoint home and are the only way through; the
+  rulings on A / B / C). NEVER FLOWN; D6 `commnet-relay` is claimed after the first PASS.
+- **Flight proof (2026-09-26, PR #1857).** First flights `2026-09-26_1121` (CN-1) and `_1122`
+  (CN-1T) were PARSEK-FAIL on the synthetic routing cell `GhostRelayNodeBridgesEndpointToHome_*`
+  alone: its endpoint was in direct range of a registered preset relay, so the path skipped the
+  probe's own node. A test geometry defect, fixed in `9eee0e80e`; every product cell passed.
+  Reading runs `2026-09-26_1130` (CN-1) and `_1131` (CN-1T) on automation DLL sha256
+  `fcbe2979...`: PASS attempt 1, `total=9 passed=4 failed=0 skipped=5`, A and B registered, C
+  not, each real ghost node the only way home for its endpoint and the path cut once the node is
+  removed, zero GhostCommNet WARN / ERROR. Both specs armed off them and D6 `commnet-relay`
+  claimed (coverage 243 -> 244 of 247); offline negative control red on 22 of 22 seeded faults.
+  H28 re-flown `2026-09-26_1123` PASS, confirming its derived `total=4 skipped=2` pin.
+
+## GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15, PARTIAL]
+
+Design 15.6 scenario 15 says a real vessel despawned because a committed future recording claims
+it keeps relaying until the claim resolves. What ships covers only the stretch BEFORE the first
+claim: `GhostCommNetManager` relays a chain-ghosted vessel from its despawn snapshot's orbit until
+the claim UT. From the first claim to the vessel's reappearance (the chain tip's spawn) it has a
+node only when a committed recording carrying it is itself in its ghost window and eligible
+(real run, playback on, CommNet-capable). Otherwise it drops out of the network.
+
+Why: chain ghosts are never positioned. `ParsekFlight.PositionChainGhosts` skips an entry when
+`info.ghostGO == null`, and `VesselGhoster.GhostVessel` never creates one (`ghostGO = null`,
+"Ghost GO creation deferred to 6b-4"), so there is no chain-ghost position to hang a node on
+after the claim.
+
+Fix: when chain ghosts get a position (6b-4, or a mesh-independent chain-ghost position resolver
+like `TryResolvePlaybackWorldPosition`), feed it to the manager for the claim-to-tip span. Until
+then the design's scenario 15 row should read "until the first claim". Low: the case needs a
+committed future recording that docks with or boards a real relay the player depends on.
+
+## GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED: a Tracking Station entered first excludes a playback-disabled recording from the ghost CommNet [FILED 2026-09-26 from the GUI-D3 closure; low]
+
+The Tracking Station ghost CommNet driver (`ParsekTrackingStation`, the `PlaybackScopeTracker
+.IsHistoricalNeverReplayed` read) honours the replay-scope latch but never notes a playhead
+itself. The TS notes playheads only on its map-presence paths (`GhostMapPresence`), and the
+create path declines a playback-disabled recording before reaching them. So when the Tracking
+Station is the FIRST scene to see a playback-disabled recording's start, that recording is never
+latched and its ghost relay is excluded as `historical-never-replayed`. In normal play the TS is
+always reached through the Space Center or a flight, and both note every committed recording
+every frame, so the latch is set long before; only `LoadGame scene=trackstation` from the main
+menu (a harness road) skips them. CN-1T boots FLIGHT first for this reason.
+
+Same host, second seam (moved here from GUI-D3): the Tracking Station learns a spawn hold only
+past EndUT, so a held node there can be dark for up to one 0.25 s lifecycle tick at its EndUT;
+FLIGHT bridges that seam.
+
+Fix: note the playhead for every committed recording in the TS ghost CommNet driver's own pass
+(as `ParsekFlight` / `ParsekKSC` do), and read the spawn hold at EndUT rather than after it.
 
 ## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
 
@@ -19540,7 +19913,21 @@ A 2026-06-10 online sweep of what KSP players actually fly (stock career contrac
 
 ---
 
-## TODO - RunOptimizationPass's FlushDirtyFiles bumps SidecarEpoch outside OnSave (observed 2026-08-29 while fixing the Ensure-pass integrity pair, NOT fixed - pre-existing, out of scope)
+## ~~TODO - RunOptimizationPass's FlushDirtyFiles bumps SidecarEpoch outside OnSave~~ [observed 2026-08-29 while fixing the Ensure-pass integrity pair; FIXED 2026-09-26, branch `fix-optimizer-epoch`]
+
+**Fixed 2026-09-26.** Reproduced headlessly first (`OptimizerFlushSidecarEpochTests.LoadOptimizeQuitWithoutSave_NextColdLoadStillHydratesTheSidecar`, real writer through `RecordingPaths.SaveRootOverrideForTesting`, which `EnsureRecordingsDirectory` now also honours): OnSave at epoch 1 -> cold load -> dirty -> `RunOptimizationPass` -> no save -> cold load of the same `.sfs` failed with `reason=stale-sidecar-epoch sfsEpoch=1 precEpoch=2`. On cold load that failure is not cosmetic: `DropFailedSidecarHydrationRecordings` drops the recording, and the whole tree when it is the root. The load path is reachable in the game: decompiled `SpaceCenterMain.Start` reloads `persistent` without saving when the game has a flight state, so after a cold load nothing writes `persistent.sfs` until a scene change or quit-to-menu, and a crash or kill in that window hits it.
+
+The full caller set was walked, not just the load pass. `FlushDirtyFiles` has four callers: `RunOptimizationPass` (load and every commit), `CommitRecordingDirect`, `CommitGloopsRecording` and `CommitTree`. All four are out-of-band (none is `OnSave`), and the commit ones are worse than the load one: their stated purpose is closing the crash window, yet for a recording the last `.sfs` already carries (the pending / active tree written by the scene-exit save) the bump made the crash-window write itself the thing that dropped the recording on the post-crash load. So the rule is applied in `FlushDirtyFiles` for every caller: `RecordingStore.ShouldAdvanceSidecarEpochOnFlush` preserves a positive epoch (the documented bug-#290 out-of-band rule) and defers its advance to the next OnSave, and seeds epoch 1 for a recording at epoch 0.
+
+The mirror direction has two guards. **Deferred advance:** preserving the epoch alone would be permanent, not temporary - the flush clears `FilesDirty` and leaves `.prec` epoch == `rec.SidecarEpoch`, so `ParsekScenario.EnsureRecordingFilesCurrentForSave`'s skip-when-current path (`FilesDirty || !filesCurrent`) never rewrites the recording and a pre-flush quicksave would match the rewritten content forever (review finding on PR #1863; mutation-checked - dropping the new trigger reds two cells). So a preserved flush also sets the runtime-only `Recording.SidecarEpochAdvancePending`; `EnsureRecordingFilesCurrentForSave` treats it like dirty and rewrites with `incrementEpoch: true`, so `.prec` and the tree node move to N+1 in the same OnSave, and any epoch-advancing write clears the flag. All three OnSave passes (committed, active, pending tree) go through that one function, and the active tree's classify pass lists every recording as a write candidate, so none can skip it. The flag lives on the recording object: committed recordings are static in `RecordingStore`, so it survives scene changes in the process; the sites that REPLACE the object carry it (`Recording.DeepClone`, `RecordingStore.PreserveLiveRuntimeFieldsOnReplace`, both hydration-repair refresh sites). **Epoch-0 seed:** a recording at epoch 0 (new commits, optimizer split second halves) is written at 1 instead, because 0 skips `ShouldSkipStaleSidecar` entirely and a flush-written 0 would never be advanced; seeding strands nothing (every `.sfs` that can name it holds 0 or nothing). Cells: `FlushThenRealOnSave_AdvancesPrecAndSfsTogether_AndAPreFlushQuicksaveReadsStale` (drives the real `ParsekScenario.SaveTreeRecordings`), `AdvancePendingClearsAfterTheSave_AndTheNextSaveLeavesTheEpochAlone`, `AdvancePending_SurvivesTheObjectSwapsItCanMeet`, `FlushOfANeverSavedRecording_SeedsEpochOne_SoStaleDetectionIsArmed`.
+
+**The accepted window**, the one this entry flagged: between a flush and the next OnSave - and for good if the process ends first, since the flag is not persisted - a quicksave taken before the flush reads the flushed content at a matching epoch instead of being rejected as stale. That is the state bug #290 already accepted for the BG-recorder and scene-exit force-writes, which run just before the commit flush on the same recordings. What that old `.sfs` then reads, per flush kind:
+- **Normalization** (checkpoint-bridge Ensure, re-sort): equivalent content, nothing lost.
+- **Optimizer split**: the original's `.prec` holds only the first half; the old `.sfs` pairs it with the original's pre-split terminal state and vessel snapshot, and the old `_vessel.craft` is still on disk (the split moves the snapshot to the second half and `SaveRecordingFiles` never deletes a snapshot sidecar when the in-memory one is null), so the recording ends at the split and then reports / spawns the whole flight's ending. The second half's recording is unknown to that `.sfs` (orphaned). Previously the whole original was dropped as stale (the tree, when it was the root).
+- **Optimizer merge**: the absorbed recording's sidecars were deleted, so it loads with no trajectory (kept as an empty metadata-only recording, since the drop pass exempts `trajectory-missing` with zero points), and the target plays both spans under its pre-merge metadata. Previously both were lost the same way (target stale-dropped, absorbed empty).
+Every case is equal or less lossy than the old drop. The flush log line now carries `epochPreserved=N epochSeeded=M`, and OnSave logs `advancing deferred sidecar epoch` when it takes the deferred rewrite. Note for routes: the deferred advance moves `SidecarEpoch` at the next save, so a route over a flushed recording sees `sidecar-epoch-drift` exactly as it did when the flush itself bumped - unchanged, not a regression.
+
+Original entry, kept for the analysis:
 
 `RecordingStore.RunOptimizationPass` ends in `FlushDirtyFiles`, which calls `SaveRecordingFiles(rec)` with the default `incrementEpoch: true`. That is an OUT-OF-BAND write (the pass runs inside `ParsekScenario.OnLoad`'s `loadPhase = "optimization"`, and from the commit paths - never from `OnSave`), so it advances the `.prec`'s epoch while the on-disk `.sfs` still carries the previous one. `RecordingSidecarStore.SaveRecordingFiles`'s own bug-#270/#290 comment states the opposite rule for exactly this case: *"On out-of-band writes (incrementEpoch=false): preserve the current epoch so the .prec matches the last OnSave's .sfs. Without this, BgRecorder and scene-exit force-writes would advance the epoch independently, causing false-positive staleness on quickload (bug #290)."* If no save follows the load (load -> quit to desktop), the next cold load hydrates `rec.SidecarEpoch` from the stale `.sfs`, `ShouldSkipStaleSidecar` sees `.prec` one ahead, and the trajectory sidecar is rejected - permanently, since the `.sfs` never catches up.
 

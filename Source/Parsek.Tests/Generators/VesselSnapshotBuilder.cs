@@ -124,6 +124,37 @@ namespace Parsek.Tests.Generators
             return b;
         }
 
+        /// <summary>
+        /// A CommNet relay satellite for ghost CommNet relay fixtures (design 15.6): the
+        /// RC-L01 Remote Guidance Unit (<c>probeStackLarge</c>, runtime name; its prefab
+        /// carries an INTERNAL 5000 antenna and a <c>ModuleProbeControlPoint</c> with
+        /// minimumCrew=1 multiHop=True) with an RA-2 relay antenna (<c>RelayAntenna5</c>,
+        /// RELAY 2e9 combinable) on top. Antenna power is prefab-only: the snapshot MODULE
+        /// nodes carry only the persisted <c>canComm</c> state, exactly as KSP saves them.
+        /// Pass <paramref name="pilot"/> to add a crewed Mk1 pod (<c>mk1pod.v2</c>) so the
+        /// RC-L01 qualifies as a control point when that kerbal is a pilot in the roster.
+        /// </summary>
+        public static VesselSnapshotBuilder RelaySatellite(string name, uint pid, string pilot = null)
+        {
+            var b = new VesselSnapshotBuilder();
+            b.name = name;
+            b.persistentId = pid;
+            b.type = "Relay";
+            b.AddPart("probeStackLarge");                                          // index 0: root
+            b.AddModuleToPart(0, "ModuleProbeControlPoint");
+            b.AddModuleToPart(0, "ModuleCommand");
+            b.AddModuleToPart(0, "ModuleDataTransmitter", ("xmitIncomplete", "False"), ("canComm", "True"));
+            b.AddPart("RelayAntenna5", position: "0,0.6,0", parentIndex: 0);      // index 1
+            b.AddModuleToPart(1, "ModuleDataTransmitter", ("xmitIncomplete", "False"), ("canComm", "True"));
+            if (pilot != null)
+            {
+                b.AddPart("mk1pod.v2", pilot, position: "0,-1.0,0", parentIndex: 0);  // index 2
+                b.AddModuleToPart(2, "ModuleCommand");
+                b.AddModuleToPart(2, "ModuleDataTransmitter", ("xmitIncomplete", "False"), ("canComm", "True"));
+            }
+            return b;
+        }
+
         public VesselSnapshotBuilder WithName(string n) { name = n; return this; }
         public VesselSnapshotBuilder WithPersistentId(uint pid) { persistentId = pid; return this; }
 

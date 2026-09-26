@@ -1089,6 +1089,27 @@ What a red means:
 - **XPASS** - amber. An expected-fail guard now passes: confirm the bug is
   closed, then remove the `expectedFail` key so it stops being expected.
 
+### Quarantining one defect (`[expectedFail]`)
+
+`[expectedFail] bugId = "<todo id>"` demotes a matching PARSEK-FAIL to
+EXPECTED-FAIL (green). What "matching" means is set by the other two keys, and
+the narrower the better, because EXPECTED-FAIL absorbs everything it matches:
+
+- no `subkind` - ANY PARSEK-FAIL demotes (except `mission-outcome`, which must be
+  named). Avoid.
+- `subkind = "<class>"` - only a PARSEK-FAIL of that class demotes. For
+  `expectation` that is still EVERY log-contract token in the spec.
+- `subkind = "expectation"` plus `mismatches = [...]` - only a run whose
+  `verifiers.expectations.mismatches` list (in `results/<runId>.json`) is EXACTLY
+  that set demotes. Copy the strings from the defect's red run, e.g.
+  `"logContracts.required not matched: <pattern>"` or
+  `"logContracts.forbidden matched: <pattern>"`. An extra red, or a declared one
+  that stopped failing, stays PARSEK-FAIL, and run.py Warn-logs the
+  `unexpected=` / `missing=` difference. Validation rejects an entry naming a
+  pattern the spec does not declare, and any unknown `[expectedFail]` key.
+
+Full contract: `docs/dev/design-autotest-harness-core.md`, "Per-token signatures".
+
 ### The analyzer row's mode (`[expectations.analyzer] gating = false`)
 
 The offline-analyzer row (verifier 3) GATES by default, and every committed spec
