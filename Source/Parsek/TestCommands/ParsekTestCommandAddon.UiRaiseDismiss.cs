@@ -149,17 +149,6 @@ namespace Parsek.TestCommands
                     SceneExitInterceptor.ShowSaveFailedPopup();
                     return;
 
-                case TestCommandUiDialogRaise.WipeRecordingsDialog:
-                    ParsekUI.ActiveInstance.ShowWipeRecordingsConfirmation(
-                        CountEffectiveRecordings());
-                    return;
-
-                case TestCommandUiDialogRaise.WipeMilestonesDialog:
-                    ParsekUI.ActiveInstance.ShowWipeMilestonesConfirmation(
-                        MilestoneStore.Milestones != null
-                            ? MilestoneStore.Milestones.Count : 0);
-                    return;
-
                 case TestCommandUiDialogRaise.RewindDialog:
                     ParsekUI.ActiveInstance.GetRecordingsTableUI()
                         .ShowRewindConfirmation(target);
@@ -368,15 +357,6 @@ namespace Parsek.TestCommands
             return false;
         }
 
-        /// <summary>How many recordings the wipe confirmation's count should say. The
-        /// effective set, for the reason above - the production button reads the same
-        /// number through the Settings window.</summary>
-        private static int CountEffectiveRecordings()
-        {
-            IReadOnlyList<Recording> effective = EffectiveState.ComputeERS();
-            return effective != null ? effective.Count : 0;
-        }
-
         // ----- op=raise settle -----
 
         private void CompleteUiActionRaise(string id, long seq, string verb,
@@ -526,7 +506,7 @@ namespace Parsek.TestCommands
         /// <para>Selected BY LABEL rather than by position, which is the whole difference
         /// from the merge answer's first/last selection: here the caller named a label, the
         /// pure half already checked it against the table AND against the press policy, and
-        /// a label match is what makes "press Cancel" unable to become "press Wipe All"
+        /// a label match is what makes "press Cancel" unable to become "press Delete"
         /// when a dialog's button order changes.</para>
         /// </summary>
         private bool TryPressRaisedDialogButton(PopupDialog popup, string label,

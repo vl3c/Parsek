@@ -121,7 +121,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResetAllPlaybackState_ClearsPostSpawnRecoveredTerminalState()
+        public void ResetAllPlaybackState_KeepsRecordedRecoveredTerminalState_OnSpawnedRecording()
         {
             var rec = new Recording
             {
@@ -135,12 +135,14 @@ namespace Parsek.Tests
 
             RecordingStore.ResetAllPlaybackState();
 
-            Assert.Null(rec.TerminalStateValue);
+            // A committed verdict is recorded content (REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL,
+            // ruling 2026-09-26): the spawn fields reset, the verdict stays.
+            Assert.Equal(TerminalState.Recovered, rec.TerminalStateValue);
             Assert.False(rec.VesselSpawned);
         }
 
         [Fact]
-        public void ResetAllPlaybackState_ClearsPostSpawnDestroyedTerminalState()
+        public void ResetAllPlaybackState_KeepsRecordedDestroyedTerminalState_OnSpawnedRecording()
         {
             var rec = new Recording
             {
@@ -154,7 +156,8 @@ namespace Parsek.Tests
 
             RecordingStore.ResetAllPlaybackState();
 
-            Assert.Null(rec.TerminalStateValue);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
         }
 
         [Fact]
@@ -191,8 +194,7 @@ namespace Parsek.Tests
 
             RecordingStore.ResetAllPlaybackState();
 
-            // Situation-based states (Landed, Orbiting, etc.) are preserved —
-            // only Recovered/Destroyed are cleared as post-spawn lifecycle events
+            // Every recorded verdict is preserved, situation-based ones included
             Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
         }
 

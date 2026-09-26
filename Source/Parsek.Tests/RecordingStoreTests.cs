@@ -149,18 +149,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Clear_ClearsEverything()
-        {
-            // Create + commit one
-            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "First");
-            RecordingStore.CommitRecordingDirect(rec1);
-
-            RecordingStore.Clear();
-
-            Assert.Empty(RecordingStore.CommittedRecordings);
-        }
-
-        [Fact]
         public void Recording_StartUT_EndUT_Computed()
         {
             var rec = RecordingStore.CreateRecordingFromFlightData(MakePoints(5, startUT: 200), "Ship");
@@ -686,6 +674,76 @@ namespace Parsek.Tests
             Assert.Equal(0, cleared);
             Assert.True(loopShip.LoopPlayback);
             Assert.False(quietShip.LoopPlayback);
+        }
+
+        [Fact]
+        public void CommitTree_TreeChildrenLandInBothCommittedCollectionsWithTreeId()
+        {
+            // Store-shape pin for FinalizeTreeCommit: every child of a committed
+            // tree is the SAME object in the flat CommittedRecordings list and in
+            // CommittedTrees[i].Recordings, and carries the committed tree's id.
+            // Many cells that seed through AddRecordingWithTreeForTesting lean on
+            // this shape implicitly; this cell names it directly on the
+            // production commit path.
+            GroupHierarchyStore.ResetForTesting();
+            try
+            {
+                var tree = new RecordingTree
+                {
+                    Id = "shape-tree",
+                    TreeName = "ShapeTree",
+                    RootRecordingId = "shape-root"
+                };
+                var root = new Recording
+                {
+                    RecordingId = "shape-root",
+                    VesselName = "ShapeTree",
+                    VesselPersistentId = 100,
+                    TreeId = tree.Id,
+                    Points = MakePoints(2)
+                };
+                var child = new Recording
+                {
+                    RecordingId = "shape-child",
+                    VesselName = "ShapeTree Probe",
+                    VesselPersistentId = 200,
+                    TreeId = tree.Id,
+                    Points = MakePoints(2, startUT: 110)
+                };
+                tree.AddOrReplaceRecording(root);
+                tree.AddOrReplaceRecording(child);
+
+                RecordingStore.CommitTree(tree);
+
+                RecordingTree committedTree = null;
+                foreach (var t in RecordingStore.CommittedTrees)
+                {
+                    if (t.Id == tree.Id)
+                    {
+                        Assert.Null(committedTree);
+                        committedTree = t;
+                    }
+                }
+                Assert.NotNull(committedTree);
+                Assert.Equal(2, committedTree.Recordings.Count);
+
+                foreach (var rec in new[] { root, child })
+                {
+                    int flatHits = 0;
+                    foreach (var committed in RecordingStore.CommittedRecordings)
+                    {
+                        if (committed.RecordingId != rec.RecordingId) continue;
+                        flatHits++;
+                        Assert.Same(committedTree.Recordings[rec.RecordingId], committed);
+                        Assert.Equal(tree.Id, committed.TreeId);
+                    }
+                    Assert.Equal(1, flatHits);
+                }
+            }
+            finally
+            {
+                GroupHierarchyStore.ResetForTesting();
+            }
         }
     }
 

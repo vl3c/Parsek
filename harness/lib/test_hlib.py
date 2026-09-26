@@ -1062,7 +1062,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # BOTH numbers in opposite directions - the arithmetic signature that tells a
         # promotion from an addition, and that catches a half-done one (a name added to
         # IMPLEMENTED and left in RESERVED moves the first number without the second).
-        # 31 / 5 after DeleteRecording, an ADDITION (the first number moves alone).
+        # 31 / 5 after DeleteRecording, an ADDITION (the first number moves alone); it was
+        # REMOVED again 2026-09-26 (recordings are never player-deletable), which is why
+        # the final count below is one lower than the additions sum to.
         # 32 / 5 after R10's ListHandles, an ADDITION for the same reason: the reserved
         # envelope never carried an enumeration verb, so only the first number moves.
         # 33 / 5 after WarpToUT, an ADDITION again (the first number moves alone):
@@ -1093,7 +1095,8 @@ class SpecValidationRejectTests(unittest.TestCase):
         # merge-journal phase, not a file write, and stays reserved.
         # 44 / 5 after SpinVessel, an ADDITION by one: the reserved envelope never
         # carried a physics verb.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 44)
+        # 43 / 5 after DeleteRecording's removal (2026-09-26), a REMOVAL by one.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 43)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -1460,33 +1463,26 @@ class SpecValidationRejectTests(unittest.TestCase):
                     any(verb in e for e in v.errors),
                     "%s wrongly flagged: %s" % (verb, list(v.errors)))
 
-    def test_delete_recording_verb_is_implemented_additively(self):
-        # ADDITIVE, never a promotion: implemented, not reserved, and the reserved
-        # set is untouched by it (the two counts above pin the arithmetic).
-        self.assertIn("DeleteRecording", hlib.IMPLEMENTED_SEAM_VERBS)
+    def test_delete_recording_verb_is_retired(self):
+        # REMOVED 2026-09-26 with the Recordings table's delete button: recordings are
+        # never player-deletable (a deletion breaks the timeline and the ledger). Not
+        # implemented, not reserved, and neither role table answers for it, so a spec
+        # that names it fails pre-launch instead of after a KSP boot.
+        self.assertNotIn("DeleteRecording", hlib.IMPLEMENTED_SEAM_VERBS)
         self.assertNotIn("DeleteRecording", hlib.RESERVED_SEAM_VERBS)
-        # Single-phase: rides the 60 s default, never the 540 s deferred cap.
-        self.assertNotIn("DeleteRecording", hlib.DEFERRED_SEAM_VERBS)
-        self.assertNotIn("DeleteRecording", hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS)
-        # Both role tables answer for it explicitly (the totality cells enforce the
-        # rows exist; this pins WHICH answer, since a delete is the least reversible
-        # verb after the two rewinds and the seal).
-        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
-                         hlib.SEAM_VERB_TAIL_ROLE["DeleteRecording"])
-        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
-                         hlib.SEAM_VERB_POST_MISSION_ROLE["DeleteRecording"])
+        self.assertNotIn("DeleteRecording", hlib.SEAM_VERB_TAIL_ROLE)
+        self.assertNotIn("DeleteRecording", hlib.SEAM_VERB_POST_MISSION_ROLE)
 
-    def test_delete_recording_step_is_not_rejected(self):
-        # The behavioural half: a spec naming the verb validates. The S0.11 lane is the
-        # first consumer (a KSC-scene delete under living KSC ghosts).
+    def test_delete_recording_step_is_rejected(self):
+        # The behavioural half: a spec naming the retired verb is refused.
         def m(s):
             s.get("expectations", {}).pop("ledger", None)
             s["driver"]["steps"].insert(
                 1, {"cmd": "DeleteRecording", "args": {"index": "1"}, "expect": "OK"})
         v = self._reject(m)
-        self.assertFalse(
+        self.assertTrue(
             any("DeleteRecording" in e for e in v.errors),
-            "DeleteRecording wrongly flagged: %s" % (list(v.errors),))
+            "DeleteRecording was not refused: %s" % (list(v.errors),))
 
     def test_list_handles_verb_is_implemented_additively(self):
         # R10. ADDITIVE, never a promotion: implemented, not reserved, and the reserved
@@ -9684,7 +9680,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # S0.12-switch-noop-discard LEFT 2026-09-11: promoted to daily after its negative
         # control (`2026-09-11_0044`, RULINGS A4-c1 / R2-4); a daily lane that never writes
         # the token is in neither population.
-        "S0.11-ksc-table-delete.toml":               "tier=operator as a reading run, NOT debt: the first consumer of the DeleteRecording seam verb (AUTOMATION-GAP-KSC-TABLE-DELETE's lane) - V22K's SPACECENTER boot with the loop member's KSC ghost placed, then DeleteRecording index=1 under it, pinning the ParsekKSC host's reindex line, which prints only when a KSC ghost was alive at the delete. Nothing armed; the first flight decides whether the dwell length puts the delete under a placed ghost",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a
@@ -17500,23 +17495,23 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             self.assertNotIn(op, hlib.UIACTION_OPS_NEEDING_WINDOW)
             self.assertIn(op, hlib.UIACTION_OP_VALUES)
             self.assertEqual([], hlib.validate_ui_action_step(
-                1, {"op": op, "popup": "wiperecordings"}))
+                1, {"op": op, "popup": "deleteroute"}))
             # A window= is the ops-needing-window rule's own refusal.
             errors = hlib.validate_ui_action_step(
-                2, {"op": op, "popup": "wiperecordings", "window": "missions"})
+                2, {"op": op, "popup": "deleteroute", "window": "missions"})
             self.assertTrue(any("does not read it" in e for e in errors), (op, errors))
 
         # press= on a dismiss is legal; on a raise it is refused with the reason.
         self.assertEqual([], hlib.validate_ui_action_step(
-            3, {"op": "dismiss", "popup": "wiperecordings", "press": "Cancel"}))
+            3, {"op": "dismiss", "popup": "deleteroute", "press": "Cancel"}))
         errors = hlib.validate_ui_action_step(
-            4, {"op": "raise", "popup": "wiperecordings", "press": "Cancel"})
+            4, {"op": "raise", "popup": "deleteroute", "press": "Cancel"})
         self.assertTrue(any("only op=dismiss reads it" in e for e in errors), errors)
 
     def test_uiaction_popup_and_press_are_flagged_on_ops_that_ignore_them(self):
         for key in ("popup", "press"):
             errors = hlib.validate_ui_action_step(
-                0, {"op": "dialog", key: "wiperecordings"})
+                0, {"op": "dialog", key: "deleteroute"})
             self.assertTrue(
                 any(("args.%s: only op=raise and op=dismiss read it" % key) in e
                     for e in errors), (key, errors))
@@ -17556,7 +17551,8 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual(tuple(hlib.UIACTION_POPUP_VALUES),
                          tuple(consts[name] for name in used))
         # The dialogs the table names but refuses to raise must NOT have leaked in.
-        for absent in ("merge", "preswitch", "ghosticon", "refly"):
+        for absent in ("merge", "preswitch", "ghosticon", "refly",
+                       "wiperecordings", "wipemilestones"):
             self.assertNotIn(absent, hlib.UIACTION_POPUP_VALUES)
 
     def test_the_popup_table_parse_is_not_vacuous(self):

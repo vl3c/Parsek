@@ -3,6 +3,18 @@
 Measured 2026-09-11 against commit `4eb427e9e`. All `file:line` references are relative to
 `Source/Parsek/` unless they start with `harness/`, `docs/` or `scripts/`.
 
+STRUCTURAL CHANGE 2026-09-26 (operator ruling: recordings are never player-deletable, because a
+deletion breaks the timeline and the ledger). The Settings window's Data Management section is
+GONE with both its buttons (`Wipe All Recordings (N)`, `Wipe All Milestones (N)`), their two
+confirm dialogs (`Confirm: Wipe Recordings`, `Confirm: Wipe Milestones`) and their two
+`All ... wiped` screen messages, so the dialog population is **19** (was 21) and the Settings
+window draws five sections (3.8, 3.12). The Recordings table's `X` on ghost-only rows is gone
+too (3.2, Recordings tab), and with it `ParsekFlight.DeleteRecording` and its `Recording '...'
+deleted` screen message; a ghost-only row now draws only its `G`. The per-row Archive (Hidden)
+checkbox is the only way a player stops seeing a recording. The coverage tallies below are the historical record of the
+flights that took them and are not rewritten; where they count a wipe dialog, that row no
+longer exists.
+
 COVERAGE UPDATED 2026-09-11 (evening) off the wave-2 reading runs `2026-09-11_1548` / `_1551` /
 `_1553` / `_1556` / `_1559` / `_1601`, all six PASS on attempt 1, 79 further captures. What
 moved: section 2's tally (windows 10 -> 13 of 14, overlays 0 -> 2 of 7, nine empty-vs-populated
@@ -139,11 +151,11 @@ structure:
 | grep over `Source/Parsek` | result |
 |---|---|
 | `ClickThruBlocker.GUILayoutWindow(` / `GUILayout.Window(` / `GUI.Window(` | 16 sites: 15 player-facing hosts drawing **14 distinct windows**, 1 test-only probe at `InGameTests/GuiTreeDumpImguiTest.cs:484` |
-| `PopupDialog.SpawnPopupDialog(` excluding `InGameTests/` + `TestCommands/` | **21** modal dialogs |
+| `PopupDialog.SpawnPopupDialog(` excluding `InGameTests/` + `TestCommands/` | **19** modal dialogs (21 at `4eb427e9e`; the two Settings wipe confirmations were removed 2026-09-26) |
 | `void OnGUI()` in production | **5** hosts: `ParsekFlight.cs:2087`, `ParsekKSC.cs:227`, `ParsekTrackingStation.cs:350`, `CurrencyReservationOverlay.cs:87`, `InGameTests/TestRunnerShortcut.cs:177` (`OverlayBadge.cs` was the sixth until 2026-09-25, when the stock-UI badges moved to stock mechanisms and the file was deleted) |
 | IMGUI draw calls outside `UI/` | 6 files: `CurrencyReservationOverlay.cs`, `MapMarkerRenderer.cs`, `ParsekFlight.cs`, `ParsekKSC.cs`, `ParsekUI.cs`, `WatchModeController.cs` (`OverlayBadge.cs` deleted 2026-09-25) |
 | `UiSurfaceVisibility.IsVisible(` | **12** call sites in 5 files; 4 of the 14 enum keys have none |
-| `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` | 107 raw, **95** real producers |
+| `ParsekLog.ScreenMessage` / `ScreenMessages.PostScreenMessage` | 107 raw, **95** real producers at `4eb427e9e`; **92** since the two `All ... wiped` toasts left with the Settings wipes and `ParsekFlight.DeleteRecording`'s toast with it (2026-09-26) |
 
 ## 2. How the picture was taken
 
@@ -211,7 +223,7 @@ columns are kept beside it so the movement is visible rather than asserted.
 |---|---|---|---|---|---|
 | windows | **10 of 14** | **13 of 14** | **13 of 14** | **14 of 14** | none - THE CLASS IS CLOSED. Wave 2 pays all three hosts the seam's window table excluded by name: `Link round-trip partner` (GUI-3), `Manage Groups` + `Set Parent Group` (GUI-3 and GUI-4, both titles each), and `Parsek - Real Spawn Control` (GUI-6, one candidate row). Wave 3 adds no window: its subject is uGUI. Wave 4 pays the last one, the global Ctrl+Shift+T Test Runner, whose open flag was a private field on a separate MonoBehaviour until GUI-12 gave it an accessor and the `testrunnerglobal` seam row (3.11); the same lane re-shoots the SETTINGS-launched runner in three further states, which is a state gain rather than a window gain |
 | tabs | **12 of 12** | **12 of 12** | **12 of 12** | **12 of 12** | none. Wave 2 re-shoots them on hosts whose rows can be read off committed bytes, adds the FLIGHT form of eight (GUI-6 / GUI-7) and the EMPTY form of six (GUI-8). Neither runner window has tabs |
-| modal dialogs | **0 of 21** | **0 of 21** | **6 of 21** | **6 of 21** | 15 of the 21. SIX HAVE A PICTURE as of wave 3, each raised through its own production spawn site, reported standing by `op=dialog`, photographed, dumped and dismissed: `actionblocked` (`ParsekResourceBlock` / "Action Blocked" / `OK`), `savefailed` (`ParsekSceneExitSaveFailed` / "Save failed" / `OK`), `wiperecordings` (`ParsekWipeRecordingsConfirm` / "Confirm: Wipe Recordings" / `Wipe All`, `Cancel`), `wipemilestones` (`ParsekWipeMilestonesConfirm` / "Confirm: Wipe Milestones" / `Wipe All`, `Cancel`), `fastforward` (`ParsekFastForwardConfirm` / "Confirm: Fast-Forward" / `Fast-Forward`, `Cancel`) and `seal` (`ParsekUFSealDialog` / "Confirm: Seal Unfinished Flight" / `Seal Permanently`, `Cancel`). Each of the six `op=dialog` steps beside them read `open=true count=1` with that name, title and button list. THE SEVENTH RAISABLE ROW, `Confirm: Rewind`, answered the typed refusal `REJECTED dialog-target-unavailable popup=rewind detail=no-rewind-owner-among=21` on this host - its spawn site silently returns when `RecordingStore.GetRewindRecording` is null, and no recording in `bdock-recorded` carries a `rewindSaveFileName` - so a host with a rewind point is what would photograph it. THE REMAINING 14 STAY FILED WITH THEIR REASON, each needing state a pure in-process call cannot supply: the tree merge dialog (`ParsekMerge`; its spawn takes a `RecordingTree` and BOTH its buttons act on it, so a synthetic one's commit would write invented history), the pre-switch decision dialog (`ParsekPreSwitch`; needs a live `Vessel`, so FLIGHT only, and RE-SPAWNS ITSELF on any non-button teardown), the ghost icon context menu (`ParsekGhostIconMenu`; spawned inside a Harmony Prefix over a live ghost ProtoVessel in map view, so there is no method to call), the Tracking Station ghost popup (its host exists only in TRACKSTATION, which runs no ParsekUI, so every `UiAction` there answers `REJECTED ui-host-unavailable`), Re-Fly invoke (`ParsekRewindInvoke`; a RewindPoint with a child slot), Re-Fly revert (`ParsekReFlyRevert`; a live `ReFlySessionMarker`), `Confirm: Disband Group`, the three Logistics confirms (delete route, delete dormant route, create route - a live `Route` or `RouteCandidate`), and the remainder. See 6.2 |
+| modal dialogs | **0 of 21** | **0 of 21** | **6 of 21** | **6 of 21** | SINCE 2026-09-26 THE POPULATION IS 19: the two wipe confirmations below no longer exist, so four of the six photographed rows remain and `GUI-10-census-dialogs` raises four. The historical reading follows. 15 of the 21. SIX HAVE A PICTURE as of wave 3, each raised through its own production spawn site, reported standing by `op=dialog`, photographed, dumped and dismissed: `actionblocked` (`ParsekResourceBlock` / "Action Blocked" / `OK`), `savefailed` (`ParsekSceneExitSaveFailed` / "Save failed" / `OK`), `wiperecordings` (`ParsekWipeRecordingsConfirm` / "Confirm: Wipe Recordings" / `Wipe All`, `Cancel`), `wipemilestones` (`ParsekWipeMilestonesConfirm` / "Confirm: Wipe Milestones" / `Wipe All`, `Cancel`), `fastforward` (`ParsekFastForwardConfirm` / "Confirm: Fast-Forward" / `Fast-Forward`, `Cancel`) and `seal` (`ParsekUFSealDialog` / "Confirm: Seal Unfinished Flight" / `Seal Permanently`, `Cancel`). Each of the six `op=dialog` steps beside them read `open=true count=1` with that name, title and button list. THE SEVENTH RAISABLE ROW, `Confirm: Rewind`, answered the typed refusal `REJECTED dialog-target-unavailable popup=rewind detail=no-rewind-owner-among=21` on this host - its spawn site silently returns when `RecordingStore.GetRewindRecording` is null, and no recording in `bdock-recorded` carries a `rewindSaveFileName` - so a host with a rewind point is what would photograph it. THE REMAINING 14 STAY FILED WITH THEIR REASON, each needing state a pure in-process call cannot supply: the tree merge dialog (`ParsekMerge`; its spawn takes a `RecordingTree` and BOTH its buttons act on it, so a synthetic one's commit would write invented history), the pre-switch decision dialog (`ParsekPreSwitch`; needs a live `Vessel`, so FLIGHT only, and RE-SPAWNS ITSELF on any non-button teardown), the ghost icon context menu (`ParsekGhostIconMenu`; spawned inside a Harmony Prefix over a live ghost ProtoVessel in map view, so there is no method to call), the Tracking Station ghost popup (its host exists only in TRACKSTATION, which runs no ParsekUI, so every `UiAction` there answers `REJECTED ui-host-unavailable`), Re-Fly invoke (`ParsekRewindInvoke`; a RewindPoint with a child slot), Re-Fly revert (`ParsekReFlyRevert`; a live `ReFlySessionMarker`), `Confirm: Disband Group`, the three Logistics confirms (delete route, delete dormant route, create route - a live `Route` or `RouteCandidate`), and the remainder. See 6.2 |
 | overlays / markers / badges | **0 of 7** | **2 of 7** | **2 of 7** | **2 of 7** | the Watch Mode overlay (GUI-6 `play-main-watchmode-advanced`, also standing in `play-spawncontrol-advanced`) and the flight-map ghost markers (GUI-6 `play-mapview-ghostmarkers-advanced`, 243 `[GhostMap] Marker DRAWN` lines behind it) ARE photographed. The five still dark: the currency reservation tooltip, the stock-UI badges, the Tracking Station markers, the in-world ghost labels and the Logistics launcher TINT (zero `broken-state tint applied` lines in any lane, so only the untinted button has a picture) |
 | tooltip surfaces in a USEFUL state | **0 of 2** | **0 of 2** | **0 of 2** | **0 of 2** | both, and THE CAUSE IS NO LONGER OPEN - it was MEASURED on 2026-09-15 (GUI-7 run `2026-09-15_1539`, PASS on attempt 1, 63 s, 17 harvested files), and the reading RETIRES both candidates the finding had pre-registered. A one-shot Verbose probe inside a Parsek `OnGUI` Repaint (`TooltipEchoStripLatch.SampleMousePositionProbe`, armed by every `op=pointer`) reports `Event.current.mousePosition` beside `Input.mousePosition` in the SAME pass: the EVENT position reads `eventLocal=-8.0,-8.0` -> `eventScreen=0.0,0.0` on every probe of the flight, while the POLLED position tracks the commanded point exactly (`input=133.0,558.0` -> `inputGuiY=162.0` against a commanded `133,161`; `input=133.0,523.0` -> `inputGuiY=197.0` against `133,196`). So Unity's polled position follows a warped cursor and the position IMGUI computes its hit test from never moves at all - it stays pinned at the screen origin, which is outside every control. Neither foreground nor a synthetic mouse event is the cause: both reach-further flags were CONFIRMED APPLIED on the same run and changed nothing (`fgOutcome=attached` on the first hover move, `fgOutcome=already` on the second, `fg=true` after both, the relative `SendInput` pair accepted on both), and both answers still read `tooltip=-`. See GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT and the `pointer` row of 6.2 |
 | screen messages | **0 of 95** | **0 of 95** | **0 of 95** | **0 of 95** | all 95; zero `ScreenMessage` lines in any of the six wave-2 logs, and neither wave 3 nor wave 4 re-measures the class - one drives modals and the other windows, and neither is a screen message |
@@ -493,7 +505,7 @@ Notable control semantics in the body:
 | per-row Archive toggle | `rec.Hidden` + `NotifyTimelineOfArchiveChange` | REFUSED with a Warn + ScreenMessage when the row is an Unfinished Flight (`:2158-2167`) |
 | folder Archive toggle | writes every descendant `Hidden` (`:2860`) | never. See finding P17 |
 | `G` | `groupPicker.OpenForRecording / ForChain / ForRecordings / ForGroup` | never disabled; adds later rejected by `CanAddToUserGroup` (`UI/GroupPickerUI.cs:24`) |
-| `X` on a row | `DeleteGhostOnlyRecording` (`:4570`), NO confirmation | only when `rec.IsGhostOnly && Mode != TrackingStation` (`:1982`, `:4611`) |
+| `X` on a row | REMOVED 2026-09-26 (recordings are never player-deletable); was `DeleteGhostOnlyRecording` (`:4570`), NO confirmation | was only when `rec.IsGhostOnly && Mode != TrackingStation` (`:1982`, `:4611`) |
 | `X` on a folder | `ShowDisbandGroupConfirmation` (`:4399`) | only for a non-permanent group |
 | `W` / `W*` | `flight.EnterWatchMode(ri)` | `IsWatchButtonEnabled` (`:947`); column hidden outside flight |
 | `FF` / `R` | `ShowFastForwardConfirmation` (`:4496`) / `ShowRewindConfirmation` (`:4450`) | `RecordingStore.CanFastForward` / `CanRewind`, refusal as tooltip; `R` is suppressed entirely on an unfinished-flight row (`:3754`) |
@@ -957,8 +969,10 @@ spec files that as a follow-up rather than faking it
 
 ### 3.8 Parsek - Settings
 
-Purpose: the nine settings that still have a control, the complexity toggle itself, and the
-two destructive wipes. Six sections drawn top to bottom in one pass; no tabs, no scroll view.
+Purpose: the nine settings that still have a control and the complexity toggle itself. Five
+sections drawn top to bottom in one pass; no tabs, no scroll view. (A sixth, Data Management,
+held `Wipe All Recordings (N)` and `Wipe All Milestones (N)` until 2026-09-26, when the
+no-player-deletion ruling removed it.)
 
 Hosts: `ParsekFlight.cs:2138`, `ParsekKSC.cs:260`. `UiSurface.MainButtonSettings` is visible in
 both modes by design - it hosts the mode toggle - and is deliberately left unwrapped at the
@@ -971,10 +985,9 @@ draw site (`UI/UiComplexityMode.cs:174`).
 | 3 | Looping | `SettingsSectionLooping` | `Auto-launch every` label, a 45 px value field, a 40 px unit button |
 | 4 | Recorder Sample Density | `SettingsSectionSampleDensity` | `Low` / `Medium` / `High` pressed toggles of one fixed equal width, plus a summary label |
 | 5 | Diagnostics | `SettingsSectionDiagnostics` | five toggles (` Verbose logging`, three tracers, ` Write readable .txt recording copies`), `In-Game Test Runner`, `Run Diagnostics Report`, and the `Rewind points on disk: <size> (<n> files)` readout whose hover carries the live / crashed / stable / concluded counts |
-| 6 | Data Management | always | `Wipe All Recordings (N)` and `Wipe All Milestones (N)`, each with its own hover while enabled and greyed at zero with a disabled-hover reason |
 
-Order since 2026-09-26: Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
-Management (it was Interface, Looping, Ghosts, Diagnostics, Sample Density, Data Management).
+Order since 2026-09-26: Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics (it
+was Interface, Looping, Ghosts, Diagnostics, Sample Density, Data Management).
 
 Footer: `Defaults` (resets the values in `SettingsWindowPresentation.BuildDefaults`, the
 Advanced-only ones included, and never the interface mode) and `Close`. Each hidden section's
@@ -999,7 +1012,8 @@ difference is exactly the three Basic-hidden sections, diffed node for node: 5 L
 Diagnostics + 6 Sample Density. Nothing else differed but the two mode buttons' widths (the
 selected one rendered with `GUI.skin.box`); since 2026-09-26 both option rows draw pressed
 toggles of one fixed width, so the mode switch no longer moves them. No picture: the null-settings fallback, a greyed
-`Basic`, a mid-edit auto-loop field, either wipe button greyed.
+`Basic`, a mid-edit auto-loop field. (Those pictures carry the Data Management section, which
+no longer draws.)
 
 ### 3.9 Real Spawn Control
 
@@ -1139,7 +1153,11 @@ the `Run+` isolated path, and either window MID-RUN - `op=run` is two-phase and 
 `!runner.IsRunning`, so a frame between the dispatch and the finish is not something a lane can
 time.
 
-### 3.12 Dialogs (21)
+### 3.12 Dialogs (19)
+
+Since 2026-09-26 the two Settings wipe confirmations (`Confirm: Wipe Recordings`, and
+`Confirm: Wipe Game Actions` / `Confirm: Wipe Milestones`) no longer exist; their rows are
+removed from the table below, which otherwise stays the 2026-09-11 reading.
 
 All are stock `PopupDialog` / `MultiOptionDialog` on `HighLogic.UISkin`, so all 21 are
 invisible to `DumpGuiTree`, and as of wave 3 **six have a picture** (PNG only, for that same
@@ -1188,8 +1206,6 @@ three of them are known wrong today and every `file:line` in the table has moved
 | `Ghost` (Tracking Station popup) | `ParsekTrackingStation.cs:1276` | TS ghost selection, driven from `UpdateSelectedGhostPopup` (`:1154`) | 1: `Warp to Spawn` or a duration-suffixed label |
 | `Confirm: Seal Unfinished Flight` | `UnfinishedFlightSealHandler.cs:214` | the Seal button in the Re-Fly column | 2: `Seal Permanently`, `Cancel` |
 | `Confirm: Warp to Time` | `WarpToTimeController.cs:223` | the Timeline `Warp to time` button | 2: `Warp`, `Cancel` |
-| `Confirm: Wipe Recordings` | `ParsekUI.cs:1505` | Settings Data Management (`UI/SettingsWindowUI.cs:753`) | 2: `Wipe All`, `Cancel` |
-| `Confirm: Wipe Game Actions` | `ParsekUI.cs:1538` | Settings Data Management (`UI/SettingsWindowUI.cs:762`) | 2: `Wipe All`, `Cancel` |
 | `Confirm: Disband Group` | `UI/RecordingsTableUI.cs:4431` | `X` on a non-permanent folder | 2: `Disband Group`, `Cancel` |
 | `Confirm: Rewind` | `UI/RecordingsTableUI.cs:4474` | `R` on a row, folder or block | 2 |
 | `Confirm: Fast-Forward` | `UI/RecordingsTableUI.cs:4510` | `FF` on a row, folder or block | 2 |
@@ -1385,7 +1401,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | id | item | file:line |
 |---|---|---|
 | H26 | `LoopStartUT` / `LoopEndUT` / `LoopAnchorVesselId` are written only by `ApplyAutoLoopRange`, so the same Loop checkbox produces a different loop WINDOW depending on where it was clicked | `Recording.cs:63-66`, `UI/RecordingsTableUI.cs:5735`, `:1338`, `:2643` |
-| H27 | Deleting a single non-ghost-only recording has no player path; the only one is the all-or-nothing wipe | `RecordingStore.cs:4287`, `ParsekFlight.cs:19787` |
+| H27 | Deleting a single non-ghost-only recording has no player path; the only one is the all-or-nothing wipe | `RecordingStore.cs:4287`, `ParsekFlight.cs:19787`. BY DESIGN since 2026-09-26: no player deletion path exists at all (the wipe and the ghost-only `X` were removed, and `ParsekFlight.DeleteRecording` with them) |
 | D9 | Four store operations with no production caller, three destructive | `RecordingStore.cs:3813`, `:3782`, `:5079`, `:4522` |
 | P9 | Rename refusals (group, re-parent) discard the typed name with a Warn | `UI/RecordingsTableUI.cs:4346`, `:4353`, `:4364`, `GroupHierarchyStore.cs:150` |
 | P17 | Group hide-all writes `Hidden` over every descendant with no Unfinished-Flight check | `UI/RecordingsTableUI.cs:2859` vs the per-row guard `:2164-2172` |

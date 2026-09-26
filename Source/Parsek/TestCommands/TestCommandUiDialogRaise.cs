@@ -11,7 +11,7 @@ namespace Parsek.TestCommands
         /// <c>press=</c> may name any of them.</summary>
         AnyButton = 0,
 
-        /// <summary>A confirm dialog: the confirm button MUTATES the save (a wipe, a warp,
+        /// <summary>A confirm dialog: the confirm button MUTATES the save (a delete, a warp,
         /// a permanent seal) and is NOT pressable through the seam; only the cancel-shaped
         /// button named by <see cref="UiRaisableDialog.SafeButton"/> is.</summary>
         SafeButtonOnly = 1,
@@ -113,8 +113,8 @@ namespace Parsek.TestCommands
     /// one thing a census must not produce.</para>
     ///
     /// <para><b>DISMISS WITHOUT PRESSING IS THE DEFAULT, and <c>press=</c> is opt-in.</b>
-    /// Most of these dialogs' confirm buttons MUTATE the save - a wipe deletes every
-    /// recording, a seal is permanent, a warp moves UT - so a census lane that pressed them
+    /// Most of these dialogs' confirm buttons MUTATE the save - a route delete is
+    /// permanent, a seal is permanent, a warp moves UT - so a census lane that pressed them
     /// would destroy the very fixture it is photographing. <c>op=dismiss</c> therefore
     /// defaults to <c>PopupDialog.DismissPopup</c>, and <c>press=</c> must name a button
     /// the dialog's <see cref="UiDialogPressPolicy"/> allows
@@ -185,8 +185,6 @@ namespace Parsek.TestCommands
 
         internal const string ActionBlockedDialog = "actionblocked";
         internal const string SaveFailedDialog = "savefailed";
-        internal const string WipeRecordingsDialog = "wiperecordings";
-        internal const string WipeMilestonesDialog = "wipemilestones";
         internal const string RewindDialog = "rewind";
         internal const string FastForwardDialog = "fastforward";
         internal const string SealDialog = "seal";
@@ -232,16 +230,18 @@ namespace Parsek.TestCommands
         internal const string PressUnknownReason = "press-unknown";
 
         /// <summary>A <c>press=</c> naming a button the dialog's policy forbids - i.e. a
-        /// confirm that would wipe, seal or warp. The refusal is the point: a census lane
+        /// confirm that would delete, seal or warp. The refusal is the point: a census lane
         /// must be unable to destroy its own fixture by naming the wrong
         /// button.</summary>
         internal const string PressNotAllowedReason = "press-not-allowed";
 
         // ----- the table -----
         //
-        // ORDER is cheapest-first: the two that need nothing at all, then the two that need
-        // only a count, then the three that need a committed recording. A census lane reads
-        // down it, and a host that carries no recordings still photographs the first four.
+        // ORDER is cheapest-first: the two that need nothing at all, then the three that
+        // need a committed recording, then the three that need a stored route. A census lane
+        // reads down it, and a host that carries no recordings still photographs the first
+        // two. (The two Settings wipe confirmations left the table with the Data Management
+        // section, 2026-09-26: recordings are never player-deletable.)
         //
         // WHAT IS NOT HERE, and why - each of these is FILED in
         // docs/dev/todo-and-known-bugs.md rather than raised over synthetic state:
@@ -281,29 +281,6 @@ namespace Parsek.TestCommands
                 Title = "Save failed",
                 Buttons = new[] { "OK" },
                 Press = UiDialogPressPolicy.AnyButton,
-            },
-
-            // ParsekUI.ShowWipeRecordingsConfirmation(count). `Wipe All` clears every
-            // committed recording and unreserves every crew - never pressable here.
-            new UiRaisableDialog
-            {
-                Name = WipeRecordingsDialog,
-                PopupName = "ParsekWipeRecordingsConfirm",
-                Title = "Confirm: Wipe Recordings",
-                Buttons = new[] { "Wipe All", "Cancel" },
-                Press = UiDialogPressPolicy.SafeButtonOnly,
-                SafeButton = "Cancel",
-            },
-
-            // ParsekUI.ShowWipeMilestonesConfirmation(count).
-            new UiRaisableDialog
-            {
-                Name = WipeMilestonesDialog,
-                PopupName = "ParsekWipeMilestonesConfirm",
-                Title = "Confirm: Wipe Milestones",
-                Buttons = new[] { "Wipe All", "Cancel" },
-                Press = UiDialogPressPolicy.SafeButtonOnly,
-                SafeButton = "Cancel",
             },
 
             // RecordingsTableUI.ShowRewindConfirmation(rec). It SILENTLY RETURNS when
