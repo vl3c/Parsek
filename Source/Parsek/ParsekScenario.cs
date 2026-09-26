@@ -1366,7 +1366,7 @@ namespace Parsek
         /// <para>Performs the two steps that every auto-commit path must run in lockstep:</para>
         /// <list type="number">
         ///   <item><description><see cref="RecordingStore.CommitPendingTree"/> — moves the tree from pending to committed state.</description></item>
-        ///   <item><description><see cref="RecordingStore.MarkTreeAsApplied(RecordingTree)"/> — advances each committed tree recording's <c>LastAppliedResourceIndex</c> so resource-budget reservation does not re-hold resources that were already live during the originating flight.</description></item>
+        ///   <item><description><see cref="RecordingStore.MarkTreeAsApplied(RecordingTree)"/> - advances each committed tree recording's <c>LastAppliedResourceIndex</c> (serialized bookkeeping; no production code reads it since the ResourceBudget cost helpers were deleted).</description></item>
         /// </list>
         ///
         /// <para>Callers chain <see cref="LedgerOrchestrator.NotifyLedgerTreeCommitted(RecordingTree)"/>

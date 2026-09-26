@@ -57,8 +57,9 @@ namespace Parsek
         /// The predicate is the exact mirror of <c>RecordingTreeSplitter</c>'s
         /// step-2.9 ledger retag on the other side of the same seam, which moves
         /// an origin-tagged action to TIP iff its attribution UT
-        /// (<see cref="ComputeAttributionUT"/>: <c>UT</c>, or <c>EndUT</c> for a
-        /// death-encoding KerbalAssignment) is <c>&gt;= rewindUT</c>, and leaves
+        /// (<see cref="ComputeAttributionUT(GameAction, IReadOnlyList{GameAction})"/>:
+        /// <c>UT</c>, <c>EndUT</c> for a death-encoding KerbalAssignment, the paired
+        /// death's key for a KerbalDeath reputation penalty) is <c>&gt;= rewindUT</c>, and leaves
         /// everything earlier on the kept HEAD. Both sides read the key through
         /// that one helper, never a raw <c>UT</c>. Keeping the two predicates
         /// bit-identical (raw <c>rewindUT</c>, no epsilon, same comparison sense)
@@ -76,24 +77,114 @@ namespace Parsek
         /// guard is then inert (no cutoff available =&gt; legacy behavior). A
         /// NaN action UT is likewise not provably pre-rewind and stays in scope.
         /// </para>
+        ///
+        /// <para>
+        /// <paramref name="ledgerContext"/> is the ledger the action lives in (normally
+        /// the full ledger action list); it lets a KerbalDeath reputation penalty be screened by
+        /// its paired death (<see cref="ComputeAttributionUT(GameAction, IReadOnlyList{GameAction})"/>).
+        /// Null falls back to the per-row key.
+        /// </para>
         /// </summary>
-        public static bool IsPreRewindAttributedAction(GameAction action, double rewindCutoffUT)
+        public static bool IsPreRewindAttributedAction(
+            GameAction action, double rewindCutoffUT, IReadOnlyList<GameAction> ledgerContext)
         {
             if (action == null) return false;
             if (double.IsNaN(rewindCutoffUT)) return false;
-            double attributionUT = ComputeAttributionUT(action);
+            double attributionUT = ComputeAttributionUT(action, ledgerContext);
             if (double.IsNaN(attributionUT)) return false;
             return attributionUT < rewindCutoffUT;
         }
 
         /// <summary>
-        /// TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: the timeline UT
-        /// that decides which side of a rewind cut an action belongs to. It is the
-        /// SINGLE screening key for both sides of the seam:
-        /// <see cref="IsPreRewindAttributedAction"/> (the tombstone write-set) and
-        /// <c>RecordingTreeSplitter.ShouldRetagLedgerActionToTip</c> (the step-2.9
-        /// ledger retag). Neither side may compare a raw <see cref="GameAction.UT"/>
-        /// on its own, or the pair stops being bit-identical.
+        /// DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT (operator ruling 2026-09-26: move
+        /// them together): the screening key of <paramref name="action"/> read in its
+        /// ledger. It is the ONE key both sides of every split seam use: the Re-Fly
+        /// split's step-2.9 retag and the optimizer split's retag
+        /// (<c>RecordingTreeSplitter.ShouldRetagLedgerActionToTip</c>) and the tombstone
+        /// guard (<see cref="IsPreRewindAttributedAction"/>).
+        ///
+        /// <para>
+        /// A <see cref="ReputationPenaltySource.KerbalDeath"/> reputation penalty is keyed
+        /// by its paired death, not by its own UT: it is stamped at the VesselLoss event
+        /// while the death row is keyed by its float <see cref="GameAction.EndUT"/>, so a
+        /// cut between the two used to put them on different segments, and
+        /// <see cref="TombstoneEligibility.TryPairBundledRepPenalty"/> (same RecordingId)
+        /// could then retire the death and leave the penalty applied. The paired death is
+        /// every tombstone-eligible death row (<see cref="TombstoneEligibility.IsEligible"/>)
+        /// tagged to the penalty's own recording; with several, the LATEST key wins (the
+        /// one penalty per recording is stock's single VesselLoss hit, stamped at the
+        /// loss nearest the recording's end). No such death, or a penalty from any other
+        /// source, keeps the per-row key (<see cref="ComputeAttributionUT(GameAction)"/>).
+        /// </para>
+        ///
+        /// <para>
+        /// A caller that MUTATES tags from this key must decide every row against the
+        /// unmutated ledger first and retag after, or a death retagged earlier in the same
+        /// walk hides itself from its penalty.
+        /// </para>
+        /// </summary>
+        internal static double ComputeAttributionUT(
+            GameAction action, IReadOnlyList<GameAction> ledgerContext)
+        {
+            double deathAttributionUT;
+            if (TryGetPairedDeathAttributionUT(action, ledgerContext, out deathAttributionUT))
+                return deathAttributionUT;
+            return ComputeAttributionUT(action);
+        }
+
+        /// <summary>
+        /// True iff <paramref name="action"/> is a recording-scoped
+        /// <see cref="ReputationPenaltySource.KerbalDeath"/> reputation penalty.
+        /// </summary>
+        internal static bool IsKerbalDeathRepPenalty(GameAction action)
+        {
+            return action != null
+                && action.Type == GameActionType.ReputationPenalty
+                && action.RepPenaltySource == ReputationPenaltySource.KerbalDeath
+                && !string.IsNullOrEmpty(action.RecordingId);
+        }
+
+        /// <summary>
+        /// For a KerbalDeath reputation penalty, the latest per-row key
+        /// (<see cref="ComputeAttributionUT(GameAction)"/>) over the tombstone-eligible
+        /// death rows of the same recording in <paramref name="ledgerContext"/>. False
+        /// (and NaN) for any other action, a null context, or no paired death with a
+        /// readable key.
+        /// </summary>
+        internal static bool TryGetPairedDeathAttributionUT(
+            GameAction penalty, IReadOnlyList<GameAction> ledgerContext, out double deathAttributionUT)
+        {
+            deathAttributionUT = double.NaN;
+            if (!IsKerbalDeathRepPenalty(penalty)) return false;
+            if (ledgerContext == null) return false;
+            bool found = false;
+            for (int i = 0; i < ledgerContext.Count; i++)
+            {
+                var other = ledgerContext[i];
+                if (!TombstoneEligibility.IsEligible(other)) continue;
+                if (!string.Equals(other.RecordingId, penalty.RecordingId, System.StringComparison.Ordinal))
+                    continue;
+                double key = ComputeAttributionUT(other);
+                if (double.IsNaN(key)) continue;
+                if (!found || key > deathAttributionUT)
+                {
+                    deathAttributionUT = key;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: the per-row
+        /// timeline UT that decides which side of a rewind cut an action belongs to.
+        /// Both sides of the seam (<see cref="IsPreRewindAttributedAction"/>, the
+        /// tombstone write-set, and <c>RecordingTreeSplitter.ShouldRetagLedgerActionToTip</c>,
+        /// the split retag) read it through the ledger-context overload
+        /// <see cref="ComputeAttributionUT(GameAction, IReadOnlyList{GameAction})"/>,
+        /// which differs from this one only for a KerbalDeath reputation penalty.
+        /// Neither side may compare a raw <see cref="GameAction.UT"/> on its own, or
+        /// the pair stops being bit-identical.
         ///
         /// <para>
         /// A <see cref="GameActionType.KerbalAssignment"/> whose encoded outcome is
