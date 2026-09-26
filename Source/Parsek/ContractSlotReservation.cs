@@ -453,7 +453,9 @@ namespace Parsek
                 int limitNow;
                 if (!TryReadLiveSlotState(out active, out limitNow))
                     return null;
-                return Forecast(index, active, limitNow, currentUT, LiveSlotsForLevel);
+                return WithStarvedAcceptAgent(
+                    Forecast(index, active, limitNow, currentUT, LiveSlotsForLevel),
+                    CommittedFutureIndexCache.LiveContractAgentTitle);
             }
             catch (Exception ex)
             {
@@ -462,6 +464,49 @@ namespace Parsek
                     + ") - no slot reserved for committed accepts");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// The forecast with its starved accept's agent filled in at render time. The index
+        /// reads the agent from the accept snapshot only; a committed accept with no snapshot
+        /// agent is resolved here through <paramref name="resolveAgent"/> (production: stock's
+        /// live contract list, loaded by the time Mission Control or the Accept backstop
+        /// asks). Returns the forecast unchanged when it has no starved accept, the accept
+        /// already names its agent, or the resolver finds none or throws.
+        /// </summary>
+        internal static ContractSlotForecast WithStarvedAcceptAgent(
+            ContractSlotForecast forecast, Func<string, string> resolveAgent)
+        {
+            if (forecast == null || resolveAgent == null) return forecast;
+            CommittedFutureEntry starved = forecast.FirstStarvedAccept;
+            if (starved == null || starved.AgentTitle != null || string.IsNullOrEmpty(starved.Key))
+                return forecast;
+
+            string agent;
+            try
+            {
+                agent = resolveAgent(starved.Key);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "starved-accept-agent-error",
+                    "Starved accept " + starved.Key + " agent not resolved (" + ex.GetType().Name
+                    + ") - slot reason names no agent");
+                return forecast;
+            }
+            agent = agent != null ? agent.Trim() : null;
+            if (string.IsNullOrEmpty(agent))
+            {
+                ParsekLog.VerboseRateLimited(Tag, "starved-accept-agent-none",
+                    "Starved accept " + starved.Key + " has no snapshot agent and stock lists none - slot reason names no agent");
+                return forecast;
+            }
+
+            ParsekLog.VerboseRateLimited(Tag, "starved-accept-agent-resolved",
+                "Starved accept " + starved.Key + " agent resolved at render time: '" + agent + "'");
+            return new ContractSlotForecast(
+                forecast.LimitNow, forecast.ActiveNow, forecast.PeakCommitted, forecast.FreeSlotsForNewAcceptNow,
+                starved.WithAgentTitle(agent));
         }
 
         private static readonly FieldInfo DeadlineTypeField =
