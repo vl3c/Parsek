@@ -69,21 +69,46 @@ Bugs (no ruling needed):
   number of non-dead ghost map vessels in `FlightGlobals.Vessels` (skipped at -1, one
   `[GhostMap]` Info line per adjusted build) and restores it in a Harmony finalizer, so the
   raised value never outlives the build. Unit cells plus an in-game `VesselBudget` cell (real
-  `new FlightState()` in the Tracking Station, undriven by ruling). The reload case is
-  observation only: `BackgroundRecorder.LogMissingBackgroundMembersAtLoad`, run from
-  `ParsekFlight.EnsureBackgroundRecorderAttached`, writes one `[BgRecorder] Load check:`
-  line with count, pids and recording ids. It deliberately does NOT route them through
-  `EndDebrisRecording`: a restored on-rails member has no finalization cache, so that path
-  would stamp `Destroyed` and replay a pruned orbital debris as an explosion. The recovery /
+  `new FlightState()` in the Tracking Station, undriven by ruling). The reload case:
+  `BackgroundRecorder.CloseMissingBackgroundMembersAtLoad`, run from
+  `ParsekFlight.EnsureBackgroundRecorderAttached` before the first `UpdateOnRails` tick,
+  closes every background member whose vessel (and spawned pid) is absent from the loaded
+  scene and writes one `[BgRecorder] Load check:` line with count, pids, recording ids and
+  each member's outcome. It deliberately does NOT route them through `EndDebrisRecording`: a
+  restored on-rails member has no finalization cache, so that path would stamp `Destroyed`
+  and replay a pruned orbital debris as an explosion. The recovery /
   termination match (`ParsekScenario.MatchesVessel`) now also requires the pid and a
   non-conflicting launch guid when both sides know them (name-only fallback otherwise), for
   the terminal update and the outside-FLIGHT funds routing alike.
   `EnforceMinDebrisPersistence`, its reflection helper, fields and test are deleted.
-  Follow-up (OPEN, found here): such a missing member keeps its on-rails state, and
-  `BackgroundRecorder.UpdateOnRails` advances its `ExplicitEndUT` to the current UT every
-  30 s for as long as the tree lives, so the recording claims coverage past the save where
-  the vessel stopped existing. Needs a terminal ruling for "dropped from the save" (not
-  Destroyed) before the load check can close the entry.
+  ~~Follow-up: such a missing member kept its on-rails state, and
+  `BackgroundRecorder.UpdateOnRails` advanced its `ExplicitEndUT` to the current UT every
+  30 s for as long as the tree lived (and `FinalizeAllForCommit` to the commit UT), so the
+  recording claimed coverage past the save where the vessel stopped existing.~~ CLOSED
+  2026-09-26 (branch `kss-debris`) with the owner decision "two causes, two outcomes, no new
+  TerminalState member": a KSC declutter autoclean is a stock RECOVERY (`ProtoVessel.Clean`
+  fires `onVesselRecovered`), so a pending-tree member it removed is stamped Recovered by
+  `ParsekScenario.UpdateRecordingsForTerminalEvent` (pid/guid-matched) and the load check
+  keeps that terminal and its end UT (`MissingMemberCloseOutcome.LeftToTerminalEvent`; a
+  save/load round trip already drops it from the rebuilt map, since only terminal-less
+  recordings are map-eligible). Any other drop (the vessel-budget prune) closes quietly at
+  the recording's last known `EndUT` with a situation terminal from its own data
+  (`ResolveDroppedMemberTerminal`: the last orbit segment when it is the latest evidence,
+  Orbiting if its periapsis clears the body else SubOrbital; else the on-rails `SurfacePos`
+  (Landed / Splashed); else the scene-exit last-point inference), never Destroyed. Both
+  outcomes then take the ordinary "stops being recorded" shape (`OnVesselRemovedFromBackground`
+  + `BackgroundMap.Remove`), so neither `UpdateOnRails` nor `FinalizeAllForCommit` moves the
+  end again. Playback: debris recordings never spawn (`ShouldSpawnAtRecordingEnd` "debris
+  recording (visual-only)") and a non-Destroyed terminal plays no explosion. Residual, not
+  fixed: a NON-debris member closed Landed / Splashed / Orbiting is a spawnable leaf, and its
+  vessel is gone, so spawn-at-end would materialize it (the scene-exit inference path already
+  did the same before this change). Stock can only drop a non-Debris-typed vessel if the
+  player retyped it to Debris, so this was left for a ruling rather than given a new
+  persisted no-spawn flag. Also not covered: a declutter autoclean that deletes a member
+  inside the FLIGHT scene after the load (present at load, so the check keeps it; the
+  recovery terminal update reads the pending tree, not the active one). In-session debris end
+  by their 60 s TTL first, so the reachable case is a restored debris member: its TTL is set
+  only at split time (`debrisTTLExpiry`) and is not restored.
 
 Owner rulings (2026-09-26):
 
@@ -222,6 +247,27 @@ pins, including `C1CareerLedgerReplayTests` ReconScience, do not move. Tests:
 then recording, transmit then partial recovery, each at multiplier 1 and 2 through the real
 commit paths, asserting pool credit, subject credit and cache against the modelled stock totals;
 the cache merge, old-total-plus-increment and dedup-survivor cells).
+
+---
+
+## RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL: a recovery stamps the non-leaf earlier segment of the recovered vessel too [FILED 2026-09-26 from the MatchesVessel trace. OPEN, pre-existing]
+
+Segments of one vessel share pid, launch guid and name: a breakup parent (its
+`ChildBranchPointId` set) and its same-vessel parent continuation
+(`BackgroundRecorder.cs:1642`, `VesselPersistentId = parentPid`, guid carried over), and the
+dominant vessel's pre-dock recording and the merged child (`ParsekFlight.cs:5400`,
+`VesselPersistentId = mergedVesselPid`, guid from the recorder start on the combined vessel,
+which keeps the dominant `Vessel.id`). `ParsekScenario.UpdateRecordingsForTerminalEvent`
+(`ParsekScenario.cs:8083`) walks every pending-tree recording that `MatchesVessel`, so on a
+recovery it stamps the NON-LEAF earlier segment Recovered as well, nulls its
+`VesselSnapshot` and sets its `ExplicitEndUT` to the recovery UT (`ParsekScenario.cs:8098`),
+which `Recording.EndUT` (`Recording.cs:468`) then reports as that segment's end - a segment
+that ended at the split or dock now claims to run until the recovery. Old name-only matching
+did the same; the pid + guid tightening (KSP-SETTINGS-AUDIT S5) neither caused nor fixed it.
+Candidate fix: filter the walk to leaves (`rec.ChildBranchPointId == null`). Not traced: the
+effect on the ledger's recovery matching (`LedgerOrchestrator.PickRecoveryRecordingId` and the
+commit-time pairing in `CreateVesselCostActions`, which key on the Recovered terminal), so the
+fix needs that read first.
 
 ---
 
