@@ -421,15 +421,39 @@ previous file intact, and the next load must recover. Closed inside ONE boot (su
 **Scope.** The recording-sidecar write path (the staged `.prec`), and a cold load inside the same
 process rather than a new process. The direct `SafeWriteConfigNode` callers are filed below.
 
-## SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT: a crash mid-save leaves `<file>.tmp` next to the ledger, game-state, milestone and settings files and nothing removes it [FILED 2026-09-26, coverage wave 13, branch `cov-safewrite`; OPEN, low: litter, not data loss]
+## ~~SAFE-WRITE-CONFIGNODE-TMP-NOT-SWEPT: a crash mid-save leaves `<file>.tmp` next to the ledger, game-state, milestone and settings files and nothing removes it~~ [FILED 2026-09-26, coverage wave 13, branch `cov-safewrite`; FIXED 2026-09-26 on branch `fix-safewrite-tmp`]
 
 `Ledger`, `GameStateStore`, `MilestoneStore` and `ParsekSettingsPersistence` write through
 `FileIOUtils.SafeWriteConfigNode` straight to `<file>.tmp` (no `.stage.` name). A crash between the temp
 write and the swap leaves the previous file intact (the ordering contract ST-4 proves on the sidecar
-path) and a `<file>.tmp` beside it. `RecordingStore.CleanOrphanFiles` only scans `Parsek/Recordings/`,
+path) and a `<file>.tmp` beside it, except in one corner: on the move-aside fallback of
+`FileIOUtils.ReplaceDestination` (taken when `File.Replace` throws), a crash after the destination
+moved to `<file>.bak.<guid>` and before the `.tmp` moved into place leaves NO real file, the previous
+bytes in the `.bak.<guid>` and the newest complete bytes only in the `.tmp`. `RecordingStore.CleanOrphanFiles` only scans `Parsek/Recordings/`,
 so nothing deletes that `.tmp`; the next successful write of the same file overwrites it, so it never
 accumulates and is never read. Found by reading the sweep's scope while building ST-4, not by a flight.
-Fix if wanted: a load-time delete of `<file>.tmp` for those four known paths.
+
+**Fix:** `FileIOUtils.SweepStaleSafeWriteTemp(path, tag)` deletes `<path>.tmp` when `<path>` exists
+(Info-logged with its size, fail-open on IO errors, never touches `<path>` or the swap fallback's
+`.bak.<guid>`). When `<path>` is MISSING it keeps the `.tmp` and Warns with its path, size and any
+`<path>.bak.*` sibling: that `.tmp` is either the only copy of the newest save (the fallback-swap
+corner above) or a partial first-ever save, indistinguishable, so it is neither deleted nor promoted
+and is left for recovery by hand. Each store calls it at the top of its LOAD path before reading the real file: `Ledger.LoadFromFile`,
+`GameStateStore.LoadEventFile`, `MilestoneStore.LoadMilestoneFile`,
+`ParsekSettingsPersistence.LoadIfNeeded`. `GameStateStore.SaveBaseline` also writes through the same
+helper to per-UT `baseline_<ut>.pgsb` names that never repeat, so its residue DID accumulate;
+`LoadBaselines` sweeps them with the directory form `SweepStaleSafeWriteTemps(dir, "baseline_*.pgsb")`.
+Safe to delete at load: safe-writes are synchronous on the main thread and Parsek starts no threads,
+so no write of the same file can be in flight during its load; with the real file present the
+residue is deleted, not promoted, because the load already reads the real file. The directory form
+applies the same per-file rule and logs `deleted= keptRealMissing= failed=`. The recordings sweep keeps its own pattern scan (recording-id classification,
+`.stage.` / `.bak.` names, the known-ids guard) and now shares only the `SafeWriteTempSuffix`
+constant with the producer and this helper. Not swept: `RenderCompositionRecorder`'s manifest (an
+automation-only write-only export at the KSP root that nothing loads; the next export overwrites
+it) and the `SafeWriteBytes` writes of `persistent.sfs` by the in-game test batch isolation, whose
+save-root `.tmp` is outside Parsek's own folders. Cells in `SafeWriteTempSweepTests` (helper
+behavior including the kept-when-real-missing and interrupted-fallback-swap cells, plus each store's
+real load path against a temp dir; removing the five call sites reds all six store cells).
 ## STOCK-UI-CENSUS-GUI-28-FINDINGS: what the first photographs of the stock-screen annotations show [FILED 2026-09-25 off `GUI-28-census-stock-screens` reading run `2026-09-25_2055` (branch `stock-screen-census`). OPEN; for the overlay program (`STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`)]
 
 The first real-game look at the annotations: 25 PNGs on the committed `stock-screen-census`

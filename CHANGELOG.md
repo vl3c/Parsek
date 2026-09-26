@@ -1171,6 +1171,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A save interrupted by a crash no longer leaves a stray `.tmp` file next to Parsek's
+  career files.** Parsek writes each file to a temporary copy and then swaps it into place. A
+  crash before the swap keeps the real file and leaves the temporary copy beside it. Only the
+  recordings folder was cleaned of these copies; the ledger (`ledger.pgld`), game-state events
+  (`events.pgse`), milestones (`milestones.pgsm`), per-UT baselines (`baseline_*.pgsb`) and the
+  install-wide `settings.cfg` kept theirs. Each of those now deletes its own leftover
+  `<file>.tmp` when it loads, before reading the real file, which it never touches. The baselines
+  mattered most: their names change with every save, so their leftovers accumulated instead of
+  being overwritten by the next save. One case is left alone on purpose: when the real file is
+  missing, the temporary copy may be the newest complete save (a crash in the middle of the
+  fallback swap, which parks the previous file as `<file>.bak.<id>` first) or a half-written
+  first save, and the two cannot be told apart. That copy is kept, not deleted and not put in
+  place, and the log warns with its path, size and any `.bak` copy, so it can be recovered by hand.
+
 - **A dropped booster you switch to and fly no longer reports a distance of over 1000 km.**
   When you switch to a booster Parsek was recording in the background and it flies on near its
   sibling, part of its track is stored relative to that sibling in metres. The distance worked

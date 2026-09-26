@@ -57,10 +57,10 @@ namespace Parsek
 
         /// <summary>
         /// Test seam: when set, supplies the save root that
-        /// <see cref="ResolveSaveScopedPath"/> would otherwise read from
-        /// <c>KSPUtil.ApplicationRootPath</c> + <c>HighLogic.SaveFolder</c>, which
-        /// throw outside Unity. Null in the game; set and cleared by the test that
-        /// drives a real sidecar delete against a temp directory.
+        /// <see cref="ResolveSaveScopedPath"/> and <see cref="ResolveGameStateDirectory"/>
+        /// would otherwise read from <c>KSPUtil.ApplicationRootPath</c> +
+        /// <c>HighLogic.SaveFolder</c>, which throw outside Unity. Null in the game; set and
+        /// cleared by the tests that drive real file I/O against a temp directory.
         /// </summary>
         internal static string SaveRootOverrideForTesting;
 
@@ -221,6 +221,10 @@ namespace Parsek
 
         internal static string ResolveGameStateDirectory()
         {
+            string overrideRoot = SaveRootOverrideForTesting;
+            if (!string.IsNullOrEmpty(overrideRoot))
+                return Path.GetFullPath(Path.Combine(overrideRoot, "Parsek", "GameState"));
+
             if (!TryGetSaveContext(
                     "ResolveGameStateDirectory",
                     "resolve-gamestate-missing-context",
