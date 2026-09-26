@@ -6,9 +6,9 @@ tier = "operator"
 #
 # WHAT IT BUYS. Four wave-6 ops meet on one host here, and each one's subject is a state
 # that NO capture in the census carries:
-#   - `op=state key=expandedStats`: the Recordings tab's `Info` toggle, six extra columns
-#     (`MaxAlt`, `MaxSpd`, `Dist`, `Pts`, `Start`, `End`) and the window's largest single
-#     layout change. Zero dumps contain any of those header strings today.
+#   - `op=state key=expandedStats`: the Recordings tab's `Info` toggle - since 2026-09-26 four
+#     extra columns (`Phase`, `Site`, `MaxAlt`, `MaxSpd`; it was six: `MaxAlt`, `MaxSpd`,
+#     `Dist`, `Pts`, `Start`, `End`) - and the window's largest single layout change.
 #   - `op=state key=archived` / `key=archivedMissions`: the two archive filters, which are
 #     DIFFERENT flags over different lists with OPPOSITE polarities - see below.
 #   - `op=sort`: the 44 unphotographed sort states. Three of them here, over two tables
@@ -104,8 +104,8 @@ tier = "operator"
 # GUI-CENSUS-NO-FIXTURE-CARRIES-A-DORMANT-ROUTE.
 #
 # THE WINDOW DOES NOT FIT THIS INSTANCE, the GUI-1 residue verbatim: `missions` is laid
-# out for 1355 px and its `Info` form for 1663, against the profile's 1280x720 screen, so
-# both are honestly CLIPPED at the client edge rather than squeezed into a layout no drag
+# out for 1355 px and its `Info` form for 1493 (1813 before 2026-09-26), against the
+# profile's 1280x720 screen, so both are honestly CLIPPED at the client edge rather than squeezed into a layout no drag
 # can produce (GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH). The expanded-stats
 # capture commands the WIDE rect itself because the accessor deliberately does not resize
 # the window.
@@ -149,9 +149,10 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ib-missions-recordings-sortdurationasc-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ib-missions-recordings-sortdurationasc-advanced" }, expect = "OK" },
 
-  # --- THE INFO TOGGLE: six extra columns at the window's own wide layout. The rect is
-  # commanded here because the accessor does not resize the window.
-  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1663", h = "700" }, expect = "OK" },
+  # --- THE INFO TOGGLE: Phase, Site, MaxAlt, MaxSpd at the window's own wide layout
+  # (RecordingsTableUI.DefaultExpandedWindowWidth = 1493). The rect is commanded here because
+  # the accessor does not resize the window.
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1493", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "state", window = "missions", key = "expandedStats", state = "true" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ib-missions-recordings-expandedstats-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ib-missions-recordings-expandedstats-advanced" }, expect = "OK" },

@@ -35,6 +35,17 @@ row hands the R / FF target it actually DREW to its children
 committed index draws a blank cell (`IsTimeTargetShownByEnclosingRow`), logged on transitions
 only; STASH resets the inherited targets so its mirror rows keep their buttons.
 
+Fix (commit 2): the Info band is Phase, Site, MaxAlt, MaxSpd (Pts, Dist, Start, End
+dropped); the Status hover leads with `BuildStatusPlaceTooltip` (an EVA's `EVA from X` and
+`Ends: <FormatEndPosition>`); a leaf's Status shows its terminal word for debris too
+(`ResolveRecordingStatusText`) while `GetGroupStatus` keeps ignoring debris. Collapsing Info
+while sorted by Phase or Site resets to Launch ascending (`SetShowExpandedStats`, shared by the
+button and the `op=state key=expandedStats` seam), and the census seam refuses
+`op=sort column=phase|site` while Info is shut (`sort-column-hidden`). The window keeps its
+1355 px first-open / minimum width: the Missions tab and the one-line help strip budgeted at
+189 characters are held by it, so the Name column absorbs the 188 px Phase + Site gave back;
+Info widens to 1493 px (was 1813).
+
 ## RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE: a debris row's MaxSpd reads 318.4 km/s over a 1.9 km flight [FILED 2026-09-26 from the recordings-tab round (census run `2026-09-21_2316_GUI-25-census-missions-state-sort-edit`, capture `ib-missions-recordings-expandedstats-advanced`). OPEN, not fixed]
 
 The Info columns of recording #27 `Kerbal X Debris` on the `interbody-route-recorded` host

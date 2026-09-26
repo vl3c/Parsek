@@ -465,13 +465,18 @@ cell, Fly/Seal, chapter headers, partner rows.
 
 **Recordings tab.** A fixed 21-cell header (`:1196`) outside the scroll view, then a body of
 four row kinds. Columns, left to right, with the shared header/body width constants: merged
-[toggle + `#`] 58 (`ColW_Enable` 20 + `ColW_Index` 30 + 8), `Name` expand, `Phase` 90,
-`Site` 90, `Launch` 110, `Duration` 80, then the Info-only block `MaxAlt` 65 / `MaxSpd` 65 /
-`Dist` 65 / `Pts` 35 / `Start` 120 / `End` 120 (drawn only when `showExpandedStats`, `:1262`),
-`Status` 120, `Group` 60, `Loop` 60, `Period` 90, `Watch` 50 (flight only, `:1346`),
-`Rewind` 60, `Re-Fly` 90, `Archive` 80, plus a scrollbar-width spacer (`:1384`). Every header
-cell is forced to `ColHeaderHeight = 32` (`:73`). Six headers are sortable (`#`, Name, Phase,
-Site, Launch, Duration, Status); `SortColumn.LaunchTime` ascending is the default (`:135`).
+[toggle + `#`] 58 (`ColW_Enable` 20 + `ColW_Index` 30 + 8), `Name` expand, `Launch` 110,
+`Duration` 80, then the Info-only band `Phase` 90 / `Site` 90 / `MaxAlt` 65 / `MaxSpd` 65
+(drawn only when `showExpandedStats`; Phase and Site moved in from the always-shown set and
+`Dist` / `Pts` / `Start` / `End` were dropped 2026-09-26), `Status` 120, `Group` 60, `Loop` 60,
+`Period` 90, `Watch` 50 (flight only, `:1346`), `Rewind` 60, `Re-Fly` 90, `Archive` 80, plus a
+scrollbar-width spacer (`:1384`). Every header cell is forced to `ColHeaderHeight = 32`
+(`:73`). Seven headers are sortable (`#`, Name, Launch, Duration, Status, and Phase / Site
+while Info is open); `SortColumn.LaunchTime` ascending is the default (`DefaultSortColumn`),
+and collapsing Info while sorted by Phase or Site falls back to it (`SetShowExpandedStats`).
+The Status cell's hover leads with where the flight ended (`Ends: ...`, the old End column)
+and an EVA's `EVA from <vessel>` (`BuildStatusPlaceTooltip`); a leaf's Status shows its
+terminal word for debris too, while a folder's (`GetGroupStatus`) still ignores debris.
 
 Row kinds and what each blanks: GROUP HEADER (`DrawGroupTree` `:2399`, Period and Re-Fly always
 blank), CHAIN BLOCK and GROUPED BLOCK (`:4038` / `:4048` into `DrawRecordingBlock` `:4057`;
@@ -507,7 +512,7 @@ Notable control semantics in the body:
 | `W` / `W*` | `flight.EnterWatchMode(ri)` | `IsWatchButtonEnabled` (`:947`); column hidden outside flight |
 | `FF` / `R` | `ShowFastForwardConfirmation` (`:4496`) / `ShowRewindConfirmation` (`:4450`) | `RecordingStore.CanFastForward` / `CanRewind`, refusal as tooltip; `R` is suppressed entirely on an unfinished-flight row (`:3754`). SHOWN ONCE (2026-09-26): a row under a folder / block that DREW the same target (same committed index) draws a blank cell (`IsTimeTargetShownByEnclosingRow`, `ResolveChildEnclosingTimeTargets`); STASH resets the inherited targets, so its rows keep theirs |
 | `Fly` + `Seal` / `Stash` + `Seal` | `RewindInvoker.ShowDialog` / `UnfinishedFlightSealHandler.ShowConfirmation` / `UnfinishedFlightStashHandler.TryStash` | `ResolveReFlyColumnAction` (`:3416`, `:3420`) |
-| footer `Info >` / `Info <` | flips `showExpandedStats`; forces the window to 1813 px on expand and back to 1355 on collapse (`:1418-1423`) | only when the list is non-empty |
+| footer `Info >` / `Info <` | `SetShowExpandedStats`; forces the window to 1493 px (`DefaultExpandedWindowWidth`, was 1813) on expand and back to 1355 on collapse; a collapse while sorted by Phase / Site resets the sort | only when the list is non-empty |
 
 Pictures: `ksc-missions-recordings-advanced` (415 nodes, 16 collapsed group rows, `Status`
 values `past` / `Destroyed` / `Splashed` / `Landed` / `Orbiting`, all 16 folder `R` buttons
@@ -1670,7 +1675,7 @@ wave-6 lane plan, the grammar and refusals in
 | `op=state key=archived` | the Archived toggle ON plus the `[archived]` row marker (zero hits program-wide today); the same flag from the Recordings tab's Archive checkbox | Timeline + Missions |
 | `op=state key=customRange` + `key=preset` | the Custom range (the window's only two sliders; between 2026-09-24 PR #1792 and the preset-row revert the key opened a Time fold), the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout (that readout was removed 2026-09-25) | Timeline |
 | `op=state key=scrollY` | the window's first scrolled PNG. Note the dump already carried below-fold content with full rects, so this buys the PICTURE, not the data | Timeline |
-| `op=state key=expandedStats` | the Info toggle's six extra columns (`MaxAlt` / `MaxSpd` / `Dist` / `Pts` / `Start` / `End`, in zero dumps) at +458 px - the largest single layout change in the window | Missions (Recordings tab) |
+| `op=state key=expandedStats` | the Info toggle's extra columns: six (`MaxAlt` / `MaxSpd` / `Dist` / `Pts` / `Start` / `End`) at +458 px when this row was written, four (`Phase` / `Site` / `MaxAlt` / `MaxSpd`) at +138 px since 2026-09-26 - still the largest single layout change in the window | Missions (Recordings tab) |
 | `op=state key=archivedMissions` | whole missions dropping out; the only way to exercise `DisplayBlockRendersAnything` and the corner-connector precedence table | Missions (Missions tab) |
 | `op=sort` | 20 Missions sort states, 16 Logistics, 8 Spawn Control - all zero captured, and each is materially different (the arrow moves AND the row order does, including group-vs-recording interleaving) | Missions, Logistics, Spawn Control |
 | `op=select key=vessel:` | the greyed include-OFF row and the `" (partial)"` suffix, which test the non-cascading `ExcludedIntervalKeys` contract | Missions |
@@ -1957,7 +1962,7 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 |---|---|---|---|---|---|
 | main | none | 250 x content (flight `ParsekFlight.cs:962`, KSC `ParsekKSC.cs:23`) | NO handle | yes | yes |
 | Missions | **1355** x 150 (`UI/RecordingsTableUI.cs:48`, `:49`, `:63`) | 1355 x main height (KSC 2x) | yes | **NO** - 75 px too wide at its own minimum | yes |
-| Missions, Info expanded | same min; the footer forces width to **1813** (`:64`, `:1420`) | 1813 | yes | NO | yes, 107 px to spare |
+| Missions, Info expanded | same min; the footer forces width to **1493** (`DefaultExpandedWindowWidth`; 1813 before 2026-09-26) | 1493 | yes | NO | yes, 427 px to spare |
 | Timeline | 520 x 150 (`UI/TimelineWindowUI.cs:67`, `:68`) | 820 x max(600, main height) | yes | yes | yes |
 | Kerbals | 280 x 150 (`UI/KerbalsWindowUI.cs:42-43`) | 410 x 400 (half of Career's 820, so the two sit side by side, `:44-46`) | yes | yes | yes |
 | Career State | 520 x 200 (`UI/CareerStateWindowUI.cs:74-75`) | 820 x 400 | yes | yes | yes |
@@ -1972,7 +1977,7 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 | Logistics link picker | 240 x 180 (`UI/LogisticsWindowUI.cs:329-330`) | 340 x 380, clamped at the arming mouse position | yes | yes | yes |
 
 Two windows therefore cannot be drawn at their own minimum on the 1280-wide census instance:
-Logistics (1410) and Missions (1355, or 1813 with Info expanded). `op=rect` writes the field
+Logistics (1410) and Missions (1355, or 1493 with Info expanded; 1813 before 2026-09-26). `op=rect` writes the field
 directly and only a resize DRAG clamps, so a commanded rect below the minimum is accepted
 silently - that is what produced the shipped Logistics capture. Any future populated capture of
 either window must size to at least the minimum first, which on a 1280 screen means the
@@ -1983,7 +1988,7 @@ class of defect the Milestones `Rewards` overflow belongs to:
 
 | window | pins |
 |---|---|
-| Recordings tab | `ColW_*` 20 / 30 / 90 / 90 / 110 / 80 / 65 / 65 / 65 / 35 / 120 / 120 / 120 / 60 / 60 / 90 / 50 / 60 / 90 / 80 (`UI/RecordingsTableUI.cs:52-75`, `:319-331`); `ColHeaderHeight` 32 (`:73`); body row height 29 measured |
+| Recordings tab | `ColW_*` 20 / 30 / expand / 110 / 80 / [Info: 90 / 90 / 65 / 65] / 120 / 60 / 60 / 90 / 50 / 60 / 90 / 80 (header order, since 2026-09-26; `UI/RecordingsTableUI.cs`); `ColHeaderHeight` 32 (`:73`); body row height 29 measured |
 | Missions tab | 20 / 30 / expand / 105 / 120 / 110 / 85 / 120 / 90 / 80 (`UI/MissionsWindowUI.cs:302-355`); `ColW_HeaderButton` 70 (`:314`); `CompositionRowMinHeight` 22 (`:351`) |
 | Timeline | `TimeColumnWidth` 160, row action 40, `GoTo` 48, warp button 186, warp fields 36; the six filter/preset columns are responsive at `Max(93, (width - 50) / 6)` - 158 at the census width (`UI/TimelineWindowUI.cs:70-78`, `:417-424`, `:155`, `:564`) |
 | Career State | (since 2026-09-24 only the Contracts and Strategies tables remain; the widths below predate that) Contracts 240/90/90/70, Strategies 220/90/140/**70**, Facilities 200/120/180, Milestones 90/200/**180**/70 (`UI/CareerStateWindowUI.cs:83-98`). `ColW_PendingTag` (70) is shared by three tabs; `ColW_Rewards` (180) demonstrably overflows |

@@ -1651,6 +1651,16 @@ _(unreleased — entries accumulate here per commit)_
   - Rewind / FF is shown once: a row drawn under a folder or flight row that already offers
     the same R (or FF) target leaves its cell blank. A row whose button goes somewhere else
     keeps it, and the rows inside STASH keep theirs (STASH draws no R of its own).
+  - The Info columns are now Phase, Site, MaxAlt and MaxSpd. Phase and Site moved in from the
+    always-shown set (still sortable while Info is open; closing Info while sorted by one of
+    them goes back to sorting by Launch, oldest first). Pts, Dist, Start and End are gone:
+    where a flight ended (`Ends: Shores, Kerbin`, `Ends: Orbiting Kerbin`) and an EVA's source
+    vessel (`EVA from Kerbal X`) now lead the Status cell's hover. The window keeps its width
+    (the Missions tab and the one-line help strip need it), so the Name column is 188 px wider
+    with Info shut; Info widens the window to 1493 px instead of 1813.
+  - Debris rows show how they ended (`Destroyed`, `Landed`, ...) in Status instead of `past`.
+    A folder's Status still ignores its debris, so a mission does not read `Destroyed`
+    because its booster fell.
 
 - **Settings: a round of fixes to the Settings window.**
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data

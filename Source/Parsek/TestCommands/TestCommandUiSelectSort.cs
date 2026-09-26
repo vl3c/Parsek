@@ -261,6 +261,30 @@ namespace Parsek.TestCommands
         /// the live pair disagrees. ERROR - we acted and the game did not follow.</summary>
         internal const string SortNotAppliedReason = "sort-not-applied";
 
+        /// <summary>
+        /// A Recordings-tab column that only draws while the tab's Info toggle is open
+        /// (<c>phase</c>, <c>site</c>), asked for while Info is shut. REJECTED pre-write rather
+        /// than applied: the table would sort by a column no header shows, and the tab's own
+        /// Info collapse resets exactly that state, so applying it would photograph a state no
+        /// click can produce. The remedy is an <c>op=state key=expandedStats state=true</c>
+        /// step before the sort.
+        /// </summary>
+        internal const string SortColumnHiddenReason = "sort-column-hidden";
+
+        /// <summary>
+        /// Whether a resolved sort column is hidden right now: the Recordings tab's Info-only
+        /// columns while Info is shut. Every other window and column answers false. Pure.
+        /// </summary>
+        internal static bool IsSortColumnHidden(string window, string tabToken, string columnToken,
+                                                bool recordingsInfoOpen)
+        {
+            if (recordingsInfoOpen) return false;
+            if (window != TestCommandUiAction.MissionsWindow) return false;
+            if (!string.Equals(tabToken, RecordingsTabToken, StringComparison.Ordinal)) return false;
+            return string.Equals(columnToken, ColumnPhaseToken, StringComparison.Ordinal)
+                || string.Equals(columnToken, ColumnSiteToken, StringComparison.Ordinal);
+        }
+
         // ----- sort: parses -----
 
         /// <summary>

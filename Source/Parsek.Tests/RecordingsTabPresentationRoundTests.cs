@@ -191,5 +191,212 @@ namespace Parsek.Tests
             Assert.Single(logLines.FindAll(l => l.Contains("[UI]")
                 && l.Contains("no longer suppressed by the enclosing row")));
         }
+
+        // ── Item 5: Info keeps MaxAlt / MaxSpd; Start / End move into the Status hover ──
+
+        private static Recording MakeRec(double startUT, double endUT)
+        {
+            var rec = new Recording { VesselName = "Test" };
+            rec.Points.Add(new TrajectoryPoint { ut = startUT });
+            if (endUT > startUT)
+                rec.Points.Add(new TrajectoryPoint { ut = endUT });
+            return rec;
+        }
+
+        [Fact]
+        public void StatusText_DebrisShowsItsEndingWord()
+        {
+            // catches: the old `!rec.IsDebris` suppression, which made every finished
+            // debris row read "past" whatever happened to it.
+            var debris = MakeRec(100, 200);
+            debris.IsDebris = true;
+            debris.TerminalStateValue = TerminalState.Destroyed;
+
+            string text = RecordingsTableUI.ResolveRecordingStatusText(
+                debris, 500, out int order, out bool terminal);
+
+            Assert.Equal("Destroyed", text);
+            Assert.Equal(2, order);
+            Assert.True(terminal);
+        }
+
+        [Fact]
+        public void StatusText_PastWithoutAnEndingReadsPast_FutureAndActiveCountDown()
+        {
+            var noEnd = MakeRec(100, 200);
+            Assert.Equal("past", RecordingsTableUI.ResolveRecordingStatusText(
+                noEnd, 500, out int order, out bool terminal));
+            Assert.Equal(2, order);
+            Assert.False(terminal);
+
+            var future = MakeRec(600, 700);
+            string futureText = RecordingsTableUI.ResolveRecordingStatusText(
+                future, 500, out order, out terminal);
+            Assert.StartsWith("T-", futureText);
+            Assert.Equal(0, order);
+
+            var active = MakeRec(400, 700);
+            RecordingsTableUI.ResolveRecordingStatusText(active, 500, out order, out terminal);
+            Assert.Equal(1, order);
+            Assert.False(terminal);
+        }
+
+        [Fact]
+        public void FolderStatus_StillIgnoresDebrisWhenPickingItsWord()
+        {
+            // The leaf change must not leak into the folder word: a mission whose booster
+            // was Destroyed after the capsule Landed still reads Landed, and a debris-only
+            // folder reads "past".
+            var capsule = MakeRec(100, 300);
+            capsule.TerminalStateValue = TerminalState.Landed;
+            var booster = MakeRec(100, 400);
+            booster.IsDebris = true;
+            booster.TerminalStateValue = TerminalState.Destroyed;
+            var committed = new List<Recording> { capsule, booster };
+
+            RecordingsTableUI.GetGroupStatus(new HashSet<int> { 0, 1 }, committed, 1000,
+                out string text, out int order);
+            Assert.Equal("Landed", text);
+            Assert.Equal(2, order);
+
+            RecordingsTableUI.GetGroupStatus(new HashSet<int> { 1 }, committed, 1000,
+                out string debrisOnly, out order);
+            Assert.Equal("past", debrisOnly);
+        }
+
+        [Fact]
+        public void StatusPlace_CarriesTheEvaSourceAndWhereTheFlightEnded()
+        {
+            string tip = RecordingsTableUI.BuildStatusPlaceTooltip(
+                RecordingsTableFormatters.EvaFromPrefix + "Kerbal X",
+                "Shores, Kerbin", "Landed");
+            Assert.Equal("EVA from Kerbal X - Ends: Shores, Kerbin", tip);
+        }
+
+        [Fact]
+        public void StatusPlace_DropsALaunchSiteStartTheRowAlreadyShows()
+        {
+            // A launch-site start is what the Site column (Info) and the Launch column say;
+            // only an EVA's source vessel is new information in the hover.
+            Assert.Equal("Ends: Orbiting Kerbin", RecordingsTableUI.BuildStatusPlaceTooltip(
+                "Launch Pad, Kerbin", "Orbiting Kerbin", "Orbiting"));
+        }
+
+        [Theory]
+        [InlineData("-")]
+        [InlineData("")]
+        [InlineData(null)]
+        [InlineData("Destroyed")]   // would only repeat the status word
+        [InlineData("destroyed")]
+        public void StatusPlace_DropsAnEndClauseThatSaysNothing(string end)
+        {
+            Assert.Equal(string.Empty,
+                RecordingsTableUI.BuildStatusPlaceTooltip("Launch Pad, Kerbin", end, "Destroyed"));
+        }
+
+        [Fact]
+        public void StatusPlace_ReadsTheFormatterOutputForADestroyedDebris()
+        {
+            // End to end over the real formatter: the debris row the old End column read
+            // "Destroyed, Kerbin" for keeps that text, now in the Status hover.
+            var debris = MakeRec(100, 148);
+            debris.IsDebris = true;
+            debris.TerminalStateValue = TerminalState.Destroyed;
+            debris.StartBodyName = "Kerbin";
+            string tip = RecordingsTableUI.BuildStatusPlaceTooltip(
+                RecordingsTableUI.FormatStartPosition(debris),
+                RecordingsTableUI.FormatEndPosition(debris),
+                "Destroyed");
+            Assert.Equal("Ends: Destroyed, Kerbin", tip);
+        }
+
+        // ── Item 6: Phase and Site live in Info; collapsing Info resets a sort on them ──
+
+        [Theory]
+        [InlineData((int)RecordingsTableUI.SortColumn.Phase, true)]
+        [InlineData((int)RecordingsTableUI.SortColumn.LaunchSite, true)]
+        [InlineData((int)RecordingsTableUI.SortColumn.Index, false)]
+        [InlineData((int)RecordingsTableUI.SortColumn.Name, false)]
+        [InlineData((int)RecordingsTableUI.SortColumn.LaunchTime, false)]
+        [InlineData((int)RecordingsTableUI.SortColumn.Duration, false)]
+        [InlineData((int)RecordingsTableUI.SortColumn.Status, false)]
+        public void OnlyTheInfoColumnsResetTheSortOnCollapse(int col, bool expected)
+        {
+            Assert.Equal(expected,
+                RecordingsTableUI.ShouldResetSortWhenInfoCollapses((RecordingsTableUI.SortColumn)col));
+        }
+
+        [Fact]
+        public void CollapsingInfoWhileSortedByPhase_FallsBackToTheDefaultSortAndLogs()
+        {
+            var ui = new RecordingsTableUI(null);
+            ui.ShowExpandedStatsForTesting = true;
+            ui.SortColumnIndexForTesting = (int)RecordingsTableUI.SortColumn.Phase;
+            ui.SortAscendingForTesting = false;
+
+            ui.SetShowExpandedStats(false, "test");
+
+            Assert.False(ui.ShowExpandedStatsForTesting);
+            Assert.Equal((int)RecordingsTableUI.DefaultSortColumn, ui.SortColumnIndexForTesting);
+            Assert.Equal(RecordingsTableUI.DefaultSortAscending, ui.SortAscendingForTesting);
+            Assert.Contains(logLines, l => l.Contains("[UI]")
+                && l.Contains("Recordings sort reset Phase desc -> LaunchTime asc")
+                && l.Contains("origin=test"));
+        }
+
+        [Fact]
+        public void CollapsingInfoWhileSortedByName_KeepsTheSort()
+        {
+            var ui = new RecordingsTableUI(null);
+            ui.ShowExpandedStatsForTesting = true;
+            ui.SortColumnIndexForTesting = (int)RecordingsTableUI.SortColumn.Name;
+            ui.SortAscendingForTesting = false;
+
+            ui.ShowExpandedStatsForTesting = false;
+
+            Assert.Equal((int)RecordingsTableUI.SortColumn.Name, ui.SortColumnIndexForTesting);
+            Assert.False(ui.SortAscendingForTesting);
+            Assert.DoesNotContain(logLines, l => l.Contains("Recordings sort reset"));
+        }
+
+        [Fact]
+        public void TheSeamSetterResetsTheSortTheSameWay()
+        {
+            var ui = new RecordingsTableUI(null);
+            ui.ShowExpandedStatsForTesting = true;
+            ui.SortColumnIndexForTesting = (int)RecordingsTableUI.SortColumn.LaunchSite;
+
+            ui.ShowExpandedStatsForTesting = false;
+
+            Assert.Equal((int)RecordingsTableUI.DefaultSortColumn, ui.SortColumnIndexForTesting);
+            Assert.Contains(logLines, l => l.Contains("Recordings sort reset LaunchSite")
+                && l.Contains("origin=seam"));
+        }
+
+        [Theory]
+        [InlineData("phase", false, true)]
+        [InlineData("site", false, true)]
+        [InlineData("phase", true, false)]
+        [InlineData("name", false, false)]
+        [InlineData("duration", false, false)]
+        public void SeamSort_RefusesAnInfoColumnWhileInfoIsShut(string column, bool infoOpen, bool hidden)
+        {
+            Assert.Equal(hidden, Parsek.TestCommands.TestCommandUiSelectSort.IsSortColumnHidden(
+                Parsek.TestCommands.TestCommandUiAction.MissionsWindow,
+                Parsek.TestCommands.TestCommandUiSelectSort.RecordingsTabToken,
+                column, infoOpen));
+        }
+
+        [Fact]
+        public void SeamSort_HiddenColumnRuleIsScopedToTheRecordingsTab()
+        {
+            // The Missions tab has no phase column, and other windows are untouched.
+            Assert.False(Parsek.TestCommands.TestCommandUiSelectSort.IsSortColumnHidden(
+                Parsek.TestCommands.TestCommandUiAction.MissionsWindow,
+                Parsek.TestCommands.TestCommandUiSelectSort.MissionsTabToken, "phase", false));
+            Assert.False(Parsek.TestCommands.TestCommandUiSelectSort.IsSortColumnHidden(
+                Parsek.TestCommands.TestCommandUiAction.LogisticsWindow,
+                Parsek.TestCommands.TestCommandUiSelectSort.RecordingsTabToken, "site", false));
+        }
     }
 }
