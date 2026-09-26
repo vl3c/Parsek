@@ -4565,6 +4565,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Removed the unused per-recording and per-milestone resource-cost helpers.**
+  `ResourceBudget`'s `CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,
+  `MilestoneCommittedFunds` / `MilestoneCommittedScience`, `FullCommittedFundsCost` /
+  `FullCommittedScienceCost` / `FullCommittedReputationCost` and `ComputeFacilityUpgradeCost`
+  (a placeholder returning 0) had no caller outside the unit tests since the ledger took over
+  funds, science and reputation, and `ParseCostFromDetail` lost its last caller with them. They
+  are deleted with the 40 test cells that existed only to test them; `ResourceBudget.cs` now
+  holds only the live `BudgetSummary` struct. A new `RecordingStoreTests` cell pins directly, on the real `CommitTree` path,
+  that every child of a committed tree is the same object in the committed recordings list
+  and the committed tree, and carries the tree's id; a cell deleted with the old budget
+  totals used to carry that fact implicitly. No gameplay change.
+
 - **Automated testing: PersistentRotation on the modded-compat instance, a `SpinVessel` seam
   verb, and lane MC-5.** Profiles can now name a pinned optional mod (`pin = "<pins.toml
   table>"`, a `kind = "gamedata-mod"` pin). Provisioning downloads it through the shared
