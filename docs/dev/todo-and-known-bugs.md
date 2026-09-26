@@ -124,6 +124,24 @@ Owner rulings (2026-09-26):
   ordinary time-release frees him at the respawn; a tombstoned Dead row takes the window
   with it. No rosterStatus is written; the ground-truth roster carve-out now explains
   Available+permanent as a future or unstamped death. Cells: `KerbalDeathRespawnTests`.
+  Loop rule (owner decision 2026-09-26): a respawn-on death is a finite respawn-pending hold
+  only when nothing keeps the kerbal committed ACROSS the dead window; a death in a chain
+  with a looping segment (`chainHasLoop`, the ghost replays past the death) or merged with an
+  open-ended co-row of the same kerbal (an un-closed Aboard / Unknown row, or a row a looping
+  chain keeps open) that STARTS before the respawn UT is a PERMANENT loss - Lost, no
+  stand-in, never respawns - the same answer the data gives with respawn off. An open-ended
+  co-row starting at or after the respawn UT is a post-respawn reuse (flown again, still
+  aboard a station): the respawn stays intact and the later flight is an ordinary hold. The
+  loop case is decided per row in `ProcessAction`, the co-row case on the merged set
+  (`KerbalsModule.ResolveOpenEndedRespawnDeaths`, first step of `PostWalk`, against
+  `KerbalReservation.OpenEndedCoRowStartUT`, the earliest open-ended co-row start carried
+  through the merge), so row order never matters; the log names `respawn suppressed:
+  looping chain` / `open-ended co-row` or `respawn kept: open-ended co-row starts after the
+  respawn`. The Timeline "respawns after" text reads the same resolved hold
+  (`ResolveTimelineRespawnSeconds`), not the raw stamp. Before this an overlapping
+  open-ended co-row turned the death into an ordinary endless hold with a free stand-in (the
+  kerbal read Reserved and never respawned). A finite later flight that outlasts the
+  respawn still extends the hold as an ordinary reservation.
   Not modelled: a per-part `Part.crewRespawnTime` override (mission-builder field), and stock
   re-reading the flag at the respawn instant (a policy turned off after a respawn-on death
   kills the kerbal in stock's roster while Parsek's stamped hold still releases him).

@@ -81,14 +81,18 @@ namespace Parsek
                         // Rescue Missing crew — they're alive but orphaned from a
                         // removed vessel (e.g. --clean-start or manual save edits).
                         // The recording will respawn them, so restore them first.
-                        // This is never a recorded death: stock's crew death marks the
-                        // kerbal Dead and enters Missing only when MissingCrewsRespawn
-                        // is on (decompiled Part death path), and that respawn window is
-                        // the recorded death's own hold (KerbalsModule, owner ruling S8),
-                        // whose vessel never spawns. Missing here comes from stock's
-                        // roster validation of an orphaned kerbal (StartRespawnPeriod(2000)),
-                        // which kills him at the timer when respawn is off - the rescue
-                        // prevents exactly that for a kerbal the recording keeps alive.
+                        // Stock's crew death marks the kerbal Dead and enters Missing only
+                        // when MissingCrewsRespawn is on (decompiled Part death path); that
+                        // respawn window is the recorded death's own hold (KerbalsModule,
+                        // owner ruling S8), and the dead kerbal's OWN recording never spawns
+                        // a vessel. A DIFFERENT recording that names him (a later flight, or
+                        // a re-fly that kills him later) can still spawn inside his Missing
+                        // window, and this rescue and VesselSpawner's
+                        // RescueReservedMissingCrewInSnapshot then seat him before stock's
+                        // respawn. The usual Missing here is stock's roster validation of an
+                        // orphaned kerbal (StartRespawnPeriod(2000)), which kills him at the
+                        // timer when respawn is off - the rescue prevents exactly that for a
+                        // kerbal the recording keeps alive.
                         if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing)
                         {
                             pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;

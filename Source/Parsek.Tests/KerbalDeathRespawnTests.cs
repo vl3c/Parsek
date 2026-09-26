@@ -114,9 +114,15 @@ namespace Parsek.Tests
         /// in the store, and the KerbalAssignment+Dead row CreateKerbalAssignmentActions
         /// writes for it in the ledger. Returns the row.</summary>
         private static GameAction CommitDeath(
-            bool? respawns, double timerSeconds, string id = RecordingId, double deathUT = DeathUT)
+            bool? respawns, double timerSeconds, string id = RecordingId, double deathUT = DeathUT,
+            string chainId = null)
         {
             var rec = DestroyedFlight(id, deathUT);
+            if (chainId != null)
+            {
+                rec.ChainId = chainId;
+                rec.ChainIndex = 1;
+            }
             rec.VesselSnapshot = null;
             rec.CrewEndStates = new Dictionary<string, KerbalEndState> { { Jeb, KerbalEndState.Dead } };
             rec.CrewEndStatesResolved = true;
@@ -407,6 +413,251 @@ namespace Parsek.Tests
             Assert.False(KerbalsModule.IsRespawnPendingHold(r));
             Assert.False(KerbalsModule.IsLossHold(r));
             Assert.True(kerbals.IsReservedNow(Jeb));
+        }
+
+        // ------------------------------------------------------------------
+        // Open-ended holds (owner decision 2026-09-26): a death that anything keeps
+        // open-ended is a permanent loss, respawn on or off
+        // ------------------------------------------------------------------
+
+        /// <summary>Commits a looping segment (index 0) of <paramref name="chainId"/>: the
+        /// shape that makes KerbalsModule treat the whole chain as replaying forever.</summary>
+        private static void CommitLoopingSegment(string chainId)
+        {
+            var loop = new Recording
+            {
+                RecordingId = "rec-loop-seg",
+                VesselName = "Loop Segment",
+                TreeId = "tree-loop-seg",
+                ChainId = chainId,
+                ChainIndex = 0,
+                LoopPlayback = true,
+                ExplicitStartUT = 10.0,
+                ExplicitEndUT = 90.0,
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(loop);
+        }
+
+        /// <summary>Commits another flight of Jeb's that is still Aboard (no recovery ever
+        /// closes it): an open-ended co-row for the same kerbal.</summary>
+        private static void CommitOpenEndedAboardFlight(double startUT)
+        {
+            var aboard = new Recording
+            {
+                RecordingId = "rec-still-aboard",
+                VesselName = "Parked Flea",
+                TreeId = "tree-still-aboard",
+                VesselSnapshot = CrewSnapshot(Jeb),
+                GhostVisualSnapshot = CrewSnapshot(Jeb),
+                ExplicitStartUT = startUT,
+                ExplicitEndUT = startUT + 200.0,
+                TerminalStateValue = TerminalState.Orbiting,
+                CrewEndStates = new Dictionary<string, KerbalEndState> { { Jeb, KerbalEndState.Aboard } },
+                CrewEndStatesResolved = true
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(aboard);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_" + Guid.NewGuid().ToString("N"),
+                UT = startUT,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-still-aboard",
+                KerbalName = Jeb,
+                KerbalRole = "Pilot",
+                StartUT = (float)startUT,
+                EndUT = (float)(startUT + 200.0),
+                KerbalEndStateField = KerbalEndState.Aboard,
+                Sequence = 1
+            });
+        }
+
+        // catches: a respawn-on death in a looping chain becoming an ordinary never-ending
+        // hold with a free stand-in (G1), or respawning; respawn off / unstamped unchanged.
+        [Theory]
+        [InlineData(true, 1000.0)]   // inside the would-be respawn window
+        [InlineData(true, 1e7)]      // long after the would-be respawn
+        [InlineData(false, 1e7)]
+        [InlineData(null, 1e7)]
+        public void DeathInLoopingChain_IsPermanentLoss_NoStandIn(bool? respawns, double clock)
+        {
+            CommitLoopingSegment("chain-loop");
+            CommitDeath(respawns, 7200.0, chainId: "chain-loop");
+
+            KerbalsModule kerbals = Walk(clock);
+
+            string label = clock.ToString("R", CultureInfo.InvariantCulture);
+            AssertPermanent(kerbals, label);
+            Assert.False(kerbals.IsKerbalAvailable(Jeb));
+            Assert.False(kerbals.Slots.ContainsKey(Jeb), "stand-in slot created at clock " + label);
+            Assert.Equal(KerbalsPresentation.RosterStatus.Lost,
+                KerbalsPresentation.ClassifyStatus(Jeb, false, false, kerbals.Reservations[Jeb], null, null));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Death hold: 'Jebediah Kerman'")
+                && l.Contains("is permanent (respawn suppressed:"));
+            Assert.DoesNotContain(logLines, l => l.Contains("respawn scheduled"));
+            if (respawns == true)
+            {
+                Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                    && l.Contains("respawn suppressed: looping chain"));
+            }
+        }
+
+        // catches: an un-closed Aboard co-row that overlaps the dead window turning a
+        // respawn-on death into an ordinary open-ended hold with a stand-in (G1), in either
+        // row order; respawn off / unstamped already permanent and unchanged.
+        [Theory]
+        [InlineData(true, 50.0)]     // the open-ended flight starts before the death
+        [InlineData(true, 2000.0)]   // ... after the death, before the respawn at 7500
+        [InlineData(false, 50.0)]
+        [InlineData(null, 2000.0)]
+        public void DeathWithOpenEndedAboardCoRow_IsPermanentLoss_NoStandIn(bool? respawns, double coRowStartUT)
+        {
+            CommitDeath(respawns, 7200.0);
+            CommitOpenEndedAboardFlight(coRowStartUT);
+
+            KerbalsModule kerbals = Walk(1e7);
+
+            AssertPermanent(kerbals, "1e7");
+            Assert.False(kerbals.Slots.ContainsKey(Jeb), "stand-in slot created");
+            Assert.Equal(KerbalsPresentation.RosterStatus.Lost,
+                KerbalsPresentation.ClassifyStatus(Jeb, false, false, kerbals.Reservations[Jeb], null, null));
+            bool suppressedLogged = logLines.Exists(l => l.Contains("[KerbalsModule]")
+                && l.Contains("Death hold: 'Jebediah Kerman' respawn suppressed: open-ended co-row"));
+            Assert.Equal(respawns == true, suppressedLogged);
+        }
+
+        // catches: a legitimate post-respawn reuse (flown again after the respawn, still
+        // aboard a station) reading Lost or losing the respawn.
+        [Fact]
+        public void OpenEndedFlightAfterTheRespawn_IsAnOrdinaryHold_RespawnIntact()
+        {
+            CommitDeath(true, 7200.0);           // dies at 300, respawns at 7500
+            CommitOpenEndedAboardFlight(8000.0); // flown again after the respawn, never recovered
+
+            KerbalsModule kerbals = Walk(9000.0);
+
+            var r = kerbals.Reservations[Jeb];
+            Assert.False(r.IsPermanent);
+            Assert.Equal(7500.0, r.DeathRespawnUT);
+            Assert.True(double.IsPositiveInfinity(r.ReservedUntilUT));
+            Assert.False(KerbalsModule.IsRespawnPendingHold(r));
+            Assert.False(KerbalsModule.IsLossHold(r));
+            Assert.True(kerbals.IsReservedNow(Jeb));
+            Assert.Equal(KerbalsPresentation.RosterStatus.Reserved,
+                KerbalsPresentation.ClassifyStatus(Jeb, false, false, r, null, null));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Death hold: 'Jebediah Kerman' respawn kept: open-ended co-row starts after the respawn"));
+            Assert.DoesNotContain(logLines, l => l.Contains("respawn suppressed: open-ended co-row"));
+        }
+
+        private static TimelineEntry DeathEntry()
+        {
+            var entries = TimelineBuilder.Build(
+                RecordingStore.CommittedRecordings,
+                new List<GameAction>(),
+                new List<Milestone>(),
+                null);
+            return entries.Find(e => e.Type == TimelineEntryType.CrewDeath
+                && e.RecordingId == RecordingId);
+        }
+
+        // catches: the Timeline promising a respawn for a death the walk made permanent
+        // (a looping chain), i.e. reading the raw stamp instead of the resolved hold.
+        [Fact]
+        public void Timeline_LoopingChainDeath_NamesNoRespawn()
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+            CommitLoopingSegment("chain-loop");
+            CommitDeath(true, 7200.0, chainId: "chain-loop");
+            Walk(1000.0);
+
+            TimelineEntry death = DeathEntry();
+
+            Assert.NotNull(death);
+            Assert.DoesNotContain("respawns after", death.DisplayText);
+        }
+
+        // catches: the same for an overlapping open-ended co-row, and the resolved lookup
+        // dropping the respawn text for a plain respawning death.
+        [Theory]
+        [InlineData(false, true)]    // plain respawn-on death: the text stays
+        [InlineData(true, false)]    // overlapping open-ended co-row: permanent, no text
+        public void Timeline_RespawnText_FollowsTheResolvedHold(bool overlappingCoRow, bool expectRespawnText)
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+            CommitDeath(true, 7200.0);
+            if (overlappingCoRow) CommitOpenEndedAboardFlight(2000.0);
+            Walk(1000.0);
+
+            TimelineEntry death = DeathEntry();
+
+            Assert.NotNull(death);
+            Assert.Equal(expectRespawnText, death.DisplayText.Contains("respawns after 2h 0m"));
+        }
+
+        // catches: the post-merge rule touching anything but an open-ended respawn-on hold
+        // whose co-row overlaps the dead window (a plain respawn-pending death, a finite
+        // later flight, a post-respawn open-ended reuse, a permanent death).
+        [Fact]
+        public void ResolveOpenEndedRespawnDeaths_ConvertsOnlyOpenEndedRespawnHolds()
+        {
+            var holds = new Dictionary<string, KerbalsModule.KerbalReservation>
+            {
+                { "pending", new KerbalsModule.KerbalReservation
+                    { KerbalName = "pending", ReservedUntilUT = 7500.0, DeathRespawnUT = 7500.0 } },
+                { "laterFlight", new KerbalsModule.KerbalReservation
+                    { KerbalName = "laterFlight", ReservedUntilUT = 9000.0, DeathRespawnUT = 7500.0 } },
+                { "openEnded", new KerbalsModule.KerbalReservation
+                    { KerbalName = "openEnded", ReservedUntilUT = double.PositiveInfinity, DeathRespawnUT = 7500.0,
+                      OpenEndedCoRowStartUT = 1000.0 } },
+                { "reusedAfter", new KerbalsModule.KerbalReservation
+                    { KerbalName = "reusedAfter", ReservedUntilUT = double.PositiveInfinity, DeathRespawnUT = 7500.0,
+                      OpenEndedCoRowStartUT = 7500.0 } },
+                { "permanent", new KerbalsModule.KerbalReservation
+                    { KerbalName = "permanent", ReservedUntilUT = double.PositiveInfinity, IsPermanent = true } },
+                { "aboardOnly", new KerbalsModule.KerbalReservation
+                    { KerbalName = "aboardOnly", ReservedUntilUT = double.PositiveInfinity,
+                      OpenEndedCoRowStartUT = 50.0 } },
+            };
+
+            Assert.Equal(1, KerbalsModule.ResolveOpenEndedRespawnDeaths(holds));
+
+            Assert.True(KerbalsModule.IsRespawnPendingHold(holds["pending"]));
+            Assert.False(holds["laterFlight"].IsPermanent);
+            Assert.Equal(7500.0, holds["laterFlight"].DeathRespawnUT);
+            Assert.True(holds["openEnded"].IsPermanent);
+            Assert.True(double.IsNaN(holds["openEnded"].DeathRespawnUT));
+            Assert.True(KerbalsModule.IsLossHold(holds["openEnded"]));
+            Assert.False(holds["reusedAfter"].IsPermanent);
+            Assert.Equal(7500.0, holds["reusedAfter"].DeathRespawnUT);
+            Assert.False(KerbalsModule.IsLossHold(holds["reusedAfter"]));
+            Assert.True(holds["permanent"].IsPermanent);
+            Assert.False(holds["aboardOnly"].IsPermanent);
+            Assert.False(KerbalsModule.IsLossHold(holds["aboardOnly"]));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Death hold: 'openEnded' respawn suppressed: open-ended co-row"));
+            Assert.Equal(0, KerbalsModule.ResolveOpenEndedRespawnDeaths(null));
+        }
+
+        // catches: the Timeline lookup naming a respawn the resolved hold does not grant.
+        [Fact]
+        public void ResolveTimelineRespawnSeconds_Cases()
+        {
+            var stamped = new Recording { CrewDeathRespawns = true, CrewDeathRespawnSeconds = 7200.0 };
+            var off = new Recording { CrewDeathRespawns = false, CrewDeathRespawnSeconds = 7200.0 };
+            var holds = new Dictionary<string, KerbalsModule.KerbalReservation>
+            {
+                { Jeb, new KerbalsModule.KerbalReservation
+                    { KerbalName = Jeb, ReservedUntilUT = 7500.0, DeathRespawnUT = 7500.0 } },
+                { "Bill", new KerbalsModule.KerbalReservation
+                    { KerbalName = "Bill", ReservedUntilUT = double.PositiveInfinity, IsPermanent = true } },
+            };
+
+            Assert.Equal(7200.0, KerbalsModule.ResolveTimelineRespawnSeconds(stamped, Jeb, holds));
+            Assert.True(double.IsNaN(KerbalsModule.ResolveTimelineRespawnSeconds(stamped, "Bill", holds)));
+            Assert.True(double.IsNaN(KerbalsModule.ResolveTimelineRespawnSeconds(stamped, "Val", holds)));
+            Assert.True(double.IsNaN(KerbalsModule.ResolveTimelineRespawnSeconds(off, Jeb, holds)));
+            Assert.True(double.IsNaN(KerbalsModule.ResolveTimelineRespawnSeconds(stamped, Jeb, null)));
         }
 
         // ------------------------------------------------------------------
