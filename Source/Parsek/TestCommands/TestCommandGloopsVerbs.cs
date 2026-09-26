@@ -21,11 +21,9 @@ namespace Parsek.TestCommands
     /// written by a player click, so the entire path was seam-unreachable.
     ///
     /// <para>SCOPED HONESTLY on the second cell: this pair is the only seam VERB whose
-    /// SUBJECT is the drop, not the only producer of it. The dock/undock chain-segment
-    /// path reaches the same factory and is live - <c>ParsekFlight
-    /// .HandleDockUndockCommitRestart</c> -&gt; <c>ChainSegmentManager
-    /// .CommitDockUndockSegment</c> -&gt; <c>CommitSegmentCore</c>, no always-tree guard
-    /// on that chain - and logs its own "segment too short" instead.</para>
+    /// SUBJECT is the drop. The factory's other callers are abnormal split-edge aborts
+    /// no seam verb can provoke on demand; every other recording commits through a tree,
+    /// which never reaches the factory.</para>
     /// </para>
     ///
     /// <para>

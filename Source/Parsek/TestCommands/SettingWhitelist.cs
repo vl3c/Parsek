@@ -4,7 +4,7 @@ using System.Globalization;
 namespace Parsek.TestCommands
 {
     /// <summary>
-    /// Where a whitelisted setting is authoritatively persisted. 5 of the 13 are
+    /// Where a whitelisted setting is authoritatively persisted. 8 of the 13 are
     /// NOT authoritative through <c>GameParameters.CustomParameterNode</c>: for
     /// those the <c>ParsekSettingsPersistence</c> sidecar
     /// (<c>GameData/Parsek/PluginData/settings.cfg</c>) is authoritative and
@@ -87,17 +87,21 @@ namespace Parsek.TestCommands
         // pins them per-run now that the Settings window no longer draws them.
         private static readonly Dictionary<string, Entry> Table = new Dictionary<string, Entry>
         {
-            // --- GameParameters-only (8) ---
+            // --- GameParameters-only (5) ---
             ["autoRecordOnLaunch"] = Bool(PersistenceRoute.GameParameters, null),
             ["autoRecordOnEva"] = Bool(PersistenceRoute.GameParameters, null),
             ["autoRecordOnFirstModificationAfterSwitch"] = Bool(PersistenceRoute.GameParameters, null),
             ["autoMerge"] = Bool(PersistenceRoute.GameParameters, null),
-            ["verboseLogging"] = Bool(PersistenceRoute.GameParameters, null),
-            ["samplingDensity"] = Int(0, 2, PersistenceRoute.GameParameters, null),
-            ["ghostAudioVolume"] = Float(0.0, 1.0, PersistenceRoute.GameParameters, null),
             ["forceFaithfulLoopPlayback"] = Bool(PersistenceRoute.GameParameters, null),
 
-            // --- GameParameters + ParsekSettingsPersistence sidecar (5 tracked) ---
+            // --- GameParameters + ParsekSettingsPersistence sidecar (8 tracked) ---
+            // verboseLogging / samplingDensity / ghostAudioVolume joined this group when
+            // they became install-wide (2026-09-26); without the Record* half, a stored
+            // sidecar value would revert a SetSetting at the next save load. The harness
+            // rewrites the sidecar at stage and teardown, so a per-run pin cannot leak.
+            ["verboseLogging"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordVerboseLogging"),
+            ["samplingDensity"] = Int(0, 2, PersistenceRoute.GameParametersPlusSidecar, "RecordSamplingDensity"),
+            ["ghostAudioVolume"] = Float(0.0, 1.0, PersistenceRoute.GameParametersPlusSidecar, "RecordGhostAudioVolume"),
             ["ghostRenderTracing"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordGhostRenderTracing"),
             ["mapRenderTracing"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordMapRenderTracing"),
             ["ledgerTracing"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordLedgerTracing"),

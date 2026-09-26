@@ -295,7 +295,7 @@ namespace Parsek.Tests
             WriteText(path, "showRouteLines = False\n");
             byte[] before = File.ReadAllBytes(path);
             WriteText(path + ".tmp", "showRouteLines = True");
-            ParsekSettingsPersistence.FilePathOverrideForTesting = path;
+            ParsekSettingsPersistence.SetFilePathOverrideForTesting(path);
 
             ParsekSettingsPersistence.LoadIfNeeded();
 

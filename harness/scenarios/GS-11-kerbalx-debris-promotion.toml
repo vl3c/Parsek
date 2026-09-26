@@ -30,11 +30,12 @@ id = "GS-11-kerbalx-debris-promotion"
 #     removes it on TTL expiry - a switch that lost the race reaches
 #     `decision=StartFreshRecording` instead. The token below pins the pid chain from
 #     the staging split's `Debris expiry set` through that decision to the promotion.
-# (3) OBSERVATION the lane is expected to print, not gated: promotion does NOT clear
-#     the booster's `debrisTTLExpiry` entry (`OnVesselRemovedFromBackground` leaves it),
-#     so `CheckDebrisTTL` still prints `Debris TTL expired` for the now-FOREGROUND
-#     vessel at branchUT + 60 and `EndDebrisRecording` returns early (not in the
-#     BackgroundMap). Filed in the todo.
+# (3) OBSERVATION, not gated: since D5-PROMOTED-DEBRIS-TTL-NOT-CANCELLED was fixed
+#     (2026-09-26), promotion clears the booster's `debrisTTLExpiry` entry in
+#     `OnVesselRemovedFromBackground`, so the lane is expected to print `Debris TTL
+#     cancelled: pid=<p> ... reason=removed-from-background` at the promotion and NO
+#     `Debris TTL expired` for the now-FOREGROUND vessel. The two readings below
+#     predate the fix and show the old `Debris TTL expired` line.
 #
 # =====================================================================================
 # 2. STATUS.

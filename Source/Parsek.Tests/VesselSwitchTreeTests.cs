@@ -120,7 +120,7 @@ namespace Parsek.Tests
         public void DecideOnVesselSwitch_NoTree_FallbackTransitionToBackground()
         {
             // No tree active, different PIDs -> TransitionToBackground (fallback)
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, 0, activeTree: null);
+            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, activeTree: null);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
         }
 
@@ -129,7 +129,7 @@ namespace Parsek.Tests
         {
             var tree = MakeTree("rec_active", (200, "rec_bg"));
 
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, 0, activeTree: tree);
+            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, activeTree: tree);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.PromoteFromBackground, result);
         }
 
@@ -143,7 +143,6 @@ namespace Parsek.Tests
                 200,
                 currentIsEva: false,
                 recordingStartedAsEva: false,
-                undockSiblingPid: 0,
                 activeTree: tree);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.PromoteFromBackground, treeDecision);
 
@@ -168,18 +167,8 @@ namespace Parsek.Tests
             var tree = MakeTree("rec_active", (300, "rec_bg"));
 
             // PID 200 is not in the background map
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, 0, activeTree: tree);
+            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, activeTree: tree);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
-        }
-
-        [Fact]
-        public void DecideOnVesselSwitch_TreeActive_UndockSibling_TakesPriority()
-        {
-            var tree = MakeTree("rec_active", (200, "rec_bg"));
-
-            // Even though PID 200 is in the background map, undock sibling takes priority
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, undockSiblingPid: 200, activeTree: tree);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.UndockSwitch, result);
         }
 
         [Fact]
@@ -188,7 +177,7 @@ namespace Parsek.Tests
             var tree = MakeTree("rec_active", (200, "rec_bg"));
 
             // EVA-to-EVA when started as EVA -> ContinueOnEva (tree does not override)
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, currentIsEva: true, recordingStartedAsEva: true, 0, activeTree: tree);
+            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, currentIsEva: true, recordingStartedAsEva: true, activeTree: tree);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.ContinueOnEva, result);
         }
 
@@ -198,7 +187,7 @@ namespace Parsek.Tests
             var tree = MakeTree("rec_active", (200, "rec_bg"));
 
             // Non-EVA when started as EVA -> ChainToVessel (tree does not override)
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, currentIsEva: false, recordingStartedAsEva: true, 0, activeTree: tree);
+            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, currentIsEva: false, recordingStartedAsEva: true, activeTree: tree);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.ChainToVessel, result);
         }
 
@@ -207,7 +196,7 @@ namespace Parsek.Tests
         {
             var tree = MakeTree("rec_active");
 
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 100, false, false, 0, activeTree: tree);
+            var result = FlightRecorder.DecideOnVesselSwitch(100, 100, false, false, activeTree: tree);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.None, result);
         }
 
@@ -217,7 +206,7 @@ namespace Parsek.Tests
             // Tree is active but background map is empty
             var tree = MakeTree("rec_active");
 
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, 0, activeTree: tree);
+            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, activeTree: tree);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
         }
 
@@ -1132,13 +1121,6 @@ namespace Parsek.Tests
             // still compile and produce correct results (activeTree defaults to null)
             var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
-        }
-
-        [Fact]
-        public void DecideOnVesselSwitch_LegacyCallsite_WithUndock_StillWorks()
-        {
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, undockSiblingPid: 200);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.UndockSwitch, result);
         }
 
         #endregion

@@ -13,16 +13,10 @@ tier = "operator"
 # tree commit NEVER passes through CreateRecordingFromFlightData - it appends through
 # TryAppendCapturedToTree, which KEEPS a 1-point recording - so no StartRecording lane can
 # produce this drop however short its take.
-# THE FACTORY HAS THREE OTHER CALLER GROUPS AND ONE OF THEM IS LIVE, which is why this
-# lane claims to be the only seam VERB whose SUBJECT is the drop rather than the only
-# producer of it: the Gloops commit (this lane), a set of abnormal split-edge aborts no
-# seam verb can provoke on demand, and the DOCK/UNDOCK CHAIN-SEGMENT PATH -
-# ParsekFlight.HandleDockUndockCommitRestart (all four branches: dock initiator, dock
-# target, undock stay, undock switch) -> ChainSegmentManager.CommitDockUndockSegment ->
-# CommitSegmentCore -> the factory, with no always-tree guard anywhere on that chain. A
-# docking lane could therefore hit the same refusal incidentally; it would log
-# CommitSegmentCore's own Verbose "segment too short", NOT the Warn this lane gates, so
-# the two are distinguishable in a log and this lane's tokens stay specific to Gloops.
+# THE FACTORY'S OTHER CALLERS are a set of abnormal split-edge aborts no seam verb can
+# provoke on demand, which is why this lane claims to be the only seam VERB whose SUBJECT
+# is the drop. The dock/undock chain-segment path that also reached the factory was
+# unreachable in always-tree mode and has been removed.
 # TWO STALE COMMENTS ARE CORRECTED IN THE SAME CHANGE: S0.5 and S0.6 each attributed a
 # possible count to "the stationary-pod sub-2-point-drop", wording that predates
 # always-tree mode and describes a path their own commits no longer take.

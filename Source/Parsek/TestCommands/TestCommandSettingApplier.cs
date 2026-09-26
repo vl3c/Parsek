@@ -18,7 +18,7 @@ namespace Parsek.TestCommands
     /// </list>
     /// The two side effects are passed as delegates so the routing decision is
     /// exercised by xUnit with spies (asserting the route enum + that the Record*
-    /// path fires for the 8 tracked names and NOT for the 8 GameParameters-only
+    /// path fires for the 8 tracked names and NOT for the 5 GameParameters-only
     /// names) without a live Unity <c>ParsekSettings</c> (which derives from the
     /// Assembly-CSharp <c>GameParameters.CustomParameterNode</c> and cannot be
     /// constructed headless).

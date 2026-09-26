@@ -3325,13 +3325,9 @@ as reading-run specs and neither armed.
 >   always-tree mode a tree commit never passes through that factory at all (it appends
 >   through `TryAppendCapturedToTree`, which KEEPS a 1-point recording), so no
 >   `StartRecording` lane can produce this drop however short its take; the remaining
->   split-edge callers are abnormal aborts no seam verb can provoke on demand; and the
->   DOCK/UNDOCK CHAIN-SEGMENT PATH is live and reaches the same factory
->   (`ParsekFlight.HandleDockUndockCommitRestart`, all four branches ->
->   `ChainSegmentManager.CommitDockUndockSegment` -> `CommitSegmentCore`), with no
->   always-tree guard anywhere on that chain - it logs `CommitSegmentCore`'s own Verbose
->   "segment too short" rather than the Gloops Warn a lane gates, so the two are
->   distinguishable in a log. Two stale
+>   split-edge callers are abnormal aborts no seam verb can provoke on demand. (The
+>   dock/undock chain-segment path first named here as a live producer was unreachable
+>   in always-tree mode and was removed 2026-09-26.) Two stale
 >   comments fall out of the same derivation and are corrected in this change: S0.5 and
 >   S0.6 each attributed a possible count to "the stationary-pod sub-2-point-drop",
 >   wording that predates always-tree mode and describes a path their own commits no

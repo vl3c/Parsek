@@ -48,6 +48,12 @@ namespace Parsek
         private const string GhostRenderTracingKey = "ghostRenderTracing";
         private const string MapRenderTracingKey = "mapRenderTracing";
         private const string LedgerTracingKey = "ledgerTracing";
+        // Install-wide since 2026-09-26: before, these three lived only in the per-save
+        // GameParameters node, so an F9 or a rewind reverted them and a new save started
+        // from the field initializers.
+        private const string VerboseLoggingKey = "verboseLogging";
+        private const string SamplingDensityKey = "samplingDensity";
+        private const string GhostAudioVolumeKey = "ghostAudioVolume";
         private const string UiComplexityModeKey = "uiComplexityMode";
         private const string WarpYearKey = "warpYear";
         private const string WarpDayKey = "warpDay";
@@ -61,6 +67,15 @@ namespace Parsek
         private static bool? storedGhostRenderTracing;
         private static bool? storedMapRenderTracing;
         private static bool? storedLedgerTracing;
+        private static bool? storedVerboseLogging;
+        // Raw preset int (0=Low, 1=Medium, 2=High); an out-of-range value never reaches
+        // this field (the loader and RecordSamplingDensity both drop it).
+        private static int? storedSamplingDensity;
+        // Clamped to [0, 1] on the way in, like the Settings slider.
+        private static float? storedGhostAudioVolume;
+        // Test-only redirect of the file location, so xUnit can round-trip the store
+        // through a real file (KSPUtil.ApplicationRootPath is unavailable headless).
+        private static string filePathOverrideForTesting;
         // Basic / Advanced UI complexity mode (design 6.2). Persisted as an int
         // (0=Basic, 1=Advanced); null = never resolved on this install, which is the
         // ONLY state that lets the first-run footprint resolution of design 7.3 run.
@@ -74,14 +89,6 @@ namespace Parsek
         private static bool loaded;
 
         /// <summary>
-        /// TEST SEAM ONLY - null in the game. Replaces <see cref="GetFilePath"/>'s
-        /// <c>KSPUtil.ApplicationRootPath</c> resolution (which throws outside Unity) so a test
-        /// can drive <see cref="LoadIfNeeded"/> against a temp file. Cleared by
-        /// <see cref="ResetForTesting"/>.
-        /// </summary>
-        internal static string FilePathOverrideForTesting;
-
-        /// <summary>
         /// Resolves the settings file path under GameData/Parsek/PluginData/.
         /// PluginData is the KSP convention for runtime-written, non-asset state:
         /// it's excluded from ModuleManager's patch cache, survives mod updates
@@ -90,8 +97,8 @@ namespace Parsek
         /// </summary>
         internal static string GetFilePath()
         {
-            if (!string.IsNullOrEmpty(FilePathOverrideForTesting))
-                return FilePathOverrideForTesting;
+            if (!string.IsNullOrEmpty(filePathOverrideForTesting))
+                return filePathOverrideForTesting;
             string root = KSPUtil.ApplicationRootPath ?? "";
             return Path.Combine(root, "GameData", "Parsek", "PluginData", FileName);
         }
@@ -139,6 +146,9 @@ namespace Parsek
                 TryLoadBool(root, path, GhostRenderTracingKey, ref storedGhostRenderTracing);
                 TryLoadBool(root, path, MapRenderTracingKey, ref storedMapRenderTracing);
                 TryLoadBool(root, path, LedgerTracingKey, ref storedLedgerTracing);
+                TryLoadBool(root, path, VerboseLoggingKey, ref storedVerboseLogging);
+                storedSamplingDensity = ParseStoredSamplingDensity(root, path);
+                storedGhostAudioVolume = ParseStoredGhostAudioVolume(root, path);
 
                 storedUiComplexityMode = ParseStoredInt(root, UiComplexityModeKey);
 
@@ -154,6 +164,9 @@ namespace Parsek
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<default>")}" +
                     $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<default>")}" +
+                    $" verboseLogging={(storedVerboseLogging.HasValue ? storedVerboseLogging.Value.ToString() : "<default>")}" +
+                    $" samplingDensity={(storedSamplingDensity.HasValue ? storedSamplingDensity.Value.ToString(CultureInfo.InvariantCulture) : "<default>")}" +
+                    $" ghostAudioVolume={(storedGhostAudioVolume.HasValue ? storedGhostAudioVolume.Value.ToString("R", CultureInfo.InvariantCulture) : "<default>")}" +
                     $" uiComplexityMode={(storedUiComplexityMode.HasValue ? storedUiComplexityMode.Value.ToString(CultureInfo.InvariantCulture) : "<default>")}");
             }
             catch (Exception ex)
@@ -180,6 +193,52 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {key} — using default");
             }
         }
+
+        /// <summary>
+        /// The stored sample-density preset, or null when the key is absent or holds
+        /// anything but 0, 1 or 2 (a bad value is warned and ignored, so the save's own
+        /// preset keeps governing rather than a guess).
+        /// </summary>
+        internal static int? ParseStoredSamplingDensity(ConfigNode root, string path)
+        {
+            string raw = root.GetValue(SamplingDensityKey);
+            if (string.IsNullOrEmpty(raw))
+            {
+                ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {SamplingDensityKey} - using default");
+                return null;
+            }
+            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v)
+                && IsValidSamplingDensity(v))
+                return v;
+            ParsekLog.Warn(Tag,
+                $"Settings file '{path}' has invalid {SamplingDensityKey}='{raw}' - ignoring (expected 0, 1 or 2)");
+            return null;
+        }
+
+        /// <summary>
+        /// The stored ghost audio volume clamped to [0, 1], or null when the key is absent
+        /// or not a finite number (warned and ignored).
+        /// </summary>
+        internal static float? ParseStoredGhostAudioVolume(ConfigNode root, string path)
+        {
+            string raw = root.GetValue(GhostAudioVolumeKey);
+            if (string.IsNullOrEmpty(raw))
+            {
+                ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {GhostAudioVolumeKey} - using default");
+                return null;
+            }
+            if (float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out float v)
+                && !float.IsNaN(v) && !float.IsInfinity(v))
+                return ClampGhostAudioVolume(v);
+            ParsekLog.Warn(Tag,
+                $"Settings file '{path}' has invalid {GhostAudioVolumeKey}='{raw}' - ignoring");
+            return null;
+        }
+
+        internal static bool IsValidSamplingDensity(int value) => value >= 0 && value <= 2;
+
+        internal static float ClampGhostAudioVolume(float value)
+            => value < 0f ? 0f : value > 1f ? 1f : value;
 
         private static int? ParseStoredInt(ConfigNode root, string key)
         {
@@ -280,6 +339,35 @@ namespace Parsek
                 settings.ledgerTracing = storedLedgerTracing.Value;
                 ParsekLog.Info(Tag,
                     $"Restored ledgerTracing {prev} -> {storedLedgerTracing.Value} from persistent store");
+            }
+
+            if (storedVerboseLogging.HasValue
+                && storedVerboseLogging.Value != settings.verboseLogging)
+            {
+                bool prev = settings.verboseLogging;
+                settings.verboseLogging = storedVerboseLogging.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored verboseLogging {prev} -> {storedVerboseLogging.Value} from persistent store");
+            }
+
+            if (storedSamplingDensity.HasValue
+                && storedSamplingDensity.Value != settings.samplingDensity)
+            {
+                int prev = settings.samplingDensity;
+                settings.samplingDensity = storedSamplingDensity.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored samplingDensity {prev.ToString(CultureInfo.InvariantCulture)} -> " +
+                    $"{storedSamplingDensity.Value.ToString(CultureInfo.InvariantCulture)} from persistent store");
+            }
+
+            if (storedGhostAudioVolume.HasValue
+                && storedGhostAudioVolume.Value != settings.ghostAudioVolume)
+            {
+                float prev = settings.ghostAudioVolume;
+                settings.ghostAudioVolume = storedGhostAudioVolume.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored ghostAudioVolume {prev.ToString("R", CultureInfo.InvariantCulture)} -> " +
+                    $"{storedGhostAudioVolume.Value.ToString("R", CultureInfo.InvariantCulture)} from persistent store");
             }
 
             ApplyUiComplexityMode(settings, scenarioNodePopulated);
@@ -404,6 +492,9 @@ namespace Parsek
                 || storedGhostRenderTracing.HasValue
                 || storedMapRenderTracing.HasValue
                 || storedLedgerTracing.HasValue
+                || storedVerboseLogging.HasValue
+                || storedSamplingDensity.HasValue
+                || storedGhostAudioVolume.HasValue
                 || storedUiComplexityMode.HasValue
                 || storedWarpYear.HasValue
                 || storedWarpDay.HasValue
@@ -469,6 +560,42 @@ namespace Parsek
         internal static void RecordLedgerTracing(bool value)
             => RecordTracingFlag(ref storedLedgerTracing, value, "RecordLedgerTracing");
 
+        /// <summary>Records the verbose-logging toggle install-wide (Settings window, SetSetting seam).</summary>
+        internal static void RecordVerboseLogging(bool value)
+            => RecordValue(ref storedVerboseLogging, value, "RecordVerboseLogging");
+
+        /// <summary>
+        /// Records the sample-density preset (0=Low, 1=Medium, 2=High) install-wide. An
+        /// out-of-range value is refused with a Warn and leaves the store untouched: the
+        /// callers only ever pass an enum-derived or whitelist-checked value, so it can
+        /// only be a bug.
+        /// </summary>
+        internal static void RecordSamplingDensity(int value)
+        {
+            if (!IsValidSamplingDensity(value))
+            {
+                ParsekLog.Warn(Tag,
+                    $"RecordSamplingDensity: refusing out-of-range value {value.ToString(CultureInfo.InvariantCulture)}");
+                return;
+            }
+            RecordValue(ref storedSamplingDensity, value, "RecordSamplingDensity");
+        }
+
+        /// <summary>
+        /// Records the ghost audio volume install-wide, clamped to [0, 1]. The Settings
+        /// slider calls this once per finished drag rather than every frame (see
+        /// <c>SettingsWindowPresentation.ShouldFlushGhostAudioVolume</c>).
+        /// </summary>
+        internal static void RecordGhostAudioVolume(float value)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value))
+            {
+                ParsekLog.Warn(Tag, "RecordGhostAudioVolume: refusing a non-finite value");
+                return;
+            }
+            RecordValue(ref storedGhostAudioVolume, ClampGhostAudioVolume(value), "RecordGhostAudioVolume");
+        }
+
         /// <summary>
         /// Records a tracing-flag override and writes it to disk, guarding the xUnit /
         /// non-Unity context where <see cref="KSPUtil.ApplicationRootPath"/> throws.
@@ -477,6 +604,15 @@ namespace Parsek
         /// method-name prefix in the SecurityException verbose logs (<paramref name="name"/>).
         /// </summary>
         private static void RecordTracingFlag(ref bool? stored, bool value, string name)
+            => RecordValue(ref stored, value, name);
+
+        /// <summary>
+        /// Shared body of every guarded Record*: loads the store, skips an unchanged
+        /// value (no disk write), updates it, and saves - tolerating the xUnit / non-Unity
+        /// context where the file path cannot be resolved (the store stays in memory).
+        /// </summary>
+        private static void RecordValue<T>(ref T? stored, T value, string name)
+            where T : struct, IEquatable<T>
         {
             try { LoadIfNeeded(); }
             catch (Exception ex) when (ex is SecurityException || ex is MissingMethodException)
@@ -485,7 +621,7 @@ namespace Parsek
                     $"{name}: LoadIfNeeded threw {ex.GetType().Name} " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
             }
-            if (stored.HasValue && stored.Value == value) return;
+            if (stored.HasValue && stored.Value.Equals(value)) return;
             stored = value;
             try { Save(); }
             catch (Exception ex) when (ex is SecurityException || ex is MissingMethodException)
@@ -515,6 +651,12 @@ namespace Parsek
                     root.AddValue(MapRenderTracingKey, storedMapRenderTracing.Value.ToString());
                 if (storedLedgerTracing.HasValue)
                     root.AddValue(LedgerTracingKey, storedLedgerTracing.Value.ToString());
+                if (storedVerboseLogging.HasValue)
+                    root.AddValue(VerboseLoggingKey, storedVerboseLogging.Value.ToString());
+                if (storedSamplingDensity.HasValue)
+                    root.AddValue(SamplingDensityKey, storedSamplingDensity.Value.ToString(CultureInfo.InvariantCulture));
+                if (storedGhostAudioVolume.HasValue)
+                    root.AddValue(GhostAudioVolumeKey, storedGhostAudioVolume.Value.ToString("R", CultureInfo.InvariantCulture));
                 if (storedUiComplexityMode.HasValue)
                     root.AddValue(UiComplexityModeKey, storedUiComplexityMode.Value.ToString(CultureInfo.InvariantCulture));
                 if (storedWarpYear.HasValue)
@@ -533,6 +675,9 @@ namespace Parsek
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<null>")}" +
                     $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<null>")}" +
+                    $" verboseLogging={(storedVerboseLogging.HasValue ? storedVerboseLogging.Value.ToString() : "<null>")}" +
+                    $" samplingDensity={(storedSamplingDensity.HasValue ? storedSamplingDensity.Value.ToString(CultureInfo.InvariantCulture) : "<null>")}" +
+                    $" ghostAudioVolume={(storedGhostAudioVolume.HasValue ? storedGhostAudioVolume.Value.ToString("R", CultureInfo.InvariantCulture) : "<null>")}" +
                     $" uiComplexityMode={(storedUiComplexityMode.HasValue ? storedUiComplexityMode.Value.ToString(CultureInfo.InvariantCulture) : "<null>")}");
             }
             catch (Exception ex)
@@ -551,13 +696,16 @@ namespace Parsek
             storedGhostRenderTracing = null;
             storedMapRenderTracing = null;
             storedLedgerTracing = null;
+            storedVerboseLogging = null;
+            storedSamplingDensity = null;
+            storedGhostAudioVolume = null;
+            filePathOverrideForTesting = null;
             storedUiComplexityMode = null;
             storedWarpYear = null;
             storedWarpDay = null;
             storedWarpHour = null;
             storedWarpMinute = null;
             loaded = false;
-            FilePathOverrideForTesting = null;
         }
 
         /// <summary>
@@ -572,6 +720,47 @@ namespace Parsek
         internal static bool? GetStoredMapRenderTracing() => storedMapRenderTracing;
 
         internal static bool? GetStoredLedgerTracing() => storedLedgerTracing;
+
+        internal static bool? GetStoredVerboseLogging() => storedVerboseLogging;
+
+        internal static int? GetStoredSamplingDensity() => storedSamplingDensity;
+
+        internal static float? GetStoredGhostAudioVolume() => storedGhostAudioVolume;
+
+        /// <summary>
+        /// Test-only: points <see cref="GetFilePath"/> at <paramref name="path"/> (null
+        /// restores the live location). <see cref="ResetForTesting"/> clears it.
+        /// </summary>
+        internal static void SetFilePathOverrideForTesting(string path)
+        {
+            filePathOverrideForTesting = path;
+        }
+
+        /// <summary>Test-only: forgets the in-memory store so the next access re-reads the file, keeping the path override.</summary>
+        internal static void ForgetLoadedStateForTesting()
+        {
+            string keep = filePathOverrideForTesting;
+            ResetForTesting();
+            filePathOverrideForTesting = keep;
+        }
+
+        internal static void SetStoredVerboseLoggingForTesting(bool? value)
+        {
+            storedVerboseLogging = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredSamplingDensityForTesting(int? value)
+        {
+            storedSamplingDensity = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredGhostAudioVolumeForTesting(float? value)
+        {
+            storedGhostAudioVolume = value;
+            loaded = true;
+        }
 
         /// <summary>
         /// Test-only: the stored UI complexity mode as a raw int, null when the install

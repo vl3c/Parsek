@@ -1642,8 +1642,8 @@ namespace Parsek.TestCommands
         }
 
         // Invokes the exact ParsekSettingsPersistence.Record* member for a
-        // sidecar-tracked setting (mirrors UI/SettingsWindowUI). All 5 tracked settings
-        // are bools, so every Record* takes r.BoolValue.
+        // sidecar-tracked setting (mirrors UI/SettingsWindowUI). Each Record* takes the
+        // typed value its whitelist entry parsed (bool, int or float).
         private void InvokeRecordMethod(SettingApplyResult r)
         {
             switch (r.RecordMethod)
@@ -1653,6 +1653,9 @@ namespace Parsek.TestCommands
                 case "RecordLedgerTracing": ParsekSettingsPersistence.RecordLedgerTracing(r.BoolValue); break;
                 case "RecordReadableSidecarMirrors": ParsekSettingsPersistence.RecordReadableSidecarMirrors(r.BoolValue); break;
                 case "RecordShowRouteLines": ParsekSettingsPersistence.RecordShowRouteLines(r.BoolValue); break;
+                case "RecordVerboseLogging": ParsekSettingsPersistence.RecordVerboseLogging(r.BoolValue); break;
+                case "RecordSamplingDensity": ParsekSettingsPersistence.RecordSamplingDensity(r.IntValue); break;
+                case "RecordGhostAudioVolume": ParsekSettingsPersistence.RecordGhostAudioVolume(r.FloatValue); break;
             }
         }
 

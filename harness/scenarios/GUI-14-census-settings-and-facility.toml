@@ -136,9 +136,10 @@ steps = [
   # lane exists for. Density here is Medium (`Sampling: every 0.20-3.0s, 2.0 deg / 5%
   # thresholds`), the baseline the two below are read against. NOT "every Diagnostics
   # toggle off", which an earlier draft claimed and the first flight refuted:
-  # `verboseLogging` is armed by `run.py`'s own settings baseline and
-  # `writeReadableSidecarMirrors` ships on, so two of the five are already true here and
-  # the STATE 4 capture moves the other three.
+  # `verboseLogging` is on from the fixture and `writeReadableSidecarMirrors` is
+  # stamped on by `run.py`'s settings baseline (players default it OFF since
+  # 2026-09-26), so two of the five are already true here and the STATE 4 capture
+  # moves the other three.
   { cmd = "CaptureScreenshot", args = { label = "fc-settings-wipesdisabled-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "fc-settings-wipesdisabled-advanced" }, expect = "OK" },
 
@@ -154,7 +155,7 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "fc-settings-densityhigh-advanced" }, expect = "OK" },
 
   # STATE 4: the whole Diagnostics section armed, in one picture. All five are
-  # whitelisted; three of them route through the PluginData sidecar as well as
+  # whitelisted and all five route through the PluginData sidecar as well as
   # GameParameters (`SettingWhitelist.PersistenceRoute.GameParametersPlusSidecar`), which
   # `run.py` rewrites at teardown, so nothing here leaks into the next run.
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },

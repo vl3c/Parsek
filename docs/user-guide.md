@@ -22,7 +22,7 @@ The Parsek window is available from the toolbar button in Flight, Map, and KSC v
 4. Recording stops when the active vessel changes (docking, switching with `[`/`]`, scene exit) or on revert
 5. Revert to Launch (Esc > Revert to Launch)
 
-Going EVA from a vessel on the pad auto-starts recording on the EVA kerbal. Going EVA mid-flight stops the parent recording and starts a linked child recording on the EVA kerbal. Both behaviors can be disabled in Settings.
+Going EVA from a vessel on the pad auto-starts recording on the EVA kerbal. Going EVA mid-flight stops the parent recording and starts a linked child recording on the EVA kerbal. Both are always on: there is no setting to turn automatic recording off.
 
 ### EVA During Recording
 
@@ -69,7 +69,7 @@ When a vessel stages, undocks, or EVAs into two or more controllable pieces, Par
 - **Merging the re-fly** — when your re-fly ends, the normal Merge dialog appears. Merging writes supersede relations for the retired siblings; if the re-fly landed/recovered/orbited it seals as `Immutable`, if it crashed it commits as `CommittedProvisional` and remains re-rewindable from the same slot.
 - **What survives supersede** — Parsek retires reviewed recording-scoped career actions from the superseded subtree: contracts, milestones, facilities, strategies, tech unlocks, science, funds/reputation, and crew consequences are recalculated from the surviving ledger. Seed rows, KSC/system rows that are not tied to a recording, already-paid rollout costs, and unknown future action types stay preserved until reviewed.
 - **Revert during re-fly** — pressing stock Revert-to-Launch or Revert-to-VAB/SPH while a session is active shows the same three-option dialog: Retry from Rewind Point (re-loads the split moment in FLIGHT either way), Discard Re-fly (throws away the current attempt and returns you to the scene you clicked at the split UT; the tree's other re-fly state is preserved and the Unfinished Flights entry remains), or Continue Flying.
-- **Disk usage** — Settings > Diagnostics shows live Rewind Point disk usage (total size + file count). Rewind Points self-reap when the split has been fully resolved.
+- **Disk usage** — Settings > Diagnostics shows "Rewind points on disk" (total size + file count; hover it for the live counts). Rewind Points self-reap when the split has been fully resolved.
 
 See `docs/parsek-rewind-to-separation-design.md` for the full feature design.
 
@@ -253,44 +253,37 @@ The window is draggable and resizable down to 520 x 320, and the tab bar uses th
 
 ### Settings
 
-Click the "Settings" button in the main Parsek window to open the Settings panel. This is the only place Parsek settings are edited: KSP's own Difficulty Options screen (Esc > Settings) deliberately shows no Parsek section. Values you change stick across saves and sessions.
+Click the "Settings" button in the main Parsek window to open the Settings panel. This is the only place Parsek settings are edited: KSP's own Difficulty Options screen (Esc > Settings) deliberately shows no Parsek section.
 
-Recording:
+Which values stick where:
+
+- **Install-wide** (stored in `GameData/Parsek/PluginData/settings.cfg`): the interface mode, ghost audio, supply-route paths, recorder sample density, verbose logging, the three tracing toggles and the readable `.txt` copies. Once you change one it keeps your value across every save, F9 quickload, rewind and KSP restart. Until you first change it, each save uses its own stored value (a new save starts from the defaults below).
+- **Per save**: the auto-launch period. It lives in the save, so a quickload or rewind restores the value that save had, and a new save starts at 30s.
+
+The sections appear in this order. Basic mode shows Interface, Ghosts and Data Management; Advanced adds Looping, Recorder Sample Density and Diagnostics.
+
+Interface:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Auto-record on launch | On | Start recording when a vessel leaves the pad or runway |
-| Auto-record on EVA | On | Start recording when a kerbal goes EVA from the pad |
-| Auto-merge recordings | On | When on, recordings commit to the timeline silently when you leave the flight scene; when off, the merge dialog appears. Saves made before 0.10.4 keep whatever value they stored, which for almost all of them is Off |
-
-Looping:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Auto-launch every | 10s | Default launch-to-launch period used by recordings whose Period column is set to `auto`. Cycle the unit button to switch between sec / min / hr |
+| Basic / Advanced | Basic on a new install, Advanced where Parsek was already in use | Basic shows the core windows only: Timeline, Missions, Logistics, Kerbals and Settings. Advanced adds Real Spawn Control, Career, the raw Recordings tab, the Missions loop controls and the three Advanced-only Settings sections. The mode is visibility only: hidden windows keep working in the background |
 
 Ghosts:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Ghost audio | 70% | Volume multiplier for ghost engines, RCS, decouplers, and explosions. Set to 0% to mute |
+| Show supply route paths on map | On | Draw each supply route's recorded path as a line on the flight map and in the Tracking Station |
 
-Ghost audio is the whole section: there is no "Show ghosts in Tracking Station" setting,
-and never has been. Ghosts always get their Tracking Station presence.
+There is no "Show ghosts in Tracking Station" setting, and never has been. Ghosts always get their Tracking Station presence.
 
-Diagnostics (Advanced only):
+Looping (Advanced only):
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Verbose logging | On | Write detailed diagnostics to `KSP.log` |
-| Ghost render tracing (Warning: huge logs) | Off | Write detailed per-ghost render placement diagnostics to `KSP.log` |
-| Map/TS render tracing (Warning: huge logs) | Off | Write map and Tracking Station ghost rendering to `KSP.log` |
-| Ledger apply tracing (Warning: huge logs) | Off | Write ledger reconstruction and apply detail to `KSP.log` |
-| Write readable sidecar mirrors (Warning: extra disk usage) | On | Also write human-readable `.txt` mirrors alongside binary recording sidecars |
-| In-Game Test Runner | - | Opens a runtime-test window. Ctrl+Shift+T opens a separate one of its own, in any scene |
-| Run Diagnostics Report | - | Dumps a full diagnostics snapshot to `KSP.log` |
+| Auto-launch every | 30s | Loop period of missions whose period is set to `auto`; shorter than the flight means overlapping ghosts. Cycle the unit button to switch between sec / min / hr |
 
-Recorder Sample Density: three preset buttons plus a live summary line showing the resulting sampling thresholds.
+Recorder Sample Density (Advanced only): three preset buttons plus a live summary line showing the resulting sampling thresholds.
 
 | Preset | Description |
 |--------|-------------|
@@ -298,12 +291,27 @@ Recorder Sample Density: three preset buttons plus a live summary line showing t
 | Medium (default) | Balanced sampling for most flights |
 | High | Dense sampling for cinematic recordings; larger files |
 
+Diagnostics (Advanced only):
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Verbose logging | On | Detailed Parsek lines in `KSP.log`. Keep it on if you report bugs |
+| Ghost render tracing (Warning: huge logs) | Off | Write detailed per-ghost render placement diagnostics to `KSP.log` |
+| Map/TS render tracing (Warning: huge logs) | Off | Write map and Tracking Station ghost rendering to `KSP.log` |
+| Ledger apply tracing (Warning: huge logs) | Off | Write ledger reconstruction and apply detail to `KSP.log` |
+| Write readable .txt recording copies | Off | Also write human-readable `.txt` copies next to the binary recording files, useful for bug reports. Costs extra disk. An install that already stored this setting keeps its value |
+| In-Game Test Runner | - | Opens a runtime-test window. Ctrl+Shift+T opens a separate one of its own, in any scene |
+| Run Diagnostics Report | - | Dumps a full diagnostics snapshot to `KSP.log` |
+| Rewind points on disk | - | Size and file count of this save's Rewind Point quicksaves. Hover it for the live Rewind Point count and how many are crashed, stable or concluded |
+
 Data Management:
 
-- **Wipe All Recordings (N)** - clears all committed recordings. Also frees reserved crew and removes replacement kerbals. Milestones are preserved.
-- **Wipe All Milestones (N)** - clears the recorded milestones. Career actions already on the ledger are kept, so the next recalculation still walks them; the practical effect is that the committed-action blocks and the stock-screen badges stop firing.
+- **Wipe All Recordings (N)** - deletes every recorded flight and its files, after a confirmation. Also frees reserved crew and removes replacement kerbals. Milestones are preserved.
+- **Wipe All Milestones (N)** - deletes Parsek's milestone list, after a confirmation. Career actions already on the ledger are kept, so the next recalculation still walks them.
 
-The "Defaults" button resets every setting in this window except the Basic / Advanced interface mode, which stays where you put it.
+Both buttons are greyed out when there is nothing to wipe.
+
+The "Defaults" button resets every Parsek setting, including the Advanced-only ones Basic does not show, except the Basic / Advanced interface mode, which stays where you put it.
 
 ### Reserved Resources
 

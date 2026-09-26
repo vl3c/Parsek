@@ -549,7 +549,6 @@ Parsek Recording (stored in timeline, serialized in .prec/.sfs)
       VesselSnapshot (full ProtoVessel — crew, resources, modules)
       ControllerInfo list, SegmentEvents (identity tracking)
       TerminalState, spawn tracking, SceneExitSituation
-      AntennaSpecs (CommNet relay)
       Resource deltas, pre-launch resources, rewind save
       CrewEndStates, crew reservation
       RecordingGroups (UI grouping)

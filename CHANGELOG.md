@@ -10,6 +10,23 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Ghost relays and control points now count for CommNet during the ghost window.** A ghost
+  replaying a committed recording now takes part in CommNet as the vessel it replays, from the
+  start of its recording until the vessel spawns. Its relay antennas carry signal for the
+  vessels you fly, and a ghost with a probe control point (for example an RC-L01 Remote
+  Guidance Unit) and a qualifying pilot aboard gives probes full control through it, even with
+  no path to KSC. Antenna power follows stock exactly (combined antennas, upgrades, the range
+  modifier), deployable antennas count only while the recording has them extended, the ghost
+  sits at its recorded position so planets block it as they would the real vessel, and a
+  destroyed vessel stops at its recorded destruction. While a vessel waits to spawn (for
+  example until time warp stops) its ghost keeps relaying from where that vessel is now, on
+  its final orbit or landing spot. Only the real run counts: loop replays
+  carry no signal, while a recording hidden from playback still does. Works in flight, map
+  view and the Tracking Station. Debris, flags and space objects get no node, as in stock, and
+  nothing changes when CommNet is off or replaced by a mod such as RemoteTech or RealAntennas.
+  A real vessel that Parsek despawns because a later recording claims it keeps relaying from
+  where it was until that recording starts.
+
 - **Automated testing: a lane checks that losing the vessel you fly does not end a mission while
   another vessel of it survives.** When the active vessel is destroyed but another controlled
   vessel of the same flight is still alive, Parsek keeps recording instead of wrapping the mission
@@ -1168,6 +1185,16 @@ _(unreleased — entries accumulate here per commit)_
   first save, and the two cannot be told apart. That copy is kept, not deleted and not put in
   place, and the log warns with its path, size and any `.bak` copy, so it can be recovered by hand.
 
+- **A dropped booster you switch to and fly no longer reports a distance of over 1000 km.**
+  When you switch to a booster Parsek was recording in the background and it flies on near its
+  sibling, part of its track is stored relative to that sibling in metres. The distance worked
+  out when the recording ended read those metres as map coordinates, so a booster that fell 5 km
+  from the pad was listed with a maximum distance of about 1205 km. The distance now comes from
+  the booster's real map positions (the same data Parsek already used for boosters it never
+  switched to), and so does the biome a destroyed vessel ended in. The same booster also no
+  longer logs a background time-limit close after you switched to it: switching now cancels the
+  60 s limit it had as debris.
+
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
   and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
@@ -1649,6 +1676,34 @@ _(unreleased — entries accumulate here per commit)_
   changes, because there the two answers were already the same.
 
 ### Changed
+
+- **Settings: a round of fixes to the Settings window.**
+  - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
+    Management. Basic still shows Interface, Ghosts and Data Management.
+  - Basic / Advanced and Low / Medium / High draw the selected option as a pressed button, the
+    way the Timeline, Kerbals and Career windows do, instead of a grey box, and every option
+    keeps one fixed width, so the row no longer jumps when you switch.
+  - Ghost audio, recorder sample density and verbose logging now stick across saves, F9 and
+    rewinds like the other settings (they used to live in the save, so a quickload or rewind
+    put them back and a new save started from the defaults). The auto-launch period stays
+    per save.
+  - The readable `.txt` recording copies are now OFF by default in new saves: they are a
+    debugging aid that costs disk. An existing save, or an install whose settings.cfg already
+    stores the setting, keeps its value until the toggle is changed.
+    The toggle reads `Write readable .txt recording copies`, with a hover saying what the files
+    are for and what they cost. Automated test runs keep them on.
+  - Hover texts: the Basic mode hover lists Kerbals (shown in Basic since 2026-09-22); the two
+    wipe buttons say what they delete (`Deletes every recorded flight and its files. Asks
+    first.` / `Deletes Parsek's milestone list; career actions stay. Asks first.`); the
+    Defaults button says it resets the Advanced-only settings too and never the interface
+    mode; the auto-launch hover says it is the loop period of missions set to auto.
+  - `Verbose logging` lost its `(development default)` suffix and gained a hover: `Detailed
+    Parsek lines in KSP.log. Keep on if you report bugs.`
+  - The rewind-point line reads `Rewind points on disk: <size> (<n> files)`; the live count and
+    the crashed / stable / concluded split moved into its hover.
+  - The user guide's Settings section drops the three retired Recording settings, adds the
+    Interface section and the route-paths toggle, corrects the auto-launch default to 30s and
+    says which settings persist across saves.
 
 - **Timeline: the Archived toggle moved to the first row, as its last button.** It applies in
   every view, so it no longer sits among one view's own buttons; the second row under
@@ -4415,6 +4470,24 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **Removed the chain-segment commit path, which always-tree recording never reaches.**
+  Before every recording lived in a tree, Parsek committed a flight as a chain of separate
+  segments at EVA, boarding, docking, undocking, atmosphere / altitude / SOI boundaries and
+  vessel switches. Every recording now runs in a tree, and none of those commits could fire:
+  each one waited on state that only the chain commit itself, or nothing at all, ever set,
+  and none of 756 collected verbose `KSP.log`s carries a chain-commit line. Removed:
+  `ChainSegmentManager.CommitSegmentCore` and its four wrappers, the undock continuation
+  start, the chain branches of the EVA, boarding, dock / undock, vessel-switch and boundary
+  handlers in `ParsekFlight`, the non-tree half of `OnPartCouple`, and the recorder's
+  `DockMerge` / `UndockSwitch` switch decisions with their pending flags. Behavior is
+  unchanged: the boundary handlers still suppress the split in tree mode, an unconfirmed
+  boarding still ends as a normal stop, and chain metadata on saved recordings is still read
+  and played back. The chain identity fields and the continuation-sampling state stay for
+  now, because they subscribe to the committed-list index contract (todo
+  CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL). Comments in the test-command seam, `hlib.py`,
+  the GL-2 spec and the coverage registry that called the dock chain path a live producer of
+  the sub-2-point drop are corrected.
 
 - **Dev tooling: the fixture harvest clears rewind-save names inside rewind-point
   quicksaves too.** `harness/tools/harvest_bdock_station.py` drops the saves that

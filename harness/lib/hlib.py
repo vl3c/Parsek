@@ -228,7 +228,21 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # injector refuses a target save at
                                         # another UT. No RP. Consumer:
                                         # CI-5-background-event-claim.
-                                        "background-claim")
+                                        "background-claim",
+                                        # ghost-commnet-relay: THREE committed
+                                        # single-recording trees, one relay craft
+                                        # (RC-L01 + RA-2) on a Kerbin-synchronous
+                                        # equatorial orbit each: A crewed
+                                        # (Valentina, a Pilot) over the KSC, B
+                                        # playback-disabled 30 deg east, C looped
+                                        # with its real run before the save's
+                                        # clock. A and B open 1 s after the save
+                                        # UT and run 100000 s. `--filter
+                                        # InjectGhostCommNetRelays`; authored
+                                        # against gloops-airshow. No RP.
+                                        # Consumers: CN-1-ghost-commnet-relay,
+                                        # CN-1T-ghost-commnet-relay-ts.
+                                        "ghost-commnet-relay")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -469,11 +483,9 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     commit never passes through that factory at all (it appends through
     #     TryAppendCapturedToTree, which KEEPS a 1-point recording), the remaining
     #     split-edge callers are abnormal aborts no seam verb can provoke on demand, and
-    #     the dock/undock chain-segment path IS live and reaches the same factory
-    #     (ParsekFlight.HandleDockUndockCommitRestart ->
-    #     ChainSegmentManager.CommitDockUndockSegment -> CommitSegmentCore) with no
-    #     always-tree guard on that chain - it logs its own "segment too short" rather
-    #     than the Gloops Warn a lane gates. The S0.5 / S0.6 headers that called the same
+    #     no chain-segment commit exists in always-tree mode (the dock/undock chain path
+    #     that once reached the factory was unreachable and has been removed). The S0.5 /
+    #     S0.6 headers that called the same
     #     outcome a TOLERATED accident of a stationary-pod start/stop predate always-tree
     #     mode and are corrected in the same change.
     # BOTH SINGLE-PHASE and neither is a DEFERRED_SEAM_VERB: the recorder attaches to
@@ -6723,9 +6735,10 @@ def admit_instance(
 # Instance settings-sidecar baseline (the tracer-leak fix). Pure.
 #
 # THE LEAK. `SetSetting` does NOT only mutate the live per-save GameParameters:
-# five of the thirteen whitelisted settings (Parsek's SettingWhitelist
-# PersistenceRoute.GameParametersPlusSidecar; 8-of-16 before the 2026-08-27
-# settings simplification retired four settings) are ALSO written to the
+# eight of the thirteen whitelisted settings (Parsek's SettingWhitelist
+# PersistenceRoute.GameParametersPlusSidecar; five until verboseLogging,
+# samplingDensity and ghostAudioVolume became install-wide on 2026-09-26) are ALSO
+# written to the
 # INSTANCE-WIDE `GameData/Parsek/PluginData/settings.cfg`, and Parsek's
 # ParsekScenario.OnLoad applies that sidecar OVER whatever the loaded save
 # carries. So one scenario's `SetSetting mapRenderTracing=true` silently pins the
@@ -6749,12 +6762,21 @@ def admit_instance(
 # TEARDOWN in the per-attempt finally. A scenario that wants a tracer declares it
 # with its own SetSetting step, which is honoured for that run and reverted after
 # it. Idempotent and self-healing: a run killed hard enough to skip teardown is
-# cleaned by the next run's stage. Only the three tracer keys are written, so the
-# other sidecar-tracked settings stay unset and the fixture's own values continue
-# to govern them - since the 2026-08-27 settings simplification that residue is
-# writeReadableSidecarMirrors + showRouteLines (the retired
-# autoBackupExistingSaves / showCommittedFutureOverlays / blockCommittedActions
-# keys are no longer read by the mod at all).
+# cleaned by the next run's stage.
+#
+# THE ONE PINNED-ON KEY. `writeReadableSidecarMirrors` defaults OFF for players
+# since 2026-09-26, but automation needs the readable `.prec.txt` mirrors: the
+# fixture builders under harness/tools refuse a harvest whose trajectories have no
+# mirror, and OptimizerTransferCohesionTests globs every fixture's `*.prec.txt`.
+# The baseline therefore stamps it True (PINNED_ON_SETTING_KEYS). That changes
+# nothing for a fixture that already carries the key (every one that does carries
+# True) and keeps the ten that carry none on the old ON default.
+#
+# Every other sidecar-tracked setting stays unset, so the fixture's own values
+# continue to govern it: showRouteLines, verboseLogging, samplingDensity and
+# ghostAudioVolume (the retired autoBackupExistingSaves /
+# showCommittedFutureOverlays / blockCommittedActions keys are no longer read by
+# the mod at all).
 # ---------------------------------------------------------------------------
 
 # Path of the sidecar RELATIVE to the instance directory (the shell joins it).
@@ -6767,16 +6789,20 @@ SETTINGS_SIDECAR_RELPATH: Tuple[str, ...] = (
 TRACER_SETTING_KEYS: Tuple[str, ...] = (
     "ghostRenderTracing", "mapRenderTracing", "ledgerTracing")
 
+# Sidecar-tracked settings the baseline pins ON (see the section comment above).
+PINNED_ON_SETTING_KEYS: Tuple[str, ...] = ("writeReadableSidecarMirrors",)
+
 
 def render_settings_sidecar_baseline() -> str:
     """The exact settings.cfg body the harness stages: the three tracer flags
-    pinned False, nothing else.
+    pinned False and the readable-mirror flag pinned True, nothing else.
 
     The file format is ConfigNode CONTENTS ONLY (no node-name wrapper) - that is
     what ConfigNode.Save writes and what ConfigNode.Load expects back, and it is
     the shape the live instance's leaked file had.
     """
-    return "".join("%s = False\n" % key for key in TRACER_SETTING_KEYS)
+    return ("".join("%s = False\n" % key for key in TRACER_SETTING_KEYS)
+            + "".join("%s = True\n" % key for key in PINNED_ON_SETTING_KEYS))
 
 
 def parse_settings_sidecar(text: Optional[str]) -> Dict[str, str]:
