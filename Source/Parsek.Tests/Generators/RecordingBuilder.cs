@@ -22,6 +22,7 @@ namespace Parsek.Tests.Generators
         private int lastResIdx = -1;
         private string parentRecordingId;
         private string recordedVesselGuid;
+        private uint? vesselPersistentIdOverride;
         private string evaCrewName;
         private string recordingId;
         private string chainId;
@@ -227,6 +228,19 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithVesselSnapshot(VesselSnapshotBuilder builder)
         {
             vesselSnapshot = builder.Build();
+            return this;
+        }
+
+        /// <summary>
+        /// Pins <see cref="Recording.VesselPersistentId"/> to a real vessel's pid instead of
+        /// the FNV hash of the recording id that <c>ScenarioWriter</c> derives by default. For
+        /// a fixture whose recording must name a vessel that already exists in the host save
+        /// (the ghost-chain walker keys claims by this pid, and the ghoster despawns the live
+        /// vessel that carries it). Opt-in: every existing caller keeps the derived pid.
+        /// </summary>
+        public RecordingBuilder WithVesselPersistentId(uint pid)
+        {
+            vesselPersistentIdOverride = pid;
             return this;
         }
 
@@ -1230,6 +1244,8 @@ namespace Parsek.Tests.Generators
         public string GetParentRecordingId() => parentRecordingId;
 
         public string GetRecordedVesselGuid() => recordedVesselGuid;
+
+        public uint? GetVesselPersistentIdOverride() => vesselPersistentIdOverride;
 
         /// <summary>Returns the EVA crew name (may be null).</summary>
         public string GetEvaCrewName() => evaCrewName;

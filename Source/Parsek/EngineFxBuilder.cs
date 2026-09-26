@@ -1038,6 +1038,34 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// True for a prefab entry Parsek SYNTHESIZED rather than read off an EFFECTS
+        /// node: the per-part plume supplements (`fallback`), the Waterfall last resort,
+        /// and the two pristine legacy-key substitutions (those come from the part's
+        /// legacy `fx_*` keys, not from EFFECTS). Everything else carries a real EFFECTS
+        /// group name (post-MM scan, pristine on-disk EFFECTS, or ReStock's patch).
+        /// </summary>
+        internal static bool IsSupplementFxGroup(string groupName)
+        {
+            return string.Equals(groupName, "fallback", System.StringComparison.Ordinal)
+                || string.Equals(groupName, "waterfall-lastresort", System.StringComparison.Ordinal)
+                || string.Equals(groupName, "pristine-legacy", System.StringComparison.Ordinal)
+                || string.Equals(groupName, "pristine-legacy-flame-fallback", System.StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The build-time source class of one ghost engine module. An EFFECTS-node system
+        /// wins over supplements: the Ant carries one of each and is an EFFECTS-node engine.
+        /// </summary>
+        internal static EngineFxSource ClassifyEngineFxSource(
+            int effectsNodeSystems, int supplementSystems, int legacySystems)
+        {
+            if (effectsNodeSystems > 0) return EngineFxSource.EffectsNode;
+            if (legacySystems > 0) return EngineFxSource.Legacy;
+            if (supplementSystems > 0) return EngineFxSource.Supplement;
+            return EngineFxSource.None;
+        }
+
         internal static List<EngineGhostInfo> TryBuildEngineFX(
             Part prefab, uint persistentId, string partName,
             Transform modelRoot, Transform ghostModelNode,
@@ -1073,7 +1101,8 @@ namespace Parsek
                 var info = new EngineGhostInfo
                 {
                     partPersistentId = persistentId,
-                    moduleIndex = moduleIndex
+                    moduleIndex = moduleIndex,
+                    partName = partName
                 };
 
                 bool TuningStandsDown(string blockName)
@@ -1723,7 +1752,11 @@ namespace Parsek
                         prefab, engine, info, partName, moduleIndex,
                         modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
                     if (legacyAdded)
+                    {
+                        info.legacySystemCount = info.particleSystems.Count;
+                        info.fxSource = ClassifyEngineFxSource(0, 0, info.legacySystemCount);
                         result.Add(info);
+                    }
                     else
                         ParsekLog.VerboseRateLimited("GhostVisual",
                             $"engine-no-legacy-{partName}-{moduleIndex}",
@@ -1739,9 +1772,21 @@ namespace Parsek
                 ProcessEngineModelFxEntries(modelFxEntries, prefab, engine, info, partName, moduleIndex,
                     modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
 
-                // Process PREFAB_PARTICLE entries (Spark, Twitch, Pug, Juno, Wheesley, Goliath)
-                ProcessEnginePrefabFxEntries(prefabFxEntries, prefab, engine, info, partName, moduleIndex,
+                // Process PREFAB_PARTICLE entries (Spark, Twitch, Pug, Juno, Wheesley, Goliath).
+                // EFFECTS-derived entries first, Parsek's injected supplements second, so the
+                // EFFECTS-node systems are the leading block of info.particleSystems (the
+                // ignition witness counts them by position). Supplements were always appended
+                // after the scanned entries, so the system order is unchanged.
+                var effectsPrefabEntries = prefabFxEntries.FindAll(x => !IsSupplementFxGroup(x.groupName));
+                var supplementPrefabEntries = prefabFxEntries.FindAll(x => IsSupplementFxGroup(x.groupName));
+                ProcessEnginePrefabFxEntries(effectsPrefabEntries, prefab, engine, info, partName, moduleIndex,
                     modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
+                info.effectsNodeSystemCount = info.particleSystems.Count;
+                ProcessEnginePrefabFxEntries(supplementPrefabEntries, prefab, engine, info, partName, moduleIndex,
+                    modelRoot, ghostModelNode, cloneMap, selectedVariantGameObjects);
+                info.supplementSystemCount = info.particleSystems.Count - info.effectsNodeSystemCount;
+                info.fxSource = ClassifyEngineFxSource(
+                    info.effectsNodeSystemCount, info.supplementSystemCount, 0);
 
                 if (info.particleSystems.Count > 0)
                     result.Add(info);

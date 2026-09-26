@@ -1,0 +1,117 @@
+schema = 1
+id = "RSC-1-real-spawn-control-warp"
+tier = "nightly"
+# D13 `real-spawn-control`: the player presses Real Spawn Control's "Warp to Spawn" and the
+# ghost they warped to becomes a real vessel.
+#
+# WHY A PURPOSE-BUILT CANDIDATE. The only committed host that had ever put a row in the
+# window is GUI-6's (`gloops-airshow` + `part-showcase`, row `Surface Rover Drive / 435m /
+# 7.9 m/s`), and that row's button is drawn DISABLED: the warp gates are 250 m and 2 m/s
+# (`ParsekFlight.NearbySpawnRadius` / `MaxRelativeSpeed`), and the showcase rover drives at a
+# constant 8 m/s. A greyed button cannot be clicked, so the cell cannot be claimed there.
+# The `spawn-control-target` preset injects ONE committed recording, a stationary Landed
+# probe ~130 m from the Launch Pad (outside the 50 m pad exclusion circle), in progress at
+# the save's UT. From the fixture's pad vessel that is a candidate inside both gates
+# (measured `Proximity notification: ... distance=129m`), so its row's "Warp to Spawn" is
+# ENABLED. The authored EndUT is 601 s out, but the load-time optimizer's TrimBoringTail
+# cuts the stationary tail to 60 s (measured `from endUT=622.2 to 82.2`), so the jump
+# target is UT 82.2 and the lane must press within ~60 s of load, which it does.
+#
+# THE PRESS. `UiAction op=warp window=spawncontrol` runs the row button's own click body
+# (`SpawnControlUI.ExecuteRowWarp`, shared with the drawn button) on the table's first row,
+# and refuses without pressing on a disabled button. So `Real Spawn Control: warp to ...` is
+# the line a player's click writes, and the `WarpToRecordingEnd` jump and the spawn at
+# recording end are the production path behind it. What the seam does NOT do is move a
+# mouse: the claim is "the button's action warps and spawns", not "IMGUI hit-testing of the
+# button works" (that half is Unity's).
+#
+# ORDER: the window must be OPEN for op=warp (a shut window has no button), and it
+# auto-closes on a draw with zero candidates, so the open step is itself the precondition
+# check. The proximity scan needs two sightings (1.5 s apart) before it admits a row; the
+# settle steps before the open buy that time, and `Proximity notification` - which
+# fires only for a candidate already INSIDE the warp gates - is required below.
+description = "D13 real-spawn-control: over gloops-airshow plus the spawn-control-target preset (one stationary Landed probe ~130 m from the pad, in progress at load), open Real Spawn Control, press the first row's enabled Warp to Spawn through the button's own click body (UiAction op=warp), and require the warp line, the time jump to the recording's EndUT and the spawn that follows."
+instanceProfile = "stock-minimal"
+tags = ["real-spawn-control", "spawn", "ui-seam", "RSC-1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "spawn-control-target"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Real Spawn Control's launcher is Advanced-only.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rsc-main-before" }, expect = "OK" },
+  # THE SETTLE. The ghost spawns ~0.5 s after LoadGame answers and the proximity scan
+  # admits a row only on its SECOND sighting 1.5 s later; the first reading run
+  # (`2026-09-25_2123`) opened the window 0.75 s after the ghost appeared and measured
+  # `auto-close: reason=zero-candidates` with the `Proximity notification` landing 1.3 s
+  # AFTER the open. There is no wait verb; eight read-only describes are ~4 s of wall
+  # (the pump answers a step every ~0.5 s) and cannot perturb the scene.
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "spawncontrol", x = "270", y = "8", w = "750", h = "300" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rsc-spawncontrol-before-warp" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "rsc-spawncontrol-before-warp" }, expect = "OK" },
+  # THE PRESS.
+  { cmd = "UiAction", args = { op = "warp", window = "spawncontrol" }, expect = "OK", budget = 120 },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rsc-after-warp" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "rsc-after-warp" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "rsc-after-warp-settled" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# D13 claimed off the warp line plus the spawn it caused (reading run `2026-09-25_2125`,
+# armed `_2141`, armed re-fly on the production-shaped fixture identity `_2233`).
+D13 = ["real-spawn-control"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "Proximity notification: 'Spawn Control Target' recording #0 distance=[0-9]+m",
+  "uiaction open window=spawncontrol open=true",
+  "\\[Parsek\\]\\[INFO\\]\\[UI\\] Real Spawn Control: warp to 'Spawn Control Target' recording #0",
+  "uiaction warp window=spawncontrol vessel=Spawn Control Target recording=0 departure=false",
+  "WarpToRecordingEnd: jumping to UT=82\\.2 for 'Spawn Control Target'",
+  # THE SPAWN, measured on the reading run `2026-09-25_2125`: the jump lands past the
+  # recording's effective end, the playback loop completes it with needsSpawn=True, and
+  # the spawner materializes the probe at its recorded spot 129 m from the pad vessel.
+  "PlaybackCompleted index=0 vessel=Spawn Control Target ghostWasActive=True pastEffectiveEnd=True needsSpawn=True",
+  "\\[Parsek\\]\\[INFO\\]\\[Spawner\\] Spawning vessel: \"Spawn Control Target\" sit=LANDED",
+  "\\[Parsek\\]\\[INFO\\]\\[Spawner\\] Vessel spawn for #0 \\(Spawn Control Target\\) pid=[0-9]+ sit=LANDED",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]", "warp-button-disabled", "warp-no-candidate-row"]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

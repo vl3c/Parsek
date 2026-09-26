@@ -643,6 +643,9 @@ namespace Parsek.InGameTests
                 && RowLabel(FindAstronautRow(fx.ReservedName)).StartsWith("Reserved");
         }
 
+        // Reads the count through ActiveCrewCountPatch, the same patched count stock's
+        // UpdateCrewCounts hire lock compares with the limit, so it says whether stock's
+        // own crew-limit lock is engaged.
         private static bool IsUnderCrewLimit()
         {
             var roster = HighLogic.CurrentGame != null ? HighLogic.CurrentGame.CrewRoster : null;

@@ -1488,6 +1488,7 @@ budget a spec declares.
 |---|---|---|
 | `ut` | InvariantCulture float | REQUIRED, ABSOLUTE, and strictly in the future. Absent / unparseable is `REJECTED missing-warp-target` (a locale comma such as `600,0` fails: InvariantCulture only); non-finite or beyond 1e12 is `REJECTED target-out-of-range`; at or before now is `REJECTED backward-warp`. |
 | `maxRate` | InvariantCulture float `>= 1` | OPTIONAL cap on the rails rate the ladder may select. Absent means uncapped. Present-but-unparseable or below 1 is `REJECTED max-rate-invalid` - FAIL-CLOSED rather than ignored, so a mis-typed cap can never read as an uncapped warp. |
+| `ladder` | `phys` | OPTIONAL (coverage wave 5, D14 `warp-phys`). Absent keeps the behaviour below: whichever ladder stock is on, re-read every frame. `phys` drives stock PHYSICS warp for the whole span: it writes `TimeWarp.Mode = LOW`, selects against `physicsWarpRates` with the physics ceiling, re-asserts LOW before any rung above 1x if stock switched back (stock's `TimeWarp.Update` returns LOW to HIGH by itself at or below `maxModeSwitchRate_index` in vacuum or landed-and-still), and restores the starting mode once the rate is back at index 0 on every terminal. Any other value is `REJECTED warp-ladder-invalid`; a game whose difficulty forbids physics warp (`GameParameters.Flight.CanTimeWarpLow`, the gate stock's own physics button reads) is `REJECTED physics-warp-disallowed`. Pure halves: `ResolveWarpMode`, `EvaluateModeFeasibility`, `ShouldAssertPhysicsMode`. Logged as `ladder=phys` on the `warptout start` / `warptout complete` lines (the latter also carries `modeAsserts=N`), plus `warptout mode asserted physics ...` / `warptout mode restored ...`. The harness validates it pre-launch through `hlib.VERB_SCOPED_CLOSED_ARGS`. |
 
 **Why `ut` is absolute-only, unlike `TimeJump`'s `ut` / `deltaSeconds` pair.** A warp's own
 duration depends on the clamps stock applies, so a delta-relative target would land
@@ -1501,8 +1502,10 @@ is 4x. RF-12W's reading run 2 logged `rate=4 rateIndex=3` inside the atmosphere,
 what surfaced the pair. `SafeWarpRates` re-reads `TimeWarp.WarpMode` every frame (stock
 switches ladders on its own as a vessel climbs out of the atmosphere) and hands the live
 array to the pure selector, which never looks either up itself; `SafeMaxRateIndexForActiveVessel`
-answers with `maxPhysicsRate_index` in LOW mode, because the altitude limits are a RAILS
-concept that does not apply to the physics ladder.
+answers with the whole physics ladder (`physicsWarpRates.Length - 1`, the tail of stock's
+`setRate`) in LOW mode, because the altitude limits are a RAILS concept that does not
+apply to the physics ladder (`maxPhysicsRate_index` is a HIGH-mode gate that indexes the
+rails array, so it is not the physics ceiling).
 
 **The ladder is advisory; the read-back is truth.** Stock owns the real clamps - a body's
 rails altitude limit, a vessel under acceleration, an SOI-transition guard - and applies
@@ -3102,6 +3105,20 @@ committed spec that drives `op=mock` until `gui_mirror.py` reads the dump's `moc
 without that, a mocked capture files under a real fixture's name and can pair against a real
 capture in Compare.
 
+**`op=warp` - the Real Spawn Control row button (2026-09-25).** `UiAction op=warp
+window=spawncontrol` presses the candidate table's FIRST row warp button (first in the
+window's current sort order, which `op=sort` sets) through the button's own click body,
+`SpawnControlUI.ExecuteRowWarp`; the drawn button and the op share that one method, so the
+`Real Spawn Control: warp to ...` line and the `WarpToRecordingEnd` / `WarpToDeparture` jump
+are the player's. It needs the window OPEN (`OpRequiresWindowOpen`), is one-phase (the jump
+is synchronous; the spawn that follows is the playback loop's and is asserted by log
+contracts), and refuses without pressing on `warp-no-candidate-row`, on
+`warp-button-disabled` (the row is drawn greyed - outside the 250 m / 2 m/s gates or past
+its UT - and a greyed button cannot be clicked; the refusal carries the button's own
+disabled-hover text), and on `warp-unsupported-window` for any other window
+(`TestCommandUiAction.WindowHasRowWarpButton`, mirrored by `hlib.UIACTION_WARP_WINDOWS`).
+It adds no arg key. First consumer: `RSC-1-real-spawn-control-warp`.
+
 **First consumers.** `GUI-1-census-ksc` (nine KSC windows, 22 captures across Advanced and
 Basic) and `GUI-2-census-flight` (the flight-only windows plus the flight form of the main
 window). Both on an OPERATOR-LOCAL fixture, both never flown; see
@@ -3417,6 +3434,62 @@ REJECTED; `-open-failed` and `-not-settled` are ERROR. hlib mirrors the vocabula
 (`STOCKSCREEN_*`, pinned by `StockScreenSourceSyncTests`) and `validate_stock_screen_step`
 catches a missing or mis-scoped arg pre-launch.
 
+#### GoToEditor / LaunchFromEditor (additive; the editor scene route)
+
+**Why.** `DecideLoadRoute` reaches FLIGHT, SPACECENTER and TRACKSTATION only, so no run could
+stand in the VAB or SPH or launch from there: the Space Center -> editor -> launch
+transition a player makes most often had never run under the harness (D14 `scene-editor`).
+`StockScreen screen=editor` also reaches the VAB, but it is a CAREER-only census verb and
+skips the building click. These two are the mode-agnostic player route. They are NOT a
+generic `LoadScene` (the `ExitToSpaceCenter` argument): each drives one stock click and
+refuses up front the modals that click can raise.
+
+**Grammar.**
+`cmd=GoToEditor facility=<VAB|SPH> [craft=<name>]` and `cmd=LaunchFromEditor [site=<name>]`.
+
+| verb | scene | stock entry point |
+|---|---|---|
+| `GoToEditor` | SPACECENTER | the building's own `SpaceCenterBuilding.OnLeftClick` (damage check, `EnterBuilding` -> `OnClicked`, which saves `persistent` and calls `EditorDriver.StartEditor`); then, with `craft=`, the craft browser's Normal load `EditorLogic.LoadShipFromFile` once the editor is up |
+| `LaunchFromEditor` | EDITOR | the Launch button's handler `EditorLogic.launchVessel()` (`launchBtn.onClick`), or the launch-site picker's `launchVessel(siteName)` with `site=`; stock runs its pre-flight checks and `FlightDriver.StartWithNewLaunch` |
+
+`craft=` is a bare file stem, looked up the way the load dialog lists it: the save's
+`Ships/<facility>`, the save's other folder, then the stock `Ships/<facility>` and other
+folder under the KSP root (the Stock tab). A VAB craft loads into the SPH as it does from
+the dialog's VAB tab.
+
+**Precondition.** `RequiresGameLoaded`; the scene is the verb's own typed REJECTED
+(`goeditor-wrong-scene` / `launchfromeditor-wrong-scene`), the `StockScreen` shape.
+
+**Guards (typed REJECTED before anything is clicked).** GoToEditor: the facility closed by
+the game parameters (`CanGoInVAB` / `CanGoInSPH`, the "FacilityLocked" popup), a closed
+building, or damage >= 70% (OnLeftClick opens the repair menu instead) ->
+`goeditor-facility-closed`. LaunchFromEditor, in the order a player meets them: no ship
+(`-no-ship`), the `EDITOR_LAUNCH` lock held (the button is greyed; `-launch-locked`), a site
+`EditorDriver.ValidLaunchSite` rejects (`-site-invalid`), and vessels standing on the site
+(`-site-obstructed`, read with stock's own `ShipConstruction.FindVesselsLandedAt`, the
+predicate `LaunchSiteClear.Test` uses). The obstruction guard matters on every recorded
+fixture: launch-clamp debris stands on the LaunchPad, and stock's dialog would RECOVER it.
+
+**Phases.** Both TWO-PHASE, in the `ExitToSpaceCenter` budget class (a scene change that
+parses no save off disk), so neither is a `DEFERRED_SEAM_VERB`: GoToEditor 120 s,
+LaunchFromEditor 180 s (the FLIGHT bootstrap of a new vessel). GoToEditor completes when
+the scene is EDITOR with a started `EditorLogic`, no side panel sliding and (with `craft=`)
+the craft on the stage by the name in its header, three frames after the last phase began;
+the load is issued ONCE, after the editor is up. LaunchFromEditor completes on FLIGHT with a
+loaded game AND the launched vessel active. MAINMENU is the fast failure of both.
+
+**Payloads.** GoToEditor `scene facility craft parts ship`; LaunchFromEditor `scene vessel
+pid site situation`. Log lines `goeditor start|loading|complete ...` and `launchfromeditor
+start|complete ...` (both world-mutating, both `recording` post-mission role).
+
+**Refusals.** Arg-class: `goeditor-facility-arg-missing|invalid`, `-craft-arg-invalid`,
+`-craft-not-found`, `launchfromeditor-site-invalid`. Gate-class: the wrong-scene pair,
+`goeditor-building-not-found`, `-facility-closed`, `launchfromeditor-no-ship`,
+`-launch-locked`, `-site-obstructed`. ERROR (post-click, unmapped): `-returned-to-menu` and
+`-not-settled` for each verb. hlib mirrors the tokens (`EDITORROUTE_*`, pinned by
+`EditorRouteSourceSyncTests`); `validate_go_to_editor_step` checks `facility=` and `craft=`
+pre-launch (the `facility` arg name is KscAction's `VERB_SCOPED_CLOSED_ARGS` row, so the
+spelling check lives in the validator). First consumer: `SE-1-editor-round-trip`.
 #### EvaGroundScience (additive; EVA ground-science place and pick-up)
 
 **Why.** The recorder's two inventory part-event families (`InventoryPartPlaced` /
@@ -3592,6 +3665,8 @@ wall-clock. Some verbs need a different bound and override the default:
 | `CaptureScreenshot` | (default) 60 s | TWO-PHASE but deliberately NOT in `DEFERRED_SEAM_VERBS`, the `EnterWatchMode` shape: the completion is a file poll that lands in a frame or two, so a capture still unwritten after a minute is broken rather than slow, and a longer budget would only delay the diagnosis |
 | `DumpGuiTree` | (default) 60 s | TWO-PHASE and NOT in `DEFERRED_SEAM_VERBS`, the `CaptureScreenshot` shape: the wait is one Repaint pass plus the `LateUpdate` that flushes it, and the RECORDER gives the arm up on its own after 900 frames (`GuiTreeRecorder.ArmTimeoutFrames`, ~15 s at 60 fps) - so this budget is a backstop behind a shorter bound, not the primary one |
 | `UiAction` | (default) 60 s | bounds the game-not-loaded dispatch defer AND the one-frame settle wait of its two two-phase ops. A settle that has not landed in a minute means the game stopped drawing, not that it is slow, so the default is the right size and the terminal is named `ui-action-not-settled` rather than spelled like a refusal |
+| `GoToEditor` | 120 s | TWO-PHASE, the `ExitToSpaceCenter` class: the building click's persist + the EDITOR scene load, then (with `craft=`) the in-scene editor restart of the craft load; no save is parsed off disk, so NOT a `DEFERRED_SEAM_VERB` |
+| `LaunchFromEditor` | 180 s | TWO-PHASE: stock's pre-flight checks, the craft save and the FLIGHT bootstrap of a NEW vessel; `StartRecording`'s scene-wait size, NOT a `DEFERRED_SEAM_VERB` |
 
 Budgets are measured from when the command first reaches the head and begins deferring. On
 expiry the pump writes `TIMEOUT` with `msg` carrying the last defer reason and advances.

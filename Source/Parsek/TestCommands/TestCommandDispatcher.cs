@@ -261,6 +261,14 @@ namespace Parsek.TestCommands
         // Mission Control, Administration, a facility menu, the launch-site picker, the
         // VAB and its crew panel) through their own entry points; changes no career state.
         void StockScreen(ParsedCommand cmd);
+
+        // ----- The editor scene route (coverage wave 12, D14 scene-editor) -----
+        // GoToEditor clicks the VAB / SPH building at the Space Center (and loads a craft
+        // through the craft browser's own load); LaunchFromEditor presses the editor's
+        // Launch button. Together they are the Space Center -> editor -> launch route no
+        // earlier verb could reach.
+        void GoToEditor(ParsedCommand cmd);
+        void LaunchFromEditor(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -482,6 +490,14 @@ namespace Parsek.TestCommands
                 // defer every call to its budget. Which scene each (screen, act) needs is
                 // the verb's own typed REJECTED (stockscreen-wrong-scene), not a defer.
                 ["StockScreen"] = VerbSceneRequirement.RequiresGameLoaded,
+                // The editor scene route. RequiresGameLoaded, NOT a scene row: each verb
+                // is valid in exactly ONE scene (GoToEditor at the Space Center,
+                // LaunchFromEditor in the editor) and there is no scene requirement kind
+                // for either, so the wrong-scene case is a typed executor-side REJECTED
+                // (goeditor-wrong-scene / launchfromeditor-wrong-scene), the StockScreen
+                // shape. The dispatch row only waits out a scene still loading its game.
+                ["GoToEditor"] = VerbSceneRequirement.RequiresGameLoaded,
+                ["LaunchFromEditor"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -873,6 +889,17 @@ namespace Parsek.TestCommands
         /// through a real descent.</para></summary>
         internal const double WarpToUTSeconds = 540.0;
 
+        /// <summary>GoToEditor: the building click's persist + the EDITOR scene load, then
+        /// (with <c>craft=</c>) the craft browser's in-scene editor restart. Sized like
+        /// ExitToSpaceCenter (120 s): a scene change that re-reads no save off disk.</summary>
+        internal const double GoToEditorSeconds = 120.0;
+
+        /// <summary>LaunchFromEditor: stock's pre-flight checks, the craft save and the
+        /// FLIGHT bootstrap of a NEW vessel (part spawn, physics easing, every flight
+        /// addon's Start). Longer than a KSC settle and shorter than LoadGame's cold save
+        /// parse, so it takes StartRecording's scene-wait size (180 s).</summary>
+        internal const double LaunchFromEditorSeconds = 180.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -912,6 +939,10 @@ namespace Parsek.TestCommands
                     return StartLoopPlaybackSeconds;
                 case "WarpToUT":
                     return WarpToUTSeconds;
+                case "GoToEditor":
+                    return GoToEditorSeconds;
+                case "LaunchFromEditor":
+                    return LaunchFromEditorSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside

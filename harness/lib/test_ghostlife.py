@@ -308,16 +308,18 @@ class SpecSurfaceTests(unittest.TestCase):
         self.assertIn("unknown key(s)", errs[0])
         self.assertIn("spawnd", errs[0])
 
-    def test_the_accepted_key_set_is_exactly_the_eight(self):
+    def test_the_accepted_key_set_is_exactly_the_nine(self):
         # Four keys until 2026-09-10, when the two LINE-count windows joined for
         # the repeat-rewind lane (GS-9): the distinct `spawned` count and the
         # set-based balance ledger cannot see a second replay of the SAME
         # recordings leak a ghost. See SPAWN_LINES_KEY in ghostlife.py.
         # Six until 2026-09-24, when ghostlife v2 added the `cycleLines` window
         # (LoopCycle census) and the per-vessel-name `vessels` table.
+        # Eight until 2026-09-26, when v3 added the `attitude` sub-table (D6
+        # attitude-preservation, the AfterUpdate dRotDeg residual).
         self.assertEqual(
             ("gating", "spawned", "spawnLines", "destroyLines", "cycleLines",
-             "requireBalanced", "destroyedReasons", "vessels"),
+             "requireBalanced", "destroyedReasons", "vessels", "attitude"),
             ghostlife.GHOST_LIFECYCLE_BLOCK_KEYS)
         self.assertEqual(("spawned", "spawnLines", "destroyLines", "cycleLines"),
                          ghostlife.GHOST_LIFECYCLE_WINDOW_KEYS)
@@ -1087,6 +1089,244 @@ class GhostlifeV2EmitterSourceGuardTests(unittest.TestCase):
         self.assertIn('"%s");' % ghostlife.OVERLAP_EXPIRED_REASON, src)
         self.assertIn('EmitMeshLifecycleTrace("MeshDestroyed", index, traj, state, reason)',
                       src)
+
+
+def after_update(rec_id="rec00001aaaabbbbccccddddeeeeffff", playback_ut="100.000",
+                 path="non-loop", rot="(0.0000,0.0000,0.0000,1.0000)",
+                 residual="0.012", ref="checkpoint-orbit-ofr", legacy=False,
+                 tag=TAG):
+    """One production-shaped AfterUpdate line (GhostRenderTrace.EmitPostUpdate),
+    field order transcribed from the emitter; the residual pair is LAST."""
+    short = rec_id[:8] if len(rec_id) > 8 else rec_id
+    text = ("[Parsek][VERBOSE]%s phase=AfterUpdate rec=%s recId=%s ghostIndex=1 "
+            "frame=77 currentUT=%s playbackUT=%s path=%s reason=refly-window "
+            "retired=false active=true surface=legacy pos=(1.00,2.00,3.00) rot=%s "
+            "dM=0.10 expectedDM=0.12 velocity=(0.00,0.00,0.00) body=Minmus "
+            "alt=12000.00 rawPlaybackUT=%s visibleLead=NaN clampFired=false"
+            % (tag, short, rec_id, playback_ut, playback_ut, path, rot, playback_ut))
+    if not legacy:
+        text += " dRotDeg=%s rotRef=%s" % (residual, ref)
+    return text
+
+
+def yaw_rot(degrees):
+    """A rendered quaternion about +y, formatted the way FormatQuaternion does."""
+    import math
+    h = math.radians(degrees) / 2.0
+    return "(%.4f,%.4f,%.4f,%.4f)" % (0.0, math.sin(h), 0.0, math.cos(h))
+
+
+class GhostlifeV3AttitudeTests(unittest.TestCase):
+    """v3: the AfterUpdate attitude residual (D6 attitude-preservation)."""
+
+    def _errs(self, attitude, gating=False):
+        block = {"attitude": attitude}
+        if gating:
+            block["gating"] = True
+        return ghostlife.validate_ghost_lifecycle_expectations(block)
+
+    def _spawned(self):
+        return line(ghostlife.PHASE_SPAWNED) + "\n" + line(ghostlife.PHASE_DESTROYED)
+
+    def _eval(self, attitude, *au_lines):
+        text = log(self._spawned(), *au_lines)
+        return ghostlife.evaluate_ghost_lifecycle(
+            {"ghostLifecycle": {"gating": True, "attitude": attitude}},
+            ghostlife.parse_ghost_lifecycle(text))
+
+    # ---- parser ----
+    def test_parses_the_residual_pair_and_the_rendered_rotation(self):
+        snap = ghostlife.parse_ghost_lifecycle(log(after_update(
+            residual="0.250", ref="surface", rot=yaw_rot(30.0))))
+        self.assertEqual(1, len(snap.attitude))
+        s = snap.attitude[0]
+        self.assertAlmostEqual(0.25, s.residual)
+        self.assertEqual("surface", s.ref)
+        self.assertEqual("non-loop", s.path)
+        self.assertFalse(s.legacy)
+        self.assertIsNotNone(s.rot)
+        self.assertEqual(0, snap.malformed)
+        self.assertEqual((), snap.lines)
+
+    def test_nan_residual_is_unresolved_with_its_reason(self):
+        snap = ghostlife.parse_ghost_lifecycle(log(after_update(
+            residual="NaN", ref="relative-live-anchor")))
+        self.assertIsNone(snap.attitude[0].residual)
+        f = ghostlife.attitude_facets(snap.attitude)
+        self.assertEqual(0, f["resolvedLines"])
+        self.assertEqual(1, f["unresolvedLines"])
+        self.assertEqual({"relative-live-anchor": 1}, f["unresolvedRefs"])
+        self.assertIsNone(f["maxRotDeg"])
+
+    def test_a_pre_residual_line_is_legacy_not_malformed(self):
+        snap = ghostlife.parse_ghost_lifecycle(log(after_update(legacy=True)))
+        self.assertTrue(snap.attitude[0].legacy)
+        self.assertEqual(0, snap.malformed)
+        f = ghostlife.attitude_facets(snap.attitude)
+        self.assertEqual((1, 0, 0), (f["legacyLines"], f["resolvedLines"],
+                                     f["unresolvedLines"]))
+
+    def test_a_torn_prefix_is_malformed(self):
+        snap = ghostlife.parse_ghost_lifecycle(
+            log("[Parsek][VERBOSE]%s phase=AfterUpdate rec=abc dRotDeg=1.0 rotRef=x" % TAG))
+        self.assertEqual((), snap.attitude)
+        self.assertEqual(1, snap.malformed)
+
+    def test_an_untagged_line_is_not_a_hit(self):
+        snap = ghostlife.parse_ghost_lifecycle(log(after_update(tag="[Engine]")))
+        self.assertEqual((), snap.attitude)
+
+    def test_attitude_lines_move_no_v1_facet(self):
+        base = log(self._spawned())
+        with_au = log(self._spawned(), after_update(), after_update(residual="3.0"))
+        f0 = ghostlife.observed_ghost_lifecycle_facets(
+            ghostlife.parse_ghost_lifecycle(base))["ghostLifecycle"]
+        f1 = ghostlife.observed_ghost_lifecycle_facets(
+            ghostlife.parse_ghost_lifecycle(with_au))["ghostLifecycle"]
+        for key in ("spawned", "spawnLines", "destroyLines", "unbalanced",
+                    "malformed", "cycleLines"):
+            with self.subTest(key=key):
+                self.assertEqual(f0[key], f1[key])
+        self.assertEqual(0, f0["attitude"]["afterUpdateLines"])
+        self.assertEqual(2, f1["attitude"]["resolvedLines"])
+
+    # ---- facets ----
+    def test_max_residual_names_the_worst_line(self):
+        snap = ghostlife.parse_ghost_lifecycle(log(
+            after_update(residual="0.010", playback_ut="10.000"),
+            after_update(residual="0.900", playback_ut="20.000", ref="surface"),
+            after_update(residual="0.300", playback_ut="30.000")))
+        f = ghostlife.attitude_facets(snap.attitude)
+        self.assertAlmostEqual(0.9, f["maxRotDeg"])
+        self.assertEqual("20.000", f["maxRotDegAt"]["playbackUT"])
+        self.assertEqual("surface", f["maxRotDegAt"]["rotRef"])
+        self.assertAlmostEqual(0.3, f["perRef"]["checkpoint-orbit-ofr"]["maxRotDeg"])
+        self.assertEqual(2, f["perRef"]["checkpoint-orbit-ofr"]["resolvedLines"])
+
+    def test_sweep_is_per_recording_from_its_first_line(self):
+        other = "rec00002aaaabbbbccccddddeeeeffff"
+        snap = ghostlife.parse_ghost_lifecycle(log(
+            after_update(rot=yaw_rot(10.0)),
+            after_update(rot=yaw_rot(50.0)),
+            # A second recording at a very different attitude must NOT be
+            # measured against the first recording's baseline.
+            after_update(rec_id=other, rot=yaw_rot(170.0)),
+            after_update(rec_id=other, rot=yaw_rot(175.0))))
+        f = ghostlife.attitude_facets(snap.attitude)
+        self.assertAlmostEqual(40.0, f["sweepDeg"], places=1)
+        self.assertEqual("rec00001", f["sweepRec"])
+
+    def test_quaternion_angle_matches_the_csharp_helper_contract(self):
+        import math
+        q = (0.0, math.sin(math.radians(60)), 0.0, math.cos(math.radians(60)))
+        neg = tuple(-c for c in q)
+        self.assertAlmostEqual(0.0, ghostlife.quaternion_angle_degrees(q, neg))
+        ident = (0.0, 0.0, 0.0, 1.0)
+        self.assertAlmostEqual(120.0, ghostlife.quaternion_angle_degrees(ident, q))
+        scaled = tuple(3 * c for c in q)
+        self.assertAlmostEqual(120.0, ghostlife.quaternion_angle_degrees(ident, scaled))
+        self.assertIsNone(ghostlife.quaternion_angle_degrees((0, 0, 0, 0), q))
+
+    # ---- spec surface ----
+    def test_valid_shapes(self):
+        self.assertEqual([], self._errs({"maxRotDeg": 0.5}))
+        self.assertEqual([], self._errs({"maxRotDeg": 1, "resolvedLines": {"min": 10},
+                                         "minSweepDeg": 20.0}, gating=True))
+        self.assertEqual([], self._errs({"refs": {"checkpoint-orbit-ofr": {
+            "maxRotDeg": 0.5, "minSweepDeg": 5}}}, gating=True))
+
+    def test_invalid_shapes(self):
+        cases = [
+            "x", {}, {"maxRotDeg": 0}, {"maxRotDeg": -1}, {"maxRotDeg": True},
+            {"maxRotDeg": "0.5"}, {"maxRotDeg": float("nan")}, {"maxRotDeg": 181},
+            {"minSweepDeg": -2}, {"resolvedLines": {"min": -1}}, {"maxRotdeg": 1},
+            {"refs": {}}, {"refs": {"bad ref": {"maxRotDeg": 1}}},
+            {"refs": {"surface": {}}}, {"refs": {"surface": {"sweep": 1}}},
+            {"refs": {"surface": 5}},
+        ]
+        for c in cases:
+            with self.subTest(case=c):
+                self.assertTrue(self._errs(c), c)
+
+    def test_armed_unreddable_forms_are_refused(self):
+        self.assertTrue(self._errs({"resolvedLines": {"min": 0}}, gating=True))
+        self.assertTrue(self._errs({"minSweepDeg": 0}, gating=True))
+        self.assertEqual([], self._errs({"minSweepDeg": 0}, gating=False))
+
+    # ---- evaluation ----
+    def test_bounded_residual_on_a_rotating_ghost_passes(self):
+        r = self._eval({"maxRotDeg": 0.5, "minSweepDeg": 20.0,
+                        "resolvedLines": {"min": 2}},
+                       after_update(residual="0.010", rot=yaw_rot(0.0)),
+                       after_update(residual="0.020", rot=yaw_rot(45.0)))
+        self.assertEqual("PASS", r.status, r.mismatches)
+
+    def test_a_perturbed_line_reds_the_ceiling_and_names_it(self):
+        r = self._eval({"maxRotDeg": 0.5},
+                       after_update(residual="0.010"),
+                       after_update(residual="12.500", playback_ut="555.000"))
+        self.assertEqual("FAIL", r.status)
+        self.assertTrue(any("maxRotDeg" in m and "12.500" in m and "555.000" in m
+                            for m in r.mismatches), r.mismatches)
+
+    def test_a_ghost_that_never_rotates_reds_the_sweep_floor(self):
+        r = self._eval({"maxRotDeg": 0.5, "minSweepDeg": 20.0},
+                       after_update(rot=yaw_rot(5.0)), after_update(rot=yaw_rot(6.0)))
+        self.assertEqual("FAIL", r.status)
+        self.assertTrue(any("minSweepDeg" in m for m in r.mismatches), r.mismatches)
+
+    def test_zero_resolved_lines_is_a_mismatch_not_a_pass(self):
+        r = self._eval({"maxRotDeg": 0.5}, after_update(legacy=True))
+        self.assertEqual("FAIL", r.status)
+        self.assertTrue(any("no AfterUpdate line carried a resolved dRotDeg" in m
+                            for m in r.mismatches), r.mismatches)
+
+    def test_a_ref_never_seen_reds_its_floor(self):
+        r = self._eval({"refs": {"checkpoint-orbit-ofr": {"resolvedLines": {"min": 1}}}},
+                       after_update(ref="surface"))
+        self.assertEqual("FAIL", r.status)
+        self.assertTrue(any("checkpoint-orbit-ofr" in m and "resolvedLines 0 < min 1" in m
+                            for m in r.mismatches), r.mismatches)
+
+    def test_report_only_when_unarmed(self):
+        text = log(self._spawned(), after_update(residual="90.0"))
+        r = ghostlife.evaluate_ghost_lifecycle(
+            {"ghostLifecycle": {"attitude": {"maxRotDeg": 0.5}}},
+            ghostlife.parse_ghost_lifecycle(text))
+        self.assertEqual("REPORT", r.status)
+        self.assertTrue(r.mismatches)
+
+
+class GhostlifeV3EmitterSourceGuardTests(unittest.TestCase):
+    """The residual pair's spelling and position, pinned at the C# emitter
+    (comments stripped first, one brace-matched body)."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not os.path.isdir(PARSEK_SOURCE_DIR):
+            raise unittest.SkipTest("Source/Parsek absent (harness-only checkout)")
+
+    def _trace(self):
+        return EmitterSourceGuardTests._read("GhostRenderTrace.cs")
+
+    def test_the_formatter_writes_drotdeg_then_rotref(self):
+        body = EmitterSourceGuardTests._method_body(
+            self._trace(), "internal static string FormatAttitudeResidualFields(")
+        a, b = body.find('" dRotDeg="'), body.find('" rotRef="')
+        self.assertTrue(0 <= a < b, (a, b))
+
+    def test_the_pair_is_appended_after_clampfired_in_the_after_update_emit(self):
+        body = EmitterSourceGuardTests._method_body(
+            self._trace(), "internal static void EmitPostUpdate(")
+        self.assertIn('"%s"' % ghostlife.PHASE_AFTER_UPDATE, body)
+        clamp = body.find('" clampFired="')
+        fmt = body.find("FormatAttitudeResidualFields(")
+        self.assertTrue(0 <= clamp < fmt, (clamp, fmt))
+        # Nothing may be concatenated after the residual pair: the parser's tail
+        # regex is anchored at end of line.
+        tail = body[fmt:]
+        self.assertIsNone(re.search(r'\)\s*\+\s*"', tail.split(";")[0]),
+                          "a field was appended after dRotDeg/rotRef")
 
 
 if __name__ == "__main__":  # pragma: no cover

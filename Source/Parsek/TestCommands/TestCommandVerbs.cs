@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + EvaGroundScience): 40 verbs. The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route + EvaGroundScience): 42 verbs. The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -275,7 +275,22 @@ namespace Parsek.TestCommands
             // op can reach. Mutating for the latch (it opens screens, loads the VAB and
             // saves before the editor load the way the VAB building itself does).
             "StockScreen",
-            // EvaGroundScience. ADDITIVE (39 -> 40 implemented, reserved unchanged at 5),
+            // The editor scene route. ADDITIVE (39 -> 41 implemented, reserved unchanged at
+            // 5): the reserved envelope never carried a scene-route verb, and neither is a
+            // promotion. They exist because DecideLoadRoute reaches only FLIGHT,
+            // SPACECENTER and TRACKSTATION, so no run could stand in the VAB / SPH or
+            // launch from there - the Space Center -> editor -> launch transition a
+            // player makes most often (D14 scene-editor). NOT a generic LoadScene (the
+            // ExitToSpaceCenter argument): each drives ONE stock click - the building's
+            // OnLeftClick (plus the craft browser's load), and the editor's Launch button -
+            // and refuses up front the modals those clicks can raise.
+            // StockScreen's `screen=editor act=open` also reaches the VAB, but it is a
+            // CAREER-only census verb that skips the building click; these two are the
+            // mode-agnostic player route.
+            // BOTH TWO-PHASE: a scene change is only a claim once it has settled.
+            "GoToEditor",
+            "LaunchFromEditor",
+            // EvaGroundScience. ADDITIVE (41 -> 42 implemented, reserved unchanged at 5),
             // the EVA-family shape: the reserved envelope never carried an inventory verb.
             // action=place drives the inventory slot click (DeployInventoryItem) plus one
             // frame of the EVA jump key stock confirms a placement with; action=pickup

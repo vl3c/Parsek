@@ -167,6 +167,13 @@ Columns: **Appears · Disappears · Moves/Rebinds · Identity/Owner change · Su
     `first-visible` (hidden→shown) transition; a re-hide (loop wrap / watch pause / leave
     range) is NOT evented (steady-hidden is silent). `active` (GameObject.activeSelf) is
     carried per-frame on `AfterUpdate` (truth-only).
+17. **Flight-scene attitude.** Since 2026-09-26 `AfterUpdate` ends with
+    `dRotDeg=<F3|NaN> rotRef=<token>`: the angle between the rendered world rotation and
+    the rotation the recording implies at that playback UT, resolved by
+    `ParsekFlight.TryResolveRecordedAttitudeForTrace` through the positioner's own frame
+    conventions (checkpoint / orbit segment, Absolute points, body-fixed primary,
+    recorded-anchor RELATIVE; live-anchor loop RELATIVE is `NaN rotRef=relative-live-anchor`).
+    Computed only while the line is written. `ghostlife.py` v3 reads it (`attitude` facet).
 
 ### Audit summary
 
