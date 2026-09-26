@@ -65,7 +65,6 @@ Source/Parsek/ParsekKSC.Playback.cs
 Source/Parsek/ParsekUI.cs
 Source/Parsek/UI/RecordingsTableUI.cs
 Source/Parsek/UI/GroupPickerUI.cs
-Source/Parsek/UI/SettingsWindowUI.cs
 
 # TimelineWindowUI builds a `committedIndexById` lookup off the raw
 # CommittedRecordings list because the W button code path feeds ghost-engine

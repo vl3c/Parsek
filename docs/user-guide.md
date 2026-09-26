@@ -260,7 +260,7 @@ Which values stick where:
 - **Install-wide** (stored in `GameData/Parsek/PluginData/settings.cfg`): the interface mode, ghost audio, supply-route paths, recorder sample density, verbose logging, the three tracing toggles and the readable `.txt` copies. Once you change one it keeps your value across every save, F9 quickload, rewind and KSP restart. Until you first change it, each save uses its own stored value (a new save starts from the defaults below).
 - **Per save**: the auto-launch period. It lives in the save, so a quickload or rewind restores the value that save had, and a new save starts at 30s.
 
-The sections appear in this order. Basic mode shows Interface, Ghosts and Data Management; Advanced adds Looping, Recorder Sample Density and Diagnostics.
+The sections appear in this order. Basic mode shows Interface and Ghosts; Advanced adds Looping, Recorder Sample Density and Diagnostics.
 
 Interface:
 
@@ -304,12 +304,7 @@ Diagnostics (Advanced only):
 | Run Diagnostics Report | - | Dumps a full diagnostics snapshot to `KSP.log` |
 | Rewind points on disk | - | Size and file count of this save's Rewind Point quicksaves. Hover it for the live Rewind Point count and how many are crashed, stable or concluded |
 
-Data Management:
-
-- **Wipe All Recordings (N)** - deletes every recorded flight and its files, after a confirmation. Also frees reserved crew and removes replacement kerbals. Milestones are preserved.
-- **Wipe All Milestones (N)** - deletes Parsek's milestone list, after a confirmation. Career actions already on the ledger are kept, so the next recalculation still walks them.
-
-Both buttons are greyed out when there is nothing to wipe.
+There is no way to delete recordings, one at a time or all at once: a committed recording is part of the timeline and the career ledger, and removing it would break both. To stop seeing a recording, tick its **Archive** checkbox in the Recordings tab.
 
 The "Defaults" button resets every Parsek setting, including the Advanced-only ones Basic does not show, except the Basic / Advanced interface mode, which stays where you put it.
 

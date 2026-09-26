@@ -6,8 +6,9 @@ namespace Parsek
     /// <summary>
     /// Settings window extracted from ParsekUI.
     /// Manages all Parsek settings: interface mode, ghosts, looping period, sampling density,
-    /// diagnostics, data management (the Recording and Stock UI sections were
-    /// retired by the 2026-08-27 settings simplification).
+    /// diagnostics (the Recording and Stock UI sections were retired by the 2026-08-27
+    /// settings simplification; Data Management and its wipe buttons by the 2026-09-26
+    /// no-player-deletion ruling).
     /// </summary>
     internal class SettingsWindowUI
     {
@@ -71,12 +72,6 @@ namespace Parsek
         internal const string ReadableMirrorsLabel = " Write readable .txt recording copies";
         internal const string ReadableMirrorsTooltip =
             "Also write .txt copies of recordings for bug reports. Uses extra disk.";
-        internal const string WipeRecordingsTooltip =
-            "Deletes every recorded flight and its files. Asks first.";
-        // True to MilestoneStore.ClearAll: it clears the milestone list only, and every
-        // ledger GameAction survives (the confirm dialog says the same).
-        internal const string WipeMilestonesTooltip =
-            "Deletes Parsek's milestone list; career actions stay. Asks first.";
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
@@ -405,17 +400,18 @@ namespace Parsek
             }
 
             // Each hidden section's trailing GUILayout.Space separator lives INSIDE its gate,
-            // or Basic shows a double gap where the section used to be. Interface / Ghosts /
-            // Data Management are visible in both modes and stay unwrapped. (`complexity` is
+            // or Basic shows a double gap where the section used to be. Interface / Ghosts
+            // are visible in both modes and stay unwrapped. (`complexity` is
             // latched above, before the edit-state check.) The former Recording and Stock UI
             // sections were retired in the 2026-08-27 settings simplification: auto-record
             // and auto-merge are hardwired ON (fields survive for the harness command seam),
             // and the committed-future overlays + committed-action click blocks are always
             // active.
-            // Order: Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
-            // Management - the player-facing sections first, developer instrumentation
-            // last before the destructive wipes. Basic draws Interface, Ghosts and Data
-            // Management only.
+            // Order: Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics - the
+            // player-facing sections first, developer instrumentation last. Basic draws
+            // Interface and Ghosts only. There is no Data Management section: recordings
+            // are never player-deletable (a deletion breaks the timeline and the ledger),
+            // and the per-row Archive checkbox is the only way to stop seeing one.
             EnsureOptionToggleStyle();
             DrawInterfaceSettings(s);
             GUILayout.Space(SpacingSmall);
@@ -453,8 +449,6 @@ namespace Parsek
                 DrawDiagnosticsSettings(s);
                 GUILayout.Space(SpacingSmall);
             }
-
-            DrawDataManagementSettings(s);
 
             // Bottom "hovered control help text" strip (shared house helper). Fixed
             // two-line height, always present, drawn directly above the button row -
@@ -813,73 +807,6 @@ namespace Parsek
 
             GUILayout.Label(ParsekSettings.DensitySummary(s.SamplingDensityLevel),
                 GUI.skin.label);
-        }
-
-        /// <summary>
-        /// Why "Wipe All Recordings" is greyed out. Counting is the whole gate: with an
-        /// empty store there is nothing to wipe. Fits the Settings window's 71-character
-        /// help strip. Pure for unit testing.
-        /// </summary>
-        internal static string WipeRecordingsDisabledReason(int committedCount)
-        {
-            return committedCount > 0 ? string.Empty : "There are no recordings to wipe";
-        }
-
-        /// <summary>
-        /// Why "Wipe All Milestones" is greyed out. Same shape as
-        /// <see cref="WipeRecordingsDisabledReason"/>, over the milestone store.
-        /// Pure for unit testing.
-        /// </summary>
-        internal static string WipeMilestonesDisabledReason(int milestoneCount)
-        {
-            return milestoneCount > 0 ? string.Empty : "There are no milestones to wipe";
-        }
-
-        /// <summary>
-        /// A wipe button's own hover: what it deletes while it is enabled, and nothing while
-        /// it is greyed (the disabled reason then comes through <see cref="DisabledHoverEcho"/>,
-        /// so the two never compete for the strip). Pure for unit testing.
-        /// </summary>
-        internal static string WipeButtonTooltip(bool enabled, string enabledTooltip)
-        {
-            return enabled ? enabledTooltip : string.Empty;
-        }
-
-        private void DrawDataManagementSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Data Management", parentUI.GetSectionHeaderStyle());
-
-            // [ERS-exempt] reason: the wipe-all button reports the raw count of
-            // stored recordings (including NotCommitted / superseded) because the
-            // wipe path clears the whole store via RecordingStore.ClearCommitted().
-            // ERS would under-count and mislead the user.
-            int committedCount = RecordingStore.CommittedRecordings.Count;
-            int milestoneCount = MilestoneStore.Milestones.Count;
-
-            GUI.enabled = committedCount > 0;
-            bool wipeRecordingsClicked = GUILayout.Button(new GUIContent(
-                $"Wipe All Recordings ({committedCount})",
-                WipeButtonTooltip(committedCount > 0, WipeRecordingsTooltip)));
-            // Greyed at zero: the reason rides the disabled-hover carrier instead.
-            DisabledHoverEcho.CarryLastControl(
-                committedCount > 0, WipeRecordingsDisabledReason(committedCount));
-            if (wipeRecordingsClicked)
-                parentUI.ShowWipeRecordingsConfirmation(committedCount);
-            GUI.enabled = true;
-
-            // Labelled for what the handler DOES: MilestoneStore.ClearAll clears the
-            // milestone list only. Ledger.Actions - every GameAction, including seeds and
-            // reservations - is untouched and is still walked by the next recalc, so the
-            // old "Wipe All Game Actions" label named an effect this button never had.
-            GUI.enabled = milestoneCount > 0;
-            bool wipeMilestonesClicked = GUILayout.Button(new GUIContent(
-                $"Wipe All Milestones ({milestoneCount})",
-                WipeButtonTooltip(milestoneCount > 0, WipeMilestonesTooltip)));
-            DisabledHoverEcho.CarryLastControl(
-                milestoneCount > 0, WipeMilestonesDisabledReason(milestoneCount));
-            if (wipeMilestonesClicked)
-                parentUI.ShowWipeMilestonesConfirmation(milestoneCount);
-            GUI.enabled = true;
         }
     }
 }

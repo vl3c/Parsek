@@ -2694,7 +2694,7 @@ ANSWERMERGE_DIALOG_VALUES: Tuple[str, ...] = ("merge",)
 # `dialog=` is already AnswerMergeDialog's - so a `dialog=` here would be rejected
 # pre-launch as "only the AnswerMergeDialog verb reads it".
 #
-# THE SET IS SEVEN OF THE 21, and the absences are the design rather than a backlog: a
+# THE SET IS EIGHT OF THE 19, and the absences are the design rather than a backlog: a
 # row is here only when its spawn is reachable by a pure in-process call with data the
 # host already carries. The tree merge dialog needs a RecordingTree whose commit would
 # write invented history; the pre-switch dialog needs a live Vessel and RE-SPAWNS ITSELF
@@ -2710,8 +2710,9 @@ UIACTION_POPUP_VALUES: Tuple[str, ...] = (
     # The two that need nothing at all from the host, and the only two with no mutating
     # button: both are informational and carry a single OK.
     "actionblocked", "savefailed",
-    # The two Settings wipe confirmations: a count and ParsekUI.ActiveInstance.
-    "wiperecordings", "wipemilestones",
+    # (The two Settings wipe confirmations, "wiperecordings" / "wipemilestones", left
+    # with the Settings Data Management section on 2026-09-26: recordings are never
+    # player-deletable.)
     # The three that need a committed recording from the effective set. `rewind`
     # additionally needs one whose rewind OWNER resolves, which its spawn site silently
     # returns on - the seam answers REJECTED dialog-target-unavailable instead.
@@ -2726,7 +2727,7 @@ UIACTION_POPUP_VALUES: Tuple[str, ...] = (
 # `op=dismiss press=`: press one button instead of dismissing the popup outright.
 #
 # ABSENT IS THE DEFAULT AND MEANS "dismiss without pressing", because most of these
-# confirms MUTATE the save - a wipe deletes every recording, a seal is permanent, a warp
+# confirms MUTATE the save - a route delete is permanent, a seal is permanent, a warp
 # moves UT - so a census lane that pressed them would destroy the fixture it is
 # photographing. The seam refuses every mutating confirm (`press-not-allowed`), which is
 # why this closed set is exactly the two harmless labels.

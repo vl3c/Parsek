@@ -88,7 +88,6 @@ namespace Parsek.Tests
     {
         /// <summary>Window strip budgets, mirroring TooltipEchoBudgetTests.StripWindows.</summary>
         private const int MainWindowBudget = 62;      // 250 px, 2 lines
-        private const int SettingsBudget = 71;        // 280 px, 2 lines
         private const int SpawnControlBudget = 102;   // 750 px, 1 line
         private const int TimelineBudget = 112;       // 820 px, 1 line
         private const int RecordingsBudget = 189;     // 1355 px, 1 line (hosts Missions)
@@ -103,11 +102,6 @@ namespace Parsek.Tests
         {
             yield return Row(ParsekUI.SpawnControlLauncherDisabledReason(0),
                 MainWindowBudget, "ParsekUI spawn-control launcher");
-
-            yield return Row(SettingsWindowUI.WipeRecordingsDisabledReason(0),
-                SettingsBudget, "Settings wipe recordings");
-            yield return Row(SettingsWindowUI.WipeMilestonesDisabledReason(0),
-                SettingsBudget, "Settings wipe milestones");
 
             yield return Row(SpawnControlPresentation.WarpButtonDisabledReason(true, false, true),
                 SpawnControlBudget, "Spawn row warp - too far");
@@ -208,8 +202,6 @@ namespace Parsek.Tests
         public void EveryReasonFunctionGoesSilentWhenTheControlIsLive()
         {
             Assert.Equal(string.Empty, ParsekUI.SpawnControlLauncherDisabledReason(1));
-            Assert.Equal(string.Empty, SettingsWindowUI.WipeRecordingsDisabledReason(1));
-            Assert.Equal(string.Empty, SettingsWindowUI.WipeMilestonesDisabledReason(1));
             Assert.Equal(string.Empty,
                 SpawnControlPresentation.WarpButtonDisabledReason(false, false, true));
             Assert.Equal(string.Empty,
