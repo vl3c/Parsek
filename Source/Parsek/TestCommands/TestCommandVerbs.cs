@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route): 41 verbs. The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route + EvaGroundScience): 42 verbs. The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -290,6 +290,14 @@ namespace Parsek.TestCommands
             // BOTH TWO-PHASE: a scene change is only a claim once it has settled.
             "GoToEditor",
             "LaunchFromEditor",
+            // EvaGroundScience. ADDITIVE (41 -> 42 implemented, reserved unchanged at 5),
+            // the EVA-family shape: the reserved envelope never carried an inventory verb.
+            // action=place drives the inventory slot click (DeployInventoryItem) plus one
+            // frame of the EVA jump key stock confirms a placement with; action=pickup
+            // invokes the ground part's own Pick Up KSPEvent. Stock fires the
+            // onGroundSciencePartDeployed / Removed events the recorder hooks; the seam
+            // fires none. Two-phase (the preview, the new vessel's load, the retract).
+            "EvaGroundScience",
         };
 
         // Reserved (recognized, not implemented in v1): 5 verbs.

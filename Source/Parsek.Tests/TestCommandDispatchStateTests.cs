@@ -59,6 +59,7 @@ namespace Parsek.Tests
             public void StockScreen(ParsedCommand cmd) => Calls.Add("StockScreen");
             public void GoToEditor(ParsedCommand cmd) => Calls.Add("GoToEditor");
             public void LaunchFromEditor(ParsedCommand cmd) => Calls.Add("LaunchFromEditor");
+            public void EvaGroundScience(ParsedCommand cmd) => Calls.Add("EvaGroundScience");
         }
 
         [Fact]
@@ -95,6 +96,7 @@ namespace Parsek.Tests
         [InlineData("EvaBoard", "RequiresFlight")]
         [InlineData("PlantFlag", "RequiresFlight")]
         [InlineData("EvaChuteDeploy", "RequiresFlight")]
+        [InlineData("EvaGroundScience", "RequiresFlight")]
         [InlineData("ExitToSpaceCenter", "RequiresFlight")]
         [InlineData("SimulateStockSwitchClick", "RequiresFlight")]
         // The arrival-validation lane's promotion arms mission loop state on a
@@ -220,6 +222,7 @@ namespace Parsek.Tests
             fake.StockScreen(cmd);
             fake.GoToEditor(cmd);
             fake.LaunchFromEditor(cmd);
+            fake.EvaGroundScience(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

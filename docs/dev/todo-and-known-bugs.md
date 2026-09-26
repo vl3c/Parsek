@@ -49,6 +49,56 @@ the route built from it - the supply-route hand-off). Also measured on the same 
 NOT claimed: the drill tree's synthetic `m2-drill-delivery` window lets
 `RouteProof_ActiveAsTargetDockWindow_HasEndpointProof` pass on this host (41 / 6 against
 H38's 39 / 8); that is a shape check over a synthetic window, not a recorded dock capture.
+## EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL: a ground-science part a kerbal places on EVA is recorded against a pid the kerbal's recording does not carry, so the analyzer reds and the ghost never shows the placed part [FILED 2026-09-26 by coverage wave 10, run `2026-09-25_2341` (`EVA-5-ground-science-place-pickup`). PRODUCT DEFECT, open; DESIGN QUESTION FOR THE OPERATOR below. EVA-5 is `[expectedFail]` on this id]
+
+**Fingerprint.** The offline analyzer's `INV4-PARTEVENT-PID` rule, `unresolved-pid`:
+`FAIL INV4-PARTEVENT-PID ... INV4 unresolved-pid recording=541b245cfda94d9580b3651faeb51d64 pid=4140861083 event=InventoryPartPlaced`
+(`results/2026-09-25_2341_EVA-5-ground-science-place-pickup_save/analysis/gloops-airshow.analysis.txt`).
+Every other step of that run was OK: the seam placed the seismometer through the stock inventory slot
+click plus one confirm-key press, stock built the placed vessel (pid 880280830, part pid 4140861083), the
+recorder logged `Part event captured: InventoryPartPlaced 'DeployedSeismicSensor' pid=4140861083 via
+onGroundSciencePartDeployed` and two matching `InventoryPartRemoved` lines on the pick-up, and the loop replay
+consumed both families on the kerbal's ghost (`apply family=InventoryPartPlaced surface=inventory rec=2
+pid=4140861083 applied=0 skipped=1 reason=no-info-for-part`, and the same for Removed).
+
+**Cause.** `ParsekFlight.RecordInventoryPlacementEvent` adds the event to the ACTIVE recorder (the kerbal's
+recording), keyed by the deployed part's `persistentId`. Stock places an EVA inventory part as its OWN new
+vessel (decompiled KSP 1.12.5: `ModuleInventoryPart.DeployGroundPart` -> `GetProtoVesselNode` ->
+`HighLogic.CurrentGame.AddVessel`), so that pid is never a PART of the kerbal's snapshot: the kerbal's only
+part is `kerbalEVA`, and stored inventory parts are `MODULE / STOREDPARTS` entries, not PART nodes. INV4
+reads exactly that as "an event PID missing from the snapshot silently drops a part event at playback".
+
+**What the player sees.** The ghost NEVER shows the placed part. On replay the kerbal walks up to an empty
+patch of ground and walks away. The placed vessel is outside the tree (nothing records it), so no other
+ghost carries it either.
+
+**What wave 10 changed.** The applier used to report `applied` for these two families unconditionally, a
+visual write that never happened. It now reports `no-info-for-part` when the ghost has no transform for the
+pid (`GhostPlaybackLogic.InventoryApplyOutcome`). The D7 `inventory-place-remove` cell stays UNCLAIMED
+pending the ruling below.
+
+**Design question for the operator.** Should a placed ground-science part (1) get its OWN recording and
+ghost (a tree member created at the placement, the way a flag plant carries a FlagEvent, so the replay
+shows the part standing where it was placed until the pick-up), or (2) be recorded as an inventory event
+keyed to the STORED part rather than the new vessel's pid (for example the part name plus the world pose,
+with playback spawning a static ghost part at the Placed event and removing it at the Removed event)?
+Either shape makes INV4 resolvable by construction; the current shape cannot be. Re-arm EVA-5 by removing
+its `[expectedFail]` table once the chosen fix lands: its contract set already passed offline on `_2341`.
+
+## INVENTORY-PLACED-FIRES-ON-ANY-LANDED-EXPERIMENT-LOAD: the recorder logs `InventoryPartPlaced` for every unlinked ground experiment whose part starts while recording, not only for a placement [FILED 2026-09-26 by coverage wave 10, from the decompile. REPORT-ONLY, not observed in a flight]
+
+Decompiled `ModuleGroundSciencePart.OnStart` fires `GameEvents.onGroundSciencePartDeployed` whenever the
+part starts landed, is not a `DroppedPart`, is not a Central Station (`ModuleGroundExpControl`), and has
+`ControlUnitId == 0`; `OnGroundScienceDeregisterCluster` fires it again when its station is removed. That is
+also the ordinary LOAD of a deployed experiment not linked to a station, whenever it comes into physics
+range. `ParsekFlight.RecordInventoryPlacementEvent` records any such event on the active recorder without
+checking whose part it is, so a recording that passes an old unlinked experiment gains a spurious
+`InventoryPartPlaced` for a pid its vessel never carried (the same INV4 fingerprint as
+EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL). Whichever fix that entry's ruling picks should also decide
+which starts count as a placement. Also measured on `2026-09-25_2341`: one pick-up fires
+`onGroundSciencePartRemoved` TWICE (`ModuleGroundPart.RetrievePart`, then `OnRetractCompleted` about 4.7 s
+later), so the recording carries two `InventoryPartRemoved` events per pick-up.
+
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 
 **Evidence.** The Astronaut Complex shows Jebediah as `Reserved` with the hover text `Flies
@@ -12494,6 +12544,13 @@ craft:
 Recorded so a future sweep author does not spend a flight discovering it, and so the
 D7 cells above are read as OUT OF SCOPE for the sweep family rather than as UNCOVERED
 work someone forgot.
+
+UPDATE 2026-09-26 (coverage wave 10): the two `InventoryPart*` families are now DRIVABLE, by a seam verb
+rather than by kRPC or a craft. `EvaGroundScience action=place|pickup` drives the stock EVA inventory slot
+click plus the confirm key, and the ground part's own Pick Up event (not EVA construction mode: a
+ground-science placement is inventory placement). Lane `EVA-5-ground-science-place-pickup` flies it; it is
+EXPECTED-FAIL on EVA-GROUND-SCIENCE-PLACED-PART-PID-NOT-ON-VESSEL, and the D7 cell stays unclaimed until
+that design ruling.
 
 ## FIXTURE-DUNA-PARK-PROBE-CANNOT-RETURN-TO-KERBIN: the DD1 probe every committed Duna-parked fixture carries is ~550 m/s short of a Kerbin return, so the reserved `B29-duna-kerbin-return` lane could not be flown as specified [MEASURED 2026-08-26 off `fixtures/saves/duna-park-probe/persistent.sfs` while opening B29's Phase-0 door. FIXTURE PROPERTY, REPORT-ONLY - never a Parsek defect and never a spec defect; it blocked one lane's PRODUCTION, not any product question. ROUTED AROUND the same day by re-scoping B29 to depart Jool; see the second entry below]
 

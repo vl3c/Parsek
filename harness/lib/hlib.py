@@ -504,6 +504,14 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # budget class (a scene change that parses no save off disk), so NOT
     # DEFERRED_SEAM_VERBS; their budgets ride DISPATCH_DEFERRAL_BUDGET_SECONDS.
     "GoToEditor", "LaunchFromEditor",
+    # EvaGroundScience. ADDITIVE (41 -> 42 implemented, reserved unchanged at 5), the
+    # EVA-family shape: the reserved envelope never carried an inventory verb. It drives
+    # the stock EVA ground-science place (the inventory slot click, DeployInventoryItem,
+    # plus one frame of the EVA jump key that confirms a placement) and pick-up (the
+    # ground part's own Pick Up KSPEvent). Stock fires the onGroundSciencePartDeployed /
+    # Removed events the recorder hooks; the seam fires none. Two-phase on a 120 s
+    # budget (the EvaExit size), so NOT a DEFERRED_SEAM_VERB.
+    "EvaGroundScience",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -808,6 +816,10 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # the full stock EVA canopy). 420 s covers a ~2 km opening altitude with margin and
     # stays under the 540 s cap.
     "EvaChuteDeploy": 420.0,
+    # Coverage wave 10, mirroring DeferralBudget.EvaGroundScienceSeconds (the EvaExit
+    # size): the place gate, preview, confirm presses and ground-vessel load, or the
+    # pick-up's retract animation, each seconds.
+    "EvaGroundScience": 120.0,
     # R12. ExitToSpaceCenter mirrors the C# ExitToSpaceCenterSeconds = 120.0, sized like
     # AnswerMergeDialog (the only other verb that DRIVES a scene exit and holds the head
     # across its settle) rather than like LoadGame, which additionally parses a cold save
@@ -1060,6 +1072,9 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # persistent.sfs first) and LaunchFromEditor puts a new vessel in the world.
     "GoToEditor": TAIL_ROLE_WORLD_MUTATING,
     "LaunchFromEditor": TAIL_ROLE_WORLD_MUTATING,
+    # EvaGroundScience puts a part into the world as a new vessel, or takes one back into
+    # a kerbal's inventory: an irreversible in-world action, the PlantFlag class.
+    "EvaGroundScience": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1238,6 +1253,10 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # kerbal's physical in-world state.
     "GoToEditor": POST_MISSION_ROLE_RECORDING,
     "LaunchFromEditor": POST_MISSION_ROLE_RECORDING,
+    # EvaGroundScience is `outcome`, the PlantFlag reading: its OK means "the part is on
+    # the ground" / "the part is back in the kerbal's inventory", a physical in-world state
+    # no other verifier re-derives.
+    "EvaGroundScience": POST_MISSION_ROLE_OUTCOME,
 }
 
 
@@ -5632,6 +5651,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # assertion against the bytes, because a career declaration on a sandbox
     # template must abort rather than quietly stage the template's own seed.
     errors.extend(savepatch.validate_career_state(fixture))
+    # `[[fixture.crewInventory]]` - a roster kerbal's personal inventory, written in
+    # stock's own compact CSV form (coverage wave 10). Same module, same reason.
+    errors.extend(savepatch.validate_crew_inventory(fixture))
 
     driver = spec.get("driver", {}) or {}
     kind = driver.get("kind")
