@@ -8641,10 +8641,14 @@ namespace Parsek
             if (!TryResolveTreeContext(rec, treeContext, out tree))
                 return false;
 
-            // Check if any branch point lists this recording as a parent.
+            // Check if any branch point lists this recording as a parent. A ground-part
+            // placement is skipped: its parent (the placing kerbal) keeps recording past it
+            // and stays the leaf of its own flight (design section 4.11).
             for (int b = 0; b < tree.BranchPoints.Count; b++)
             {
                 var bp = tree.BranchPoints[b];
+                if (bp == null || bp.Type == BranchPointType.GroundPartPlaced)
+                    continue;
                 if (bp.ParentRecordingIds != null && bp.ParentRecordingIds.Contains(rec.RecordingId))
                 {
                     string treeLabel = !string.IsNullOrEmpty(tree.Id) ? tree.Id : (tree.TreeName ?? "(pending)");

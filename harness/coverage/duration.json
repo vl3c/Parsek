@@ -500,6 +500,16 @@
         "2026-09-26T18:42:08Z": 70.0
       }
     },
+    "EVA-6-placed-part-spawn-after-rewind": {
+      "last": 131.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 131.0,
+      "p95": 131.0,
+      "samples": {
+        "2026-09-26T21:08:23Z": 131.0
+      }
+    },
     "EX-1-ghost-extension-past-endut": {
       "last": 119.0,
       "lastVsP50": 1.133,
