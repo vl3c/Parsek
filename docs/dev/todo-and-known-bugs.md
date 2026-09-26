@@ -2737,13 +2737,12 @@ Timeline showed each as a legacy row beside its ledger row, now deduplicated
 (`TimelineBuilder.GetLegacyDuplicateKey`). A committed `FacilityUpgraded` legacy event has no
 dedup key either; not checked here.
 
-**Residual (open).** After a Parsek rewind to between a destruction and a KSC repair, the
-repair is a future row; if the player repairs again before its date, the walk charges both
-repairs (stock charged only the new one live). Facility upgrades avoid the same shape with
-the committed-upgrade block (`FacilityUpgradePatch`); repairs have no block. See
-KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE.
+**Residual (fixed 2026-09-26).** After a Parsek rewind to between a destruction and a KSC
+repair, the repair is a future row; if the player repaired again before its date, the walk
+charged both repairs (stock charged only the new one live). Repairs now get the same block
+as facility upgrades. See KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE.
 
-## KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE: re-repairing a building before a committed future repair charges both [FILED 2026-09-23 on branch `ksc-facility-ledger`; OPEN]
+## ~~KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE: re-repairing a building before a committed future repair charges both~~ [FILED 2026-09-23 on branch `ksc-facility-ledger`; FIXED 2026-09-26 on branch `fix-ksc-repair-block`]
 
 A KSC repair is an untagged spending row (`FacilityRepair`, cost in `FacilityCost`). A Parsek
 rewind to a UT between a building's destruction and that repair keeps the repair as a future
@@ -2755,6 +2754,29 @@ repair of a building whose destruction already has a committed future repair (th
 `FacilityUpgradePatch` shape, but it adds a blocked dialog), or charge a repair only when the
 walk finds its building destroyed (needs the facility state before `FundsModule` runs; today
 the facilities tier dispatches after the funds tier). Not reachable without a Parsek rewind.
+
+**Ruling (operator, 2026-09-26).** Block the re-repair, the way the committed-upgrade block
+works: grey the stock Repair control with the explanation, and refuse the click with the same
+predicate and text. No ledger dedupe.
+
+**Fix:** the committed-future index now keys `FacilityRepair` and `FacilityDestruction` rows by
+destructible building id. `StockUiReservationPredicates.IsFacilityRepairBlocked` is true when a
+destroyed building of the facility has a committed future repair and no committed destruction
+of that building comes first (a destruction the player makes live after a rewind to before the
+committed one is a new destruction, so its repair is allowed). The click refusal
+`FacilityRepairBlock.TryBlockFacilityRepair` runs first in the existing prefix on
+`SpaceCenterBuilding.RepairFacility(bool deduceFunds)`, before stock's affordability check and
+funds debit, and shows the `CommittedActionDialog` with the `ReservationExplanation.FacilityRepair`
+text ("Repaired on <date> on your committed timeline. ..."). The facility menu postfix on
+`KSCFacilityContextMenu.OnFacilityValuesModified` sets the protected `RepairButton`
+non-interactable and puts the same text in a stock `TooltipController_Text` (D1 stock-control
+annotation; stock has no tooltip on Repair, so the controller is added with a copied stock
+prefab, the Upgrade button's mechanism, and falls back to the description text with no
+prefab). New `StockUiDecorationKind.FacilityRepair` (tab `Repair`), logged as the facility
+menu pass's item line so the GUI mirror pairs it. Pinned by `FacilityRepairBlockTests` and a
+`test_gui_mirror` parse cell. Not proven in game: the live proof needs a GUI-28-style
+stock-screen census flight over a fixture rewound between a destruction and its committed
+repair (not flown).
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 

@@ -1187,6 +1187,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Repairing a KSC building that your committed timeline already repairs later is now
+  refused, so it is no longer charged twice.** After a rewind to between a building's
+  destruction and its committed repair, repairing it again charged both repairs. The
+  building's menu now greys out Repair, with the reason in its tooltip ("Repaired on
+  <date> on your committed timeline. ..."), and a Repair click is refused with the same
+  text before any funds are taken, the way a committed facility upgrade is already blocked.
+  A building you destroy yourself after rewinding to before its committed destruction can
+  still be repaired.
+
 - **A crew death's reputation penalty now stays with the death when a recording is split.**
   When the optimizer or a Re-Fly split cut a recording between the moment a crashed vessel's
   reputation penalty was stamped and the crew's death, the death went to the later part and
