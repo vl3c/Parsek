@@ -8,6 +8,9 @@ namespace Parsek
     /// </summary>
     internal static class RecordingsTableFormatters
     {
+        /// <summary>The start-position prefix for an EVA whose source vessel resolved.</summary>
+        internal const string EvaFromPrefix = "EVA from ";
+
         internal static string FormatAltitude(double meters)
         {
             if (meters < 1000) return $"{(int)meters}m";
@@ -38,7 +41,7 @@ namespace Parsek
             if (!string.IsNullOrEmpty(rec.EvaCrewName))
             {
                 if (!string.IsNullOrEmpty(parentVesselName))
-                    return "EVA from " + parentVesselName;
+                    return EvaFromPrefix + parentVesselName;
                 return FormatSituationLocation(rec.StartSituation, rec.StartBiome, rec.StartBodyName, "EVA");
             }
 

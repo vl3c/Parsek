@@ -121,6 +121,30 @@ namespace Parsek.TestCommands
         private void UiActionStateValueKey(ParsekUI ui, UiWindowSpec spec,
                                            UiStateKeySpec keySpec, string rawValue)
         {
+            if (keySpec.Key == TestCommandUiWindowState.ScrollXKey)
+            {
+                if (!TestCommandUiWindowState.TryParseScrollOffset(
+                        rawValue, out float offsetX, out string offsetXReject))
+                {
+                    ParsekLog.Warn(Tag, $"uiaction rejected reason={offsetXReject} "
+                        + $"key={keySpec.Key} value={rawValue ?? string.Empty}");
+                    SetExecResult("REJECTED", null,
+                        $"{offsetXReject} key={keySpec.Key} "
+                        + $"value={rawValue ?? string.Empty} "
+                        + $"max={TestCommandUiWindowState.OffsetToken(TestCommandUiWindowState.MaxScrollOffset)}");
+                    return;
+                }
+                WideWindowScroll wide = ui.GetRecordingsTableUI().WideScroll;
+                float beforeX = wide.ScrollX;
+                wide.ScrollX = offsetX;
+                // Settled read-back only: the horizontal scroll view clamps the offset to
+                // its content on the next draw, and reads 0 while the window fits.
+                ArmStatePending(spec.Name, keySpec.Key,
+                                TestCommandUiWindowState.OffsetToken(offsetX),
+                                Math.Abs(beforeX - offsetX) > 0.001f);
+                return;
+            }
+
             if (keySpec.Key == TestCommandUiWindowState.ScrollYKey)
             {
                 if (!TestCommandUiWindowState.TryParseScrollOffset(
@@ -192,7 +216,8 @@ namespace Parsek.TestCommands
             // request (the scroll view clamps it to its content), so a disagreement is not an
             // error for it. Every other key is a plain bool or the window's own stored preset
             // name: those the game either followed or did not.
-            bool mayDiffer = pending.StateKey == TestCommandUiWindowState.ScrollYKey;
+            bool mayDiffer = pending.StateKey == TestCommandUiWindowState.ScrollYKey
+                             || pending.StateKey == TestCommandUiWindowState.ScrollXKey;
             if (!mayDiffer
                 && !string.Equals(after, pending.StateWant, StringComparison.Ordinal))
             {
@@ -251,8 +276,6 @@ namespace Parsek.TestCommands
                     return TimelineWindowUI.ShowArchivedRecordings;
                 case TestCommandUiWindowState.ArchivedMissionsKey:
                     return MissionStore.HideArchived;
-                case TestCommandUiWindowState.ExpandedStatsKey:
-                    return ui.GetRecordingsTableUI().ShowExpandedStatsForTesting;
                 default:
                     // Unreachable through the parse (the key came from that window's own
                     // table), so a miss here means the table and this switch have drifted.
@@ -284,9 +307,6 @@ namespace Parsek.TestCommands
                 case TestCommandUiWindowState.ArchivedMissionsKey:
                     MissionStore.HideArchived = value;
                     return;
-                case TestCommandUiWindowState.ExpandedStatsKey:
-                    ui.GetRecordingsTableUI().ShowExpandedStatsForTesting = value;
-                    return;
                 default:
                     throw new InvalidOperationException(
                         "no live write for op=state key=" + (key ?? "<null>")
@@ -301,6 +321,9 @@ namespace Parsek.TestCommands
             if (key == TestCommandUiWindowState.ScrollYKey)
                 return TestCommandUiWindowState.OffsetToken(
                     ui.GetTimelineUI().EntryScrollYForTesting);
+            if (key == TestCommandUiWindowState.ScrollXKey)
+                return TestCommandUiWindowState.OffsetToken(
+                    ui.GetRecordingsTableUI().WideScroll.ScrollX);
             if (key == TestCommandUiWindowState.PresetKey)
                 return ui.GetTimelineUI().ActiveTimeRangePresetForTesting ?? string.Empty;
             return TestCommandUiWindowState.BoolToken(ReadBoolState(ui, window, key));

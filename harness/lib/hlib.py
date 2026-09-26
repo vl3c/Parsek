@@ -2561,7 +2561,7 @@ UIACTION_EXPAND_BULK_KEYS: Tuple[str, ...] = ("all", "none")
 UIACTION_STATE_KEYS: Dict[str, Tuple[str, ...]] = {
     "timeline": ("srcRecordings", "srcActions", "srcEvents", "archived", "customRange",
                  "preset", "scrollY"),
-    "missions": ("archived", "archivedMissions", "expandedStats"),
+    "missions": ("archived", "archivedMissions", "scrollX"),
 }
 
 # Which half of `op=state`'s two-shaped grammar each key takes. A BOOL key takes
@@ -2570,7 +2570,7 @@ UIACTION_STATE_KEYS: Dict[str, Tuple[str, ...]] = {
 # wrong half has misunderstood the key, and applying the other half would report OK over
 # a state nobody asked for. Reasons: `state-value-arg-not-for-key` /
 # `state-bool-arg-not-for-key`.
-UIACTION_STATE_VALUE_KEYS: Tuple[str, ...] = ("preset", "scrollY")
+UIACTION_STATE_VALUE_KEYS: Tuple[str, ...] = ("preset", "scrollY", "scrollX")
 
 # `op=state`'s open-valued half. Deliberately NOT a VERB_SCOPED_CLOSED_ARGS row: the two
 # value keys take different shapes (a preset NAME, a scroll OFFSET in pixels), so the
@@ -3489,7 +3489,7 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                         "state-value-arg-invalid"
                         % (index, UIACTION_VALUE_KEY, probe,
                            ",".join(UIACTION_PRESET_VALUES)))
-                if probe is not None and text == "scrollY":
+                if probe is not None and text in ("scrollY", "scrollX"):
                     bad = False
                     try:
                         bad = float(probe) < 0

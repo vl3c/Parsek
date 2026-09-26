@@ -15,6 +15,130 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~WIDE-WINDOWS-OFF-SCREEN-AT-1280: the Missions and Logistics windows' right-hand columns are unreachable on a 1280 px screen~~ [FILED AND FIXED 2026-09-26, branch `wide-window-hscroll`]
+
+Owner request. The Missions window (both tabs) is laid out at 1355 px and Logistics at
+1410 px, both wider than a 1280x720 game window, and no window was ever capped to the screen
+(the only size clamp in the program was `ParsekUI.HandleResizeDrag`'s minimum, applied during
+a drag), so on such a screen their right-hand columns were drawn off the edge with no way to
+reach them. Every other window's minimum and default fit 1024 px (survey in
+`design-gui-inventory.md` section 7). The census-only fix of
+GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH (a 1920x1080 frame) never touched a
+player's screen.
+
+Fix: `UI/WideWindowLayout.cs`, one shared helper.
+- `ParsekUI.HandleResizeDrag` now also runs `FitWindowToScreen` before every draw of every
+  window with a resize handle, and it acts ONLY when the window cannot fit the screen at its
+  own width (`WideWindowLayout.NeedsScreenFit`: wider than the screen, or a minimum wider
+  than the screen) or was capped below its minimum by an earlier narrow screen (a width
+  below the minimum has no other source: defaults, drags and `op=rect` all floor at it).
+  Then the width is raised to `min(MinWindowWidth, Screen.width)` and capped to
+  `Screen.width`, and the window is moved fully on-screen horizontally and top-on-screen
+  vertically; the height is never changed (a GUILayout window resolves it from its
+  content). A window that fits the screen is never touched, so a player can still park it
+  partly off-screen. A resize drag is never wider than the screen and floors at
+  `min(MinWindowWidth, Screen.width)`; on a screen the window fits it is the drag it always
+  was. Logged only when the rect moves, rate-limited per window.
+- `WideWindowScroll` decides per window, latched on the Layout pass, whether the window is
+  below its natural width (`MinWindowWidth`), logging the transition only; on a screen the
+  window fits it draws nothing, so the layout is unchanged. When active, the Missions window
+  wraps its pinned column header AND its vertical body scroll view in ONE horizontal-only
+  scroll view whose content group is laid out at the natural width with the window style's
+  own horizontal padding, so header and body keep the x and widths they have at 1355 and
+  scroll in lockstep; the help strip and the Close row stay outside it. Logistics, whose
+  headers already live inside its single scroll view, only gets a minimum content width
+  inside that scroll view, so its own horizontal bar appears instead of the Name column
+  squeezing. Pinned by `TableRowInsetAlignmentTests.WideWindowScrollWrapsTheHeaderAndTheBodyTogether`
+  and `WideWindowLayoutTests`.
+- Trade-off taken: in the Missions window the body's vertical scrollbar sits at the right
+  end of the scrolled content, so it is visible only once scrolled right (the mouse wheel
+  scrolls vertically everywhere). The alternative, a header scrolled by a separate offset
+  above a body that keeps its bar at the window edge, needs the header's height fixed ahead
+  of layout (a GUILayout scroll view never reports its content height and lerps a
+  non-stretching child below its natural height), which cannot be read from the skin
+  without re-deriving IMGUI's margin rules.
+- Seam: `UiAction op=state window=missions key=scrollX` (hlib mirrored) and `op=rect` now
+  applies the same screen fit. Census lane `GUI-29-census-wide-windows-1280` (1280x720):
+  `2026-09-26_1926` PASS attempt 1, re-flown after review `2026-09-26_2027` PASS with the
+  in-game fit lines of both windows' first-open defaults required (both windows `applied=0,8,1280,700 clamped=true`,
+  `scrollX` settles at 95, header and rows aligned scrolled left and right). GUI-1 re-flown
+  at 1920x1080 `2026-09-26_1928` PASS: every Missions / Logistics dump geometry-identical to
+  the pre-change `2026-09-26_1745`.
+
+Residue: the one-line help strips of both windows are budgeted at their natural width
+(`TooltipEchoBudgetTests`), so on a capped window a long hover text is cut at the edge.
+
+## ~~RECORDINGS-TAB-ROUND-2026-09-26: an approved set of Recordings-tab presentation changes~~ [FILED AND FIXED 2026-09-26, branch `recordings-tab-round`]
+
+A reviewed list of presentation changes to the Recordings tab (no recording data, schema or
+store behaviour changes): folder Duration summed its members' durations (every booster, debris
+piece and EVA flying at the same time counted again); a mission's auto subfolders repeated the
+mission name under the mission row; the Period cell drew a greyed value + unit while Loop was
+off; and the Rewind column repeated one launch's `R` on the mission folder, its flight block
+and the flight's first row.
+
+Fix (commit 1 of the round): folder Duration and the folder and chain Duration sort keys are
+the covered span (`RecordingsTableUI.GetGroupSpanDuration`, dataless members skipped); the
+STASH row's Duration is blank. `GroupPickerPresentation.DisplayLabelUnderParent` drops a
+`parent + " / "` prefix from a subgroup's LABEL under that parent, in the table and in the
+group picker tree. The Period cell draws blank while Loop is off with
+`LoopPeriodBlankCellTooltip` as its hover. Rewind / FF is shown once: every folder and block
+row hands the R / FF target it actually DREW to its children
+(`ResolveChildEnclosingTimeTargets`), and a child whose own button would target the same
+committed index draws a blank cell (`IsTimeTargetShownByEnclosingRow`), logged on transitions
+only; STASH resets the inherited targets so its mirror rows keep their buttons.
+
+Fix (commit 2, revised by the owner's follow-up the same day): the Info toggle is REMOVED,
+with everything that existed only for it - the second (expanded) window width and its resize,
+the sort reset on collapse, the `op=state key=expandedStats` seam key (C# table, applier, hlib
+`UIACTION_STATE_KEYS`) and the short-lived `sort-column-hidden` refusal. Phase and Site are
+always-shown columns again; Pts, Dist, Start, End, MaxAlt and MaxSpd are gone from the table.
+The Status hover leads with `BuildStatusPlaceTooltip` (an EVA's `EVA from X` and
+`Ends: <FormatEndPosition>`) and `BuildStatusStatsTooltip` (`Max altitude 70.0km, max speed
+2.2km/s`); a leaf's Status shows its terminal word for debris too
+(`ResolveRecordingStatusText`) while `GetGroupStatus` keeps ignoring debris. The window keeps
+its 1355 px width (`DefaultWindowWidth`: the Missions tab and the one-line help strip budgeted
+at 189 characters are held by it); Phase is 120 px so a two-body label stays on one line, and
+the room comes from Name plus Site 90 -> 80 and Duration 80 -> 70. GUI-25's Info capture became
+a Phase-column sort capture (`ib-missions-recordings-sortphaseasc-advanced`).
+
+Fix (commit 3): a mission folder (a tree's auto-generated root group) absorbs its tree-root
+vessel's display block - key `group::treevessel:{TreeId}:{rootPid}`, or the `chain:` fallback
+identity (`ResolveRootVesselBlockKey`, `FindRootVesselBlockIndex`) - and draws its segments as
+its own rows (`FlattenAbsorbedBlock`); other vessels' blocks stay. The mission row keeps what
+that block header offered: its Loop toggle writes the absorbed members WITH the auto loop range
+and the other loopable descendants WITHOUT (`SplitAbsorbedLoopWrite`, both counts logged), and
+its Group cell becomes `G` + `S`, where `S` is the block's "every segment to folders" picker
+(`OpenForRecordings`). The block's aggregate R/FF duplicated the folder's and is dropped.
+
+Fix (commit 4): the Recordings tab (not the Missions tab, GUI-MISSIONS-WINDOW-MERGED-FIRST-
+HEADER-CELL) is on the house table styles: the pinned header opens with
+`GetTableHeaderRowStyle()` (the scrollbar gutter as its right padding, replacing the trailing
+`GUILayout.Space`), all four row kinds with `GetTableRowStyle()`, the list area with
+`GetTableBodyBoxStyle()`, and every body label style is built on `GetTableCellStyle()` (vertical
+padding kept at 0, the table's row pitch). The header's merged toggle + `#` container width is
+`HeaderMergedEnableIndexWidth`. `TableRowInsetAlignmentTests` carries a `TableSite` for the tab
+(column helpers counted through `CallWidths`) and
+`RecordingsTabEveryRowKindDrawsTheHeaderColumnSequence`, which holds the leaf, folder, block and
+STASH rows to the header's column sequence including the Info and flight-only guards
+(mutation-checked: an unguarded Watch cell in the block row reds it).
+
+## RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE: a debris row's MaxSpd reads 318.4 km/s over a 1.9 km flight [FILED 2026-09-26 from the recordings-tab round (census run `2026-09-21_2316_GUI-25-census-missions-state-sort-edit`, capture `ib-missions-recordings-expandedstats-advanced`). OPEN, not fixed]
+
+The Info columns of recording #27 `Kerbal X Debris` on the `interbody-route-recorded` host
+read MaxAlt `5.8km`, MaxSpd `318.4km/s`, Dist `1.9km`, 54 points, 48 s, `Destroyed, Kerbin`.
+A 48 s debris fall cannot reach 318 km/s; the point velocities of such a flight are a few
+hundred m/s.
+
+Likely cause (unverified, read off the source only): `TrajectoryMath.AccumulateOrbitSegmentStats`
+takes the vis-viva PERIAPSIS speed of every orbit segment as a max-speed candidate. A
+sub-orbital debris segment's periapsis sits deep inside Kerbin (radius near zero), so
+`sqrt(gm * (2 / periRadius - 1 / sma))` runs away. The mean-speed distance term uses the same
+segment and may be similarly off. A fix would skip, or clamp at the surface, a segment whose
+periapsis lies below the body's radius; verify against the fixture's sidecar first.
+
+---
+
 ## ~~SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: every repeat submission of a science subject re-credited the earlier ones~~ [FILED AND FIXED 2026-09-26, branch `fix-deployed-science-ledger`]
 
 `GameStateRecorder.OnScienceReceived` stored `science = subject.science`, the subject's RUNNING

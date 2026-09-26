@@ -10444,6 +10444,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # produces ARE the deliverable rather than a verdict to calibrate.
         "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. FLOWN GREEN 2026-09-11: the READING RUN is `2026-09-11_0548`, PASS on attempt 1, 96 s wall, every step met, 46 harvested files (22 PNG + 22 `<label>.gui.json` + the `GuiTree` cell's own `parsek-guitree-probe.gui.json` + KSP.log). The one thing that reading had to settle is the step both 2026-09-10 attempts died on: `UiAction op=rect window=settings` now reads back `rect=270,8,400,718` in Advanced and `rect=270,8,400,700` in Basic - WIDTH held at the commanded 400 in both modes while the Advanced height grew 18 px over its 700 floor, which is exactly the floor semantics the fix shipped. PRIOR (2026-09-10, `_2255` and attempt 2 `_2256`): both INVALID on that ONE step and nothing else, at 375x718 against a commanded 360x700 when the width half was still a two-sided check. The `GuiTree` batch read `total=1 passed=1 failed=0 skipped=0` on all three runs and the pin is now WHOLE off the reading run - the id has LEFT IngameBatchWiringGroupTests.INTERIM_PIN_IDS, which is what 'a whole pin belongs to a run that READ a verdict' was waiting for - and all 22 dumps read `patched=17/17`, the reading that closed GUITREE-INTERCEPTION-LAYER-NEVER-RUN. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. The reading run proved that a third time: the row read REPORT with `verdictStatus=PARSEK-FAIL red=1 topRule=INV2-NO-DOUBLE-COVER failNonBaselined=7`, gating=false, and the chain ran on to a PASS. (The STAGED host reads FAIL=7 over four recordings where the offline reading of the un-staged `c1` read FAIL=25 over seven - staging is not a copy; both are RED=1, which is all this declaration turns on.) No human call is outstanding.",
         "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). FLOWN GREEN 2026-09-11: the READING RUN is `2026-09-11_0551`, PASS on attempt 1, 57 s wall, all 29 steps met, 9 harvested files (4 PNG + 4 `<label>.gui.json` + KSP.log). The step this lane existed to re-read is the one its first flight died on, and it is now an ASSERTION rather than a failure: `op=open window=spawncontrol` answered `uiaction error reason=window-self-closed window=spawncontrol frames=1` under `expect = ERROR` with that reason pinned as a log contract, so the lane now TESTS that Real Spawn Control force-closes itself on a candidate-less host (`SpawnControlUI.DrawIfOpen`, `reason=zero-candidates candidates=0`) instead of photographing empty scenery under that window's name. PRIOR (2026-09-10, `_2259` and attempt 2 `_2300`): both INVALID on that one step. The first draft of this row also had the HAZARD backwards and the correction stands: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, periapsis 69.55 km above the GROUND, so it cannot impact on this orbit at all - and the lane flew in 57 s at 1x. The PICTURE of Real Spawn Control is still owed to a GUI-3 lane on a committed candidate host (GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST); a re-stage cannot pay it, because the host is operator-local by construction. No human call is outstanding.",
+        # GUI-29, 2026-09-26 (wide-window change). Same operator-local host as GUI-1, and
+        # the only census lane on the 1280x720 frame on purpose: its subject is the Missions
+        # and Logistics windows capped to that screen and scrolled sideways.
+        "GUI-29-census-wide-windows-1280.toml": "tier=operator by MECHANISM, identical to GUI-1's (the operator-local `c1-gui` host no clone can stage; the same report-only analyzer row). Its captures ARE the deliverable: the Missions window's two tabs scrolled left and right, and Logistics, on the 1280x720 frame. FLOWN PASS 2026-09-26 (run _1926, attempt 1, 5 PNG + 5 dumps); re-flown after the review fixes that pinned the in-game fit lines. Owed: the ordinary promotion call only.",
         # THE TWO GLOOPS LANES, 2026-09-15 (package P2). Operator-tier by the
         # CALIBRATION discipline, not by debt: both are first flights of a subject
         # whose key quantity - how many trajectory points a motionless PRELAUNCH pod
@@ -16851,7 +16855,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                 "state": "false"})
         self.assertEqual([], ok)
         errors = hlib.validate_ui_action_step(
-            0, {"op": "state", "window": "timeline", "key": "expandedStats",
+            0, {"op": "state", "window": "timeline", "key": "archivedMissions",
                 "state": "true"})
         self.assertTrue(any("is not a state key of window" in e for e in errors), errors)
         # A window with no scalar state names the two that have it.
@@ -17129,7 +17133,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
 
     def test_the_state_key_table_mirrors_the_c_sharp_one_PER_WINDOW(self):
         """Reads OUTSIDE harness/. The union cell above cannot see a key MOVING between
-        windows - `expandedStats` migrating from missions to timeline keeps the union
+        windows - `archivedMissions` migrating from missions to timeline keeps the union
         identical - and a key on the wrong window is a typed REJECTED after a whole KSP
         boot. So this cell parses the two per-window ARRAYS out of the C# and compares each
         one ordered.
@@ -18042,6 +18046,11 @@ class AnalyzerReportOnlyModeTests(unittest.TestCase):
         # DIFFERENT picture over a dense entry list, and that density is the operator's
         # career. Nothing about this lane's subject touches a recording invariant.
         "GUI-24-census-timeline-filters.toml",
+        # GUI-29, 2026-09-26. The same host and the same measured reason: it stages
+        # `c1-gui` because the wide-window pictures at 1280x720 need the dense Missions
+        # and Logistics tables, and nothing about horizontal scrolling touches a
+        # recording invariant.
+        "GUI-29-census-wide-windows-1280.toml",
     }
 
     def test_no_other_committed_spec_turns_the_analyzer_row_off(self):
@@ -23851,9 +23860,14 @@ class ScreenResolutionSpecTests(unittest.TestCase):
         self.assertEqual("SCREEN_RESOLUTION_WIDTH = 1280\n",
                          hlib.render_screen_restore_marker({"SCREEN_RESOLUTION_WIDTH": "1280"}))
 
+    # The census lanes whose SUBJECT is the narrow frame, declared rather than
+    # inherited: GUI-29 photographs the wide windows capped to a 1280x720 screen.
+    NARROW_FRAME_CENSUS = {"GUI-29-census-wide-windows-1280": "1280x720"}
+
     def test_exactly_the_gui_census_lanes_opt_in(self):
-        """Every GUI census lane captures at 1920x1080 and NO other lane changes
-        size: the render-composition and map lanes may depend on pixel sizes."""
+        """Every GUI census lane declares its frame - 1920x1080, except the lanes in
+        NARROW_FRAME_CENSUS - and NO other lane changes size: the render-composition
+        and map lanes may depend on pixel sizes."""
         declared, census = set(), set()
         for path in sorted(glob.glob(os.path.join(SCENARIOS_DIR, "*.toml"))):
             with open(path, "rb") as fh:
@@ -23863,7 +23877,8 @@ class ScreenResolutionSpecTests(unittest.TestCase):
             self.assertEqual([], hlib.validate_screen_resolution(runtime), sid)
             if "screenResolution" in runtime:
                 declared.add(sid)
-                self.assertEqual("1920x1080", runtime["screenResolution"], sid)
+                self.assertEqual(self.NARROW_FRAME_CENSUS.get(sid, "1920x1080"),
+                                 runtime["screenResolution"], sid)
             if "gui-census" in (spec.get("tags") or []):
                 census.add(sid)
         self.assertTrue(census)

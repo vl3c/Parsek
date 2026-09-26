@@ -6,12 +6,13 @@ tier = "operator"
 #
 # WHAT IT BUYS. Four wave-6 ops meet on one host here, and each one's subject is a state
 # that NO capture in the census carries:
-#   - `op=state key=expandedStats`: the Recordings tab's `Info` toggle, six extra columns
-#     (`MaxAlt`, `MaxSpd`, `Dist`, `Pts`, `Start`, `End`) and the window's largest single
-#     layout change. Zero dumps contain any of those header strings today.
+#   - (until 2026-09-26 also `op=state key=expandedStats`, the Recordings tab's `Info`
+#     toggle. The toggle and the seam key were removed with it: Phase and Site are always
+#     shown and the old Info statistics live in the Status hover, so the capture that
+#     photographed Info is now a Phase-column sort, `ib-missions-recordings-sortphaseasc`.)
 #   - `op=state key=archived` / `key=archivedMissions`: the two archive filters, which are
 #     DIFFERENT flags over different lists with OPPOSITE polarities - see below.
-#   - `op=sort`: the 44 unphotographed sort states. Three of them here, over two tables
+#   - `op=sort`: the 44 unphotographed sort states. Four of them here, over two tables
 #     that COLLIDE on their index and name columns, which is why the op applies to the
 #     live tab and REJECTS a column of the other one.
 #   - `op=edit`: three in-place rename editors, each a LAYOUT change (a label becomes a
@@ -103,13 +104,11 @@ tier = "operator"
 # Route confirm has NO host in the committed set at all and is filed as
 # GUI-CENSUS-NO-FIXTURE-CARRIES-A-DORMANT-ROUTE.
 #
-# THE WINDOW DOES NOT FIT THIS INSTANCE, the GUI-1 residue verbatim: `missions` is laid
-# out for 1355 px and its `Info` form for 1663, against the profile's 1280x720 screen, so
-# both are honestly CLIPPED at the client edge rather than squeezed into a layout no drag
-# can produce (GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH). The expanded-stats
-# capture commands the WIDE rect itself because the accessor deliberately does not resize
-# the window.
-description = "GUI census wave 6: the Missions window's expanded-stats columns, both archive filters, three sort states across its two tables and all three in-place rename editors, plus the Logistics window's sorted route table, its Delete Route confirm and a round-trip-linked route at a non-1x cadence."
+# THE WINDOW DOES NOT FIT A 1280x720 INSTANCE, the GUI-1 residue verbatim: `missions` is
+# laid out for 1355 px, so on that screen it is honestly CLIPPED at the client edge rather
+# than squeezed into a layout no drag can produce
+# (GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH).
+description = "GUI census wave 6: the Missions window's two archive filters, four sort states across its two tables and all three in-place rename editors, plus the Logistics window's sorted route table, its Delete Route confirm and a round-trip-linked route at a non-1x cadence."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "missions", "logistics", "GUI-25", "pending-operator"]
 
@@ -149,14 +148,12 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ib-missions-recordings-sortdurationasc-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ib-missions-recordings-sortdurationasc-advanced" }, expect = "OK" },
 
-  # --- THE INFO TOGGLE: six extra columns at the window's own wide layout. The rect is
-  # commanded here because the accessor does not resize the window.
-  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1663", h = "700" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "state", window = "missions", key = "expandedStats", state = "true" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "ib-missions-recordings-expandedstats-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "ib-missions-recordings-expandedstats-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "state", window = "missions", key = "expandedStats", state = "false" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  # --- SORT 3 on the Recordings tab: the Phase column (always shown since 2026-09-26, when
+  # the Info toggle that used to hold it was removed). Its dump carries each row's Status
+  # hover, which is where the old Info statistics (max altitude / max speed) now live.
+  { cmd = "UiAction", args = { op = "sort", window = "missions", column = "phase", dir = "asc" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ib-missions-recordings-sortphaseasc-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ib-missions-recordings-sortphaseasc-advanced" }, expect = "OK" },
 
   # --- the Recordings tab's Archive header filter, in the Timeline's positive sense.
   { cmd = "UiAction", args = { op = "state", window = "missions", key = "archived", state = "true" }, expect = "OK" },
@@ -279,10 +276,10 @@ required = [
 
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction sort window=missions tab=recordings column=name dir=desc changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction sort window=missions tab=recordings column=duration dir=asc changed=true frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction sort window=missions tab=recordings column=phase dir=asc changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction sort window=missions tab=missions column=start dir=desc changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction sort window=logistics tab=- column=status dir=desc changed=true frames=[0-9]+",
 
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=missions key=expandedStats want=true after=true changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=missions key=archived want=true after=true changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=missions key=archivedMissions want=true after=true changed=true frames=[0-9]+",
 
@@ -303,7 +300,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ib-dlg-deleteroute",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-recordings-sortnamedesc-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-recordings-sortdurationasc-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-recordings-expandedstats-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-recordings-sortphaseasc-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-recordings-archivedfilter-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-recordings-recordingrename-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ib-missions-recordings-grouprename-advanced .*patched=17/17",

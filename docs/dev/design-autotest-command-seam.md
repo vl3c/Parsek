@@ -2708,7 +2708,7 @@ table, and a fourth such state is one row rather than a fourth op.
 
 THE GRAMMAR IS TWO-SHAPED AND EACH HALF REFUSES THE OTHER. A BOOL key takes
 `state=true|false` and answers `state-value-arg-not-for-key` to a `value=`; a VALUE key
-(`preset`, `scrollY`) takes `value=` and answers `state-bool-arg-not-for-key` to a
+(`preset`, `scrollY`, `scrollX`) takes `value=` and answers `state-bool-arg-not-for-key` to a
 `state=`. Refused rather than resolved by precedence, the `expand-state-with-bulk-key`
 rule: a step carrying the wrong half has misunderstood the key, and silently applying the
 other half would report OK over a state nobody asked for. Neither half has a default
@@ -2737,10 +2737,14 @@ remedy - an `op=tab` step first - is readable from the answer. Reported as a REF
 not as an applied-then-disagreeing ERROR because the game is not failing to follow: the
 lane asked for a state that tab does not have.
 
-`scrollY` IS THE ONE KEY WHOSE `after=` MAY DIFFER FROM `want=`. A scroll view clamps its
-offset to its own content during the draw, so `want=9000 after=412` is the honest report of
-a list shorter than the offset asked for, and the payload carries the SETTLED read-back
-rather than echoing the request. Every other key is a plain bool or the window's own stored
+`scrollY` AND `scrollX` ARE THE TWO KEYS WHOSE `after=` MAY DIFFER FROM `want=`. A scroll
+view clamps its offset to its own content during the draw, so `want=9000 after=412` is the
+honest report of a list shorter than the offset asked for, and the payload carries the
+SETTLED read-back rather than echoing the request. `scrollX` (Missions window, 2026-09-26)
+is the window's HORIZONTAL offset, which exists only while a narrow screen caps the window
+below its natural width (`WideWindowScroll`): on a screen the window fits, a write is
+dropped and the read-back is 0; at 1280 px `want=100000` settles at `after=95`, the
+overflow of the 1355 px content. Every other key is a plain bool or the window's own stored
 preset name, and for those a disagreement is `state-not-applied`.
 
 `key=preset` RUNS THE BUTTON'S OWN CLICK BODY, and the arithmetic behind it moved rather

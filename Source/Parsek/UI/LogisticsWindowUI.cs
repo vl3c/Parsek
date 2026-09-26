@@ -196,6 +196,11 @@ namespace Parsek
 
         private bool isResizing;
         private Vector2 scrollPos;
+        // Horizontal scroll when a narrow screen caps the window below MinWindowWidth
+        // (WideWindowLayout): the section stack keeps its natural width inside the
+        // existing scroll view, whose own horizontal bar then reaches every column.
+        private readonly WideWindowScroll wideScroll =
+            new WideWindowScroll("Logistics window", MinWindowWidth);
         private Rect lastWindowRect;
 
         // Expand/collapse state, keyed by route Id (routes) or "cand:"+treeId (candidates).
@@ -685,6 +690,7 @@ namespace Parsek
         {
             EnsureStyles();
             GUILayout.Space(5);
+            wideScroll.Latch(windowRect.width);
 
             double currentUT = TryGetCurrentUT();
             IReadOnlyList<Route> routes = RouteStore.CommittedRoutes;
@@ -735,6 +741,7 @@ namespace Parsek
             pendingRestoreLabel = null;
 
             scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
+            wideScroll.BeginContentFloor(ContentFloorReservedWidth());
 
             // Each section is its own gray bubble with its own header row, so the
             // header and data columns share the box and line up exactly. Titles are the
@@ -747,6 +754,7 @@ namespace Parsek
             DrawDormantSectionBubble();
             DrawCandidateSectionBubble("Candidates", candidates, nearMisses);
 
+            wideScroll.EndContentFloor();
             GUILayout.EndScrollView();
 
             // Tooltip echo strip (shared house helper). Fixed single-line height, always
@@ -769,6 +777,22 @@ namespace Parsek
 
             // Apply deferred mutations now that the draw loop is done.
             ApplyPendingActions(currentUT);
+        }
+
+        /// <summary>
+        /// What the window spends outside its section stack at its natural width: the
+        /// window's own horizontal padding, the scroll view's, and the vertical scrollbar.
+        /// The rest of <see cref="MinWindowWidth"/> is the content floor a capped window
+        /// keeps, so its columns scroll instead of squeezing the Name column.
+        /// </summary>
+        private float ContentFloorReservedWidth()
+        {
+            GUIStyle windowStyle = parentUI.GetOpaqueWindowStyle();
+            float reserved = ParsekUI.VerticalScrollbarFootprintWidth();
+            if (windowStyle != null) reserved += windowStyle.padding.horizontal;
+            if (GUI.skin != null && GUI.skin.scrollView != null)
+                reserved += GUI.skin.scrollView.padding.horizontal;
+            return reserved;
         }
 
         /// <summary>

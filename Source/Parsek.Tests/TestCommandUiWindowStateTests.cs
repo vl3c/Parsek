@@ -125,21 +125,52 @@ namespace Parsek.Tests
             Assert.Equal(UiStateKeyKind.Value, spec.Kind);
         }
 
+        // catches: the Missions window's horizontal scroll key dropped from its table, made
+        // bool-shaped, or leaking onto the Timeline (whose list scrolls only vertically).
         [Fact]
-        public void ExpandedStatsIsAMissionsKeyAndNotATimelineOne()
+        public void ScrollXIsAValueShapedMissionsKeyAndNotATimelineOne()
+        {
+            Assert.True(TestCommandUiWindowState.TryResolveKey(
+                TestCommandUiAction.MissionsWindow, TestCommandUiWindowState.ScrollXKey,
+                out UiStateKeySpec spec, out string ok));
+            Assert.Null(ok);
+            Assert.Equal(UiStateKeyKind.Value, spec.Kind);
+            Assert.Equal("scrollX", spec.Key);
+
+            Assert.False(TestCommandUiWindowState.TryResolveKey(
+                TestCommandUiAction.TimelineWindow, TestCommandUiWindowState.ScrollXKey,
+                out UiStateKeySpec _, out string reject));
+            Assert.Equal(TestCommandUiWindowState.StateKeyInvalidReason, reject);
+        }
+
+        [Fact]
+        public void ArchivedMissionsIsAMissionsKeyAndNotATimelineOne()
         {
             Assert.True(TestCommandUiWindowState.TryResolveKey(
                 TestCommandUiAction.MissionsWindow,
-                TestCommandUiWindowState.ExpandedStatsKey, out UiStateKeySpec spec,
+                TestCommandUiWindowState.ArchivedMissionsKey, out UiStateKeySpec spec,
                 out string ok));
             Assert.Null(ok);
             Assert.Equal(UiStateKeyKind.Bool, spec.Kind);
 
             Assert.False(TestCommandUiWindowState.TryResolveKey(
                 TestCommandUiAction.TimelineWindow,
-                TestCommandUiWindowState.ExpandedStatsKey, out UiStateKeySpec _,
+                TestCommandUiWindowState.ArchivedMissionsKey, out UiStateKeySpec _,
                 out string reject));
             Assert.Equal(TestCommandUiWindowState.StateKeyInvalidReason, reject);
+        }
+
+        // catches: the removed Recordings-tab Info toggle's key coming back (the toggle,
+        // its columns and the window-widening state were removed 2026-09-26).
+        [Fact]
+        public void ExpandedStatsIsNoLongerAKeyOfAnyWindow()
+        {
+            foreach (string window in new[] { TestCommandUiAction.MissionsWindow, TestCommandUiAction.TimelineWindow })
+            {
+                Assert.False(TestCommandUiWindowState.TryResolveKey(
+                    window, "expandedStats", out UiStateKeySpec _, out string reject));
+                Assert.Equal(TestCommandUiWindowState.StateKeyInvalidReason, reject);
+            }
         }
 
         // ----- key resolution rejects -----

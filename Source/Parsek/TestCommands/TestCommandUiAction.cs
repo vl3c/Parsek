@@ -85,8 +85,7 @@ namespace Parsek.TestCommands
 
         /// <summary><c>op=state window=&lt;name&gt; key=&lt;name&gt; state=|value=</c>: drive one
         /// of a window's SCALAR view states - a filter toggle, an archive filter, the
-        /// Recordings tab's expanded-stats columns, the Timeline's time-range preset or its
-        /// scroll offset. The sibling of <c>expand</c> for the states that are single fields
+        /// Timeline's time-range preset or its scroll offset. The sibling of <c>expand</c> for the states that are single fields
         /// rather than sets of keys; the key table lives in
         /// <see cref="TestCommandUiWindowState"/>.</summary>
         State = 17,
@@ -1430,6 +1429,26 @@ namespace Parsek.TestCommands
             if (minW > 0f && result.W < minW) { result.W = minW; clamped = true; }
             if (minH > 0f && result.H < minH) { result.H = minH; clamped = true; }
             return result;
+        }
+
+        /// <summary>
+        /// Applies the screen fit a resizable window that cannot fit the screen takes before every draw
+        /// (<c>ParsekUI.FitWindowToScreen</c> over <see cref="WideWindowLayout.FitToScreen"/>)
+        /// to a commanded rect, so <see cref="RectAppliedWithinTolerance"/> compares the
+        /// read-back with the rect the window will really draw at. On a screen narrower than
+        /// the window's minimum that is the screen width, which is also the smallest the
+        /// window can be dragged to there. A window with no resize handle (both minimums
+        /// zero: main, settings, gloops) is not fitted in-game, so it is not fitted here.
+        /// </summary>
+        internal static UiActionRect FitRectToScreen(UiActionRect rect, float minW, float minH,
+            float screenWidth, float screenHeight, out bool fitted)
+        {
+            fitted = false;
+            if (minW <= 0f && minH <= 0f) return rect;
+            var r = new UnityEngine.Rect(rect.X, rect.Y, rect.W, rect.H);
+            if (!WideWindowLayout.FitToScreen(ref r, minW, screenWidth, screenHeight)) return rect;
+            fitted = true;
+            return new UiActionRect { X = r.x, Y = r.y, W = r.width, H = r.height };
         }
 
         /// <summary>The <c>min=</c> value for a describe row: <c>minW,minH</c>, or <c>-</c>

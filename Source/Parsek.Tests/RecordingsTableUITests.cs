@@ -112,10 +112,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingsWindowDefaultWidths_AccountForReFlyColumn()
+        public void RecordingsWindowDefaultWidth_IsTheWindowsNotTheColumns()
         {
-            Assert.Equal(1355f, RecordingsTableUI.DefaultCollapsedWindowWidth);
-            Assert.Equal(1813f, RecordingsTableUI.DefaultExpandedWindowWidth);
+            // The width is the WINDOW's (shared with the Missions tab and the one-line help
+            // strip budgeted for it); the wider Phase column came out of Name, and there is no
+            // second (Info) width any more.
+            Assert.Equal(1355f, RecordingsTableUI.DefaultWindowWidth);
+            Assert.Equal(RecordingsTableUI.DefaultWindowWidth, RecordingsTableUI.MinWindowWidth);
         }
 
         [Fact]
@@ -1015,18 +1018,18 @@ namespace Parsek.Tests
         // ── GetChainSortKey ──
 
         [Fact]
-        public void GetChainSortKey_Duration_ReturnsSumOfPositiveDurations()
+        public void GetChainSortKey_Duration_ReturnsTheCoveredSpan()
         {
             var committed = new List<Recording>
             {
                 MakeRec(100, 160),  // 60s
                 MakeRec(200, 280),  // 80s
-                MakeRec(300, 300)   // 0s (single point), not added
+                MakeRec(300, 300)   // single point at 300, ends the span
             };
             var members = new List<int> { 0, 1, 2 };
             double key = ParsekUI.GetChainSortKey(members, committed,
                 ParsekUI.SortColumn.Duration, 0);
-            Assert.Equal(140, key);
+            Assert.Equal(200, key);
         }
 
         [Fact]
@@ -1084,46 +1087,46 @@ namespace Parsek.Tests
             Assert.Equal(100, result);
         }
 
-        // ── GetGroupTotalDuration ──
+        // ── GetGroupSpanDuration ──
 
         [Fact]
-        public void GetGroupTotalDuration_EmptyDescendants_ReturnsZero()
+        public void GetGroupSpanDuration_EmptyDescendants_ReturnsZero()
         {
-            var result = ParsekUI.GetGroupTotalDuration(new HashSet<int>(), new List<Recording>());
+            var result = ParsekUI.GetGroupSpanDuration(new HashSet<int>(), new List<Recording>());
             Assert.Equal(0, result);
         }
 
         [Fact]
-        public void GetGroupTotalDuration_SingleRecording_ReturnsDuration()
+        public void GetGroupSpanDuration_SingleRecording_ReturnsDuration()
         {
             var committed = new List<Recording> { MakeRec(100, 250) };
-            var result = ParsekUI.GetGroupTotalDuration(new HashSet<int> { 0 }, committed);
+            var result = ParsekUI.GetGroupSpanDuration(new HashSet<int> { 0 }, committed);
             Assert.Equal(150, result);
         }
 
         [Fact]
-        public void GetGroupTotalDuration_SkipsZeroDuration()
+        public void GetGroupSpanDuration_SinglePointMemberStillBoundsTheSpan()
         {
             var committed = new List<Recording>
             {
-                MakeRec(100, 100),  // 0s (single point, EndUT==StartUT)
-                MakeRec(200, 350)   // 150s
+                MakeRec(100, 100),  // single point at 100
+                MakeRec(200, 350)
             };
-            var result = ParsekUI.GetGroupTotalDuration(new HashSet<int> { 0, 1 }, committed);
-            Assert.Equal(150, result);
-        }
-
-        [Fact]
-        public void GetGroupTotalDuration_SumsAllPositive()
-        {
-            var committed = new List<Recording>
-            {
-                MakeRec(100, 200),  // 100s
-                MakeRec(300, 420),  // 120s
-                MakeRec(500, 530)   // 30s
-            };
-            var result = ParsekUI.GetGroupTotalDuration(new HashSet<int> { 0, 1, 2 }, committed);
+            var result = ParsekUI.GetGroupSpanDuration(new HashSet<int> { 0, 1 }, committed);
             Assert.Equal(250, result);
+        }
+
+        [Fact]
+        public void GetGroupSpanDuration_GapsCountButOverlapsDoNotDoubleCount()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, 200),
+                MakeRec(150, 420),  // overlaps the first
+                MakeRec(500, 530)   // after a gap
+            };
+            var result = ParsekUI.GetGroupSpanDuration(new HashSet<int> { 0, 1, 2 }, committed);
+            Assert.Equal(430, result);
         }
 
         // ── FindGroupMainRecordingIndex ──
@@ -1387,7 +1390,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetGroupSortKey_Duration_DelegatesToTotalDuration()
+        public void GetGroupSortKey_Duration_DelegatesToSpanDuration()
         {
             var committed = new List<Recording>
             {
@@ -1396,7 +1399,7 @@ namespace Parsek.Tests
             };
             double key = ParsekUI.GetGroupSortKey(new HashSet<int> { 0, 1 }, committed,
                 ParsekUI.SortColumn.Duration, 0);
-            Assert.Equal(170, key);
+            Assert.Equal(270, key); // 370 - 100: the folder row's own Duration cell
         }
 
         [Fact]

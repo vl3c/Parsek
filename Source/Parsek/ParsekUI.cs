@@ -1577,13 +1577,14 @@ namespace Parsek
         /// <c>max(style.padding.right, lastChild.margin.right)</c> - a MAX, not a sum.
         /// A body row carries no right padding, so its content already ends one cell
         /// margin inside its group; a header's reserved padding REPLACES that margin
-        /// rather than adding to it, so the padding has to cover both terms. The same
-        /// number is right for the Recordings tab, which reserves the gutter as a
-        /// trailing <c>GUILayout.Space</c> instead: a Space entry carries
-        /// <c>GUIStyle.none</c>, so it is not considered for margin and consumes exactly
-        /// its width at the group's right edge, and that body loses its own 4px to the
-        /// list-area box's <c>padding.right</c>. The Missions tab's box spends no such
-        /// padding, so it owes the bare footprint and is deliberately NOT routed here
+        /// rather than adding to it, so the padding has to cover both terms. The
+        /// Recordings tab takes the same number through the same pinned header row style
+        /// (<see cref="GetTableHeaderRowStyle"/>) since 2026-09-26; before that it reserved
+        /// it as a trailing <c>GUILayout.Space</c> (a Space entry carries
+        /// <c>GUIStyle.none</c> and consumes exactly its width at the group's right edge,
+        /// and the header's last cell has margin R0, so both forms end that header at the
+        /// same x). The Missions tab's box spends no such padding, so it owes the bare
+        /// footprint and is deliberately NOT routed here
         /// (GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL).</para>
         ///
         /// <para>The 5px the 2026-09-11 re-flight measured after PR #1679 (Real Spawn
@@ -1662,7 +1663,7 @@ namespace Parsek
 
             // Dark list-area background for a table body. Horizontal margin AND
             // padding zeroed so the box contributes no inset of its own; vertical
-            // kept at the skin's 4px. Mirrors RecordingsTableUI.tableBodyBoxStyle.
+            // kept at the skin's 4px. The Recordings tab's list area uses it too.
             sharedTableBodyBoxStyle = new GUIStyle(GUI.skin.box)
             {
                 margin = new RectOffset(
@@ -2039,8 +2040,8 @@ namespace Parsek
         internal static double GetGroupEarliestStartUT(HashSet<int> descendants, IReadOnlyList<Recording> committed)
             => RecordingsTableUI.GetGroupEarliestStartUT(descendants, committed);
 
-        internal static double GetGroupTotalDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
-            => RecordingsTableUI.GetGroupTotalDuration(descendants, committed);
+        internal static double GetGroupSpanDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
+            => RecordingsTableUI.GetGroupSpanDuration(descendants, committed);
 
         internal static int FindGroupMainRecordingIndex(
             HashSet<int> descendants, IReadOnlyList<Recording> committed)
@@ -3120,17 +3121,48 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Handles resize drag for a window. Call before the window function.
-        /// Group Popup passes null for windowName to suppress logging.
+        /// Handles resize drag for a window, then fits the rect to the screen. Call before
+        /// the window function. Group Popup passes null for windowName to suppress the
+        /// resize logging.
         /// </summary>
         internal static void HandleResizeDrag(ref Rect windowRect, ref bool isResizing,
             float minWidth, float minHeight, string windowName)
         {
-            if (!isResizing) return;
+            if (isResizing)
+                ApplyResizeDrag(ref windowRect, ref isResizing, minWidth, minHeight, windowName);
+            FitWindowToScreen(ref windowRect, minWidth, windowName);
+        }
 
+        /// <summary>
+        /// Fits a window that cannot fit the screen at its own width (see
+        /// <see cref="WideWindowLayout.FitToScreen"/>): capped to the screen width and moved
+        /// onto it, and grown back to its minimum once a wider screen allows. Runs before
+        /// every draw of every window that has a resize handle. A window that fits the
+        /// screen is never touched, wherever the player put it. Logged only when it
+        /// moves the rect, rate-limited per window because a player dragging a window
+        /// against the edge moves it every frame.
+        /// </summary>
+        internal static void FitWindowToScreen(ref Rect windowRect, float minWidth,
+            string windowName)
+        {
+            float sw = Screen.width;
+            float sh = Screen.height;
+            Rect before = windowRect;
+            if (!WideWindowLayout.FitToScreen(ref windowRect, minWidth, sw, sh)) return;
+            string name = windowName ?? "Popup window";
+            ParsekLog.VerboseRateLimited("UI", "window-screen-fit:" + name,
+                WideWindowLayout.FormatFitLog(name, before, windowRect, sw, sh));
+        }
+
+        private static void ApplyResizeDrag(ref Rect windowRect, ref bool isResizing,
+            float minWidth, float minHeight, string windowName)
+        {
             if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
             {
-                float newW = Mathf.Max(minWidth, Event.current.mousePosition.x - windowRect.x);
+                // Never wider than the screen, and a screen narrower than the window's own
+                // minimum lowers that minimum to the screen width.
+                float newW = WideWindowLayout.ResizeDragWidth(
+                    Event.current.mousePosition.x, windowRect.x, minWidth, Screen.width);
                 float newH = Mathf.Max(minHeight, Event.current.mousePosition.y - windowRect.y);
                 windowRect.width = newW;
                 windowRect.height = newH;
