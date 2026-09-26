@@ -4910,20 +4910,11 @@ namespace Parsek
         {
             RollbackContinuationData(rec);
 
-            // If the vessel had spawned, any terminal state change (Recovered/Destroyed)
-            // was on the spawned real vessel, not the recording. Clear it so the recording
-            // can spawn again after revert/rewind.
-            //
-            // This used to inline a byte-identical copy of the predicate that
-            // ParsekScenario.ClearPostSpawnTerminalState applies. Two copies of one
-            // retraction rule is one copy too many — the TS-FLUSHED-SAVE-DROPS-DEBRIS-
-            // TERMINALSTATE work added a restore leg beside the OTHER copy, and a
-            // divergence here would be invisible. Route through the shared seam so this
-            // path inherits any future change to what counts as a post-spawn verdict.
-            // (Unlike the OnLoad copy, this rewind/revert path has NO restore leg — see
-            // REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL.)
-            ParsekScenario.ClearPostSpawnTerminalState(
-                rec, $"rewind reset '{rec.VesselName}' (id={rec.RecordingId})");
+            // The terminal verdict is NOT touched: a committed recording's
+            // TerminalStateValue is recorded content (real-vessel terminal events stamp
+            // only the pending tree), and Destroyed / Recovered are never spawnable, so
+            // the spawn fields below are all a re-spawn needs. Same rule as the OnLoad
+            // tree-mutable-state reset (ParsekScenario.ResetTreeRecordingMutableStateForLoad).
 
             rec.VesselSpawned = false;
             rec.VesselDestroyed = false;
