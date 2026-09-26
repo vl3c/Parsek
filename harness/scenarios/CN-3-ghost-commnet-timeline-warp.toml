@@ -1,9 +1,12 @@
 # CN-3: a ghost relay's recorded timeline carried through a real rails warp (design 15.6).
 # NEVER FLOWN (authored 2026-09-26). Proves 15.6 scenarios 9 (a deployable antenna relays
 # from its recorded deploy event), 10 (a vessel destroyed in its recording relays until the
-# destruction and never after), 16 (a ghost held past its end while its spawn waits keeps
-# relaying, on its terminal orbit) and the hand-off half of 1 (the spawned vessel's own stock
-# node takes over and the ghost node goes).
+# destruction and never after) and the hand-off half of 1 (at EndUT the spawned vessel's own
+# stock node takes over in the same frame and the ghost node goes, no gap). Scenario 16's
+# held-node positioning is NOT reachable here: the first flight (2026-09-26_2034) showed an
+# orbital end spawns in the same frame even during warp (`Deferred spawn during warp` then
+# `Held ghost spawn succeeded on retry ... held=0.0s`), so no node is ever held; the held
+# position source stays covered by the GhostCommNetTests unit cells.
 #
 # THE HOST: `gloops-airshow` (sandbox, the mk1-capsule on the pad, UT 21.16), the CN-1 host.
 # Rails warp on the pad is stock-legal (RL-1 warps on `pad-runway-pair`'s pad).
@@ -30,14 +33,11 @@
 #   the event;
 # - destroyed: registered relaying, then `Removed ghost node: ... reason=window-ended` at the
 #   first tick past 271.16 (the CommNet hook is already dark past EndUT between host ticks);
-# - held: the recording ends inside the warp, so the policy defers its spawn (`Deferred spawn
-#   during warp`); the node turns `in-window -> held-for-spawn`, logs `Held ghost node position
-#   source: ... source=TerminalOrbit`, and while held logs `Held ghost node position: ...
-#   radius=3463334 sweptDeg=...` (the angle it has swept along the terminal orbit since EndUT,
-#   so the node is on the orbit, not parked at the end point; added 2026-09-26 for this lane,
-#   verbose, once per 5 s of real time per node). When the warp comes down the spawn flushes
-#   (`Vessel spawn for #N (CN Held Relay)`) and the same frame's tick removes the ghost node
-#   `reason=vessel-spawned` (the two lines carry the same UT).
+# - handoff: the recording ends inside the warp; the policy logs `Deferred spawn during warp`,
+#   the held-spawn retry spawns the orbital vessel in the same frame (`Held ghost spawn
+#   succeeded on retry`, `Orbital vessel spawn for #N (CN Held Relay) ... terminal=Orbiting`),
+#   and that frame's tick removes the ghost node `reason=vessel-spawned` at ut=371.x, the
+#   recording's EndUT (measured on 2026-09-26_2034: spawn and removal both at ut=371.2).
 #
 # THE CELLS (category GhostCommNetTimeline, 3 FLIGHT declarations). PREDICTED `passed=3 skipped=0`:
 #   DeployableRelayJoinsAtItsDeployEvent_Flight  the node is registered; its timeline has no
@@ -123,14 +123,12 @@ required  = [
   "\\[GhostCommNet\\] Derived antennas: key=cn3-doomed-relay vessel=\"CN Doomed Relay\" source=ghost-visual-snapshot type=Relay parts=2 relayAntennas=1 .*capable=True",
   "\\[GhostCommNet\\] Registered ghost node: key=cn3-doomed-relay node=ParsekGhost:cn3-doomed-relay vessel=\"CN Doomed Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,271\\.2\\] hold=False dark=False relay=[1-9][0-9]* ",
   "\\[GhostCommNet\\] Removed ghost node: key=cn3-doomed-relay vessel=\"CN Doomed Relay\" scene=FLIGHT reason=window-ended ut=27[1-4]\\.[0-9]",
-  # Scenarios 16 and 1: held on the terminal orbit through the warp, then handed over.
+  # Scenario 1's handoff: the spawn and the ghost node's removal both land at EndUT.
   "\\[GhostCommNet\\] Registered ghost node: key=cn3-held-relay node=ParsekGhost:cn3-held-relay vessel=\"CN Held Relay\" scene=FLIGHT reason=in-window ut=[0-9.]+ window=\\[[0-9.]+,371\\.2\\] hold=False dark=False relay=[1-9][0-9]* ",
   "\\[Policy\\] Deferred spawn during warp: #[0-9]+ \"CN Held Relay\"",
-  "\\[GhostCommNet\\] Ghost node window: key=cn3-held-relay vessel=\"CN Held Relay\" in-window -> held-for-spawn ut=37[1-4]\\.[0-9] endUT=371\\.2",
-  "\\[GhostCommNet\\] Held ghost node position source: key=cn3-held-relay vessel=\"CN Held Relay\" scene=FLIGHT source=TerminalOrbit endUT=371\\.2 terminal=Orbiting surfacePos=False orbit=True ",
-  "\\[GhostCommNet\\] Held ghost node position: key=cn3-held-relay vessel=\"CN Held Relay\" scene=FLIGHT source=TerminalOrbit ut=[0-9.]+ sinceEnd=[0-9.]+ radius=346333[0-9] sweptDeg=([1-9][0-9]*\\.[0-9]{2}|0\\.[1-9][0-9]|0\\.0[1-9])",
-  "\\[Spawner\\] Vessel spawn for #[0-9]+ \\(CN Held Relay\\) pid=[0-9]+ sit=ORBITING",
-  "\\[GhostCommNet\\] Removed ghost node: key=cn3-held-relay vessel=\"CN Held Relay\" scene=FLIGHT reason=vessel-spawned ut=[0-9.]+",
+  "\\[Policy\\] Held ghost spawn succeeded on retry: #[0-9]+ \"CN Held Relay\" id=cn3-held-relay held=[0-9.]+s",
+  "\\[Spawner\\] Orbital vessel spawn for #[0-9]+ \\(CN Held Relay\\) pid=[0-9]+ .*terminal=Orbiting",
+  "\\[GhostCommNet\\] Removed ghost node: key=cn3-held-relay vessel=\"CN Held Relay\" scene=FLIGHT reason=vessel-spawned ut=371\\.[0-9]",
   # The cells' own summaries, read after the warp.
   "\\[TestRunner\\] GhostCommNet deployable relay \\(FLIGHT\\): key=cn3-deploy-relay eventUT=171\\.2 relayBefore=0 relayAfter=[1-9][0-9]* nodeRelay=[1-9][0-9]* timelineStates=2",
   "\\[TestRunner\\] GhostCommNet destroyed relay \\(FLIGHT\\): key=cn3-doomed-relay endUT=271\\.2 registered=False reason=window-ended networkNode=False",
