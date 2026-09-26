@@ -164,6 +164,18 @@ type = "string"
 required = false
 type = "bool"
 
+# THE FOCUS-IMPACT PROFILE (CA-1, D1 `commit-abort`). OFF unless set. With it on the
+# UPPER stage's chute is never armed, the upper stage falls from its apex and is
+# destroyed on impact, and that loss (after the observed separation, in DESCENT) is the
+# success terminal IMPACTED instead of an ASSERT-FAIL. The booster's probe core makes
+# it a NON-DEBRIS leaf still under canopy at the impact, which is exactly the live
+# blocker Parsek's post-destruction abort keys on. The three terminal rows invert and
+# rename (craftChuteNeverArmed / focusImpacted / boosterAirborneAtImpact). Full
+# argument: mlib.GS1_FOCUS_IMPACT_LANDED_DEBOUNCE_K.
+[params.focusImpactAtExit]
+required = false
+type = "bool"
+
 # Game-seconds to wait for the booster to reach the ground AFTER the active vessel
 # has landed, before the wait flakes.
 #

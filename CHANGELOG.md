@@ -10,6 +10,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: a lane checks that losing the vessel you fly does not end a mission while
+  another vessel of it survives.** When the active vessel is destroyed but another controlled
+  vessel of the same flight is still alive, Parsek keeps recording instead of wrapping the mission
+  up: no merge dialog appears and nothing is committed. The new lane
+  `CA-1-commit-abort-booster-live` flies the two-stage hop whose booster carries its own probe core,
+  and leaves the upper stage's parachute packed, so the upper stage (the vessel being flown) is
+  destroyed on impact while the booster is still coming down under its own parachutes. The lane
+  checks that Parsek skips the wrap-up at the crash, that the booster survives, and that the flight
+  is committed only later by an explicit commit. The test mission gains an opt-in setting for this
+  ending; every existing lane that flies it is unchanged.
+  Coverage 242 -> 243 of 247 (D1 `commit-abort`, defined by a supervisor ruling pending operator
+  confirmation).
+
 - **Automated testing: a lane checks that an interrupted file save never loses the previous
   file.** Parsek writes each save file to a temporary copy first and then swaps it into place. An
   automation-only fault, which a player build can never arm, now stops a save of one recording's

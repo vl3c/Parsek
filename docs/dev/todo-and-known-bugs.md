@@ -15,6 +15,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~D1-COMMIT-ABORT-UNDEFINED: D1 `commit-abort` had no definition and no lane~~ [FILED AND CLOSED 2026-09-26 by `CA-1-commit-abort-booster-live`, coverage wave 14, branch `cov-commitabort`; the definition is a supervisor ruling PENDING OPERATOR CONFIRMATION]
+
+**Definition (registry D1 block).** The post-destruction auto-merge is ABORTED because the ACTIVE
+vessel was destroyed while another leaf of the same tree is a NON-DEBRIS blocker (still live, or
+ended in a spawnable terminal), and the tree keeps recording instead of finalizing:
+`ParsekFlight.ClassifyPostDestructionMergeResolution` returns `AbortAndKeepRecording` and the
+`ShowPostDestructionTreeMergeDialog` coroutine logs `not all leaves terminal` and yields out before
+`FinalizeTreeRecordings` / `StashPendingTree`. Re-derived from the full caller set: the classifier's
+one caller is that coroutine, whose two starters are the active-vessel death
+(`DestructionMode.TreeAllLeavesCheck`) and `DeferredDestructionCheck`, which starts it only after
+`AreAllLeavesTerminal` already answered true, so only an active death can abort. No C# change: the
+abort branch already logs at Info.
+
+**Lane.** GS-1's two-stage hop (`gs1-two-stage-pad`, probe-cored booster = controlled child) with the
+new opt-in `gs1_auto_chute_booster` flag `focusImpactAtExit`: the upper chute is never armed, the upper
+stage is destroyed on impact while the booster is under canopy, and the mission concludes on the loss
+- which, measured, is KSP HANDING THE ACTIVE VESSEL TO THE BOOSTER, not an unreadable vessel, so the
+shell now reads the vessel name. Parsek: `Active vessel destroyed in tree mode`, the pending-split
+wait for the crash debris, `AreAllLeavesTerminal: leaves=2 terminal=1 alive=1 -> False`, the abort, no
+finalize or stash; the booster's recording is promoted to the live recorder once warp winds down
+(`Promoted recording ... from background`) and the explicit commit at UT 400.1 finalizes it
+`terminal=Landed`. Reading `2026-09-26_0138` PASS; armed re-flight `2026-09-26_0143` PASS; offline negative control
+red on 12 of 12 seeds.
+
+**Runs that are NOT product findings.** `2026-09-26_0106` (PARSEK-FAIL, the first host, EVA-4's
+mid-air EVA with the kerbal's chute left stowed) was a PREMISE MISS: the kerbal ragdolled and landed
+alive, so no active vessel died. `2026-09-26_0127` and its retry `_0132_a2` (INVALID) were a mission
+miss: both carried the whole Parsek abort shape, and the machine read the booster's landing after the
+handoff as an intact touchdown. Fixed in the mission, not in Parsek.
+
 ## ~~D14-JOOL-MOONS-TYLO-BOP-POL: no recording had been flown to, or replayed around, Tylo, Bop or Pol~~ [FILED AND CLOSED 2026-09-26 by coverage wave 11, branch `cov-joolmoons`; roadmap G9's moon half]
 
 **CLOSED 2026-09-26.** D14 `tylo`, `bop` and `pol` were the last uncovered body cells. Harvest lanes
