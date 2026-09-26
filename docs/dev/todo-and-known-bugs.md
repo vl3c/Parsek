@@ -5022,6 +5022,18 @@ unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by de
   claimed (coverage 243 -> 244 of 247); offline negative control red on 22 of 22 seeded faults.
   H28 re-flown `2026-09-26_1123` PASS, confirming its derived `total=4 skipped=2` pin.
 
+## GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST: the continuation-hold pass has no manager-level dedupe test, and FLIGHT scans for it every frame [FILED 2026-09-26 by the commnet-followups review. OPEN, low; test and performance hygiene, no live defect]
+
+- The pass-3 identity dedupe in `GhostCommNetManager.Tick` (`ChainVesselCoveredByRecording` before a
+  continuation-hold entry) can be removed with no test going red; only the pure pieces are pinned. The
+  duplicate it guards (a chain-intermediate recording's hold beside the pre-claim snapshot node of the
+  same vessel) needs a recording in replay scope while its vessel is real, which should be unreachable.
+  Fix: move the pass ordering and dedupe into a pure function and pin it, or give the manager a
+  headless seam for the CommNet types.
+- FLIGHT evaluates `ApplyContinuationHold` every frame for every in-scope unspawned recording with
+  `TerminalSpawnSupersededByRecordingId` set, scanning the committed list even far from EndUT (O(K*n)
+  per frame). Fine at today's scales. Fix: gate it to near or past EndUT as the Tracking Station does.
+
 ## ~~GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance~~ [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15. DONE 2026-09-26, branch `commnet-followups`; two Tracking Station sub-cases left dark, below]
 
 Design 15.6 scenario 15 says a real vessel despawned because a committed future recording claims

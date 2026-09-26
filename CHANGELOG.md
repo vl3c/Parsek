@@ -28,10 +28,12 @@ _(unreleased — entries accumulate here per commit)_
   whole claimed stretch until it reappears: from where it was until the first recording that
   carries it starts, then through each recording that carries it, and in between two of them
   from the orbit or landing spot the earlier one ended at, until the next one takes it over (a
-  vessel docked into another one relays through that vessel's own recording, never twice). A
-  recording hidden from playback also relays when the Tracking Station is the first place you
-  open after loading a save, and a ghost that is about to be held for its spawn no longer blinks
-  out for a moment at the end of its recording in the Tracking Station.
+  vessel docked into another one relays through that vessel's own recording, never twice). The
+  Tracking Station now tracks replay progress the way flight and the Space Center do, so when it
+  is the first scene to see a recording that is still ahead of the clock, that recording's map
+  ghost, its end-of-recording spawn and its CommNet relay behave as they would elsewhere (a
+  recording hidden from playback relays there too), and a ghost that is about to be held for its
+  spawn no longer blinks out for a moment at the end of its recording in the Tracking Station.
 
 - **Automated testing: a lane checks that losing the vessel you fly does not end a mission while
   another vessel of it survives.** When the active vessel is destroyed but another controlled
