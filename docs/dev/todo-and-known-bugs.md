@@ -578,6 +578,9 @@ from D6 `spawn-at-end-pid-dedup`.
   product loaded, and round-trips a live vessel snapshot through the product writer and reader.
 - D14 `atmosphere` is claimed on an ORBITAL Laythe replay; a replay descending into a non-Kerbin
   atmosphere is not gated anywhere.
+  2026-09-26: `AT-1-duna-atmospheric-descent` is authored on `duna-park-recorded`, whose recording
+  `acf1435a` descends through Duna's atmosphere; the claim moves to it once its reading and armed
+  runs are green.
 
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect]
 

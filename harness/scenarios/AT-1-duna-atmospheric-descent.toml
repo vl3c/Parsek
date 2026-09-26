@@ -1,0 +1,133 @@
+schema = 1
+id = "AT-1-duna-atmospheric-descent"
+# =====================================================================================
+# AT-1: A GHOST REPLAYED INSIDE A NON-KERBIN ATMOSPHERE. The behavioural declarer of
+# D14 `atmosphere` ("a recording replays correctly around a non-Kerbin atmospheric
+# body", operator-confirmed 2026-09-26). The first declarer, V16M, replays an ORBIT
+# around Laythe and never enters the air; this lane replays a recorded DESCENT through
+# Duna's atmosphere.
+#
+# THE SUBJECT. `duna-park-recorded` (V25M's fixture, tree ced78481, "Kerbal X #2")
+# landed on Duna. Its recording `acf1435a` is ENTIRELY Atmospheric on Duna - three
+# TrackSections, env 0, body Duna, altitude 49,991 m down to 4,534 m over
+# [2,570,542,381.03, 2,570,542,620.24] (read off the committed `.prec.txt`; Duna's
+# atmosphere is 50 km deep). In the loop unit it is descent member 12 of
+# `DESCENT TRIGGER engaged dest=Duna members=[9,10,12,13]` (V25M's own log), window
+# `win=[2570542381.0310211,2570542620.2446113]`.
+#
+# THE CLOCK. The fixture's save clock (5,336,112,610) is far past the recording, so the
+# only road to a replay is the mission loop. Under the loop the descent is DETACHED
+# from the raw loop clock (Reaim/DescentTrigger.cs): the icon circles the parking
+# conic from loiter entry until the first live UT congruent with the recorded deorbit
+# UT (+ the S4 site-align offset) modulo Duna's rotation, then the recorded clip plays
+# forward at the live rate. Replayed offline from V25M's `2026-09-25_1950` log values
+# through `ComputeDescentTiming` (cycle 0; phaseAnchor 5,336,966,486.9446; spanStart
+# 2,547,277,477.4306; captureShift -2,860,032.857; the destination loiter cut lies after
+# conicEnd and contributes 0):
+#   entryUT   = 5,357,371,357.65   (loiter entry)
+#   triggerUT = 5,357,413,107.27   (offset 3,059.9 s; 5,357,410,047.37 without it)
+#   member 12 (the atmospheric clip) plays over live [trigger, trigger + 239.2 s].
+# The re-aimed transfer reaches Duna's SOI at 5,357,228,586 (ReaimSeam synth geometry),
+# BEFORE the loiter entry, so the descent follows the arrival.
+#
+# THE DRIVE. TimeJump into the loiter (the trace opens the cycle's window and prints
+# `DESCENT WINDOW ... descent renders at [trigger, ...]`, which is where a re-pin reads
+# the trigger), then TimeJump to trigger + 100 s and trigger + 200 s, both inside member
+# 12's slice, with RecordingState spacers so frames run at each instant.
+#
+# THE WITNESS, three independent lines from the flight engine:
+#   - `engine descent trigger member=12 ... phase=Descent render=True ... head=<in
+#     member 12's window>` (GhostPlaybackEngine: the engine drives the ghost on the
+#     atmospheric clip);
+#   - `Pending playback interpolation: vessel='Kerbal X' UT=<in the window> resolved
+#     from ... body='Duna' altitude=<below 50,000>` (the ghost is spawned on Duna, inside
+#     the atmosphere);
+#   - `DESCENT RENDERED cycle=0` (the cycle's descent rendered, not skipped).
+# The active vessel stays at KSC, so FX (reentry, audio) are distance-suppressed and are
+# NOT the witness.
+#
+# READING-RUN STATE: NEVER FLOWN. The UTs above are predictions; the reading run
+# confirms them or re-pins from the DESCENT WINDOW line.
+# =====================================================================================
+tier = "nightly"
+description = "D14 atmosphere, behavioural declarer: loop duna-park-recorded's Kerbal X #2 mission, TimeJump into the Duna loiter and then twice into the descent trigger's atmospheric slice (member 12, recording acf1435a, all Atmospheric on Duna), and require the engine to drive and spawn the ghost on Duna below 50 km. NEVER FLOWN; UTs predicted offline from V25M's log."
+instanceProfile = "stock-minimal"
+tags = ["AT1", "atmosphere", "duna", "descent-trigger", "loop-playback", "reaim"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-park-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # verboseLogging is load-bearing: the engine descent line and the pending-interpolation
+  # line are both VERBOSE.
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig", args = { tree = "ced7848157674b8ea19311377c0f6fbc", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "ced7848157674b8ea19311377c0f6fbc" }, expect = "OK", budget = 300 },
+  # L - inside the loiter: entry 5,357,371,357.65 < L < trigger 5,357,413,107.27.
+  { cmd = "TimeJump", args = { ut = "5357371500" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # D1 - trigger + 100 s: descent head ~2,570,542,481, inside member 12's window.
+  { cmd = "TimeJump", args = { ut = "5357413207" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  # D2 - trigger + 200 s: head ~2,570,542,581, still inside member 12's window.
+  { cmd = "TimeJump", args = { ut = "5357413307" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["duna", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# V25M's bracket on the same fixture: 14 committed, one scene-entry stub admissible, the
+# ceiling a runaway guard against load-time optimizer splits at the two cross-body seams.
+count = { min = 12, max = 22 }
+
+[expectations.logContracts]
+required = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "DESCENT TRIGGER engaged dest=Duna members=\\[9,10,12,13\\]",
+  "DESCENT WINDOW cycle=0: loitering now; descent renders at \\[",
+  # member 12's window is [2570542381.03, 2570542620.24]; the head regex spans it.
+  "engine descent trigger member=12 cycle=0 phase=Descent render=True liveUT=[0-9.E+]+ head=2570542(38[1-9]|39[0-9]|[45][0-9]{2}|60[0-9]|61[0-9])\\.",
+  "Pending playback interpolation: vessel='Kerbal X' UT=2570542(38[1-9]|39[0-9]|[45][0-9]{2}|60[0-9]|61[0-9])\\.[0-9] resolved from [^\\r\\n]* body='Duna' altitude=([0-9]{1,4}|[1-4][0-9]{4})\\.[0-9]",
+  "DESCENT RENDERED cycle=0 member=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "DESCENT SKIPPED cycle=0",
+  "DESCENT REVERTED cycle=0",
+]
+
+[runtime]
+# 300 LoadGame + 300 StartLoopPlayback + 3 x 300 TimeJump + the fast verbs + boot and
+# collect. Every jump is instantaneous.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
