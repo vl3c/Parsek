@@ -76,26 +76,6 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            // Phase and Site draw only while the Recordings tab's Info toggle is open, and
-            // closing Info resets a sort on them, so a sort on a hidden one is refused.
-            bool recordingsInfoOpen = spec.Name != TestCommandUiAction.MissionsWindow
-                || ui.GetRecordingsTableUI().ShowExpandedStatsForTesting;
-            if (TestCommandUiSelectSort.IsSortColumnHidden(
-                    spec.Name, tabToken, rawColumn, recordingsInfoOpen))
-            {
-                ParsekLog.Warn(Tag, "uiaction rejected reason="
-                    + TestCommandUiSelectSort.SortColumnHiddenReason
-                    + $" window={spec.Name} tab={TestCommandUiSelectSort.TabField(tabToken)} "
-                    + $"column={rawColumn} (Info is shut; open it with op=state key="
-                    + TestCommandUiWindowState.ExpandedStatsKey + " state=true first)");
-                SetExecResult("REJECTED", null,
-                    $"{TestCommandUiSelectSort.SortColumnHiddenReason} window={spec.Name} "
-                    + $"tab={TestCommandUiSelectSort.TabField(tabToken)} column={rawColumn} "
-                    + "remedy=op=state key=" + TestCommandUiWindowState.ExpandedStatsKey
-                    + " state=true");
-                return;
-            }
-
             string rawDir = ArgOrNull(cmd, TestCommandUiSelectSort.DirArg);
             if (!TestCommandUiSelectSort.TryParseDirection(
                     rawDir, out bool ascending, out string dirReject))

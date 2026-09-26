@@ -192,7 +192,7 @@ namespace Parsek.Tests
                 && l.Contains("no longer suppressed by the enclosing row")));
         }
 
-        // ── Item 5: Info keeps MaxAlt / MaxSpd; Start / End move into the Status hover ──
+        // ── Item 5: Start / End move into the Status hover; debris shows its ending ──
 
         private static Recording MakeRec(double startUT, double endUT)
         {
@@ -310,94 +310,53 @@ namespace Parsek.Tests
             Assert.Equal("Ends: Destroyed, Kerbin", tip);
         }
 
-        // ── Item 6: Phase and Site live in Info; collapsing Info resets a sort on them ──
+        // ── Item 5 (revised): MaxAlt / MaxSpd leave the table for the Status hover ──
 
-        [Theory]
-        [InlineData((int)RecordingsTableUI.SortColumn.Phase, true)]
-        [InlineData((int)RecordingsTableUI.SortColumn.LaunchSite, true)]
-        [InlineData((int)RecordingsTableUI.SortColumn.Index, false)]
-        [InlineData((int)RecordingsTableUI.SortColumn.Name, false)]
-        [InlineData((int)RecordingsTableUI.SortColumn.LaunchTime, false)]
-        [InlineData((int)RecordingsTableUI.SortColumn.Duration, false)]
-        [InlineData((int)RecordingsTableUI.SortColumn.Status, false)]
-        public void OnlyTheInfoColumnsResetTheSortOnCollapse(int col, bool expected)
+        [Fact]
+        public void StatusStats_ReadsMaxAltitudeAndSpeedPlainly()
         {
-            Assert.Equal(expected,
-                RecordingsTableUI.ShouldResetSortWhenInfoCollapses((RecordingsTableUI.SortColumn)col));
+            Assert.Equal("Max altitude 70.0km, max speed 2.2km/s",
+                RecordingsTableUI.BuildStatusStatsTooltip(70000, 2200, 54));
+            Assert.Equal("Max altitude 950m, max speed 312m/s",
+                RecordingsTableUI.BuildStatusStatsTooltip(950.4, 312.9, 3));
         }
 
         [Fact]
-        public void CollapsingInfoWhileSortedByPhase_FallsBackToTheDefaultSortAndLogs()
+        public void StatusStats_IsEmptyForARecordingWithNoPoints()
         {
-            var ui = new RecordingsTableUI(null);
-            ui.ShowExpandedStatsForTesting = true;
-            ui.SortColumnIndexForTesting = (int)RecordingsTableUI.SortColumn.Phase;
-            ui.SortAscendingForTesting = false;
-
-            ui.SetShowExpandedStats(false, "test");
-
-            Assert.False(ui.ShowExpandedStatsForTesting);
-            Assert.Equal((int)RecordingsTableUI.DefaultSortColumn, ui.SortColumnIndexForTesting);
-            Assert.Equal(RecordingsTableUI.DefaultSortAscending, ui.SortAscendingForTesting);
-            Assert.Contains(logLines, l => l.Contains("[UI]")
-                && l.Contains("Recordings sort reset Phase desc -> LaunchTime asc")
-                && l.Contains("origin=test"));
+            Assert.Equal(string.Empty, RecordingsTableUI.BuildStatusStatsTooltip(0, 0, 0));
         }
 
         [Fact]
-        public void CollapsingInfoWhileSortedByName_KeepsTheSort()
+        public void StatusStats_IsInvariantUnderACommaDecimalCulture()
         {
-            var ui = new RecordingsTableUI(null);
-            ui.ShowExpandedStatsForTesting = true;
-            ui.SortColumnIndexForTesting = (int)RecordingsTableUI.SortColumn.Name;
-            ui.SortAscendingForTesting = false;
-
-            ui.ShowExpandedStatsForTesting = false;
-
-            Assert.Equal((int)RecordingsTableUI.SortColumn.Name, ui.SortColumnIndexForTesting);
-            Assert.False(ui.SortAscendingForTesting);
-            Assert.DoesNotContain(logLines, l => l.Contains("Recordings sort reset"));
+            var prev = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    new System.Globalization.CultureInfo("de-DE");
+                Assert.Equal("Max altitude 13.2km, max speed 1.5km/s",
+                    RecordingsTableUI.BuildStatusStatsTooltip(13200, 1500, 10));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prev;
+            }
         }
 
         [Fact]
-        public void TheSeamSetterResetsTheSortTheSameWay()
+        public void StatusHover_FitsTheOneLineStripWithPlaceAndStats()
         {
-            var ui = new RecordingsTableUI(null);
-            ui.ShowExpandedStatsForTesting = true;
-            ui.SortColumnIndexForTesting = (int)RecordingsTableUI.SortColumn.LaunchSite;
-
-            ui.ShowExpandedStatsForTesting = false;
-
-            Assert.Equal((int)RecordingsTableUI.DefaultSortColumn, ui.SortColumnIndexForTesting);
-            Assert.Contains(logLines, l => l.Contains("Recordings sort reset LaunchSite")
-                && l.Contains("origin=seam"));
+            // The Status hover's own clauses (place + stats) for a long-named EVA fit the
+            // window's one-line help strip (189 characters at 1355 px, TooltipEchoBudgetTests).
+            string place = RecordingsTableUI.BuildStatusPlaceTooltip(
+                RecordingsTableFormatters.EvaFromPrefix + "Kerbal X Heavy Lander Mk2",
+                "Northern Highlands, Mun", "Landed");
+            string stats = RecordingsTableUI.BuildStatusStatsTooltip(12_500_000, 3456, 200);
+            string both = place + " - " + stats;
+            Assert.True(both.Length <= 189, both.Length + ": " + both);
         }
 
-        [Theory]
-        [InlineData("phase", false, true)]
-        [InlineData("site", false, true)]
-        [InlineData("phase", true, false)]
-        [InlineData("name", false, false)]
-        [InlineData("duration", false, false)]
-        public void SeamSort_RefusesAnInfoColumnWhileInfoIsShut(string column, bool infoOpen, bool hidden)
-        {
-            Assert.Equal(hidden, Parsek.TestCommands.TestCommandUiSelectSort.IsSortColumnHidden(
-                Parsek.TestCommands.TestCommandUiAction.MissionsWindow,
-                Parsek.TestCommands.TestCommandUiSelectSort.RecordingsTabToken,
-                column, infoOpen));
-        }
-
-        [Fact]
-        public void SeamSort_HiddenColumnRuleIsScopedToTheRecordingsTab()
-        {
-            // The Missions tab has no phase column, and other windows are untouched.
-            Assert.False(Parsek.TestCommands.TestCommandUiSelectSort.IsSortColumnHidden(
-                Parsek.TestCommands.TestCommandUiAction.MissionsWindow,
-                Parsek.TestCommands.TestCommandUiSelectSort.MissionsTabToken, "phase", false));
-            Assert.False(Parsek.TestCommands.TestCommandUiSelectSort.IsSortColumnHidden(
-                Parsek.TestCommands.TestCommandUiAction.LogisticsWindow,
-                Parsek.TestCommands.TestCommandUiSelectSort.RecordingsTabToken, "site", false));
-        }
 
         // ── Item 3: the mission folder draws its launched vessel's segments directly ──
 

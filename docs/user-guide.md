@@ -122,10 +122,11 @@ Columns:
 - **Playback enable** - per-row checkbox; when unchecked, the flight has no ghost anywhere: no ghost in the world, no map icon, no orbit line, no Tracking Station entry and no drawn trajectory. Re-ticking it brings all of them straight back. Visual-only: the recording's career effects (resources, contracts, crew, and the final vessel spawn) still apply regardless. To fully exclude a recording from the career, Delete (post-commit) or Discard (pre-commit) it. The header checkbox toggles all rows at once, and so do the folder and flight-block checkboxes for their own members.
 - **#** - row index.
 - **Name** - vessel name; double-click to rename.
+- **Phase** - colored label (`atmo`, `exo`, `space`, `approach`, `surface`), with the body path when the flight changed bodies (`Kerbin -> Mun exo`).
+- **Site** - launch site name.
 - **Launch** - KSP calendar format.
 - **Duration** - compact format (e.g. "56s", "2m 30s", "1h 15m"). On a folder or flight row it is the time the flights inside cover, from the earliest launch to the latest end.
-- **Info columns** (shown when the **Info** toggle at the bottom of the window is expanded) - **Phase** (colored label: `atmo`, `exo`, `space`, `approach`, `surface`), **Site** (launch site name), max altitude and max speed.
-- **Status** - `future` / `active` / countdown `T-Xd Xh Xm Xs` for unspawned recordings, `past` or a terminal state (`Orbiting`, `Landed`, `Splashed`, `Docked`, `Recovered`, `Destroyed`) for finished ones, debris included. Color-coded. Hovering shows where the flight ended (for example `Ends: Shores, Kerbin`), the vessel an EVA started from, and chain status when flying alongside an active ghost.
+- **Status** - `future` / `active` / countdown `T-Xd Xh Xm Xs` for unspawned recordings, `past` or a terminal state (`Orbiting`, `Landed`, `Splashed`, `Docked`, `Recovered`, `Destroyed`) for finished ones, debris included. Color-coded. Hovering shows where the flight ended (for example `Ends: Shores, Kerbin`), the vessel an EVA started from, the highest altitude and speed it reached, and chain status when flying alongside an active ghost.
 - **Group** - "G" button opens a group picker; custom (user-created) groups add an "X" button to disband the group; ghost-only recordings add an "X" button to delete the recording. A mission's row adds an "S" button that picks folders for every segment of the launched vessel at once.
 - **Loop Ghost** - per-row loop toggle. Header checkbox toggles all rows. See Loop Playback below.
 - **Period** - launch-to-launch loop period with a unit button that cycles `sec -> min -> hr -> auto`. "auto" inherits the default from Settings -> Looping. Blank while the row's Loop is off.
@@ -133,9 +134,9 @@ Columns:
 - **Rewind / F.Forward** - "R" (rewind) for past/active recordings with a rewind save; "FF" (fast-forward) for future recordings. The button is disabled if the operation is currently not safe; hover for the reason. Each target is offered once: a row under a folder that already offers the same R or FF leaves its own cell blank.
 - **Archive** - per-row archive toggle. The header checkbox controls whether archived recordings are filtered out of the table (checked, default) or shown (unchecked). Archived recordings still play as ghosts, still apply their career effects, still spawn vessels — the toggle only hides the row from this table.
 
-Click any sortable column header (#, Name, Launch, Duration, Status, and Phase or Site while Info is expanded) to sort by that column. Click again to reverse. Collapsing Info while sorted by Phase or Site goes back to sorting by Launch. The window is draggable and resizable.
+Click any sortable column header (#, Name, Phase, Site, Launch, Duration, Status) to sort by that column. Click again to reverse. The window is draggable and resizable.
 
-Bottom bar: **Info** toggles the Phase, Site, max altitude and max speed columns; **New Group** creates a user-defined group you can drag recordings into via the "G" picker.
+Bottom bar: **New Group** creates a user-defined group you can drag recordings into via the "G" picker.
 
 ### Time-Range Filter
 

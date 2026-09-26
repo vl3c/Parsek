@@ -112,18 +112,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingsWindowDefaultWidths_InfoAddsItsFourColumnsLessWhatNameGained()
+        public void RecordingsWindowDefaultWidth_IsTheWindowsNotTheColumns()
         {
-            // The collapsed width is the WINDOW's (shared with the Missions tab and the
-            // one-line help strip budgeted for it), so Phase + Site moving into Info did not
-            // shrink it. Info adds Phase 90 + Site 90 + MaxAlt 65 + MaxSpd 65 + four 4px gaps
-            // (326) less the 188 Name had gained, so Name reads as wide with Info open as it
-            // did collapsed before the move.
-            Assert.Equal(1355f, RecordingsTableUI.DefaultCollapsedWindowWidth);
-            Assert.Equal(326f, RecordingsTableUI.InfoColumnsWidth);
-            Assert.Equal(188f, RecordingsTableUI.CollapsedColumnsFreedWidth);
-            Assert.Equal(1493f, RecordingsTableUI.DefaultExpandedWindowWidth);
-            Assert.Equal(RecordingsTableUI.DefaultCollapsedWindowWidth, RecordingsTableUI.MinWindowWidth);
+            // The width is the WINDOW's (shared with the Missions tab and the one-line help
+            // strip budgeted for it); the wider Phase column came out of Name, and there is no
+            // second (Info) width any more.
+            Assert.Equal(1355f, RecordingsTableUI.DefaultWindowWidth);
+            Assert.Equal(RecordingsTableUI.DefaultWindowWidth, RecordingsTableUI.MinWindowWidth);
         }
 
         [Fact]

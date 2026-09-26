@@ -35,16 +35,19 @@ row hands the R / FF target it actually DREW to its children
 committed index draws a blank cell (`IsTimeTargetShownByEnclosingRow`), logged on transitions
 only; STASH resets the inherited targets so its mirror rows keep their buttons.
 
-Fix (commit 2): the Info band is Phase, Site, MaxAlt, MaxSpd (Pts, Dist, Start, End
-dropped); the Status hover leads with `BuildStatusPlaceTooltip` (an EVA's `EVA from X` and
-`Ends: <FormatEndPosition>`); a leaf's Status shows its terminal word for debris too
-(`ResolveRecordingStatusText`) while `GetGroupStatus` keeps ignoring debris. Collapsing Info
-while sorted by Phase or Site resets to Launch ascending (`SetShowExpandedStats`, shared by the
-button and the `op=state key=expandedStats` seam), and the census seam refuses
-`op=sort column=phase|site` while Info is shut (`sort-column-hidden`). The window keeps its
-1355 px first-open / minimum width: the Missions tab and the one-line help strip budgeted at
-189 characters are held by it, so the Name column absorbs the 188 px Phase + Site gave back;
-Info widens to 1493 px (was 1813).
+Fix (commit 2, revised by the owner's follow-up the same day): the Info toggle is REMOVED,
+with everything that existed only for it - the second (expanded) window width and its resize,
+the sort reset on collapse, the `op=state key=expandedStats` seam key (C# table, applier, hlib
+`UIACTION_STATE_KEYS`) and the short-lived `sort-column-hidden` refusal. Phase and Site are
+always-shown columns again; Pts, Dist, Start, End, MaxAlt and MaxSpd are gone from the table.
+The Status hover leads with `BuildStatusPlaceTooltip` (an EVA's `EVA from X` and
+`Ends: <FormatEndPosition>`) and `BuildStatusStatsTooltip` (`Max altitude 70.0km, max speed
+2.2km/s`); a leaf's Status shows its terminal word for debris too
+(`ResolveRecordingStatusText`) while `GetGroupStatus` keeps ignoring debris. The window keeps
+its 1355 px width (`DefaultWindowWidth`: the Missions tab and the one-line help strip budgeted
+at 189 characters are held by it); Phase is 120 px so a two-body label stays on one line, and
+the room comes from Name plus Site 90 -> 80 and Duration 80 -> 70. GUI-25's Info capture became
+a Phase-column sort capture (`ib-missions-recordings-sortphaseasc-advanced`).
 
 Fix (commit 3): a mission folder (a tree's auto-generated root group) absorbs its tree-root
 vessel's display block - key `group::treevessel:{TreeId}:{rootPid}`, or the `chain:` fallback

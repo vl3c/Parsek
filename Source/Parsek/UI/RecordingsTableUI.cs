@@ -51,20 +51,23 @@ namespace Parsek
         internal const string WindowIdKey = "ParsekRecordings";
 
         private const float ResizeHandleSize = 16f;
-        // Minimum resize width = the window's collapsed width (Info toggled off), so the window
-        // can never be dragged narrow enough to clip either tab or push the shared help strip
-        // past its one-line budget. Shared by both tabs (one window, one resize clamp in
-        // DrawIfOpen -> HandleResizeDrag). C# resolves the forward const reference regardless of
-        // textual order. (Expanding Info still widens the window to DefaultExpandedWindowWidth.)
-        internal const float MinWindowWidth = DefaultCollapsedWindowWidth;
+        // Minimum resize width = the window's default width, so the window can never be
+        // dragged narrow enough to clip either tab or push the shared help strip past its
+        // one-line budget. Shared by both tabs (one window, one resize clamp in DrawIfOpen ->
+        // HandleResizeDrag). C# resolves the forward const reference regardless of textual
+        // order.
+        internal const float MinWindowWidth = DefaultWindowWidth;
         internal const float MinWindowHeight = 150f;
 
         // Column widths — shared between header and body for alignment
         private const float ColW_Enable = 20f;
-        private const float ColW_Phase = 90f;
+        // Wide enough for a two-body phase label on one line ("Kerbin -> Mun exo" measured
+        // ~107 px of text in the 2026-09-26 census, plus the cell's 4 + 4 padding).
+        private const float ColW_Phase = 120f;
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
-        private const float ColW_Dur = 80f;
+        // The longest FormatDuration output ("394d 4h", "10m 57s") is about 55 px of text.
+        private const float ColW_Dur = 70f;
         private const float ColW_Status = 120f;
         private const float ColW_Loop = 60f;
         private const float ColW_Watch = 50f;
@@ -75,24 +78,9 @@ namespace Parsek
         // Recordings columns: the window is shared with the Missions tab (its default tab,
         // whose header bar needs this width), and the one-line help strip both tabs share is
         // budgeted at 189 characters for exactly this width (TooltipEchoBudgetTests,
-        // DisabledReasonWordingTests). When Phase and Site moved into Info (2026-09-26) the
-        // collapsed Recordings table got narrower and the expanding Name column took the
-        // CollapsedColumnsFreedWidth instead of the window shrinking.
-        internal const float DefaultCollapsedWindowWidth = 1355f;
-        // One inter-cell margin in the table rows (KSP's skin: every cell style carries
-        // margin L4/R4, and adjacent margins collapse to one 4px gap).
-        private const float TableCellSpacing = 4f;
-        // What the Info toggle adds to a row: Phase, Site, MaxAlt and MaxSpd plus their gaps.
-        internal const float InfoColumnsWidth =
-            ColW_Phase + ColW_Site + ColW_MaxAlt + ColW_MaxSpd + 4 * TableCellSpacing;
-        // What Phase and Site gave back to the collapsed table when they moved into Info.
-        internal const float CollapsedColumnsFreedWidth =
-            ColW_Phase + ColW_Site + 2 * TableCellSpacing;
-        // Info widens the window by exactly the Info band less what the collapsed Name
-        // column had gained, so Name is as wide with Info open as it was collapsed before
-        // the move.
-        internal const float DefaultExpandedWindowWidth =
-            DefaultCollapsedWindowWidth + InfoColumnsWidth - CollapsedColumnsFreedWidth;
+        // DisabledReasonWordingTests). Wider fixed columns come out of the expanding Name
+        // column, never out of a wider window.
+        internal const float DefaultWindowWidth = 1355f;
         private const string RewindActionLabel = "R";
         private const string FastForwardActionLabel = "FF";
 
@@ -102,7 +90,8 @@ namespace Parsek
         // uniform; +10px over the single-label default balances with the toggle
         // cells without over-inflating them.
         private const float ColHeaderHeight = 32f;
-        private const float ColW_Site = 90f;
+        // "Launch Pad" measured ~69 px of text; 80 holds it with the cell padding.
+        private const float ColW_Site = 80f;
         private const float ColW_Group = 60f;
         // The header's merged [select-all toggle + "#"] cell: the two body cells it sits over
         // plus the 8 px of margin budget between them (see DrawRecordingsTableHeader). Named
@@ -169,8 +158,8 @@ namespace Parsek
 
         // Sort state
         internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status, LaunchSite }
-        private SortColumn sortColumn = DefaultSortColumn;
-        private bool sortAscending = DefaultSortAscending;
+        private SortColumn sortColumn = SortColumn.LaunchTime;
+        private bool sortAscending = true;
 
         // Two-tab bar (Missions | Recordings). Missions is the primary identity of this
         // window: it renders the higher mission abstraction over the same recordings
@@ -603,76 +592,6 @@ namespace Parsek
         // DrawRecordingsWindowTooltip runs.
         private string recordingsWindowTooltipText = "";
 
-        // Expanded stats columns
-        private bool showExpandedStats;
-
-        /// <summary>
-        /// The Info toggle's own state - four extra columns (Phase, Site, MaxAlt, MaxSpd) and a
-        /// wider window - readable and writable from outside the draw pass for the
-        /// automation-only <c>UiAction op=state key=expandedStats</c> seam op.
-        ///
-        /// <para>Writes through <see cref="SetShowExpandedStats"/>, the toggle's own body, so a
-        /// collapse while the sort is on Phase or Site resets the sort exactly as the button
-        /// does. It deliberately does NOT carry the toggle handler's window WIDENING (the
-        /// handler grows the rect to DefaultExpandedWindowWidth so the new columns fit): a
-        /// census sizes every window with <c>op=rect</c> anyway, and a property that resized
-        /// the window would make the commanded rect of the step after it unpredictable. A lane
-        /// that wants the columns visible passes the wide rect itself.</para>
-        /// </summary>
-        internal bool ShowExpandedStatsForTesting
-        {
-            get { return showExpandedStats; }
-            set { SetShowExpandedStats(value, "seam"); }
-        }
-
-        /// <summary>The sort the table opens with, and the one it falls back to when the
-        /// column it was sorted by is hidden.</summary>
-        internal const SortColumn DefaultSortColumn = SortColumn.LaunchTime;
-        internal const bool DefaultSortAscending = true;
-
-        /// <summary>
-        /// Whether collapsing Info must reset the sort: Phase and Site live in the Info band,
-        /// so with Info shut the table would be sorted by a column the player cannot see (and
-        /// no header would carry the arrow). Pure for unit testing.
-        /// </summary>
-        internal static bool ShouldResetSortWhenInfoCollapses(SortColumn column)
-        {
-            return column == SortColumn.Phase || column == SortColumn.LaunchSite;
-        }
-
-        /// <summary>Whether a sort column is drawn only while Info is open.</summary>
-        internal static bool IsInfoOnlySortColumn(SortColumn column)
-        {
-            return ShouldResetSortWhenInfoCollapses(column);
-        }
-
-        /// <summary>
-        /// The Info toggle's body: flips the flag and, on a collapse while the sort is on an
-        /// Info-only column, falls back to <see cref="DefaultSortColumn"/> ascending. Shared by
-        /// the footer button and the census seam. No-op when the flag already has the value.
-        /// </summary>
-        internal void SetShowExpandedStats(bool value, string origin)
-        {
-            if (showExpandedStats == value) return;
-            showExpandedStats = value;
-            ParsekLog.Verbose("UI",
-                $"Recordings Info toggled: {(value ? "expanded" : "collapsed")} (origin={origin})");
-            if (value || !ShouldResetSortWhenInfoCollapses(sortColumn))
-                return;
-
-            SortColumn was = sortColumn;
-            bool wasAscending = sortAscending;
-            sortColumn = DefaultSortColumn;
-            sortAscending = DefaultSortAscending;
-            InvalidateSort();
-            ParsekLog.Info("UI",
-                $"Recordings sort reset {was} {(wasAscending ? "asc" : "desc")} -> "
-                + $"{DefaultSortColumn} {(DefaultSortAscending ? "asc" : "desc")}: "
-                + $"Info collapsed and hid the sorted column (origin={origin})");
-        }
-        private const float ColW_MaxAlt = 65f;
-        private const float ColW_MaxSpd = 65f;
-
         // Loop period editing — buffer used while text field is focused
         private int loopPeriodFocusedRi = -1;
         private string loopPeriodEditText = "";
@@ -994,7 +913,7 @@ namespace Parsek
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    DefaultCollapsedWindowWidth, recHeight);
+                    DefaultWindowWidth, recHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
@@ -1086,7 +1005,7 @@ namespace Parsek
             phaseStyleSurface = NewTableCellLabelStyle();
             phaseStyleSurface.normal.textColor = new Color(1f, 0.6f, 0.2f); // orange
 
-            // Generic body-cell label style (Launch / Duration / the Info band / every blank
+            // Generic body-cell label style (Site / Launch / Duration / every blank
             // placeholder cell).
             bodyCellLabel = NewTableCellLabelStyle();
             // Zero horizontal margin variant for use inside DrawBodyCenteredButton wrap.
@@ -1640,6 +1559,12 @@ namespace Parsek
             DrawSortableHeader("Name", SortColumn.Name, 0, true,
                 "Sort the list by vessel name. Click again to reverse the order.");
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrName");
+            DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase, false,
+                "Sort by flight phase - whether the flight ends in atmosphere, in space, on approach, or on a surface.");
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrPhase");
+            DrawSortableHeader("Site", SortColumn.LaunchSite, ColW_Site, false,
+                "Sort by launch site - where each flight started from.");
+            if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrSite");
             DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch, false,
                 "Sort by launch date - when each flight started.");
             DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur, false,
@@ -1647,23 +1572,6 @@ namespace Parsek
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrDur");
 
             var colHdr = parentUI.GetColumnHeaderStyle();
-            // The Info band: Phase and Site (still sortable) plus the two stats. Collapsing
-            // Info while sorted by Phase or Site resets the sort (SetShowExpandedStats).
-            if (showExpandedStats)
-            {
-                DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase, false,
-                    "Sort by flight phase - whether the flight ends in atmosphere, in space, on approach, or on a surface.");
-                if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrPhase");
-                DrawSortableHeader("Site", SortColumn.LaunchSite, ColW_Site, false,
-                    "Sort by launch site - where each flight started from.");
-                if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrSite");
-                GUILayout.Label(new GUIContent("MaxAlt",
-                    "Highest altitude this flight reached."),
-                    colHdr, GUILayout.Width(ColW_MaxAlt), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label(new GUIContent("MaxSpd",
-                    "Highest speed this flight reached."),
-                    colHdr, GUILayout.Width(ColW_MaxSpd), GUILayout.Height(ColHeaderHeight));
-            }
 
             DrawSortableHeader("Status", SortColumn.Status, ColW_Status, false,
                 "Sort by status - counting down to launch, flying now, or finished.");
@@ -1784,22 +1692,6 @@ namespace Parsek
             DrawRecordingsWindowTooltip();
 
             GUILayout.BeginHorizontal();
-
-            if (committed.Count > 0)
-            {
-                string statsLabel = showExpandedStats ? "Info \u25c0" : "Info \u25b6";
-                if (GUILayout.Button(
-                        new GUIContent(statsLabel,
-                            "Show or hide the Phase, Site, MaxAlt and MaxSpd columns. Turning them on widens the window."),
-                        GUILayout.Width(65)))
-                {
-                    SetShowExpandedStats(!showExpandedStats, "button");
-                    if (showExpandedStats && recordingsWindowRect.width < DefaultExpandedWindowWidth)
-                        recordingsWindowRect.width = DefaultExpandedWindowWidth;
-                    else if (!showExpandedStats)
-                        recordingsWindowRect.width = DefaultCollapsedWindowWidth;
-                }
-            }
 
             if (GUILayout.Button(
                     new GUIContent("New Group",
@@ -2253,6 +2145,28 @@ namespace Parsek
             DrawRecordingNameCell(ri, rec, committed, indentPx, treeConnector);
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowName");
 
+            // Phase label
+            string phaseLabel = RecordingStore.GetSegmentPhaseLabel(rec);
+            if (!string.IsNullOrEmpty(phaseLabel))
+            {
+                GUIStyle phaseStyle;
+                string phaseStyleKey = GetPhaseStyleKey(rec);
+                if (phaseStyleKey == "atmo") phaseStyle = phaseStyleAtmo;
+                else if (phaseStyleKey == "surface") phaseStyle = phaseStyleSurface;
+                else if (phaseStyleKey == "approach") phaseStyle = phaseStyleApproach;
+                else if (phaseStyleKey == "space") phaseStyle = phaseStyleSpace;
+                else phaseStyle = phaseStyleExo;
+                GUILayout.Label(phaseLabel, phaseStyle, GUILayout.Width(ColW_Phase));
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
+            }
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowPhase");
+
+            GUILayout.Label(rec.LaunchSiteName ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
+            if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowSite");
+
             // Launch Time
             string launchTime = rec.Points.Count > 0
                 ? KSPUtil.PrintDateCompact(rec.StartUT, true)
@@ -2263,35 +2177,6 @@ namespace Parsek
             double dur = rec.EndUT - rec.StartUT;
             GUILayout.Label(FormatDuration(dur), bodyCellLabel, GUILayout.Width(ColW_Dur));
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowDur");
-
-            // The Info band: Phase, Site, MaxAlt, MaxSpd (same order as the header).
-            if (showExpandedStats)
-            {
-                string phaseLabel = RecordingStore.GetSegmentPhaseLabel(rec);
-                if (!string.IsNullOrEmpty(phaseLabel))
-                {
-                    GUIStyle phaseStyle;
-                    string phaseStyleKey = GetPhaseStyleKey(rec);
-                    if (phaseStyleKey == "atmo") phaseStyle = phaseStyleAtmo;
-                    else if (phaseStyleKey == "surface") phaseStyle = phaseStyleSurface;
-                    else if (phaseStyleKey == "approach") phaseStyle = phaseStyleApproach;
-                    else if (phaseStyleKey == "space") phaseStyle = phaseStyleSpace;
-                    else phaseStyle = phaseStyleExo;
-                    GUILayout.Label(phaseLabel, phaseStyle, GUILayout.Width(ColW_Phase));
-                }
-                else
-                {
-                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
-                }
-                if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowPhase");
-
-                GUILayout.Label(rec.LaunchSiteName ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
-                if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowSite");
-
-                var stats = GetOrComputeStats(rec);
-                GUILayout.Label(FormatAltitude(stats.maxAltitude), bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label(FormatSpeed(stats.maxSpeed), bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
-            }
 
             // Status (#98: merged countdown into status column). Debris shows its ending word
             // too (Destroyed, Landed, ...), like every other row.
@@ -2322,15 +2207,19 @@ namespace Parsek
                 if (chainStatus != null)
                     chainStatusTooltip = chainStatus;
             }
-            // Where the flight came from (an EVA's vessel) and where it ended up lead the
-            // hover: they were the Info band's Start / End columns, which are gone.
+            // Where the flight came from (an EVA's vessel), where it ended up, and how high
+            // and fast it went lead the hover: they were the old Start / End / MaxAlt /
+            // MaxSpd columns, which are gone. The stats are cached per recording.
             string parentVesselName = ResolveParentVesselName(rec, committed);
             string statusPlaceTooltip = BuildStatusPlaceTooltip(
                 FormatStartPosition(rec, parentVesselName),
                 FormatEndPosition(rec, parentVesselName),
                 statusText);
+            var stats = GetOrComputeStats(rec);
+            string statusStatsTooltip = BuildStatusStatsTooltip(
+                stats.maxAltitude, stats.maxSpeed, stats.pointCount);
             string statusTooltip = CombineTooltipText(
-                statusPlaceTooltip,
+                CombineTooltipText(statusPlaceTooltip, statusStatsTooltip),
                 CombineTooltipText(
                     CombineTooltipText(
                         GetRecordingVisualStatusTooltip(visualKind),
@@ -2943,6 +2832,14 @@ namespace Parsek
                 }
             }
 
+            // Phase placeholder (groups have no phase)
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
+
+            // Site (from main/root recording if available)
+            int grpMainIdx = FindGroupMainRecordingIndex(descendants, committed);
+            string grpSite = grpMainIdx >= 0 ? committed[grpMainIdx].LaunchSiteName : null;
+            GUILayout.Label(grpSite ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
+
             // Launch time (earliest among descendants)
             double grpEarliest = GetGroupEarliestStartUT(descendants, committed);
             string grpLaunchText = (memberCount > 0 && grpEarliest < double.MaxValue)
@@ -2954,17 +2851,6 @@ namespace Parsek
             // figure a chain block shows, never a sum that double-counts parallel branches.
             double grpSpanDur = GetGroupSpanDuration(descendants, committed);
             GUILayout.Label(FormatDuration(grpSpanDur), bodyCellLabel, GUILayout.Width(ColW_Dur));
-
-            // The Info band: no phase for a folder, the site of its main recording, no stats.
-            if (showExpandedStats)
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
-                int grpMainIdx = FindGroupMainRecordingIndex(descendants, committed);
-                string grpSite = grpMainIdx >= 0 ? committed[grpMainIdx].LaunchSiteName : null;
-                GUILayout.Label(grpSite ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
-            }
 
             // Status (closest active T- among descendants)
             string grpStatusText;
@@ -3635,6 +3521,14 @@ namespace Parsek
                     $"Virtual group '{groupName}' {(expanded ? "expanded" : "collapsed")} ({memberCount} recordings)");
             }
 
+            // Phase placeholder.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
+
+            // Site from main recording if any.
+            int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
+            string grpSite = mainIdx >= 0 ? committed[mainIdx].LaunchSiteName : null;
+            GUILayout.Label(grpSite ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
+
             // Earliest start UT.
             double grpEarliest = GetGroupEarliestStartUT(descendants, committed);
             string grpLaunchText = (memberCount > 0 && grpEarliest < double.MaxValue)
@@ -3647,17 +3541,6 @@ namespace Parsek
             // siblings describes a flight, so the cell stays blank like the virtual group's
             // Loop / Period / Rewind cells.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Dur));
-
-            // The Info band: no phase, the site of the main member, no stats.
-            if (showExpandedStats)
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
-                int mainIdx = FindGroupMainRecordingIndex(descendants, committed);
-                string grpSite = mainIdx >= 0 ? committed[mainIdx].LaunchSiteName : null;
-                GUILayout.Label(grpSite ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
-            }
 
             // Status.
             string grpStatusText;
@@ -4812,21 +4695,16 @@ namespace Parsek
                     $"{logKind} '{blockName}' {(expanded ? "collapsed" : "expanded")} ({members.Count} recordings)");
             }
 
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
+
+            string blockSite = committed[members[0]].LaunchSiteName;
+            GUILayout.Label(blockSite ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
+
             GUILayout.Label(blockStart < double.MaxValue
                 ? KSPUtil.PrintDateCompact(blockStart, true) : "-",
                 bodyCellLabel, GUILayout.Width(ColW_Launch));
 
             GUILayout.Label(FormatDuration(blockEnd - blockStart), bodyCellLabel, GUILayout.Width(ColW_Dur));
-
-            // The Info band: no phase for a block, the first member's site, no stats.
-            if (showExpandedStats)
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Phase));
-                string blockSite = committed[members[0]].LaunchSiteName;
-                GUILayout.Label(blockSite ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
-            }
 
             string blockStatusText;
             int blockStatusOrder;
@@ -5423,6 +5301,18 @@ namespace Parsek
                 endClause = StatusEndPlacePrefix + endPosition;
             }
             return CombineTooltipText(startClause, endClause);
+        }
+
+        /// <summary>
+        /// The stats half of a recording row's Status hover: "Max altitude 70.0km, max speed
+        /// 2.2km/s", through the table's own formatters. Empty for a recording with no
+        /// trajectory points (there is nothing to measure). Pure for unit testing.
+        /// </summary>
+        internal static string BuildStatusStatsTooltip(double maxAltitude, double maxSpeed, int pointCount)
+        {
+            if (pointCount <= 0) return string.Empty;
+            return "Max altitude " + FormatAltitude(maxAltitude)
+                + ", max speed " + FormatSpeed(maxSpeed);
         }
 
         internal static int GetStatusOrder(Recording rec, double now)

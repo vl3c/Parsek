@@ -130,8 +130,8 @@ namespace Parsek.Tests
             // tooltips; the Custom preset button keeps its own (the short-lived Time fold
             // button and its tooltip are gone), so the file carries exactly 20.
             yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 20, TooltipEchoBox.SingleLine };
-            // Recordings: DefaultCollapsedWindowWidth = 1355, held by this budget since 2026-09-26
-            // (Phase and Site moved into Info and the Name column took the width, not the window).
+            // Recordings: DefaultWindowWidth = 1355, held by this budget: wider columns come out
+            // of the expanding Name column, never out of a wider window (2026-09-26).
             // Single-line strip: the window's whole help corpus was trimmed to fit one
             // wrapped line at 1355px = 189 chars (the loop-period header tooltip, formerly
             // 204, is the text that used to need the second line).

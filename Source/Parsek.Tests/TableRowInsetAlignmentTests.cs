@@ -697,12 +697,13 @@ namespace Parsek.Tests
         /// The Recordings tab draws FOUR kinds of row under one header - the recording leaf
         /// (<c>DrawRecordingRow</c>), the folder (<c>DrawGroupTree</c>), the chain / grouped
         /// block (<c>DrawRecordingBlock</c>) and the STASH virtual group
-        /// (<c>DrawVirtualUnfinishedFlightsGroup</c>) - and two of its column groups are
-        /// CONDITIONAL: the Info band (Phase, Site, MaxAlt, MaxSpd) draws only while
-        /// <c>showExpandedStats</c>, the Watch column only while
-        /// <c>parentUI.InFlightMode</c>. Every row kind must draw the header's exact column
-        /// sequence - name column included - with each conditional column behind the SAME
-        /// guard, or with Info open (or in flight) every column right of the gap shifts.
+        /// (<c>DrawVirtualUnfinishedFlightsGroup</c>) - and one column is CONDITIONAL: the
+        /// Watch column draws only while <c>parentUI.InFlightMode</c>. Every row kind must
+        /// draw the header's exact column sequence - name column included - with the Watch
+        /// column behind the SAME guard, or in flight every column right of the gap shifts.
+        /// (Until 2026-09-26 an Info toggle guarded a second band the same way; it is gone,
+        /// and a stray <c>showExpandedStats</c> guard would now read as an untagged column
+        /// only if the field came back.)
         /// The row is the span from its <c>BeginHorizontal(parentUI.GetTableRowStyle())</c>
         /// to the matching <c>EndHorizontal</c>; columns a row draws through a helper count
         /// where the helper is called (<see cref="RecordingsCallWidths"/>).
@@ -719,11 +720,12 @@ namespace Parsek.Tests
 
             // Non-vacuous: the sequence carries the name column and both guarded groups.
             Assert.Contains(NameColumnToken, expected);
-            Assert.Contains("info:ColW_Phase", expected);
-            Assert.Contains("info:ColW_MaxSpd", expected);
+            Assert.Contains("ColW_Phase", expected);
+            Assert.Contains("ColW_Site", expected);
             Assert.Contains("flight:ColW_Watch", expected);
+            Assert.DoesNotContain(expected, t => t.Contains("MaxAlt") || t.Contains("MaxSpd"));
             Assert.Contains("ColW_Rewind", expected);
-            Assert.True(expected.Count >= 16,
+            Assert.True(expected.Count >= 15,
                 "header column sequence is implausibly short: " + string.Join(", ", expected));
 
             foreach (string method in new[]
@@ -759,15 +761,14 @@ namespace Parsek.Tests
 
         /// <summary>
         /// The column sequence of one row span: width constants, helper-drawn columns and the
-        /// name column in source order, each tagged <c>info:</c> / <c>flight:</c> when it sits
-        /// under an <c>if (showExpandedStats)</c> / <c>if (parentUI.InFlightMode)</c> guard,
+        /// name column in source order, each tagged <c>flight:</c> when it sits under an
+        /// <c>if (parentUI.InFlightMode)</c> guard,
         /// with runs of one column collapsed (a cell drawn by one of several exclusive
         /// branches names its width once per branch).
         /// </summary>
         private static List<string> TaggedColumnSequence(string span)
         {
             var guards = new List<Tuple<int, int, string>>();
-            AddGuardSpans(span, "if (showExpandedStats)", "info:", guards);
             AddGuardSpans(span, "if (parentUI.InFlightMode)", "flight:", guards);
 
             var hits = WidthConstant.Matches(span).Cast<Match>()

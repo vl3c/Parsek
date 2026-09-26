@@ -2539,7 +2539,7 @@ UIACTION_EXPAND_BULK_KEYS: Tuple[str, ...] = ("all", "none")
 UIACTION_STATE_KEYS: Dict[str, Tuple[str, ...]] = {
     "timeline": ("srcRecordings", "srcActions", "srcEvents", "archived", "customRange",
                  "preset", "scrollY"),
-    "missions": ("archived", "archivedMissions", "expandedStats"),
+    "missions": ("archived", "archivedMissions"),
 }
 
 # Which half of `op=state`'s two-shaped grammar each key takes. A BOOL key takes
