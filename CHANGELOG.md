@@ -1636,8 +1636,9 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
-- **Recordings tab: a presentation round.** Nothing about the recordings themselves changes;
-  only how the table shows them.
+- **Recordings tab: a presentation round.** How the table shows recordings changes; the one
+  data effect is that a mission folder's Loop box now also sets the launched vessel's loop
+  range, as that vessel's own chain row did before (see the last bullet).
   - A folder's Duration is now the time its flights cover (the latest end minus the earliest
     start), the figure a chain row already showed, instead of a sum that counted every booster,
     debris piece and EVA flying at the same time again. Sorting by Duration uses the same
