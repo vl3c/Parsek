@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
@@ -103,6 +104,64 @@ namespace Parsek.Tests
             Assert.True(PlaybackScopeTracker.IsInReplayScope("rec3"));
             Assert.True(PlaybackScopeTracker.IsHistoricalNeverReplayed("rec1", rewoundUT, 100.0));
             Assert.False(PlaybackScopeTracker.IsHistoricalNeverReplayed("rec3", rewoundUT, 300.0));
+        }
+
+        private static Recording Window(string id, double start, double end)
+        {
+            return new Recording { RecordingId = id, ExplicitStartUT = start, ExplicitEndUT = end };
+        }
+
+        [Fact]
+        public void Sweep_TrackingStationEnteredFirst_LatchesAheadWindow_HiddenIncluded()
+        {
+            // A Tracking Station booted from the main menu one second before a hidden
+            // relay's start must latch it, as the FLIGHT / KSC per-frame notes would have.
+            var hidden = Window("hidden-relay", 22.16, 90000.0);
+            hidden.PlaybackEnabled = false;
+            int latched = PlaybackScopeTracker.NotePlayheadSweep(new List<Recording> { hidden }, 21.16);
+            Assert.Equal(1, latched);
+            Assert.False(PlaybackScopeTracker.IsHistoricalNeverReplayed("hidden-relay", 5000.0, 22.16));
+        }
+
+        [Fact]
+        public void Sweep_GenuinelyHistorical_StaysHistorical_InAnyScene()
+        {
+            // BUG-B intent: a recording whose start is already behind the playhead is never
+            // latched, whichever scene sweeps it, however often.
+            var list = new List<Recording> { Window("past", 100.0, 200.0) };
+            Assert.Equal(0, PlaybackScopeTracker.NotePlayheadSweep(list, 500.0));
+            Assert.Equal(0, PlaybackScopeTracker.NotePlayheadSweep(list, 900.0));
+            Assert.False(PlaybackScopeTracker.IsInReplayScope("past"));
+            Assert.True(PlaybackScopeTracker.IsHistoricalNeverReplayed("past", 900.0, 100.0));
+        }
+
+        [Fact]
+        public void Sweep_ClockNotReady_LatchesNothing()
+        {
+            // UT 0 (a scene that has not loaded the save's clock yet) sits before every
+            // recording; sweeping it would latch the whole history.
+            var list = new List<Recording> { Window("any", 100.0, 200.0) };
+            Assert.Equal(0, PlaybackScopeTracker.NotePlayheadSweep(list, 0.0));
+            Assert.Equal(0, PlaybackScopeTracker.NotePlayheadSweep(list, double.NaN));
+            Assert.Equal(0, PlaybackScopeTracker.NotePlayheadSweep(list, -5.0));
+            Assert.False(PlaybackScopeTracker.IsInReplayScope("any"));
+            Assert.False(PlaybackScopeTracker.IsSweepClockReady(0.0));
+            Assert.True(PlaybackScopeTracker.IsSweepClockReady(0.02));
+        }
+
+        [Fact]
+        public void Sweep_CountsOnlyNewLatches_SkipsNullAndMissingIds()
+        {
+            var list = new List<Recording>
+            {
+                null,
+                new Recording { RecordingId = null, ExplicitStartUT = 300.0, ExplicitEndUT = 400.0 },
+                Window("ahead", 300.0, 400.0),
+            };
+            Assert.Equal(1, PlaybackScopeTracker.NotePlayheadSweep(list, 100.0));
+            Assert.Equal(0, PlaybackScopeTracker.NotePlayheadSweep(list, 150.0));
+            Assert.Equal(0, PlaybackScopeTracker.NotePlayheadSweep(null, 150.0));
+            Assert.True(PlaybackScopeTracker.IsInReplayScope("ahead"));
         }
     }
 }

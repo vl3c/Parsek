@@ -178,10 +178,19 @@ namespace Parsek
         internal static bool IsIntermediateChainLink(
             Dictionary<uint, GhostChain> chains, Recording rec)
         {
-            var ic = CultureInfo.InvariantCulture;
+            return FindIntermediateLinkChain(chains, rec) != null;
+        }
 
+        /// <summary>
+        /// The chain for which the given recording is an intermediate link (its spawn is
+        /// suppressed because a later claim continues the vessel), or null. Same test as
+        /// <see cref="IsIntermediateChainLink"/>; callers that need the chain's claims use this.
+        /// </summary>
+        internal static GhostChain FindIntermediateLinkChain(
+            Dictionary<uint, GhostChain> chains, Recording rec)
+        {
             if (chains == null || chains.Count == 0 || rec == null)
-                return false;
+                return null;
 
             // Check if rec's RecordingId matches any non-final link in any chain
             foreach (var kvp in chains)
@@ -193,9 +202,9 @@ namespace Parsek
                     {
                         // If this is the last link AND it is the tip, not intermediate
                         if (i == chain.Links.Count - 1 && chain.TipRecordingId == rec.RecordingId)
-                            return false;
+                            return null;
 
-                        return true;
+                        return chain;
                     }
                 }
 
@@ -209,10 +218,10 @@ namespace Parsek
                     && chain.SpawnUT > rec.EndUT
                     && chain.TipRecordingId != rec.RecordingId
                     && !VesselLaunchIdentity.GuidsConclusivelyDiffer(chain.LaunchGuid, rec.RecordedVesselGuid))
-                    return true;
+                    return chain;
             }
 
-            return false;
+            return null;
         }
 
         /// <summary>

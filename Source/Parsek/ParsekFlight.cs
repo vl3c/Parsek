@@ -1070,6 +1070,9 @@ namespace Parsek
         // Per-committed-index relay window inputs, filled by ComputePlaybackFlags.
         private GhostCommNetEligibilityInput[] ghostCommNetInputs = new GhostCommNetEligibilityInput[0];
         private readonly List<GhostCommNetCandidate> ghostCommNetCandidates = new List<GhostCommNetCandidate>();
+        private readonly List<double> ghostCommNetClaimScratch = new List<double>();
+        private readonly List<KeyValuePair<double, double>> ghostCommNetCarrierScratch =
+            new List<KeyValuePair<double, double>>();
         private GhostCommNetManager ghostCommNet;
         private readonly HashSet<string> activeGhostSkipReasonLogIdentities = new HashSet<string>();
         private readonly Dictionary<string, int> reFlyAnchorHoldStartFrameByAnchor =
@@ -19020,7 +19023,7 @@ namespace Parsek
                 // Ghost CommNet relay window inputs (design 15.6): the same gates as the
                 // ghost, minus the display-only playback toggle, plus the real-run scope
                 // gate (the spawn variant, so a loop member's first run is gated too).
-                ghostCommNetInputs[i] = new GhostCommNetEligibilityInput
+                GhostCommNetEligibilityInput commNetInput = new GhostCommNetEligibilityInput
                 {
                     HasRecordingId = !string.IsNullOrEmpty(rec.RecordingId),
                     IsDebris = rec.IsDebris,
@@ -19040,6 +19043,19 @@ namespace Parsek
                     IsMidChain = isMidChain,
                     ChainEndUT = chainEndUT,
                 };
+                // Scenario 15: a vessel whose terminal spawn a later continuation owns (an
+                // intermediate ghost-chain link, or a superseded terminal spawn) stays on rails
+                // at its end state until that continuation takes it over; its node is held there.
+                if (hasData && !rec.IsDebris && !supersededByRelation && !rewindRetired
+                    && !spawnHistoricalNeverReplayed)
+                {
+                    GhostCommNetMath.ApplyContinuationHold(
+                        ref commNetInput, rec, committed, activeGhostChains,
+                        spawnResult.needsSpawn && chainSuppressed.suppressed,
+                        GhostPlaybackLogic.RealVesselExistsForRecording,
+                        "FLIGHT", ghostCommNetClaimScratch, ghostCommNetCarrierScratch);
+                }
+                ghostCommNetInputs[i] = commNetInput;
 
                 flags[i] = new TrajectoryPlaybackFlags
                 {
@@ -19378,7 +19394,9 @@ namespace Parsek
 
                 // Chain-ghosted real vessels: before the first claim the despawned vessel sits
                 // on rails, so it relays from its despawn snapshot. From the claim on, the
-                // committed recordings that carry it relay instead.
+                // committed recordings that carry it relay instead, and between two of them
+                // (a recording ended, the next claim or recording of the vessel not started)
+                // the ended one's continuation hold keeps the vessel at its end state.
                 if (activeGhostChains != null && vesselGhoster != null)
                 {
                     foreach (var kv in activeGhostChains)
