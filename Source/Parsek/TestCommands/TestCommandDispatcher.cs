@@ -220,9 +220,6 @@ namespace Parsek.TestCommands
         void SealSlot(ParsedCommand cmd);
         void RouteCommand(ParsedCommand cmd);
 
-        // ----- DeleteRecording (the Recordings-table per-row delete; additive) -----
-        void DeleteRecording(ParsedCommand cmd);
-
         // ----- ListHandles (R10 runtime-handle plumbing; additive, read-only) -----
         // Enumerates one live handle family so a later step can name a member the spec
         // author could not have known in advance.
@@ -267,6 +264,8 @@ namespace Parsek.TestCommands
         void LaunchFromEditor(ParsedCommand cmd);
         // ----- SafeWriteCrash (D16 safe-write: crash after the temp write, one boot) -----
         void SafeWriteCrash(ParsedCommand cmd);
+        // ----- SpinVessel (D17 persistent-rotation: a spinning vessel to put on rails) -----
+        void SpinVessel(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -419,12 +418,6 @@ namespace Parsek.TestCommands
                 // game, which is exactly what RequiresGameLoaded waits for.
                 ["SealSlot"] = VerbSceneRequirement.RequiresGameLoaded,
                 ["RouteCommand"] = VerbSceneRequirement.RequiresGameLoaded,
-                // DeleteRecording. RequiresGameLoaded for the logistics pair's reason: it
-                // mutates a SAVE-scoped store (the committed recording list) and the
-                // Recordings table it reproduces is open in FLIGHT and at the KSC alike -
-                // and the lane it exists for deletes AT THE KSC, with KSC ghosts alive,
-                // where a RequiresFlight row would defer to its budget and TIMEOUT.
-                ["DeleteRecording"] = VerbSceneRequirement.RequiresGameLoaded,
                 // ListHandles. NOT AnyScene, unlike its read-only siblings RecordingState
                 // and ExportRenderManifest: two of the three families are walks of
                 // SAVE-scoped state (ParsekScenario.Instance and the committed store),
@@ -499,6 +492,8 @@ namespace Parsek.TestCommands
                 // SafeWriteCrash. RequiresGameLoaded: it reads committed trees and a
                 // save-scoped sidecar path, in any scene.
                 ["SafeWriteCrash"] = VerbSceneRequirement.RequiresGameLoaded,
+                // SpinVessel. RequiresFlight: it acts on the active vessel's rigidbodies.
+                ["SpinVessel"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -703,20 +698,6 @@ namespace Parsek.TestCommands
                     // the token a both-flags-true state reports depends on the order,
                     // and a family of guards that answers differently depending on
                     // which member you asked is a family nobody can reason about.
-                    if (state.LoadInFlight)
-                        return DispatchResult.Reject("load-in-flight");
-                    if (state.MergeJournalInFlight)
-                        return DispatchResult.Reject("merge-journal-in-flight");
-                    break;
-
-                case "DeleteRecording":
-                    // The logistics pair's guard pair, for the same two reasons: a
-                    // re-fly merge journal mid-finalize is rewriting the supersede rows
-                    // and committed list a delete removes from, and a LoadGame mid-flight
-                    // would swap the store out between the bound check and the removal,
-                    // so the index would name a different recording. NO recording-active
-                    // guard: the verb acts on COMMITTED rows, and the table offers the
-                    // delete with a recorder live. Load-first, matching the rows above.
                     if (state.LoadInFlight)
                         return DispatchResult.Reject("load-in-flight");
                     if (state.MergeJournalInFlight)

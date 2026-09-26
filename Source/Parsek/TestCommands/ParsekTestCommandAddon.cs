@@ -1450,13 +1450,6 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.SealSlot(ParsedCommand cmd) => SealSlotImpl(cmd);
         void ITestCommandExecutor.RouteCommand(ParsedCommand cmd) => RouteCommandImpl(cmd);
 
-        // DeleteRecording: the body lives in the sibling
-        // ParsekTestCommandAddon.DeleteRecording.cs partial. Single-phase - the removal
-        // is a synchronous list mutation whose notifications fan out in the same call,
-        // so the read-back (the row is gone) is a final answer and there is no
-        // TryComplete* counterpart in TryCompleteTwoPhaseCore.
-        void ITestCommandExecutor.DeleteRecording(ParsedCommand cmd) => DeleteRecordingImpl(cmd);
-
         // ListHandles (R10): the body lives in the sibling
         // ParsekTestCommandAddon.ListHandles.cs partial. Single-phase - a synchronous walk
         // of in-memory state is a final answer the instant it is taken - so there is no
@@ -1504,6 +1497,8 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.LaunchFromEditor(ParsedCommand cmd) => LaunchFromEditorImpl(cmd);
         // SafeWriteCrash: body in the sibling ParsekTestCommandAddon.SafeWriteCrash.cs.
         void ITestCommandExecutor.SafeWriteCrash(ParsedCommand cmd) => SafeWriteCrashImpl(cmd);
+        // SpinVessel: body in the sibling ParsekTestCommandAddon.SpinVessel.cs.
+        void ITestCommandExecutor.SpinVessel(ParsedCommand cmd) => SpinVesselImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1555,7 +1550,6 @@ namespace Parsek.TestCommands
                 case "InvokeRewindToLaunch": exec.InvokeRewindToLaunch(cmd); break;
                 case "SealSlot": exec.SealSlot(cmd); break;
                 case "RouteCommand": exec.RouteCommand(cmd); break;
-                case "DeleteRecording": exec.DeleteRecording(cmd); break;
                 case "ListHandles": exec.ListHandles(cmd); break;
                 case "WarpToUT": exec.WarpToUT(cmd); break;
                 case "CaptureScreenshot": exec.CaptureScreenshot(cmd); break;
@@ -1567,6 +1561,7 @@ namespace Parsek.TestCommands
                 case "GoToEditor": exec.GoToEditor(cmd); break;
                 case "LaunchFromEditor": exec.LaunchFromEditor(cmd); break;
                 case "SafeWriteCrash": exec.SafeWriteCrash(cmd); break;
+                case "SpinVessel": exec.SpinVessel(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

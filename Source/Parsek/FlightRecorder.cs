@@ -6666,6 +6666,39 @@ namespace Parsek
         /// Resets all recording state flags, vessel identity, velocity tracking, mod detection,
         /// and atmosphere/altitude boundary state for the given vessel.
         /// </summary>
+        /// <summary>
+        /// The names a loaded PersistentRotation build answers to. The original mod shipped
+        /// <c>PersistentRotation.dll</c>; the only KSP 1.12 build (linuxgurugamer's
+        /// PersistentRotationUpgraded 1.9.2.1) ships <c>Plugins/PersistentRotationUpgraded.dll</c>
+        /// carrying <c>[KSPAssembly("Persistent Rotation Upgraded", 1, 9, 2)]</c>, and KSP's
+        /// <c>AssemblyLoader.LoadedAssembly</c> sets <c>dllName</c> from the file name but then
+        /// overwrites <c>name</c> with the KSPAssembly name (decompiled KSP 1.12.5), so both
+        /// fields are checked against every spelling.
+        /// </summary>
+        internal static readonly string[] PersistentRotationAssemblyNames =
+        {
+            "PersistentRotation",
+            "PersistentRotationUpgraded",
+            "Persistent Rotation Upgraded",
+        };
+
+        /// <summary>
+        /// Pure half of the PersistentRotation detection: the matched spelling when either the
+        /// loaded assembly's <paramref name="name"/> or its <paramref name="dllName"/> is one of
+        /// <see cref="PersistentRotationAssemblyNames"/> (ordinal, exact), else null. The
+        /// assembly name is tried first, so the 1.12 build reports its KSPAssembly name.
+        /// </summary>
+        internal static string MatchPersistentRotationAssembly(string name, string dllName)
+        {
+            for (int i = 0; i < PersistentRotationAssemblyNames.Length; i++)
+                if (string.Equals(name, PersistentRotationAssemblyNames[i], StringComparison.Ordinal))
+                    return PersistentRotationAssemblyNames[i];
+            for (int i = 0; i < PersistentRotationAssemblyNames.Length; i++)
+                if (string.Equals(dllName, PersistentRotationAssemblyNames[i], StringComparison.Ordinal))
+                    return PersistentRotationAssemblyNames[i];
+            return null;
+        }
+
         private void InitializeRecordingFlags(Vessel v)
         {
             IsRecording = true;
@@ -6704,9 +6737,16 @@ namespace Parsek
             harvestRailsExitPollPending = false;
             harvestRailsExitPollArmedUT = double.NaN;
 
-            hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
-                a => a.name == "PersistentRotation");
-            ParsekLog.Info("Recorder", $"PersistentRotation mod detected: {hasPersistentRotation}");
+            string persistentRotationMatch = null;
+            foreach (var loaded in AssemblyLoader.loadedAssemblies)
+            {
+                persistentRotationMatch = MatchPersistentRotationAssembly(loaded.name, loaded.dllName);
+                if (persistentRotationMatch != null)
+                    break;
+            }
+            hasPersistentRotation = persistentRotationMatch != null;
+            ParsekLog.Info("Recorder", $"PersistentRotation mod detected: {hasPersistentRotation}"
+                + (persistentRotationMatch != null ? $" (matched={persistentRotationMatch})" : ""));
 
             // Seed atmosphere state
             wasInAtmosphere = v.mainBody != null && v.mainBody.atmosphere
@@ -10968,13 +11008,19 @@ namespace Parsek
             // Capture angular velocity if PersistentRotation is active and vessel is spinning
             if (hasPersistentRotation && v.rootPart != null && v.rootPart.rb != null)
             {
-                Vector3 worldAngVel = v.angularVelocity;
-                if (worldAngVel.magnitude > TrajectoryMath.SpinThreshold)
+                // v.angularVelocity is local to v.ReferenceTransform (see the helper), and its
+                // magnitude is frame-invariant, so the threshold reads the same either way.
+                Vector3 referenceLocalAngVel = v.angularVelocity;
+                if (referenceLocalAngVel.magnitude > TrajectoryMath.SpinThreshold)
                 {
-                    segment.angularVelocity =
-                        Quaternion.Inverse(v.transform.rotation) * worldAngVel;
+                    Transform referenceTransform = v.ReferenceTransform != null
+                        ? v.ReferenceTransform
+                        : v.transform;
+                    segment.angularVelocity = TrajectoryMath.ComputeSpinAngularVelocityVesselLocal(
+                        v.transform.rotation, referenceTransform.rotation, referenceLocalAngVel);
                     ParsekLog.Verbose("Recorder",
-                        $"Spinning vessel detected (|angVel|={worldAngVel.magnitude:F4}), recording angular velocity for spin-forward");
+                        $"Spinning vessel detected (|angVel|={referenceLocalAngVel.magnitude:F4}), recording angular velocity for spin-forward"
+                        + $" (vesselLocal={segment.angularVelocity}, referenceLocal={referenceLocalAngVel})");
                 }
             }
 

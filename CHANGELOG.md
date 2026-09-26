@@ -1200,6 +1200,53 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
+  Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
+  "recovered" ending from committed recordings that Parsek had marked as handled, which hit
+  almost every debris recording. The recording then played back as if its vessel had never
+  ended, and the ending was not saved again. Committed endings are now left alone on both
+  paths. Spawn tracking still resets as before, and revert and rewind still differ in the same
+  way: a revert throws the reverted flight away, a rewind commits it.
+
+- **Science is no longer over-credited when the same experiment is submitted more than once.**
+  Parsek recorded a science subject's running total at each submission, and the ledger adds
+  every submission, so a second transmission of the same experiment (or a transmit followed
+  by recovering the data) credited the first one again. Breaking Ground deployed
+  experiments, which send their results in about ten chunks, reached an experiment's full
+  value after three or four sends. Each submission now records only the science it added,
+  so your science total matches stock. Saves already carrying the extra science keep it.
+- **Breaking Ground deployed-experiment science is never attributed to the vessel you are
+  flying.** Science from deployed experiments is recorded like science earned at the Space
+  Center, so re-flying a flight no longer removes it and it no longer locks a re-fly as if
+  you had earned it on that vessel.
+
+- **Repairing a KSC building that your committed timeline already repairs later is now
+  refused, so it is no longer charged twice.** After a rewind to between a building's
+  destruction and its committed repair, repairing it again charged both repairs. The
+  building's menu now greys out Repair, with the reason in its tooltip ("Repaired on
+  <date> on your committed timeline. ..."), and a Repair click is refused with the same
+  text before any funds are taken, the way a committed facility upgrade is already blocked.
+  A building you destroy yourself after rewinding to before its committed destruction can
+  still be repaired.
+
+- **A crew death's reputation penalty now stays with the death when a recording is split.**
+  When the optimizer or a Re-Fly split cut a recording between the moment a crashed vessel's
+  reputation penalty was stamped and the crew's death, the death went to the later part and
+  the penalty stayed on the earlier one, so re-flying the later part brought the crew back but
+  kept the reputation loss. The penalty now always lands on the same part as its death, on both
+  splits, and a re-fly that undoes the death undoes the penalty too. Penalties from contracts
+  and other sources are placed as before.
+
+- **Spinning vessels recorded with PersistentRotation now replay spinning.** Parsek never
+  recognised the KSP 1.12 build of PersistentRotation (PersistentRotationUpgraded), so a
+  vessel that went into time warp while spinning was always replayed holding its attitude.
+  Parsek now recognises the mod by any of its names, logged as `PersistentRotation mod
+  detected: True (matched=...)` at recording start. A recording that goes on rails while
+  spinning faster than 0.05 rad/s stores the spin, and the ghost turns at that rate for
+  the whole on-rails stretch. The stored spin axis is now correct too: KSP reports a
+  vessel's angular velocity relative to its control part, and the old code read it as a
+  world vector. That was harmless while the mod was never recognised.
+
 - **A ground part a kerbal places on EVA is now recorded as its own vessel and replays as a
   ghost.** Breaking Ground experiments, power and comms units and the Central Station become
   their own vessel when a kerbal places them, and Parsek used to record the placement on the
@@ -1548,7 +1595,22 @@ _(unreleased — entries accumulate here per commit)_
   coasted for up to a minute: no staging, docking, burn, new branch or new recording), it is
   discarded on the spot, as the merge dialog's Discard would do. The committed mission and its
   files are kept as they were, and only those idle seconds go. A copy that did record
-  something meaningful, and a tree that was never committed, are kept as before.
+  something meaningful, and a tree that was never committed, are committed on the spot
+  instead (next entry).
+- **A tree Parsek refuses to attach to a launch from flight is now committed, not left
+  waiting to be overwritten.** In the same situation (a craft launched from flight by a mod
+  such as kRPC), a refused tree that is not an idle copy used to stay behind as an unfinished
+  stash until the next scene change replaced it with only a log warning, losing what it held.
+  That covered a mission that was never committed (you were recording craft A when B was
+  launched), a resumed committed mission that recorded something meaningful after the load
+  (a switch segment, a new branch, a burn, or more than a minute of flight), and a resumed
+  mission whose committed copy the load had set aside, where the stash was the only copy of
+  that committed history. Each is now committed the moment the launch is refused, through the
+  same commit that runs when you leave the flight scene: a never-committed tree is added, and
+  a resumed mission replaces its committed version in place, so no mission or recording
+  appears twice. Nothing is committed while a Re-Fly is in progress or a merge is still being
+  finished; those keep the old behaviour. Stock KSP cannot reach this, since a stock launch
+  leaves the flight scene first.
 - **KSC building destructions and repairs are now part of the career history.** A building
   repaired at the Space Center never became a ledger action: Parsek recorded it only at the
   next scene change, with no cost and no owner, so nothing kept it. A building knocked down
@@ -1751,9 +1813,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Recordings can no longer be deleted.** A committed recording is part of the timeline and the
+  career ledger, and deleting one broke both. The Settings window's Data Management section is
+  gone, with its "Wipe All Recordings" and "Wipe All Milestones" buttons and their confirmation
+  dialogs, and so is the "X" delete button on ghost-only rows of the Recordings table (those rows
+  keep their "G" button). To stop seeing a recording, tick its Archive checkbox in the
+  Recordings tab. Saves that already used a wipe or a delete stay as they are.
+- **Dev: the `DeleteRecording` test-command verb and its lane `S0.11-ksc-table-delete` are
+  removed** with the table delete they reproduced (43 implemented seam verbs). The dialog census
+  lane `GUI-10` raises four dialogs instead of six and `GUI-14` photographs the default Settings
+  density where the greyed wipe buttons were; both need a re-read flight.
 - **Settings: a round of fixes to the Settings window.**
-  - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
-    Management. Basic still shows Interface, Ghosts and Data Management.
+  - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics. Basic
+    shows Interface and Ghosts.
   - Basic / Advanced and Low / Medium / High draw the selected option as a pressed button, the
     way the Timeline, Kerbals and Career windows do, instead of a grey box, and every option
     keeps one fixed width, so the row no longer jumps when you switch.
@@ -4544,6 +4616,32 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **Removed the unused per-recording and per-milestone resource-cost helpers.**
+  `ResourceBudget`'s `CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,
+  `MilestoneCommittedFunds` / `MilestoneCommittedScience`, `FullCommittedFundsCost` /
+  `FullCommittedScienceCost` / `FullCommittedReputationCost` and `ComputeFacilityUpgradeCost`
+  (a placeholder returning 0) had no caller outside the unit tests since the ledger took over
+  funds, science and reputation, and `ParseCostFromDetail` lost its last caller with them. They
+  are deleted with the 40 test cells that existed only to test them; `ResourceBudget.cs` now
+  holds only the live `BudgetSummary` struct. A new `RecordingStoreTests` cell pins directly, on the real `CommitTree` path,
+  that every child of a committed tree is the same object in the committed recordings list
+  and the committed tree, and carries the tree's id; a cell deleted with the old budget
+  totals used to carry that fact implicitly. No gameplay change.
+
+- **Automated testing: PersistentRotation on the modded-compat instance, a `SpinVessel` seam
+  verb, and lane MC-5.** Profiles can now name a pinned optional mod (`pin = "<pins.toml
+  table>"`, a `kind = "gamedata-mod"` pin). Provisioning downloads it through the shared
+  artifact cache like the stack zips, re-hashes the cache entry every time it is used, and
+  extracts the pin's `gamedataFolders` into the instance. The manifest records it under
+  `pinnedMods` and VERIFY re-hashes it. The dev GameData is never consulted for a pinned
+  mod. modded-compat now requires PersistentRotationUpgraded 1.9.2.1 and its CKAN
+  dependency SpaceTuxLibrary 0.0.9, both pinned via their CKAN-meta records (GT-8 closed).
+  The automation-only `SpinVessel rate=<rad/s>` verb turns SAS off and spins the active
+  vessel about its roll axis. `MC-5-persistent-rotation` records a spinning Kerbal X
+  through rails warp and loop-replays it. Both flights passed and the lane is armed on the
+  replayed ghost's attitude sweep. D17 `persistent-rotation` is claimed, and with it every
+  registry cell is covered (246 of 246).
 
 - **Automated testing: a `WarpToUT` refused because time warp is locked now names who holds
   the lock.** The `warptout refused reason=warp-locked` log line gains a `holders=` field:

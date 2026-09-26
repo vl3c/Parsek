@@ -689,6 +689,114 @@ namespace Parsek.Tests
             Assert.DoesNotContain(EffectiveState.ComputeELS(), a => a.ActionId == penalty.ActionId);
         }
 
+        // ---------------------------------------------------------------------------
+        // DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT (operator ruling 2026-09-26:
+        // move them together). The KerbalDeath penalty is stamped at the VesselLoss
+        // event, the death row is placed by its float EndUT; a cut between the two
+        // used to put them on different segments, so a re-fly of the second segment
+        // retired the death and left the penalty applied.
+        // ---------------------------------------------------------------------------
+
+        private static GameAction AddKerbalDeathPenalty(string recordingId, double ut)
+        {
+            var penalty = new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                UT = ut,
+                RecordingId = recordingId,
+                NominalPenalty = 10f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+            };
+            Ledger.AddAction(penalty);
+            return penalty;
+        }
+
+        // Optimizer split at 20; penalty at 19.5 (before the cut), death EndUT 53
+        // (after it). MUTATION NOTE: reverting either retag loop to the per-row key, or
+        // to a single-pass loop that retags the death before the penalty is read, reds
+        // this cell (the penalty stays on segment 1 and survives the re-fly).
+        [Fact]
+        public void OptimizerSplit_DeathPenaltyBeforeTheCut_MovesWithTheDeath_ReFlyRetiresBoth()
+        {
+            var rec = BuildTwoEnvironmentCrewedRecording("rec_cutrep", "tree_cr", endStatesPopulated: true);
+            InstallInTree(rec, "tree_cr");
+            Migrate();
+            var penalty = AddKerbalDeathPenalty("rec_cutrep", 19.5);
+            var otherPenalty = new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                UT = 19.5,
+                RecordingId = "rec_cutrep",
+                NominalPenalty = 5f,
+                RepPenaltySource = ReputationPenaltySource.ContractFail,
+            };
+            Ledger.AddAction(otherPenalty);
+
+            logLines.Clear();
+            RecordingStore.RunOptimizationPass();
+            var list = RecordingStore.CommittedRecordings;
+            Assert.Equal(2, list.Count);
+            string seg1 = list[0].RecordingId;
+            string seg2 = list[1].RecordingId;
+            Assert.Equal(seg2, penalty.RecordingId);
+            // Mirror: a penalty from another source keeps its own UT placement.
+            Assert.Equal(seg1, otherPenalty.RecordingId);
+            Assert.Contains(logLines, l => l.Contains("[Ledger]")
+                && l.Contains("RetagActionsForSplitSecondHalf") && l.Contains("deathPenaltiesByDeath=1"));
+
+            string tipId;
+            ReFlyAndTombstone(seg2, "tree_cr", 34.0, out tipId);
+            Assert.Empty(AllEffectiveDeathRows());
+            var els = EffectiveState.ComputeELS();
+            Assert.DoesNotContain(els, a => a.ActionId == penalty.ActionId);
+            Assert.Contains(els, a => a.ActionId == otherPenalty.ActionId);
+            AssertNoOrphanRows();
+        }
+
+        // The Re-Fly split (step 2.9): rewind at 34, penalty at 30 (before the rewind),
+        // death EndUT 53. The penalty must follow the death to TIP and be retired with it.
+        [Fact]
+        public void ReFlySplit_DeathPenaltyBeforeTheRewind_MovesWithTheDeath_TombstonedTogether()
+        {
+            var origin = BuildCrewedOrigin("rec_rfrep", "tree_rfr", 8.0, 34.0, 53.0);
+            InstallInTree(origin, "tree_rfr");
+            Migrate();
+            var penalty = AddKerbalDeathPenalty("rec_rfrep", 30.0);
+
+            logLines.Clear();
+            string tipId;
+            var scenario = ReFlyAndTombstone(origin.RecordingId, "tree_rfr", 34.0, out tipId);
+            Assert.Equal(tipId, penalty.RecordingId);
+            Assert.Contains(logLines, l => l.Contains("Step9: ledger action retag")
+                && l.Contains("deathPenaltiesByDeath=1"));
+            Assert.Empty(AllEffectiveDeathRows());
+            Assert.DoesNotContain(EffectiveState.ComputeELS(), a => a.ActionId == penalty.ActionId);
+            Assert.Contains(scenario.LedgerTombstones, t => t.ActionId == penalty.ActionId);
+            Assert.Contains(logLines, l => l.Contains("[LedgerSwap]")
+                && l.Contains("PreRewindTombstoneGuard: 1 KerbalDeath rep penalty row(s) screened by their paired death"));
+        }
+
+        // Mirror direction on the Re-Fly split: a death whose EndUT is BEFORE the rewind
+        // (it stays on HEAD) pulls a penalty stamped after the rewind back onto HEAD, and
+        // the tombstone pass leaves both alone.
+        [Fact]
+        public void ReFlySplit_DeathBeforeTheRewind_PenaltyAfterIt_BothStayOnHead()
+        {
+            var origin = BuildCrewedOrigin("rec_rfhead", "tree_rfh", 8.0, 34.0, 53.0);
+            InstallInTree(origin, "tree_rfh");
+            Migrate();
+            var deaths = Ledger.Actions.Where(a => a.Type == GameActionType.KerbalAssignment).ToList();
+            Assert.Equal(2, deaths.Count);
+            foreach (var d in deaths) d.EndUT = 33.0f;
+            var penalty = AddKerbalDeathPenalty("rec_rfhead", 40.0);
+
+            string tipId;
+            var scenario = ReFlyAndTombstone(origin.RecordingId, "tree_rfh", 34.0, out tipId);
+            Assert.Equal("rec_rfhead", penalty.RecordingId);
+            foreach (var d in deaths) Assert.Equal("rec_rfhead", d.RecordingId);
+            Assert.DoesNotContain(scenario.LedgerTombstones, t => t.ActionId == penalty.ActionId);
+        }
+
         // Mirror: alive crew. The non-death row is screened by its boarding UT, so it
         // stays on segment 1 (its id is kept, its content becomes the handoff); segment
         // 2 derives its own row at the next load. Nothing dies, nothing orphans, and a

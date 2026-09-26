@@ -3028,7 +3028,7 @@ def build_model(shots_dirs, scenarios_dir, repo_root=None, with_photos=True,
                 # A PopupDialog is a CENTRED uGUI canvas with no presence in the
                 # control tree, so the Parsek windows' bounding box does not
                 # contain it - cropping to that box captioned another mod's window
-                # as "Confirm: Wipe Recordings". The whole frame is the only honest
+                # as a Parsek confirm dialog. The whole frame is the only honest
                 # crop, and inventing a modal rect would be worse than a big one.
                 photo = {"x": 0, "y": 0, "w": sw, "h": sh, "whole": 1}
             else:

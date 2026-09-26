@@ -303,8 +303,8 @@ namespace Parsek
             // Reconcile already-spawned ghosts against the (possibly shrunk) committed
             // list before any early-out. kscGhosts / kscOverlapGhosts are keyed by
             // committed-recording index, so when CommittedRecordings empties or shrinks
-            // while a KSC ghost is live (Wipe All in Data Management, a recording removed
-            // while sitting in the Space Center, a test tearing down its committed tree),
+            // while a KSC ghost is live (an internal removal while sitting in the Space
+            // Center, a test tearing down its committed tree),
             // the per-index loop below never revisits the now out-of-range keys. Without
             // this reap the ghost hangs frozen above the pad with engines / audio running
             // until the next scene change destroys it.
