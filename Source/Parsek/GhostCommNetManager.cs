@@ -332,6 +332,16 @@ namespace Parsek
             return new List<string>(entries.Keys);
         }
 
+        /// <summary>
+        /// The last exclusion reason noted for a candidate key that holds no node (in-game
+        /// tests). False when the key was not a candidate on the last tick, or is eligible.
+        /// </summary>
+        internal bool TryGetExclusionReason(string key, out string reason)
+        {
+            reason = null;
+            return key != null && lastExclusion.TryGetValue(key, out reason);
+        }
+
         /// <summary>Timeline state of a registered node at a UT, with the current rangeModifier (in-game tests).</summary>
         internal bool TryDescribeRegistered(
             string key, out GhostCommNetState state, out double appliedRangeModifier,

@@ -4939,6 +4939,11 @@ unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by de
   checks, active-vessel control path). Never flown. `VesselSnapshotBuilder.RelaySatellite`
   authors an RC-L01 + RA-2 snapshot for a future lane; no lane or synthetic corpus row uses it
   yet. Remaining to close: a harness lane that flies a probe through a ghost relay (D6).
+- Lane (2026-09-26, branch `commnet-relay-lane`): `CN-1-ghost-commnet-relay` (FLIGHT) and
+  `CN-1T-ghost-commnet-relay-ts` (TRACKSTATION) over the new `ghost-commnet-relay` preset (A crewed
+  over the KSC, B playback-disabled, C looped with its real run over), with four new GhostCommNet
+  cells (the real registered nodes route a free endpoint home and are the only way through; the
+  rulings on A / B / C). NEVER FLOWN; D6 `commnet-relay` is claimed after the first PASS.
 
 ## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
 
