@@ -19,6 +19,7 @@ namespace Parsek.Patches
     {
         static void Prefix(SpaceCenterBuilding __instance, bool deduceFunds)
         {
+            if (ParsekGameModeGate.CheckInert("FacilityRepairScopePatch.Prefix")) return; // S9 game-mode gate
             try
             {
                 bool fundsCharged = deduceFunds && Funding.Instance != null;
@@ -62,6 +63,7 @@ namespace Parsek.Patches
         static void Prefix(SpaceCenterBuilding __instance, out List<string> __state)
         {
             __state = null;
+            if (ParsekGameModeGate.CheckInert("FacilityResetStructuresPatch.Prefix")) return; // S9 game-mode gate
             try
             {
                 __state = FacilityRepairCapture.SelectResetRepairedBuildings(

@@ -19,6 +19,7 @@ namespace Parsek.Patches
     {
         static bool Prefix(RDTech __instance, ref RDTech.OperationResult __result)
         {
+            if (ParsekGameModeGate.CheckInert("TechResearchSpendPatch.Prefix")) return true; // S9 game-mode gate
             // includeAffordability:true — this is the authoritative pre-deduction gate.
             if (TechResearchPatch.TryBlockTechResearch(__instance, includeAffordability: true))
             {

@@ -1292,8 +1292,23 @@ namespace Parsek
             reFlySettlePoseLogActiveFrame = -1;
         }
 
+        // S9: true when this instance started in an inert game mode (ParsekGameModeGate)
+        // and removed itself before subscribing to anything.
+        private bool inertForGameMode;
+
         void Start()
         {
+            // S9 game-mode gate: in a mission / scenario game the flight controller never
+            // becomes Instance, subscribes nothing, builds no UI or toolbar button, and
+            // removes itself, so no recorder, auto-record trigger, ghost or map presence runs.
+            if (ParsekGameModeGate.CheckInert("ParsekFlight.Start"))
+            {
+                inertForGameMode = true;
+                enabled = false;
+                Destroy(this);
+                return;
+            }
+
             Instance = this;
             Log("Parsek Flight loaded.");
 
@@ -2141,6 +2156,8 @@ namespace Parsek
 
         void OnDestroy()
         {
+            if (inertForGameMode)
+                return; // never subscribed, never became Instance (S9 game-mode gate)
             Instance = null;
             // #267: clear the static restore-reentrancy guard. The restore coroutines
             // set it true and clear it in a finally, but Unity abandons a running

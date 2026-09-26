@@ -1171,6 +1171,29 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Parsek stays off in Making History missions, the mission builder and stock training or
+  scenario saves.** These games script their own facility locks, recovery rules and endings,
+  and Parsek was never built for them; worse, after playing a career and then loading one of
+  them, Parsek's in-memory copy of that career could still play its ghosts, draw its supply
+  routes on the map and block stock screens with its reservations. Now, in the MISSION,
+  MISSION_BUILDER, SCENARIO and SCENARIO_NON_RESUMABLE game modes, Parsek shows no toolbar
+  button and does not record, play ghosts, show map presence, rewind or re-fly, capture or patch
+  the ledger, or annotate and block any stock control. `KSP.log` carries one line per scene
+  naming the mode (`[GameModeGate] Parsek inert: game mode MISSION ...`). A mission or scenario
+  save that somehow carries a Parsek section keeps it unchanged when saved. Career, Science and
+  Sandbox games are unaffected.
+
+- **Re-Fly on the Hard preset: the Retry choice is reachable again.** Rewind and Re-Fly ignore
+  the difficulty's "Allow Quickload" and "Allow Revert" settings, but stock only shows the Esc
+  menu's Revert Flight button (and the flight results' Revert to Launch) when Allow Revert is
+  on, and that button is the way into the re-fly Retry / Discard / Continue Flying choice. On a
+  game with Allow Revert off you could still merge or discard a re-fly by leaving the flight,
+  but not retry it from the rewind point. While a re-fly is running in flight, Parsek now turns
+  Allow Revert on in memory so the stock button appears, and turns it back off when the re-fly
+  ends, when you leave the flight scene and before anything is saved: every save writes your
+  own setting, so the preset is never changed on disk. `KSP.log` logs each change under
+  `[ReFlySession]`.
+
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
   and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6

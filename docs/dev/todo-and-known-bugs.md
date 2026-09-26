@@ -61,14 +61,47 @@ Owner rulings (2026-09-26):
 - S6 (Q4). The `stock-minimal` and `modded-compat` provision profiles run player defaults
   (`MAX_VESSELS_BUDGET = 250`, `DECLUTTER_KSC = True`); re-fly the daily tier once after the
   flip. The S5 fix gets unit and in-game cells, no dedicated low-budget lane.
-- S7 (Q1). Rewind-to-Separation and Re-Fly IGNORE `Flight.CanQuickLoad` / `Flight.CanRestart`
+- ~~S7 (Q1). Rewind-to-Separation and Re-Fly IGNORE `Flight.CanQuickLoad` / `Flight.CanRestart`
   (they are Parsek's own time mechanic). Only the re-fly exit must stay reachable: stock
   builds the Esc-menu Revert button only when `CanRestart`, so `ReFlyRevertButtonGate` alone
-  cannot surface Retry / Discard on the Hard preset (inferred, needs a live check).
+  cannot surface Retry / Discard on the Hard preset (inferred, needs a live check).~~
+  FIXED 2026-09-26, branch `kss-modes`: no production path reads either flag, so rewind and
+  re-fly already ignored them. Decompiled reachability on `CanRestart = false`: Merge and
+  Discard stay reachable through scene exit (`SceneExitInterceptor` -> Re-Fly merge dialog;
+  Esc "Space Center" / "Tracking Station" are not CanRestart-gated), Retry was lost (the
+  Esc "Revert Flight" button is built only when `CanLeaveToEditor || CanRestart`, both false
+  on Hard; its Revert to Launch entry and `FlightResultsDialog`'s need `CanRestart`), and
+  in-flight Parsek UI cannot re-invoke (`RewindInvoker.CanInvoke` refuses while a re-fly is
+  active). `ReFlyRevertButtonGate` now also sets the live `Parameters.Flight.CanRestart` to
+  true in memory while a re-fly is live in FLIGHT (pure `ShouldHoldCanRestartOverride`; only
+  from false; only when the save guard is verified installed), restores it on marker clear,
+  any scene-load request and a game-object change, and `Patches/FlightParamsCanRestartPersistPatch`
+  (postfix on `GameParameters.ParameterNode.Save`, the one serializer every save and
+  `GameBackup` reaches) rewrites the held instance's saved value to False. xUnit:
+  `ReFlyCanRestartOverrideTests`. Live check still owed: fly a Hard-preset re-fly, Esc ->
+  Revert Flight -> Revert to Launch -> Retry, then confirm `persistent.sfs` keeps
+  `CanRestart = False`. Known side effects while held: stock's exit-without-saving choice and
+  the in-flight Difficulty Options "Allow Revert" toggle read true, and a player who turns
+  that toggle back on mid-re-fly has it reset to false when the session ends.
 - S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
   kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.
-- S9 (Q3). Parsek is inert (no recording, ghosts or rewind; one log line) in `MISSION`,
-  `MISSION_BUILDER`, `SCENARIO` and `SCENARIO_NON_RESUMABLE` games.
+- ~~S9 (Q3). Parsek is inert (no recording, ghosts or rewind; one log line) in `MISSION`,
+  `MISSION_BUILDER`, `SCENARIO` and `SCENARIO_NON_RESUMABLE` games.~~ FIXED 2026-09-26,
+  branch `kss-modes`: one pure predicate `ParsekGameModeGate` (`IsActiveMode` true only for
+  SANDBOX / CAREER / SCIENCE_SANDBOX, unknown modes fail closed; `CheckInert(site)` logs one
+  Info line per game + scene). Stock never adds `ParsekScenario` to those games
+  (`AddToAllGames` = 126 carries no mission flag; `GamePersistence.CreateNewGame` /
+  `UpdateScenarioModules` have no SCENARIO branch), but the KSPAddons and Harmony patches run
+  in every game and the static stores still hold the last career, so every entry point reads
+  the gate: `ParsekScenario` OnLoad / OnSave (inert save writes the loaded node back verbatim)
+  / Update, `ParsekFlight` / `ParsekKSC` / `ParsekTrackingStation` Start (destroy themselves
+  before UI, toolbar or subscriptions), `StockUiOverlayController`, `CurrencyReservationOverlay`,
+  `WarpToTimeConsumer`, the polyline Driver and route lines, `RevertInterceptor`, the scene-exit
+  prefix, and every stock-control block / decoration / ledger-capture / intent-arming patch
+  (the ghost-pid filters are left alone). xUnit: `ParsekGameModeGateTests`, including an IL
+  check that each gated entry point calls the gate. Not gated on purpose: the automation seam,
+  the Ctrl+Shift+T test runner, the GUI-tree recorder pump. No mission / scenario flight has
+  been flown.
 
 Supervisor defaults (not overridden):
 
