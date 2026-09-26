@@ -88,3 +88,7 @@ AMBIENCE_VOLUME = "0"
 MUSIC_VOLUME = "0"
 UI_VOLUME = "0"
 VOICE_VOLUME = "0"
+# Player-default vessel budget and KSC declutter - same ruling and rationale as
+# stock-minimal (S6 / Q4, 2026-09-26).
+MAX_VESSELS_BUDGET = "250"
+DECLUTTER_KSC = "True"

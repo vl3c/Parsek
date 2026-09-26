@@ -97,7 +97,7 @@ namespace Parsek
                 string owner = context.SlotOwner != null ? context.SlotOwner(kerbalName) : null;
                 text = StockUiReservationPredicates.ExplainKerbalReservation(
                     index, kerbalName, reservation, owner, context.IsLoopingRecording, formatDate);
-                d.Kind = reservation != null && reservation.IsPermanent
+                d.Kind = KerbalsModule.IsLossHold(reservation)
                     ? StockUiDecorationKind.KerbalLost
                     : StockUiDecorationKind.KerbalOnFlight;
             }

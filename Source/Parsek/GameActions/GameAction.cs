@@ -494,7 +494,16 @@ namespace Parsek
         /// <summary>Biome name, e.g. "Midlands".</summary>
         public string Biome;
 
-        /// <summary>Science points KSP actually credited (immutable). Post-transmit-scalar.</summary>
+        /// <summary>
+        /// Science points KSP added to the SUBJECT (immutable). Post-transmit-scalar and
+        /// PRE-<see cref="ScienceGainMultiplier"/>: stock adds this to
+        /// <c>subject.science</c>, so the per-subject cap walk and the committed-science
+        /// cache run in these units. The pool received
+        /// <see cref="GetScienceAwardedPoolCredit"/>. The walk treats it as the increment one
+        /// submission added. Rows captured before SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT
+        /// hold the subject's running total instead and over-credit repeated collections;
+        /// by owner decision they are kept and walked unchanged.
+        /// </summary>
         public float ScienceAwarded;
 
         /// <summary>How the science was collected.</summary>
@@ -505,6 +514,15 @@ namespace Parsek
 
         /// <summary>Total science this subject can yield (scienceCap).</summary>
         public float SubjectMaxValue;
+
+        /// <summary>
+        /// <c>Career.ScienceGainMultiplier</c> stamped when the subject was captured
+        /// (stock <c>ResearchAndDevelopment.SubmitScienceData</c> multiplies the subject
+        /// value by it before <c>AddScience</c>). Frozen at capture: a replay never reads
+        /// the CURRENT difficulty, so changing the slider mid-career cannot rewrite past
+        /// credits. Serialized sparsely (absent means 1).
+        /// </summary>
+        public float ScienceGainMultiplier = 1f;
 
         // ---- Science spending fields ----
 
@@ -884,6 +902,16 @@ namespace Parsek
 
         /// <summary>Career starting funds, extracted from save file.</summary>
         public float InitialFunds;
+
+        /// <summary>
+        /// True on a <see cref="GameActionType.FundsInitial"/> seed whose ZERO was read off a
+        /// loaded <c>Funding</c> singleton with no funds history in the ledger (a
+        /// StartingFunds = 0 career). It seals the zero: without it
+        /// <c>Ledger.SeedInitialFunds</c>'s stale-zero repair would later overwrite the seed
+        /// with a live pool that already contains the career's earnings. Sparse on disk
+        /// (absent means false).
+        /// </summary>
+        public bool InitialFundsConfirmedZero;
 
         /// <summary>Existing science balance when Parsek is first installed mid-career.</summary>
         public float InitialScience;
@@ -1302,6 +1330,10 @@ namespace Parsek
             n.AddValue("method", ((int)Method).ToString(IC));
             n.AddValue("transmitScalar", TransmitScalar.ToString("R", IC));
             n.AddValue("subjectMaxValue", SubjectMaxValue.ToString("R", IC));
+            // Sparse: an x1 career writes the same bytes it always did.
+            float gainMultiplier = NormalizeScienceGainMultiplier(ScienceGainMultiplier);
+            if (gainMultiplier != 1f)
+                n.AddValue(ScienceGainMultiplierKey, gainMultiplier.ToString("R", IC));
             if (!float.IsNaN(EndUT))
             {
                 n.AddValue("startUT", StartUT.ToString("R", IC));
@@ -1320,9 +1352,37 @@ namespace Parsek
             TryParseEnum(n, "method", out a.Method);
             TryParseFloat(n, "transmitScalar", out a.TransmitScalar);
             TryParseFloat(n, "subjectMaxValue", out a.SubjectMaxValue);
+            float gainMultiplier;
+            a.ScienceGainMultiplier = TryParseFloat(n, ScienceGainMultiplierKey, out gainMultiplier)
+                ? NormalizeScienceGainMultiplier(gainMultiplier)
+                : 1f;
             TryParseFloat(n, "startUT", out a.StartUT);
             if (!TryParseFloat(n, "endUT", out a.EndUT))
                 a.EndUT = float.NaN;
+        }
+
+        /// <summary>Sparse ScienceEarning key for <see cref="ScienceGainMultiplier"/>.</summary>
+        internal const string ScienceGainMultiplierKey = "scienceGainMultiplier";
+
+        /// <summary>
+        /// Pure: maps a captured multiplier to the value the ledger applies. Stock's slider
+        /// runs 0.1..10, so a non-positive, NaN or infinite value can only mean "not
+        /// captured" (a default struct field, a legacy row) and reads as 1.
+        /// </summary>
+        internal static float NormalizeScienceGainMultiplier(float multiplier)
+        {
+            if (float.IsNaN(multiplier) || float.IsInfinity(multiplier) || multiplier <= 0f)
+                return 1f;
+            return multiplier;
+        }
+
+        /// <summary>
+        /// The science this row put into the POOL: <see cref="ScienceAwarded"/> (subject
+        /// units) times the multiplier frozen at capture.
+        /// </summary>
+        internal float GetScienceAwardedPoolCredit()
+        {
+            return ScienceAwarded * NormalizeScienceGainMultiplier(ScienceGainMultiplier);
         }
 
         private void SerializeScienceSpending(ConfigNode n)
@@ -1761,12 +1821,20 @@ namespace Parsek
         private void SerializeFundsInitial(ConfigNode n)
         {
             n.AddValue("initialFunds", InitialFunds.ToString("R", IC));
+            if (InitialFundsConfirmedZero)
+                n.AddValue(InitialFundsConfirmedZeroKey, InitialFundsConfirmedZero.ToString());
         }
 
         private static void DeserializeFundsInitial(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "initialFunds", out a.InitialFunds);
+            string confirmedZero = n.GetValue(InitialFundsConfirmedZeroKey);
+            if (confirmedZero != null)
+                bool.TryParse(confirmedZero, out a.InitialFundsConfirmedZero);
         }
+
+        /// <summary>Sparse FundsInitial key for <see cref="InitialFundsConfirmedZero"/>.</summary>
+        internal const string InitialFundsConfirmedZeroKey = "initialFundsConfirmedZero";
 
         private void SerializeScienceInitial(ConfigNode n)
         {

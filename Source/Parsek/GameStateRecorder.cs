@@ -190,6 +190,7 @@ namespace Parsek
             SuppressResourceEvents = false;
             IsReplayingActions = false;
             BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            ScienceGainMultiplierProviderForTesting = null;
         }
 
         /// <summary>
@@ -223,6 +224,32 @@ namespace Parsek
             bypassEntryPurchaseAfterResearch =
                 game.Parameters.Difficulty.BypassEntryPurchaseAfterResearch;
             return true;
+        }
+
+        /// <summary>
+        /// Test-only seam for <c>Career.ScienceGainMultiplier</c>. Production reads the live
+        /// game parameter; tests install a provider to drive non-Normal presets headless.
+        /// Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<float> ScienceGainMultiplierProviderForTesting;
+
+        /// <summary>
+        /// The <c>Career.ScienceGainMultiplier</c> stock applies to subject science right now
+        /// (decompiled <c>ResearchAndDevelopment.SubmitScienceData</c>: it adds the raw value to
+        /// <c>subject.science</c>, THEN multiplies before <c>AddScience</c>). Read ONLY at
+        /// capture time and frozen onto the pending subject; replay never calls this.
+        /// Null-guarded: no live game (or a non-positive value) reads as 1.
+        /// </summary>
+        internal static float ReadScienceGainMultiplierAtCapture()
+        {
+            var provider = ScienceGainMultiplierProviderForTesting;
+            if (provider != null)
+                return GameAction.NormalizeScienceGainMultiplier(provider());
+
+            var game = HighLogic.CurrentGame;
+            if (game == null || game.Parameters == null || game.Parameters.Career == null)
+                return 1f;
+            return GameAction.NormalizeScienceGainMultiplier(game.Parameters.Career.ScienceGainMultiplier);
         }
 
         /// <summary>
@@ -553,6 +580,7 @@ namespace Parsek
             };
             Emit(ref fundsEvt, "FundsChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
+            LogUnledgeredCheatCurrency(reason, "funds", delta, newFunds);
 
             // #445: VesselRollout deducts the vessel cost when the player launches from
             // VAB/SPH onto the launchpad/runway. KSP captures this BEFORE
@@ -668,6 +696,7 @@ namespace Parsek
             };
             Emit(ref sciEvt, "ScienceChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
+            LogUnledgeredCheatCurrency(reason, "science", delta, newScience);
 
             // Patents Licensing (stock CurrencyExchanger / CurrencyConverter,
             // researchIPsellout) subtracts science directly under
@@ -722,7 +751,7 @@ namespace Parsek
             }
             if (float.IsNaN(oldReputation)) return;
             float delta = newReputation - oldReputation;
-            if (IsReputationDeltaBelowThreshold(delta))
+            if (IsReputationDeltaBelowThreshold(delta, reason))
             {
                 ParsekLog.VerboseRateLimited("GameStateRecorder", "reputation-threshold",
                     $"Ignored ReputationChanged delta={delta:+0.0;-0.0} below threshold={ReputationThreshold:F1}", 5.0);
@@ -739,6 +768,7 @@ namespace Parsek
             };
             Emit(ref repEvt, "ReputationChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
+            LogUnledgeredCheatCurrency(reason, "reputation", delta, newReputation);
 
             // Bail-Out Grant (stock CurrencyExchanger) subtracts reputation directly under
             // TransactionReasons.StrategyInput with no recording owner and no other capture
@@ -746,7 +776,15 @@ namespace Parsek
             // reputation instead of refunding it. ShouldForwardDirectLedgerEvent skips the
             // write when a live recorder owns the event. See
             // fix-bailout-grant-currency-exchange-capture.md.
-            if (reason == TransactionReasons.StrategyInput &&
+            //
+            // Declined contract (Career.RepLossDeclined, KSP-SETTINGS-AUDIT S2): stock
+            // Contract.Decline subtracts it under TransactionReasons.ContractDecline AFTER
+            // the ContractDeclined event (SetState fires that first, with no amount), so
+            // this post-curve delta is the only capture of what stock applied. Same
+            // KSC-origin door as the StrategyInput leg above; a live recorder owns it at
+            // commit through ConvertEvents instead.
+            if ((reason == TransactionReasons.StrategyInput
+                 || reason == TransactionReasons.ContractDecline) &&
                 ShouldForwardDirectLedgerEvent(repEvt.recordingId, HasLiveRecorder()))
                 LedgerOrchestrator.OnKscSpending(repEvt);
         }
@@ -755,6 +793,47 @@ namespace Parsek
         {
             float absDelta = Math.Abs(delta);
             return absDelta < ReputationThreshold - ReputationThresholdEpsilon;
+        }
+
+        /// <summary>
+        /// Reason-aware threshold. A ContractDecline change is exempt from the 1-point
+        /// noise floor: stock only fires it for a real decline penalty, and the curve can
+        /// shrink a Normal-preset RepLossDeclined of 1 below one point at a negative pool,
+        /// which would otherwise drop the ledger row and leave the loss to be refunded by
+        /// the next recalc. Only an exact zero is ignored.
+        /// </summary>
+        internal static bool IsReputationDeltaBelowThreshold(float delta, TransactionReasons reason)
+        {
+            if (reason == TransactionReasons.ContractDecline)
+                return delta == 0f;
+            return IsReputationDeltaBelowThreshold(delta);
+        }
+
+        /// <summary>
+        /// Pure: true for the Alt+F12 cheat menu's currency reason. Cheat currency stays
+        /// unledgered by ruling (KSP-SETTINGS-AUDIT S11): it is held by the drawdown clamp
+        /// until the next authoritative recalc (a rewind) removes it.
+        /// </summary>
+        internal static bool IsCheatCurrencyReason(TransactionReasons reason)
+        {
+            return reason == TransactionReasons.Cheating;
+        }
+
+        /// <summary>
+        /// One Info line per captured cheat currency event saying it is not ledgered.
+        /// Returns true when it logged. No UI, no screen message (standing ruling).
+        /// </summary>
+        internal static bool LogUnledgeredCheatCurrency(
+            TransactionReasons reason, string currency, double delta, double newValue)
+        {
+            if (!IsCheatCurrencyReason(reason))
+                return false;
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Cheat {currency} change {delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} " +
+                $"(-> {newValue.ToString("0.###", CultureInfo.InvariantCulture)}) is not ledgered: it is " +
+                "held only until the next rewind, which undoes it");
+            return true;
         }
 
         /// <summary>
@@ -892,7 +971,7 @@ namespace Parsek
                 subject.id,
                 subject.science,
                 subject.scienceCap,
-                ReadScienceGainMultiplier(),
+                ReadScienceGainMultiplierAtCapture(),
                 Planetarium.GetUniversalTime(),
                 vessel != null ? vessel.vesselName : null,
                 // KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: pass the live launch
@@ -900,18 +979,6 @@ namespace Parsek
                 // DIFFERENT launch of the same craft. Null (no ProtoVessel, or no vessel guid)
                 // leaves the filter inert.
                 VesselLaunchIdentity.ReadLaunchGuid(vessel));
-        }
-
-        /// <summary>
-        /// Reads stock's career science-reward multiplier. <c>SubmitScienceData</c> adds the
-        /// UNSCALED value to <c>subject.science</c> and fires <c>OnScienceRecieved</c> with the
-        /// value multiplied by this, so dividing the event amount by it recovers the subject-unit
-        /// increment. 1 when no game is loaded.
-        /// </summary>
-        private static float ReadScienceGainMultiplier()
-        {
-            var career = HighLogic.CurrentGame?.Parameters?.Career;
-            return career != null ? career.ScienceGainMultiplier : 1f;
         }
 
         /// <summary>
@@ -1048,7 +1115,11 @@ namespace Parsek
                 subjectMaxValue = subjectCap,
                 captureUT = captureUt,
                 reasonKey = reasonKey,
-                recordingId = subjectRecordingId
+                recordingId = subjectRecordingId,
+                // The row stays in subject units (increment = amount / multiplier) and
+                // carries the multiplier frozen now, so ScienceModule's pool credit
+                // (increment * multiplier) equals stock's amount (KSP-SETTINGS-AUDIT S1).
+                scienceGainMultiplier = GameAction.NormalizeScienceGainMultiplier(scienceGainMultiplier)
             };
 
             bool hasLiveRecorder = HasLiveRecorder();
@@ -1093,6 +1164,7 @@ namespace Parsek
             ParsekLog.Info("GameStateRecorder",
                 $"Science subject captured: {subjectId} amount={amount:F1} " +
                 $"increment={increment:F2} total={subjectScienceAfter:F1} " +
+                $"gainMultiplier={pendingSubject.scienceGainMultiplier.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"reason='{reasonKey}' ut={captureUt:F1} tag='{subjectRecordingId}' " +
                 $"deployed={deployedScience} directLedger={directLedgerHandled}");
         }

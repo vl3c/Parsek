@@ -149,6 +149,8 @@ namespace Parsek
         /// <paramref name="target"/> is <see cref="RevertTarget.Launch"/>.</param>
         internal static bool Prefix(RevertTarget target, EditorFacility facility = EditorFacility.VAB)
         {
+            // S9 game-mode gate: stock revert runs untouched in a mission / scenario game.
+            if (ParsekGameModeGate.CheckInert("RevertInterceptor.Prefix")) return true;
             if (!ShouldBlock(out var marker))
             {
                 ParsekLog.Verbose(PatchTag,

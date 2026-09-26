@@ -30,6 +30,7 @@ namespace Parsek.Patches
 
         static bool Prefix(Sun __instance)
         {
+            if (ParsekGameModeGate.CheckInert("SunLateUpdateGuardPatch.Prefix")) return true; // S9 game-mode gate
             Sun sun = Sun.Instance ?? __instance;
             if (sun == null)
                 return true;

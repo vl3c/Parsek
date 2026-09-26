@@ -17,6 +17,7 @@ namespace Parsek.Patches
     {
         static bool Prefix(SpaceCenterBuilding __instance)
         {
+            if (ParsekGameModeGate.CheckInert("FacilityUpgradeSpendPatch.Prefix")) return true; // S9 game-mode gate
             if (__instance == null) return true;
 
             return !FacilityUpgradePatch.TryBlockFacilityUpgrade(__instance.Facility);

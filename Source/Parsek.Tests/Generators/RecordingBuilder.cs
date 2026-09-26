@@ -44,6 +44,8 @@ namespace Parsek.Tests.Generators
         private double rewindReservedScience;
         private float rewindReservedRep;
         private int? terminalState;
+        private bool? crewDeathRespawns;
+        private double crewDeathRespawnSeconds = double.NaN;
         private MergeState? mergeState;
         private double terrainHeightAtEnd = double.NaN;
         private OrbitSegment? terminalOrbit;
@@ -433,6 +435,18 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder WithTerminalState(int terminalState)
         {
             this.terminalState = terminalState;
+            return this;
+        }
+
+        /// <summary>
+        /// Stamps the crew death respawn policy (Recording.CrewDeathRespawns /
+        /// CrewDeathRespawnSeconds; keys crewDeathRespawn / crewDeathRespawnSec) the way
+        /// KerbalsModule.PopulateCrewEndStates stamps it at a recorded death.
+        /// </summary>
+        public RecordingBuilder WithCrewDeathRespawn(bool respawns, double timerSeconds)
+        {
+            crewDeathRespawns = respawns;
+            crewDeathRespawnSeconds = timerSeconds;
             return this;
         }
 
@@ -936,6 +950,12 @@ namespace Parsek.Tests.Generators
 
             if (terminalState.HasValue)
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
+            if (crewDeathRespawns.HasValue)
+            {
+                node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());
+                if (!double.IsNaN(crewDeathRespawnSeconds))
+                    node.AddValue("crewDeathRespawnSec", crewDeathRespawnSeconds.ToString("R", CultureInfo.InvariantCulture));
+            }
 
             if (!double.IsNaN(terrainHeightAtEnd))
                 node.AddValue("terrainHeightAtEnd", terrainHeightAtEnd.ToString("R", CultureInfo.InvariantCulture));
@@ -1107,6 +1127,12 @@ namespace Parsek.Tests.Generators
 
             if (terminalState.HasValue)
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
+            if (crewDeathRespawns.HasValue)
+            {
+                node.AddValue("crewDeathRespawn", crewDeathRespawns.Value.ToString());
+                if (!double.IsNaN(crewDeathRespawnSeconds))
+                    node.AddValue("crewDeathRespawnSec", crewDeathRespawnSeconds.ToString("R", CultureInfo.InvariantCulture));
+            }
 
             if (!double.IsNaN(terrainHeightAtEnd))
                 node.AddValue("terrainHeightAtEnd", terrainHeightAtEnd.ToString("R", CultureInfo.InvariantCulture));

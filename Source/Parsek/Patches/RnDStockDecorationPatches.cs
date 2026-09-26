@@ -29,6 +29,7 @@ namespace Parsek.Patches
 
         static void Postfix(RDNode __instance)
         {
+            if (ParsekGameModeGate.CheckInert("RnDNodeMarkPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiRnDDecoration.ApplyNodeMark(__instance);
@@ -65,6 +66,7 @@ namespace Parsek.Patches
 
         static void Postfix(RDNode __instance, ref string __result)
         {
+            if (ParsekGameModeGate.CheckInert("RnDNodeTooltipPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 __result = StockUiRnDDecoration.AppendNodeTooltip(__instance, __result);
@@ -102,6 +104,7 @@ namespace Parsek.Patches
 
         static void Postfix(RDController __instance)
         {
+            if (ParsekGameModeGate.CheckInert("RnDPanelBlockPatch.Postfix")) return; // S9 game-mode gate
             bool disabledByParsek = false;
             try
             {
@@ -160,6 +163,7 @@ namespace Parsek.Patches
 
         static void Postfix(RDController __instance, RDNode node)
         {
+            if (ParsekGameModeGate.CheckInert("RnDPanelDescriptionPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiRnDDecoration.AppendPanelDescription(__instance, node);
@@ -196,6 +200,7 @@ namespace Parsek.Patches
 
         static void Postfix(RDTechTree __instance)
         {
+            if (ParsekGameModeGate.CheckInert("RnDRefreshPassLogPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiRnDDecoration.LogPass(

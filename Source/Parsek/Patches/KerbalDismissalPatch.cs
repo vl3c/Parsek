@@ -28,6 +28,7 @@ namespace Parsek.Patches
 
         static bool Prefix(ProtoCrewMember crew)
         {
+            if (ParsekGameModeGate.CheckInert("KerbalDismissalPatch.Prefix")) return true; // S9 game-mode gate
             if (crew == null) return true;
             return ShouldAllowDismissal(crew.name, "KerbalRoster.Remove");
         }
@@ -180,6 +181,7 @@ namespace Parsek.Patches
 
         static bool Prefix(ProtoCrewMember ap)
         {
+            if (ParsekGameModeGate.CheckInert("KerbalSackPatch.Prefix")) return true; // S9 game-mode gate
             if (ap == null) return true;
             return KerbalDismissalPatch.ShouldAllowDismissal(ap.name, "KerbalRoster.SackAvailable");
         }
@@ -213,6 +215,7 @@ namespace Parsek.Patches
 
         static bool Prefix(CrewListItem clickItem)
         {
+            if (ParsekGameModeGate.CheckInert("AstronautComplexDismissPatch.Prefix")) return true; // S9 game-mode gate
             string name = StockUiAstronautDecoration.SafeName(clickItem);
             if (string.IsNullOrEmpty(name))
             {

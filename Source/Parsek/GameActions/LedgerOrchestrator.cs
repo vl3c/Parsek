@@ -1277,6 +1277,14 @@ namespace Parsek
                 case GameActionType.ReputationPenalty
                         when a.RepPenaltySource == ReputationPenaltySource.KerbalDeath:
                     return (a.RecordingId ?? "") + ":KerbalDeath";
+                // The declined-contract leg (KSP-SETTINGS-AUDIT S2), keyed like the
+                // query-family debit: recording + source + magnitude, so it cannot collapse
+                // onto an unrelated penalty sharing its UT under the historical "" key,
+                // while a re-commit of the same captured event still dedups.
+                case GameActionType.ReputationPenalty
+                        when a.RepPenaltySource == ReputationPenaltySource.ContractDecline:
+                    return (a.RecordingId ?? "") + ":ContractDecline:" +
+                           a.NominalPenalty.ToString("R", CultureInfo.InvariantCulture);
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
                 // FundsSpending: RecordingId alone collides when multiple KSC part
                 // purchases share a null/empty RecordingId. DedupKey is the part name
@@ -2115,31 +2123,132 @@ namespace Parsek
             return origin;
         }
 
+        /// <summary>
+        /// Live currency-pool read the funds / science seeds consult: presence, the
+        /// positive OnLoad-done signal (<see cref="CurrencyScenarioReadiness.IsScenarioModuleLoaded"/>)
+        /// and the value. A LOADED zero is a real zero; an unloaded or absent one is not.
+        /// </summary>
+        internal struct CurrencyPoolProbe
+        {
+            public bool FundingPresent;
+            public bool FundingLoaded;
+            public double Funds;
+            public bool ScienceSingletonPresent;
+            public bool ScienceSingletonLoaded;
+            public float Science;
+        }
+
+        /// <summary>Test seam replacing <see cref="ReadCurrencyPoolProbe"/>. Cleared by ResetForTesting.</summary>
+        internal static Func<CurrencyPoolProbe> CurrencyPoolProbeForTesting;
+
+        internal static CurrencyPoolProbe ReadCurrencyPoolProbe()
+        {
+            var provider = CurrencyPoolProbeForTesting;
+            if (provider != null)
+                return provider();
+
+            var probe = new CurrencyPoolProbe();
+            var funding = Funding.Instance;
+            if (funding != null)
+            {
+                probe.FundingPresent = true;
+                probe.FundingLoaded = CurrencyScenarioReadiness.IsScenarioModuleLoaded(funding);
+                probe.Funds = funding.Funds;
+            }
+
+            var rnd = ResearchAndDevelopment.Instance;
+            if (rnd != null)
+            {
+                probe.ScienceSingletonPresent = true;
+                probe.ScienceSingletonLoaded = CurrencyScenarioReadiness.IsScenarioModuleLoaded(rnd);
+                probe.Science = rnd.Science;
+            }
+
+            return probe;
+        }
+
+        internal enum FundsSeedDecision
+        {
+            AlreadySeeded,
+            SeedFromBaseline,
+            SeedFromLivePool,
+            SeedConfirmedZero,
+            Defer
+        }
+
+        /// <summary>
+        /// Pure: how the career's FundsInitial seed should be created or repaired.
+        ///
+        /// <para>A zero pool used to defer forever (the seed accepted non-zero values only,
+        /// because an unloaded Funding also reads 0). The KSP-SETTINGS-AUDIT S4 branch takes
+        /// a zero ONLY when Funding's OnLoad has provably run AND the ledger carries no funds
+        /// history - a StartingFunds = 0 career at its first load. With history, a zero pool
+        /// says nothing about the start value (the player may have spent it all), so the
+        /// seed keeps deferring exactly as before.</para>
+        /// </summary>
+        internal static FundsSeedDecision DecideInitialFundsSeed(
+            bool hasSeed,
+            float existingSeedFunds,
+            bool existingSeedConfirmedZero,
+            bool hasInitialBaseline,
+            double baselineFunds,
+            CurrencyPoolProbe probe,
+            bool hasFundsTimelineActions)
+        {
+            if (hasSeed && (existingSeedFunds != 0f || existingSeedConfirmedZero))
+                return FundsSeedDecision.AlreadySeeded;
+
+            if (hasInitialBaseline && baselineFunds != 0.0)
+                return FundsSeedDecision.SeedFromBaseline;
+
+            if (probe.FundingPresent && probe.Funds != 0.0)
+                return FundsSeedDecision.SeedFromLivePool;
+
+            if (probe.FundingPresent && probe.FundingLoaded && probe.Funds == 0.0
+                && !hasFundsTimelineActions)
+                return FundsSeedDecision.SeedConfirmedZero;
+
+            return FundsSeedDecision.Defer;
+        }
+
         private static bool EnsureInitialFundsSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
         {
             GameAction existingSeed;
-            if (TryGetFundsSeed(out existingSeed) && existingSeed.InitialFunds != 0f)
-                return true;
+            bool hasSeed = TryGetFundsSeed(out existingSeed);
+            var probe = ReadCurrencyPoolProbe();
+            var decision = DecideInitialFundsSeed(
+                hasSeed,
+                hasSeed ? existingSeed.InitialFunds : 0f,
+                hasSeed && existingSeed.InitialFundsConfirmedZero,
+                hasInitialBaseline,
+                hasInitialBaseline ? initialBaseline.funds : 0.0,
+                probe,
+                LedgerHasFundsTimelineActions());
 
-            if (hasInitialBaseline)
+            switch (decision)
             {
-                if (initialBaseline.funds != 0.0)
-                {
+                case FundsSeedDecision.AlreadySeeded:
+                    return true;
+                case FundsSeedDecision.SeedFromBaseline:
                     Ledger.SeedInitialFunds(initialBaseline.funds);
                     return true;
-                }
-
-                ParsekLog.Verbose(Tag,
-                    "SeedInitialFunds: initial baseline has zero funds; waiting for a non-zero Funding seed");
+                case FundsSeedDecision.SeedFromLivePool:
+                    Ledger.SeedInitialFunds(probe.Funds);
+                    return true;
+                case FundsSeedDecision.SeedConfirmedZero:
+                    Ledger.SeedConfirmedZeroFunds();
+                    return true;
+                default:
+                    ParsekLog.Verbose(Tag,
+                        "SeedInitialFunds: deferring - " +
+                        (!probe.FundingPresent
+                            ? "Funding.Instance null"
+                            : !probe.FundingLoaded
+                                ? "Funding present but its OnLoad has not run"
+                                : "pool reads 0 and the ledger already carries funds history") +
+                        (hasInitialBaseline ? " (initial baseline has zero funds)" : ""));
+                    return false;
             }
-
-            if (Funding.Instance != null && Funding.Instance.Funds != 0.0)
-            {
-                Ledger.SeedInitialFunds(Funding.Instance.Funds);
-                return true;
-            }
-
-            return false;
         }
 
         private static bool TryGetFundsSeed(out GameAction seed)
@@ -2179,11 +2288,29 @@ namespace Parsek
                 return true;
             }
 
-            if (ResearchAndDevelopment.Instance == null
-                || ResearchAndDevelopment.Instance.Science == 0f)
+            var probe = ReadCurrencyPoolProbe();
+            if (!probe.ScienceSingletonPresent)
                 return false;
 
-            Ledger.SeedInitialScience(ResearchAndDevelopment.Instance.Science);
+            if (probe.Science == 0f)
+            {
+                // KSP-SETTINGS-AUDIT S4: a Science-mode or fresh career at 0 science used to
+                // defer forever. A zero is taken only off an R&D singleton whose OnLoad has
+                // provably run (no science history exists here - that branch returned above).
+                if (!probe.ScienceSingletonLoaded)
+                {
+                    ParsekLog.Verbose(Tag,
+                        "SeedInitialScience: deferring - R&D present but its OnLoad has not run");
+                    return false;
+                }
+
+                Ledger.SeedInitialScience(0f);
+                ParsekLog.Verbose(Tag,
+                    "SeedInitialScience: seeded a loaded zero pool (no baseline, no science history)");
+                return true;
+            }
+
+            Ledger.SeedInitialScience(probe.Science);
             return true;
         }
 
@@ -2559,6 +2686,57 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private static bool LedgerHasFundsTimelineActions()
+        {
+            var actions = Ledger.Actions;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (ActionTouchesFundsBudget(actions[i]))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Pure: true for a row that moves the funds pool (the FundsModule projection set,
+        /// read without the Effective gates so a not-yet-walked row still counts as history).
+        /// </summary>
+        internal static bool ActionTouchesFundsBudget(GameAction action)
+        {
+            if (action == null)
+                return false;
+
+            switch (action.Type)
+            {
+                case GameActionType.FundsEarning:
+                    return action.FundsAwarded != 0f;
+                case GameActionType.FundsSpending:
+                    return action.FundsSpent != 0f;
+                case GameActionType.MilestoneAchievement:
+                    return action.MilestoneFundsAwarded != 0f;
+                case GameActionType.ContractAccept:
+                    return action.AdvanceFunds != 0f;
+                case GameActionType.ContractComplete:
+                    return action.FundsReward != 0f || action.TransformedFundsReward != 0f;
+                case GameActionType.ContractFail:
+                case GameActionType.ContractCancel:
+                    return action.FundsPenalty != 0f;
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityRepair:
+                    return action.FacilityCost != 0f;
+                case GameActionType.KerbalHire:
+                    return action.HireCost != 0f;
+                case GameActionType.StrategyActivate:
+                    return action.SetupCost != 0f;
+                case GameActionType.RouteCargoDebited:
+                case GameActionType.RouteRecoveryCredited:
+                    return action.RouteKscFundsCost != 0f;
+                default:
+                    return false;
+            }
         }
 
         private static bool LedgerHasScienceTimelineActions()
@@ -7032,8 +7210,11 @@ namespace Parsek
                     if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
                         continue;
 
+                    // Pool units: the observed side is a post-ScienceGainMultiplier
+                    // ScienceChanged delta, so the subject-unit award is scaled by the
+                    // multiplier frozen on the row at capture.
                     if (action.Type == GameActionType.ScienceEarning)
-                        committedCredit += action.ScienceAwarded;
+                        committedCredit += action.GetScienceAwardedPoolCredit();
                     else if (action.Type == GameActionType.StrategyScienceDebit
                              && action.ConversionSource == StrategyConversionSource.Converter)
                         converterTake += action.Cost;
@@ -7247,6 +7428,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             initialized = false;
+            CurrencyPoolProbeForTesting = null;
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;

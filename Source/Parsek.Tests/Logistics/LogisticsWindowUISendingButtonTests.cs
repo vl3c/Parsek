@@ -259,19 +259,62 @@ namespace Parsek.Tests.Logistics
     /// non-positive / non-finite interval so the field is always editable. Unity-free,
     /// so exercised directly.
     /// </summary>
-    public class LogisticsWindowUIIntervalFieldTests
+    [Collection("Sequential")]
+    public class LogisticsWindowUIIntervalFieldTests : IDisposable
     {
+        public LogisticsWindowUIIntervalFieldTests()
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = null;
+        }
+
         [Theory]
         [InlineData(45.0, "45s")]       // under a minute
         [InlineData(600.0, "10.0m")]    // 10 minutes
         [InlineData(1800.0, "30.0m")]   // 30 minutes
         [InlineData(7200.0, "2.0h")]    // 2 hours
+        [InlineData(18000.0, "5.0h")]   // 5 hours, still under one Kerbin day
+        [InlineData(21600.0, "1.0d")]   // exactly one Kerbin day
         [InlineData(86400.0, "4.0d")]   // 4 Kerbin days (21600 s each)
         // InvariantCulture: the decimal point is always "." regardless of locale.
         [InlineData(599.6, "10.0m")]
         public void FormatIntervalFieldValue_FormatsFriendlyDurationWithUnit(double seconds, string expected)
         {
             Assert.Equal(expected, LogisticsWindowUI.FormatIntervalFieldValue(seconds));
+        }
+
+        // catches: the old hard-coded formatter, which switched to days at 86400 s but
+        // divided by 21600 s, so on the Earth calendar 24 h read "4.0d" and 12 h read "12.0h"
+        // while a typed "1d" meant a different length. On the Earth calendar a day is 24 h.
+        [Theory]
+        [InlineData(7200.0, "2.0h")]
+        [InlineData(21600.0, "6.0h")]   // one Kerbin day is only a quarter Earth day
+        [InlineData(43200.0, "12.0h")]
+        [InlineData(86400.0, "1.0d")]
+        [InlineData(129600.0, "1.5d")]
+        public void FormatIntervalFieldValue_EarthCalendar_UsesTwentyFourHourDay(double seconds, string expected)
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = false;
+            Assert.Equal(expected, LogisticsWindowUI.FormatIntervalFieldValue(seconds));
+        }
+
+        // catches: a displayed "Nd" value that parses back to a different length on
+        // either calendar (the field shows FormatDuration and re-parses what it shows).
+        [Theory]
+        [InlineData(true, 86400.0, 21600.0, 4)]
+        [InlineData(false, 172800.0, 86400.0, 2)]
+        public void FormatIntervalFieldValue_DayValue_RoundTripsThroughParse(
+            bool kerbinTime, double seconds, double span, int expectedN)
+        {
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = kerbinTime;
+            string shown = LogisticsWindowUI.FormatIntervalFieldValue(seconds);
+            Assert.EndsWith("d", shown);
+            Assert.True(RouteCadence.ParseAndSnapInterval(shown, span, out int n));
+            Assert.Equal(expectedN, n);
         }
 
         // catches: a zero / negative / NaN / Infinity interval rendering "-" or empty

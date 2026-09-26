@@ -1187,6 +1187,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
+  zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
+  Normal preset every test save uses:
+  - Science on Easy, Moderate or Hard (or any custom science-reward slider) now counts at the
+    rate stock paid. Parsek recorded the experiment value before stock's science multiplier, so
+    on Easy it credited half the science stock gave you and on Hard more than stock gave, and a
+    rewind reset your science to that wrong total. The multiplier in effect when the science
+    arrives is now saved with it (changing the slider later does not rewrite past science),
+    while the per-experiment "how much is left" math stays in stock's own units.
+  - Declining a contract now costs the reputation stock took (the difficulty's "reputation lost
+    on decline", 1 on Normal and 3 on Hard) in Parsek's timeline too, instead of being handed
+    back by the next rewind. Nothing is recorded when the setting is 0.
+  - A career that starts with 0 funds, or a Science game at 0 science, now has its starting
+    balance recorded, so Parsek can keep the balance in step, and loading such a save no longer
+    waits about 10 seconds before Parsek sets its balances. Science and Sandbox games also stop
+    waiting 2 seconds on every load for funds and reputation, which those modes do not have.
+  - Currency from the Alt+F12 cheat menu is still not recorded (by design, the next rewind
+    removes it); each cheat now writes one log line saying so.
 - **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
   Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
   "recovered" ending from committed recordings that Parsek had marked as handled, which hit
@@ -1197,11 +1215,61 @@ _(unreleased — entries accumulate here per commit)_
 
 - **Science is no longer over-credited when the same experiment is submitted more than once.**
   Parsek recorded a science subject's running total at each submission, and the ledger adds
-  every submission, so a second transmission of the same experiment (or a transmit followed
-  by recovering the data) credited the first one again. Breaking Ground deployed
-  experiments, which send their results in about ten chunks, reached an experiment's full
-  value after three or four sends. Each submission now records only the science it added,
-  so your science total matches stock. Saves already carrying the extra science keep it.
+  every submission, so transmitting or recovering the same experiment a second time (in one
+  flight, across flights, or at the Space Center) credited the earlier science again, up to
+  the experiment's cap. Breaking Ground deployed experiments, which send their results in about
+  ten chunks, reached an experiment's full value after three or four sends. Each submission now
+  records only the science it added, at the science rate stock paid (see the difficulty entry
+  above), so your science total matches stock. Saves recorded before this keep their past
+  credit unchanged; only science gathered from now on is counted the new way.
+- **Ghosts on the map no longer push real debris out of your save.** KSP keeps at most
+  `MAX_VESSELS_BUDGET` vessels (250 by default) when it saves, dropping the oldest debris
+  first. Parsek's map ghosts are vessels while you are in flight or the Tracking Station, and
+  KSP counted each one against that limit before Parsek removed them from the save, so every
+  ghost cost you one real piece of debris. KSP now saves as if the ghosts were not there, and
+  your budget setting is never changed. With the limit set to "no limit" nothing changes.
+  Behavior on a live save is inferred from the stock code and covered by an in-game check;
+  it has not been flown yet.
+- **Logistics: a day is a day on your calendar.** The Logistics window showed intervals of a
+  day or more in 6-hour Kerbin days but only switched to days at 24 hours, so a 24-hour
+  interval read `4.0d` on the Kerbin calendar and on the Earth calendar alike, and typing
+  `1d` into the interval field always meant 6 hours. Both now follow the game's calendar
+  setting: 6 hours on the Kerbin calendar, 24 hours on the Earth calendar, and a displayed
+  value types back in unchanged.
+- **Recovering or losing one vessel no longer ends a same-named recording of another.** When
+  KSP recovered or removed a vessel (for example its automatic clean-up of debris landed at the
+  Space Center), Parsek marked every same-named recording in the pending flight as recovered
+  and dropped its end snapshot. It now also checks that the recording is of that very vessel
+  (same vessel id and launch), and falls back to the name only when either side lacks the id.
+- **A debris vessel KSP drops from the save now ends where it was last seen.** When KSP left a
+  background-recorded vessel out of the save (its vessel budget), the reloaded recording kept
+  claiming the vessel existed, stretching its end forward every 30 seconds, and a Commit Flight
+  could then mark it destroyed and replay it as an explosion. After a reload Parsek now closes
+  each such recording at the last moment the vessel was recorded, as orbiting, landed,
+  splashed down or sub-orbital from its own recorded path, with no explosion; one it already
+  marked recovered (the Space Center clean-up of landed debris is a recovery) keeps that. One
+  log line names every such vessel, its recording and how it was closed.
+- **Parsek stays off in Making History missions, the mission builder and stock training or
+  scenario saves.** These games script their own facility locks, recovery rules and endings,
+  and Parsek was never built for them; worse, after playing a career and then loading one of
+  them, Parsek's in-memory copy of that career could still play its ghosts, draw its supply
+  routes on the map and block stock screens with its reservations. Now, in the MISSION,
+  MISSION_BUILDER, SCENARIO and SCENARIO_NON_RESUMABLE game modes, Parsek shows no toolbar
+  button and does not record, play ghosts, show map presence, rewind or re-fly, capture or patch
+  the ledger, or annotate and block any stock control. `KSP.log` carries one line per scene
+  naming the mode (`[GameModeGate] Parsek inert: game mode MISSION ...`). A mission or scenario
+  save that somehow carries a Parsek section keeps it unchanged when saved. Career, Science and
+  Sandbox games are unaffected.
+
+- **Re-Fly on the Hard preset: Retry is not offered; merge or discard by leaving the flight.**
+  Rewind and Re-Fly ignore the difficulty's "Allow Quickload" and "Allow Revert" settings, but
+  stock only shows the Esc menu's Revert Flight button (the way into the re-fly Retry / Discard
+  / Continue Flying choice) when Allow Revert is on. On a game with Allow Revert off, such as
+  the Hard preset, Retry from the rewind point is therefore not available during a re-fly;
+  leaving the flight (Esc > Space Center or Tracking Station) still opens the merge dialog to
+  keep or discard it. `KSP.log` notes this under `[ReFlySession]` when a re-fly starts on such
+  a game.
+
 - **Breaking Ground deployed-experiment science is never attributed to the vessel you are
   flying.** Science from deployed experiments is recorded like science earned at the Space
   Center, so re-flying a flight no longer removes it and it no longer locks a re-fly as if
@@ -1799,6 +1867,33 @@ _(unreleased — entries accumulate here per commit)_
   changes, because there the two answers were already the same.
 
 ### Changed
+
+- **Removed a dead debris-persistence override.** At recording start Parsek looked for a
+  `GameSettings` debris-count field to raise to 10. KSP 1.12 has no such field, so the code
+  only ever logged `No debris persistence field found`; it and its tests are gone.
+- **Automated testing: the harness instances run the player-default vessel budget.** The
+  `stock-minimal` and `modded-compat` provision profiles now set `MAX_VESSELS_BUDGET = 250`
+  and `DECLUTTER_KSC = True` instead of inheriting the dev install's 10000 / False, so a lane
+  sees the save-time debris prune and the Space Center clean-up a player sees. A new in-game
+  category, `VesselBudget`, checks the ghost exclusion around a real save build in the
+  Tracking Station; no lane drives it yet.
+- **A kerbal lost on a committed flight now respawns when your difficulty says so.** Stock KSP
+  brings a dead kerbal back after the respawn timer when "Missing crews respawn" is on (2 hours
+  by default on Easy and Normal). Parsek now does the same: the kerbal is lost until the death
+  plus that timer and is free to fly again after it, instead of staying lost forever. The
+  setting and timer are recorded when the death is recorded, so changing the difficulty later
+  does not change a death that already happened; with respawn off the death stays permanent.
+  A death still ahead of you on the timeline (after a rewind) holds the kerbal until its own
+  respawn, and a re-fly that undoes the death removes the respawn wait with it. The Kerbals
+  window reads "Lost until <date>", the stock crew screens name the respawn date in their
+  hover text, and the Timeline's "Lost" entry says when the kerbal respawns. A death whose
+  outcome Parsek had already settled before this change keeps its permanent loss; a flight
+  whose crew outcome is first settled after it follows your current setting. A death in a
+  looping mission, or of a kerbal another unfinished committed flight already had aboard
+  before the respawn came due, stays permanent; flying him again after the respawn does not.
+  A kerbal who dies after staging (riding the capsule or upper stage) follows the same rule:
+  the launch stage he left no longer keeps him committed, so he respawns when the setting is
+  on, and a kerbal recovered from a staged capsule is free once it is recovered.
 
 - **Recordings can no longer be deleted.** A committed recording is part of the timeline and the
   career ledger, and deleting one broke both. The Settings window's Data Management section is

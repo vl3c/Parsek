@@ -567,6 +567,7 @@ namespace Parsek.Patches
 
         static bool Prefix(Strategies.Strategy __instance)
         {
+            if (ParsekGameModeGate.CheckInert("StrategyUpdateExpiryPatch.Prefix")) return true; // S9 game-mode gate
             try
             {
                 return StrategyExpiryGate.ShouldRunStockUpdate(__instance);
@@ -611,6 +612,7 @@ namespace Parsek.Patches
 
         static void Postfix(Strategies.StrategySystem __instance)
         {
+            if (ParsekGameModeGate.CheckInert("StrategySystemLoadStrategiesPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StrategyStatePatcher.OnStockStrategiesLoaded(__instance);
@@ -661,6 +663,7 @@ namespace Parsek.Patches
 
         static void Postfix(Strategies.Strategy __instance, ref bool __result, ref string reason)
         {
+            if (ParsekGameModeGate.CheckInert("StrategyCanBeActivatedPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 if (StrategyReservationGate.IsProbingStock) return;
@@ -728,6 +731,7 @@ namespace Parsek.Patches
 
         static void Postfix(Administration __instance, Administration.StrategyWrapper wrapper)
         {
+            if (ParsekGameModeGate.CheckInert("AdministrationSetSelectedStrategyPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 var strategy = wrapper?.strategy;
@@ -805,6 +809,7 @@ namespace Parsek.Patches
 
         static void Postfix(Administration __instance)
         {
+            if (ParsekGameModeGate.CheckInert("AdministrationUpdateStrategyStatsPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 var strategy = __instance?.SelectedWrapper?.strategy;
@@ -860,6 +865,7 @@ namespace Parsek.Patches
 
         static bool Prefix(Administration __instance, string state)
         {
+            if (ParsekGameModeGate.CheckInert("AdministrationButtonBackstopPatch.Prefix")) return true; // S9 game-mode gate
             try
             {
                 var strategy = __instance?.SelectedWrapper?.strategy;

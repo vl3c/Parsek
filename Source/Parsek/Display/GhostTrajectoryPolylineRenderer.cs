@@ -4460,6 +4460,8 @@ namespace Parsek.Display
                 if (PlanetariumCamera.fetch == null || cam != PlanetariumCamera.Camera) return;
                 var scene = HighLogic.LoadedScene;
                 if (scene != GameScenes.TRACKSTATION && scene != GameScenes.FLIGHT) return;
+                // S9 game-mode gate: RouteStore may still hold the previous career's routes.
+                if (ParsekGameModeGate.IsInertForCurrentGame) return;
                 int frame = Time.frameCount;
                 if (routePrecullDrawnFrame == frame) return;
                 routePrecullDrawnFrame = frame;
@@ -4581,6 +4583,9 @@ namespace Parsek.Display
                 var scene = HighLogic.LoadedScene;
                 if (scene != GameScenes.TRACKSTATION && scene != GameScenes.FLIGHT)
                     return;
+
+                // S9 game-mode gate: no ghost polylines in a mission / scenario game.
+                if (ParsekGameModeGate.IsInertForCurrentGame) return;
 
                 if (!MapView.MapIsEnabled) return;
 

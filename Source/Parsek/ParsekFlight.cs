@@ -790,11 +790,6 @@ namespace Parsek
             RecorderStateLog.RecState("FlushRecorderIntoActiveTree:post", CaptureRecorderState());
         }
 
-        // Debris persistence enforcement: saved original value when Parsek overrides it
-        private const int MinDebrisForRecording = 10;
-        private int savedMaxPersistentDebris = -1;
-        private bool debrisOverrideActive;
-
         // Background recorder for tree mode (null when not in tree mode)
         private BackgroundRecorder backgroundRecorder;
 
@@ -1295,8 +1290,23 @@ namespace Parsek
             reFlySettlePoseLogActiveFrame = -1;
         }
 
+        // S9: true when this instance started in an inert game mode (ParsekGameModeGate)
+        // and removed itself before subscribing to anything.
+        private bool inertForGameMode;
+
         void Start()
         {
+            // S9 game-mode gate: in a mission / scenario game the flight controller never
+            // becomes Instance, subscribes nothing, builds no UI or toolbar button, and
+            // removes itself, so no recorder, auto-record trigger, ghost or map presence runs.
+            if (ParsekGameModeGate.CheckInert("ParsekFlight.Start"))
+            {
+                inertForGameMode = true;
+                enabled = false;
+                Destroy(this);
+                return;
+            }
+
             Instance = this;
             Log("Parsek Flight loaded.");
 
@@ -2146,6 +2156,8 @@ namespace Parsek
 
         void OnDestroy()
         {
+            if (inertForGameMode)
+                return; // never subscribed, never became Instance (S9 game-mode gate)
             Instance = null;
             // #267: clear the static restore-reentrancy guard. The restore coroutines
             // set it true and clear it in a finally, but Unity abandons a running
@@ -2184,9 +2196,6 @@ namespace Parsek
                 ghostCommNet.Shutdown("ParsekFlight destroyed");
                 ghostCommNet = null;
             }
-
-            // Restore debris persistence if still overridden
-            RestoreDebrisPersistence();
 
             // Clean up decouple listener if still active
             if (decoupleCreatedVessels != null)
@@ -3206,8 +3215,6 @@ namespace Parsek
                 $"reason='{suppressReason ?? "<unspecified>"}' - discarding in-memory tree without STASH");
             if (logRecorderState)
                 RecorderStateLog.RecState("FinalizeTreeOnSceneChange:suppressed-entry", CaptureRecorderState());
-
-            RestoreDebrisPersistence();
 
             if (recorder != null)
             {
@@ -4380,6 +4387,40 @@ namespace Parsek
             ParsekLog.Verbose("Flight",
                 $"{reason}: attached BackgroundRecorder for tree '{activeTree.TreeName}' " +
                 $"({activeTree.BackgroundMap.Count} background entry(ies))");
+
+            // Callers attach either to a fresh tree (empty map, nothing to check) or to one
+            // restored from a save or the committed list, so this is the load-time point at
+            // which a background member stock dropped from the save (vessel budget / KSC
+            // declutter) is first seen without a vessel. It is closed here, before the first
+            // UpdateOnRails tick could advance its end UT past the save.
+            HashSet<uint> livePids = TryBuildLiveVesselPidSet();
+            if (livePids != null && activeTree.BackgroundMap.Count > 0)
+                backgroundRecorder.CloseMissingBackgroundMembersAtLoad(livePids.Contains, reason);
+        }
+
+        /// <summary>
+        /// The persistentIds of every vessel in <c>FlightGlobals.Vessels</c>, or null when the
+        /// vessel list cannot be read (xUnit, no FlightGlobals), so a caller never mistakes an
+        /// unreadable scene for an empty one.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static HashSet<uint> TryBuildLiveVesselPidSet()
+        {
+            List<Vessel> vessels;
+            try { vessels = FlightGlobals.Vessels; }
+            catch (TypeInitializationException) { return null; }
+            catch (MissingMethodException) { return null; }
+            catch (System.Security.SecurityException) { return null; }
+            if (vessels == null)
+                return null;
+            var pids = new HashSet<uint>();
+            for (int i = 0; i < vessels.Count; i++)
+            {
+                if (vessels[i] != null)
+                    pids.Add(vessels[i].persistentId);
+            }
+            return pids;
         }
 
         #region Split Event Detection (Tree Branching)
@@ -13401,10 +13442,6 @@ namespace Parsek
                 ParsekLog.Verbose("Coalescer", "Coalescer reset on recording start");
             }
 
-            // Enforce minimum debris persistence so decoupled stages survive long enough
-            // to be detected as vessel splits and recorded as background vessels.
-            EnforceMinDebrisPersistence();
-
             // A newly-started recorder owns split detection from a clean slate.
             pendingDeferredSplitCheckTrigger = DeferredSplitCheckTrigger.None;
             pendingSplitTriggerUT = double.NaN;
@@ -13452,122 +13489,9 @@ namespace Parsek
             return shouldSubscribeDecoupleListener;
         }
 
-        /// <summary>
-        /// Ensures KSP's MAX_PERSISTENT_DEBRIS is at least MinDebrisForRecording during recording.
-        /// Without this, decoupled stages (boosters, fairings) are destroyed before Parsek can
-        /// detect them as vessel splits and create background recordings.
-        /// </summary>
-        // Cached reflection field for KSP's maxPersistentDebris setting
-        private static System.Reflection.FieldInfo debrisField;
-        private static bool debrisFieldSearched;
-        internal static Func<int?> GetMaxPersistentDebrisOverrideForTesting;
-        internal static Action<int> SetMaxPersistentDebrisOverrideForTesting;
-
-        internal static void ResetDebrisPersistenceOverridesForTesting()
-        {
-            GetMaxPersistentDebrisOverrideForTesting = null;
-            SetMaxPersistentDebrisOverrideForTesting = null;
-        }
-
-        void EnforceMinDebrisPersistence()
-        {
-            if (debrisOverrideActive) return;
-
-            try
-            {
-                int? current = GetMaxPersistentDebris();
-                if (current.HasValue && current.Value < MinDebrisForRecording)
-                {
-                    savedMaxPersistentDebris = current.Value;
-                    SetMaxPersistentDebris(MinDebrisForRecording);
-                    debrisOverrideActive = true;
-                    ParsekLog.Info("Flight",
-                        $"Debris persistence overridden: {current.Value} -> {MinDebrisForRecording} " +
-                        "(will restore when recording stops)");
-                }
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Verbose("Flight",
-                    $"Could not check/set debris persistence: {ex.GetType().Name}");
-            }
-        }
-
-        void RestoreDebrisPersistence()
-        {
-            if (!debrisOverrideActive) return;
-
-            try
-            {
-                SetMaxPersistentDebris(savedMaxPersistentDebris);
-                ParsekLog.Info("Flight",
-                    $"Debris persistence restored: {savedMaxPersistentDebris}");
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Verbose("Flight",
-                    $"Could not restore debris persistence: {ex.GetType().Name}");
-            }
-            debrisOverrideActive = false;
-        }
-
-        /// <summary>
-        /// Gets KSP's maxPersistentDebris value via reflection.
-        /// KSP stores this in GameSettings as a field (name varies by version).
-        /// </summary>
-        static int? GetMaxPersistentDebris()
-        {
-            if (GetMaxPersistentDebrisOverrideForTesting != null)
-                return GetMaxPersistentDebrisOverrideForTesting();
-
-            var field = FindDebrisField();
-            if (field != null)
-                return (int)field.GetValue(null);
-            return null;
-        }
-
-        static void SetMaxPersistentDebris(int value)
-        {
-            if (SetMaxPersistentDebrisOverrideForTesting != null)
-            {
-                SetMaxPersistentDebrisOverrideForTesting(value);
-                return;
-            }
-
-            var field = FindDebrisField();
-            if (field != null)
-                field.SetValue(null, value);
-        }
-
-        static System.Reflection.FieldInfo FindDebrisField()
-        {
-            if (debrisFieldSearched) return debrisField;
-            debrisFieldSearched = true;
-
-            // Search GameSettings for a static int field containing "debris" (case-insensitive)
-            var gsType = typeof(GameSettings);
-            var fields = gsType.GetFields(
-                System.Reflection.BindingFlags.Public |
-                System.Reflection.BindingFlags.Static);
-            foreach (var f in fields)
-            {
-                if (f.FieldType == typeof(int) &&
-                    f.Name.IndexOf("debris", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    debrisField = f;
-                    ParsekLog.Info("Flight", $"Found debris persistence field: GameSettings.{f.Name}");
-                    return debrisField;
-                }
-            }
-
-            ParsekLog.Verbose("Flight", "No debris persistence field found in GameSettings");
-            return null;
-        }
-
         public void StopRecording()
         {
             ParsekLog.Info("Flight", "StopRecording called");
-            RestoreDebrisPersistence();
             // Unsubscribe decouple listener
             if (decoupleCreatedVessels != null)
             {
@@ -16565,7 +16489,7 @@ namespace Parsek
 
         internal static Func<string, double?> TerminalInferenceBodyRadiusResolverForTesting;
 
-        private static bool HasStableOrbitEvidenceForTerminalInference(OrbitSegment lastOrbit)
+        internal static bool HasStableOrbitEvidenceForTerminalInference(OrbitSegment lastOrbit)
         {
             if (lastOrbit.eccentricity >= 1.0 || string.IsNullOrEmpty(lastOrbit.bodyName))
                 return false;
@@ -16763,7 +16687,7 @@ namespace Parsek
             return ShouldSkipSceneExitSurfaceInferenceForRestoredRecording(rec, out reason);
         }
 
-        static void PopulateTerminalPositionFromLastPoint(Recording rec, TerminalState inferredState)
+        internal static void PopulateTerminalPositionFromLastPoint(Recording rec, TerminalState inferredState)
         {
             if (rec?.Points == null || rec.Points.Count == 0)
                 return;

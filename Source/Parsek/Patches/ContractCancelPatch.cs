@@ -52,6 +52,7 @@ namespace Parsek.Patches
 
         static bool Prefix(Contracts.Contract __instance)
         {
+            if (ParsekGameModeGate.CheckInert("ContractCancelPatch.Prefix")) return true; // S9 game-mode gate
             if (__instance == null) return true;
             if (__instance.ContractState != Contracts.Contract.State.Active)
             {

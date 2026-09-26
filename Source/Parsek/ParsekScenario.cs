@@ -1194,6 +1194,10 @@ namespace Parsek
         {
             if (Planetarium.fetch == null)
                 return;
+            // S9 game-mode gate: no route dispatch in an inert game (the static RouteStore
+            // may still hold the previously loaded career's routes).
+            if (ParsekGameModeGate.IsInertForCurrentGame)
+                return;
 
             double currentUT;
             try
@@ -1238,6 +1242,15 @@ namespace Parsek
 
         public override void OnSave(ConfigNode node)
         {
+            // S9 game-mode gate: an inert game writes back exactly what it loaded (no
+            // recordings, sidecars, ledger or settings writes), so a mission or scenario
+            // save round-trips any Parsek node it carries unchanged.
+            if (ParsekGameModeGate.CheckInert("ParsekScenario.OnSave"))
+            {
+                WriteInertGameModeNode(node);
+                return;
+            }
+
             var sw = Stopwatch.StartNew();
             int recordingCount = 0;
             int dirtyCount = 0;
@@ -3426,6 +3439,65 @@ namespace Parsek
         // Used to detect OnSave firing after HighLogic.SaveFolder has changed.
         private string scenarioSaveFolder;
 
+        // The node an inert-game-mode OnLoad received (ParsekGameModeGate). KSP builds a
+        // FRESH node for every OnSave, so an inert OnSave that wrote nothing would erase
+        // whatever Parsek data the save carried; it writes this copy back instead.
+        private ConfigNode inertGameModePassthroughNode;
+
+        /// <summary>Inert-game-mode OnLoad body (kept out of OnLoad so it is testable headless).</summary>
+        internal void StashInertGameModeNode(ConfigNode node)
+        {
+            inertGameModePassthroughNode = node != null ? node.CreateCopy() : null;
+            ParsekLog.Info("Scenario",
+                "OnLoad: inert game mode - Parsek node kept verbatim for save pass-through ("
+                + (inertGameModePassthroughNode != null
+                    ? inertGameModePassthroughNode.values.Count + " value(s), "
+                      + inertGameModePassthroughNode.nodes.Count + " node(s)"
+                    : "no node")
+                + "); nothing loaded");
+        }
+
+        /// <summary>Inert-game-mode OnSave body.</summary>
+        internal void WriteInertGameModeNode(ConfigNode node)
+        {
+            int copied = CopyInertPassthroughNode(inertGameModePassthroughNode, node);
+            ParsekLog.Info("Scenario",
+                "OnSave: inert game mode - wrote the loaded Parsek node back verbatim ("
+                + copied.ToString(CultureInfo.InvariantCulture)
+                + (copied == 1 ? " entry" : " entries") + "); no Parsek state saved");
+        }
+
+        /// <summary>
+        /// Copies <paramref name="loaded"/> into
+        /// <paramref name="target"/> verbatim, minus the stock <c>name</c> / <c>scene</c>
+        /// values <c>ScenarioModule.Save</c> already wrote. Returns the number of values plus
+        /// child nodes copied; 0 when nothing was loaded (then nothing is written, and there
+        /// was nothing to erase).
+        /// </summary>
+        internal static int CopyInertPassthroughNode(ConfigNode loaded, ConfigNode target)
+        {
+            if (loaded == null || target == null)
+                return 0;
+            int copied = 0;
+            for (int i = 0; i < loaded.values.Count; i++)
+            {
+                var v = loaded.values[i];
+                if (v == null || v.name == "name" || v.name == "scene")
+                    continue;
+                target.AddValue(v.name, v.value);
+                copied++;
+            }
+            for (int i = 0; i < loaded.nodes.Count; i++)
+            {
+                var child = loaded.nodes[i];
+                if (child == null)
+                    continue;
+                target.AddNode(child.CreateCopy());
+                copied++;
+            }
+            return copied;
+        }
+
         private static void ReconcileReadableSidecarMirrorsOnLoadIfDisabled()
         {
             var settings = ParsekSettings.Current;
@@ -3440,6 +3512,17 @@ namespace Parsek
 
         public override void OnLoad(ConfigNode node)
         {
+            // S9 game-mode gate (ParsekGameModeGate): stock never adds this scenario to a
+            // mission / scenario game, but a save that already carries the node still loads
+            // it. Keep the node verbatim for the inert OnSave and touch nothing else: no
+            // settings, no stores, no subscriptions, no sidecar reads.
+            if (ParsekGameModeGate.CheckInert("ParsekScenario.OnLoad"))
+            {
+                StashInertGameModeNode(node);
+                return;
+            }
+            inertGameModePassthroughNode = null;
+
             DiagnosticsState.ResetSessionCounters();
             IncompleteBallisticSceneExitFinalizer.ResetLifecycleDiagnostics();
             var sw = Stopwatch.StartNew();
@@ -6345,16 +6428,19 @@ namespace Parsek
 
             // Phase 1: wait for the currency singletons to exist (non-null).
             //
-            // Waits for ALL of them, not just any one: seeding funds from a frame where R&D
-            // has not appeared yet is what dropped the science seed. Career carries all three;
-            // sandbox carries none and science-mode carries a subset, so this is a bounded
-            // wait that falls through on timeout and seeds whatever is actually present.
+            // Waits for ALL of the ones this game mode creates, not just any one: seeding
+            // funds from a frame where R&D has not appeared yet is what dropped the science
+            // seed. Career carries all three, Science only R&D, Sandbox none
+            // (CurrencyScenarioReadiness.ExpectedFor), so Science and Sandbox no longer pay
+            // the full 120-frame timeout for singletons stock never builds. Still bounded:
+            // an unknown mode keeps the legacy all-three wait and falls through on timeout.
+            var expectedSingletons = CurrencyScenarioReadiness.ExpectedForCurrentGame();
             int maxWait = CurrencySingletonWaitMaxFrames;
-            while (maxWait-- > 0 && !AllCurrencySingletonsPresent())
+            while (maxWait-- > 0 && !CurrencyScenarioReadiness.AllExpectedPresent())
                 yield return null;
 
             int singletonFramesWaited = (CurrencySingletonWaitMaxFrames - 1) - maxWait;
-            bool allSingletonsPresent = AllCurrencySingletonsPresent();
+            bool allSingletonsPresent = CurrencyScenarioReadiness.AllExpectedPresent();
 
             if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
                 && Reputation.Instance == null)
@@ -6364,18 +6450,20 @@ namespace Parsek
                 yield break;
             }
 
-            // Phase 2: wait for singletons to have NON-ZERO values.
-            // KSP creates singletons immediately but populates their data from the
-            // save file on a separate schedule (can be many seconds on heavy saves).
-            // Spin until at least one singleton reports a non-zero value, or timeout.
+            // Phase 2: wait for every present singleton to have LOADED its save value.
+            //
+            // The readiness signal is positive, not a non-zero value: a singleton is loaded
+            // once the game's ProtoScenarioModule for it holds it as moduleRef, which stock
+            // assigns only after the module's OnLoad returned
+            // (CurrencyScenarioReadiness.IsScenarioModuleLoaded). The old gate spun until
+            // SOME pool read non-zero, so a StartingFunds = 0 career or a Science game at 0
+            // science paid the full 600 frames on every load (KSP-SETTINGS-AUDIT S4). A
+            // career with non-zero pools exits on the first check either way.
             int maxValueWait = 600; // ~10 seconds at 60fps
-            while (maxValueWait-- > 0
-                   && (Funding.Instance == null || Funding.Instance.Funds == 0.0)
-                   && (ResearchAndDevelopment.Instance == null || ResearchAndDevelopment.Instance.Science == 0f)
-                   && (Reputation.Instance == null || Math.Abs(Reputation.Instance.reputation) < 0.01f))
+            while (maxValueWait-- > 0 && !CurrencyScenarioReadiness.AllPresentLoaded())
                 yield return null;
 
-            int framesWaited = 599 - maxValueWait; // post-decrement: 600→599 on first check
+            int framesWaited = 599 - maxValueWait; // post-decrement: 600->599 on first check
 
             // Phase 3 (BUG-F): wait for the universe clock to be initialized before deciding
             // whether to apply a current-UT ledger cutoff. On a cold load
@@ -6404,8 +6492,9 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Verbose("Scenario",
-                $"DeferredSeed: singletons all present={allSingletonsPresent} after " +
-                $"{singletonFramesWaited} frames, values ready after {framesWaited} frames, " +
+                $"DeferredSeed: expected singletons={CurrencyScenarioReadiness.Format(expectedSingletons)} " +
+                $"present={allSingletonsPresent} after " +
+                $"{singletonFramesWaited} frames, loaded after {framesWaited} frames, " +
                 $"clock ready={clockReady} after {utFramesWaited} frames (currentUT={currentUT.ToString("R", ic)}) — " +
                 $"Funding={(Funding.Instance != null ? Funding.Instance.Funds.ToString("F0", ic) : "null")}, " +
                 $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
@@ -6487,26 +6576,6 @@ namespace Parsek
         private const int CurrencySingletonWaitMaxFrames = 120;
 
         /// <summary>
-        /// True when all three of KSP's currency singletons exist.
-        ///
-        /// <para>
-        /// The readiness signal is PRESENCE, not a non-zero value: KSP's
-        /// <c>ScenarioRunner.AddModule(ConfigNode)</c> constructs a module and calls its
-        /// <c>Load(node)</c> in one synchronous call, so from a per-frame coroutine's vantage
-        /// a singleton can never be observed existing-but-unloaded. A pool that genuinely sits
-        /// at zero (a fresh career's science, a career that started at reputation 0) is
-        /// therefore indistinguishable from an unloaded one by value, which is exactly why
-        /// presence is the right gate and a non-zero-value gate is not.
-        /// </para>
-        /// </summary>
-        private static bool AllCurrencySingletonsPresent()
-        {
-            return Funding.Instance != null
-                   && ResearchAndDevelopment.Instance != null
-                   && Reputation.Instance != null;
-        }
-
-        /// <summary>
         /// Reads the universe clock for the deferred-seed readiness wait, returning true only
         /// when the clock is initialized to a real positive UT. Wrapped in try/catch because
         /// <see cref="Planetarium.GetUniversalTime"/> can throw during very early load / scene
@@ -6547,17 +6616,17 @@ namespace Parsek
         /// </summary>
         private IEnumerator ApplyBudgetDeductionWhenReady()
         {
-            // Wait until ALL resource singletons are available (may take a few frames
-            // after scene load). Use || so we wait while ANY singleton is still null.
-            int maxWait = 120; // ~2 seconds at 60fps
-            while (maxWait-- > 0
-                   && (Funding.Instance == null
-                       || ResearchAndDevelopment.Instance == null
-                       || Reputation.Instance == null))
+            // Wait until every resource singleton THIS GAME MODE creates is available (may
+            // take a few frames after scene load). Science and Sandbox never build Funding /
+            // Reputation, so keying on all three made them pay the full 120 frames.
+            var expectedSingletons = CurrencyScenarioReadiness.ExpectedForCurrentGame();
+            int maxWait = CurrencySingletonWaitMaxFrames; // ~2 seconds at 60fps
+            while (maxWait-- > 0 && !CurrencyScenarioReadiness.AllExpectedPresent())
                 yield return null;
 
             ParsekLog.Verbose("Scenario",
-                $"ApplyBudgetDeduction: singletons ready after {120 - maxWait} frames. " +
+                $"ApplyBudgetDeduction: singletons ready after {CurrencySingletonWaitMaxFrames - maxWait} frames " +
+                $"(expected={CurrencyScenarioReadiness.Format(expectedSingletons)}). " +
                 $"Funding={Funding.Instance != null}, R&D={ResearchAndDevelopment.Instance != null}, Rep={Reputation.Instance != null}");
 
             if (budgetDeductionApplied)
@@ -6613,13 +6682,10 @@ namespace Parsek
                     $"(post-set check: {Planetarium.GetUniversalTime().ToString("F1", ic)})");
             }
 
-            // Wait for resource singletons (career mode only).
-            // In sandbox/science mode these are permanently null — skip gracefully.
-            int maxWait = 120; // ~2 seconds at 60fps
-            while (maxWait-- > 0
-                   && (Funding.Instance == null
-                       || ResearchAndDevelopment.Instance == null
-                       || Reputation.Instance == null))
+            // Wait for the resource singletons this game mode creates (all three in career,
+            // R&D only in Science, none in Sandbox - the rest are permanently null there).
+            int maxWait = CurrencySingletonWaitMaxFrames; // ~2 seconds at 60fps
+            while (maxWait-- > 0 && !CurrencyScenarioReadiness.AllExpectedPresent())
                 yield return null;
 
             // Pass the adjusted UT captured BEFORE `yield return null` above.
@@ -7784,8 +7850,9 @@ namespace Parsek
             // LedgerOrchestrator.PickRecoveryRecordingId, including through the DEFERRED
             // recovery-funds queue (which stores this struct verbatim), so a recovery paired
             // against a later FundsChanged(VesselRecovery) event still filters by launch. The
-            // guid is NOT part of any name-matching predicate, so context lookup and terminal
-            // state below are unchanged.
+            // payout-context lookup below still pairs by name; the pending-tree terminal
+            // update and the pending-owner check additionally gate on pid + this guid
+            // (MatchesVessel), degrading to name-only when either side is unknown.
             RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
                 pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv));
             if (!identity.HasName) return;
@@ -7797,7 +7864,8 @@ namespace Parsek
                 now,
                 out RecoveryPayoutContext payoutContext);
 
-            bool updated = UpdateRecordingsForTerminalEvent(identity, TerminalState.Recovered, now);
+            bool updated = UpdateRecordingsForTerminalEvent(
+                identity, TerminalState.Recovered, now, pv.persistentId);
             if (updated)
                 ParsekLog.Info("Scenario", $"Vessel '{identity.DisplayName}' recovered — recording(s) updated with Recovered terminal state");
 
@@ -7813,7 +7881,7 @@ namespace Parsek
             // recording end UT. Only patch immediately when no pending-tree recording
             // still owns this vessel; otherwise the commit-time path should emit the
             // recovery action exactly once.
-            if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, identity))
+            if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, identity, pv.persistentId))
                 LedgerOrchestrator.OnVesselRecoveryFunds(
                     now,
                     identity,
@@ -7876,20 +7944,28 @@ namespace Parsek
             if (pv == null) return;
             if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
             if (RewindContext.IsRewinding) return;
-            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(pv.vesselName);
+            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
+                pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv));
             if (!identity.HasName) return;
 
             double now = Planetarium.GetUniversalTime();
             // onVesselTerminated also fires after onVesselRecovered for the same vessel.
             // The guard in UpdateRecordingsForTerminalEvent prevents overwriting Recovered with Destroyed.
-            bool updated = UpdateRecordingsForTerminalEvent(identity, TerminalState.Destroyed, now);
+            bool updated = UpdateRecordingsForTerminalEvent(
+                identity, TerminalState.Destroyed, now, pv.persistentId);
             if (updated)
                 ParsekLog.Info("Scenario", $"Vessel '{identity.DisplayName}' terminated — recording(s) updated with Destroyed terminal state");
         }
 
         /// <summary>
-        /// Finds recordings matching the given vessel name and updates their terminal state.
-        /// Checks pending tree recordings.
+        /// Finds pending-tree recordings of the given vessel and updates their terminal state.
+        /// A recording matches by name AND, when both sides know it, by launch identity: the
+        /// recovered vessel's <paramref name="vesselPid"/> must equal the recording's
+        /// <c>VesselPersistentId</c> and the launch Guids must not conclusively differ (see
+        /// <see cref="MatchesVessel(Recording, RecoveredVesselIdentity, uint)"/>). Without
+        /// the identity gate a stock KSC-declutter autoclean of an unrelated
+        /// "&lt;Craft&gt; Debris" stamped every same-named pending debris recording Recovered
+        /// and dropped its snapshot.
         /// Recovered/Destroyed can overwrite situation-based terminal states (Orbiting, Landed, etc.)
         /// that were set by OnSceneChangeRequested. Only prevents Destroyed from overwriting Recovered
         /// (onVesselTerminated fires after onVesselRecovered for the same vessel).
@@ -7905,7 +7981,8 @@ namespace Parsek
         internal static bool UpdateRecordingsForTerminalEvent(
             RecoveredVesselIdentity identity,
             TerminalState state,
-            double ut)
+            double ut,
+            uint vesselPid = 0)
         {
             bool anyUpdated = false;
 
@@ -7914,7 +7991,7 @@ namespace Parsek
             {
                 foreach (var rec in RecordingStore.PendingTree.Recordings.Values)
                 {
-                    if (MatchesVessel(rec, identity) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
+                    if (MatchesVessel(rec, identity, vesselPid) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
                     {
                         rec.ExplicitEndUT = ut;
                         CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
@@ -7956,10 +8033,11 @@ namespace Parsek
 
         internal static bool ShouldPatchRecoveryFundsOutsideFlight(
             GameScenes scene,
-            RecoveredVesselIdentity identity)
+            RecoveredVesselIdentity identity,
+            uint vesselPid = 0)
         {
             return scene != GameScenes.FLIGHT &&
-                   !HasPendingLedgerRecordingForVessel(identity);
+                   !HasPendingLedgerRecordingForVessel(identity, vesselPid);
         }
 
         /// <summary>
@@ -7973,7 +8051,8 @@ namespace Parsek
         }
 
         internal static bool HasPendingLedgerRecordingForVessel(
-            RecoveredVesselIdentity identity)
+            RecoveredVesselIdentity identity,
+            uint vesselPid = 0)
         {
             if (!identity.HasName || !RecordingStore.HasPendingTree)
                 return false;
@@ -7982,7 +8061,7 @@ namespace Parsek
             {
                 if (rec == null || rec.IsGhostOnly)
                     continue;
-                if (MatchesVessel(rec, identity))
+                if (MatchesVessel(rec, identity, vesselPid))
                     return true;
             }
 
@@ -8018,20 +8097,30 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks if a recording matches the given vessel name.
-        /// Uses name-based matching (ProtoVessel doesn't expose vessel persistentId directly).
+        /// Checks if a recording is the recovered / terminated vessel. The name must match, and
+        /// the launch identity narrows it (the persistentId is craft-baked and names repeat
+        /// across launches and debris): when the recovered vessel's pid and the recording's
+        /// <c>VesselPersistentId</c> are both known (non-zero) they must be equal, and a known
+        /// launch Guid on both sides must not differ. An unknown pid or Guid on either side
+        /// falls back to the name alone, so the gate only ever removes matches.
         /// </summary>
-        private static bool MatchesVessel(Recording rec, string vesselName)
+        internal static bool MatchesVessel(
+            Recording rec,
+            RecoveredVesselIdentity identity,
+            uint vesselPid = 0)
         {
-            return MatchesVessel(rec, RecoveredVesselIdentity.FromRawName(vesselName));
-        }
+            if (rec == null ||
+                !identity.HasName ||
+                string.IsNullOrEmpty(rec.VesselName) ||
+                !identity.MatchesName(rec.VesselName))
+                return false;
 
-        private static bool MatchesVessel(Recording rec, RecoveredVesselIdentity identity)
-        {
-            return rec != null &&
-                   identity.HasName &&
-                   !string.IsNullOrEmpty(rec.VesselName) &&
-                   identity.MatchesName(rec.VesselName);
+            if (vesselPid != 0 && rec.VesselPersistentId != 0
+                && rec.VesselPersistentId != vesselPid)
+                return false;
+
+            return !VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                rec.RecordedVesselGuid, identity.LaunchGuid);
         }
 
         #endregion

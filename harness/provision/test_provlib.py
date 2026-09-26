@@ -78,6 +78,22 @@ class RealProfileFileTests(unittest.TestCase):
                     settings.get(key), want,
                     "%s must pin %s=%s for unattended runs" % (name, key, want))
 
+    # Owner ruling S6 (KSP-SETTINGS-AUDIT-2026-09-26): the harness runs the stock
+    # vessel budget and KSC declutter at PLAYER defaults, not the dev instance's
+    # 10000 / False, so a defect that only shows under the save-time debris prune
+    # (ghost map vessels counting toward the budget) is reachable by a lane.
+    PLAYER_DEFAULT_SETTINGS = {
+        "MAX_VESSELS_BUDGET": "250", "DECLUTTER_KSC": "True",
+    }
+
+    def test_both_profiles_pin_the_player_default_vessel_budget(self):
+        for name in ("stock-minimal.toml", "modded-compat.toml"):
+            settings = self._load(name).get("settings", {})
+            for key, want in self.PLAYER_DEFAULT_SETTINGS.items():
+                self.assertEqual(
+                    settings.get(key), want,
+                    "%s must pin %s=%s (player default)" % (name, key, want))
+
 
 class PhaseInstallEmptyStackTests(unittest.TestCase):
     """Guards reviewer 14 (the mask that hid BLOCKER 1): phase_install must WARN
