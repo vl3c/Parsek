@@ -6,8 +6,9 @@ using System.IO;
 namespace Parsek
 {
     /// <summary>
-    /// Stores committed game-state event milestones and the unreplayed slice
-    /// (LastReplayedEventIndex) the resource budget reads.
+    /// Stores committed game-state event milestones and their replay boundary
+    /// (LastReplayedEventIndex). No production code reads the unreplayed slice
+    /// any more (the ResourceBudget milestone helpers that did were deleted).
     ///
     /// The stock-screen click-blocks and overlays do NOT read the unreplayed slice:
     /// nothing advances LastReplayedEventIndex as the clock passes an event, so a
@@ -199,8 +200,8 @@ namespace Parsek
                         // #431: mirror RemoveCommittedEvent's single-event path — if the purged
                         // slot sat at or before the replay boundary, the next surviving event
                         // shifts into this slot and would be wrongly treated as already-replayed
-                        // by consumers that iterate from LastReplayedEventIndex + 1 (the resource
-                        // budget). Clamp at -1 so an empty pre-boundary
+                        // by any consumer that iterates from LastReplayedEventIndex + 1.
+                        // Clamp at -1 so an empty pre-boundary
                         // doesn't underflow.
                         if (j <= m.LastReplayedEventIndex)
                         {

@@ -2193,10 +2193,10 @@ Unit-proven only (no flight). BDOCK-1's copy should classify idle, since its lau
 0.8 s after the re-adoption, so the next BDOCK-1 flight should log the discard instead of
 `showing tree merge dialog (fallback)`.
 
-## FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING: a tree the fresh-rollout refusal keeps still lingers in the pending slot [FILED 2026-09-23 from the FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME fix. OPEN; mod-driven launches from FLIGHT only]
+## ~~FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING: a tree the fresh-rollout refusal keeps still lingers in the pending slot~~ [FILED 2026-09-23 from the FRESH-LAUNCH-REFUSED-TREE-PENDING-LIFETIME fix. FIXED 2026-09-26, operator ruling 2026-09-26: commit at the refusal; mod-driven launches from FLIGHT only]
 
-The discard covers idle resumed committed copies only. Every other refused tree keeps
-today's behaviour: it stays pending as Limbo, a later `StashPendingTree` overwrites it with
+The discard covered idle resumed committed copies only. Every other refused tree kept
+the old behaviour: it stayed pending as Limbo, a later `StashPendingTree` overwrote it with
 only the `overwriting existing pending tree` Warn (orphaning its sidecars), and an
 outsider-chain `LimboVesselSwitch` stash stays `LimboVesselSwitch` for the scene only
 (`refused tree has no revertible pre-transition`). The kept cases are:
@@ -2215,8 +2215,65 @@ outsider-chain `LimboVesselSwitch` stash stays `LimboVesselSwitch` for the scene
   dirty committed-overlap trees are never serialized.
 
 Stock play cannot reach any of them (a stock launch leaves FLIGHT, which commits the tree
-first). The resolution is a product choice (commit at the refusal, keep through the next
-stash, or surface it for merge), not settled by the design docs.
+first). The case lines above are the pre-fix log shapes.
+
+**Ruling (operator, 2026-09-26): commit it at the refusal**, the same way a stock launch
+commits the tree when it leaves FLIGHT, instead of leaving it pending for the next stash.
+Idle resumed copies stay discarded as before.
+
+**Fix.** `ParsekFlight.ClassifyFreshRolloutRefusedTree` keeps its guards and their order
+(replaced slot, Re-Fly session or invocation, active merge journal: keep pending, logged as
+before) and its discard of idle resumed committed copies. The two former keep outcomes are
+now `CommitNotACommittedCopy` (cases 1 and 3: no committed tree shares the id) and
+`CommitMeaningfulResumedCopy` (case 2). `DisposeFreshRolloutRefusedPendingTree` routes both
+to the new `CommitFreshRolloutRefusedPendingTree`, which runs the route a Limbo stash takes
+when FLIGHT is left under autoMerge (`AutoCommitPendingTreeOutsideFlight`'s Limbo-preserving
+full-fidelity branch): `MergeDialog.BuildDefaultVesselDecisions` then `MergeDialog.MergeCommit`
+(CommitPendingTree + MarkTreeAsApplied, the optimizer, `NotifyLedgerTreeCommitted`, the
+crew swap, the switch-segment / restore-attempt clears, `OnTreeCommitted`). There is no
+private commit copy. Both coroutines now test `IsFreshRolloutRefusedTreeResolved` (discard
+or commit), so a committed tree takes the same early exit a discarded one did: the quickload
+restore skips the Limbo give-up, and the vessel-switch restore skips the pre-transition
+revert and its `no revertible pre-transition` Warn, which now only a guard-kept tree reaches.
+
+- Case 1 (genuinely new tree): added as its own committed tree.
+- Case 2 (meaningful resumed copy): the copy shares the committed tree's id and recording
+  ids. `RecordingStore.CommitTree`'s same-id branch (`ShouldReplaceCommittedTree`) replaces
+  the committed tree slot and each shared recording slot in place, exactly as when a resumed
+  committed tree is committed at scene exit or after a switch segment. No second tree with
+  that id and no duplicate recording is created, and the committed history is kept because
+  the copy is a superset of it. If the replace gate refuses (the committed tree changed
+  underneath the copy), CommitTree's existing duplicate-skip keeps the original and the new
+  line `committed store kept its original tree ... (CommitTree duplicate-skip)` Warns.
+- Case 3 (clean clone whose committed original was detached on load): no committed twin, so
+  it is added back as the committed tree with every recording once. The classifier cannot
+  tell case 3 from case 1, and it does not need to: both are committed.
+
+The quicksave is not refreshed (the commit is automatic, and overwriting the player's F5 point
+without a player action would destroy it, the same reasoning as the discard). `persistent.sfs`
+is written by the next ordinary save. A commit that throws or leaves the tree in the slot
+returns `KeepCommitFailed` and Warns `still pending after the commit attempt; left pending`.
+Grep-stable lines: `Fresh-rollout refusal (<site>): committing kept tree '<name>' (id=...,
+state=..., recordings=N, spawnable=N, committedTwinRecordings=N|none, serialized=...,
+refusedPid=..., kind=meaningful-resumed-copy postLoadSpan=... postLoadPoints=... reason=...
+| not-a-committed-copy ...)`, then `committed kept tree '<name>' (id=..., replaced committed
+original | added as a committed tree, committedTrees=N, committedRecordings=N)`.
+
+**Tests.** `FreshRolloutRefusedTreeDiscardTests` (30 cells). New or changed: a meaningful
+copy is committed over its original (one tree with the id, the copy is the committed object,
+3 recordings with no duplicate id, pre-load and post-load points kept, sidecars kept, restore
+attempt cleared, StateVersion bumped, no quicksave, `User chose: Tree Merge` present, no
+`skipping duplicate`). A genuinely new tree is added next to the untouched station tree. A
+detached clean clone is committed back with every recording once. A committed tree saves as
+an ordinary committed node, and a later stash does not warn. The guard cells (merge journal,
+Re-Fly) assert that nothing is committed. A guard-kept tree still gets the overwrite Warn
+(control). Also a classifier cell showing the guards beat a commit, a resolved-predicate
+cell, and source gates re-anchored on `IsFreshRolloutRefusedTreeResolved`. Mutation: making
+the `MergeCommit` call dead reds the five commit cells.
+
+Unit-proven only (no flight). BDOCK-1's refused copy is expected to classify idle and be
+discarded. If it classifies meaningful, it is now committed over its original instead of
+kept, which can change the committed-recording count that lane pins (min 19, max 20).
 
 ## ~~D18-HELD-GHOST-DESTROYED-BY-STALE-PAST-END-CLEANUP-SAME-FRAME: the non-chain "held" ghost is destroyed by the engine's stale past-end cleanup in the very frame the policy holds it, so no ghost is ever visible past EndUT~~ [FILED 2026-09-23 from EX-1's reading run `2026-09-23_0000`. FIXED 2026-09-23 on branch `held-ghost-fix`; EX-1 is its live witness]
 
@@ -2803,13 +2860,12 @@ Timeline showed each as a legacy row beside its ledger row, now deduplicated
 (`TimelineBuilder.GetLegacyDuplicateKey`). A committed `FacilityUpgraded` legacy event has no
 dedup key either; not checked here.
 
-**Residual (open).** After a Parsek rewind to between a destruction and a KSC repair, the
-repair is a future row; if the player repairs again before its date, the walk charges both
-repairs (stock charged only the new one live). Facility upgrades avoid the same shape with
-the committed-upgrade block (`FacilityUpgradePatch`); repairs have no block. See
-KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE.
+**Residual (fixed 2026-09-26).** After a Parsek rewind to between a destruction and a KSC
+repair, the repair is a future row; if the player repaired again before its date, the walk
+charged both repairs (stock charged only the new one live). Repairs now get the same block
+as facility upgrades. See KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE.
 
-## KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE: re-repairing a building before a committed future repair charges both [FILED 2026-09-23 on branch `ksc-facility-ledger`; OPEN]
+## ~~KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE: re-repairing a building before a committed future repair charges both~~ [FILED 2026-09-23 on branch `ksc-facility-ledger`; FIXED 2026-09-26 on branch `fix-ksc-repair-block`]
 
 A KSC repair is an untagged spending row (`FacilityRepair`, cost in `FacilityCost`). A Parsek
 rewind to a UT between a building's destruction and that repair keeps the repair as a future
@@ -2821,6 +2877,29 @@ repair of a building whose destruction already has a committed future repair (th
 `FacilityUpgradePatch` shape, but it adds a blocked dialog), or charge a repair only when the
 walk finds its building destroyed (needs the facility state before `FundsModule` runs; today
 the facilities tier dispatches after the funds tier). Not reachable without a Parsek rewind.
+
+**Ruling (operator, 2026-09-26).** Block the re-repair, the way the committed-upgrade block
+works: grey the stock Repair control with the explanation, and refuse the click with the same
+predicate and text. No ledger dedupe.
+
+**Fix:** the committed-future index now keys `FacilityRepair` and `FacilityDestruction` rows by
+destructible building id. `StockUiReservationPredicates.IsFacilityRepairBlocked` is true when a
+destroyed building of the facility has a committed future repair and no committed destruction
+of that building comes first (a destruction the player makes live after a rewind to before the
+committed one is a new destruction, so its repair is allowed). The click refusal
+`FacilityRepairBlock.TryBlockFacilityRepair` runs first in the existing prefix on
+`SpaceCenterBuilding.RepairFacility(bool deduceFunds)`, before stock's affordability check and
+funds debit, and shows the `CommittedActionDialog` with the `ReservationExplanation.FacilityRepair`
+text ("Repaired on <date> on your committed timeline. ..."). The facility menu postfix on
+`KSCFacilityContextMenu.OnFacilityValuesModified` sets the protected `RepairButton`
+non-interactable and puts the same text in a stock `TooltipController_Text` (D1 stock-control
+annotation; stock has no tooltip on Repair, so the controller is added with a copied stock
+prefab, the Upgrade button's mechanism, and falls back to the description text with no
+prefab). New `StockUiDecorationKind.FacilityRepair` (tab `Repair`), logged as the facility
+menu pass's item line so the GUI mirror pairs it. Pinned by `FacilityRepairBlockTests` and a
+`test_gui_mirror` parse cell. Not proven in game: the live proof needs a GUI-28-style
+stock-screen census flight over a fixture rewound between a destruction and its committed
+repair (not flown).
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 
@@ -5834,6 +5913,10 @@ sidecars untouched) with no fallback merge dialog. Unit-proven only; the next BD
 is the live check, and it should land the no-dialog shape the spec header says it has never
 measured (no gating token depends on either shape). If it logs `keeping resumed copy of
 committed tree` instead, the dialog shape stays and the logged reason says why.
+Update 2026-09-26 (FRESH-LAUNCH-REFUSED-KEPT-TREE-PENDING ruling): a copy that is not idle
+is no longer kept; it logs `committing kept tree ... kind=meaningful-resumed-copy` and is
+committed over its original at the refusal, so no fallback dialog appears in that shape
+either.
 
 **How the wave handled it.** BDOCK-1's count min was raised to 19 (attributed per
 type, every member produced before or apart from the stash) and the max kept at 20. The
@@ -7647,7 +7730,7 @@ deaths came back on TIP2 (`Dead 20..53`). Three changes, each mutation-checked:
   them all (`TombstoneEligibility.IsSupersedeTombstoneEligible`), so the death's paired
   KerbalDeath reputation penalty, stamped at the vessel-loss event (normally the
   recording's end), travels with the death and a re-fly of the second segment retires
-  both (one edge filed below as DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT). Row content is left to the next load's
+  both (one edge filed below as DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT, since fixed). Row content is left to the next load's
   `MigrateKerbalAssignments`, which re-derives it under the same ids (ruling a1), exactly
   as it does after a Re-Fly split. Why retag and not re-derive at the split: a1 pairs by
   (recording, kerbal), so re-deriving would leave the death's ActionId on the first half's
@@ -7723,9 +7806,32 @@ trigger's shape, on a re-fly whose crew are alive, so no death is involved and t
 read `permanent=0`; TIP itself was not split on that load. #1775's split retag is what
 now moves those rows with the end states.
 
-## DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT: a split cut just before a crash can put the death on one segment and its reputation penalty on the other [FOUND 2026-09-23 by the PR #1775 review. OPEN, analysis only, needs a ruling]
+## ~~DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT~~: a split cut just before a crash can put the death on one segment and its reputation penalty on the other [FOUND 2026-09-23 by the PR #1775 review. FIXED 2026-09-26 on branch `fix-death-penalty-split`, operator ruling 2026-09-26: move them together]
 
-Both splits (the Re-Fly split's step 2.9 and the optimizer split pass) place a row by
+Fix: a KerbalDeath-source `ReputationPenalty` is now screened by its paired death.
+`TombstoneAttributionHelper.ComputeAttributionUT(action, ledgerContext)` returns, for such a
+penalty, the latest per-row key (`EndUT`) of the tombstone-eligible death rows on the same
+recording (`TombstoneEligibility.IsEligible`); no paired death, or any other penalty source,
+keeps the per-row key. BOTH sides of the seam read that one function: the retag predicate
+`RecordingTreeSplitter.ShouldRetagLedgerActionToTip` (shared by step 2.9 and the optimizer
+split's `Ledger.RetagActionsForSplitSecondHalf`) and the tombstone guard
+`IsPreRewindAttributedAction`, which now both take the ledger, so the guard stays the exact
+complement of the retag. Both retags decide every row against the UNMUTATED ledger first
+(`RecordingTreeSplitter.SelectLedgerActionsForSecondHalf`) and retag after, since a death
+retagged earlier in a single-pass walk would hide itself from its penalty. Logged as
+`deathPenaltiesByDeath=N` on both retag lines and a separate
+`PreRewindTombstoneGuard: N KerbalDeath rep penalty row(s) screened by their paired death`
+line (the existing guard lines are harness-pinned and unchanged). Mirror direction covered:
+a penalty stamped after the cut follows a death before it back onto the first segment.
+Tests: headless repros for both splits (`TombstoneReloadMigrationTests`
+`OptimizerSplit_DeathPenaltyBeforeTheCut_*`, `ReFlySplit_DeathPenaltyBeforeTheRewind_*`,
+`ReFlySplit_DeathBeforeTheRewind_PenaltyAfterIt_*`; on main the first two retired the death
+and left the penalty in ELS) plus pure seam cells in `TombstoneScreeningMirrorTests`
+(other sources, death on another recording, non-death crew, several deaths, NaN EndUT,
+no context, two-phase selection). Mutation-checked: dropping the context from the retag
+reds 4 cells, from the guard 2, a single-pass optimizer retag 1.
+
+ORIGINAL ANALYSIS. Both splits (the Re-Fly split's step 2.9 and the optimizer split pass) place a row by
 `TombstoneAttributionHelper.ComputeAttributionUT`: a KerbalAssignment death by its float
 `EndUT`, every other row by its `UT`. The paired KerbalDeath `ReputationPenalty` is stamped
 at the VesselLoss event nearest the recording's end (`LedgerOrchestrator`,
@@ -12443,7 +12549,7 @@ through the Total/Reserved pair.
 
 ---
 
-## RESOURCE-BUDGET-COST-HELPERS-ARE-PRODUCTION-DEAD: `ResourceBudget`'s per-recording and per-milestone cost helpers now have test callers only [FOUND 2026-08-29 as the residue of the RESOURCE-BUDGET-READOUTS-ARE-DEAD cleanup. Dead weight, not a defect - low priority]
+## ~~RESOURCE-BUDGET-COST-HELPERS-ARE-PRODUCTION-DEAD: `ResourceBudget`'s per-recording and per-milestone cost helpers now have test callers only~~ [FOUND 2026-08-29 as the residue of the RESOURCE-BUDGET-READOUTS-ARE-DEAD cleanup. Dead weight, not a defect - low priority. **CLOSED 2026-09-26 (branch `fix-resourcebudget-dead`), operator ruling 2026-09-26: delete.**]
 
 With `ComputeTotal` / `ComputeTotalFullCost` deleted, their per-item helpers lost their last
 production caller: `CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,
@@ -12476,6 +12582,28 @@ on it implicitly - 87 test files call `AddRecordingWithTreeForTesting` or `Final
 regression in that shape would surface as a scatter of unrelated failures rather than as one
 clear red. Not worth a speculative cell today; worth a direct pin in `RecordingStoreTests` the
 first time that shape is touched or suspected.
+
+Fix: operator ruling 2026-09-26, delete. Re-verified from the full caller set (`grep -rn` over
+`Source/Parsek`, tests excluded): every helper above had callers only inside
+`ResourceBudget.cs` itself (`MilestoneCommittedFunds` -> `ComputeFacilityUpgradeCost`) and in
+tests. All nine are deleted, with the 25 `ResourceBudgetTests` cells of the "Recording Cost
+Calculations" and "Milestone Cost Calculations" regions and both `RewindLoggingTests`
+`FullCommittedCost_SignConvention_*` cells: read first, each asserted only the helper's own
+subtraction on a hand-built recording, with no production path underneath to rewrite them
+against. `ParseCostFromDetail` went too, with its 13 cells: its `Patches/TechResearchPatch.cs`
+caller was removed by the Stock-UI overlays PR 1 (`d0ab49701`, 2026-09-25) and its only other
+callers were the two milestone helpers deleted here, so the "delete them" ruling covers it; the
+`ResourceBudget` class is gone and `ResourceBudget.cs` keeps only `BudgetSummary`. The lost
+shape pin is rebuilt as
+`RecordingStoreTests.CommitTree_TreeChildrenLandInBothCommittedCollectionsWithTreeId`, driving
+the real `CommitTree` -> `FinalizeTreeCommit` path on a two-recording tree (mutation-checked:
+dropping the `committedRecordings.Add` in `FinalizeTreeCommit` reds it). `BudgetSummary` stays
+(the struct is live in `RewindContext` / `RecordingStore`).
+
+Residue found on the way, left open deliberately:
+- `Recording.LastAppliedResourceIndex` (`lastResIdx`) and `Milestone.LastReplayedEventIndex`
+  (`lastReplayedIdx`) are now written, copied and serialized but read by no decision. Removing
+  them is a serialized-key change, so it was not folded into this dead-code deletion.
 
 ---
 
@@ -17481,7 +17609,7 @@ half with parking + coast but no arrival would emit `no target arrival leg after
 heliocentric coast`), and those stay unannotated -- widening the predicate without a
 measured instance would be guessing.
 
-## RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed]
+## RECORDER-LABELS-ON-RAILS-CHECKPOINTS-EXOPROPULSIVE: a packed vessel cannot thrust, but the recorder still stamps some on-rails checkpoint re-emissions ExoPropulsive [FILED 2026-08-12 as the hygiene follow-up to OPTIMIZER-SPLIT-DEFEATS-REAIM-CLASSIFIER (open question 3, recommendation accepted: file it, do not act on it yet). LOW PRIORITY - the consumer that was misled has been fixed. **Operator ruling 2026-09-26: keep filed; act only when a second consumer is misled by the label.**]
 
 **The observation.** On `dres-orbit-recorded`, track section 28 is
 `env=ExoPropulsive ref=OrbitalCheckpoint`, spans 25,921 s, and its single

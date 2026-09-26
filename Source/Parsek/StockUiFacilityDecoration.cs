@@ -26,12 +26,23 @@ namespace Parsek
     /// interactable state on every run (open, structure collapse / repair, and the timeline
     /// refresh this class drives), so the block is re-applied after it and "lifting" only
     /// needs the reason removed.
+    ///
+    /// <para>The Repair button gets the same treatment (KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE):
+    /// a facility whose destroyed building's destruction a committed row already repairs
+    /// later gets a non-interactable Repair button with the explanation in a stock tooltip,
+    /// through <see cref="StockUiDecorationQuery.ForFacilityMenuRepair"/>, the predicate the
+    /// <c>RepairFacility</c> refusal (<see cref="Patches.FacilityRepairBlock"/>) reads. Stock
+    /// re-sets Repair's interactable state last in the same <c>OnFacilityValuesModified</c>,
+    /// so the postfix runs after it. The Repair state is kept apart from the Upgrade state
+    /// (<see cref="RepairStateOf"/>), so each button restores only what Parsek changed on it.</para>
     /// </summary>
     internal static class StockUiFacilityDecoration
     {
         private const string Tag = "StockUiOverlay";
 
         internal const string UpgradeButtonFieldName = "UpgradeButton";
+        /// <summary>Stock's protected <c>RepairButton</c> field.</summary>
+        internal const string RepairButtonFieldName = "RepairButton";
         internal const string HostFieldName = "host";
         /// <summary>The fallback reason field: the building description, which stock writes
         /// once in <c>CreateWindowContent</c>. The level text (<c>levelStatsText</c>) is not
@@ -131,6 +142,49 @@ namespace Parsek
         private static AccessTools.FieldRef<KSCFacilityContextMenu, SpaceCenterBuilding> hostRef;
         private static bool fieldRefsResolved;
         private static bool fieldRefsFailed;
+        private static AccessTools.FieldRef<KSCFacilityContextMenu, Button> repairButtonRef;
+        private static bool repairRefResolved;
+        private static bool repairRefFailed;
+
+        /// <summary>The protected <c>RepairButton</c> accessor.</summary>
+        internal static AccessTools.FieldRef<KSCFacilityContextMenu, Button> ResolveRepairButtonRefForTesting()
+        {
+            return AccessTools.FieldRefAccess<KSCFacilityContextMenu, Button>(RepairButtonFieldName);
+        }
+
+        private static bool TryResolveRepairRef()
+        {
+            if (repairRefResolved) return true;
+            if (repairRefFailed) return false;
+            try
+            {
+                repairButtonRef = ResolveRepairButtonRefForTesting();
+                repairRefResolved = repairButtonRef != null;
+            }
+            catch (Exception ex)
+            {
+                repairRefResolved = false;
+                ParsekLog.Warn(Tag, "KSCFacilityContextMenu." + RepairButtonFieldName + " not accessible ("
+                    + ex.GetType().Name + ": " + ex.Message + ") - the facility menu Repair button will not be "
+                    + "disabled (the RepairFacility prefix still refuses the click)");
+            }
+            if (!repairRefResolved) repairRefFailed = true;
+            return repairRefResolved;
+        }
+
+        /// <summary>The menu's stock Repair button, or null.</summary>
+        internal static Button RepairButtonOf(KSCFacilityContextMenu menu)
+        {
+            if (menu == null || !TryResolveRepairRef()) return null;
+            return repairButtonRef(menu);
+        }
+
+        /// <summary>The menu's building, or null.</summary>
+        internal static SpaceCenterBuilding HostOf(KSCFacilityContextMenu menu)
+        {
+            if (menu == null || !TryResolveFieldRefs()) return null;
+            return hostRef(menu);
+        }
 
         /// <summary>The private <c>UpgradeButton</c> accessor, or null when stock renamed it.</summary>
         internal static AccessTools.FieldRef<KSCFacilityContextMenu, Button> ResolveUpgradeButtonRefForTesting()
@@ -199,6 +253,19 @@ namespace Parsek
 
         private static ConditionalWeakTable<KSCFacilityContextMenu, MenuState> menuStates =
             new ConditionalWeakTable<KSCFacilityContextMenu, MenuState>();
+
+        /// <summary>The Repair button's state, kept apart from the Upgrade one.</summary>
+        private static ConditionalWeakTable<KSCFacilityContextMenu, MenuState> repairStates =
+            new ConditionalWeakTable<KSCFacilityContextMenu, MenuState>();
+
+        /// <summary>The Parsek state of an open menu's Repair button, or null when Parsek never
+        /// decorated it.</summary>
+        internal static MenuState RepairStateOf(KSCFacilityContextMenu menu)
+        {
+            if (menu == null) return null;
+            MenuState state;
+            return repairStates.TryGetValue(menu, out state) ? state : null;
+        }
 
         /// <summary>The Parsek state of an open menu, or null when Parsek never decorated it.</summary>
         internal static MenuState StateOf(KSCFacilityContextMenu menu)
@@ -280,6 +347,20 @@ namespace Parsek
         internal static void Apply(KSCFacilityContextMenu menu, string reason)
         {
             if (menu == null || !TryResolveFieldRefs()) return;
+            ApplyUpgrade(menu, reason);
+            try
+            {
+                ApplyRepair(menu, reason);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited(Tag, "facility-menu-repair-block-failed",
+                    "Facility menu Repair block failed (" + ex.GetType().Name + ": " + ex.Message + ")");
+            }
+        }
+
+        private static void ApplyUpgrade(KSCFacilityContextMenu menu, string reason)
+        {
             string facilityId = FacilityIdOf(menu);
             bool replaying = GameStateRecorder.IsReplayingActions;
             var snapshot = StockUiLiveSnapshot.Current;
@@ -307,6 +388,49 @@ namespace Parsek
             if (state != null && ClearReason(menu, state))
                 ParsekLog.Verbose(Tag, "FacilityMenu " + (facilityId ?? "<none>")
                     + ": block lifted - Upgrade left to stock, Parsek reason removed");
+        }
+
+        /// <summary>
+        /// The Repair half of the postfix: stock has just set Repair from the facility's
+        /// damage and repair cost; disable it with the reason when a committed row already
+        /// repairs a destroyed building's destruction later, else clear any reason Parsek
+        /// left on this menu's Repair button.
+        /// </summary>
+        private static void ApplyRepair(KSCFacilityContextMenu menu, string reason)
+        {
+            SpaceCenterBuilding host = hostRef(menu);
+            if (host == null) return;
+            string facilityId = host.Facility != null ? host.Facility.id : host.facilityName;
+            var buildings = Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(host);
+            bool anyDestroyed = false;
+            for (int i = 0; i < buildings.Count; i++)
+                if (buildings[i].IsDestroyed) anyDestroyed = true;
+            bool replaying = GameStateRecorder.IsReplayingActions;
+            var snapshot = StockUiLiveSnapshot.Current;
+            var d = StockUiDecorationQuery.ForFacilityMenuRepair(snapshot.Index, snapshot.UT, facilityId, buildings,
+                replaying, ReservationExplanation.DefaultDateFormatter);
+            StockUiDecorationQuery.LogFacilityMenuRepair(d, replaying, anyDestroyed, reason);
+
+            var decision = Decide(d);
+            MenuState state = RepairStateOf(menu);
+            if (decision.DisableUpgrade)
+            {
+                Button repair = RepairButtonOf(menu);
+                if (repair == null)
+                {
+                    ParsekLog.Verbose(Tag, "FacilityMenu " + facilityId + ": no Repair button on the menu - nothing to disable");
+                    return;
+                }
+                if (state == null) state = repairStates.GetValue(menu, _ => new MenuState());
+                repair.interactable = false;
+                string where = ShowReason(menu, repair, state, decision.Reason);
+                ParsekLog.Verbose(Tag, "FacilityMenu " + facilityId + ": Repair disabled, reason on the " + where);
+                return;
+            }
+
+            if (state != null && ClearReason(menu, state))
+                ParsekLog.Verbose(Tag, "FacilityMenu " + (facilityId ?? "<none>")
+                    + ": repair block lifted - Repair left to stock, Parsek reason removed");
         }
 
         private static string ShowReason(KSCFacilityContextMenu menu, Button upgrade, MenuState state, string why)
@@ -479,6 +603,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             menuStates = new ConditionalWeakTable<KSCFacilityContextMenu, MenuState>();
+            repairStates = new ConditionalWeakTable<KSCFacilityContextMenu, MenuState>();
             openMenus.Clear();
             cachedTooltipPrefab = null;
             tooltipPrefabMissingLogged = false;
@@ -486,6 +611,9 @@ namespace Parsek
             fieldRefsFailed = false;
             upgradeButtonRef = null;
             hostRef = null;
+            repairRefResolved = false;
+            repairRefFailed = false;
+            repairButtonRef = null;
             valuesModifiedMethod = null;
         }
     }
