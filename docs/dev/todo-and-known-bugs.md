@@ -170,6 +170,21 @@ Owner rulings (2026-09-26):
   Not modelled: a per-part `Part.crewRespawnTime` override (mission-builder field), and stock
   re-reading the flag at the respawn instant (a policy turned off after a respawn-on death
   kills the kerbal in stock's roster while Parsek's stamped hold still releases him).
+  Staged deaths (follow-up, same branch): a tree recording that ended at a split (staging,
+  undock, EVA, dock) has no terminal state, so its crew row reads Unknown and started before
+  any death on the child that carried the crew on; that open-ended row made a death after
+  staging - the common shape - a permanent loss with respawn on (before the loop rule, an
+  endless ordinary hold with a stand-in), and kept a kerbal recovered from the child held
+  forever unless a `KerbalRecovered` row closed it. `KerbalsModule.PrePass` now collects
+  split handoffs (`CollectSplitHandoffs`: tree + parent branch point + kerbal -> the child
+  row carrying him) and `ProcessAction` ends a parent's Aboard / Unknown row at its EndUT
+  when a child of its `ChildBranchPointId` carries the kerbal and the parent ended at the
+  split (`ResolveSplitHandoffUT`; a breakup-continuous parent that flies on keeps its row);
+  the child's own row decides the rest (respawn, permanent, recovered, still aboard). Log
+  `Reservation bounded by split handoff`. Cells: `KerbalDeathRespawnTests.StagedFlight_*`.
+  OPEN (trace item G6, pre-existing merge behaviour, not fixed): while a respawn is still
+  pending, a kerbal who also has a LATER flight reads Reserved with a stand-in for the whole
+  merged range (including the dead / missing window) instead of Lost.
 - ~~S9 (Q3). Parsek is inert (no recording, ghosts or rewind; one log line) in `MISSION`,
   `MISSION_BUILDER`, `SCENARIO` and `SCENARIO_NON_RESUMABLE` games.~~ FIXED 2026-09-26,
   branch `kss-modes`: one pure predicate `ParsekGameModeGate` (`IsActiveMode` true only for

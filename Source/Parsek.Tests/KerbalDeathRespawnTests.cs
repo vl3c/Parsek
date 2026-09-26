@@ -416,6 +416,215 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // Staged flights: the crew ride a child of a split and the parent ends at the
+        // split with no terminal state (its crew row reads Unknown)
+        // ------------------------------------------------------------------
+
+        private const string StageTree = "tree-staged";
+        private const string StageBp = "bp-stage";
+        private const string StageParent = "rec-stage-parent";
+        private const string StageCapsule = "rec-stage-capsule";
+        private const string StageBooster = "rec-stage-booster";
+        private const double StageUT = 200.0;
+
+        /// <summary>Commits a two-stage flight through the REAL tree commit
+        /// (<see cref="LedgerOrchestrator.NotifyLedgerTreeCommitted"/>): a launch recording
+        /// with Jeb aboard that ends at a decouple, a crewless booster child and the capsule
+        /// child that carries Jeb and ends <paramref name="capsuleTerminal"/> at DeathUT.
+        /// End states are inferred by the production population at commit.</summary>
+        private static void CommitStagedFlight(TerminalState capsuleTerminal)
+        {
+            var parent = new Recording
+            {
+                RecordingId = StageParent,
+                VesselName = "Staged Flea",
+                TreeId = StageTree,
+                GhostVisualSnapshot = CrewSnapshot(Jeb),
+                ExplicitStartUT = StartUT,
+                ExplicitEndUT = StageUT,
+                ChildBranchPointId = StageBp,
+            };
+            var booster = new Recording
+            {
+                RecordingId = StageBooster,
+                VesselName = "Staged Flea Debris",
+                TreeId = StageTree,
+                ParentBranchPointId = StageBp,
+                GhostVisualSnapshot = CrewSnapshot(),
+                ExplicitStartUT = StageUT,
+                ExplicitEndUT = 250.0,
+                TerminalStateValue = TerminalState.Destroyed,
+            };
+            var capsule = new Recording
+            {
+                RecordingId = StageCapsule,
+                VesselName = "Staged Flea Capsule",
+                TreeId = StageTree,
+                ParentBranchPointId = StageBp,
+                GhostVisualSnapshot = CrewSnapshot(Jeb),
+                ExplicitStartUT = StageUT,
+                ExplicitEndUT = DeathUT,
+                TerminalStateValue = capsuleTerminal,
+            };
+            if (capsuleTerminal == TerminalState.Orbiting)
+                capsule.VesselSnapshot = CrewSnapshot(Jeb);
+
+            var tree = new RecordingTree
+            {
+                Id = StageTree,
+                TreeName = "Staged Flea",
+                RootRecordingId = StageParent,
+                ActiveRecordingId = StageCapsule,
+            };
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = StageBp,
+                UT = StageUT,
+                Type = BranchPointType.JointBreak,
+                ParentRecordingIds = new List<string> { StageParent },
+                ChildRecordingIds = new List<string> { StageCapsule, StageBooster },
+            });
+            foreach (var rec in new[] { parent, booster, capsule })
+            {
+                tree.AddOrReplaceRecording(rec);
+                RecordingStore.AddRecordingWithTreeForTesting(rec);
+            }
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+        }
+
+        private static GameAction AssignmentRow(string recordingId)
+        {
+            foreach (var a in Ledger.Actions)
+            {
+                if (a.Type == GameActionType.KerbalAssignment && a.RecordingId == recordingId
+                    && a.KerbalName == Jeb)
+                    return a;
+            }
+            return null;
+        }
+
+        // catches: the launch recording's Unknown crew row (it ended at the decouple) staying
+        // open-ended, which made a death after staging a permanent loss even with respawn on
+        // (and before G1 an endless ordinary hold with a stand-in).
+        [Theory]
+        [InlineData(1000.0, true)]
+        [InlineData(1e6, false)]
+        public void StagedFlight_DeathAfterStaging_RespawnOn_RespawnsAtDeathPlusTimer(double clock, bool held)
+        {
+            SetLivePolicy(true, 1000.0);
+            CommitStagedFlight(TerminalState.Destroyed);
+
+            // The rows the commit files: the parent's crew is Unknown (no terminal state at
+            // a split), the capsule's is Dead.
+            Assert.Equal(KerbalEndState.Unknown, AssignmentRow(StageParent).KerbalEndStateField);
+            Assert.Equal(KerbalEndState.Dead, AssignmentRow(StageCapsule).KerbalEndStateField);
+
+            KerbalsModule kerbals = Walk(clock);
+
+            if (held)
+            {
+                var r = kerbals.Reservations[Jeb];
+                Assert.False(r.IsPermanent, "staged respawning death read permanent");
+                Assert.Equal(DeathUT + 1000.0, r.ReservedUntilUT);
+                Assert.Equal(DeathUT + 1000.0, r.DeathRespawnUT);
+                Assert.True(KerbalsModule.IsRespawnPendingHold(r));
+                Assert.True(kerbals.IsReservedNow(Jeb));
+                Assert.False(kerbals.IsKerbalAvailable(Jeb));
+                // The per-recording commit recalc that ran while only the launch
+                // recording was filed may have left a slot behind (slots persist across
+                // walks); the respawn-pending hold must leave it with no active stand-in.
+                KerbalsModule.KerbalSlot slot;
+                if (kerbals.Slots.TryGetValue(Jeb, out slot))
+                {
+                    Assert.True(slot.OwnerPermanentlyGone);
+                    Assert.Equal(KerbalsModule.NoActiveChainOccupant, kerbals.GetActiveChainIndex(slot));
+                }
+            }
+            else
+                AssertRespawned(kerbals, "after the respawn");
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Reservation bounded by split handoff: '" + Jeb + "'")
+                && l.Contains("recording '" + StageParent + "'")
+                && l.Contains("child='" + StageCapsule + "'"));
+        }
+
+        // catches: the handoff close weakening a respawn-off death after staging.
+        [Fact]
+        public void StagedFlight_DeathAfterStaging_RespawnOff_IsPermanent()
+        {
+            SetLivePolicy(false, 1000.0);
+            CommitStagedFlight(TerminalState.Destroyed);
+
+            KerbalsModule kerbals = Walk(1e6);
+
+            AssertPermanent(kerbals, "long after the death");
+        }
+
+        // catches: a crew recovered from the capsule staying held by the launch recording's
+        // Unknown row when no KerbalRecovered row closes it.
+        [Fact]
+        public void StagedFlight_CrewRecoveredFromTheChild_ReleasedAtTheRecovery()
+        {
+            CommitStagedFlight(TerminalState.Recovered);
+            Assert.Equal(KerbalEndState.Recovered, AssignmentRow(StageCapsule).KerbalEndStateField);
+
+            KerbalsModule held = Walk(DeathUT - 50.0);
+            Assert.Equal(DeathUT, held.Reservations[Jeb].ReservedUntilUT);
+            Assert.True(held.IsReservedNow(Jeb));
+
+            KerbalsModule after = Walk(DeathUT + 50.0);
+            Assert.False(after.IsReservedNow(Jeb));
+            Assert.True(after.IsKerbalAvailable(Jeb));
+        }
+
+        // catches: the handoff close freeing a kerbal who is still aboard the live,
+        // un-terminated capsule.
+        [Fact]
+        public void StagedFlight_CrewStillAboardTheLiveChild_StaysOpenEnded()
+        {
+            CommitStagedFlight(TerminalState.Orbiting);
+            Assert.Equal(KerbalEndState.Aboard, AssignmentRow(StageCapsule).KerbalEndStateField);
+
+            KerbalsModule kerbals = Walk(1e6);
+
+            var r = kerbals.Reservations[Jeb];
+            Assert.True(double.IsPositiveInfinity(r.ReservedUntilUT));
+            Assert.False(r.IsPermanent);
+            Assert.Equal(StageUT, r.OpenEndedCoRowStartUT);
+            Assert.True(kerbals.IsReservedNow(Jeb));
+        }
+
+        // catches: the handoff closing a parent that CONTINUED past its branch point
+        // (breakup-continuous: the children start before the parent ends), a kerbal no
+        // child carries, another tree, or a recording with no child branch point.
+        [Fact]
+        public void ResolveSplitHandoffUT_Cases()
+        {
+            var handoffs = new Dictionary<string, KerbalsModule.SplitHandoff>(StringComparer.Ordinal)
+            {
+                { KerbalsModule.SplitHandoffKey("t", "bp", Jeb),
+                    new KerbalsModule.SplitHandoff { ChildRecordingId = "child", ChildStartUT = 200.0 } },
+            };
+            string child;
+            Assert.Equal(200.0, KerbalsModule.ResolveSplitHandoffUT(handoffs, "t", "bp", 200.0, Jeb, out child));
+            Assert.Equal("child", child);
+            Assert.Equal(200.5, KerbalsModule.ResolveSplitHandoffUT(handoffs, "t", "bp", 200.5, Jeb, out child));
+            Assert.True(double.IsPositiveInfinity(
+                KerbalsModule.ResolveSplitHandoffUT(handoffs, "t", "bp", 400.0, Jeb, out child)));
+            Assert.Null(child);
+            Assert.True(double.IsPositiveInfinity(
+                KerbalsModule.ResolveSplitHandoffUT(handoffs, "t", "bp", 200.0, "Bill Kerman", out child)));
+            Assert.True(double.IsPositiveInfinity(
+                KerbalsModule.ResolveSplitHandoffUT(handoffs, "other", "bp", 200.0, Jeb, out child)));
+            Assert.True(double.IsPositiveInfinity(
+                KerbalsModule.ResolveSplitHandoffUT(handoffs, "t", null, 200.0, Jeb, out child)));
+            Assert.True(double.IsPositiveInfinity(
+                KerbalsModule.ResolveSplitHandoffUT(null, "t", "bp", 200.0, Jeb, out child)));
+        }
+
+        // ------------------------------------------------------------------
         // Open-ended holds (owner decision 2026-09-26): a death that anything keeps
         // open-ended is a permanent loss, respawn on or off
         // ------------------------------------------------------------------

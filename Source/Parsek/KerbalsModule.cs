@@ -112,6 +112,62 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Split handoffs: <see cref="SplitHandoffKey"/> (tree, branch point, kerbal) -> the
+        /// earliest non-loop child recording of that branch point whose own KerbalAssignment
+        /// row carries the kerbal. A recording that ENDED at that branch point handed the
+        /// kerbal to the child, so its open-ended (Aboard / Unknown) row ends at its EndUT
+        /// and the child's row decides the rest (a death after staging respawns or not by
+        /// the child's own Dead row). Built in <see cref="PrePass"/>, cleared in
+        /// <see cref="Reset"/>.
+        /// </summary>
+        private readonly Dictionary<string, SplitHandoff> splitHandoffs =
+            new Dictionary<string, SplitHandoff>(StringComparer.Ordinal);
+
+        internal struct SplitHandoff
+        {
+            public string ChildRecordingId;
+            public double ChildStartUT;
+        }
+
+        internal static string SplitHandoffKey(string treeId, string branchPointId, string kerbalName)
+        {
+            return (treeId ?? "") + "\n" + (branchPointId ?? "") + "\n" + (kerbalName ?? "");
+        }
+
+        /// <summary>
+        /// When a recording ending at <paramref name="holdEndUT"/> with child branch point
+        /// <paramref name="childBranchPointId"/> handed <paramref name="kerbalName"/> to a child
+        /// of that branch point, returns <paramref name="holdEndUT"/> (the split); else +inf.
+        /// The recording must have ENDED at the split (EndUT no later than the child's start,
+        /// within <see cref="RecoveryClosureEndToleranceSeconds"/>): a breakup-continuous
+        /// parent that flies on past its branch point keeps its own row. Pure.
+        /// </summary>
+        internal static double ResolveSplitHandoffUT(
+            IReadOnlyDictionary<string, SplitHandoff> handoffs,
+            string treeId,
+            string childBranchPointId,
+            double holdEndUT,
+            string kerbalName,
+            out string childRecordingId)
+        {
+            childRecordingId = null;
+            if (handoffs == null || string.IsNullOrEmpty(treeId)
+                || string.IsNullOrEmpty(childBranchPointId) || string.IsNullOrEmpty(kerbalName))
+                return double.PositiveInfinity;
+            if (double.IsNaN(holdEndUT) || double.IsInfinity(holdEndUT))
+                return double.PositiveInfinity;
+
+            SplitHandoff handoff;
+            if (!handoffs.TryGetValue(SplitHandoffKey(treeId, childBranchPointId, kerbalName), out handoff))
+                return double.PositiveInfinity;
+            if (holdEndUT > handoff.ChildStartUT + RecoveryClosureEndToleranceSeconds)
+                return double.PositiveInfinity;
+
+            childRecordingId = handoff.ChildRecordingId;
+            return holdEndUT;
+        }
+
+        /// <summary>
         /// Slack for "the held flight ended at or before the recovery": the recording's end
         /// (its last sample or scene-exit stamp) and the recovery (the stock event's clock
         /// read) are taken at different moments of the same scene change, so a pair that
@@ -205,6 +261,8 @@ namespace Parsek
             public string TreeId;
             public double StartUT;
             public double EndUT;
+            public string ParentBranchPointId;
+            public string ChildBranchPointId;
             // The recording's stamped crew death respawn policy (Recording.CrewDeathRespawns
             // / CrewDeathRespawnSeconds); null = unstamped, a death is permanent.
             public bool? DeathRespawns;
@@ -760,6 +818,7 @@ namespace Parsek
             careerEntriesByKerbal.Clear();
             recoveryClosures.Clear();
             kscRetiredRecordingIds.Clear();
+            splitHandoffs.Clear();
         }
 
         /// <summary>
@@ -811,6 +870,8 @@ namespace Parsek
                     TreeId = rec.TreeId,
                     StartUT = rec.StartUT,
                     EndUT = rec.EndUT,
+                    ParentBranchPointId = rec.ParentBranchPointId,
+                    ChildBranchPointId = rec.ChildBranchPointId,
                     DeathRespawns = rec.CrewDeathRespawns,
                     DeathRespawnSeconds = rec.CrewDeathRespawnSeconds
                 };
@@ -867,8 +928,53 @@ namespace Parsek
                     "hold(s) at their EndUT (no ledger row)");
             }
 
+            int handoffs = CollectSplitHandoffs(actions);
+            if (handoffs > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PrePass: {handoffs.ToString(CultureInfo.InvariantCulture)} split-child crew " +
+                    "row(s) can end their parent's open-ended hold at the split");
+            }
+
             // The kerbals module never mutates the action list, so no re-sort is needed.
             return false;
+        }
+
+        /// <summary>
+        /// Fills <see cref="splitHandoffs"/> from the walk's KerbalAssignment rows whose
+        /// recording is a non-loop child of a branch point (the child row is what carries
+        /// the kerbal on, under the same reverse-mapped name the parent's row uses). Tourist
+        /// rows hold nothing and are skipped. Returns the rows recorded.
+        /// </summary>
+        private int CollectSplitHandoffs(List<GameAction> actions)
+        {
+            if (actions == null) return 0;
+            int collected = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null || a.Type != GameActionType.KerbalAssignment) continue;
+                if (string.IsNullOrEmpty(a.KerbalName) || string.IsNullOrEmpty(a.RecordingId)) continue;
+                if (string.Equals(a.KerbalRole, "Tourist", StringComparison.OrdinalIgnoreCase)) continue;
+
+                RecordingMeta meta;
+                if (!recordingMeta.TryGetValue(a.RecordingId, out meta)) continue;
+                if (meta.IsLoop || string.IsNullOrEmpty(meta.ParentBranchPointId)
+                    || string.IsNullOrEmpty(meta.TreeId))
+                    continue;
+
+                string key = SplitHandoffKey(meta.TreeId, meta.ParentBranchPointId, a.KerbalName);
+                SplitHandoff existing;
+                if (splitHandoffs.TryGetValue(key, out existing) && existing.ChildStartUT <= meta.StartUT)
+                    continue;
+                splitHandoffs[key] = new SplitHandoff
+                {
+                    ChildRecordingId = a.RecordingId,
+                    ChildStartUT = meta.StartUT
+                };
+                collected++;
+            }
+            return collected;
         }
 
         /// <summary>
@@ -936,7 +1042,8 @@ namespace Parsek
             //                too, decided after the merge in ResolveOpenEndedRespawnDeaths)
             //   Recovered -> temporary, endUT = rec.EndUT
             //   Aboard    -> open-ended temporary, endUT = infinity (crew still on vessel)
-            //   Unknown   -> open-ended temporary (conservative)
+            //   Unknown   -> open-ended temporary (conservative); Aboard / Unknown end at
+            //                the split when a child of this recording carries the kerbal on
             // Override: if this recording belongs to a chain with a looping segment,
             // keep endUT = infinity regardless of Recovered state — the ghost replays
             // past the tip's EndUT via the loop.
@@ -983,7 +1090,31 @@ namespace Parsek
             // recovered from a real vessel continuing this flight's tree
             // (KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL). A looping chain keeps
             // +inf for the same reason a Recovered end does: the ghost replays past it.
+            // A recording that ended at a split (staging, undock, EVA, dock) handed the kerbal
+            // to the child of that branch point that carries him on: its Aboard / Unknown row
+            // ends at the split and the child's own row (Dead with or without respawn,
+            // Recovered, still Aboard) decides the rest. Without this the parent's Unknown
+            // row, which starts before any death on the child, kept the hold open-ended.
+            bool handedOff = false;
             if (!permanent && !chainHasLoop
+                && (endState == KerbalEndState.Aboard || endState == KerbalEndState.Unknown))
+            {
+                string handoffChild;
+                double handoffUT = ResolveSplitHandoffUT(
+                    splitHandoffs, meta.TreeId, meta.ChildBranchPointId, meta.EndUT, name,
+                    out handoffChild);
+                if (!double.IsPositiveInfinity(handoffUT))
+                {
+                    endUT = handoffUT;
+                    handedOff = true;
+                    ParsekLog.Verbose(Tag,
+                        $"Reservation bounded by split handoff: '{name}' recording '{recordingId}' " +
+                        $"({endState}) endUT={handoffUT.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"bp='{meta.ChildBranchPointId}' child='{handoffChild}'");
+                }
+            }
+
+            if (!permanent && !chainHasLoop && !handedOff
                 && (endState == KerbalEndState.Aboard || endState == KerbalEndState.Unknown))
             {
                 string closingOwner;
