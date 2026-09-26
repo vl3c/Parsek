@@ -3,7 +3,7 @@ id = "BAY-1-runway-cargo-bays"
 # -------------------------------------------------------------------------------------
 # D7 `bays`: CARGO-BAY DOORS ANIMATE ON THE GHOST. Coverage wave 7 (2026-09-26).
 #
-# Supervisor ruling 2026-09-25, pending operator confirmation: a runway bay toggle on an
+# Operator-confirmed 2026-09-26: a runway bay toggle on an
 # unflown plane may claim `bays`, because the bay animation is the subject, not the
 # flight. This lane is that toggle.
 #

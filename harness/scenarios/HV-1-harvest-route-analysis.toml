@@ -4,8 +4,8 @@ tier = "nightly"
 # D10 `harvest-provenance`: a route whose cargo was drilled en route counts that drill as
 # its ORIGIN, rather than rejecting the run as an undocked start with no source.
 #
-# THE SUBJECT IS SYNTHETIC, AND THE CLAIM IS SCOPED TO IT. Supervisor ruling 2026-09-25,
-# pending operator confirmation: the M2 synthetic drill mission (`tree-drill-harvest-m2`,
+# THE SUBJECT IS SYNTHETIC, AND THE CLAIM IS SCOPED TO IT. Operator-confirmed 2026-09-26:
+# the M2 synthetic drill mission (`tree-drill-harvest-m2`,
 # SyntheticRecordingTests.DrillHarvestRouteTree - an undocked-start Minmus mining run whose
 # 120 harvested Ore is witnessed by TWO harvest windows on the root leg, delivering 100 Ore
 # through one completed dock window) may stand in, scoped to "the route PLANNER treats
@@ -61,8 +61,7 @@ steps = [
 ]
 
 [dimensionsCovered]
-# D10 claimed SCOPED to the route planner (supervisor ruling 2026-09-25, operator
-# confirmation pending): the harvest cell PASSES and the planner's own harvest-origin
+# D10 claimed SCOPED to the route planner (operator-confirmed 2026-09-26): the harvest cell PASSES and the planner's own harvest-origin
 # branch prints, over the synthetic drill tree. A live-drill flight stays optional.
 D10 = ["harvest-provenance"]
 D14 = ["sandbox", "scene-flight"]

@@ -569,8 +569,7 @@ steps = [
 D10 = ["route-map-lines"]
 D14 = ["kerbin", "scene-ts", "sandbox"]
 D11 = ["phase-lock", "zero-drift-schedule", "station-phase-lock"]  # ROUND 2: gated on `PhaseLock APPLIED ... method=joint-best-fit ... zeroDrift=yes`
-# D11 `station-phase-lock` (claimed 2026-09-25, coverage wave 1b; supervisor ruling 2026-09-25,
-# operator confirmation pending): a rendezvous mission relaunched against the station's LIVE
+# D11 `station-phase-lock` (claimed 2026-09-25, coverage wave 1b; operator-confirmed 2026-09-26): a rendezvous mission relaunched against the station's LIVE
 # orbit. THIS CLAIM IS ROUTE-DRIVEN: the mission is the supply route's backing mission
 # (`Route: Kerbin -> Kerbin`), not a player-armed Missions-tab loop. Gated by TWO required
 # tokens read together: `ExtractConstraints: ... VesselOrbital(3620499050@Kerbin) ...` (the
