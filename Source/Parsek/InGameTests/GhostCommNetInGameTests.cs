@@ -433,18 +433,34 @@ namespace Parsek.InGameTests
 
             double homePower = home.antennaRelay.power;
             const double GhostRelayPower = 1e10;
-            const double EndpointPower = 1e6;
+            const double GhostEndpointSeparation = 10000.0;
             CelestialBody homeBody = FlightGlobals.GetHomeBody();
             Vector3d homePos = home.precisePosition;
             Vector3d up = homeBody != null ? (homePos - homeBody.position).normalized : Vector3d.up;
-            // Outward from the home body, half of each link's stock range (sqrt(a*b)):
-            // home <-> ghost relay-relay, ghost relay <-> endpoint transmit. The endpoint is then
-            // far beyond sqrt(home*endpoint), so it can only reach home through the ghost.
+            // The test relay sits outward from the home body at half its stock relay range to
+            // home (sqrt(a*b)); the endpoint sits 10 km beyond it. The endpoint's power is sized
+            // against EVERY node already in the network (homes, live vessels, registered ghost
+            // relays), so none of them can reach it and the test relay is its only link partner.
             double homeGhost = 0.5 * Math.Sqrt(homePower * GhostRelayPower);
-            double ghostEndpoint = 0.5 * Math.Sqrt(GhostRelayPower * EndpointPower);
-            double homeEndpointReach = Math.Sqrt(homePower * EndpointPower);
-            InGameAssert.IsTrue(homeGhost + ghostEndpoint > 2.0 * homeEndpointReach,
-                "probe geometry does not separate the endpoint from home");
+            Vector3d ghostPos = homePos + up * homeGhost;
+            Vector3d endpointPos = homePos + up * (homeGhost + GhostEndpointSeparation);
+            double endpointPower = 1e6;
+            int sizedAgainst = 0;
+            for (int i = 0; i < net.Count; i++)
+            {
+                CommNode n = net[i];
+                if (n == null) continue;
+                double p = Math.Max(n.antennaRelay.power, n.antennaTransmit.power);
+                if (p <= 0.0) continue;
+                double d = (endpointPos - n.precisePosition).magnitude;
+                // Keep sqrt(p * endpointPower) at or below half the distance to that node.
+                endpointPower = Math.Min(endpointPower, 0.25 * d * d / p);
+                sizedAgainst++;
+            }
+            if (!(Math.Sqrt(GhostRelayPower * endpointPower) > 2.0 * GhostEndpointSeparation))
+                InGameAssert.Skip(string.Format(IC,
+                    "probe geometry cannot isolate the endpoint: endpointPower={0:R} after sizing against {1} node(s)",
+                    endpointPower, sizedAgainst));
 
             var ghost = new GhostCommNetNode
             {
@@ -456,7 +472,7 @@ namespace Parsek.InGameTests
             };
             ghost.antennaRelay.Update(GhostRelayPower, GhostCommNetManager.DefaultRangeCurve, false);
             ghost.antennaTransmit.Update(0.0, GhostCommNetManager.DefaultRangeCurve, false);
-            ghost.precisePosition = homePos + up * homeGhost;
+            ghost.precisePosition = ghostPos;
 
             var endpoint = new GhostCommNetNode
             {
@@ -467,8 +483,8 @@ namespace Parsek.InGameTests
                 isControlSourceMultiHop = false,
             };
             endpoint.antennaRelay.Update(0.0, GhostCommNetManager.DefaultRangeCurve, false);
-            endpoint.antennaTransmit.Update(EndpointPower, GhostCommNetManager.DefaultRangeCurve, false);
-            endpoint.precisePosition = homePos + up * (homeGhost + ghostEndpoint);
+            endpoint.antennaTransmit.Update(endpointPower, GhostCommNetManager.DefaultRangeCurve, false);
+            endpoint.precisePosition = endpointPos;
 
             try
             {
@@ -480,8 +496,8 @@ namespace Parsek.InGameTests
                 var path = new CommPath();
                 bool reached = net.FindHome(endpoint, path);
                 InGameAssert.IsTrue(reached, string.Format(IC,
-                    "endpoint did not reach home through the ghost relay (homePower={0:R} homeGhost={1:F0} ghostEndpoint={2:F0})",
-                    homePower, homeGhost, ghostEndpoint));
+                    "endpoint did not reach home through the ghost relay (homePower={0:R} homeGhost={1:F0} endpointPower={2:R})",
+                    homePower, homeGhost, endpointPower));
                 bool viaGhost = false;
                 for (int i = 0; i < path.Count; i++)
                 {
