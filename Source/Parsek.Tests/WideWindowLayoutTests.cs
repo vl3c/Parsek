@@ -55,11 +55,19 @@ namespace Parsek.Tests
         // ----- ResizeDragWidth -----
 
         [Fact]
-        public void ResizeDrag_StopsAtTheScreenRightEdge()
+        public void ResizeDrag_IsCappedAtTheScreenWidth()
         {
-            // Window at x=100 on a 1280 screen, mouse dragged past the edge to 1500: the
-            // right edge stops at 1280, so the width is 1180 and the left edge stays put.
-            Assert.Equal(1180f, WideWindowLayout.ResizeDragWidth(1500f, 100f, 350f, 1280f));
+            // Window at x=100 on a 1280 screen, mouse dragged to 1500: 1400 would be wider
+            // than the screen, so the drag stops at 1280 (FitToScreen then moves it on).
+            Assert.Equal(1280f, WideWindowLayout.ResizeDragWidth(1500f, 100f, 350f, 1280f));
+        }
+
+        [Fact]
+        public void ResizeDrag_PastTheEdgeOfAScreenItFitsIsUnchanged()
+        {
+            // On a 1920 screen a player may still drag a window's edge past the screen edge,
+            // as before: 1400 fits the screen, so nothing limits it.
+            Assert.Equal(1400f, WideWindowLayout.ResizeDragWidth(1500f, 100f, 350f, 1920f));
         }
 
         [Fact]
@@ -77,15 +85,33 @@ namespace Parsek.Tests
             Assert.Equal(900f, WideWindowLayout.ResizeDragWidth(1000f, 100f, 350f, 1920f));
         }
 
-        // ----- FitToScreen -----
+        // ----- FitToScreen: a window that fits is never touched -----
 
         [Fact]
         public void Fit_AWindowAlreadyOnScreenIsUntouched()
         {
             var rect = new Rect(0f, 8f, 1355f, 700f);
-            Assert.False(WideWindowLayout.FitToScreen(ref rect, 0f, 1920f, 1080f));
+            Assert.False(WideWindowLayout.FitToScreen(ref rect, 1355f, 1920f, 1080f));
             Assert.Equal(new Rect(0f, 8f, 1355f, 700f), rect);
         }
+
+        // catches: the fit clamping positions on a screen the window fits, which took away
+        // a player's ability to park a window partly off-screen (the owner requirement is
+        // that nothing changes where a window already fits).
+        [Theory]
+        [InlineData(1500f, 40f, 820f, 400f)]    // past the right edge
+        [InlineData(-50f, -20f, 400f, 300f)]    // past the left and top edges
+        [InlineData(10f, 900f, 400f, 300f)]     // overhanging the bottom
+        [InlineData(10f, 100f, 400f, 1200f)]    // taller than the screen
+        public void Fit_AWindowThatFitsTheScreenIsLeftWhereThePlayerPutIt(float x, float y,
+            float w, float h)
+        {
+            var rect = new Rect(x, y, w, h);
+            Assert.False(WideWindowLayout.FitToScreen(ref rect, 350f, 1920f, 1080f));
+            Assert.Equal(new Rect(x, y, w, h), rect);
+        }
+
+        // ----- FitToScreen: a window that cannot fit is capped and moved on -----
 
         [Fact]
         public void Fit_AWindowWiderThanTheScreenIsCappedToItAndMovedToZero()
@@ -99,39 +125,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Fit_AWindowPastTheRightEdgeIsMovedLeftNotNarrowed()
+        public void Fit_TheMissionsWindowAtItsDefaultOnA1280ScreenIsCappedAndMovedOn()
         {
-            var rect = new Rect(1500f, 40f, 820f, 400f);
-            Assert.True(WideWindowLayout.FitToScreen(ref rect, 0f, 1920f, 1080f));
-            Assert.Equal(1100f, rect.x);
-            Assert.Equal(820f, rect.width);
+            // The Missions window's first-open default beside a 250 px main window, the
+            // exact rect GUI-29 logs: x=268 w=1355 on a 1280x720 screen.
+            var rect = new Rect(268f, 8f, 1355f, 700f);
+            Assert.True(WideWindowLayout.FitToScreen(ref rect, 1355f, 1280f, 720f));
+            Assert.Equal(new Rect(0f, 8f, 1280f, 700f), rect);
         }
 
         [Fact]
-        public void Fit_NegativePositionsAreClampedToZero()
+        public void Fit_ACappedWindowStaysPinnedOnTheNarrowScreen()
         {
-            var rect = new Rect(-50f, -20f, 400f, 300f);
-            Assert.True(WideWindowLayout.FitToScreen(ref rect, 0f, 1280f, 720f));
+            // Its minimum is wider than the screen, so every draw re-fits it: a drag of the
+            // capped window off the edge is pulled back.
+            var rect = new Rect(300f, 8f, 1280f, 700f);
+            Assert.True(WideWindowLayout.FitToScreen(ref rect, 1355f, 1280f, 720f));
             Assert.Equal(0f, rect.x);
-            Assert.Equal(0f, rect.y);
         }
 
         [Fact]
-        public void Fit_ABottomOverhangIsMovedUpButTheHeightIsKept()
+        public void Fit_ACappedWindowIsAlsoMovedOnScreenVertically()
         {
-            var rect = new Rect(10f, 600f, 400f, 300f);
-            Assert.True(WideWindowLayout.FitToScreen(ref rect, 0f, 1280f, 720f));
-            Assert.Equal(420f, rect.y);
-            Assert.Equal(300f, rect.height);
-        }
-
-        [Fact]
-        public void Fit_AWindowTallerThanTheScreenPinsItsTopAtZero()
-        {
-            var rect = new Rect(10f, 100f, 400f, 900f);
-            Assert.True(WideWindowLayout.FitToScreen(ref rect, 0f, 1280f, 720f));
-            Assert.Equal(0f, rect.y);
-            Assert.Equal(900f, rect.height);
+            var rect = new Rect(260f, 600f, 1556f, 500f);
+            Assert.True(WideWindowLayout.FitToScreen(ref rect, 1410f, 1280f, 720f));
+            Assert.Equal(220f, rect.y);
+            Assert.Equal(500f, rect.height);
         }
 
         [Fact]
@@ -150,6 +169,26 @@ namespace Parsek.Tests
             var rect = new Rect(0f, 8f, 1280f, 700f);
             Assert.True(WideWindowLayout.FitToScreen(ref rect, 1355f, 1920f, 1080f));
             Assert.Equal(1355f, rect.width);
+        }
+
+        [Fact]
+        public void Fit_AGrowBackThatWouldOverhangIsMovedOnScreen()
+        {
+            var rect = new Rect(700f, 8f, 1280f, 700f);
+            Assert.True(WideWindowLayout.FitToScreen(ref rect, 1355f, 1920f, 1080f));
+            Assert.Equal(1355f, rect.width);
+            Assert.Equal(565f, rect.x);
+        }
+
+        [Fact]
+        public void NeedsScreenFit_OnlyWhenTheWindowCannotFitOrWasCapped()
+        {
+            Assert.False(WideWindowLayout.NeedsScreenFit(new Rect(1500f, 0f, 820f, 400f), 610f, 1920f));
+            Assert.True(WideWindowLayout.NeedsScreenFit(new Rect(0f, 0f, 1556f, 500f), 1410f, 1920f - 400f));
+            Assert.True(WideWindowLayout.NeedsScreenFit(new Rect(0f, 0f, 1280f, 500f), 1355f, 1280f));
+            Assert.True(WideWindowLayout.NeedsScreenFit(new Rect(0f, 0f, 1280f, 500f), 1355f, 1920f));
+            Assert.False(WideWindowLayout.NeedsScreenFit(new Rect(0f, 0f, 1355f, 500f), 1355f, 1920f));
+            Assert.False(WideWindowLayout.NeedsScreenFit(new Rect(0f, 0f, 1355f, 500f), 1355f, 0f));
         }
 
         [Fact]
@@ -172,9 +211,9 @@ namespace Parsek.Tests
         public void Fit_IsIdempotent()
         {
             var rect = new Rect(900f, 500f, 1556f, 500f);
-            Assert.True(WideWindowLayout.FitToScreen(ref rect, 0f, 1280f, 720f));
+            Assert.True(WideWindowLayout.FitToScreen(ref rect, 1410f, 1280f, 720f));
             Rect once = rect;
-            Assert.False(WideWindowLayout.FitToScreen(ref rect, 0f, 1280f, 720f));
+            Assert.False(WideWindowLayout.FitToScreen(ref rect, 1410f, 1280f, 720f));
             Assert.Equal(once, rect);
         }
 

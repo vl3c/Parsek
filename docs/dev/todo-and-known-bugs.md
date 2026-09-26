@@ -28,13 +28,17 @@ player's screen.
 
 Fix: `UI/WideWindowLayout.cs`, one shared helper.
 - `ParsekUI.HandleResizeDrag` now also runs `FitWindowToScreen` before every draw of every
-  window with a resize handle: the width is capped to `Screen.width` and raised to
-  `min(MinWindowWidth, Screen.width)` when below it (so a window capped on a narrow screen
-  grows back when the screen grows; no drag can go below that floor), and the window is
-  moved fully on-screen horizontally and top-on-screen vertically; the height is never
-  changed (a GUILayout window resolves it from its content). A resize drag stops at
-  the screen's right edge, and its floor is `min(MinWindowWidth, Screen.width)`. Logged only
-  when the rect moves, rate-limited per window.
+  window with a resize handle, and it acts ONLY when the window cannot fit the screen at its
+  own width (`WideWindowLayout.NeedsScreenFit`: wider than the screen, or a minimum wider
+  than the screen) or was capped below its minimum by an earlier narrow screen (a width
+  below the minimum has no other source: defaults, drags and `op=rect` all floor at it).
+  Then the width is raised to `min(MinWindowWidth, Screen.width)` and capped to
+  `Screen.width`, and the window is moved fully on-screen horizontally and top-on-screen
+  vertically; the height is never changed (a GUILayout window resolves it from its
+  content). A window that fits the screen is never touched, so a player can still park it
+  partly off-screen. A resize drag is never wider than the screen and floors at
+  `min(MinWindowWidth, Screen.width)`; on a screen the window fits it is the drag it always
+  was. Logged only when the rect moves, rate-limited per window.
 - `WideWindowScroll` decides per window, latched on the Layout pass, whether the window is
   below its natural width (`MinWindowWidth`), logging the transition only; on a screen the
   window fits it draws nothing, so the layout is unchanged. When active, the Missions window

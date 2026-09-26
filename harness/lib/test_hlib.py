@@ -10447,7 +10447,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # GUI-29, 2026-09-26 (wide-window change). Same operator-local host as GUI-1, and
         # the only census lane on the 1280x720 frame on purpose: its subject is the Missions
         # and Logistics windows capped to that screen and scrolled sideways.
-        "GUI-29-census-wide-windows-1280.toml": "tier=operator by MECHANISM, identical to GUI-1's (the operator-local `c1-gui` host no clone can stage; the same report-only analyzer row). Its captures ARE the deliverable: the Missions window's two tabs scrolled left and right, and Logistics, on the 1280x720 frame. No human call is outstanding beyond flying it.",
+        "GUI-29-census-wide-windows-1280.toml": "tier=operator by MECHANISM, identical to GUI-1's (the operator-local `c1-gui` host no clone can stage; the same report-only analyzer row). Its captures ARE the deliverable: the Missions window's two tabs scrolled left and right, and Logistics, on the 1280x720 frame. FLOWN PASS 2026-09-26 (run _1926, attempt 1, 5 PNG + 5 dumps); re-flown after the review fixes that pinned the in-game fit lines. Owed: the ordinary promotion call only.",
         # THE TWO GLOOPS LANES, 2026-09-15 (package P2). Operator-tier by the
         # CALIBRATION discipline, not by debt: both are first flights of a subject
         # whose key quantity - how many trajectory points a motionless PRELAUNCH pod

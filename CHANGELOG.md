@@ -1190,12 +1190,13 @@ _(unreleased — entries accumulate here per commit)_
 - **Every column of the Missions and Logistics windows can be reached on a 1280 px screen.**
   Both windows are laid out wider than 1280 px (Missions 1355, Logistics 1410), and nothing
   kept a window on the screen, so on a 1280x720 game window their right-hand columns were
-  drawn off the edge and could not be reached. Parsek's resizable windows are now never
-  wider than the screen and are kept on it, and when a window is narrower than the width its
-  table is laid out for, the table scrolls sideways: in the Missions window the column
-  headers scroll together with the rows, so every column stays under its header, and the
-  Close button and the help line stay in place. A resize drag stops at the screen edge. On a
-  screen the window already fits, nothing changes.
+  drawn off the edge and could not be reached. A Parsek window that cannot fit the screen at
+  its own width is now made as wide as the screen and moved onto it, and its table scrolls
+  sideways: in the Missions window the column headers scroll together with the rows, so every
+  column stays under its header, and the Close button and the help line stay in place. Such
+  a window cannot be dragged wider than the screen, and it returns to its normal width when
+  the screen is large enough again. On a screen the window already fits, nothing changes: it
+  stays where you put it, even partly off-screen.
 
 - **Spinning vessels recorded with PersistentRotation now replay spinning.** Parsek never
   recognised the KSP 1.12 build of PersistentRotation (PersistentRotationUpgraded), so a

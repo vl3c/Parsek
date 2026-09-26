@@ -3202,11 +3202,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Keeps a window no wider than the screen and fully on it (see
-        /// <see cref="WideWindowLayout.FitToScreen"/>). Runs before every draw of every
-        /// window that has a resize handle, so a first-open default, a drag or an
-        /// automation-written rect that reaches past the screen edge is pulled back before
-        /// it is drawn. A rect already on-screen is left untouched. Logged only when it
+        /// Fits a window that cannot fit the screen at its own width (see
+        /// <see cref="WideWindowLayout.FitToScreen"/>): capped to the screen width and moved
+        /// onto it, and grown back to its minimum once a wider screen allows. Runs before
+        /// every draw of every window that has a resize handle. A window that fits the
+        /// screen is never touched, wherever the player put it. Logged only when it
         /// moves the rect, rate-limited per window because a player dragging a window
         /// against the edge moves it every frame.
         /// </summary>
@@ -3227,8 +3227,8 @@ namespace Parsek
         {
             if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
             {
-                // The drag stops at the screen's right edge, and a screen narrower than the
-                // window's own minimum lowers that minimum to the screen width.
+                // Never wider than the screen, and a screen narrower than the window's own
+                // minimum lowers that minimum to the screen width.
                 float newW = WideWindowLayout.ResizeDragWidth(
                     Event.current.mousePosition.x, windowRect.x, minWidth, Screen.width);
                 float newH = Mathf.Max(minHeight, Event.current.mousePosition.y - windowRect.y);

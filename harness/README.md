@@ -768,8 +768,8 @@ SIX AUTHORING RULES that cost a flight if missed:
   census lanes fly at 1920x1080 (the census frame, above); a capture flown before
   2026-09-24 is CLIPPED at 1280. `op=describe` carries every window's floor as
   `w<i>min=`, so read a describe before choosing a size. Since 2026-09-26 the op then
-  applies the SCREEN fit every resizable window takes before it draws (capped to the
-  screen width, moved on-screen), so on a 1280 px frame `missions` / `logistics`
+  applies the SCREEN fit a resizable window that cannot fit the screen takes before it
+  draws (capped to the screen width, moved on-screen), so on a 1280 px frame `missions` / `logistics`
   commanded at their floors read back at 1280 with `clamped=true`, and their content
   scrolls sideways (`GUI-29-census-wide-windows-1280`, `op=state key=scrollX`).
 - **Ids are save-specific; `key=all` and `recording=first` are not.** A committed spec

@@ -12,8 +12,9 @@ namespace Parsek
     /// 1280 px game window: the Missions window (both tabs, 1355 px minimum) and Logistics
     /// (1410 px minimum). Before this helper nothing capped a window to the screen, so on a
     /// 1280x720 screen their right-hand columns were drawn off-screen and could not be
-    /// reached at all. The fix has two halves: <see cref="FitToScreen"/> keeps every
-    /// window no wider than the screen and fully on it, and a window whose content is
+    /// reached at all. The fix has two halves: <see cref="FitToScreen"/> caps a window
+    /// that cannot fit the screen to its width and moves it onto it (a window that fits
+    /// is never touched), and a window whose content is
     /// designed wider than the width it now has scrolls that content horizontally
     /// (<see cref="WideWindowScroll"/>).</para>
     /// </summary>
@@ -36,39 +37,53 @@ namespace Parsek
 
         /// <summary>
         /// The width a resize drag produces: the mouse's distance from the window's left
-        /// edge, stopped at the screen's right edge, and never below
-        /// <see cref="EffectiveMinWidth"/>. Stopping at the edge (rather than letting
-        /// <see cref="FitToScreen"/> slide the window left) keeps the window's left edge
-        /// where the player put it.
+        /// edge, never below <see cref="EffectiveMinWidth"/> and never wider than the
+        /// screen. On a screen the window fits this is the drag it always was (a window
+        /// may still be dragged past the screen edge); only a width that would exceed the
+        /// screen, or a minimum the screen cannot hold, is limited.
         /// </summary>
         internal static float ResizeDragWidth(float mouseX, float rectX, float minWidth,
             float screenWidth)
         {
             float width = mouseX - rectX;
-            if (screenWidth > 0f)
-            {
-                float toEdge = screenWidth - rectX;
-                if (width > toEdge) width = toEdge;
-            }
             float floor = EffectiveMinWidth(minWidth, screenWidth);
-            return width < floor ? floor : width;
+            if (width < floor) width = floor;
+            if (screenWidth > 0f && width > screenWidth) width = screenWidth;
+            return width;
         }
 
         /// <summary>
-        /// Fits a window rect to the screen: the width is capped at the screen width, and a
-        /// width below <see cref="EffectiveMinWidth"/> is raised to it (a window capped on a
-        /// narrow screen grows back to its own minimum when the screen grows; no drag can
-        /// produce a width below that floor, so no player resize is undone). The window is
-        /// then moved, not resized, so it lies fully on-screen horizontally and its top-left
+        /// Whether a window must be fitted to the screen at all: only when it cannot fit
+        /// at its own width (wider than the screen, or a minimum wider than the screen),
+        /// or when an earlier narrow screen capped it below its minimum and the screen now
+        /// allows that minimum back. A width below the minimum has no other source: every
+        /// first-open default is at or above its window's minimum, a resize drag floors at
+        /// it, and the automation seam's <c>op=rect</c> raises to it. On a screen the
+        /// window fits, the answer is false and the player's placement is left alone,
+        /// including a window parked partly off-screen.
+        /// </summary>
+        internal static bool NeedsScreenFit(Rect rect, float minWidth, float screenWidth)
+        {
+            if (screenWidth <= 0f) return false;
+            if (rect.width > screenWidth || minWidth > screenWidth) return true;
+            return minWidth > 0f && rect.width < minWidth;
+        }
+
+        /// <summary>
+        /// Fits a window rect to the screen when <see cref="NeedsScreenFit"/> says it must:
+        /// the width is raised to <see cref="EffectiveMinWidth"/> (the grow-back of a window
+        /// an earlier narrow screen capped) and capped at the screen width, then the window
+        /// is moved, not resized, so it lies fully on-screen horizontally and its top-left
         /// corner is on-screen with as much of its height as fits. Height is never changed:
-        /// a GUILayout window resolves its own height from its content, and capping it here
-        /// would fight that resolution every frame. A <paramref name="minWidth"/> of zero
-        /// raises nothing. Returns true when the rect changed.
+        /// a GUILayout window resolves its own height from its content. A window that fits
+        /// the screen at its own width is left untouched. Returns true when the rect
+        /// changed.
         /// </summary>
         internal static bool FitToScreen(ref Rect rect, float minWidth, float screenWidth,
             float screenHeight)
         {
             if (screenWidth <= 0f || screenHeight <= 0f) return false;
+            if (!NeedsScreenFit(rect, minWidth, screenWidth)) return false;
 
             Rect before = rect;
             float floor = EffectiveMinWidth(minWidth, screenWidth);

@@ -928,7 +928,7 @@ namespace Parsek
             }
 
             ParsekUI.HandleResizeDrag(ref recordingsWindowRect, ref isResizingRecordingsWindow,
-                MinWindowWidth, MinWindowHeight, "Recordings window");
+                MinWindowWidth, MinWindowHeight, "Missions window");
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)
@@ -1725,7 +1725,7 @@ namespace Parsek
             GUILayout.EndHorizontal();
 
             ParsekUI.DrawResizeHandle(recordingsWindowRect, ref isResizingRecordingsWindow,
-                "Recordings window");
+                "Missions window");
 
             GUI.DragWindow();
         }
@@ -1751,7 +1751,7 @@ namespace Parsek
             GUILayout.EndHorizontal();
 
             ParsekUI.DrawResizeHandle(recordingsWindowRect, ref isResizingRecordingsWindow,
-                "Recordings window");
+                "Missions window");
 
             GUI.DragWindow();
         }

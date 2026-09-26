@@ -5,8 +5,9 @@ tier = "operator"
 # 1280 px game window: the Missions window (both tabs, 1355 px natural width) and
 # Logistics (1410 px). Until the wide-window change nothing capped a window to the
 # screen, so on 1280x720 their right-hand columns were drawn off-screen and could not be
-# reached. Now every resizable window is capped to the screen width and kept on it
-# (`ParsekUI.FitWindowToScreen`), and a window capped below its natural width scrolls its
+# reached. Now a resizable window that cannot fit the screen is capped to the screen width
+# and moved onto it (`ParsekUI.FitWindowToScreen`; a window that fits is never touched),
+# and a window capped below its natural width scrolls its
 # content horizontally (`WideWindowScroll`): the Missions window wraps its pinned column
 # header AND its body in one horizontal scroll view so the two stay aligned, and
 # Logistics keeps its natural content width inside its existing scroll view.
@@ -93,7 +94,14 @@ allowedAnomalies = []
 
 [expectations.logContracts]
 required = [
-  # The cap: both windows commanded at their natural width land at the screen width.
+  # THE IN-GAME FIT, which is the product claim: each window opens at its first-open
+  # default beside the 250 px main window (x=268, Missions 1355 wide, Logistics 1556) and
+  # `ParsekUI.FitWindowToScreen` caps and moves it BEFORE any op=rect step touches it. The
+  # op=rect lines below apply the same fit on the seam side, so they alone would stay
+  # green with the in-game fit removed; these two would not.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] Missions window fitted to screen 1280x720: x=268->0 y=8->8 w=1355->1280",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] Logistics window fitted to screen 1280x720: x=268->0 y=8->8 w=1556->1280",
+  # The seam's cap: both windows commanded at their natural width land at the screen width.
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction rect initiated window=missions want=0,8,1355,700 applied=0,8,1280,700 clamped=true",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction rect initiated window=logistics want=0,8,1410,700 applied=0,8,1280,700 clamped=true",
   # The scroll decision, logged on its transition only.

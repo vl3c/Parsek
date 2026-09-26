@@ -1988,11 +1988,12 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 Two windows are laid out wider than a 1280 px screen: Logistics (1410) and Missions (1355; its
 Info-expanded 1813 / 1493 form was removed 2026-09-26). Every other window's minimum and
 first-open default fit 1024 px. Since 2026-09-26 (`UI/WideWindowLayout.cs`,
-WIDE-WINDOWS-OFF-SCREEN-AT-1280) every window with a resize handle is fitted to the screen
-before each draw (`ParsekUI.HandleResizeDrag` -> `FitWindowToScreen`): its width is capped to
-`Screen.width` (and raised back to `min(MinWindowWidth, Screen.width)` if a narrower screen had
-capped it), it is moved fully on-screen horizontally and top-on-screen vertically, its
-height is never touched, a resize drag stops at the screen edge, and the drag floor becomes
+WIDE-WINDOWS-OFF-SCREEN-AT-1280) a window with a resize handle that cannot fit the screen at
+its own width is fitted before each draw (`ParsekUI.HandleResizeDrag` -> `FitWindowToScreen`):
+its width is capped to `Screen.width` (and raised back to `min(MinWindowWidth, Screen.width)`
+once a wider screen allows), it is moved fully on-screen horizontally and top-on-screen
+vertically, and its height is never touched. A window that fits is never moved, wherever the
+player put it. A resize drag is never wider than the screen, and its floor becomes
 `min(MinWindowWidth, Screen.width)`. A window capped below its natural width
 (`MinWindowWidth`) scrolls its content sideways through `WideWindowScroll`: the Missions
 window wraps its pinned header and its body scroll view in one horizontal scroll view laid

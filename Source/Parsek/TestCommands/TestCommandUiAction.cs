@@ -1432,7 +1432,7 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// Applies the screen fit a resizable window takes before every draw
+        /// Applies the screen fit a resizable window that cannot fit the screen takes before every draw
         /// (<c>ParsekUI.FitWindowToScreen</c> over <see cref="WideWindowLayout.FitToScreen"/>)
         /// to a commanded rect, so <see cref="RectAppliedWithinTolerance"/> compares the
         /// read-back with the rect the window will really draw at. On a screen narrower than
