@@ -15,6 +15,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SETTINGS-WINDOW-ROUND-2026-09-26: eleven Settings-window findings from the read-only review at `dd9c1682b`~~ [FILED AND FIXED 2026-09-26, branch `settings-window-round`]
+
+The review found the Basic hover leaving out Kerbals; readable `.txt` mirrors ON for every
+player; ghost audio, sample density and verbose logging living in the save (reverted by F9 and
+rewinds, reset in a new save) while every other setting was install-wide; the selected
+Basic/Advanced and Low/Medium/High option drawn as a grey-looking box that also resized the row;
+a section order that put developer Diagnostics above Sample Density; wipe buttons with no hover
+while enabled; a rewind-point line carrying counts its hover did not explain; a `(development
+default)` verbose label; a Defaults hover that did not mention the Advanced-only settings; an
+auto-launch hover naming `'auto' rows`; and a user guide still documenting the retired Recording
+settings, a disable-able EVA auto-record and a 10s auto-launch default (it is 30s).
+
+Fix: all eleven applied. The three per-save settings moved into `ParsekSettingsPersistence`
+(stored value wins at load, absent key leaves the save's value; the audio slider persists once
+per finished drag), and `SettingWhitelist` routes them through the sidecar so a harness
+`SetSetting` survives the next load while `run.py`'s stage / teardown baseline still clears it.
+`writeReadableSidecarMirrors` defaults false with no migration; the dev instance's settings.cfg
+already stores `True`, and `hlib.render_settings_sidecar_baseline` now stamps it `True` for every
+automation run, because the fixture builders and `OptimizerTransferCohesionTests` read the
+`.prec.txt` mirrors. Tests: `SettingsWindowTextTests`, the new `ParsekSettingsPersistenceTests`
+cells (a real file round trip, de-DE invariance, invalid-value handling), the whitelist and
+applier route tables, and the hlib / run smoke baseline cells.
+
+---
+
 ## ~~D1-COMMIT-ABORT-UNDEFINED: D1 `commit-abort` had no definition and no lane~~ [FILED AND CLOSED 2026-09-26 by `CA-1-commit-abort-booster-live`, coverage wave 14, branch `cov-commitabort`; the definition is a supervisor ruling PENDING OPERATOR CONFIRMATION]
 
 **Definition (registry D1 block).** The post-destruction auto-merge is ABORTED because the ACTIVE
