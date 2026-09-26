@@ -50,6 +50,9 @@ namespace Parsek
         private readonly List<GhostCommNetCandidate> ghostCommNetCandidates = new List<GhostCommNetCandidate>();
         private readonly Dictionary<string, KeyValuePair<OrbitSegment, Orbit>> ghostCommNetOrbitCache =
             new Dictionary<string, KeyValuePair<OrbitSegment, Orbit>>(System.StringComparer.Ordinal);
+        private readonly List<double> ghostCommNetClaimScratch = new List<double>();
+        private readonly List<KeyValuePair<double, double>> ghostCommNetCarrierScratch =
+            new List<KeyValuePair<double, double>>();
         private PopupDialog currentGhostPopup;
         private string currentGhostPopupKey;
         private int ghostPopupOpenFrame;
@@ -285,6 +288,12 @@ namespace Parsek
             LedgerOrchestrator.RecalculateIfKerbalReservationReleaseDue(
                 Planetarium.GetUniversalTime(), "ts-reservation-release");
 
+            // BUG-B replay scope: note the playhead for every committed recording every frame,
+            // as FLIGHT and the Space Center do, so a Tracking Station entered first latches a
+            // recording whose window is still ahead (a hidden one included) for every TS
+            // consumer (map presence, spawn handoff, ghost CommNet).
+            NoteReplayScopePlayheads();
+
             if (GhostTrackingStationSelection.HasSelectedGhost)
                 RefreshGhostActionCache();
             UpdatePendingMaterializedFocus();
@@ -324,10 +333,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The Tracking Station's per-frame replay-scope sweep (BUG-B). Logs once per sweep
+        /// that latched anything, which happens at most once per recording.
+        /// </summary>
+        private void NoteReplayScopePlayheads()
+        {
+            double currentUT = Planetarium.GetUniversalTime();
+            int latched = PlaybackScopeTracker.NotePlayheadSweep(RecordingStore.CommittedRecordings, currentUT);
+            if (latched > 0)
+                ParsekLog.Verbose(Tag, string.Format(CultureInfo.InvariantCulture,
+                    "Replay-scope sweep latched {0} committed recording(s) at ut={1:F1} (window still ahead of the playhead)",
+                    latched, currentUT));
+        }
+
+        /// <summary>
         /// Feeds every committed recording's relay-window verdict to the ghost CommNet
         /// manager. Same gates as flight: timeline-inactive, re-fly session, real vessel
-        /// present, historical scope (spawn variant), window, spawn hold. There are no chain
-        /// ghosts in the Tracking Station.
+        /// present, historical scope (spawn variant), window, spawn hold, continuation hold.
+        /// There are no chain-ghosted vessels in the Tracking Station: a chain-claimed vessel
+        /// that is real here carries its own stock node.
         /// </summary>
         private void DriveGhostCommNet()
         {
@@ -348,6 +372,8 @@ namespace Parsek
                         object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements)
                     : null;
                 bool reFlyActive = SessionSuppressionState.ActiveMarker != null;
+                double holdLookahead = GhostCommNetMath.HoldPredictionLookaheadSeconds(
+                    LifecycleCheckIntervalSec, TimeWarp.CurrentRate);
                 Dictionary<uint, GhostChain> chains = null;
                 for (int i = 0; i < count; i++)
                 {
@@ -384,16 +410,31 @@ namespace Parsek
                         input.CannotSpawnSafely = rec.TerminalSpawnCannotSpawnSafely;
                     }
                     GhostCommNetEligibility eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT);
-                    // The spawn / chain-hold inputs are only worth their cost for a recording
-                    // that passed every other gate and is past its end without a hold yet.
-                    if (eligibility.Reason == GhostCommNetMath.ReasonWindowEnded)
+                    // The spawn / chain-hold / continuation-hold inputs are only worth their cost
+                    // for a recording that passed every other gate and is either past its end
+                    // without a hold yet, or in its window close enough to its end that the next
+                    // tick may come after it (so the hook keeps the node lit across EndUT, as
+                    // FLIGHT does every frame).
+                    bool windowEnded = eligibility.Reason == GhostCommNetMath.ReasonWindowEnded;
+                    bool nearEnd = eligibility.Eligible
+                        && eligibility.Reason == GhostCommNetMath.ReasonInWindow
+                        && GhostCommNetMath.ShouldPredictHoldPastEnd(currentUT, rec.EndUT, holdLookahead);
+                    if (windowEnded || nearEnd)
                     {
                         if (chains == null)
                             chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
-                        input.NeedsSpawn = GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
-                            rec, currentUT, chains, (HashSet<string>)null).needsSpawn;
+                        // Asked at the end UT when still in the window: the TS spawn predicate
+                        // answers "not yet" before EndUT.
+                        var spawn = GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
+                            rec, System.Math.Max(currentUT, rec.EndUT), chains, (HashSet<string>)null);
+                        input.NeedsSpawn = spawn.needsSpawn;
                         input.IsMidChain = RecordingStore.IsChainMidSegment(rec);
                         input.ChainEndUT = RecordingStore.GetChainEndUT(rec);
+                        GhostCommNetMath.ApplyContinuationHold(
+                            ref input, rec, committed, chains,
+                            spawn.reason == GhostMapPresence.TrackingStationSpawnSkipIntermediateGhostChainLink,
+                            GhostPlaybackLogic.RealVesselExistsForRecording,
+                            "TRACKSTATION", ghostCommNetClaimScratch, ghostCommNetCarrierScratch);
                         eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT);
                         if (eligibility.Reason == GhostCommNetMath.ReasonChainGapHold)
                         {

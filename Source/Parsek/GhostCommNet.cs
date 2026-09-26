@@ -210,6 +210,14 @@ namespace Parsek
         public bool IsMidChain;
         public double ChainEndUT;
         public bool ChainSuccessorStarted;
+        /// <summary>
+        /// The recording's real terminal spawn is owned by a later continuation (an
+        /// intermediate ghost-chain link, or a terminal spawn superseded by a continuation),
+        /// so the vessel it ended as sits on rails at its end state until that continuation
+        /// takes over at <see cref="ContinuationHoldUntilUT"/>.
+        /// </summary>
+        public bool HasContinuationHold;
+        public double ContinuationHoldUntilUT;
     }
 
     internal struct GhostCommNetEligibility
@@ -255,7 +263,11 @@ namespace Parsek
         internal const string Tag = "GhostCommNet";
         internal const string NodeNamePrefix = "ParsekGhost:";
         internal const string ReasonChainGapHold = "chain-gap-hold";
+        internal const string ReasonContinuationGapHold = "continuation-gap-hold";
         internal const string ReasonWindowEnded = "window-ended";
+        internal const string ReasonInWindow = "in-window";
+        /// <summary>UT slack when comparing a recording's end with a takeover UT.</summary>
+        internal const double ContinuationTakeoverToleranceSeconds = 1e-3;
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         /// <summary>
@@ -722,8 +734,10 @@ namespace Parsek
         /// <summary>
         /// The relay window of a committed recording (design 15.6). The real run only: the
         /// recording's own UT window from its ghost activation to its end, then held at the
-        /// end position while its spawn is pending (or a mid-chain segment waits for its
-        /// continuation). The playback-enabled toggle is display only and is not an input.
+        /// end position while its spawn is pending, while a mid-chain segment waits for its
+        /// continuation, or while a later continuation that owns its terminal spawn has not
+        /// taken the vessel over yet. The playback-enabled toggle is display only and is not
+        /// an input.
         /// </summary>
         internal static GhostCommNetEligibility EvaluateEligibility(
             GhostCommNetEligibilityInput input, double currentUT)
@@ -742,7 +756,7 @@ namespace Parsek
                 return new GhostCommNetEligibility
                 {
                     Eligible = true,
-                    Reason = "in-window",
+                    Reason = ReasonInWindow,
                     ExpectHoldPastEnd = ExpectsHoldPastEnd(input),
                 };
             if (input.VesselSpawned) return Excluded("vessel-spawned");
@@ -750,6 +764,8 @@ namespace Parsek
                 return new GhostCommNetEligibility { Eligible = true, HoldAtEnd = true, Reason = "held-for-spawn" };
             if (input.IsMidChain && currentUT <= input.ChainEndUT && !input.ChainSuccessorStarted)
                 return new GhostCommNetEligibility { Eligible = true, HoldAtEnd = true, Reason = ReasonChainGapHold };
+            if (input.HasContinuationHold && currentUT < input.ContinuationHoldUntilUT)
+                return new GhostCommNetEligibility { Eligible = true, HoldAtEnd = true, Reason = ReasonContinuationGapHold };
             if (input.SpawnAbandoned || input.CannotSpawnSafely) return Excluded("spawn-abandoned");
             return Excluded(ReasonWindowEnded);
         }
@@ -764,7 +780,244 @@ namespace Parsek
         {
             if (input.VesselSpawned) return false;
             if (input.NeedsSpawn && !input.SpawnAbandoned && !input.CannotSpawnSafely) return true;
+            if (input.HasContinuationHold && input.EndUT < input.ContinuationHoldUntilUT) return true;
             return input.IsMidChain && input.EndUT < input.ChainEndUT;
+        }
+
+        /// <summary>
+        /// Should a scene host that ticks slower than every frame (the Tracking Station, every
+        /// 0.25 s of real time) work out a recording's post-end hold while it is still in its
+        /// window? Only near the end: <paramref name="lookaheadSeconds"/> of game time covers
+        /// the next host tick, so the CommNet hook knows to keep the node lit across EndUT
+        /// before the host's next tick turns it into a hold. Earlier ticks skip the cost.
+        /// </summary>
+        internal static bool ShouldPredictHoldPastEnd(double currentUT, double endUT, double lookaheadSeconds)
+        {
+            if (double.IsNaN(currentUT) || double.IsNaN(endUT) || currentUT > endUT)
+                return false;
+            if (double.IsNaN(lookaheadSeconds) || lookaheadSeconds < 0.0)
+                lookaheadSeconds = 0.0;
+            return endUT - currentUT <= lookaheadSeconds;
+        }
+
+        /// <summary>
+        /// Game-time lookahead for <see cref="ShouldPredictHoldPastEnd"/>: two host ticks at the
+        /// current warp rate, never less than one second.
+        /// </summary>
+        internal static double HoldPredictionLookaheadSeconds(double tickIntervalRealSeconds, double warpRate)
+        {
+            if (double.IsNaN(warpRate) || warpRate < 1.0) warpRate = 1.0;
+            if (double.IsNaN(tickIntervalRealSeconds) || tickIntervalRealSeconds < 0.0) tickIntervalRealSeconds = 0.0;
+            return Math.Max(1.0, 2.0 * tickIntervalRealSeconds * warpRate);
+        }
+
+        /// <summary>
+        /// Does a later continuation own this recording's real terminal spawn, so that the
+        /// vessel it ended as keeps existing, on rails at its end state, until that
+        /// continuation takes it over (design 15.6 scenario 15)? Either the ghost-chain walker
+        /// suppressed an otherwise ready spawn because a later claim continues the vessel, or
+        /// the terminal spawn was superseded by a continuation recording. The superseded case
+        /// is checked structurally: a spawnable terminal on a leaf that is not debris, ghost-only
+        /// or an undock branch, and has not spawned, been adopted or been destroyed.
+        /// </summary>
+        internal static bool ContinuationOwnsTerminalSpawn(
+            bool chainIntermediateWouldSpawn,
+            bool terminalSpawnSuperseded,
+            bool hasSpawnableTerminal,
+            bool isLeaf,
+            bool isDebris,
+            bool isGhostOnly,
+            bool isBranchGhostOnly,
+            bool alreadySpawnedOrDestroyed)
+        {
+            if (isDebris || alreadySpawnedOrDestroyed)
+                return false;
+            if (chainIntermediateWouldSpawn)
+                return true;
+            if (!terminalSpawnSuperseded)
+                return false;
+            return hasSpawnableTerminal && isLeaf && !isGhostOnly && !isBranchGhostOnly;
+        }
+
+        /// <summary>
+        /// When the continuation takes the vessel over, for a recording that ended at
+        /// <paramref name="endUT"/>: the earliest of the later ghost-chain claims on the vessel
+        /// (<paramref name="claimUTs"/>, a dock or board merges it into another vessel whose own
+        /// recording carries it) and the activation of a later recording of the same vessel
+        /// (<paramref name="carrierWindows"/>, activation start and end). Carriers that ended by
+        /// <paramref name="endUT"/> are history. A carrier already running at
+        /// <paramref name="endUT"/> carries the vessel itself, so there is no hold (NaN); so is
+        /// a vessel with no known takeover, which is never held open-ended.
+        /// </summary>
+        internal static double ResolveContinuationHoldUntilUT(
+            double endUT,
+            IList<double> claimUTs,
+            IList<KeyValuePair<double, double>> carrierWindows)
+        {
+            const double tol = ContinuationTakeoverToleranceSeconds;
+            if (double.IsNaN(endUT))
+                return double.NaN;
+            double until = double.PositiveInfinity;
+            int claims = claimUTs != null ? claimUTs.Count : 0;
+            for (int i = 0; i < claims; i++)
+            {
+                double ut = claimUTs[i];
+                if (double.IsNaN(ut) || ut < endUT - tol) continue;
+                if (ut < until) until = ut;
+            }
+            int carriers = carrierWindows != null ? carrierWindows.Count : 0;
+            for (int i = 0; i < carriers; i++)
+            {
+                double start = carrierWindows[i].Key;
+                double end = carrierWindows[i].Value;
+                if (double.IsNaN(start) || double.IsNaN(end) || end <= endUT + tol) continue;
+                if (start <= endUT + tol) return double.NaN;
+                if (start < until) until = start;
+            }
+            return double.IsPositiveInfinity(until) ? double.NaN : until;
+        }
+
+        /// <summary>
+        /// Collects the takeover UTs of <paramref name="rec"/> and resolves its continuation
+        /// hold (<see cref="ResolveContinuationHoldUntilUT"/>). Claims: every link of
+        /// <paramref name="chain"/> (the ghost chain that suppressed its spawn; null when none).
+        /// Carriers: every other committed recording of the same launch (baked pid AND a launch
+        /// guid that does not conclusively differ), and the recording its terminal spawn is
+        /// superseded by. <paramref name="source"/> names what ends the hold.
+        /// </summary>
+        internal static bool TryResolveContinuationHold(
+            Recording rec,
+            IReadOnlyList<Recording> committed,
+            GhostChain chain,
+            List<double> claimScratch,
+            List<KeyValuePair<double, double>> carrierScratch,
+            out double holdUntilUT,
+            out string source)
+        {
+            holdUntilUT = double.NaN;
+            source = "none";
+            if (rec == null)
+                return false;
+            var claims = claimScratch ?? new List<double>();
+            var carriers = carrierScratch ?? new List<KeyValuePair<double, double>>();
+            claims.Clear();
+            carriers.Clear();
+            if (chain != null && chain.Links != null)
+            {
+                for (int i = 0; i < chain.Links.Count; i++)
+                    claims.Add(chain.Links[i].ut);
+            }
+            string supersededBy = rec.TerminalSpawnSupersededByRecordingId;
+            int count = committed != null ? committed.Count : 0;
+            for (int i = 0; i < count; i++)
+            {
+                Recording other = committed[i];
+                if (other == null || ReferenceEquals(other, rec))
+                    continue;
+                if (!string.IsNullOrEmpty(rec.RecordingId)
+                    && string.Equals(other.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                    continue;
+                bool isSuperseder = !string.IsNullOrEmpty(supersededBy)
+                    && string.Equals(other.RecordingId, supersededBy, StringComparison.Ordinal);
+                if (!isSuperseder && !VesselLaunchIdentity.RecordingsShareLaunch(rec, other))
+                    continue;
+                carriers.Add(new KeyValuePair<double, double>(
+                    PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(other), other.EndUT));
+            }
+            holdUntilUT = ResolveContinuationHoldUntilUT(rec.EndUT, claims, carriers);
+            if (double.IsNaN(holdUntilUT))
+                return false;
+            source = DescribeContinuationTakeover(holdUntilUT, claims, carriers);
+            return true;
+        }
+
+        /// <summary>
+        /// Fills the continuation-hold fields of a scene host's eligibility input for one
+        /// committed recording, and logs the outcome once per change. Cheap early-out for the
+        /// common case (no chain suppression, no superseded terminal spawn). A vessel that is
+        /// real in the scene carries its own stock node and is never held.
+        /// </summary>
+        internal static void ApplyContinuationHold(
+            ref GhostCommNetEligibilityInput input,
+            Recording rec,
+            IReadOnlyList<Recording> committed,
+            Dictionary<uint, GhostChain> chains,
+            bool chainIntermediateWouldSpawn,
+            Func<Recording, bool> realVesselExists,
+            string scene,
+            List<double> claimScratch,
+            List<KeyValuePair<double, double>> carrierScratch)
+        {
+            input.HasContinuationHold = false;
+            input.ContinuationHoldUntilUT = 0.0;
+            if (rec == null)
+                return;
+            bool superseded = !string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId);
+            if (!chainIntermediateWouldSpawn && !superseded)
+                return;
+
+            string key = rec.RecordingId;
+            bool spawnable = rec.TerminalStateValue.HasValue
+                && GhostPlaybackLogic.IsSpawnableTerminal(rec.TerminalStateValue.Value);
+            bool owns = ContinuationOwnsTerminalSpawn(
+                chainIntermediateWouldSpawn,
+                superseded,
+                spawnable,
+                string.IsNullOrEmpty(rec.ChildBranchPointId),
+                rec.IsDebris,
+                rec.IsGhostOnly,
+                rec.ChainBranch > 0,
+                rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0 || rec.VesselDestroyed);
+            if (!owns)
+            {
+                if (ParsekLog.IsVerboseEnabled)
+                    LogContinuationHold(key, rec.VesselName, scene, false, rec.EndUT, 0.0, null,
+                        "terminal spawn not owned by a continuation");
+                return;
+            }
+            if (realVesselExists != null && realVesselExists(rec))
+            {
+                if (ParsekLog.IsVerboseEnabled)
+                    LogContinuationHold(key, rec.VesselName, scene, false, rec.EndUT, 0.0, null,
+                        "real vessel exists and carries its own node");
+                return;
+            }
+            GhostChain chain = chains != null ? GhostChainWalker.FindIntermediateLinkChain(chains, rec) : null;
+            if (TryResolveContinuationHold(rec, committed, chain, claimScratch, carrierScratch,
+                    out double until, out string source))
+            {
+                input.HasContinuationHold = true;
+                input.ContinuationHoldUntilUT = until;
+                if (ParsekLog.IsVerboseEnabled)
+                    LogContinuationHold(key, rec.VesselName, scene, true, rec.EndUT, until, source, null);
+                return;
+            }
+            if (ParsekLog.IsVerboseEnabled)
+                LogContinuationHold(key, rec.VesselName, scene, false, rec.EndUT, 0.0, null,
+                    "no takeover after the recording's end, or a later recording already carries the vessel");
+        }
+
+        private static string DescribeContinuationTakeover(
+            double until, List<double> claims, List<KeyValuePair<double, double>> carriers)
+        {
+            for (int i = 0; i < carriers.Count; i++)
+                if (carriers[i].Key == until) return "later-recording-of-vessel";
+            for (int i = 0; i < claims.Count; i++)
+                if (claims[i] == until) return "ghost-chain-claim";
+            return "unknown";
+        }
+
+        /// <summary>
+        /// Registration precedence when several candidates stand for one physical vessel:
+        /// recordings in their window or spawn / chain holds first (pass 1), then a
+        /// chain-ghosted vessel's despawn-snapshot node (pass 2, before its first claim), then
+        /// continuation gap holds (pass 3). Pass 2 and 3 yield to an identity already relaying,
+        /// so one vessel never carries two nodes.
+        /// </summary>
+        internal static int RegistrationPass(bool isChainGhostedVessel, string eligibilityReason)
+        {
+            if (isChainGhostedVessel) return 2;
+            return eligibilityReason == ReasonContinuationGapHold ? 3 : 1;
         }
 
         /// <summary>
@@ -954,6 +1207,29 @@ namespace Parsek
             ParsekLog.Info(Tag, string.Format(IC,
                 "Held ghost node position source: key={0} vessel=\"{1}\" scene={2} source={3} endUT={4:F1} {5}",
                 key, vesselName ?? "", scene, source, endUT, detail ?? ""));
+        }
+
+        /// <summary>
+        /// Once per change of a recording's continuation hold (design 15.6 scenario 15): the
+        /// recording's terminal spawn is owned by a later continuation, and until when its node
+        /// stands for the vessel on rails at its end state.
+        /// </summary>
+        internal static void LogContinuationHold(
+            string key, string vesselName, string scene, bool hold, double endUT, double untilUT,
+            string source, string why)
+        {
+            string state = hold
+                ? string.Format(IC, "until={0:R}|{1}", untilUT, source ?? "")
+                : "none|" + (why ?? "");
+            string message = hold
+                ? string.Format(IC,
+                    "Continuation hold: key={0} vessel=\"{1}\" scene={2} endUT={3:F1} until={4:F1} takeover={5} " +
+                    "(a later continuation owns the terminal spawn; the node stays at the end state until it takes over)",
+                    key, vesselName ?? "", scene, endUT, untilUT, source ?? "")
+                : string.Format(IC,
+                    "Continuation hold: key={0} vessel=\"{1}\" scene={2} endUT={3:F1} none ({4})",
+                    key, vesselName ?? "", scene, endUT, why ?? "");
+            ParsekLog.VerboseOnChange(Tag, "cont-hold|" + (scene ?? "") + "|" + (key ?? ""), state, message);
         }
 
         internal static void LogRebind(int readded, string scene, string reason, double rangeModifier)

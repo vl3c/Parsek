@@ -3,19 +3,20 @@
 # CN-1-ghost-commnet-relay (read its header first): the `ghost-commnet-relay` preset on
 # gloops-airshow, category GhostCommNet.
 #
-# WHY THE LANE BOOTS TO FLIGHT FIRST. The Tracking Station notes a recording's playhead
-# (PlaybackScopeTracker.NotePlayhead) only on its map-presence paths, and the create path
-# declines a playback-disabled recording before it gets there, so a TS that is the FIRST
-# scene to see relay B's start never latches B into replay scope and excludes it as
-# `historical-never-replayed`. In play the Tracking Station is always entered from the Space
-# Center or a flight, and both note every committed recording every frame, so B is latched
-# long before; `LoadGame scene=trackstation` from the main menu is the one road that skips
-# them. The lane therefore boots to FLIGHT (which latches A and B at the save's clock, one
-# second before their start), then re-enters through `LoadGame scene=trackstation` -
-# V14T's FLIGHT -> TRACKSTATION road. The scope latches are keyed by recording id and are
-# cleared only on a main-menu transition, which the seam's in-game LoadGame does not make.
-# autoRecordOnLaunch=false keeps the recorder off, so the second LoadGame is not refused
-# `recording-active`.
+# THE LANE BOOTS STRAIGHT INTO THE TRACKING STATION (changed 2026-09-26, branch
+# `commnet-followups`, todo GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED). One
+# `LoadGame scene=trackstation` from the main menu, so the Tracking Station is the FIRST
+# scene to see the relays. It now notes every committed recording's playhead every frame
+# (PlaybackScopeTracker.NotePlayheadSweep from ParsekTrackingStation.Update), as FLIGHT and
+# the Space Center do, so relay B (playback disabled, no map ProtoVessel) is latched into
+# replay scope at the save's clock, one second before its start, and relays while hidden.
+# Until that fix the lane booted FLIGHT first and re-entered the Tracking Station through a
+# second LoadGame, because a TS entered first excluded B as `historical-never-replayed`;
+# that detour is gone, so this lane is now the live proof of the fix: the B registration
+# token and the preset-rulings cell's `relayB=registered` red if the Tracking Station stops
+# latching a hidden recording. C (looped, real run over) must still read
+# `historical-never-replayed` (BUG-B unchanged: a start already behind the playhead is never
+# latched, whichever scene sweeps it).
 #
 # In the Tracking Station a node's position is A's map ProtoVessel (built from the same
 # orbit segment) and B's orbit segment (a hidden recording has no ProtoVessel).
@@ -32,8 +33,10 @@
 # (automation DLL sha256 fcbe2979...): PASS attempt 1, 60 s, `total=9 passed=4 failed=0
 # skipped=5`, zero GhostCommNet WARN / ERROR lines, the TRACKSTATION registrations and cell
 # lines field-for-field identical to CN-1's. ARMED from it (the id left INTERIM_PIN_IDS);
-# offline negative control in docs/dev/autotest-status.md. Armed confirmation re-flight
-# pending.
+# offline negative control in docs/dev/autotest-status.md. Armed re-flight `2026-09-26_1151`
+# PASS attempt 1 on the exact pins (FLIGHT-first shape). The direct-boot shape above keeps
+# the same cells and pins; flown `2026-09-26_1843` PASS attempt 1 on the exact pins (no
+# FLIGHT scene in the session, relay B registered in the Tracking Station).
 #
 # COVERAGE: claims D6 `commnet-relay` with CN-1, in the Tracking Station.
 
@@ -41,7 +44,7 @@ schema = 1
 id = "CN-1T-ghost-commnet-relay-ts"
 # PROMOTED to nightly 2026-09-26 by operator decision after the armed re-flights.
 tier = "nightly"
-description = "The ghost CommNet relay (design 15.6) in the TRACKING STATION over gloops-airshow plus the ghost-commnet-relay preset (A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over), entered FLIGHT -> LoadGame scene=trackstation so the relays are latched in replay scope: run the in-game GhostCommNet category and require that A and B register nodes, a free endpoint routes home through each real registered node and is cut off without it, A is a multi-hop control source, B relays while hidden, and C registers nothing."
+description = "The ghost CommNet relay (design 15.6) in the TRACKING STATION over gloops-airshow plus the ghost-commnet-relay preset (A crewed with a Pilot over the KSC, B playback-disabled, C looped with its real run over), booted straight into the Tracking Station (the first scene to see the relays, so it must latch them into replay scope itself): run the in-game GhostCommNet category and require that A and B register nodes, a free endpoint routes home through each real registered node and is cut off without it, A is a multi-hop control source, B relays while hidden, and C registers nothing."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "ghost-commnet", "commnet-relay", "injected-recordings", "tracking-station", "CN-1T",
         "flown", "D6", "armed"]
@@ -54,15 +57,9 @@ craft = []
 [driver]
 kind = "seam"
 steps = [
-  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
-  # FLIGHT frames note the relays' playhead before their start (see the header).
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "RecordingState", expect = "OK" },
-  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
   # 1x Tracking Station time so the relays' window is open and the lifecycle tick
   # (0.25 s) has registered them when the batch runs.
   { cmd = "RecordingState", expect = "OK" },
