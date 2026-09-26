@@ -83,7 +83,9 @@ namespace Parsek
             Name = name;
         }
 
-        // Duplicates the definition (same tree + selection), not any recording data.
+        // Duplicates the definition (same tree + selection), not any recording data. A faithful
+        // copy including LoopPlayback; MissionStore.Clone (the only path that inserts a copy
+        // into the store) disarms the copy's loop to keep one loop per tree.
         public Mission Clone(string newId)
         {
             var copy = new Mission(newId, TreeId, (Name ?? "Mission") + " copy");

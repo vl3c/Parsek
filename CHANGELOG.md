@@ -1171,6 +1171,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Missions: cloning a looping mission no longer leaves two loops on one flight.** The Clone
+  button copied the Loop setting too, so a copy of a looping mission also read Loop on even though
+  only one mission per flight can loop; the copy did nothing and the log warned on every rebuild
+  until the next load switched it off. The copy is now created with Loop off while the original
+  keeps looping. It keeps the original's loop period and unit, so turning Loop on for the copy
+  later loops it with the same settings (and, as before, switches the original's loop off).
+
 - **A save interrupted by a crash no longer leaves a stray `.tmp` file next to Parsek's
   career files.** Parsek writes each file to a temporary copy and then swaps it into place. A
   crash before the swap keeps the real file and leaves the temporary copy beside it. Only the

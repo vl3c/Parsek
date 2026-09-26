@@ -82,14 +82,88 @@ namespace Parsek.Tests
             Assert.Contains("legA", clone.ExcludedThroughLineHeadIds);
             Assert.Equal(2, MissionStore.CountForTree("t1"));
 
-            // Clone copies the loop fields, including the phase anchor.
-            Assert.True(clone.LoopPlayback);
+            // Clone copies the loop settings (period, unit, anchor) but starts with its loop OFF:
+            // the source loops, and two looping missions may not share a tree.
+            Assert.False(clone.LoopPlayback);
+            Assert.True(original.LoopPlayback);
             Assert.Equal(42.5, clone.LoopIntervalSeconds);
             Assert.Equal(LoopTimeUnit.Min, clone.LoopTimeUnit);
             Assert.Equal(9876.5, clone.LoopAnchorUT);
 
             clone.ExcludedThroughLineHeadIds.Add("legB");
             Assert.DoesNotContain("legB", original.ExcludedThroughLineHeadIds); // independent sets
+        }
+
+        // catches: MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE. Cloning a looping
+        // mission used to copy LoopPlayback verbatim, leaving two looping missions on one tree
+        // (the loop-unit builder then warned "already owned by another looping unit" on every
+        // rebuild until NormalizeOneLoopPerTree ran at the next load).
+        [Fact]
+        public void Clone_OfLoopingMission_LeavesExactlyOneLoopOnTheTree_AndLogsTheDisarm()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            MissionStore.SuppressLogging = false;
+
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
+            Mission original = First();
+            MissionStore.SetLoopEnabled(original, true, 1500.0);
+            original.LoopIntervalSeconds = 90.0;
+            original.LoopTimeUnit = LoopTimeUnit.Min;
+
+            Mission clone = MissionStore.Clone(original);
+
+            // The invariant holds immediately, with no load-time normalization.
+            int looping = 0;
+            foreach (Mission m in MissionStore.Missions)
+                if (m.TreeId == "t1" && m.LoopPlayback)
+                    looping++;
+            Assert.Equal(1, looping);
+            Assert.Equal(0, MissionStore.NormalizeOneLoopPerTree());
+
+            // The original is untouched; the copy is disarmed but keeps the loop settings.
+            Assert.True(original.LoopPlayback);
+            Assert.Equal(1500.0, original.LoopAnchorUT);
+            Assert.Equal(90.0, original.LoopIntervalSeconds);
+            Assert.False(clone.LoopPlayback);
+            Assert.Equal(90.0, clone.LoopIntervalSeconds);
+            Assert.Equal(LoopTimeUnit.Min, clone.LoopTimeUnit);
+
+            Assert.Contains(logLines, l => l.Contains("[Mission]")
+                && l.Contains("Clone: copy 'Kerbal X copy' (tree=t1) created with loop OFF")
+                && l.Contains("because source 'Kerbal X' loops (one loop per tree)")
+                && l.Contains("period=90 unit=Min"));
+
+            // Arming the copy later is the ordinary one-loop-per-tree switch.
+            MissionStore.SetLoopEnabled(clone, true, 2000.0);
+            Assert.True(clone.LoopPlayback);
+            Assert.False(original.LoopPlayback);
+            Assert.Equal(90.0, clone.LoopIntervalSeconds);
+        }
+
+        [Fact]
+        public void Clone_OfNonLoopingMission_CopiesSettings_AndLogsNoDisarm()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+            MissionStore.SuppressLogging = false;
+
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
+            Mission original = First();
+            original.LoopIntervalSeconds = 30.0;
+            original.LoopTimeUnit = LoopTimeUnit.Hour;
+
+            Mission clone = MissionStore.Clone(original);
+
+            Assert.False(original.LoopPlayback);
+            Assert.False(clone.LoopPlayback);
+            Assert.Equal(30.0, clone.LoopIntervalSeconds);
+            Assert.Equal(LoopTimeUnit.Hour, clone.LoopTimeUnit);
+            Assert.Contains(logLines, l => l.Contains("[Mission]")
+                && l.Contains("Cloned mission 'Kerbal X' -> 'Kerbal X copy' (tree=t1)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("created with loop OFF"));
         }
 
         [Fact]
