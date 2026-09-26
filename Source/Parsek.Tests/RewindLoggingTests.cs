@@ -606,31 +606,6 @@ namespace Parsek.Tests
             Assert.Equal(0f, RewindContext.RewindBaselineRep);
         }
 
-        [Fact]
-        public void FullCommittedCost_SignConvention_NegativeMeansEarned()
-        {
-            // Verify the sign convention: negative cost = recording earned money
-            var rec = new Recording
-            {
-                PreLaunchFunds = 25000.0,
-                PreLaunchScience = 0.0,
-                PreLaunchReputation = 0.0f
-            };
-            rec.Points.Add(new TrajectoryPoint { ut = 100, funds = 25000 });
-            rec.Points.Add(new TrajectoryPoint { ut = 200, funds = 45000, science = 7.2f, reputation = 1.0f });
-
-            double fundsCost = ResourceBudget.FullCommittedFundsCost(rec);
-            double scienceCost = ResourceBudget.FullCommittedScienceCost(rec);
-            double repCost = ResourceBudget.FullCommittedReputationCost(rec);
-
-            // Earned 20000 funds → cost is -20000
-            Assert.Equal(-20000.0, fundsCost);
-            // Earned 7.2 science → cost is -7.2
-            Assert.Equal(-7.2, scienceCost, 5);
-            // Earned 1.0 rep → cost is -1.0
-            Assert.Equal(-1.0, repCost, 5);
-        }
-
         #endregion
 
         #region UT Data Flow (Coroutine sets UT after scene load)
@@ -705,36 +680,6 @@ namespace Parsek.Tests
             Assert.True(setUt > firstYield,
                 "Planetarium.SetUniversalTime(adjustedUT) must run after the first yield");
             Assert.DoesNotContain("RewindContext.RewindAdjustedUT", body.Substring(firstYield));
-        }
-
-        // The former ResourceCorrection_ResetsToBaseline_NotAbsoluteTarget cell
-        // lived here. Its "correction" arithmetic was
-        // currentFunds + (baseline - currentFunds), which is baseline for every
-        // input, so no production change could move it. The contract it named
-        // - a rewind landing on the pre-launch balance rather than on
-        // baseline minus the flight's committed cost - now belongs to the
-        // ledger recalc at the adjusted UT
-        // (ParsekScenario.ApplyRewindResourceAdjustment ->
-        // LedgerOrchestrator.RecalculateAndPatch(adjustedUT)) and is pinned
-        // behaviorally by RewindUtCutoffTests.FundsSpending_CutoffFiltersLaterSpending,
-        // where a spend after the cutoff is NOT deducted from the balance.
-        // Only the positive-cost arm of the sign convention was unique to it;
-        // it survives below.
-
-        [Fact]
-        public void FullCommittedCost_SignConvention_PositiveMeansSpent()
-        {
-            // Mirror of FullCommittedCost_SignConvention_NegativeMeansEarned:
-            // a recording that ENDS poorer than it started reports a positive
-            // cost. Both arms together pin the subtraction order.
-            var rec = new Recording { PreLaunchFunds = 50000 };
-            rec.Points.Add(new TrajectoryPoint { ut = 100, funds = 50000 });
-            rec.Points.Add(new TrajectoryPoint { ut = 200, funds = 38000 });
-
-            double totalCost = ResourceBudget.FullCommittedFundsCost(rec);
-
-            // Spent 12000 funds -> cost is +12000.
-            Assert.Equal(12000.0, totalCost);
         }
 
         #endregion

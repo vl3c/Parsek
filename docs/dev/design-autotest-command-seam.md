@@ -2168,12 +2168,15 @@ Nothing here builds a `MultiOptionDialog` of its own - a seam-authored popup wou
 photograph a screen the game cannot be in, and would additionally have to satisfy
 `ParsekDialogNamePrefixSourceGateTests` for a name no production path writes.
 
-THE CLOSED SET IS THE DESIGN, not a backlog. `popup=` takes one of SEVEN tokens, read off
-`TestCommandUiDialogRaise`'s own table in its cheapest-first order: `actionblocked` and
-`savefailed` (the two informational popups, no host state at all, a single `OK` each),
-`wiperecordings` and `wipemilestones` (a count and `ParsekUI.ActiveInstance`), and
-`rewind` / `fastforward` / `seal` (a committed recording from the effective set;
-`rewind` additionally needs one whose rewind OWNER resolves). A row is in the table only
+THE CLOSED SET IS THE DESIGN, not a backlog. `popup=` took one of SEVEN tokens when this
+section was written, read off `TestCommandUiDialogRaise`'s own table in its cheapest-first
+order: `actionblocked` and `savefailed` (the two informational popups, no host state at all,
+a single `OK` each), `wiperecordings` and `wipemilestones` (a count and
+`ParsekUI.ActiveInstance`), and `rewind` / `fastforward` / `seal` (a committed recording from
+the effective set; `rewind` additionally needs one whose rewind OWNER resolves). Wave 6 added
+the three Logistics confirms (below), and on 2026-09-26 the two wipe rows left with the
+Settings Data Management section, by the ruling that recordings are never player-deletable,
+so the table now holds EIGHT. A row is in the table only
 when its spawn is reachable by a pure in-process call with data the host already carries -
 no scene transition, no live Re-Fly marker, no synthesised `Vessel`. The rest stay FILED
 with their reason in `docs/dev/todo-and-known-bugs.md`: the tree merge dialog's spawn takes
@@ -2193,17 +2196,16 @@ key, `dialog=` is already `AnswerMergeDialog`'s, and a second owner would make e
 verb reads it". The house answer to that collision is a different word.
 
 DISMISS WITHOUT PRESSING IS THE DEFAULT and `press=` is opt-in, because most of these
-confirms MUTATE the save - `Wipe All` clears every committed recording and unreserves every
-crew reservation, `Seal Permanently` is permanent, `Fast-Forward` warps UT - so a census
+confirms MUTATE the save - `Seal Permanently` is permanent, `Fast-Forward` warps UT - so a census
 lane that pressed them would destroy the fixture it is photographing. `op=dismiss` with no
 `press=` calls `PopupDialog.DismissPopup`, and a `press=` must name a button the dialog's
 own `UiDialogPressPolicy` allows: `AnyButton` on the two informational popups (whose only
-button is `OK`), `SafeButtonOnly` on all five confirms, where the ONE allowed label is the
+button is `OK`), `SafeButtonOnly` on every confirm, where the ONE allowed label is the
 row's `Cancel`. Every mutating confirm is therefore refused (`press-not-allowed`) - the
 refusal is the point rather than a convenience, since a lane must be UNABLE to wipe its own
 host by naming the wrong button. The press itself goes through the button's own
 `OptionSelected` callback (`AnswerMergeDialog`'s entry point) and is selected BY LABEL, not
-by position, so "press Cancel" cannot become "press Wipe All" when a dialog's button order
+by position, so "press Cancel" cannot become "press Seal Permanently" when a dialog's button order
 changes. Both closed vocabularies are space-free by construction, which is load-bearing:
 the wire is space-separated `key=value` pairs and `TestCommandProtocol` encodes only `%`
 and `=`, so a future safe button reading "No, cancel" needs the encoder widened rather than

@@ -1187,6 +1187,23 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Repairing a KSC building that your committed timeline already repairs later is now
+  refused, so it is no longer charged twice.** After a rewind to between a building's
+  destruction and its committed repair, repairing it again charged both repairs. The
+  building's menu now greys out Repair, with the reason in its tooltip ("Repaired on
+  <date> on your committed timeline. ..."), and a Repair click is refused with the same
+  text before any funds are taken, the way a committed facility upgrade is already blocked.
+  A building you destroy yourself after rewinding to before its committed destruction can
+  still be repaired.
+
+- **A crew death's reputation penalty now stays with the death when a recording is split.**
+  When the optimizer or a Re-Fly split cut a recording between the moment a crashed vessel's
+  reputation penalty was stamped and the crew's death, the death went to the later part and
+  the penalty stayed on the earlier one, so re-flying the later part brought the crew back but
+  kept the reputation loss. The penalty now always lands on the same part as its death, on both
+  splits, and a re-fly that undoes the death undoes the penalty too. Penalties from contracts
+  and other sources are placed as before.
+
 - **Spinning vessels recorded with PersistentRotation now replay spinning.** Parsek never
   recognised the KSP 1.12 build of PersistentRotation (PersistentRotationUpgraded), so a
   vessel that went into time warp while spinning was always replayed holding its attitude.
@@ -1545,7 +1562,22 @@ _(unreleased — entries accumulate here per commit)_
   coasted for up to a minute: no staging, docking, burn, new branch or new recording), it is
   discarded on the spot, as the merge dialog's Discard would do. The committed mission and its
   files are kept as they were, and only those idle seconds go. A copy that did record
-  something meaningful, and a tree that was never committed, are kept as before.
+  something meaningful, and a tree that was never committed, are committed on the spot
+  instead (next entry).
+- **A tree Parsek refuses to attach to a launch from flight is now committed, not left
+  waiting to be overwritten.** In the same situation (a craft launched from flight by a mod
+  such as kRPC), a refused tree that is not an idle copy used to stay behind as an unfinished
+  stash until the next scene change replaced it with only a log warning, losing what it held.
+  That covered a mission that was never committed (you were recording craft A when B was
+  launched), a resumed committed mission that recorded something meaningful after the load
+  (a switch segment, a new branch, a burn, or more than a minute of flight), and a resumed
+  mission whose committed copy the load had set aside, where the stash was the only copy of
+  that committed history. Each is now committed the moment the launch is refused, through the
+  same commit that runs when you leave the flight scene: a never-committed tree is added, and
+  a resumed mission replaces its committed version in place, so no mission or recording
+  appears twice. Nothing is committed while a Re-Fly is in progress or a merge is still being
+  finished; those keep the old behaviour. Stock KSP cannot reach this, since a stock launch
+  leaves the flight scene first.
 - **KSC building destructions and repairs are now part of the career history.** A building
   repaired at the Space Center never became a ledger action: Parsek recorded it only at the
   next scene change, with no cost and no owner, so nothing kept it. A building knocked down
@@ -4551,6 +4583,18 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **Removed the unused per-recording and per-milestone resource-cost helpers.**
+  `ResourceBudget`'s `CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,
+  `MilestoneCommittedFunds` / `MilestoneCommittedScience`, `FullCommittedFundsCost` /
+  `FullCommittedScienceCost` / `FullCommittedReputationCost` and `ComputeFacilityUpgradeCost`
+  (a placeholder returning 0) had no caller outside the unit tests since the ledger took over
+  funds, science and reputation, and `ParseCostFromDetail` lost its last caller with them. They
+  are deleted with the 40 test cells that existed only to test them; `ResourceBudget.cs` now
+  holds only the live `BudgetSummary` struct. A new `RecordingStoreTests` cell pins directly, on the real `CommitTree` path,
+  that every child of a committed tree is the same object in the committed recordings list
+  and the committed tree, and carries the tree's id; a cell deleted with the old budget
+  totals used to carry that fact implicitly. No gameplay change.
 
 - **Automated testing: PersistentRotation on the modded-compat instance, a `SpinVessel` seam
   verb, and lane MC-5.** Profiles can now name a pinned optional mod (`pin = "<pins.toml

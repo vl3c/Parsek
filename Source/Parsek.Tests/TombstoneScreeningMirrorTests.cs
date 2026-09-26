@@ -69,14 +69,15 @@ namespace Parsek.Tests
         {
             int walked = 0;
             int deathIntervalsMoved = 0;
-            foreach (var a in SyntheticLedger())
+            var ledger = SyntheticLedger();
+            foreach (var a in ledger)
             {
-                double key = TombstoneAttributionHelper.ComputeAttributionUT(a);
+                double key = TombstoneAttributionHelper.ComputeAttributionUT(a, ledger);
                 if (double.IsNaN(key)) continue;
                 walked++;
 
-                bool toTip = RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT);
-                bool keptPreRewind = TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT);
+                bool toTip = RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT, ledger);
+                bool keptPreRewind = TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT, ledger);
                 Assert.True(toTip != keptPreRewind,
                     $"mirror broken: type={a.Type} ut={a.UT} endUT={a.EndUT} " +
                     $"endState={a.KerbalEndStateField} toTip={toTip} kept={keptPreRewind}");
@@ -94,8 +95,8 @@ namespace Parsek.Tests
         {
             var a = Crew(29.94, 413.53f, KerbalEndState.Dead);
             Assert.Equal((double)413.53f, TombstoneAttributionHelper.ComputeAttributionUT(a));
-            Assert.True(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT));
-            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT));
+            Assert.True(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT, null));
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT, null));
         }
 
         [Fact]
@@ -104,8 +105,8 @@ namespace Parsek.Tests
             // Boundary sense matches the UT rule: `>=` retags, `<` keeps.
             var a = Crew(29.94, 131.5f, KerbalEndState.Dead);
             double cutoff = (double)131.5f;
-            Assert.True(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, cutoff));
-            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, cutoff));
+            Assert.True(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, cutoff, null));
+            Assert.False(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, cutoff, null));
         }
 
         [Theory]
@@ -116,8 +117,8 @@ namespace Parsek.Tests
         {
             var a = Crew(29.94, 413.53f, endState);
             Assert.Equal(29.94, TombstoneAttributionHelper.ComputeAttributionUT(a));
-            Assert.False(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT));
-            Assert.True(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT));
+            Assert.False(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT, null));
+            Assert.True(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT, null));
         }
 
         [Fact]
@@ -126,7 +127,7 @@ namespace Parsek.Tests
             var a = Crew(29.94, float.NaN, KerbalEndState.Dead);
             Assert.False(TombstoneAttributionHelper.IsDeathEncodingInterval(a));
             Assert.Equal(29.94, TombstoneAttributionHelper.ComputeAttributionUT(a));
-            Assert.True(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT));
+            Assert.True(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT, null));
         }
 
         [Fact]
@@ -138,7 +139,7 @@ namespace Parsek.Tests
             a.KerbalEndStateField = KerbalEndState.Dead;
             a.EndUT = 413.53f;
             Assert.Equal(29.94, TombstoneAttributionHelper.ComputeAttributionUT(a));
-            Assert.True(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT));
+            Assert.True(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT, null));
         }
 
         [Fact]
@@ -146,9 +147,152 @@ namespace Parsek.Tests
         {
             var a = Crew(29.94, 413.53f, KerbalEndState.Dead);
             a.RecordingId = "rec_other";
-            Assert.False(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT));
-            Assert.False(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(null, OriginId, RewindUT));
+            Assert.False(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT, null));
+            Assert.False(RecordingTreeSplitter.ShouldRetagLedgerActionToTip(null, OriginId, RewindUT, null));
             Assert.True(double.IsNaN(TombstoneAttributionHelper.ComputeAttributionUT(null)));
+        }
+
+        // -----------------------------------------------------------------------
+        // DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT (operator ruling 2026-09-26:
+        // move them together). A KerbalDeath reputation penalty is keyed by its
+        // paired death on the same recording, on both sides of the seam.
+        // -----------------------------------------------------------------------
+
+        private static GameAction Penalty(double ut, ReputationPenaltySource source)
+        {
+            return new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = OriginId,
+                UT = ut,
+                NominalPenalty = 10f,
+                RepPenaltySource = source,
+            };
+        }
+
+        private static void AssertSide(GameAction a, List<GameAction> ledger, bool expectTip)
+        {
+            Assert.Equal(expectTip,
+                RecordingTreeSplitter.ShouldRetagLedgerActionToTip(a, OriginId, RewindUT, ledger));
+            Assert.Equal(!expectTip,
+                TombstoneAttributionHelper.IsPreRewindAttributedAction(a, RewindUT, ledger));
+        }
+
+        [Fact]
+        public void DeathPenalty_BeforeTheCut_FollowsADeathAfterIt()
+        {
+            var death = Crew(29.94, 413.53f, KerbalEndState.Dead);
+            var penalty = Penalty(RewindUT - 0.001, ReputationPenaltySource.KerbalDeath);
+            var ledger = new List<GameAction> { death, penalty };
+            Assert.Equal((double)413.53f, TombstoneAttributionHelper.ComputeAttributionUT(penalty, ledger));
+            AssertSide(penalty, ledger, expectTip: true);
+            AssertSide(death, ledger, expectTip: true);
+        }
+
+        [Fact]
+        public void DeathPenalty_AfterTheCut_FollowsADeathBeforeIt()
+        {
+            var death = Crew(29.94, 100.0f, KerbalEndState.Dead);
+            var penalty = Penalty(RewindUT + 0.001, ReputationPenaltySource.KerbalDeath);
+            var ledger = new List<GameAction> { penalty, death };
+            AssertSide(penalty, ledger, expectTip: false);
+            AssertSide(death, ledger, expectTip: false);
+        }
+
+        [Fact]
+        public void DeathPenalty_NoContext_KeepsItsOwnUT()
+        {
+            var penalty = Penalty(RewindUT - 0.001, ReputationPenaltySource.KerbalDeath);
+            Assert.Equal(RewindUT - 0.001, TombstoneAttributionHelper.ComputeAttributionUT(penalty, null));
+            AssertSide(penalty, null, expectTip: false);
+        }
+
+        [Theory]
+        [InlineData(ReputationPenaltySource.ContractFail)]
+        [InlineData(ReputationPenaltySource.ContractDecline)]
+        [InlineData(ReputationPenaltySource.Strategy)]
+        [InlineData(ReputationPenaltySource.Other)]
+        public void OtherSourcePenalty_KeepsItsOwnUT_EvenBesideADeath(ReputationPenaltySource source)
+        {
+            var death = Crew(29.94, 413.53f, KerbalEndState.Dead);
+            var penalty = Penalty(RewindUT - 0.001, source);
+            var ledger = new List<GameAction> { death, penalty };
+            Assert.Equal(RewindUT - 0.001, TombstoneAttributionHelper.ComputeAttributionUT(penalty, ledger));
+            AssertSide(penalty, ledger, expectTip: false);
+        }
+
+        [Fact]
+        public void DeathPenalty_DeathOnAnotherRecording_KeepsItsOwnUT()
+        {
+            var death = Crew(29.94, 413.53f, KerbalEndState.Dead);
+            death.RecordingId = "rec_other";
+            var penalty = Penalty(RewindUT - 0.001, ReputationPenaltySource.KerbalDeath);
+            var ledger = new List<GameAction> { death, penalty };
+            AssertSide(penalty, ledger, expectTip: false);
+        }
+
+        [Theory]
+        [InlineData(KerbalEndState.Aboard)]
+        [InlineData(KerbalEndState.Recovered)]
+        [InlineData(KerbalEndState.Unknown)]
+        public void DeathPenalty_OnlyNonDeathCrewRows_KeepsItsOwnUT(KerbalEndState endState)
+        {
+            var crew = Crew(29.94, 413.53f, endState);
+            var penalty = Penalty(RewindUT - 0.001, ReputationPenaltySource.KerbalDeath);
+            var ledger = new List<GameAction> { crew, penalty };
+            AssertSide(penalty, ledger, expectTip: false);
+        }
+
+        [Fact]
+        public void DeathPenalty_SeveralDeaths_FollowsTheLatest()
+        {
+            var early = Crew(29.94, 100.0f, KerbalEndState.Dead);
+            var late = Crew(29.94, 413.53f, KerbalEndState.Dead);
+            late.KerbalName = "Bob Kerman";
+            var penalty = Penalty(RewindUT - 0.001, ReputationPenaltySource.KerbalDeath);
+            var ledger = new List<GameAction> { early, penalty, late };
+            Assert.Equal((double)413.53f, TombstoneAttributionHelper.ComputeAttributionUT(penalty, ledger));
+            AssertSide(penalty, ledger, expectTip: true);
+            AssertSide(early, ledger, expectTip: false);
+            AssertSide(late, ledger, expectTip: true);
+        }
+
+        [Fact]
+        public void DeathPenalty_DeathWithUnknownEnd_FollowsTheDeathStartUT()
+        {
+            var death = Crew(RewindUT + 1.0, float.NaN, KerbalEndState.Dead);
+            var penalty = Penalty(RewindUT - 0.001, ReputationPenaltySource.KerbalDeath);
+            var ledger = new List<GameAction> { death, penalty };
+            Assert.Equal(RewindUT + 1.0, TombstoneAttributionHelper.ComputeAttributionUT(penalty, ledger));
+            AssertSide(penalty, ledger, expectTip: true);
+        }
+
+        [Fact]
+        public void DeathRow_IgnoresContext_DeathWithoutPenaltyUnchanged()
+        {
+            var death = Crew(29.94, 413.53f, KerbalEndState.Dead);
+            var ledger = new List<GameAction> { death };
+            Assert.Equal(TombstoneAttributionHelper.ComputeAttributionUT(death),
+                TombstoneAttributionHelper.ComputeAttributionUT(death, ledger));
+            AssertSide(death, ledger, expectTip: true);
+        }
+
+        // Two-phase selection: the death precedes its penalty in the ledger, so a
+        // single-pass retag would move the death first and the penalty, reading its
+        // pair on the other id, would stay behind.
+        [Fact]
+        public void SelectForSecondHalf_DecidesAgainstTheUnmutatedLedger()
+        {
+            var death = Crew(29.94, 413.53f, KerbalEndState.Dead);
+            var penalty = Penalty(RewindUT - 0.001, ReputationPenaltySource.KerbalDeath);
+            var funds = Point(GameActionType.FundsEarning, RewindUT - 0.001);
+            var ledger = new List<GameAction> { death, penalty, funds };
+            int deathIntervals, penaltiesByDeath;
+            var selected = RecordingTreeSplitter.SelectLedgerActionsForSecondHalf(
+                ledger, OriginId, RewindUT, out deathIntervals, out penaltiesByDeath);
+            Assert.Equal(new[] { death, penalty }, selected);
+            Assert.Equal(1, deathIntervals);
+            Assert.Equal(1, penaltiesByDeath);
         }
     }
 }

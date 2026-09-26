@@ -457,7 +457,9 @@ namespace Parsek
         /// holds for either. A KerbalAssignment encoding a death is screened by its
         /// EndUT and follows the terminal (and the crew end states
         /// <c>RecordingOptimizer.MoveCrewEndStatesToSecondHalf</c> moves) to the second
-        /// half; a non-death row stays with its boarding UT on the first. Left in place,
+        /// half, and its KerbalDeath reputation penalty moves with it wherever the cut
+        /// falls (DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT); a non-death row stays
+        /// with its boarding UT on the first. Left in place,
         /// the rows stayed on the first segment, where a later re-fly of the second
         /// segment cannot reach them (outside its closure). Row CONTENT is left to the
         /// next load's <c>MigrateKerbalAssignments</c>, which re-derives it under the same
@@ -476,15 +478,17 @@ namespace Parsek
             if (double.IsNaN(splitUT) || double.IsInfinity(splitUT))
                 return 0;
 
+            // Decide every row against the unmutated ledger first: a KerbalDeath
+            // penalty is keyed by its paired death, which must still carry the first
+            // half's id when the penalty is read.
+            int deathPenaltiesByDeath;
+            var toSecond = RecordingTreeSplitter.SelectLedgerActionsForSecondHalf(
+                actions, firstRecordingId, splitUT,
+                out deathIntervalsByEndUT, out deathPenaltiesByDeath);
             int retagged = 0;
-            for (int i = 0; i < actions.Count; i++)
+            for (int i = 0; i < toSecond.Count; i++)
             {
-                var action = actions[i];
-                if (!RecordingTreeSplitter.ShouldRetagLedgerActionToTip(action, firstRecordingId, splitUT))
-                    continue;
-                if (!(action.UT >= splitUT))
-                    deathIntervalsByEndUT++;
-                action.RecordingId = secondRecordingId;
+                toSecond[i].RecordingId = secondRecordingId;
                 retagged++;
             }
 
@@ -495,6 +499,7 @@ namespace Parsek
                 $"splitUT={splitUT.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"retagged={retagged.ToString(CultureInfo.InvariantCulture)} " +
                 $"deathIntervalsByEndUT={deathIntervalsByEndUT.ToString(CultureInfo.InvariantCulture)} " +
+                $"deathPenaltiesByDeath={deathPenaltiesByDeath.ToString(CultureInfo.InvariantCulture)} " +
                 $"total={actions.Count.ToString(CultureInfo.InvariantCulture)}");
             return retagged;
         }
