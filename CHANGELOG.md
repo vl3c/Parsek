@@ -1646,8 +1646,9 @@ _(unreleased — entries accumulate here per commit)_
     rewinds like the other settings (they used to live in the save, so a quickload or rewind
     put them back and a new save started from the defaults). The auto-launch period stays
     per save.
-  - The readable `.txt` recording copies are now OFF by default for new installs: they are a
-    debugging aid that costs disk. An install that already stored the setting keeps its value.
+  - The readable `.txt` recording copies are now OFF by default in new saves: they are a
+    debugging aid that costs disk. An existing save, or an install whose settings.cfg already
+    stores the setting, keeps its value until the toggle is changed.
     The toggle reads `Write readable .txt recording copies`, with a hover saying what the files
     are for and what they cost. Automated test runs keep them on.
   - Hover texts: the Basic mode hover lists Kerbals (shown in Basic since 2026-09-22); the two
