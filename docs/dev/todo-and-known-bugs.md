@@ -59,7 +59,8 @@ Fix: `UI/WideWindowLayout.cs`, one shared helper.
   without re-deriving IMGUI's margin rules.
 - Seam: `UiAction op=state window=missions key=scrollX` (hlib mirrored) and `op=rect` now
   applies the same screen fit. Census lane `GUI-29-census-wide-windows-1280` (1280x720):
-  `2026-09-26_1926` PASS attempt 1 (both windows `applied=0,8,1280,700 clamped=true`,
+  `2026-09-26_1926` PASS attempt 1, re-flown after review `2026-09-26_2027` PASS with the
+  in-game fit lines of both windows' first-open defaults required (both windows `applied=0,8,1280,700 clamped=true`,
   `scrollX` settles at 95, header and rows aligned scrolled left and right). GUI-1 re-flown
   at 1920x1080 `2026-09-26_1928` PASS: every Missions / Logistics dump geometry-identical to
   the pre-change `2026-09-26_1745`.
