@@ -1187,6 +1187,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Repairing a KSC building that your committed timeline already repairs later is now
+  refused, so it is no longer charged twice.** After a rewind to between a building's
+  destruction and its committed repair, repairing it again charged both repairs. The
+  building's menu now greys out Repair, with the reason in its tooltip ("Repaired on
+  <date> on your committed timeline. ..."), and a Repair click is refused with the same
+  text before any funds are taken, the way a committed facility upgrade is already blocked.
+  A building you destroy yourself after rewinding to before its committed destruction can
+  still be repaired.
 - **Spinning vessels recorded with PersistentRotation now replay spinning.** Parsek never
   recognised the KSP 1.12 build of PersistentRotation (PersistentRotationUpgraded), so a
   vessel that went into time warp while spinning was always replayed holding its attitude.

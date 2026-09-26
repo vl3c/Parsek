@@ -4135,6 +4135,35 @@ class StockDecorationParseTests(unittest.TestCase):
         self.assertTrue(dec["rows"][0]["why"].startswith("unmarked: no committed"))
         self.assertEqual(dec["rows"][0]["pairing"], "stock")
 
+    def test_the_facility_menu_repair_line_is_the_menus_second_row(self):
+        # StockUiDecorationQuery.LogFacilityMenuRepair: a marked Repair logs the pass's
+        # item line after the Upgrade lines; the unmarked sentence is no decorate line.
+        log = "\n".join([
+            _stock_line("INFO", "decorate screen=FacilityMenu "
+                                "facility=SpaceCenter/LaunchPad marked=false blocked=false"),
+            _stock_line("VERBOSE", "decorate screen=FacilityMenu "
+                                   "facility=SpaceCenter/LaunchPad (values modified) "
+                                   "unmarked: no committed future upgrade of this facility"),
+            _stock_line("VERBOSE", "decorate screen=FacilityMenu tab=Repair "
+                                   "item=SpaceCenter/LaunchPad kind=FacilityRepair "
+                                   "marked=true blocked=true "
+                                   "why=\"Repaired on Y1 D40 on your committed timeline.\""),
+            _stock_line("VERBOSE", "FacilityMenu SpaceCenter/VehicleAssemblyBuilding Repair "
+                                   "left to stock (values modified): no destroyed building"),
+            "[LOG] [Parsek][INFO][TestCommands] capturescreenshot ok "
+            "label=stk-facility-menu",
+        ])
+        parsed = gmi.parse_stock_log(log)
+        dec = gmi.stock_decoration(parsed, "stk-facility-menu", "facility")
+        self.assertEqual(dec["source"], "pass")
+        rows = sorted(dec["rows"], key=lambda r: r["line"])
+        self.assertEqual([(r["id"], r["kind"], r["tab"]) for r in rows],
+                         [("SpaceCenter/LaunchPad", "", ""),
+                          ("SpaceCenter/LaunchPad", "FacilityRepair", "Repair")])
+        self.assertEqual(rows[1]["pairing"], "paired")
+        self.assertTrue(rows[1]["why"].startswith("Repaired on Y1 D40"))
+        self.assertEqual(dec["problems"], 0)
+
     def test_the_label_token_is_matched_to_the_log_screen_without_a_table(self):
         pairs = {"rnd": "RnD", "mc": "MissionControl", "ac": "AstronautComplex",
                  "crewdialog": "CrewAssignment", "facility": "FacilityMenu"}

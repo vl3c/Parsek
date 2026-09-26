@@ -222,8 +222,12 @@ namespace Parsek.TestCommands
             }
 
             foreach (KSCFacilityContextMenu menu in Object.FindObjectsOfType<KSCFacilityContextMenu>())
+            {
                 controls.Add(PlainButton("FacilityMenu", "Upgrade:" + StockUiFacilityDecoration.FacilityIdOf(menu),
                     StockUiFacilityDecoration.UpgradeButtonOf(menu)));
+                controls.Add(PlainButton("FacilityMenu", "Repair:" + StockUiFacilityDecoration.FacilityIdOf(menu),
+                    StockUiFacilityDecoration.RepairButtonOf(menu)));
+            }
 
             var tooltip = PartListTooltipMasterController.Instance != null
                 ? PartListTooltipMasterController.Instance.currentTooltip : null;
@@ -431,6 +435,10 @@ namespace Parsek.TestCommands
                 var d = StockUiDecorationQuery.ForFacilityMenu(index, now, id,
                     GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
                 records.Add(StockScreenRecord.From(d));
+                var repair = StockUiDecorationQuery.ForFacilityMenuRepair(index, now, id,
+                    Patches.FacilityRepairCapturePatchHelpers.ReadBuildings(StockUiFacilityDecoration.HostOf(menu)),
+                    GameStateRecorder.IsReplayingActions, ReservationExplanation.DefaultDateFormatter);
+                records.Add(StockScreenRecord.From(repair));
             }
         }
 
