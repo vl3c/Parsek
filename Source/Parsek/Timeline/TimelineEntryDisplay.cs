@@ -134,13 +134,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Display text for a crew death event: "Lost: Bob Kerman (Vessel Name)".
+        /// Display text for a crew death event: "Lost: Bob Kerman (Vessel Name)". When the
+        /// stock crew respawn was on at the death (owner ruling S8), a finite
+        /// <paramref name="respawnSeconds"/> appends when he is back:
+        /// "Lost: Bob Kerman (Vessel Name), respawns after 2h 0m".
         /// </summary>
-        internal static string GetCrewDeathText(string kerbalName, string vesselName)
+        internal static string GetCrewDeathText(
+            string kerbalName, string vesselName, double respawnSeconds = double.NaN)
         {
-            if (string.IsNullOrEmpty(vesselName))
-                return $"Lost: {kerbalName ?? "unknown"}";
-            return $"Lost: {kerbalName ?? "unknown"} ({vesselName})";
+            string text = string.IsNullOrEmpty(vesselName)
+                ? $"Lost: {kerbalName ?? "unknown"}"
+                : $"Lost: {kerbalName ?? "unknown"} ({vesselName})";
+            if (!double.IsNaN(respawnSeconds) && !double.IsInfinity(respawnSeconds) && respawnSeconds >= 0.0)
+                text += ", respawns after " + ParsekTimeFormat.FormatDuration(respawnSeconds);
+            return text;
         }
 
         /// <summary>

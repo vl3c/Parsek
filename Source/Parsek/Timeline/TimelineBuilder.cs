@@ -471,7 +471,13 @@ namespace Parsek
                     continue;
 
                 var deathType = TimelineEntryType.CrewDeath;
-                string deathText = TimelineEntryDisplay.GetCrewDeathText(kvp.Key, rec.VesselName);
+                // The respawn delay comes from the policy stamped at the death, never the
+                // live difficulty (owner ruling S8).
+                double respawnSeconds = rec.CrewDeathRespawns == true
+                    ? rec.CrewDeathRespawnSeconds
+                    : double.NaN;
+                string deathText = TimelineEntryDisplay.GetCrewDeathText(
+                    kvp.Key, rec.VesselName, respawnSeconds);
                 entries.Add(new TimelineEntry
                 {
                     UT = rec.EndUT,
