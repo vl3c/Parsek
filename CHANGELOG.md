@@ -1636,6 +1636,33 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Settings: a round of fixes to the Settings window.**
+  - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
+    Management. Basic still shows Interface, Ghosts and Data Management.
+  - Basic / Advanced and Low / Medium / High draw the selected option as a pressed button, the
+    way the Timeline, Kerbals and Career windows do, instead of a grey box, and every option
+    keeps one fixed width, so the row no longer jumps when you switch.
+  - Ghost audio, recorder sample density and verbose logging now stick across saves, F9 and
+    rewinds like the other settings (they used to live in the save, so a quickload or rewind
+    put them back and a new save started from the defaults). The auto-launch period stays
+    per save.
+  - The readable `.txt` recording copies are now OFF by default for new installs: they are a
+    debugging aid that costs disk. An install that already stored the setting keeps its value.
+    The toggle reads `Write readable .txt recording copies`, with a hover saying what the files
+    are for and what they cost. Automated test runs keep them on.
+  - Hover texts: the Basic mode hover lists Kerbals (shown in Basic since 2026-09-22); the two
+    wipe buttons say what they delete (`Deletes every recorded flight and its files. Asks
+    first.` / `Deletes Parsek's milestone list; career actions stay. Asks first.`); the
+    Defaults button says it resets the Advanced-only settings too and never the interface
+    mode; the auto-launch hover says it is the loop period of missions set to auto.
+  - `Verbose logging` lost its `(development default)` suffix and gained a hover: `Detailed
+    Parsek lines in KSP.log. Keep on if you report bugs.`
+  - The rewind-point line reads `Rewind points on disk: <size> (<n> files)`; the live count and
+    the crashed / stable / concluded split moved into its hover.
+  - The user guide's Settings section drops the three retired Recording settings, adds the
+    Interface section and the route-paths toggle, corrects the auto-launch default to 30s and
+    says which settings persist across saves.
+
 - **Timeline: the Archived toggle moved to the first row, as its last button.** It applies in
   every view, so it no longer sits among one view's own buttons; the second row under
   Rewind/FF and Re-Fly is now empty (kept at its height so the list does not move). Its hover

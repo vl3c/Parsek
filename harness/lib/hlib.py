@@ -6723,9 +6723,10 @@ def admit_instance(
 # Instance settings-sidecar baseline (the tracer-leak fix). Pure.
 #
 # THE LEAK. `SetSetting` does NOT only mutate the live per-save GameParameters:
-# five of the thirteen whitelisted settings (Parsek's SettingWhitelist
-# PersistenceRoute.GameParametersPlusSidecar; 8-of-16 before the 2026-08-27
-# settings simplification retired four settings) are ALSO written to the
+# eight of the thirteen whitelisted settings (Parsek's SettingWhitelist
+# PersistenceRoute.GameParametersPlusSidecar; five until verboseLogging,
+# samplingDensity and ghostAudioVolume became install-wide on 2026-09-26) are ALSO
+# written to the
 # INSTANCE-WIDE `GameData/Parsek/PluginData/settings.cfg`, and Parsek's
 # ParsekScenario.OnLoad applies that sidecar OVER whatever the loaded save
 # carries. So one scenario's `SetSetting mapRenderTracing=true` silently pins the
@@ -6749,12 +6750,21 @@ def admit_instance(
 # TEARDOWN in the per-attempt finally. A scenario that wants a tracer declares it
 # with its own SetSetting step, which is honoured for that run and reverted after
 # it. Idempotent and self-healing: a run killed hard enough to skip teardown is
-# cleaned by the next run's stage. Only the three tracer keys are written, so the
-# other sidecar-tracked settings stay unset and the fixture's own values continue
-# to govern them - since the 2026-08-27 settings simplification that residue is
-# writeReadableSidecarMirrors + showRouteLines (the retired
-# autoBackupExistingSaves / showCommittedFutureOverlays / blockCommittedActions
-# keys are no longer read by the mod at all).
+# cleaned by the next run's stage.
+#
+# THE ONE PINNED-ON KEY. `writeReadableSidecarMirrors` defaults OFF for players
+# since 2026-09-26, but automation needs the readable `.prec.txt` mirrors: the
+# fixture builders under harness/tools refuse a harvest whose trajectories have no
+# mirror, and OptimizerTransferCohesionTests globs every fixture's `*.prec.txt`.
+# The baseline therefore stamps it True (PINNED_ON_SETTING_KEYS). That changes
+# nothing for a fixture that already carries the key (every one that does carries
+# True) and keeps the ten that carry none on the old ON default.
+#
+# Every other sidecar-tracked setting stays unset, so the fixture's own values
+# continue to govern it: showRouteLines, verboseLogging, samplingDensity and
+# ghostAudioVolume (the retired autoBackupExistingSaves /
+# showCommittedFutureOverlays / blockCommittedActions keys are no longer read by
+# the mod at all).
 # ---------------------------------------------------------------------------
 
 # Path of the sidecar RELATIVE to the instance directory (the shell joins it).
@@ -6767,16 +6777,20 @@ SETTINGS_SIDECAR_RELPATH: Tuple[str, ...] = (
 TRACER_SETTING_KEYS: Tuple[str, ...] = (
     "ghostRenderTracing", "mapRenderTracing", "ledgerTracing")
 
+# Sidecar-tracked settings the baseline pins ON (see the section comment above).
+PINNED_ON_SETTING_KEYS: Tuple[str, ...] = ("writeReadableSidecarMirrors",)
+
 
 def render_settings_sidecar_baseline() -> str:
     """The exact settings.cfg body the harness stages: the three tracer flags
-    pinned False, nothing else.
+    pinned False and the readable-mirror flag pinned True, nothing else.
 
     The file format is ConfigNode CONTENTS ONLY (no node-name wrapper) - that is
     what ConfigNode.Save writes and what ConfigNode.Load expects back, and it is
     the shape the live instance's leaked file had.
     """
-    return "".join("%s = False\n" % key for key in TRACER_SETTING_KEYS)
+    return ("".join("%s = False\n" % key for key in TRACER_SETTING_KEYS)
+            + "".join("%s = True\n" % key for key in PINNED_ON_SETTING_KEYS))
 
 
 def parse_settings_sidecar(text: Optional[str]) -> Dict[str, str]:
