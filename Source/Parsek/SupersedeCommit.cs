@@ -2387,6 +2387,10 @@ namespace Parsek
             // by EndUT, so they stay in scope; counted so the log shows the clause
             // deciding rather than leaving it to be inferred from a missing keep line.
             int deathIntervalsInScopeByEndUT = 0;
+            // DEATH-REP-PENALTY-CAN-LAND-ACROSS-A-SPLIT-CUT: KerbalDeath rep penalties
+            // whose side of the cutoff their paired death decided against their own UT
+            // (the same key the split retag moved them by).
+            int deathPenaltiesScreenedByDeath = 0;
 
             var subtreeSet = new HashSet<string>(subtreeIds, StringComparer.Ordinal);
             var actions = Ledger.Actions;
@@ -2413,10 +2417,28 @@ namespace Parsek
                         $"endUT={((double)a.EndUT).ToString("R", CultureInfo.InvariantCulture)} " +
                         $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
                         $"floatStep={deathFloatStep.ToString("R", CultureInfo.InvariantCulture)} " +
-                        $"-> {(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT) ? "kept" : "in scope")} " +
+                        $"-> {(TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT, actions) ? "kept" : "in scope")} " +
                         "(the screen may be deciding on float rounding)");
                 }
-                if (TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT))
+                bool preRewind = TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT, actions);
+                if (!double.IsNaN(rewindCutoffUT)
+                    && TombstoneAttributionHelper.IsKerbalDeathRepPenalty(a)
+                    && !double.IsNaN(a.UT)
+                    && preRewind != (a.UT < rewindCutoffUT))
+                {
+                    deathPenaltiesScreenedByDeath++;
+                    if (deathPenaltiesScreenedByDeath <= PreRewindKeepLogCap)
+                    {
+                        ParsekLog.Verbose(LedgerSwapTag,
+                            $"PreRewindTombstoneGuard: KerbalDeath rep penalty screened by its paired death " +
+                            $"action={a.ActionId ?? "<no-id>"} rec={a.RecordingId} " +
+                            $"ut={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"attributionUT={TombstoneAttributionHelper.ComputeAttributionUT(a, actions).ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"-> {(preRewind ? "kept" : "in scope")}");
+                    }
+                }
+                if (preRewind)
                 {
                     preRewindKept++;
                     // Per-row identity is logged rather than only summarised because
@@ -2431,7 +2453,7 @@ namespace Parsek
                             $"PreRewindTombstoneGuard: keep action={a.ActionId ?? "<no-id>"} " +
                             $"type={a.Type} rec={a.RecordingId} " +
                             $"ut={a.UT.ToString("R", CultureInfo.InvariantCulture)} " +
-                            $"attributionUT={TombstoneAttributionHelper.ComputeAttributionUT(a).ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"attributionUT={TombstoneAttributionHelper.ComputeAttributionUT(a, actions).ToString("R", CultureInfo.InvariantCulture)} " +
                             $"cutoffUT={rewindCutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
                     }
                     else if (preRewindKept == PreRewindKeepLogCap + 1)
@@ -2580,6 +2602,9 @@ namespace Parsek
             ParsekLog.Info(LedgerSwapTag,
                 $"PreRewindTombstoneGuard: {deathIntervalsInScopeByEndUT.ToString(CultureInfo.InvariantCulture)} " +
                 $"pre-rewind-boarded death interval(s) kept in scope by endUT");
+            ParsekLog.Info(LedgerSwapTag,
+                $"PreRewindTombstoneGuard: {deathPenaltiesScreenedByDeath.ToString(CultureInfo.InvariantCulture)} " +
+                $"KerbalDeath rep penalty row(s) screened by their paired death");
 
             ParsekLog.Info(Tag,
                 $"Supersede tombstone effects: tombstoned {tombstoned} recording-scoped career actions; " +

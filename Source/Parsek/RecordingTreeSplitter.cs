@@ -341,14 +341,53 @@ namespace Parsek
         /// the pair is pinned by <c>TombstoneScreeningMirrorTests</c>. A NaN key stays
         /// on HEAD here while the guard leaves it in tombstone scope - the
         /// long-standing "not provably pre-rewind" asymmetry, unchanged.
+        /// <paramref name="ledgerContext"/> is the UNMUTATED ledger (a KerbalDeath
+        /// reputation penalty is keyed by its paired death there, so the two move
+        /// together); callers decide every row before retagging any.
         /// </summary>
         internal static bool ShouldRetagLedgerActionToTip(
-            GameAction action, string originRecordingId, double rewindUT)
+            GameAction action, string originRecordingId, double rewindUT,
+            IReadOnlyList<GameAction> ledgerContext)
         {
             if (action == null) return false;
             if (!string.Equals(action.RecordingId, originRecordingId, StringComparison.Ordinal))
                 return false;
-            return TombstoneAttributionHelper.ComputeAttributionUT(action) >= rewindUT;
+            return TombstoneAttributionHelper.ComputeAttributionUT(action, ledgerContext) >= rewindUT;
+        }
+
+        /// <summary>
+        /// Two-phase selection for both split retags: every row of
+        /// <paramref name="actions"/> that <see cref="ShouldRetagLedgerActionToTip"/>
+        /// moves, decided against the unmutated list (a death retagged mid-walk would
+        /// otherwise hide itself from its paired penalty). Counts the moved death rows
+        /// whose own UT is before the cut and the moved-or-kept KerbalDeath penalties
+        /// whose placement their paired death decided against their own UT.
+        /// </summary>
+        internal static List<GameAction> SelectLedgerActionsForSecondHalf(
+            IReadOnlyList<GameAction> actions, string originRecordingId, double cutUT,
+            out int deathIntervalsByEndUT, out int deathPenaltiesByDeath)
+        {
+            deathIntervalsByEndUT = 0;
+            deathPenaltiesByDeath = 0;
+            var selected = new List<GameAction>();
+            if (actions == null) return selected;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                bool move = ShouldRetagLedgerActionToTip(a, originRecordingId, cutUT, actions);
+                if (a != null
+                    && TombstoneAttributionHelper.IsKerbalDeathRepPenalty(a)
+                    && string.Equals(a.RecordingId, originRecordingId, StringComparison.Ordinal)
+                    && move != (a.UT >= cutUT))
+                {
+                    deathPenaltiesByDeath++;
+                }
+                if (!move) continue;
+                if (TombstoneAttributionHelper.IsDeathEncodingInterval(a) && !(a.UT >= cutUT))
+                    deathIntervalsByEndUT++;
+                selected.Add(a);
+            }
+            return selected;
         }
 
         /// <summary>
@@ -971,18 +1010,20 @@ namespace Parsek
                 $"Step8: anchor rewrites — tipSections={result.TipAnchorRewrites.ToString(ic)} " +
                 $"debrisSections={result.DebrisAnchorRewrites.ToString(ic)}");
 
-            // Step 2.9: ledger action retag. Walk Ledger.Actions; rewrite
-            // RecordingId on every action tagged to origin whose attribution UT
-            // (ShouldRetagLedgerActionToTip) is >= rewindUT.
+            // Step 2.9: ledger action retag. Select every action tagged to origin
+            // whose attribution UT (ShouldRetagLedgerActionToTip, read against the
+            // unmutated ledger) is >= rewindUT, then rewrite their RecordingId.
             var actions = Ledger.Actions;
             int deathIntervalsRetaggedByEndUT = 0;
+            int deathPenaltiesByDeath = 0;
             if (actions != null)
             {
-                for (int i = 0; i < actions.Count; i++)
+                var toTip = SelectLedgerActionsForSecondHalf(
+                    actions, origin.RecordingId, rewindUT,
+                    out deathIntervalsRetaggedByEndUT, out deathPenaltiesByDeath);
+                for (int i = 0; i < toTip.Count; i++)
                 {
-                    var a = actions[i];
-                    if (!ShouldRetagLedgerActionToTip(a, origin.RecordingId, rewindUT)) continue;
-                    if (!(a.UT >= rewindUT)) deathIntervalsRetaggedByEndUT++;
+                    var a = toTip[i];
                     snapshot.Ledger.Add(SplitMutationLedger.LedgerAction(
                         a, origin.RecordingId, tip.RecordingId));
                     a.RecordingId = tip.RecordingId;
@@ -994,6 +1035,7 @@ namespace Parsek
             ParsekLog.Verbose(Tag,
                 $"Step9: ledger action retag — actionsRetagged={result.ActionsRetagged.ToString(ic)} " +
                 $"deathIntervalsRetaggedByEndUT={deathIntervalsRetaggedByEndUT.ToString(ic)} " +
+                $"deathPenaltiesByDeath={deathPenaltiesByDeath.ToString(ic)} " +
                 $"ledgerStateVersion={Ledger.StateVersion.ToString(ic)}");
 
             // Step 2.9b: milestone retag. Predicate: StartUT >= rewindUT - epsilon.
