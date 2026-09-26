@@ -4792,7 +4792,7 @@ it to the stock screen.
 alternative (honour the stock edits by writing through `Record*` on the stock path) was not
 taken: the stock screen would still be a second surface for developer diagnostics.
 
-## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch. RE-INVESTIGATED 2026-09-26 (branch `commnet-relay-decision`): the gap is deeper than a missing call site. OPEN, awaiting an operator ruling A / B / C; also the reason D6 `commnet-relay` is unclaimable]
+## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch. RE-INVESTIGATED 2026-09-26 (branch `commnet-relay-decision`): the gap is deeper than a missing call site. RULED 2026-09-26: A (wire it up), with relay AND control point; IN PROGRESS on the same branch; also the reason D6 `commnet-relay` is unclaimable]
 
 **What the player gets today.** Ghosts carry no CommNet signal. A relay placed by a
 committed recording counts for signal exactly as in stock from the moment it spawns as a
@@ -4906,7 +4906,11 @@ live patch comment from promising behaviour that does not happen, and it retires
 cell no lane could ever claim. Revive it through the parked recipe if a comms-heavy career
 shows the gap in play.
 
-**Decision:** pending (operator). Implement neither A nor B until ruled.
+**Decision (operator, 2026-09-26): A.** A ghost replaying a committed recording counts for
+CommNet as the real vessel: it relays, and it is a probe control point when its recorded crew
+qualifies (stock parity). Only the real run relays; loop replays do not. The binding
+scenarios and mechanics are in `docs/parsek-flight-recorder-design.md` section 15.6. The
+recommendation above (C) was not taken.
 
 ## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
 
