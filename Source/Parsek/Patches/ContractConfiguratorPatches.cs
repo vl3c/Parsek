@@ -166,6 +166,7 @@ namespace Parsek.Patches
 
         static void Postfix(Contract __0, ref bool __result)
         {
+            if (ParsekGameModeGate.CheckInert("ContractConfiguratorCanAcceptPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 if (!__result || __0 == null) return;
@@ -216,6 +217,7 @@ namespace Parsek.Patches
 
         static void Postfix(object __instance, MCListItem __0, object __1)
         {
+            if (ParsekGameModeGate.CheckInert("ContractConfiguratorContractTitlePatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 if (!MissionControlStockUi.RelabelRow(__0, __1, "cc-SetContractTitle"))
@@ -286,6 +288,7 @@ namespace Parsek.Patches
 
         static void Postfix(bool __0, MethodBase __originalMethod)
         {
+            if (ParsekGameModeGate.CheckInert("ContractConfiguratorListRebuildPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 if (!__0) return;

@@ -235,8 +235,21 @@ namespace Parsek
             }
         }
 
+        // S9: true when this instance started in an inert game mode (ParsekGameModeGate).
+        private bool inertForGameMode;
+
         void Start()
         {
+            // S9 game-mode gate: no ghost map vessels, markers or store subscriptions in a
+            // mission / scenario game.
+            if (ParsekGameModeGate.CheckInert("ParsekTrackingStation.Start"))
+            {
+                inertForGameMode = true;
+                enabled = false;
+                Destroy(this);
+                return;
+            }
+
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
             int renderersFixed = GhostMapPresence.EnsureGhostOrbitRenderers();
             int suppressedForGhosts = GhostMapPresence.CachedTrackingStationSuppressedIds?.Count ?? 0;
@@ -1200,6 +1213,8 @@ namespace Parsek
 
         void OnDestroy()
         {
+            if (inertForGameMode)
+                return; // nothing was built or subscribed (S9 game-mode gate)
             if (ghostCommNet != null)
             {
                 ghostCommNet.Shutdown("ParsekTrackingStation destroyed");

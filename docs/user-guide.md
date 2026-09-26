@@ -249,6 +249,8 @@ Click a contract or strategy name to open the Timeline on that category (Contrac
 
 In Science and Sandbox games the Career button is hidden: there are no contracts or strategies there. Science games still record milestones, facility changes and tech unlocks, which the Timeline's Career view shows.
 
+Parsek runs in Career, Science and Sandbox games only. In Making History missions, the mission builder and stock training or scenario saves it stays off: no toolbar button, no recording, ghosts or rewind, and no changes to stock screens.
+
 The window is draggable and resizable down to 520 x 320, and the tab bar uses the same styling as the rest of Parsek. It keeps its tab and its folds when you close and reopen it.
 
 ### Settings

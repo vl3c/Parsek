@@ -33,6 +33,7 @@ namespace Parsek.Patches
         static void ApplyCommittedScience(ScienceSubject subject)
         {
             if (subject == null) return;
+            if (ParsekGameModeGate.CheckInert("ScienceSubjectPatch.Postfix")) return; // S9 game-mode gate
 
             if (!TryResolveCommittedScience(subject.id, out float committedScience))
                 return;

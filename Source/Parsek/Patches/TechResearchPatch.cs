@@ -16,6 +16,7 @@ namespace Parsek.Patches
     {
         static bool Prefix(RDTech __instance)
         {
+            if (ParsekGameModeGate.CheckInert("TechResearchPatch.Prefix")) return true; // S9 game-mode gate
             // includeAffordability:false - UnlockTech is post-deduction; only the
             // deduction-independent committed-tech block is safe here.
             return !TryBlockTechResearch(__instance, includeAffordability: false);

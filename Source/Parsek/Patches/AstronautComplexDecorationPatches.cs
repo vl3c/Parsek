@@ -60,6 +60,7 @@ namespace Parsek.Patches
 
         static void Postfix(AstronautComplex __instance, ProtoCrewMember crew, MethodBase __originalMethod)
         {
+            if (ParsekGameModeGate.CheckInert("AstronautComplexAddItemPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 string tab = StockUiAstronautDecoration.TabFor(__originalMethod != null ? __originalMethod.Name : null);
@@ -99,6 +100,7 @@ namespace Parsek.Patches
 
         static void Postfix(AstronautComplex __instance)
         {
+            if (ParsekGameModeGate.CheckInert("AstronautComplexCrewCountsPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiAstronautDecoration.DecorateAllRows(__instance, "crew counts");
@@ -138,6 +140,7 @@ namespace Parsek.Patches
 
         static void Postfix(TooltipController_CrewAC __instance, ProtoCrewMember pcm)
         {
+            if (ParsekGameModeGate.CheckInert("CrewTooltipReservationPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiAstronautDecoration.AppendCrewTooltip(__instance, pcm);

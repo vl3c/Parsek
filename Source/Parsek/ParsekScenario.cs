@@ -1194,6 +1194,10 @@ namespace Parsek
         {
             if (Planetarium.fetch == null)
                 return;
+            // S9 game-mode gate: no route dispatch in an inert game (the static RouteStore
+            // may still hold the previously loaded career's routes).
+            if (ParsekGameModeGate.IsInertForCurrentGame)
+                return;
 
             double currentUT;
             try
@@ -1238,6 +1242,15 @@ namespace Parsek
 
         public override void OnSave(ConfigNode node)
         {
+            // S9 game-mode gate: an inert game writes back exactly what it loaded (no
+            // recordings, sidecars, ledger or settings writes), so a mission or scenario
+            // save round-trips any Parsek node it carries unchanged.
+            if (ParsekGameModeGate.CheckInert("ParsekScenario.OnSave"))
+            {
+                WriteInertGameModeNode(node);
+                return;
+            }
+
             var sw = Stopwatch.StartNew();
             int recordingCount = 0;
             int dirtyCount = 0;
@@ -3415,6 +3428,65 @@ namespace Parsek
         // Used to detect OnSave firing after HighLogic.SaveFolder has changed.
         private string scenarioSaveFolder;
 
+        // The node an inert-game-mode OnLoad received (ParsekGameModeGate). KSP builds a
+        // FRESH node for every OnSave, so an inert OnSave that wrote nothing would erase
+        // whatever Parsek data the save carried; it writes this copy back instead.
+        private ConfigNode inertGameModePassthroughNode;
+
+        /// <summary>Inert-game-mode OnLoad body (kept out of OnLoad so it is testable headless).</summary>
+        internal void StashInertGameModeNode(ConfigNode node)
+        {
+            inertGameModePassthroughNode = node != null ? node.CreateCopy() : null;
+            ParsekLog.Info("Scenario",
+                "OnLoad: inert game mode - Parsek node kept verbatim for save pass-through ("
+                + (inertGameModePassthroughNode != null
+                    ? inertGameModePassthroughNode.values.Count + " value(s), "
+                      + inertGameModePassthroughNode.nodes.Count + " node(s)"
+                    : "no node")
+                + "); nothing loaded");
+        }
+
+        /// <summary>Inert-game-mode OnSave body.</summary>
+        internal void WriteInertGameModeNode(ConfigNode node)
+        {
+            int copied = CopyInertPassthroughNode(inertGameModePassthroughNode, node);
+            ParsekLog.Info("Scenario",
+                "OnSave: inert game mode - wrote the loaded Parsek node back verbatim ("
+                + copied.ToString(CultureInfo.InvariantCulture)
+                + (copied == 1 ? " entry" : " entries") + "); no Parsek state saved");
+        }
+
+        /// <summary>
+        /// Copies <paramref name="loaded"/> into
+        /// <paramref name="target"/> verbatim, minus the stock <c>name</c> / <c>scene</c>
+        /// values <c>ScenarioModule.Save</c> already wrote. Returns the number of values plus
+        /// child nodes copied; 0 when nothing was loaded (then nothing is written, and there
+        /// was nothing to erase).
+        /// </summary>
+        internal static int CopyInertPassthroughNode(ConfigNode loaded, ConfigNode target)
+        {
+            if (loaded == null || target == null)
+                return 0;
+            int copied = 0;
+            for (int i = 0; i < loaded.values.Count; i++)
+            {
+                var v = loaded.values[i];
+                if (v == null || v.name == "name" || v.name == "scene")
+                    continue;
+                target.AddValue(v.name, v.value);
+                copied++;
+            }
+            for (int i = 0; i < loaded.nodes.Count; i++)
+            {
+                var child = loaded.nodes[i];
+                if (child == null)
+                    continue;
+                target.AddNode(child.CreateCopy());
+                copied++;
+            }
+            return copied;
+        }
+
         private static void ReconcileReadableSidecarMirrorsOnLoadIfDisabled()
         {
             var settings = ParsekSettings.Current;
@@ -3429,6 +3501,17 @@ namespace Parsek
 
         public override void OnLoad(ConfigNode node)
         {
+            // S9 game-mode gate (ParsekGameModeGate): stock never adds this scenario to a
+            // mission / scenario game, but a save that already carries the node still loads
+            // it. Keep the node verbatim for the inert OnSave and touch nothing else: no
+            // settings, no stores, no subscriptions, no sidecar reads.
+            if (ParsekGameModeGate.CheckInert("ParsekScenario.OnLoad"))
+            {
+                StashInertGameModeNode(node);
+                return;
+            }
+            inertGameModePassthroughNode = null;
+
             DiagnosticsState.ResetSessionCounters();
             IncompleteBallisticSceneExitFinalizer.ResetLifecycleDiagnostics();
             var sw = Stopwatch.StartNew();

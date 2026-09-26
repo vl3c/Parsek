@@ -38,6 +38,7 @@ namespace Parsek.Patches
 
         static void Prefix(MissionControl __instance)
         {
+            if (ParsekGameModeGate.CheckInert("MissionControlRebuildPassPatch.Prefix")) return; // S9 game-mode gate
             try
             {
                 if (__instance != null)
@@ -52,6 +53,7 @@ namespace Parsek.Patches
 
         static void Postfix()
         {
+            if (ParsekGameModeGate.CheckInert("MissionControlRebuildPassPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 MissionControlStockUi.EndRebuildPass();
@@ -93,6 +95,7 @@ namespace Parsek.Patches
 
         static void Prefix(Contract contract, ref string label)
         {
+            if (ParsekGameModeGate.CheckInert("MissionControlAddItemLabelPatch.Prefix")) return; // S9 game-mode gate
             try
             {
                 label = MissionControlStockUi.LabelForAddItem(contract, label);
@@ -134,6 +137,7 @@ namespace Parsek.Patches
 
         static void Postfix(MissionControl __instance, Contract contract)
         {
+            if (ParsekGameModeGate.CheckInert("MissionControlInfoPanelPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 MissionControlStockUi.ApplyDetailPanel(__instance, contract, "UpdateInfoPanelContract");
@@ -173,6 +177,7 @@ namespace Parsek.Patches
 
         static void Postfix(MissionControl __instance)
         {
+            if (ParsekGameModeGate.CheckInert("MissionControlRefreshUIControlsPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 MissionControlStockUi.ReapplyButtonsForSelection(__instance, "RefreshUIControls");

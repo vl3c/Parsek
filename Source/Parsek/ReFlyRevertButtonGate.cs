@@ -65,10 +65,38 @@ namespace Parsek
         // is the "marker active" decision Apply computed.
         internal static Action<bool> ApplyForTesting;
 
+        // S7 (owner ruling 2026-09-26, todo KSP-SETTINGS-AUDIT-2026-09-26): Rewind and
+        // Re-Fly ignore the Hard preset's Flight.CanRestart = false, but stock builds the
+        // Esc-menu "Revert Flight" button (PauseMenu), its Revert-to-Launch entry
+        // (PauseMenu.drawStockRevertOptions) and the flight-results Revert-to-Launch button
+        // (FlightResultsDialog) ONLY when Parameters.Flight.CanRestart is true, so without
+        // help the re-fly Retry choice (RevertInterceptor -> ReFlyRevertDialog) is
+        // unreachable on Hard. While a re-fly session is live in FLIGHT we therefore set
+        // the CURRENT game's Flight.CanRestart to true IN MEMORY ONLY:
+        //   - every serialization of that FlightParams instance (GamePersistence.SaveGame,
+        //     quicksave, autosave, GameBackup / PostInitState, RP quicksave) goes through
+        //     GameParameters.ParameterNode.Save, whose Parsek postfix
+        //     (Patches/FlightParamsCanRestartPersistPatch) rewrites the saved value back to
+        //     False, so the player's preset can never be persisted as True;
+        //   - the value is put back on every exit: marker cleared (every Apply site),
+        //     any scene-load request (leaving FLIGHT, Retry's reload, main menu), and a
+        //     game-object change (the held instance is restored even when orphaned);
+        //   - the flip is never taken unless the persistence postfix is verified installed.
+        // Only ever forced from False, so the restored value is always False.
+        private static GameParameters.FlightParams forcedCanRestartParams;
+        internal static bool CanRestartOverrideHeldForTesting => forcedCanRestartParams != null;
+
+        // Test seam: replaces the live Harmony patch-info probe for the persistence guard.
+        internal static Func<bool> PersistenceGuardInstalledForTesting;
+
+        internal const string CanRestartValueName = "CanRestart";
+
         internal static void ResetForTesting()
         {
             ApplyForTesting = null;
             forcedFlag = false;
+            forcedCanRestartParams = null;
+            PersistenceGuardInstalledForTesting = null;
             // Tear down any leftover GameEvents subscription so a test that
             // called Subscribe() can re-Subscribe() in a follow-up test
             // without double-registration. The Unsubscribe call is a no-op
@@ -85,6 +113,12 @@ namespace Parsek
         private sealed class Handlers
         {
             public void OnFlightReady() => Apply("onFlightReady");
+
+            // S7 exit path: any scene load (leaving FLIGHT, a FLIGHT->FLIGHT reload, main
+            // menu) puts Flight.CanRestart back before the next scene reads it. Stock's
+            // save-before-exit already ran by now; the persistence postfix covered it.
+            public void OnGameSceneLoadRequested(GameScenes scene)
+                => ReleaseCanRestartOverride("scene-load-requested:" + scene);
         }
 
         private static readonly Handlers handlers = new Handlers();
@@ -99,8 +133,9 @@ namespace Parsek
             if (subscribed) return;
             subscribed = true;
             GameEvents.onFlightReady.Add(handlers.OnFlightReady);
+            GameEvents.onGameSceneLoadRequested.Add(handlers.OnGameSceneLoadRequested);
             ParsekLog.Verbose(Tag,
-                "ReFlyRevertButtonGate: subscribed to GameEvents.onFlightReady");
+                "ReFlyRevertButtonGate: subscribed to GameEvents.onFlightReady + onGameSceneLoadRequested");
         }
 
         internal static void Unsubscribe()
@@ -108,8 +143,140 @@ namespace Parsek
             if (!subscribed) return;
             subscribed = false;
             GameEvents.onFlightReady.Remove(handlers.OnFlightReady);
+            GameEvents.onGameSceneLoadRequested.Remove(handlers.OnGameSceneLoadRequested);
             ParsekLog.Verbose(Tag,
-                "ReFlyRevertButtonGate: unsubscribed from GameEvents.onFlightReady");
+                "ReFlyRevertButtonGate: unsubscribed from GameEvents.onFlightReady + onGameSceneLoadRequested");
+        }
+
+        /// <summary>
+        /// S7 pure decision: hold the in-memory <c>Flight.CanRestart = true</c> override
+        /// only while a re-fly session is live in FLIGHT, the scene is not being left, the
+        /// player's own value is False (Hard preset or a custom game), and the save-time
+        /// persistence guard is verified installed.
+        /// </summary>
+        internal static bool ShouldHoldCanRestartOverride(
+            bool reFlyActive,
+            bool inFlightScene,
+            bool leavingScene,
+            bool playerCanRestart,
+            bool persistenceGuardInstalled)
+        {
+            return reFlyActive
+                && inFlightScene
+                && !leavingScene
+                && !playerCanRestart
+                && persistenceGuardInstalled;
+        }
+
+        /// <summary>
+        /// S7 core, over plain objects so it runs headless: releases a held override that
+        /// no longer applies (restoring False on the HELD instance, current or orphaned),
+        /// then forces the current instance when the decision says so. Idempotent.
+        /// </summary>
+        internal static void ApplyCanRestartOverride(
+            GameParameters.FlightParams current,
+            bool reFlyActive,
+            bool inFlightScene,
+            bool leavingScene,
+            bool persistenceGuardInstalled,
+            string site,
+            string sessionId)
+        {
+            string where = site ?? "(no-site)";
+            var held = forcedCanRestartParams;
+            bool heldIsCurrent = held != null && ReferenceEquals(held, current);
+            // While we hold the current instance its live value is ours; the player's is False.
+            bool playerCanRestart = !heldIsCurrent && current != null && current.CanRestart;
+            bool want = current != null
+                && ShouldHoldCanRestartOverride(
+                    reFlyActive, inFlightScene, leavingScene, playerCanRestart, persistenceGuardInstalled);
+
+            if (held != null && !(want && heldIsCurrent))
+            {
+                held.CanRestart = false;
+                forcedCanRestartParams = null;
+                string reason = !heldIsCurrent ? "game-parameters-replaced"
+                    : leavingScene ? "leaving-scene"
+                    : !reFlyActive ? "re-fly-ended"
+                    : !inFlightScene ? "not-in-flight"
+                    : "guard-missing";
+                ParsekLog.Info(Tag,
+                    $"ReFlyRevertButtonGate: restored Parameters.Flight.CanRestart=False at {where} reason={reason}");
+            }
+
+            if (want && forcedCanRestartParams == null)
+            {
+                current.CanRestart = true;
+                forcedCanRestartParams = current;
+                ParsekLog.Info(Tag,
+                    $"ReFlyRevertButtonGate: forced Parameters.Flight.CanRestart=True in memory at {where} sess={sessionId ?? "<no-id>"} " +
+                    "- stock Revert Flight / Revert to Launch shown for the re-fly Retry dialog; saves still write CanRestart=False");
+            }
+            else if (!want && reFlyActive && inFlightScene && !leavingScene
+                && current != null && !playerCanRestart && !persistenceGuardInstalled)
+            {
+                ParsekLog.Warn(Tag,
+                    $"ReFlyRevertButtonGate: CanRestart=False and the save-time persistence guard is not installed at {where} " +
+                    "- not forcing; re-fly Retry reachable only via scene exit + Rewind");
+            }
+        }
+
+        /// <summary>
+        /// S7 save-time guard core: when <paramref name="parameterNode"/> is the instance
+        /// holding Parsek's in-memory override, rewrite the just-saved <c>CanRestart</c>
+        /// value to False. Returns true when it rewrote.
+        /// </summary>
+        internal static bool RewritePersistedCanRestart(object parameterNode, ConfigNode node)
+        {
+            var held = forcedCanRestartParams;
+            if (held == null || node == null || !ReferenceEquals(parameterNode, held))
+                return false;
+            string saved = false.ToString();
+            if (!node.SetValue(CanRestartValueName, saved))
+                node.AddValue(CanRestartValueName, saved);
+            ParsekLog.Info(Tag,
+                "ReFlyRevertButtonGate: save wrote Parameters.Flight.CanRestart=False (in-memory re-fly override not persisted)");
+            return true;
+        }
+
+        /// <summary>Releases the S7 override on an exit path (scene load request).</summary>
+        internal static void ReleaseCanRestartOverride(string site)
+        {
+            if (forcedCanRestartParams == null)
+                return;
+            try
+            {
+                ApplyCanRestartOverride(
+                    ReadCurrentFlightParamsSafe(),
+                    reFlyActive: false, inFlightScene: false, leavingScene: true,
+                    persistenceGuardInstalled: false, site: site, sessionId: null);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"ReFlyRevertButtonGate.ReleaseCanRestartOverride threw at {site ?? "(no-site)"}: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        private static GameParameters.FlightParams ReadCurrentFlightParamsSafe()
+        {
+            try { return ReadCurrentFlightParamsCore(); }
+            catch { return null; }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static GameParameters.FlightParams ReadCurrentFlightParamsCore()
+        {
+            var game = HighLogic.CurrentGame;
+            return game != null && game.Parameters != null ? game.Parameters.Flight : null;
+        }
+
+        private static bool IsPersistenceGuardInstalled()
+        {
+            var hook = PersistenceGuardInstalledForTesting;
+            if (hook != null)
+                return hook();
+            return Patches.FlightParamsCanRestartPersistPatch.IsInstalled();
         }
 
         /// <summary>
@@ -183,6 +350,31 @@ namespace Parsek
             {
                 ParsekLog.Warn(Tag,
                     $"ReFlyRevertButtonGate.Apply threw at {site ?? "(no-site)"}: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            // S7: the Hard preset's CanRestart = false hides the button the block above
+            // re-enables; see forcedCanRestartParams.
+            try
+            {
+                var current = ReadCurrentFlightParamsSafe();
+                if (current != null || forcedCanRestartParams != null)
+                {
+                    bool inFlight = HighLogic.LoadedScene == GameScenes.FLIGHT;
+                    bool guard = active && inFlight && current != null && IsPersistenceGuardInstalled();
+                    ApplyCanRestartOverride(
+                        current,
+                        reFlyActive: active,
+                        inFlightScene: inFlight,
+                        leavingScene: false,
+                        persistenceGuardInstalled: guard,
+                        site: site,
+                        sessionId: active ? scenario.ActiveReFlySessionMarker.SessionId : null);
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"ReFlyRevertButtonGate.Apply CanRestart override threw at {site ?? "(no-site)"}: {ex.GetType().Name}: {ex.Message}");
             }
         }
 

@@ -117,6 +117,7 @@ namespace Parsek.Patches
         })]
         private static void PrefixMassivePartCheck(Part p)
         {
+            if (ParsekGameModeGate.CheckInert("PartMassivePartCheckSeederPatch.Prefix")) return; // S9 game-mode gate
             bool partNull = ReferenceEquals(p, null);
             bool rbNull = !partNull && p.rb == null;
             bool partInfoNull = !partNull && p.partInfo == null;

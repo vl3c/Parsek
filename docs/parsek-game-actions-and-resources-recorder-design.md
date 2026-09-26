@@ -73,6 +73,8 @@ The player never sees a broken state. If something goes truly wrong, KSP load (t
 | Career | Strategies | Resource conversion policies | Ongoing contract reward transforms | Setup cost |
 | Career | Routes | Logistics supply routes (dispatch/delivery cycles, pause, endpoint state) | Recovery credit observed (funds applied by FundsModule) | Dispatch/cargo debit (future integration) |
 
+"All modes" means SANDBOX, SCIENCE_SANDBOX and CAREER. In MISSION, MISSION_BUILDER, SCENARIO and SCENARIO_NON_RESUMABLE games Parsek is inert (owner ruling S9, 2026-09-26; `ParsekGameModeGate`): no ledger capture, no state patching, no stock-control blocks, and a `ParsekScenario` node such a save carries is written back verbatim.
+
 ### 1.6 Example: a career Mun landing
 
 A complete Mun landing and return in Career mode, showing every game action the ledger tracks:
