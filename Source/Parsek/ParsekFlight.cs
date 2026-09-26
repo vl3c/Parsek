@@ -12736,7 +12736,7 @@ namespace Parsek
 
         /// <summary>
         /// Handles atmosphere boundary auto-split when crossing the atmosphere edge.
-        /// Commits the current segment, restarts recording in the new phase.
+        /// In tree mode the recording continues across the edge and only the flags clear.
         /// </summary>
         private void HandleAtmosphereBoundarySplit()
         {
@@ -12763,7 +12763,7 @@ namespace Parsek
 
         /// <summary>
         /// Handles SOI change auto-split when transitioning between celestial bodies.
-        /// Commits the current segment, restarts recording in the new SOI.
+        /// In tree mode the recording continues across the SOI change and only the flags clear.
         /// </summary>
         private void HandleSoiChangeSplit()
         {
@@ -12790,8 +12790,7 @@ namespace Parsek
 
         /// <summary>
         /// Handles altitude boundary auto-split when crossing the approach altitude threshold
-        /// on an airless body. Commits the current segment, restarts recording in the new phase.
-        /// Mirrors HandleAtmosphereBoundarySplit.
+        /// on an airless body. Mirrors HandleAtmosphereBoundarySplit.
         /// </summary>
         private void HandleAltitudeBoundarySplit()
         {

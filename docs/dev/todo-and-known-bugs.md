@@ -19,7 +19,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
 `StartUndockContinuation` and their `ParsekFlight` / `FlightRecorder` gates) was removed as
-unreachable in always-tree mode; the reachability proof is the closed entry
+unreachable in always-tree mode; the reachability proof is in the entry (closed by PR #1864)
 CHAIN-COMMIT-LEDGER-RUNS-AGAINST-A-RECORDING-THE-OPTIMIZER-JUST-RESTRUCTURED. That removal
 left state whose only producers were the removed commits, kept on purpose:
 

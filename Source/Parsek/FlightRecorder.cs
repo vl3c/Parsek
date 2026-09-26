@@ -8882,7 +8882,7 @@ namespace Parsek
 
         /// <summary>
         /// Handles vessel PID change detected during OnPhysicsFrame.
-        /// Decides whether to continue (EVA), background (tree), capture+stop, or chain.
+        /// Decides whether to continue (EVA), background (tree), or capture+stop (boarding).
         /// Returns true if the frame should be skipped (recording stopped/backgrounded).
         /// </summary>
         private bool HandleVesselSwitchDuringRecording(Vessel v)
@@ -11709,9 +11709,8 @@ namespace Parsek
             // Continue-on-EVA is only valid for recordings that started as EVA.
             if (currentIsEva && recordingStartedAsEva)
                 return VesselSwitchDecision.ContinueOnEva;
-            // EVA kerbal boarded a vessel — potential chain continuation.
-            // ParsekFlight checks activeChainId before actually continuing the chain;
-            // if not in a chain, this is treated as a normal stop.
+            // EVA kerbal boarded a vessel: ParsekFlight's tree board merge consumes it when the
+            // boarding is confirmed, otherwise it ends as a normal stop.
             if (!currentIsEva && recordingStartedAsEva)
                 return VesselSwitchDecision.ChainToVessel;
 
