@@ -1171,6 +1171,31 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Ghosts on the map no longer push real debris out of your save.** KSP keeps at most
+  `MAX_VESSELS_BUDGET` vessels (250 by default) when it saves, dropping the oldest debris
+  first. Parsek's map ghosts are vessels while you are in flight or the Tracking Station, and
+  KSP counted each one against that limit before Parsek removed them from the save, so every
+  ghost cost you one real piece of debris. KSP now saves as if the ghosts were not there, and
+  your budget setting is never changed. With the limit set to "no limit" nothing changes.
+  Behavior on a live save is inferred from the stock code and covered by an in-game check;
+  it has not been flown yet.
+- **Logistics: a day is a day on your calendar.** The Logistics window showed intervals of a
+  day or more in 6-hour Kerbin days but only switched to days at 24 hours, so a 24-hour
+  interval read `4.0d` on the Kerbin calendar and on the Earth calendar alike, and typing
+  `1d` into the interval field always meant 6 hours. Both now follow the game's calendar
+  setting: 6 hours on the Kerbin calendar, 24 hours on the Earth calendar, and a displayed
+  value types back in unchanged.
+- **Recovering or losing one vessel no longer ends a same-named recording of another.** When
+  KSP recovered or removed a vessel (for example its automatic clean-up of debris landed at the
+  Space Center), Parsek marked every same-named recording in the pending flight as recovered
+  and dropped its end snapshot. It now also checks that the recording is of that very vessel
+  (same vessel id and launch), and falls back to the name only when either side lacks the id.
+- **The log now says when a debris vessel your recording followed is gone after a reload.**
+  When KSP left a background-recorded vessel out of the save (the vessel budget or the Space
+  Center clean-up), the reloaded recording went on silently without it. Parsek now writes one
+  line naming every such vessel and recording. The recording is still finished the usual way
+  when the flight ends.
+
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
   and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
@@ -1653,6 +1678,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Removed a dead debris-persistence override.** At recording start Parsek looked for a
+  `GameSettings` debris-count field to raise to 10. KSP 1.12 has no such field, so the code
+  only ever logged `No debris persistence field found`; it and its tests are gone.
+- **Automated testing: the harness instances run the player-default vessel budget.** The
+  `stock-minimal` and `modded-compat` provision profiles now set `MAX_VESSELS_BUDGET = 250`
+  and `DECLUTTER_KSC = True` instead of inheriting the dev install's 10000 / False, so a lane
+  sees the save-time debris prune and the Space Center clean-up a player sees. A new in-game
+  category, `VesselBudget`, checks the ghost exclusion around a real save build in the
+  Tracking Station; no lane drives it yet.
 - **Settings: a round of fixes to the Settings window.**
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
     Management. Basic still shows Interface, Ghosts and Data Management.
