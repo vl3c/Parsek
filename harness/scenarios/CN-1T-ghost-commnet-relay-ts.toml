@@ -35,7 +35,8 @@
 # lines field-for-field identical to CN-1's. ARMED from it (the id left INTERIM_PIN_IDS);
 # offline negative control in docs/dev/autotest-status.md. Armed re-flight `2026-09-26_1151`
 # PASS attempt 1 on the exact pins (FLIGHT-first shape). The direct-boot shape above keeps
-# the same cells and pins; it has NOT been flown yet (re-flight pending).
+# the same cells and pins; flown `2026-09-26_1843` PASS attempt 1 on the exact pins (no
+# FLIGHT scene in the session, relay B registered in the Tracking Station).
 #
 # COVERAGE: claims D6 `commnet-relay` with CN-1, in the Tracking Station.
 
