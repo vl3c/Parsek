@@ -1198,6 +1198,44 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "recordingIds": ["ec77261b75234232aaf0da61d9dfe2d5"],
             "schemaGeneration": 4,
         },
+        # --- THE BOP SUBJECT (coverage wave 11, roadmap G9) ---------------
+        # PROVENANCE: bop-orbit-recorded <- B34-bop-orbit, run 2026-09-25_2346, PASS attempt 1
+        # (mission wall 600 s), --keep-parsek, automation DLL a144d0c8bb3ed514.
+        # B25's orbit-start machine re-pointed at Bop from `jool-park-nerv`:
+        # `already=false` minted the standalone Jool-rooted tree de6ef1e8c4644b3b8fe3c3213bf55bd9;
+        # arrival periapsis 125,312 m against a 250 km request (k 0.50); park
+        # 134,714 x 134,706 m, circular, inc 21.8 deg. 11 ORBIT_SEGMENTs, the last 5 Bop-framed, seam
+        # 29,535,228.746; explicitStartUT 27,787,320.680, explicitEndUT 29,537,422.363 (a 288.220 s
+        # segment-less parked tail). V29M's jump table is derived from these bytes.
+        "bop-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["59887db1e5e84156b53d06590fc6f380"],
+            "schemaGeneration": 4,
+        },
+        # --- THE POL SUBJECT (coverage wave 11, roadmap G9) ---------------
+        # PROVENANCE: pol-orbit-recorded <- B35-pol-orbit, run 2026-09-25_2357, PASS attempt 1
+        # (mission wall 567 s), --keep-parsek, automation DLL a144d0c8bb3ed514.
+        # B25's orbit-start machine re-pointed at Pol from `jool-park-nerv`:
+        # `already=false` minted the standalone Jool-rooted tree 05d66e3b02ff4e16872defbee8da1a54;
+        # arrival periapsis 254,354 m against a 200 km request (k 1.27); park
+        # 256,242 x 256,120 m, ecc 0.0002, inc 11.2 deg. 11 ORBIT_SEGMENTs, the last 5 Pol-framed, seam
+        # 30,101,387.284; explicitStartUT 27,787,320.660, explicitEndUT 30,104,260.340 (a 255.000 s
+        # segment-less parked tail). V30M's jump table is derived from these bytes.
+        "pol-orbit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["167849be8ad84b758c9c0e1a2a6d07a3"],
+            "schemaGeneration": 4,
+        },
         # --- THE SECOND CROSS-PARENT (MOON-TO-MOON) SUBJECT --------------
         # PROVENANCE: mun-minmus-recorded <- B30-mun-minmus-transfer, run
         # 2026-08-24_1536_B30-mun-minmus-transfer (2026-08-24), PASS attempt 1
