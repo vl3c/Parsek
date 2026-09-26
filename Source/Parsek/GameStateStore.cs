@@ -413,6 +413,31 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Rewrites the <c>recordingId</c> of the first event matching the target's identity
+        /// (ut/eventType/key/recordingId). Returns true when an entry was found and updated.
+        /// Used by the deployed-science capture to untag the ScienceChanged event that stock
+        /// fired one callback before the subject identified the award as ground-station science.
+        /// </summary>
+        internal static bool UpdateEventRecordingId(GameStateEvent target, string newRecordingId)
+        {
+            for (int i = 0; i < events.Count; i++)
+            {
+                if (EventIdentityMatches(events[i], target))
+                {
+                    var e = events[i];
+                    e.recordingId = newRecordingId ?? "";
+                    events[i] = e;
+                    ParsekLog.Verbose("GameStateStore",
+                        $"Updated event recordingId: {target.eventType} key='{target.key}' " +
+                        $"ut={target.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"'{target.recordingId ?? ""}' -> '{newRecordingId ?? ""}'");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Removes an event by matching ut, eventType, and key.
         /// Returns true if the event was found and removed.
         /// </summary>
@@ -809,21 +834,21 @@ namespace Parsek
         #region Committed Science Subjects
 
         /// <summary>
-        /// Mirrors newly persisted <c>ScienceEarning</c> rows into the committed-science
-        /// cache, which stores one running subject TOTAL per subject (subject units, the
-        /// value <c>ScienceSubjectPatch</c> falls back to). Callers pass only rows that were
-        /// actually added to the ledger, each exactly once. An increment row
-        /// (<see cref="GameAction.ScienceAwardedIsIncrement"/>, every capture since
-        /// SCIENCE-CUMULATIVE-CAPTURE-OVER-CREDIT) is ADDED onto the stored total, capped at
-        /// the subject cap; any other row carries a running total and is max-merged. A total
-        /// already in a save's cache is therefore never summed a second time: only a new
-        /// increment adds, and it adds on top of whatever total is stored.
+        /// Provisional cache write for newly filed ScienceEarning rows. Each row is a per-
+        /// submission INCREMENT, so the max merge below is only a lower bound. It is idempotent,
+        /// so a row mirrored twice (a dedup-suppressed duplicate, a commit retry) can never
+        /// over-state a subject. The next recalc (immediately after every caller except the
+        /// switch-segment discard dispositions, which defer it to the next natural recalc)
+        /// runs <c>RebuildCommittedScienceFromSurvivingLedger</c>, which replaces the cache with
+        /// the capped per-subject SUM of the surviving ledger: the authoritative value. Rows
+        /// written by older builds as running totals are summed there unchanged (owner
+        /// decision: fix going forward only, no repair).
         /// </summary>
         internal static void CommitScienceActions(IReadOnlyList<GameAction> actions)
         {
             if (actions == null || actions.Count == 0) return;
 
-            int added = 0, updated = 0, skipped = 0, increments = 0;
+            int added = 0, updated = 0, skipped = 0;
             for (int i = 0; i < actions.Count; i++)
             {
                 var action = actions[i];
@@ -836,66 +861,30 @@ namespace Parsek
                     continue;
                 }
 
-                if (action.ScienceAwardedIsIncrement)
-                    increments++;
-                CommitScienceSubject(
-                    action.SubjectId,
-                    action.ScienceAwarded,
-                    action.SubjectMaxValue,
-                    action.ScienceAwardedIsIncrement,
-                    ref added,
-                    ref updated);
+                CommitScienceSubject(action.SubjectId, action.ScienceAwarded, ref added, ref updated);
             }
 
             ParsekLog.Info("GameStateStore",
                 $"CommitScienceActions: {added} added, {updated} updated, skipped={skipped} " +
-                $"(total={committedScienceSubjects.Count}) increments={increments}");
+                $"(total={committedScienceSubjects.Count})");
         }
 
-        private static void CommitScienceSubject(
-            string id, float science, float subjectMaxValue, bool isIncrement,
-            ref int added, ref int updated)
+        private static void CommitScienceSubject(string id, float science, ref int added, ref int updated)
         {
             float existing;
-            bool hadExisting = committedScienceSubjects.TryGetValue(id, out existing);
-            if (!hadExisting)
-                existing = 0f;
-
-            float next = isIncrement
-                ? MergeCommittedScienceIncrement(existing, science, subjectMaxValue)
-                : (hadExisting ? Math.Max(existing, science) : science);
-
-            if (!hadExisting)
+            if (committedScienceSubjects.TryGetValue(id, out existing))
             {
-                committedScienceSubjects[id] = next;
+                if (science > existing)
+                {
+                    committedScienceSubjects[id] = science;
+                    updated++;
+                }
+            }
+            else
+            {
+                committedScienceSubjects[id] = science;
                 added++;
             }
-            else if (next > existing)
-            {
-                committedScienceSubjects[id] = next;
-                updated++;
-            }
-        }
-
-        /// <summary>
-        /// Pure: the cache total after one increment: <c>existing + increment</c>, capped at
-        /// the subject cap when one is known (<paramref name="subjectMaxValue"/> &gt; 0). The
-        /// cap never lowers a total that is already above it (a save written by an older
-        /// build can hold one), and a non-positive increment leaves the total unchanged.
-        /// </summary>
-        internal static float MergeCommittedScienceIncrement(
-            float existingTotal, float increment, float subjectMaxValue)
-        {
-            if (!(increment > 0f))
-                return existingTotal;
-            float next = existingTotal + increment;
-            if (subjectMaxValue > 0f)
-            {
-                float ceiling = Math.Max(existingTotal, subjectMaxValue);
-                if (next > ceiling)
-                    next = ceiling;
-            }
-            return next;
         }
 
         /// <summary>

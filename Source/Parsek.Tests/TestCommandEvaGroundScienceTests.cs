@@ -64,6 +64,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldReTurn_OnlyAnUnplaceableBuiltPreviewBeforeAnyPress_Bounded()
+        {
+            int wait = TestCommandEvaGroundScience.ReTurnFrames;
+            Assert.True(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 0, wait, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 0, wait - 1, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(false, true, false, 0, wait, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, false, false, 0, wait, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, true, 0, wait, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 1, wait, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(
+                true, true, false, 0, wait, TestCommandEvaGroundScience.MaxReTurns));
+        }
+
+        [Fact]
         public void DecideConfirm_PressesOnlyOnABuiltPlaceablePreview()
         {
             Assert.Equal(GroundPlaceConfirmDecision.Press,

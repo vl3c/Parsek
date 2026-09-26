@@ -207,6 +207,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Preview_DeployedExperimentScience_NeverAddsAScienceReason()
+        {
+            // Operator ruling 2026-09-26: ground-station science never seals a slot, even
+            // on a row an older build tagged to the provisional. Mirrors
+            // SupersedeCommit.IsRetryBlockingRecordingAction.
+            var rec = MakeRecording();
+            var marker = MakeMarker();
+            MakeScenario(marker);
+            Ledger.AddAction(MakeScienceEarning(
+                rec.RecordingId, ScienceMethod.Recovered,
+                subjectId: "deployedSeismicSensor@MunSrfLandedMidlands"));
+
+            var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
+
+            Assert.False(result.WillAutoSeal);
+            Assert.Empty(result.Reasons);
+        }
+
+        [Fact]
         public void Preview_RecoveredScience_AddsRecoveredReason()
         {
             var rec = MakeRecording();

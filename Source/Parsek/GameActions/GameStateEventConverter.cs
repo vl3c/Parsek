@@ -432,7 +432,6 @@ namespace Parsek
                     SubjectMaxValue = subj.subjectMaxValue,
                     ScienceGainMultiplier =
                         GameAction.NormalizeScienceGainMultiplier(subj.scienceGainMultiplier),
-                    ScienceAwardedIsIncrement = subj.scienceIsIncrement,
                     StartUT = (float)resolvedStartUt,
                     EndUT = (float)endUT,
                     Sequence = sequence++

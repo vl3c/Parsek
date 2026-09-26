@@ -214,7 +214,10 @@ namespace Parsek.Tests
         {
             string body = ReadRecorderMethod("private void OnScienceReceived(", "#endregion");
             string collapsed = Regex.Replace(body, @"\s+", " ");
-            Assert.Contains("scienceGainMultiplier = ReadScienceGainMultiplierAtCapture()", collapsed);
+            // OnScienceReceived reads the (normalized, test-seamed) multiplier and the
+            // capture core freezes it on the pending subject beside the increment.
+            Assert.Contains("ReadScienceGainMultiplierAtCapture(), Planetarium.GetUniversalTime()", collapsed);
+            Assert.Contains("scienceGainMultiplier = GameAction.NormalizeScienceGainMultiplier(scienceGainMultiplier)", collapsed);
         }
 
         // ================================================================

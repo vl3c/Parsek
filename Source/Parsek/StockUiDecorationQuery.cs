@@ -41,7 +41,10 @@ namespace Parsek
         /// <summary>An active stand-in (the active occupant of another kerbal's slot chain):
         /// the informational row label <c>Stand-in for &lt;owner&gt;</c> and the dismissal
         /// block, whose refusal text is the record's why.</summary>
-        KerbalStandIn
+        KerbalStandIn,
+        /// <summary>A facility whose current destruction a committed row already repairs
+        /// later: the facility menu's greyed Repair button and the repair refusal.</summary>
+        FacilityRepair
     }
 
     /// <summary>One stock item as the screen lists it: a stable id and the tab it sits in.</summary>
@@ -179,6 +182,74 @@ namespace Parsek
         internal static bool IsFacilityUpgradeBlocked(CommittedFutureIndex index, string facilityId, double currentUT)
         {
             return index != null && index.HasFuture(CommittedFutureKind.FacilityUpgrade, facilityId, currentUT);
+        }
+
+        /// <summary>
+        /// The committed future repair that already covers one building's CURRENT
+        /// destruction: the earliest committed <c>FacilityRepair</c> row of the building
+        /// after <paramref name="currentUT"/>, when no committed <c>FacilityDestruction</c>
+        /// of it comes first (or at the same UT). A committed destruction first means the
+        /// committed timeline had the building intact until then, so the building's present
+        /// destruction is not the one the committed repair repairs, and repairing it now is
+        /// not a second charge. Null otherwise. Key: the destructible building id.
+        /// </summary>
+        internal static CommittedFutureEntry CommittedRepairCoveringDestruction(
+            CommittedFutureIndex index, string buildingId, double currentUT)
+        {
+            if (index == null || string.IsNullOrEmpty(buildingId)) return null;
+            var repair = index.FirstFuture(CommittedFutureKind.FacilityRepair, buildingId, currentUT);
+            if (repair == null) return null;
+            var destruction = index.FirstFuture(CommittedFutureKind.FacilityDestruction, buildingId, currentUT);
+            if (destruction != null && destruction.UT <= repair.UT) return null;
+            return repair;
+        }
+
+        /// <summary>
+        /// The covering committed repairs of every DESTROYED building of one facility
+        /// (<see cref="CommittedRepairCoveringDestruction"/>), UT ascending. Only destroyed
+        /// buildings count: stock's <c>RepairFacility</c> charges and repairs exactly those.
+        /// </summary>
+        internal static List<CommittedFutureEntry> CommittedRepairsCoveringFacility(
+            CommittedFutureIndex index, IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings,
+            double currentUT)
+        {
+            var result = new List<CommittedFutureEntry>();
+            if (index == null || buildings == null) return result;
+            foreach (var b in buildings)
+            {
+                if (!b.IsDestroyed) continue;
+                var entry = CommittedRepairCoveringDestruction(index, b.BuildingId, currentUT);
+                if (entry != null && !result.Contains(entry)) result.Add(entry);
+            }
+            result.Sort((x, y) =>
+            {
+                int c = x.UT.CompareTo(y.UT);
+                return c != 0 ? c : string.CompareOrdinal(x.Key, y.Key);
+            });
+            return result;
+        }
+
+        /// <summary>
+        /// The repair block (KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE): repairing a facility now
+        /// is refused while any of its destroyed buildings has a committed future repair
+        /// that already covers that destruction, because the ledger walk would charge both
+        /// repairs. It lifts once the clock passes the covering repair (the walk then shows
+        /// the building repaired). The greyed Repair button and the
+        /// <c>SpaceCenterBuilding.RepairFacility</c> refusal read this one predicate.
+        /// </summary>
+        internal static bool IsFacilityRepairBlocked(
+            CommittedFutureIndex index, IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings,
+            double currentUT)
+        {
+            return CommittedRepairsCoveringFacility(index, buildings, currentUT).Count > 0;
+        }
+
+        internal static ReservationText ExplainFacilityRepair(
+            CommittedFutureIndex index, IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings,
+            double currentUT, Func<double, string> formatDate)
+        {
+            return ReservationExplanation.FacilityRepair(
+                CommittedRepairsCoveringFacility(index, buildings, currentUT), formatDate);
         }
 
         internal static bool IsKerbalHireBlocked(CommittedFutureIndex index, string kerbalName, double currentUT)
@@ -331,8 +402,11 @@ namespace Parsek
         internal const string AstronautKiaTab = "Kia";
         /// <summary>The crew assignment dialog's available-crew list (<c>scrollListAvail</c>).</summary>
         internal const string CrewAssignmentAvailableTab = "Available";
-        /// <summary>The facility menu has no tabs; its one decorated control is Upgrade.</summary>
+        /// <summary>The facility menu has no tabs; the tab names the decorated control
+        /// (Upgrade, or <see cref="FacilityMenuRepairTab"/>).</summary>
         internal const string FacilityMenuTab = "Upgrade";
+        /// <summary>The facility menu's Repair control.</summary>
+        internal const string FacilityMenuRepairTab = "Repair";
 
         /// <summary>The retired stand-in's text: the Kerbals window's <c>Retired</c>
         /// status, qualified because the stock list does not say he is a stand-in.</summary>
@@ -572,6 +646,56 @@ namespace Parsek
                 index.FirstFuture(CommittedFutureKind.FacilityUpgrade, facilityId, currentUT).UT);
             d.Blocked = true;
             return d;
+        }
+
+        /// <summary>
+        /// KSC facility context menu, the Repair control: a facility whose destroyed
+        /// building's destruction a committed row already repairs later is marked and its
+        /// Repair refused, over <see cref="StockUiReservationPredicates.IsFacilityRepairBlocked"/>,
+        /// the same predicate and text the <c>RepairFacility</c> refusal reads. Bypassed while
+        /// <paramref name="replaying"/>, as the refusal is. <paramref name="facilityId"/> only
+        /// names the item; the decision reads <paramref name="buildings"/>.
+        /// </summary>
+        internal static StockUiDecoration ForFacilityMenuRepair(
+            CommittedFutureIndex index,
+            double currentUT,
+            string facilityId,
+            IEnumerable<FacilityRepairCapture.BuildingRepairInput> buildings,
+            bool replaying,
+            Func<double, string> formatDate)
+        {
+            var d = Undecorated(StockUiScreen.FacilityMenu, FacilityMenuRepairTab, facilityId);
+            if (replaying) return d;
+            var covering = StockUiReservationPredicates.CommittedRepairsCoveringFacility(index, buildings, currentUT);
+            if (covering.Count == 0) return d;
+            Mark(ref d, StockUiDecorationKind.FacilityRepair,
+                ReservationExplanation.FacilityRepair(covering, formatDate), covering[0].UT);
+            d.Blocked = true;
+            return d;
+        }
+
+        /// <summary>
+        /// Logs one facility menu Repair decoration. A marked one is the per-item line of the
+        /// menu's pass (<see cref="FormatItemLine"/>, Verbose, after the Upgrade line), so the
+        /// GUI mirror lists it as the menu's second row; an unmarked one is a plain Verbose
+        /// sentence saying why Repair is left to stock.
+        /// </summary>
+        internal static void LogFacilityMenuRepair(StockUiDecoration d, bool replaying, bool anyDestroyed, string reason)
+        {
+            if (d.Marked || d.Blocked)
+            {
+                ParsekLog.Verbose(Tag, FormatItemLine(d));
+                return;
+            }
+            string why;
+            if (replaying)
+                why = "action replay in progress (the repair refusal is bypassed too)";
+            else if (!anyDestroyed)
+                why = "no destroyed building";
+            else
+                why = "no committed future repair covers the destruction";
+            ParsekLog.Verbose(Tag, "FacilityMenu " + (string.IsNullOrEmpty(d.Id) ? "<none>" : d.Id)
+                + " Repair left to stock (" + (reason ?? "refresh") + "): " + why);
         }
 
         /// <summary>The facility menu's one Info line per decoration:

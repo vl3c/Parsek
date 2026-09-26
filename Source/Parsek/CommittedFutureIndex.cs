@@ -36,7 +36,13 @@ namespace Parsek
         StrategyDeactivate,
         /// <summary><c>FundsSpending</c> with <c>FundsSpendingSource.Other</c> and a
         /// <c>DedupKey</c>: a part entry-cost purchase. Key: part name.</summary>
-        PartPurchase
+        PartPurchase,
+        /// <summary><c>FacilityDestruction</c>. Key: the destructible building id
+        /// (<c>SpaceCenter/LaunchPad/Facility/...</c>), the row's <c>FacilityId</c>.</summary>
+        FacilityDestruction,
+        /// <summary><c>FacilityRepair</c>. Key: the destructible building id, as
+        /// <see cref="FacilityDestruction"/>.</summary>
+        FacilityRepair
     }
 
     /// <summary>
@@ -233,6 +239,14 @@ namespace Parsek
                     kind = CommittedFutureKind.StrategyDeactivate;
                     key = action.StrategyId;
                     break;
+                case GameActionType.FacilityDestruction:
+                    kind = CommittedFutureKind.FacilityDestruction;
+                    key = action.FacilityId;
+                    break;
+                case GameActionType.FacilityRepair:
+                    kind = CommittedFutureKind.FacilityRepair;
+                    key = action.FacilityId;
+                    break;
                 case GameActionType.FundsSpending:
                     if (action.FundsSpendingSource != FundsSpendingSource.Other) return false;
                     kind = CommittedFutureKind.PartPurchase;
@@ -305,6 +319,7 @@ namespace Parsek
                     {
                         case CommittedFutureKind.TechResearch: amount = a.Cost; break;
                         case CommittedFutureKind.FacilityUpgrade: amount = a.FacilityCost; break;
+                        case CommittedFutureKind.FacilityRepair: amount = a.FacilityCost; break;
                         case CommittedFutureKind.KerbalHire: amount = a.HireCost; break;
                         case CommittedFutureKind.PartPurchase: amount = a.FundsSpent; break;
                         case CommittedFutureKind.StrategyActivate: amount = a.SetupCost; break;
@@ -568,7 +583,8 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
             return string.Format(ic,
                 "tech={0} facility={1} accept={2} complete={3} fail={4} cancel={5} hire={6} " +
-                "retire={7} strategyOn={8} strategyOff={9} part={10} assignments={11} skippedUncommitted={12}",
+                "retire={7} strategyOn={8} strategyOff={9} part={10} destroy={11} repair={12} " +
+                "assignments={13} skippedUncommitted={14}",
                 CountOf(CommittedFutureKind.TechResearch),
                 CountOf(CommittedFutureKind.FacilityUpgrade),
                 CountOf(CommittedFutureKind.ContractAccept),
@@ -580,6 +596,8 @@ namespace Parsek
                 CountOf(CommittedFutureKind.StrategyActivate),
                 CountOf(CommittedFutureKind.StrategyDeactivate),
                 CountOf(CommittedFutureKind.PartPurchase),
+                CountOf(CommittedFutureKind.FacilityDestruction),
+                CountOf(CommittedFutureKind.FacilityRepair),
                 AssignmentCount,
                 SkippedUncommittedRows);
         }

@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash): 43 verbs. The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel): 44 verbs. The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -300,6 +300,11 @@ namespace Parsek.TestCommands
             // TestCommandSafeWriteCrash). NOT a promotion of CrashAfterJournalPhase, which
             // names a merge-journal phase, not a file write, and stays reserved.
             "SafeWriteCrash",
+            // SpinVessel. ADDITIVE (43 -> 44 implemented, reserved unchanged at 5): the D17
+            // `persistent-rotation` host. Sets the active unpacked vessel spinning about its
+            // roll axis (SAS off first) so a lane can put a rotating vessel on rails; contract
+            // on TestCommandSpinVessel. Single-phase on the default budget.
+            "SpinVessel",
         };
 
         // Reserved (recognized, not implemented in v1): 5 verbs.

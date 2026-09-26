@@ -1,20 +1,21 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
 {
     /// <summary>
-    /// SCIENCE-CUMULATIVE-CAPTURE-OVER-CREDIT: a science capture records the increment ONE
-    /// stock submission added (pre-multiplier subject units), not the subject's running
-    /// total, so repeated collections of one subject credit the ledger exactly what stock
-    /// credited. Each scenario models stock's <c>SubmitScienceData</c> (add the increment to
+    /// SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT with KSP-SETTINGS-AUDIT S1: a science
+    /// capture records the increment ONE stock submission added (pre-multiplier subject
+    /// units) and freezes the <c>ScienceGainMultiplier</c> beside it, so repeated collections
+    /// of one subject credit the ledger exactly what stock credited, at any multiplier. Each
+    /// scenario models stock's <c>SubmitScienceData</c> (add the increment to
     /// <c>subject.science</c>, then fire <c>amount = increment * ScienceGainMultiplier</c>),
-    /// builds the pending subject through the recorder's own builder, drives the real
-    /// ledger commit paths, and compares the walk against what stock added.
+    /// captures it through the recorder's headless core
+    /// (<see cref="GameStateRecorder.CaptureScienceSubject"/>), drives the real ledger commit
+    /// paths, and compares the walk against what stock added. The multiplier-1 capture cells
+    /// live in <c>DeployedScienceLedgerTests</c>.
     /// </summary>
     [Collection("Sequential")]
     public class ScienceIncrementCaptureTests : IDisposable
@@ -79,11 +80,32 @@ namespace Parsek.Tests
             }
         }
 
-        private static PendingScienceSubject Capture(
-            StockSubject s, float amount, float multiplier, double ut, string reasonKey, string recordingId)
+        /// <summary>
+        /// A capture inside a live recording: the core parks the subject in
+        /// <c>PendingScienceSubjects</c>, which this takes back out for the commit.
+        /// </summary>
+        private static PendingScienceSubject CaptureInFlight(
+            StockSubject s, float amount, float multiplier, double ut, string recordingId)
         {
-            return GameStateRecorder.BuildCapturedScienceSubject(
-                s.Id, s.Cap, amount, multiplier, ut, reasonKey, recordingId);
+            GameStateRecorder.TagResolverForTesting = () => recordingId;
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => true;
+            GameStateRecorder.HasActiveUncommittedTreeProviderForTesting = () => true;
+            new GameStateRecorder().CaptureScienceSubject(
+                amount, s.Id, s.Science, s.Cap, multiplier, ut, null, null);
+            var pending = Assert.Single(GameStateRecorder.PendingScienceSubjects);
+            GameStateRecorder.PendingScienceSubjects.Clear();
+            return pending;
+        }
+
+        /// <summary>A capture at the KSC: the core writes the row straight to the ledger.</summary>
+        private static void CaptureAtKsc(StockSubject s, float amount, float multiplier, double ut)
+        {
+            GameStateRecorder.TagResolverForTesting = () => "";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => false;
+            GameStateRecorder.HasActiveUncommittedTreeProviderForTesting = () => false;
+            new GameStateRecorder().CaptureScienceSubject(
+                amount, s.Id, s.Science, s.Cap, multiplier, ut, null, null);
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
         }
 
         private static void CommitRecording(
@@ -120,35 +142,37 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(1f)]
         [InlineData(2f)]
+        [InlineData(0.6f)]
         public void SameSubjectTwiceInOneRecording_CreditsWhatStockAdded(float multiplier)
         {
             var s = Goo();
             float a1 = s.Submit(0.3f, multiplier);
             float a2 = s.Submit(0.3f, multiplier);
 
-            CommitRecording("rec-a", 100.0, 200.0,
-                Capture(s, a1, multiplier, 120.0, "ScienceTransmission", "rec-a"),
-                Capture(s, a2, multiplier, 150.0, "ScienceTransmission", "rec-a"));
+            // Both callbacks see the final running total here, so the clamp is exercised
+            // without ever binding on a genuine increment.
+            var p1 = CaptureInFlight(s, a1, multiplier, 120.0, "rec-a");
+            var p2 = CaptureInFlight(s, a2, multiplier, 150.0, "rec-a");
+            Assert.Equal((double)multiplier, (double)p1.scienceGainMultiplier, 4);
+            CommitRecording("rec-a", 100.0, 200.0, p1, p2);
 
             AssertLedgerMatchesStock(s);
-            Assert.Contains(logLines, l => l.Contains("[GameStateStore]")
-                && l.Contains("CommitScienceActions: 1 added, 1 updated")
-                && l.Contains("increments=2"));
         }
 
         [Theory]
         [InlineData(1f)]
         [InlineData(2f)]
+        [InlineData(0.6f)]
         public void SameSubjectAcrossTwoRecordings_CreditsWhatStockAdded(float multiplier)
         {
             var s = Goo();
             float a1 = s.Submit(0.4f, multiplier);
             CommitRecording("rec-a", 100.0, 200.0,
-                Capture(s, a1, multiplier, 150.0, "ScienceTransmission", "rec-a"));
+                CaptureInFlight(s, a1, multiplier, 150.0, "rec-a"));
 
             float a2 = s.Submit(0.5f, multiplier);
             CommitRecording("rec-b", 300.0, 400.0,
-                Capture(s, a2, multiplier, 350.0, "VesselRecovery", "rec-b"));
+                CaptureInFlight(s, a2, multiplier, 350.0, "rec-b"));
 
             AssertLedgerMatchesStock(s);
         }
@@ -156,16 +180,16 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(1f)]
         [InlineData(2f)]
+        [InlineData(0.6f)]
         public void KscThenRecording_CreditsWhatStockAdded(float multiplier)
         {
             var s = Goo();
             float a1 = s.Submit(0.25f, multiplier);
-            Assert.True(LedgerOrchestrator.TryRecordKscScienceSubject(
-                Capture(s, a1, multiplier, 50.0, "ScienceTransmission", ""), vesselName: null));
+            CaptureAtKsc(s, a1, multiplier, 50.0);
 
             float a2 = s.Submit(0.6f, multiplier);
             CommitRecording("rec-a", 100.0, 200.0,
-                Capture(s, a2, multiplier, 150.0, "ScienceTransmission", "rec-a"));
+                CaptureInFlight(s, a2, multiplier, 150.0, "rec-a"));
 
             AssertLedgerMatchesStock(s);
         }
@@ -173,6 +197,7 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(1f)]
         [InlineData(2f)]
+        [InlineData(0.6f)]
         public void TransmitThenRecover_CreditsWhatStockAdded(float multiplier)
         {
             // Transmit at xmitScalar 0.3 inside a recording, then a partial recovery at the
@@ -180,193 +205,92 @@ namespace Parsek.Tests
             var s = new StockSubject { Id = "surfaceSample@MunSrfLandedMidlands", Cap = 40f };
             float transmit = s.Submit(0.3f, multiplier);
             CommitRecording("rec-a", 100.0, 200.0,
-                Capture(s, transmit, multiplier, 150.0, "ScienceTransmission", "rec-a"));
+                CaptureInFlight(s, transmit, multiplier, 150.0, "rec-a"));
 
             float recover = s.Submit(0.8f, multiplier);
-            Assert.True(LedgerOrchestrator.TryRecordKscScienceSubject(
-                Capture(s, recover, multiplier, 500.0, LedgerOrchestrator.VesselRecoveryReasonKey, ""),
-                vesselName: null));
+            CaptureAtKsc(s, recover, multiplier, 500.0);
 
             Assert.True(s.Science < s.Cap);
             AssertLedgerMatchesStock(s);
         }
 
-        // The pre-fix shape, for contrast: the same two submissions captured as RUNNING
-        // totals walk to more than stock credited. Pins why the capture must be an increment.
-        [Fact]
-        public void RunningTotalCaptures_WouldOverCredit()
-        {
-            var s = Goo();
-            s.Submit(0.3f, 1f);
-            float total1 = s.Science;
-            s.Submit(0.3f, 1f);
-            float total2 = s.Science;
-
-            var module = new ScienceModule();
-            module.Reset();
-            module.ProcessAction(new GameAction
-            {
-                Type = GameActionType.ScienceEarning, SubjectId = s.Id,
-                ScienceAwarded = total1, SubjectMaxValue = s.Cap
-            });
-            module.ProcessAction(new GameAction
-            {
-                Type = GameActionType.ScienceEarning, SubjectId = s.Id,
-                ScienceAwarded = total2, SubjectMaxValue = s.Cap
-            });
-
-            Assert.Equal((double)(total1 + total2), module.GetTotalEffectiveEarnings(), 3);
-            Assert.True(module.GetTotalEffectiveEarnings() > s.Pool + 1.0);
-        }
-
         // ================================================================
-        // Capture builder
+        // Capture core: row units and the frozen multiplier
         // ================================================================
 
         [Theory]
-        [InlineData(6f, 2f, 3f)]
-        [InlineData(6f, 1f, 6f)]
-        [InlineData(3f, 0.6f, 5f)]
-        [InlineData(6f, 0f, 6f)]
-        [InlineData(6f, -1f, 6f)]
-        public void ComputeSubjectScienceIncrement_DividesOutThePositiveMultiplier(
-            float amount, float multiplier, float expected)
+        [InlineData(2f, 6f, 3f)]
+        [InlineData(0.6f, 5.4f, 9f)]
+        public void Capture_RowIsSubjectUnitsAndItsPoolCreditIsTheAmount(
+            float multiplier, float amount, float expectedIncrement)
         {
-            Assert.Equal((double)expected, (double)GameStateRecorder.ComputeSubjectScienceIncrement(amount, multiplier), 4);
-        }
+            GameStateRecorder.TagResolverForTesting = () => "rec";
+            GameStateRecorder.HasLiveRecorderProviderForTesting = () => true;
+            new GameStateRecorder().CaptureScienceSubject(
+                amount, "s", 20f, 30f, multiplier, 42.0, null, null);
 
-        [Fact]
-        public void BuildCapturedScienceSubject_IsAFlaggedIncrementWhosePoolCreditIsTheAmount()
-        {
-            var pending = GameStateRecorder.BuildCapturedScienceSubject(
-                "s", 30f, 5.4f, 0.6f, 42.0, "ScienceTransmission", "rec");
-
-            Assert.True(pending.scienceIsIncrement);
-            Assert.Equal(9.0, (double)pending.science, 4);
-            Assert.Equal(0.6f, pending.scienceGainMultiplier);
+            var pending = Assert.Single(GameStateRecorder.PendingScienceSubjects);
+            Assert.Equal((double)expectedIncrement, (double)pending.science, 4);
+            Assert.Equal((double)multiplier, (double)pending.scienceGainMultiplier, 4);
             Assert.Equal(30f, pending.subjectMaxValue);
 
+            // The multiplier is applied exactly once, by the pool credit: not by both the
+            // capture and the walk, and not cancelled out.
             var action = GameStateEventConverter.ConvertScienceSubjects(
                 new[] { pending }, "rec", 0.0, 100.0).Single();
-            Assert.True(action.ScienceAwardedIsIncrement);
-            Assert.Equal(5.4, (double)action.GetScienceAwardedPoolCredit(), 4);
-        }
-
-        [Fact]
-        public void Recorder_CapturesTheIncrementThroughTheBuilder_NotTheSubjectTotal()
-        {
-            string body = ReadRecorderMethod("private void OnScienceReceived(", "#endregion");
-            string collapsed = Regex.Replace(body, @"\s+", " ");
-            Assert.Contains("var pendingSubject = BuildCapturedScienceSubject( subject.id, subject.scienceCap, amount,", collapsed);
-            Assert.DoesNotContain("science = subject.science", collapsed);
+            Assert.Equal((double)expectedIncrement, (double)action.ScienceAwarded, 4);
+            Assert.Equal((double)amount, (double)action.GetScienceAwardedPoolCredit(), 4);
+            var module = new ScienceModule();
+            module.Reset();
+            module.ProcessEarning(action);
+            Assert.Equal((double)amount, module.GetTotalEffectiveEarnings(), 4);
+            Assert.Equal((double)expectedIncrement, module.GetSubjectCredited("s"), 4);
         }
 
         // ================================================================
         // Committed-science cache
         // ================================================================
 
-        [Theory]
-        [InlineData(0f, 3f, 10f, 3f)]      // first increment
-        [InlineData(3f, 4f, 10f, 7f)]      // summed
-        [InlineData(8f, 4f, 10f, 10f)]     // capped at the subject cap
-        [InlineData(12f, 4f, 10f, 12f)]    // an older total above the cap is never lowered
-        [InlineData(3f, 4f, 0f, 7f)]       // no cap known: plain sum
-        [InlineData(3f, 0f, 10f, 3f)]      // non-positive increment: unchanged
-        public void MergeCommittedScienceIncrement_IsACappedSum(
-            float existing, float increment, float cap, float expected)
+        [Fact]
+        public void Cache_OldRunningTotalRow_IsWalkedUnchanged_NewIncrementAddsOnTop()
         {
-            Assert.Equal((double)expected, (double)GameStateStore.MergeCommittedScienceIncrement(existing, increment, cap), 4);
+            // Owner decision: fix going forward only. A row an older build wrote holds the
+            // subject's running total (9.1); it is kept, and a new increment (2) adds on top.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 10.0, Type = GameActionType.ScienceEarning, SubjectId = "goo",
+                ScienceAwarded = 9.1f, SubjectMaxValue = 24f
+            });
+            var s = new StockSubject { Id = "goo", Cap = 24f, Science = 9.1f };
+            float amount = s.Submit(2f / 14.9f, 1f);
+            CommitRecording("rec-a", 100.0, 200.0, CaptureInFlight(s, amount, 1f, 150.0, "rec-a"));
+
+            LedgerOrchestrator.RecalculateAndPatch();
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("goo", out float cached));
+            Assert.Equal(11.1, (double)cached, 3);
+            Assert.Equal(11.1, LedgerOrchestrator.Science.GetSubjectCredited("goo"), 3);
         }
 
         [Fact]
-        public void Cache_OldTotalFromASave_IsNotSummedAgain_NewIncrementAddsOnTop()
-        {
-            // A save written by an older build holds a running total (9.1) in its cache.
-            var root = new ConfigNode("ROOT");
-            var sci = root.AddNode("SCIENCE_SUBJECTS");
-            var entry = sci.AddNode("SUBJECT");
-            entry.AddValue("id", "goo");
-            entry.AddValue("science", "9.1");
-            GameStateStore.DeserializeScienceSubjectsFrom(root);
-
-            // A non-increment row (a running total) still max-merges: 9.1 stays.
-            GameStateStore.CommitScienceActions(new List<GameAction>
-            {
-                new GameAction
-                {
-                    Type = GameActionType.ScienceEarning, SubjectId = "goo",
-                    ScienceAwarded = 9.1f, SubjectMaxValue = 24f
-                }
-            });
-            Assert.True(GameStateStore.TryGetCommittedSubjectScience("goo", out float afterTotal));
-            Assert.Equal(9.1, (double)afterTotal, 4);
-
-            // A new capture's increment adds once on top of the stored total.
-            GameStateStore.CommitScienceActions(new List<GameAction>
-            {
-                new GameAction
-                {
-                    Type = GameActionType.ScienceEarning, SubjectId = "goo",
-                    ScienceAwarded = 2f, SubjectMaxValue = 24f, ScienceAwardedIsIncrement = true
-                }
-            });
-            Assert.True(GameStateStore.TryGetCommittedSubjectScience("goo", out float afterIncrement));
-            Assert.Equal(11.1, (double)afterIncrement, 4);
-            Assert.Contains(logLines, l => l.Contains("[GameStateStore]")
-                && l.Contains("CommitScienceActions: 0 added, 1 updated")
-                && l.Contains("increments=1"));
-        }
-
-        [Fact]
-        public void Cache_ARowTheLedgerAlreadyHeld_IsNotMirroredTwice()
+        public void Cache_ARowTheLedgerAlreadyHeld_IsNotCountedTwice()
         {
             // KSC direct path files the capture; the same capture then arrives with a
-            // recording commit and is deduped. The cache must not add it a second time.
+            // recording commit and is deduped. The idempotent max mirror plus the recalc
+            // rebuild must leave the cache at stock's total, not double it.
             var s = Goo();
             float a1 = s.Submit(0.3f, 1f);
-            var pending = Capture(s, a1, 1f, 150.0, "ScienceTransmission", "");
-            Assert.True(LedgerOrchestrator.TryRecordKscScienceSubject(pending, vesselName: null));
-
-            var tagged = pending;
-            tagged.recordingId = "rec-a";
-            CommitRecording("rec-a", 100.0, 200.0, tagged);
+            CaptureAtKsc(s, a1, 1f, 150.0);
+            var filed = Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
+            var pending = new PendingScienceSubject
+            {
+                subjectId = s.Id, science = filed.ScienceAwarded, subjectMaxValue = s.Cap,
+                captureUT = 150.0, reasonKey = "", recordingId = "rec-a", scienceGainMultiplier = 1f
+            };
+            CommitRecording("rec-a", 100.0, 200.0, pending);
 
             Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
             Assert.True(GameStateStore.TryGetCommittedSubjectScience(s.Id, out float cached));
             Assert.Equal((double)s.Science, (double)cached, 4);
-            Assert.Contains(logLines, l => l.Contains("[LedgerOrchestrator]")
-                && l.Contains("FilterSurvivingScienceActions: 1 science row(s) already in the ledger"));
-        }
-
-        [Fact]
-        public void FilterSurvivingScienceActions_KeepsOnlySurvivorsInOrder()
-        {
-            var a = new GameAction { Type = GameActionType.ScienceEarning, SubjectId = "a" };
-            var b = new GameAction { Type = GameActionType.ScienceEarning, SubjectId = "b" };
-            var c = new GameAction { Type = GameActionType.ScienceEarning, SubjectId = "c" };
-            var other = new GameAction { Type = GameActionType.FundsEarning };
-
-            var kept = LedgerOrchestrator.FilterSurvivingScienceActions(
-                new List<GameAction> { a, b, c }, new List<GameAction> { other, c, a });
-
-            Assert.Equal(new[] { a, c }, kept);
-            Assert.Empty(LedgerOrchestrator.FilterSurvivingScienceActions(null, new List<GameAction> { a }));
-        }
-
-        // ================================================================
-
-        private static string ReadRecorderMethod(string signature, string endAnchor)
-        {
-            string path = Path.GetFullPath(Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "GameStateRecorder.cs"));
-            Assert.True(File.Exists(path), "source file not found for scan: " + path);
-            string source = File.ReadAllText(path).Replace("\r\n", "\n");
-            int start = source.IndexOf(signature, StringComparison.Ordinal);
-            Assert.True(start >= 0, signature + " not found");
-            int end = source.IndexOf(endAnchor, start, StringComparison.Ordinal);
-            Assert.True(end > start, endAnchor + " not found after " + signature);
-            return source.Substring(start, end - start);
         }
     }
 }

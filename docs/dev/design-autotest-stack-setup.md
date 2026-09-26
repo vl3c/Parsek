@@ -398,9 +398,21 @@ DECLUTTER_KSC = "True"             # player default (S6, 2026-09-26); dev cfg ha
 `StockWaterfallEffects`, `ReStock`, `ReStockPlus`, `BetterTimeWarp`,
 `Kopernicus`, `ModularFlightIntegrator`, `B9PartSwitch`, `KSPCommunityFixes`,
 `DistantObject`, `KSPTextureLoader`, `HideEmptyTechTreeNodes`; and
-`PersistentRotation` guarded by GT-8 OPEN (if absent from dev GameData, the
-script records `absent-source` and does not fail unless the profile marks it
-`required = true`).
+`PersistentRotation` + `SpaceTuxLibrary` as PINNED optional mods (GT-8 closed
+2026-09-26, below).
+
+**Pinned optional mods.** An `[[optionalMods]]` entry carrying `pin = "<pins.toml
+table>"` is never looked up in the dev GameData. Its pins table is `kind =
+"gamedata-mod"` with `downloadUrl`, `sha256`, `version` and `gamedataFolders` (the
+GameData folders the zip installs). DOWNLOAD fetches it through the shared artifact
+cache exactly like the stack zips (`provlib.pinned_mod_artifacts`, only for a
+profile that names it). INSTALL (`provision._install_pinned_mods`) reads the cache entry
+once and re-hashes it in memory, scoped-deletes each declared folder and extracts it
+(`provlib.plan_pinned_mod_install`: an entry with a `..`, `.` or empty segment, or one that leaves its declared folder, is dropped by `pinned_mod_entry_stays_in_folder`, and `gamedata_dest_escapes` still guards every destination). The result is recorded under the
+manifest's top-level `pinnedMods` (folder -> pin, version, zip sha256, tree-hash; not an
+admission key), which VERIFY re-hashes. A drift there has no targeted `--repair`; a plain
+re-provision re-extracts it. The cache seeder (`plan_cache_seed`) accepts pinned-mod zips
+too.
 
 ### Version manifest: `<instanceDir>/GameData/Parsek/provision-manifest.json`
 
@@ -718,10 +730,11 @@ Each: trigger -> expected behavior -> v1 or deferred.
   the stage; the stage is immutable for the rest of the run. If the source hash
   differs from the stage hash on a later re-read, log AMBER (informational: the
   dev build changed) but the installed instance is defined by the stage. v1.
-- **EC-12 PersistentRotation absent from dev GameData (GT-8).** Trigger:
-  modded-compat lists PersistentRotation but the dev install lacks it. Expected:
-  record `absent-source` in the manifest; fail only if the profile marks it
-  `required = true`; otherwise proceed and log a WARN. v1.
+- **EC-12 optional mod absent from dev GameData (GT-8).** Trigger: a profile lists
+  an UNPINNED optional mod the dev install lacks. Expected: record `absent-source` in
+  the manifest; fail only if the profile marks it `required = true`; otherwise proceed
+  and log a WARN. v1. PersistentRotation left this path on 2026-09-26: it is a pinned
+  optional mod, and a missing or corrupt cache entry aborts INSTALL (EC-4 / EC-3).
 - **EC-13 kRPC release sha256 unrecorded (OPEN pin).** Trigger: `pins.toml` has
   `sha256 = "OPEN"`. Expected: DOWNLOAD computes and prints the hash, then
   ABORTS asking the maintainer to commit it. Never install an unverified
@@ -1138,9 +1151,9 @@ in `pins.toml`; see the M-A6.1 todo entry). Kept here for the resolution record:
 - **O-3 (GT-7) RESOLVED**: MechJeb2 2.15.1.0 pinned via the CKAN-meta record to
   the persistent `ksp.sarbian.com` MechJeb2-Release Jenkins artifact (#45),
   content-pinned by sha256; archive.org CKAN mirror is the fallback if it rots.
-- **O-4 (GT-8/EC-12)**: decide PersistentRotation for modded-compat -- drop it or
-  source a KSP-1.12 build separately. If sourced, add its pin+hash to
-  `pins.toml`.
+- ~~**O-4 (GT-8/EC-12)**: decide PersistentRotation for modded-compat~~ RESOLVED
+  2026-09-26: PersistentRotationUpgraded 1.9.2.1 (+ SpaceTuxLibrary 0.0.9) pinned in
+  `pins.toml` via their CKAN-meta records; modded-compat requires both.
 - **O-5 (GT-6/EC-14)**: only if a non-v0.5.4 kRPC is ever pinned -- confirm the
   genhis-vs-darchambault fork+tag against the pinned kRPC and MJ build via the
   two releases pages named in the PAIR step.

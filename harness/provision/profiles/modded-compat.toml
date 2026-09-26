@@ -10,11 +10,11 @@ instanceDir = "automation/modded-compat"    # created by CLONE
 # Squad + SquadExpansion are junctioned stock payloads (see stock-minimal note),
 # not listed here.
 #
-# PersistentRotation is GT-8 OPEN: it is listed by the plan's modded-compat but
-# is NOT present in the dev GameData. It is declared here with required=false so
-# the script records `absent-source` and proceeds with a WARN (EC-12), rather
-# than silently omitting it. If a KSP-1.12 build is sourced separately, add its
-# pin+hash to pins.toml and flip required=true.
+# PersistentRotation is GT-8 CLOSED (2026-09-26, D17 persistent-rotation): it is
+# listed by the plan's modded-compat and is NOT present in the dev GameData, so it is
+# declared below as a PINNED optional mod (required=true, `pin`), installed from the
+# shared artifact cache by the pins.toml release pin rather than copied from the dev
+# install. SpaceTuxLibrary, its CKAN-declared dependency, is pinned the same way.
 devSourcedMods = [
   # --- shared with stock-minimal ---
   "000_Harmony", "ModuleManager.4.2.3.dll",
@@ -38,13 +38,25 @@ devSourcedMods = [
 # Guarded by test_provlib.RealProfileFileTests.
 stackComponents = ["krpc", "testingtools", "mechjeb2", "krpc_mechjeb", "parsek"]
 
-# Optional mods that may be absent from the dev GameData (GT-8 / EC-12).
-# required=false => absent is a WARN + `absent-source` manifest record, not an
-# abort. required=true => a genuinely missing source aborts.
+# Optional mods that are not in the dev-sourced list (GT-8 / EC-12). Two sources:
+# - `pin = "<pins.toml table>"`: a PINNED mod. The dev GameData is never consulted;
+#   DOWNLOAD fetches the release zip through the shared artifact cache (content
+#   addressed by the committed sha256, re-hashed on every use) and INSTALL extracts the
+#   pin's `gamedataFolders` into the instance GameData, recorded under the manifest's
+#   `pinnedMods` and re-hashed by VERIFY.
+# - no `pin`: copied from the dev GameData when present. required=false => absent is a
+#   WARN + `absent-source` manifest record, not an abort; required=true => aborts.
 [[optionalMods]]
 name = "PersistentRotation"
-required = false
-reason = "GT-8: not present in dev GameData; source a KSP-1.12 build separately or drop (O-4)."
+required = true
+pin = "persistentrotation"
+reason = "GT-8 closed 2026-09-26: PersistentRotationUpgraded 1.9.2.1, the only KSP 1.12 build, pinned in pins.toml; hosts D17 persistent-rotation."
+
+[[optionalMods]]
+name = "SpaceTuxLibrary"
+required = true
+pin = "spacetuxlibrary"
+reason = "PersistentRotationUpgraded's CKAN-declared dependency, pinned in pins.toml."
 
 # Same determinism-oriented settings deltas as stock-minimal (GT-8 keys).
 [settings]

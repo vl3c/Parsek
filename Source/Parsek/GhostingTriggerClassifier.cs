@@ -105,6 +105,8 @@ namespace Parsek
                 case BranchPointType.Terminal:
                 case BranchPointType.Breakup:
                 case BranchPointType.VesselSwitchContinuation:
+                // The placing kerbal's vessel is unchanged; the placed part is a new vessel.
+                case BranchPointType.GroundPartPlaced:
                     return false;
 
                 default:

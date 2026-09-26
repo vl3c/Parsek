@@ -2,7 +2,7 @@ schema = 1
 id = "CA-1-commit-abort-booster-live"
 # =====================================================================================
 # D1 "commit-abort": THE POST-DESTRUCTION AUTO-MERGE IS ABORTED AND THE TREE KEEPS
-# RECORDING. Supervisor ruling 2026-09-26, awaiting operator confirmation; the full
+# RECORDING. Operator-confirmed 2026-09-26; the full
 # definition and the caller-set derivation live on the D1 block of
 # harness/coverage/registry.toml.
 #

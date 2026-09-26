@@ -550,14 +550,5 @@ namespace Parsek
         /// captured" and reads as 1 through <see cref="GameAction.NormalizeScienceGainMultiplier"/>.
         /// </summary>
         public float scienceGainMultiplier;
-
-        /// <summary>
-        /// True when <see cref="science"/> is a per-submission increment, which is what
-        /// <c>GameStateRecorder.OnScienceReceived</c> captures. The committed-science cache
-        /// ADDS an increment onto its stored subject total (capped at the subject cap) and
-        /// max-merges any other value as a running total, so a total is never summed.
-        /// In-memory only, like the pending list itself.
-        /// </summary>
-        public bool scienceIsIncrement;
     }
 }

@@ -116,6 +116,8 @@ namespace Parsek.TestCommands
             typeof(ModuleInventoryPart).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
         private static readonly FieldInfo InvInsideCapField =
             typeof(ModuleInventoryPart).GetField("placementInsideCap", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo InvTerrainHitField =
+            typeof(ModuleInventoryPart).GetField("positionFromTerrainHit", BindingFlags.Instance | BindingFlags.NonPublic);
 
         // ----- EvaGroundScience two-phase state (re-armed wholesale in EvaGroundScienceImpl) -----
         private EvaGroundScienceAction groundSciAction;
@@ -137,6 +139,7 @@ namespace Parsek.TestCommands
         private int groundSciSettledFrames;
         private bool groundSciFaceAway;
         private int groundSciTurnFrame;
+        private int groundSciReTurns;
         private bool groundSciOpenedPaw;
 
         private void EvaGroundScienceImpl(ParsedCommand cmd)
@@ -192,6 +195,7 @@ namespace Parsek.TestCommands
             groundSciSettledFrames = 0;
             groundSciFaceAway = ArgOrNull(cmd, TestCommandEvaGroundScience.FaceAwayArg) == "true";
             groundSciTurnFrame = -1;
+            groundSciReTurns = 0;
             groundSciOpenedPaw = false;
             EvaJumpKeyPressInjection.Remove();
             EvaJumpKeyPressInjection.AnsweredCount = 0;
@@ -411,7 +415,17 @@ namespace Parsek.TestCommands
                     GroundPlaceConfirmDecision d = TestCommandEvaGroundScience.DecideConfirm(
                         true, built, placeable, groundSciPresses, sincePress);
                     string diag = $"built={Bool(built)} onTerrain={Bool(onTerrain)} insideCap={Bool(insideCap)} "
-                        + $"collisions={collisions} presses={groundSciPresses}";
+                        + $"collisions={collisions} presses={groundSciPresses} hit={DescribeTerrainHit(inv)}";
+                    int sinceTurn = groundSciTurnFrame < 0 ? int.MaxValue : Time.frameCount - groundSciTurnFrame;
+                    if (TestCommandEvaGroundScience.ShouldReTurn(
+                            groundSciFaceAway, built, placeable, groundSciPresses, sinceTurn, groundSciReTurns))
+                    {
+                        groundSciReTurns++;
+                        ParsekLog.Info(Tag, $"evagroundscience faceaway re-turn n={groundSciReTurns} " + diag);
+                        TurnKerbalAwayFromNearestVessel(kerbal);
+                        groundSciTurnFrame = Time.frameCount;
+                        return;
+                    }
                     if (d == GroundPlaceConfirmDecision.Press)
                     {
                         if (!EvaJumpKeyPressInjection.Install())
@@ -572,6 +586,16 @@ namespace Parsek.TestCommands
             ParsekLog.Info(Tag, $"evagroundscience faceaway turned from={nearest.vesselName} "
                 + $"distance={best.ToString("F2", CultureInfo.InvariantCulture)} "
                 + $"angle={Vector3.Angle(before, away).ToString("F1", CultureInfo.InvariantCulture)}");
+        }
+
+        // What the preview's terrain ray hit: stock only accepts a layer-15 collider that is
+        // not a ROC, so a hull hit names the part that blocks the spot.
+        private static string DescribeTerrainHit(ModuleInventoryPart inv)
+        {
+            if (InvTerrainHitField == null || inv == null) return "unavailable";
+            object boxed = InvTerrainHitField.GetValue(inv);
+            if (!(boxed is RaycastHit hit) || hit.collider == null) return "none";
+            return $"{hit.collider.gameObject.name}/layer{hit.collider.gameObject.layer}";
         }
 
         private static List<KeyValuePair<int, string>> InventorySlotNames(ModuleInventoryPart inv)

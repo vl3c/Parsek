@@ -473,11 +473,13 @@ namespace Parsek
             int eligible = 0, typeIgnored = 0, incapable = 0, covered = 0;
 
             int count = candidates != null ? candidates.Count : 0;
-            // Pass 1: recordings (chain vessels are checked against them in pass 2).
+            // Pass 1: recordings in their window or held for a spawn / chain gap (chain
+            // vessels and continuation holds are checked against them in passes 2 and 3).
             for (int i = 0; i < count; i++)
             {
                 GhostCommNetCandidate c = candidates[i];
-                if (string.IsNullOrEmpty(c.Key) || c.ChainSnapshot != null)
+                if (string.IsNullOrEmpty(c.Key)
+                    || GhostCommNetMath.RegistrationPass(c.ChainSnapshot != null, c.Eligibility.Reason) != 1)
                     continue;
                 seenScratch.Add(c.Key);
                 candidateByKey[c.Key] = c;
@@ -540,6 +542,44 @@ namespace Parsek
                     continue;
                 }
                 desiredScratch.Add(c.Key);
+                relayingIdentities.Add(new KeyValuePair<uint, string>(c.VesselPid, c.LaunchGuid));
+            }
+
+            // Pass 3: continuation gap holds (design 15.6 scenario 15). The vessel a recording
+            // ended as, on rails until a later continuation takes it over; it yields to any node
+            // already standing for the same launch, so the vessel never counts twice.
+            for (int i = 0; i < count; i++)
+            {
+                GhostCommNetCandidate c = candidates[i];
+                if (string.IsNullOrEmpty(c.Key)
+                    || GhostCommNetMath.RegistrationPass(c.ChainSnapshot != null, c.Eligibility.Reason) != 3)
+                    continue;
+                seenScratch.Add(c.Key);
+                candidateByKey[c.Key] = c;
+                uint pid = c.Recording != null ? c.Recording.VesselPersistentId : c.VesselPid;
+                string guid = c.Recording != null ? c.Recording.RecordedVesselGuid : c.LaunchGuid;
+                if (pid != 0 && GhostCommNetMath.ChainVesselCoveredByRecording(pid, guid, relayingIdentities))
+                {
+                    covered++;
+                    NoteExclusion(c.Key, c.VesselName, "covered-by-recording-node");
+                    continue;
+                }
+                eligible++;
+                Derived d = GetDerived(c.Key, c.Recording);
+                if (d == null || !GhostCommNetMath.VesselTypeGetsNode(d.Spec.VesselTypeName))
+                {
+                    typeIgnored++;
+                    NoteExclusion(c.Key, c.VesselName, "stock-ignored-vessel-type:" + (d?.Spec.VesselTypeName ?? "?"));
+                    continue;
+                }
+                if (!d.Timeline.HasCapability)
+                {
+                    incapable++;
+                    NoteExclusion(c.Key, c.VesselName, "no-relay-or-control-capability");
+                    continue;
+                }
+                desiredScratch.Add(c.Key);
+                relayingIdentities.Add(new KeyValuePair<uint, string>(pid, guid));
             }
 
             GhostCommNetMath.ComputeRegistrationDiff(desiredScratch, entries.Keys, toAdd, toRemove);
@@ -603,7 +643,7 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited(Tag, tickSummaryKey,
                     string.Format(IC,
                         "Ghost CommNet tick ({0}): candidates={1} eligible={2} typeIgnored={3} incapable={4} " +
-                        "chainCovered={5} registered={6} added={7} removed={8} rangeModifier={9:R}",
+                        "covered={5} registered={6} added={7} removed={8} rangeModifier={9:R}",
                         scene, count, eligible, typeIgnored, incapable, covered, entries.Count,
                         toAdd.Count, toRemove.Count, rangeModifier),
                     5.0);

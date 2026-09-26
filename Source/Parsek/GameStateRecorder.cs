@@ -253,49 +253,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The subject-unit (pre-multiplier) science one submission added, from the
-        /// <c>OnScienceRecieved</c> amount. Stock fires <c>amount = scienceValue *
-        /// ScienceGainMultiplier</c> after adding <c>scienceValue</c> to <c>subject.science</c>,
-        /// so <c>amount / multiplier</c> is that increment and
-        /// <c>increment * multiplier == amount</c> by construction. A non-positive or
-        /// non-finite multiplier reads as 1 (the amount is returned unchanged).
-        /// </summary>
-        internal static float ComputeSubjectScienceIncrement(float amount, float scienceGainMultiplier)
-        {
-            if (scienceGainMultiplier > 0f && !float.IsInfinity(scienceGainMultiplier))
-                return amount / scienceGainMultiplier;
-            return amount;
-        }
-
-        /// <summary>
-        /// Pure: the pending subject <c>OnScienceReceived</c> files for one stock submission.
-        /// <see cref="PendingScienceSubject.science"/> is the per-submission increment in
-        /// subject units (<see cref="ComputeSubjectScienceIncrement"/>), flagged as such, with
-        /// the multiplier frozen alongside so the row's pool credit equals <paramref name="amount"/>.
-        /// </summary>
-        internal static PendingScienceSubject BuildCapturedScienceSubject(
-            string subjectId,
-            float subjectCap,
-            float amount,
-            float scienceGainMultiplier,
-            double captureUt,
-            string reasonKey,
-            string recordingId)
-        {
-            return new PendingScienceSubject
-            {
-                subjectId = subjectId,
-                science = ComputeSubjectScienceIncrement(amount, scienceGainMultiplier),
-                subjectMaxValue = subjectCap,
-                captureUT = captureUt,
-                reasonKey = reasonKey,
-                recordingId = recordingId,
-                scienceGainMultiplier = scienceGainMultiplier,
-                scienceIsIncrement = true
-            };
-        }
-
-        /// <summary>
         /// Returns whether stock KSP bypasses the one-time part entry purchase in R&amp;D.
         /// Defensive: returns false when no live game exists.
         /// </summary>
@@ -995,7 +952,7 @@ namespace Parsek
         {
             // SuppressResourceEvents is set during timeline replay (ApplyResourceDeltas,
             // ApplyTreeLumpSum) where AddScience replays pool deltas. We must not
-            // re-capture subjects during replay — they are already committed.
+            // re-capture subjects during replay - they are already committed.
             if (SuppressResourceEvents)
             {
                 ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-science-subject",
@@ -1005,26 +962,107 @@ namespace Parsek
 
             if (subject == null || string.IsNullOrEmpty(subject.id))
             {
-                ParsekLog.Verbose("GameStateRecorder", "OnScienceReceived: skipped — null subject or empty id");
+                ParsekLog.Verbose("GameStateRecorder", "OnScienceReceived: skipped - null subject or empty id");
+                return;
+            }
+
+            CaptureScienceSubject(
+                amount,
+                subject.id,
+                subject.science,
+                subject.scienceCap,
+                ReadScienceGainMultiplierAtCapture(),
+                Planetarium.GetUniversalTime(),
+                vessel != null ? vessel.vesselName : null,
+                // KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: pass the live launch
+                // guid alongside the name so a recovery-science subject cannot be scoped to a
+                // DIFFERENT launch of the same craft. Null (no ProtoVessel, or no vessel guid)
+                // leaves the filter inert.
+                VesselLaunchIdentity.ReadLaunchGuid(vessel));
+        }
+
+        /// <summary>
+        /// SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: the per-callback science INCREMENT, in
+        /// subject units (the units of <c>subject.science</c> / <c>scienceCap</c>, which the
+        /// ledger's per-subject cap walk uses). Stock does <c>subject.science += value</c> and
+        /// then fires the event with <c>value * ScienceGainMultiplier</c>, so the increment is
+        /// <paramref name="amount"/> / multiplier. A ledger <c>ScienceEarning</c> row is ADDED
+        /// by <see cref="ScienceModule.ProcessEarning"/>, so it must carry this increment, never
+        /// the subject's running total (which re-credits every earlier submission of the same
+        /// subject). Clamped to the running total, which the increment can never exceed.
+        /// Pure.
+        /// </summary>
+        internal static float ComputeScienceSubjectIncrement(
+            float amount,
+            float scienceGainMultiplier,
+            float subjectScienceAfter)
+        {
+            if (float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f)
+                return 0f;
+
+            float increment = amount;
+            if (scienceGainMultiplier > 0f
+                && !float.IsNaN(scienceGainMultiplier)
+                && !float.IsInfinity(scienceGainMultiplier))
+            {
+                increment = amount / scienceGainMultiplier;
+            }
+
+            if (subjectScienceAfter > 0f
+                && !float.IsInfinity(subjectScienceAfter)
+                && increment > subjectScienceAfter)
+            {
+                increment = subjectScienceAfter;
+            }
+
+            return increment;
+        }
+
+        /// <summary>Test seam: installs the ScienceChanged capture a stock reward burst would have left.</summary>
+        internal void SetLatestScienceChangeCaptureForTesting(RecentScienceChangeCapture capture)
+        {
+            latestScienceChangeCapture = capture;
+        }
+
+        /// <summary>
+        /// Headless core of <see cref="OnScienceReceived"/>: every value the stock callback
+        /// supplies is passed in, so the capture -> ledger chain is testable without KSP.
+        /// </summary>
+        internal void CaptureScienceSubject(
+            float amount,
+            string subjectId,
+            float subjectScienceAfter,
+            float subjectCap,
+            float scienceGainMultiplier,
+            double captureUt,
+            string vesselName,
+            string launchGuid)
+        {
+            if (string.IsNullOrEmpty(subjectId))
+            {
+                ParsekLog.Verbose("GameStateRecorder", "OnScienceReceived: skipped - null subject or empty id");
                 return;
             }
             if (amount <= 0)
             {
                 ParsekLog.Verbose("GameStateRecorder",
-                    $"OnScienceReceived: skipped — non-positive amount ({amount:F1}) for {subject.id}");
+                    $"OnScienceReceived: skipped - non-positive amount ({amount:F1}) for {subjectId}");
                 return;
             }
 
-            double captureUt = Planetarium.GetUniversalTime();
             string currentRecordingId = ResolveCurrentRecordingTag() ?? "";
             string reasonKey = "";
             string subjectRecordingId = currentRecordingId;
+            bool matchedScienceChange = false;
+            RecentScienceChangeCapture matchedCapture = default(RecentScienceChangeCapture);
             if (ShouldUseRecentScienceChangeCapture(
                     latestScienceChangeCapture,
                     amount,
                     captureUt,
                     currentRecordingId))
             {
+                matchedScienceChange = true;
+                matchedCapture = latestScienceChangeCapture;
                 captureUt = latestScienceChangeCapture.Ut;
                 reasonKey = latestScienceChangeCapture.ReasonKey ?? "";
                 subjectRecordingId = latestScienceChangeCapture.RecordingId ?? currentRecordingId;
@@ -1043,61 +1081,116 @@ namespace Parsek
             // Vessel recovery and other multi-subject payouts can fire several
             // OnScienceReceived callbacks after one ScienceChanged capture.
 
-            // Record what THIS submission added, not subject.science. subject.science is
-            // the running total after the submission (and may already include committed
-            // science injected by ScienceSubjectPatch); the ledger walk sums rows as
-            // increments, so a total would re-credit every earlier submission of the
-            // subject. amount is stock's pre-multiplier value times the multiplier, so
-            // dividing recovers the subject-unit increment exactly and the row's pool
-            // credit (increment * multiplier) equals what stock added.
-            float scienceGainMultiplier = ReadScienceGainMultiplierAtCapture();
-            var pendingSubject = BuildCapturedScienceSubject(
-                subject.id,
-                subject.scienceCap,
-                amount,
-                scienceGainMultiplier,
-                captureUt,
-                reasonKey,
-                subjectRecordingId);
+            // Operator ruling 2026-09-26: Breaking Ground deployed-experiment science is
+            // earned by a ground station, not by whichever vessel is being flown, so it is
+            // ALWAYS an untagged ledger row (like KSC / Tracking Station science). Never
+            // tagged means a Re-Fly can neither tombstone it nor auto-seal a slot on it.
+            bool deployedScience = IsDeployedScienceSubjectId(subjectId);
+            if (deployedScience)
+            {
+                if (!string.IsNullOrEmpty(subjectRecordingId))
+                {
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: deployed-experiment subject '{subjectId}' routed untagged " +
+                        $"(live tag '{subjectRecordingId}' ignored per the deployed-science ruling)");
+                }
+                subjectRecordingId = "";
+                if (matchedScienceChange && !string.IsNullOrEmpty(matchedCapture.RecordingId))
+                    UntagDeployedScienceChangeEvent(matchedCapture, subjectId);
+            }
+
+            // SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: store the increment this callback
+            // added, not subject.science. The ledger ADDS every ScienceEarning row per
+            // subject (ScienceModule.ProcessEarning, BuildCommittedScienceSubjectCredits,
+            // LedgerLoadMigration.GetLedgerScienceEarningTotal), so a running total would
+            // re-credit every earlier submission of the same subject. subject.science may
+            // include Harmony-injected committed science (ScienceSubjectPatch); the
+            // increment is unaffected by that.
+            float increment = ComputeScienceSubjectIncrement(
+                amount, scienceGainMultiplier, subjectScienceAfter);
+            var pendingSubject = new PendingScienceSubject
+            {
+                subjectId = subjectId,
+                science = increment,
+                subjectMaxValue = subjectCap,
+                captureUT = captureUt,
+                reasonKey = reasonKey,
+                recordingId = subjectRecordingId,
+                // The row stays in subject units (increment = amount / multiplier) and
+                // carries the multiplier frozen now, so ScienceModule's pool credit
+                // (increment * multiplier) equals stock's amount (KSP-SETTINGS-AUDIT S1).
+                scienceGainMultiplier = GameAction.NormalizeScienceGainMultiplier(scienceGainMultiplier)
+            };
 
             bool hasLiveRecorder = HasLiveRecorder();
             bool hasActiveUncommittedTree = HasActiveUncommittedTree();
             bool directLedgerHandled = false;
-            if (ShouldForwardDirectScienceSubject(
+            if (deployedScience || ShouldForwardDirectScienceSubject(
                     pendingSubject.recordingId,
                     hasLiveRecorder,
                     hasActiveUncommittedTree))
             {
-                string vesselName = vessel != null ? vessel.vesselName : null;
-                // KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: pass the live launch
-                // guid alongside the name so a recovery-science subject cannot be scoped to a
-                // DIFFERENT launch of the same craft. Null (no ProtoVessel, or no vessel guid)
-                // leaves the filter inert.
                 directLedgerHandled = LedgerOrchestrator.TryRecordKscScienceSubject(
                     pendingSubject,
-                    vesselName,
-                    VesselLaunchIdentity.ReadLaunchGuid(vessel));
+                    deployedScience ? null : vesselName,
+                    deployedScience ? null : launchGuid);
             }
 
             if (!directLedgerHandled)
             {
-                if (ShouldForwardDirectLedgerEvent(pendingSubject.recordingId, hasLiveRecorder) &&
-                    hasActiveUncommittedTree)
+                if (deployedScience)
                 {
-                    ParsekLog.Verbose("GameStateRecorder",
-                        $"OnScienceReceived: retained unowned science subject '{subject.id}' " +
-                        "because an uncommitted recording tree is active");
+                    // Never park deployed science in PendingScienceSubjects: the commit-time
+                    // window routing would hand an untagged subject to the committing
+                    // recording, which is exactly the tagging the ruling forbids.
+                    ParsekLog.Warn("GameStateRecorder",
+                        $"OnScienceReceived: deployed-experiment subject '{subjectId}' was not " +
+                        $"written to the ledger (increment={increment.ToString("R", CultureInfo.InvariantCulture)}) " +
+                        "and is dropped rather than tagged to a recording");
                 }
-                PendingScienceSubjects.Add(pendingSubject);
+                else
+                {
+                    if (ShouldForwardDirectLedgerEvent(pendingSubject.recordingId, hasLiveRecorder) &&
+                        hasActiveUncommittedTree)
+                    {
+                        ParsekLog.Verbose("GameStateRecorder",
+                            $"OnScienceReceived: retained unowned science subject '{subjectId}' " +
+                            "because an uncommitted recording tree is active");
+                    }
+                    PendingScienceSubjects.Add(pendingSubject);
+                }
             }
 
             ParsekLog.Info("GameStateRecorder",
-                $"Science subject captured: {subject.id} amount={amount:F1} " +
-                $"increment={pendingSubject.science.ToString("R", CultureInfo.InvariantCulture)} " +
-                $"total={subject.science:F1} " +
+                $"Science subject captured: {subjectId} amount={amount:F1} " +
+                $"increment={increment:F2} total={subjectScienceAfter:F1} " +
                 $"gainMultiplier={pendingSubject.scienceGainMultiplier.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"reason='{reasonKey}' ut={captureUt:F1} tag='{subjectRecordingId}' " +
-                $"directLedger={directLedgerHandled}");
+                $"deployed={deployedScience} directLedger={directLedgerHandled}");
+        }
+
+        /// <summary>
+        /// A deployed-science award's ScienceChanged event was emitted (tagged to the live
+        /// recording) one callback BEFORE the subject was known. Clear that tag so the
+        /// commit-time earnings-window reconcile does not count a delta the recording never
+        /// owns. Identity is the matched capture's (ut, key, tag).
+        /// </summary>
+        private static void UntagDeployedScienceChangeEvent(
+            RecentScienceChangeCapture capture,
+            string subjectId)
+        {
+            var target = new GameStateEvent
+            {
+                ut = capture.Ut,
+                eventType = GameStateEventType.ScienceChanged,
+                key = capture.ReasonKey ?? "",
+                recordingId = capture.RecordingId ?? ""
+            };
+            bool updated = GameStateStore.UpdateEventRecordingId(target, "");
+            ParsekLog.Verbose("GameStateRecorder",
+                $"OnScienceReceived: deployed-experiment ScienceChanged event for '{subjectId}' " +
+                $"ut={capture.Ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"untagged={updated} (was '{capture.RecordingId}')");
         }
 
         #endregion

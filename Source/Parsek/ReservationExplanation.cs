@@ -276,6 +276,60 @@ namespace Parsek
             };
         }
 
+        /// <summary>
+        /// The facility-repair explanation over the committed future repairs that already
+        /// cover the facility's current destruction (UT ascending, one per destroyed
+        /// building). Stock repairs a facility's buildings together, so the rows usually
+        /// share one date; distinct dates are all listed, because the block lifts only once
+        /// the clock passes the last one.
+        /// </summary>
+        internal static ReservationText FacilityRepair(
+            IReadOnlyList<CommittedFutureEntry> coveringRepairs, Func<double, string> formatDate)
+        {
+            if (coveringRepairs == null || coveringRepairs.Count == 0)
+            {
+                return new ReservationText
+                {
+                    Title = "Repaired on your committed timeline",
+                    Fact = "Repaired on your committed timeline.",
+                    Rule = TimelineRule,
+                    WayOut = null
+                };
+            }
+
+            var dates = new List<string>();
+            string sharedName = coveringRepairs[0].RecordingName;
+            for (int i = 0; i < coveringRepairs.Count; i++)
+            {
+                string date = FormatDate(coveringRepairs[i].UT, formatDate);
+                if (!dates.Contains(date)) dates.Add(date);
+                if (!string.Equals(coveringRepairs[i].RecordingName, sharedName, StringComparison.Ordinal))
+                    sharedName = null;
+            }
+
+            if (dates.Count == 1)
+            {
+                return new ReservationText
+                {
+                    Title = "Repaired on " + dates[0],
+                    Fact = "Repaired on " + dates[0] + " " + SourcePhrase(sharedName) + ".",
+                    Rule = TimelineRule,
+                    WayOut = "The repair happens on that date."
+                };
+            }
+
+            string joined = dates.Count == 2
+                ? dates[0] + " and " + dates[1]
+                : string.Join(", ", dates.GetRange(0, dates.Count - 1).ToArray()) + " and " + dates[dates.Count - 1];
+            return new ReservationText
+            {
+                Title = "Repaired on " + dates[0],
+                Fact = "Repaired on " + joined + " " + SourcePhrase(sharedName) + ".",
+                Rule = TimelineRule,
+                WayOut = "The repairs happen on those dates."
+            };
+        }
+
         private static string LevelPhrase(CommittedFutureEntry entry)
         {
             return entry != null && entry.FacilityToLevel > 0

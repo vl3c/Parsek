@@ -735,6 +735,7 @@ namespace Parsek
                 case BranchPointType.Launch: return "Launch";
                 case BranchPointType.Terminal: return "End";
                 case BranchPointType.VesselSwitchContinuation: return "Switch";
+                case BranchPointType.GroundPartPlaced: return "Placed";
                 default: return t.ToString();
             }
         }
