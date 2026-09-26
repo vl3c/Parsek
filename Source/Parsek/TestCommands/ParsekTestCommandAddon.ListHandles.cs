@@ -12,8 +12,8 @@ namespace Parsek.TestCommands
     ///
     /// <para><b>WHY THIS VERB EXISTS.</b> Until R10 nothing a driven run could read named
     /// a LIVE object: <c>InvokeRewind rp=</c>, <c>SealSlot rp=</c>,
-    /// <c>SimulateStockSwitchClick pid=</c> and <c>DeleteRecording index=</c> all take an
-    /// id the spec author had to know in advance, while a live id is a fresh Guid
+    /// <c>SimulateStockSwitchClick pid=</c> and the since-removed <c>DeleteRecording
+    /// index=</c> all took an id the spec author had to know in advance, while a live id is a fresh Guid
     /// (rewind points, recordings, trees) or a launch-assigned persistentId (vessels).
     /// This is the seam half of the answer; the harness half is the
     /// <c>${step.field}</c> substitution, which carries an enumerated id onto a later

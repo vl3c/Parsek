@@ -88,9 +88,10 @@ namespace Parsek.InGameTests
             // those deaths. Gathered through the SAME pre-rewind screen as the death
             // rows for the same reason - a row the guard keeps is on the timeline the
             // merge KEEPS, so asserting it is tombstoned asserts against correct
-            // behaviour. The penalty lands at the death instant, and a death row is
-            // itself screened by its endUT (TombstoneAttributionHelper.ComputeAttributionUT),
-            // so the two rows of one death fall on the same side of the cutoff.
+            // behaviour. A death row is screened by its endUT and its KerbalDeath penalty
+            // by that same paired death (TombstoneAttributionHelper.ComputeAttributionUT
+            // with the ledger context), so the two rows of one death fall on the same
+            // side of the cutoff.
             var deathRepActionIds = new HashSet<string>();
             foreach (var a in Ledger.Actions)
             {
@@ -101,7 +102,7 @@ namespace Parsek.InGameTests
                 if (a.Type == GameActionType.ReputationPenalty
                     && a.RepPenaltySource == ReputationPenaltySource.KerbalDeath
                     && !string.IsNullOrEmpty(a.ActionId)
-                    && !TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT))
+                    && !TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT, Ledger.Actions))
                 {
                     deathRepActionIds.Add(a.ActionId);
                     continue;
@@ -111,7 +112,7 @@ namespace Parsek.InGameTests
                 if (a.KerbalEndStateField != KerbalEndState.Dead) continue;
                 rows.Add(new StraddlingDeathRow(
                     a.ActionId, a.KerbalName,
-                    TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT)));
+                    TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT, Ledger.Actions)));
             }
 
             HashSet<string> deathActionIds;

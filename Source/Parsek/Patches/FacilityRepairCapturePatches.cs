@@ -10,15 +10,31 @@ namespace Parsek.Patches
     /// (stock's <c>GetRepairsCost</c> split per building) BEFORE the repair runs; the
     /// <c>OnKSCStructureRepairing</c> events that <c>RepairStructures</c> fires inside the call
     /// read their cost from it, and the finalizer writes the facility's repair rows in one
-    /// batch (see <see cref="FacilityRepairCapture"/>). Observation only: the prefix never
-    /// skips the original, and a finalizer (not a postfix) closes the scope so an exception
-    /// inside stock cannot leave it open.
+    /// batch (see <see cref="FacilityRepairCapture"/>). A finalizer (not a postfix) closes
+    /// the scope so an exception inside stock cannot leave it open.
+    ///
+    /// <para>The prefix first runs the committed-repair block
+    /// (<see cref="FacilityRepairBlock.TryBlockFacilityRepair"/>): a refused repair skips the
+    /// original (no funds debit, no repair) and opens no scope, so the finalizer's
+    /// <c>EndScope</c> is a no-op. The block lives in this prefix rather than a second patch
+    /// class so the order of refusal and scope on one method is fixed, not Harmony's.</para>
     /// </summary>
     [HarmonyPatch(typeof(SpaceCenterBuilding), "RepairFacility", new[] { typeof(bool) })]
     internal static class FacilityRepairScopePatch
     {
-        static void Prefix(SpaceCenterBuilding __instance, bool deduceFunds)
+        static bool Prefix(SpaceCenterBuilding __instance, bool deduceFunds)
         {
+            try
+            {
+                if (FacilityRepairBlock.TryBlockFacilityRepair(__instance))
+                    return false;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("FacilityRepairPatch",
+                    $"Facility repair block check failed ({ex.GetType().Name}: {ex.Message}) - repair allowed");
+            }
+
             try
             {
                 bool fundsCharged = deduceFunds && Funding.Instance != null;
@@ -39,6 +55,7 @@ namespace Parsek.Patches
                     $"FacilityRepairScopePatch prefix failed ({ex.GetType().Name}: {ex.Message}) - " +
                     "repair rows of this call carry cost 0");
             }
+            return true;
         }
 
         static Exception Finalizer(Exception __exception)

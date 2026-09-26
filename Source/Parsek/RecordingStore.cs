@@ -330,12 +330,12 @@ namespace Parsek
 
         // Merged to timeline — these auto-playback during flight.
         //
-        // POLICY: Individual recording deletion is not supported.
-        // Recordings can only be committed (at merge dialog) or discarded (before commit).
-        // The entire timeline can be wiped, but individual recordings cannot be removed
-        // after commit. This prevents time paradoxes (orphaned vessels, broken chains,
-        // inconsistent ghost playback).
-        // Future: timeline wipe from current UT forward (clear future, keep past).
+        // POLICY: the player can never delete a committed recording, singly or wholesale.
+        // Recordings can only be committed (at merge dialog) or discarded (before commit);
+        // a deletion would break the timeline and the ledger (orphaned vessels, broken
+        // chains, dangling anchors, inconsistent ghost playback). The per-row Archive
+        // (Hidden) checkbox is the only way to stop seeing one. Internal removals (optimizer
+        // merge, Re-Fly rollback, load-time sweeps, bundle restore) are not player deletions.
         private static List<Recording> committedRecordings = new List<Recording>();
 
         // Committed recording trees (parallel storage — tree recordings also appear in committedRecordings)
@@ -887,34 +887,6 @@ namespace Parsek
         {
             committedTrees.Clear();
             BumpStateVersion();
-        }
-
-        public static void ClearCommitted()
-        {
-            int count = committedRecordings.Count;
-            for (int i = 0; i < committedRecordings.Count; i++)
-                DeleteRecordingFiles(committedRecordings[i]);
-            committedRecordings.Clear();
-            committedTrees.Clear();
-            ClearCommittedTreeRestoreAttempt("ClearCommitted");
-            ClearRewindReplayTargetScope();
-            BumpStateVersion();
-            GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("clear-committed");
-            GameStateRecorder.PendingScienceSubjects.Clear();
-            Log($"[Parsek] Cleared {count} committed recordings and all trees");
-        }
-
-        public static void Clear()
-        {
-            pendingTree = null;
-            pendingTreeState = PendingTreeState.Finalized;
-            pendingTreeSerializedForSave = false;
-            savedPendingTreeDuringActiveRestore = null;
-            savedPendingTreeDuringActiveRestoreSerializedForSave = false;
-            ClearCommittedTreeRestoreAttempt("Clear");
-            ClearCommitted();
-            ClearRewindReplayTargetScope();
-            Log("[Parsek] All recordings cleared");
         }
 
         internal static void SetRewindReplayTargetScope(Recording owner)
@@ -3946,8 +3918,9 @@ namespace Parsek
         /// ghost teardown and the index reindex. Crew unreservation stays with the caller.
         /// </summary>
         /// <param name="pruneFromCommittedTrees">
-        /// When true (the single-delete default: the recordings-table delete via
-        /// <see cref="DeleteRecordingFull"/> / <see cref="ParsekFlight"/>), also prune the
+        /// When true (the single-row default: the merge-journal rollback via
+        /// <see cref="DeleteRecordingFull"/> and the Gloops discard via
+        /// <see cref="ParsekFlight"/>), also prune the
         /// removed row from the committed tree that owns it, so
         /// <c>SaveTreeRecordings</c> does not re-materialize its sidecars on the next OnSave
         /// and resurrect it (DELETE-LEAVES-TREE-MEMBERSHIP). The bulk session sweep
@@ -4288,11 +4261,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Deletes a recording from the committed list, cleans up sidecar files, and
-        /// unreserves crew. Use when there are no active ghosts (e.g. KSC scene).
-        /// In flight scene, use ParsekFlight.DeleteRecording instead (handles ghost cleanup).
+        /// INTERNAL ROLLBACK ONLY: removes a recording from the committed list, cleans up its
+        /// sidecar files and unreserves its crew. Its one caller is the merge-journal
+        /// rollback's legacy by-id sweep of a session-provisional Re-Fly recording
+        /// (<c>MergeJournalOrchestrator.RemoveCommittedRecordingById</c>). No player path
+        /// reaches it: recordings are never player-deletable (a deletion breaks the timeline
+        /// and the ledger). Ghost teardown and index shifts ride on the store's
+        /// Removing / Removed notifications.
         /// </summary>
-        public static void DeleteRecordingFull(int index)
+        internal static void DeleteRecordingFull(int index)
         {
             if (index < 0 || index >= committedRecordings.Count)
             {
@@ -4910,20 +4887,11 @@ namespace Parsek
         {
             RollbackContinuationData(rec);
 
-            // If the vessel had spawned, any terminal state change (Recovered/Destroyed)
-            // was on the spawned real vessel, not the recording. Clear it so the recording
-            // can spawn again after revert/rewind.
-            //
-            // This used to inline a byte-identical copy of the predicate that
-            // ParsekScenario.ClearPostSpawnTerminalState applies. Two copies of one
-            // retraction rule is one copy too many — the TS-FLUSHED-SAVE-DROPS-DEBRIS-
-            // TERMINALSTATE work added a restore leg beside the OTHER copy, and a
-            // divergence here would be invisible. Route through the shared seam so this
-            // path inherits any future change to what counts as a post-spawn verdict.
-            // (Unlike the OnLoad copy, this rewind/revert path has NO restore leg — see
-            // REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL.)
-            ParsekScenario.ClearPostSpawnTerminalState(
-                rec, $"rewind reset '{rec.VesselName}' (id={rec.RecordingId})");
+            // The terminal verdict is NOT touched: a committed recording's
+            // TerminalStateValue is recorded content (real-vessel terminal events stamp
+            // only the pending tree), and Destroyed / Recovered are never spawnable, so
+            // the spawn fields below are all a re-spawn needs. Same rule as the OnLoad
+            // tree-mutable-state reset (ParsekScenario.ResetTreeRecordingMutableStateForLoad).
 
             rec.VesselSpawned = false;
             rec.VesselDestroyed = false;

@@ -164,7 +164,7 @@ ksc  - missions - recordings       - advanced
 cek  - career   - facilities-level0- advanced      (tab facilities, state level0)
 ib   - logistics- linkpicker       - advanced      (no tab; linkpicker is a state)
 b1   - main     - disabledecho-spawncontrol-advanced
-dlg  - wipemilestones                              (no window token, no mode)
+dlg  - savefailed                                  (no window token, no mode)
 scope- map-all-hidden                              (no window token, no mode)
 ```
 

@@ -620,8 +620,8 @@ namespace Parsek
         // Phase F: ManagesOwnResources removed. The standalone resource applier
         // (per-recording lump-sum replay via ApplyResourceDeltas) and the tree-level
         // applier (ApplyTreeLumpSum) are both gone — the ledger drives funds/science/
-        // reputation directly. ResourceBudget now sums every recording uniformly,
-        // and there are no remaining callers gating on standalone-vs-tree.
+        // reputation directly, and there are no remaining callers gating on
+        // standalone-vs-tree.
 
         /// <summary>
         /// Forwards a list of start-of-recording controllers onto this Recording,
