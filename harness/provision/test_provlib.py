@@ -1033,6 +1033,13 @@ class KrpcSettingsStampTests(unittest.TestCase):
         self.assertEqual(keys["autoAcceptConnections"], "True")
         self.assertEqual(keys["confirmRemoveClient"], "False")
 
+    def test_server_window_hidden(self):
+        # The window covers the top-left of every census capture; the servers
+        # start from autoStartServers alone, so hiding it costs no RPC.
+        keys = self._keys(provlib.stamp_krpc_settings(None))
+        self.assertEqual(keys["mainWindowVisible"], "False")
+        self.assertEqual(keys["infoWindowVisible"], "False")
+
     def test_every_executor_key_at_healthy_default(self):
         # The load-bearing cells: these four zeroed out in the pre-golden partial
         # file and killed ALL RPC execution (maxTimePerUpdate=0 budget).

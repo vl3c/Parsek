@@ -414,6 +414,12 @@ def apply_settings(base_lines: Sequence[str], deltas: Dict[str, str]) -> List[st
 # 0,0 - harmless, and kRPC rewrites them anyway), the three hands-free
 # overrides, and one ProtocolBuffersOverTCP server on 127.0.0.1:50000/50001
 # (the mission_runner contract) with a FIXED id so stamping is deterministic.
+# The server window is stamped HIDDEN (mainWindowVisible = False): it is an
+# IMGUI window at the top-left of every frame, and a census capture reads what
+# sits under it (the VAB part tooltip, a crew-dialog seat). kRPC's Addon starts
+# the servers from autoStartServers alone, before and independent of the
+# window (decompiled KRPC.dll 0.5.4, Addon.Start / InitUI); the toolbar button
+# still opens it by hand.
 # NOTE: kRPC rewrites this file at exit (adaptive rate retune, window
 # positions), so the on-disk bytes are a MUTABLE surface between provisions;
 # the stamp re-converges it on every provision/repair pass.
@@ -422,7 +428,7 @@ KRPC_DEFAULT_SERVER_ID = "6aae4b41-0f5a-4f14-9b58-7a8d21e30001"
 KRPC_GOLDEN_SETTINGS_LINES: Tuple[str, ...] = (
     "KRPCConfiguration",
     "{",
-    "\tmainWindowVisible = True",
+    "\tmainWindowVisible = False",
     "\tinfoWindowVisible = False",
     "\tautoStartServers = True",
     "\tautoAcceptConnections = True",
