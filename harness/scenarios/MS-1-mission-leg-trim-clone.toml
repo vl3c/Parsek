@@ -129,9 +129,11 @@ steps = [
 #   `inclusion=Partial` says the vessel row kept its post-separation interval (no cascade).
 # `clone` <- the store's `Cloned mission 'Kerbal X' -> 'Kerbal X copy' (tree=788554a9...)`
 #   (MissionStore.Clone, the Clone button's whole body, reached through `UiAction
-#   op=clone`) AND the copy carrying the trimmed include set: `missions=3 excluded=1`, and
-#   the flight engine building the COPY's own unit over the same trimmed span
-#   (`MissionLoopUnit: mission='Kerbal X copy' ... members=2 ... span=[382.21,...]`).
+#   op=clone`) AND the copy carrying the trimmed include set: `missions=3 excluded=1`. The
+#   copy of the LOOPING source is created with its loop OFF (one loop per tree; fix for todo
+#   MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE), so the payload pins `loop=false`
+#   and the store's `Clone: copy 'Kerbal X copy' ... created with loop OFF` line; the copy
+#   builds no unit of its own (the reading run's copy-unit line was the defect).
 D11 = ["leg-trim", "clone"]
 D14 = ["sandbox", "scene-flight"]
 
@@ -150,11 +152,12 @@ count = { min = 1 }
 # member recording inside the launch interval, which the trim drops along with the span
 # start - a stronger reading than predicted, not a weaker one.
 #
-# NOT PINNED, ON PURPOSE: the clone payload's `loop=`. Mission.Clone copies LoopPlayback,
-# so cloning a LOOPING mission leaves two looping missions on one tree and the builder
-# warns `owner index 1 already owned by another looping unit; skipping` on every rebuild
-# (todo MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE). Pinning `loop=true` would
-# pin that defect; the copy's own unit line below is what the clone claim reads.
+# The clone's `loop=` IS pinned `false` since the fix for todo
+# MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE (branch fix-mission-clone-loop):
+# MissionStore.Clone disarms the copy of a looping mission, so the reading run's
+# `loop=true` payload, its `MissionLoopUnit: mission='Kerbal X copy' ...` unit line and the
+# builder's `already owned by another looping unit` WRN are the defect; the WRN is now
+# forbidden. These tokens are re-cut from source, not yet re-read on a flight.
 required = [
   # 1. the untrimmed unit (MissionConfig's own build, before the trim)
   "missionconfig applied: mission='Kerbal X' tree=788554a928324f148dd313dd26322638 loop=True [^\\r\\n]*unitBuilt=True [^\\r\\n]*spanSeconds=361\\.05171081540209 ",
@@ -164,12 +167,12 @@ required = [
   "uiaction select leg mission=[0-9a-f]+ head=a32f62f52dc84d6a94daf93460ec6548 leg=a32f62f52dc84d6a94daf93460ec6548 vessel=Kerbal X include=false keysChanged=1 inclusion=Partial",
   "uiaction select window=missions mission=[0-9a-f]+ key=leg:a32f62f52dc84d6a94daf93460ec6548 include=false changed=1 excluded=1 links=0 frames=[0-9]+",
   "MissionLoopUnit: mission='Kerbal X' tree=788554a928324f148dd313dd26322638 members=2 foreignMembers=0 skipped=0 span=\\[382\\.211710815406,387\\.01171081540161\\] spanDur=4\\.79",
-  # 3. clone: the production store line, the carried include set, the copy's own unit
+  # 3. clone: the production store line, the carried include set, the disarmed copy loop
   "\\[Parsek\\]\\[INFO\\]\\[Mission\\] Cloned mission 'Kerbal X' -> 'Kerbal X copy' \\(tree=788554a928324f148dd313dd26322638\\)",
-  "uiaction clone window=missions mission=[0-9a-f]+ copy=[0-9a-f]+ name='Kerbal X copy' tree=788554a928324f148dd313dd26322638 missions=3 excluded=1 links=0 loop=(?:true|false) frames=[0-9]+",
-  "MissionLoopUnit: mission='Kerbal X copy' tree=788554a928324f148dd313dd26322638 members=2 foreignMembers=0 skipped=0 span=\\[382\\.211710815406,387\\.01171081540161\\]",
+  "uiaction clone window=missions mission=[0-9a-f]+ copy=[0-9a-f]+ name='Kerbal X copy' tree=788554a928324f148dd313dd26322638 missions=3 excluded=1 links=0 loop=false frames=[0-9]+",
+  "\\[Parsek\\]\\[INFO\\]\\[Mission\\] Clone: copy 'Kerbal X copy' \\(tree=788554a928324f148dd313dd26322638\\) created with loop OFF because source 'Kerbal X' loops",
 ]
-forbidden = ["uiaction error reason=", "uiaction rejected reason=", "missionconfig rejected", "missionconfig error"]
+forbidden = ["uiaction error reason=", "uiaction rejected reason=", "missionconfig rejected", "missionconfig error", "already owned by another looping unit"]
 
 [runtime]
 # A 300 s cold-load allowance and ten single-phase seam ops over a two-tree sandbox

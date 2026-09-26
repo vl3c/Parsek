@@ -226,7 +226,25 @@ orbit-only checkpoint branch and Absolute points only - the checkpoint-with-fram
 position, so a small chord term in the residual), body-fixed primary and recorded-anchor RELATIVE
 decodes are implemented and unit-plumbed but not yet read live.
 
-## MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`]
+## ~~MISSION-CLONE-OF-A-LOOPING-MISSION-LOOPS-THE-TREE-TWICE: cloning a looping mission leaves two looping missions on one tree until the next load~~ [FILED 2026-09-25, coverage wave 6, run `2026-09-25_2117`; FIXED 2026-09-26 on branch fix-mission-clone-loop, supervisor ruling: clone disarms its loop, pending operator confirmation]
+
+**Fix:** `MissionStore.Clone` (the only path that inserts a copy into the store; the Clone button
+and `UiAction op=clone` both call it) sets the copy's `LoopPlayback` to false when the source
+loops, so the one-loop-per-tree invariant holds the moment the copy exists and the original keeps
+looping. `Mission.Clone` stays a faithful definition copy (the in-game `RealSaveMissionFinder`
+probes clone and arm a detached probe that never enters the store). The copy keeps the period,
+unit and anchor: the anchor is re-stamped by `SetLoopEnabled` on every enable, and the period /
+unit are what a later enable loops with. Logged as `Clone: copy '<name>' (tree=<id>) created with
+loop OFF because source '<name>' loops (one loop per tree); period=<s> unit=<u> kept for a later
+enable`. Cells: `MissionStoreTests.Clone_OfLoopingMission_LeavesExactlyOneLoopOnTheTree_AndLogsTheDisarm`,
+`Clone_OfNonLoopingMission_CopiesSettings_AndLogsNoDisarm`, and the updated
+`Clone_CopiesSelection_IntoAnIndependentMission`. `MS-1-mission-leg-trim-clone` drops the copy's
+`MissionLoopUnit` token (it only existed because of this defect), pins `loop=false` plus the new
+store line, and forbids `already owned by another looping unit`; those tokens are re-cut from
+source and not yet re-read on a flight. The Clone tooltip ("its own include set, loop period, and
+Archive flag") stays true. Route backing missions (`RouteBackingMission.BuildMission`) are
+synthesized per frame and never inserted into the store, so they are not a copy path.
+
 
 `Mission.Clone` copies `LoopPlayback` (with the period, unit and anchor) and
 `MissionStore.Clone` inserts the copy without running the one-loop-per-tree clear that
