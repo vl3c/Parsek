@@ -1274,6 +1274,7 @@ namespace Parsek
 
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildGameStateEventsRelativePath());
+            FileIOUtils.SweepStaleSafeWriteTemp(path, "GameStateStore");
             if (path == null || !File.Exists(path))
             {
                 ParsekLog.Info("GameStateStore", "No game state events file found — starting fresh");
@@ -1378,6 +1379,8 @@ namespace Parsek
             }
         }
 
+        private const string BaselineFileSearchPattern = "baseline_*.pgsb";
+
         internal static bool LoadBaselines()
         {
             baselines.Clear();
@@ -1389,9 +1392,13 @@ namespace Parsek
                 return true;
             }
 
+            // Baseline names are per-UT, so crash residue from SaveBaseline never gets
+            // overwritten by a later write and would accumulate without this sweep.
+            FileIOUtils.SweepStaleSafeWriteTemps(dir, BaselineFileSearchPattern, "GameStateStore");
+
             try
             {
-                string[] files = Directory.GetFiles(dir, "baseline_*.pgsb");
+                string[] files = Directory.GetFiles(dir, BaselineFileSearchPattern);
                 ParsekLog.Verbose("GameStateStore", $"Found {files.Length} baseline files in {dir}");
 
                 foreach (string file in files)

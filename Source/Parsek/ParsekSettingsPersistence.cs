@@ -74,6 +74,14 @@ namespace Parsek
         private static bool loaded;
 
         /// <summary>
+        /// TEST SEAM ONLY - null in the game. Replaces <see cref="GetFilePath"/>'s
+        /// <c>KSPUtil.ApplicationRootPath</c> resolution (which throws outside Unity) so a test
+        /// can drive <see cref="LoadIfNeeded"/> against a temp file. Cleared by
+        /// <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static string FilePathOverrideForTesting;
+
+        /// <summary>
         /// Resolves the settings file path under GameData/Parsek/PluginData/.
         /// PluginData is the KSP convention for runtime-written, non-asset state:
         /// it's excluded from ModuleManager's patch cache, survives mod updates
@@ -82,6 +90,8 @@ namespace Parsek
         /// </summary>
         internal static string GetFilePath()
         {
+            if (!string.IsNullOrEmpty(FilePathOverrideForTesting))
+                return FilePathOverrideForTesting;
             string root = KSPUtil.ApplicationRootPath ?? "";
             return Path.Combine(root, "GameData", "Parsek", "PluginData", FileName);
         }
@@ -97,6 +107,7 @@ namespace Parsek
             loaded = true;
 
             string path = GetFilePath();
+            FileIOUtils.SweepStaleSafeWriteTemp(path, Tag);
             if (!File.Exists(path))
             {
                 ParsekLog.Verbose(Tag, $"No settings file at '{path}' — using defaults");
@@ -546,6 +557,7 @@ namespace Parsek
             storedWarpHour = null;
             storedWarpMinute = null;
             loaded = false;
+            FilePathOverrideForTesting = null;
         }
 
         /// <summary>

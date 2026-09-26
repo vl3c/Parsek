@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 
 namespace Parsek
@@ -49,6 +50,118 @@ namespace Parsek
                 ParsekLog.Warn(tag,
                     $"Failed to delete orphaned save sidecar '{saveBaseName}{LoadMetaExtension}': {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Suffix of the sibling temp file both safe-write entry points serialize into before the
+        /// swap (<c>&lt;path&gt;.tmp</c>). One constant for the producer and both sweepers: the
+        /// recordings sweep (<c>RecordingStore.IsTransientSidecarArtifactFile</c>) and
+        /// <see cref="SweepStaleSafeWriteTemp"/> for the fixed-path stores.
+        /// </summary>
+        internal const string SafeWriteTempSuffix = ".tmp";
+
+        /// <summary>
+        /// Deletes the stale <c>&lt;path&gt;.tmp</c> that a crash between the temp write and the
+        /// swap of <see cref="SafeWriteConfigNode"/> / <see cref="SafeWriteBytes"/> leaves next to
+        /// <paramref name="path"/>. Called from a store's LOAD path before it reads
+        /// <paramref name="path"/>; returns true when a file was deleted.
+        ///
+        /// <para>
+        /// Safe because a safe-write is synchronous on the main thread and Parsek starts no
+        /// threads (<c>grep-audit-background-threads.ps1</c>): when a load runs, no write of the
+        /// same file can be in flight, so any <c>.tmp</c> on disk is residue from a process that
+        /// died mid-write. The residue is never read (a crash mid-save keeps the previous file,
+        /// which is what the load uses), so it is deleted, not promoted: a partial temp file
+        /// cannot be told from a complete one. <paramref name="path"/> itself is never touched,
+        /// and neither is the swap fallback's <c>.bak.&lt;guid&gt;</c>, which in the
+        /// double-failure corner holds the only copy of the previous bytes. Fail-open: an IO
+        /// error is logged and swallowed, and the next successful write overwrites the file.
+        /// </para>
+        /// </summary>
+        internal static bool SweepStaleSafeWriteTemp(string path, string tag)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            string tmpPath = path + SafeWriteTempSuffix;
+            try
+            {
+                if (!File.Exists(tmpPath))
+                    return false;
+                long bytes = new FileInfo(tmpPath).Length;
+                File.Delete(tmpPath);
+                ParsekLog.Info(tag,
+                    $"SafeWrite: deleted stale temp file '{tmpPath}' ({bytes.ToString(CultureInfo.InvariantCulture)} bytes, " +
+                    $"left by an interrupted save); '{Path.GetFileName(path)}' untouched " +
+                    $"destExists={File.Exists(path)}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(tag,
+                    $"SafeWrite: failed to delete stale temp file '{tmpPath}' " +
+                    $"({ex.GetType().Name}: {ex.Message}); left in place, the next save overwrites it");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Directory form of <see cref="SweepStaleSafeWriteTemp"/> for stores whose file names
+        /// vary (the per-UT <c>baseline_*.pgsb</c>): deletes every
+        /// <c>&lt;file&gt;.tmp</c> in <paramref name="dir"/> whose stem matches
+        /// <paramref name="fileSearchPattern"/> (a pattern for the REAL file, e.g.
+        /// <c>baseline_*.pgsb</c>). Non-recursive. Unlike the fixed-path stores, these names
+        /// never repeat, so without a sweep the residue would accumulate. Returns the count
+        /// deleted; logs one summary line. Same safety argument and fail-open contract.
+        /// </summary>
+        internal static int SweepStaleSafeWriteTemps(string dir, string fileSearchPattern, string tag)
+        {
+            if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(fileSearchPattern))
+                return 0;
+
+            string[] candidates;
+            try
+            {
+                if (!Directory.Exists(dir))
+                    return 0;
+                candidates = Directory.GetFiles(dir, fileSearchPattern + SafeWriteTempSuffix,
+                    SearchOption.TopDirectoryOnly);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(tag,
+                    $"SafeWrite: failed to list stale temp files in '{dir}' " +
+                    $"({ex.GetType().Name}: {ex.Message}); left in place");
+                return 0;
+            }
+
+            int deleted = 0;
+            int failed = 0;
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                // Windows GetFiles matches a 3-char extension as a prefix ("*.tmp" also
+                // returns "x.tmpx"), so re-check the exact suffix before deleting.
+                if (!candidates[i].EndsWith(SafeWriteTempSuffix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try
+                {
+                    File.Delete(candidates[i]);
+                    deleted++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    ParsekLog.Warn(tag,
+                        $"SafeWrite: failed to delete stale temp file '{candidates[i]}' " +
+                        $"({ex.GetType().Name}: {ex.Message}); left in place");
+                }
+            }
+
+            if (deleted > 0 || failed > 0)
+                ParsekLog.Info(tag,
+                    $"SafeWrite: swept stale temp files in '{dir}' pattern={fileSearchPattern}{SafeWriteTempSuffix} " +
+                    $"deleted={deleted.ToString(CultureInfo.InvariantCulture)} failed={failed.ToString(CultureInfo.InvariantCulture)}");
+            return deleted;
         }
 
         /// <summary>
@@ -105,7 +218,7 @@ namespace Parsek
                 Directory.CreateDirectory(dir);
             }
 
-            string tmpPath = path + ".tmp";
+            string tmpPath = path + SafeWriteTempSuffix;
             DestState destBefore = crashAfterTempPattern != null ? ProbeDest(path) : default(DestState);
 
             bool saved;
@@ -165,7 +278,7 @@ namespace Parsek
                 Directory.CreateDirectory(dir);
             }
 
-            string tmpPath = path + ".tmp";
+            string tmpPath = path + SafeWriteTempSuffix;
             DestState destBefore = crashAfterTempPattern != null ? ProbeDest(path) : default(DestState);
             try
             {

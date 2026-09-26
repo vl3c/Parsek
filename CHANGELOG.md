@@ -1154,6 +1154,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A save interrupted by a crash no longer leaves a stray `.tmp` file next to Parsek's
+  career files.** Parsek writes each file to a temporary copy and then swaps it into place, so a
+  crash at that instant keeps the previous file and leaves the temporary copy beside it. Only the
+  recordings folder was cleaned of these copies; the ledger (`ledger.pgld`), game-state events
+  (`events.pgse`), milestones (`milestones.pgsm`), per-UT baselines (`baseline_*.pgsb`) and the
+  install-wide `settings.cfg` kept theirs. Each of those now deletes its own leftover
+  `<file>.tmp` when it loads, before reading the real file, which it never touches. The baselines
+  mattered most: their names change with every save, so their leftovers accumulated instead of
+  being overwritten by the next save. No data was ever lost; this removes litter.
+
 - **Astronaut Complex: a stand-in and the kerbal it stands in for count as one active kerbal.**
   While your committed timeline holds a kerbal, Parsek puts a generated stand-in in that seat,
   and stock counted the two as two active kerbals: the complex could read `Active Kerbals: 6
