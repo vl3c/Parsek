@@ -15,6 +15,67 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: every repeat submission of a science subject re-credited the earlier ones~~ [FILED AND FIXED 2026-09-26, branch `fix-deployed-science-ledger`]
+
+`GameStateRecorder.OnScienceReceived` stored `science = subject.science`, the subject's RUNNING
+total after stock's `SubmitScienceData` added the award (`subject.science += value`, then
+`OnScienceRecieved` fires with the award; decompiled KSP 1.12.5). Every ledger consumer ADDS
+`ScienceEarning` rows per subject (`ScienceModule.ProcessEarning`,
+`LedgerOrchestrator.BuildCommittedScienceSubjectCredits`,
+`LedgerLoadMigration.GetLedgerScienceEarningTotal`), capped only by the subject cap. So a
+subject submitted N times was credited 1 + 2 + ... + N shares. The capture comment claimed a
+max-merge; only the provisional `GameStateStore.CommitScienceActions` cache write merges by
+max, and the recalc's rebuild replaces it with the summed ledger.
+
+Scope: ALL science, not only deployed experiments. Any subject submitted more than once
+over-credited: a second transmission, a transmit then a recovery, two canisters of the same
+subject in one recovery, and a subject whose `subject.science` already carried committed
+science injected by `ScienceSubjectPatch`. Breaking Ground deployed experiments hit it
+hardest: they send about ten chunks per subject, so a subject reached its cap after three or
+four sends while stock was at a third of it, and in the KSC scene the patch-back of the
+inflated credit into `subject.science` compounded each later send.
+
+Proof (`DeployedScienceLedgerTests`): three KSC sends of 8 on `deployedSeismicSensor@...`
+(running totals 8 / 16 / 24, cap 80) filed as the old capture wrote them credit 48 through
+`TryRecordKscScienceSubject` + `RecalculateAndPatch`; stock holds 24. Through the fixed capture
+core the same three callbacks credit 24.
+
+**Fix.** The capture files the increment:
+`GameStateRecorder.ComputeScienceSubjectIncrement(amount, ScienceGainMultiplier, subject.science)`
+= `amount / multiplier`, in subject units (stock scales the event amount by
+`Career.ScienceGainMultiplier` but not `subject.science`), clamped to the running total. The
+headless core `CaptureScienceSubject` takes every value the stock callback supplies. Mirror
+directions checked: recovery bursts (one callback per data, each an increment), the
+committed-science cache (rebuilt as the capped sum after every recalc), Re-Fly tombstones
+(retiring a recording's rows now removes exactly its share), rewind replay (the patch-back
+writes the credited sum, which now equals stock's running total), and the earnings-window /
+post-walk reconcilers (they compare rows to `ScienceChanged` deltas, which are increments).
+Not migrated: ledger rows already written with running totals by older builds keep their
+over-credit (no migration path, like every other ledger capture fix). S1 of
+KSP-SETTINGS-AUDIT-2026-09-26 (the multiplier is not applied to ledger science) is unchanged
+and still open; the increment stays in subject units so a stamped multiplier can apply on top.
+
+## DEPLOYED-SCIENCE-IS-ALWAYS-UNTAGGED: Breaking Ground deployed-experiment science is never tagged to the flown recording [OPERATOR RULING 2026-09-26; IMPLEMENTED 2026-09-26, branch `fix-deployed-science-ledger`]
+
+Deployed experiments (`deployedSeismicSensor`, `deployedWeatherReport`,
+`deployedGooObservation`, `deployedIONCollector`, `SquadExpansion/Serenity/Resources/ScienceDefs.cfg`)
+transmit from a ground station in any scene, every 60 s of game time, with no source vessel.
+Before the ruling a send that landed during a flight was tagged to whichever recording was
+live, so a Re-Fly could tombstone it and it could auto-seal the slot. Ruling: always an
+untagged row, like KSC and Tracking Station science.
+
+Implemented: `GameStateRecorder.IsDeployedScienceSubjectId` (ordinal prefix `deployed`; a
+subject id is `experimentId@...`). `CaptureScienceSubject` forces the tag empty, writes the row
+straight to the ledger through `TryRecordKscScienceSubject` even with a live recorder or an
+uncommitted tree (never `PendingScienceSubjects`, whose commit-time window routing would tag
+it), and untags the matched `ScienceChanged` event so the commit reconcile does not count it.
+`ResolveKscScienceRecordingId` skips the recovery picker for it (stock submits it as
+`VesselRecovery`). `SupersedeCommit.IsRetryBlockingRecordingAction` and the auto-seal preview
+exclude it, which also covers rows older builds tagged. A Revert still drops such a row with
+the other untagged post-launch rows (`Ledger.PruneOrphanActionsAfterUT`), matching stock,
+whose revert also rolls the send back. Left alone: an older build's tagged deployed rows are
+still tombstoned by a Re-Fly of their recording.
+
 ## ~~PERSISTENT-ROTATION-NEVER-DETECTED: the spin capture never ran on any KSP 1.12 install~~ [FILED AND FIXED 2026-09-26, branch `persistent-rotation`]
 
 `FlightRecorder.InitializeRecordingFlags` detected the mod with
@@ -73,7 +134,8 @@ Bugs (no ruling needed):
 
 - S1. `Career.ScienceGainMultiplier` is not applied to ledger science. Stock adds the
   pre-multiplier value to `subject.science`, then multiplies before `AddScience`; Parsek
-  captures `subject.science` (`GameStateRecorder`) and credits it as `ScienceAwarded`, so on
+  captures the pre-multiplier increment (`GameStateRecorder.ComputeScienceSubjectIncrement`,
+  since SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT) and credits it as `ScienceAwarded`, so on
   Easy (x2), Moderate (x0.9) and Hard (x0.6) the ledger drifts from the live pool and a rewind
   resets science to the x1 total. Fix: stamp the multiplier at capture; never read the
   current multiplier at replay.
