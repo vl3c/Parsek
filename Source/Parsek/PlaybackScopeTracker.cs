@@ -72,6 +72,43 @@ namespace Parsek
             return !recordingsInReplayScope.Contains(recordingId);
         }
 
+        /// <summary>
+        /// Notes the playhead for every recording in <paramref name="recordings"/> (the
+        /// per-frame sweep FLIGHT and the Space Center run inline over the committed list, and
+        /// the Tracking Station runs through this). Returns how many were newly latched. A
+        /// recording whose activation start is already behind the playhead (outside tolerance)
+        /// is never latched here, so a genuinely historical recording stays historical no
+        /// matter which scene sweeps it. A clock that is not ready (UT not positive, or NaN:
+        /// a scene that has not loaded the save's time yet) sweeps nothing, because UT 0 would
+        /// sit before every recording and latch the whole history.
+        /// </summary>
+        internal static int NotePlayheadSweep(IReadOnlyList<Recording> recordings, double currentUT)
+        {
+            if (!IsSweepClockReady(currentUT))
+                return 0;
+            int newlyLatched = 0;
+            int count = recordings != null ? recordings.Count : 0;
+            for (int i = 0; i < count; i++)
+            {
+                Recording rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                if (recordingsInReplayScope.Contains(rec.RecordingId))
+                    continue;
+                NotePlayhead(rec.RecordingId, currentUT,
+                    PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec));
+                if (recordingsInReplayScope.Contains(rec.RecordingId))
+                    newlyLatched++;
+            }
+            return newlyLatched;
+        }
+
+        /// <summary>True when <paramref name="currentUT"/> is a loaded game clock a sweep may trust.</summary>
+        internal static bool IsSweepClockReady(double currentUT)
+        {
+            return !double.IsNaN(currentUT) && !double.IsInfinity(currentUT) && currentUT > 0.0;
+        }
+
         /// <summary>True iff the recording has been latched into replay scope.</summary>
         internal static bool IsInReplayScope(string recordingId)
         {

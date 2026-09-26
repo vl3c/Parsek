@@ -5336,43 +5336,108 @@ unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by de
   claimed (coverage 243 -> 244 of 247); offline negative control red on 22 of 22 seeded faults.
   H28 re-flown `2026-09-26_1123` PASS, confirming its derived `total=4 skipped=2` pin.
 
-## GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15, PARTIAL]
+## GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST: the continuation-hold pass has no manager-level dedupe test, and FLIGHT scans for it every frame [FILED 2026-09-26 by the commnet-followups review. OPEN, low; test and performance hygiene, no live defect]
+
+- The pass-3 identity dedupe in `GhostCommNetManager.Tick` (`ChainVesselCoveredByRecording` before a
+  continuation-hold entry) can be removed with no test going red; only the pure pieces are pinned. The
+  duplicate it guards (a chain-intermediate recording's hold beside the pre-claim snapshot node of the
+  same vessel) needs a recording in replay scope while its vessel is real, which should be unreachable.
+  Fix: move the pass ordering and dedupe into a pure function and pin it, or give the manager a
+  headless seam for the CommNet types.
+- FLIGHT evaluates `ApplyContinuationHold` every frame for every in-scope unspawned recording with
+  `TerminalSpawnSupersededByRecordingId` set, scanning the committed list even far from EndUT (O(K*n)
+  per frame). Fine at today's scales. Fix: gate it to near or past EndUT as the Tracking Station does.
+
+## ~~GHOSTCOMMNET-CHAIN-GHOST-NODE-GAP: a chain-ghosted real vessel has no CommNet node between its first claim and its reappearance~~ [FILED 2026-09-26 from the GUI-D3 closure; design 15.6 scenario 15. DONE 2026-09-26, branch `commnet-followups`; two Tracking Station sub-cases left dark, below]
 
 Design 15.6 scenario 15 says a real vessel despawned because a committed future recording claims
-it keeps relaying until the claim resolves. What ships covers only the stretch BEFORE the first
-claim: `GhostCommNetManager` relays a chain-ghosted vessel from its despawn snapshot's orbit until
-the claim UT. From the first claim to the vessel's reappearance (the chain tip's spawn) it has a
-node only when a committed recording carrying it is itself in its ghost window and eligible
-(real run, playback on, CommNet-capable). Otherwise it drops out of the network.
+it keeps relaying until the claim resolves. What shipped covered only the stretch BEFORE the first
+claim (the despawn snapshot's orbit); from the first claim to the chain tip's spawn the vessel had
+a node only while a committed recording carrying it was in its ghost window.
 
-Why: chain ghosts are never positioned. `ParsekFlight.PositionChainGhosts` skips an entry when
-`info.ghostGO == null`, and `VesselGhoster.GhostVessel` never creates one (`ghostGO = null`,
-"Ghost GO creation deferred to 6b-4"), so there is no chain-ghost position to hang a node on
-after the claim.
+**What the gap actually was (re-derived 2026-09-26).** The filed cause (chain ghosts are never
+positioned) is true but is not what went dark. Between the first claim and the tip, the vessel is
+always one of three things:
+- inside a committed recording's window (the claiming tree's post-dock merged vessel, the
+  vessel's own background recording, a later tree's recording of it). That recording IS eligible
+  for its own node already: `ShouldSkipExternalVesselGhost` exempts a chain-ghosted pid, and an
+  in-window recording has no spawn gate;
+- docked into another vessel: that vessel's recording carries it (its own snapshot), so the
+  vessel is never counted twice;
+- on rails between two recordings: a recording of the vessel ended (Orbiting / Landed /
+  Splashed) and the next claim or recording of it has not started. THIS was the dark stretch. The
+  ended recording is excluded `window-ended`: its real terminal spawn is owned by a later
+  continuation (an intermediate ghost-chain link, `ShouldSuppressSpawnForChain`, or a terminal
+  spawn superseded by a continuation, `TerminalSpawnSupersededByRecordingId`), so `NeedsSpawn` is
+  false, and it is not an optimizer mid-chain segment, so no hold applied. The committed fixture
+  `bdock-second-dock-recorded` has exactly this shape: mission A's station tip `37d0dc07` ends
+  Orbiting at UT 8950.61, its spawn superseded by mission B's post-dock `30b49a24` at 11794.68,
+  so after a rewind to before 8950.6 the station was dark for 2844 s.
 
-Fix: when chain ghosts get a position (6b-4, or a mesh-independent chain-ghost position resolver
-like `TryResolvePlaybackWorldPosition`), feed it to the manager for the claim-to-tip span. Until
-then the design's scenario 15 row should read "until the first claim". Low: the case needs a
-committed future recording that docks with or boards a real relay the player depends on.
+The chain map ProtoVessel (`GhostMapPresence.CreateGhostVessel(chain, tip)`) is not a sound
+position source for that stretch: it sits on the TIP's terminal orbit for the whole window and is
+never re-stamped (`UpdateChainGhostOrbitIfNeeded` runs only when a ghost GO exists).
+`FindBackgroundRecordingForChain` returns only a recording covering the UT, which already has its
+own node.
 
-## GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED: a Tracking Station entered first excludes a playback-disabled recording from the ghost CommNet [FILED 2026-09-26 from the GUI-D3 closure; low]
+**Fix.** A continuation gap hold (`GhostCommNetMath.ApplyContinuationHold` /
+`TryResolveContinuationHold` / `ResolveContinuationHoldUntilUT`, reason `continuation-gap-hold`):
+a recording whose real terminal spawn a later continuation owns is held past EndUT at its end
+antenna state and at the position the vessel sits in on rails (the existing held source: the
+recorded terminal surface point, else the spawn path's terminal orbit propagated to now), until
+the earliest takeover: the next ghost-chain claim at or after its end, or the activation of a
+later recording of the same launch (or of the recording its spawn was superseded by). No known
+takeover, or a later recording already running at its end, means no hold (never open-ended).
+Never held when a real vessel of that launch exists (it has its own stock node). Registration
+precedence in `GhostCommNetManager.Tick`: recordings in window or held for a spawn / chain gap,
+then the despawn-snapshot chain node (before the first claim), then continuation holds, each
+later pass yielding to a launch identity already relaying (`RegistrationPass`). FLIGHT and the
+Tracking Station both compute it. Each outcome logs once per change (`Continuation hold: key=...`).
+Unit tests in `GhostCommNetTests` (the bdock-second-dock shape, the dock-merge superseder with
+another pid, a chain claim before any carrier, the gates, the precedence).
 
-The Tracking Station ghost CommNet driver (`ParsekTrackingStation`, the `PlaybackScopeTracker
-.IsHistoricalNeverReplayed` read) honours the replay-scope latch but never notes a playhead
-itself. The TS notes playheads only on its map-presence paths (`GhostMapPresence`), and the
-create path declines a playback-disabled recording before reaching them. So when the Tracking
-Station is the FIRST scene to see a playback-disabled recording's start, that recording is never
-latched and its ghost relay is excluded as `historical-never-replayed`. In normal play the TS is
-always reached through the Space Center or a flight, and both note every committed recording
-every frame, so the latch is set long before; only `LoadGame scene=trackstation` from the main
-menu (a harness road) skips them. CN-1T boots FLIGHT first for this reason.
+**Left dark, deliberately:**
+- Tracking Station, before the first claim: the Tracking Station has no chain-ghosted vessels, so
+  a vessel a flight despawned (and the save therefore no longer holds) has no despawn snapshot to
+  relay from there. It relays again once a recording carrying it starts. A snapshot relay would
+  need the flight's despawn snapshots carried across the scene change; not done.
+- Tracking Station, chain-claimed vessel still real there (no flight ran after the load, so it was
+  never despawned): its stock node relays, and an in-window committed recording of it in the
+  claiming tree also registers a ghost node (`ShouldSkipExternalVesselGhost` lets a tree's own
+  recording through). A narrow pre-existing double count, not introduced here; it needs a save
+  loaded straight into the Space Center or Tracking Station with a claim still ahead.
 
-Same host, second seam (moved here from GUI-D3): the Tracking Station learns a spawn hold only
-past EndUT, so a held node there can be dark for up to one 0.25 s lifecycle tick at its EndUT;
-FLIGHT bridges that seam.
+**Live proof: none cheap.** `bdock-second-dock-recorded` has the gap shape, but the station
+(Mk1-3 pods, Communotron 88-88 direct dishes, no RC-L01) has no relay antenna and no probe control
+point, so its node is excluded `no-relay-or-control-capability` whatever the hold says. A lane
+needs a claimed vessel that relays.
 
-Fix: note the playhead for every committed recording in the TS ghost CommNet driver's own pass
-(as `ParsekFlight` / `ParsekKSC` do), and read the spawn hold at EndUT rather than after it.
+## ~~GHOSTCOMMNET-TS-PLAYBACK-DISABLED-NEVER-LATCHED: a Tracking Station entered first excludes a playback-disabled recording from the ghost CommNet~~ [FILED 2026-09-26 from the GUI-D3 closure; low. DONE 2026-09-26, branch `commnet-followups`; CN-1T re-flight pending]
+
+The Tracking Station ghost CommNet driver honoured the replay-scope latch
+(`PlaybackScopeTracker.IsHistoricalNeverReplayed`) but never noted a playhead itself; it noted
+playheads only on its map-presence create paths, which decline a playback-disabled recording
+first. So a Tracking Station that was the FIRST scene to see a playback-disabled recording's start
+never latched it, and its ghost relay was excluded as `historical-never-replayed`. Only
+`LoadGame scene=trackstation` from the main menu reached it; CN-1T booted FLIGHT first for that
+reason.
+
+Same host, second seam: the Tracking Station worked out a spawn hold only past EndUT, so a held
+node could be dark for up to one 0.25 s lifecycle tick at its EndUT.
+
+**Fix.** `ParsekTrackingStation.Update` now runs `PlaybackScopeTracker.NotePlayheadSweep` over
+every committed recording every frame, as FLIGHT and the Space Center already note every committed
+recording every frame, so every Tracking Station consumer of the latch (map presence, the spawn
+handoff, the ghost CommNet) sees the same scope. BUG-B's intent holds: the sweep latches only a
+recording whose activation start is at or ahead of the playhead (plus the 2 s tolerance), so a
+recording committed in the past and never rewound to stays historical whichever scene sweeps it;
+a clock that is not loaded yet (UT not positive) sweeps nothing, because UT 0 would sit before
+every recording. The seam: when an in-window recording is within two lifecycle ticks of its end at
+the current warp (`ShouldPredictHoldPastEnd`), the Tracking Station works out its spawn, chain and
+continuation holds at EndUT, so the node's CommNet hook keeps it lit across EndUT
+(`ExpectHoldPastEnd`, as FLIGHT does every frame). Unit tests in `PlaybackScopeTrackerTests`
+(`Sweep_*`) and `GhostCommNetTests` (`HoldPrediction_OnlyNearTheEnd`). CN-1T now boots straight
+into the Tracking Station and is the live proof; its re-flight is pending.
 
 ## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
 
