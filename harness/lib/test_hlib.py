@@ -17500,23 +17500,23 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             self.assertNotIn(op, hlib.UIACTION_OPS_NEEDING_WINDOW)
             self.assertIn(op, hlib.UIACTION_OP_VALUES)
             self.assertEqual([], hlib.validate_ui_action_step(
-                1, {"op": op, "popup": "wiperecordings"}))
+                1, {"op": op, "popup": "deleteroute"}))
             # A window= is the ops-needing-window rule's own refusal.
             errors = hlib.validate_ui_action_step(
-                2, {"op": op, "popup": "wiperecordings", "window": "missions"})
+                2, {"op": op, "popup": "deleteroute", "window": "missions"})
             self.assertTrue(any("does not read it" in e for e in errors), (op, errors))
 
         # press= on a dismiss is legal; on a raise it is refused with the reason.
         self.assertEqual([], hlib.validate_ui_action_step(
-            3, {"op": "dismiss", "popup": "wiperecordings", "press": "Cancel"}))
+            3, {"op": "dismiss", "popup": "deleteroute", "press": "Cancel"}))
         errors = hlib.validate_ui_action_step(
-            4, {"op": "raise", "popup": "wiperecordings", "press": "Cancel"})
+            4, {"op": "raise", "popup": "deleteroute", "press": "Cancel"})
         self.assertTrue(any("only op=dismiss reads it" in e for e in errors), errors)
 
     def test_uiaction_popup_and_press_are_flagged_on_ops_that_ignore_them(self):
         for key in ("popup", "press"):
             errors = hlib.validate_ui_action_step(
-                0, {"op": "dialog", key: "wiperecordings"})
+                0, {"op": "dialog", key: "deleteroute"})
             self.assertTrue(
                 any(("args.%s: only op=raise and op=dismiss read it" % key) in e
                     for e in errors), (key, errors))
@@ -17556,7 +17556,8 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual(tuple(hlib.UIACTION_POPUP_VALUES),
                          tuple(consts[name] for name in used))
         # The dialogs the table names but refuses to raise must NOT have leaked in.
-        for absent in ("merge", "preswitch", "ghosticon", "refly"):
+        for absent in ("merge", "preswitch", "ghosticon", "refly",
+                       "wiperecordings", "wipemilestones"):
             self.assertNotIn(absent, hlib.UIACTION_POPUP_VALUES)
 
     def test_the_popup_table_parse_is_not_vacuous(self):

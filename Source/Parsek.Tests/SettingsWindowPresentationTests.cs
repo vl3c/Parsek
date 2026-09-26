@@ -118,18 +118,5 @@ namespace Parsek.Tests
             Assert.Contains("except", SettingsWindowPresentation.DefaultsButtonTooltip);
         }
 
-        // catches: the Data Management wipe control drifting back to naming "game actions".
-        // MilestoneStore.ClearAll clears the MILESTONE list only - the ledger's GameAction
-        // rows survive it - so a label or reason naming game actions promises an effect the
-        // handler does not have (finding P5).
-        [Fact]
-        public void WipeMilestonesDisabledReason_NamesMilestonesNotGameActions()
-        {
-            string reason = SettingsWindowUI.WipeMilestonesDisabledReason(0);
-
-            Assert.Equal("There are no milestones to wipe", reason);
-            Assert.DoesNotContain("game action", reason);
-            Assert.Equal(string.Empty, SettingsWindowUI.WipeMilestonesDisabledReason(1));
-        }
     }
 }

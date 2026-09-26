@@ -389,24 +389,6 @@ namespace Parsek.Tests
             Assert.DoesNotContain("Retired Mission / Debris", GroupHierarchyStore.HiddenGroups);
         }
 
-        [Fact]
-        public void ClearCommitted_PrunesGroupHierarchy()
-        {
-            GroupHierarchyStore.groupParents["Stale / Debris"] = "Stale";
-            GroupHierarchyStore.hiddenGroups.Add("Stale / Debris");
-            RecordingStore.AddRecordingWithTreeForTesting(new Recording
-            {
-                RecordingId = "rec-group-clear",
-                VesselName = "Group Clear",
-                RecordingGroups = new List<string> { "Stale / Debris" }
-            });
-
-            RecordingStore.ClearCommitted();
-
-            Assert.Empty(GroupHierarchyStore.GroupParents);
-            Assert.Empty(GroupHierarchyStore.HiddenGroups);
-        }
-
         // ─── GetDescendantGroups ───────────────────────────────────────────
 
         [Fact]

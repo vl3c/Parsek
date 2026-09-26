@@ -1519,8 +1519,8 @@ namespace Parsek
         /// matter:
         /// <list type="bullet">
         ///   <item><description><c>!committedTreeStateLoaded</c> — the committed tree/mission load
-        ///   did not complete. A successful/fresh load and every INTENTIONAL empty state (the
-        ///   player's "Wipe All" / delete-all runs against a fully-loaded store) leave
+        ///   did not complete. A successful/fresh load and every INTENTIONAL empty state (an
+        ///   internal clear that runs against a fully-loaded store) leave
         ///   <c>committedTreeStateLoaded == true</c>, so the guard can never resurrect
         ///   deliberately-removed recordings. Only a throw DURING tree/mission load leaves it
         ///   false. (initialLoadDone is unusable for this: it is set true at cold-start ENTRY,

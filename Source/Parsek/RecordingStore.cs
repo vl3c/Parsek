@@ -330,12 +330,12 @@ namespace Parsek
 
         // Merged to timeline — these auto-playback during flight.
         //
-        // POLICY: Individual recording deletion is not supported.
-        // Recordings can only be committed (at merge dialog) or discarded (before commit).
-        // The entire timeline can be wiped, but individual recordings cannot be removed
-        // after commit. This prevents time paradoxes (orphaned vessels, broken chains,
-        // inconsistent ghost playback).
-        // Future: timeline wipe from current UT forward (clear future, keep past).
+        // POLICY: the player can never delete a committed recording, singly or wholesale.
+        // Recordings can only be committed (at merge dialog) or discarded (before commit);
+        // a deletion would break the timeline and the ledger (orphaned vessels, broken
+        // chains, dangling anchors, inconsistent ghost playback). The per-row Archive
+        // (Hidden) checkbox is the only way to stop seeing one. Internal removals (optimizer
+        // merge, Re-Fly rollback, load-time sweeps, bundle restore) are not player deletions.
         private static List<Recording> committedRecordings = new List<Recording>();
 
         // Committed recording trees (parallel storage — tree recordings also appear in committedRecordings)
@@ -887,34 +887,6 @@ namespace Parsek
         {
             committedTrees.Clear();
             BumpStateVersion();
-        }
-
-        public static void ClearCommitted()
-        {
-            int count = committedRecordings.Count;
-            for (int i = 0; i < committedRecordings.Count; i++)
-                DeleteRecordingFiles(committedRecordings[i]);
-            committedRecordings.Clear();
-            committedTrees.Clear();
-            ClearCommittedTreeRestoreAttempt("ClearCommitted");
-            ClearRewindReplayTargetScope();
-            BumpStateVersion();
-            GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("clear-committed");
-            GameStateRecorder.PendingScienceSubjects.Clear();
-            Log($"[Parsek] Cleared {count} committed recordings and all trees");
-        }
-
-        public static void Clear()
-        {
-            pendingTree = null;
-            pendingTreeState = PendingTreeState.Finalized;
-            pendingTreeSerializedForSave = false;
-            savedPendingTreeDuringActiveRestore = null;
-            savedPendingTreeDuringActiveRestoreSerializedForSave = false;
-            ClearCommittedTreeRestoreAttempt("Clear");
-            ClearCommitted();
-            ClearRewindReplayTargetScope();
-            Log("[Parsek] All recordings cleared");
         }
 
         internal static void SetRewindReplayTargetScope(Recording owner)

@@ -681,11 +681,6 @@ namespace Parsek.Tests
 
             Assert.Equal(123u, RecordingStore.RewindReplayTargetSourcePid);
             Assert.Equal("rewind-target", RecordingStore.RewindReplayTargetRecordingId);
-
-            RecordingStore.ClearCommitted();
-
-            Assert.Equal(0u, RecordingStore.RewindReplayTargetSourcePid);
-            Assert.Null(RecordingStore.RewindReplayTargetRecordingId);
         }
 
         [Fact]
@@ -1298,21 +1293,6 @@ namespace Parsek.Tests
             RecordingStore.DiscardPendingTree();
 
             Assert.False(RecordingStore.HasPendingTree);
-            Assert.Empty(RecordingStore.CommittedRecordings);
-            Assert.Empty(RecordingStore.CommittedTrees);
-        }
-
-        [Fact]
-        public void ClearCommitted_ClearsTreesToo()
-        {
-            var tree = MakeTreeWithBranch();
-            RecordingStore.CommitTree(tree);
-
-            Assert.Equal(3, RecordingStore.CommittedRecordings.Count);
-            Assert.Single(RecordingStore.CommittedTrees);
-
-            RecordingStore.ClearCommitted();
-
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.Empty(RecordingStore.CommittedTrees);
         }

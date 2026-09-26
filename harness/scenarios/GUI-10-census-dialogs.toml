@@ -15,13 +15,14 @@ tier = "operator"
 # WHAT THIS LANE FLIES. `UiAction op=raise popup=<name>` calls ONE dialog's own production
 # spawn site and stops, so the modal stands for `op=dialog` to report and
 # `CaptureScreenshot` to photograph; `op=dismiss popup=<name>` takes it down afterwards.
-# Six modals get a picture here, in the table's own cheapest-first order:
+# Four modals get a picture here, in the table's own cheapest-first order:
 #   actionblocked   CommittedActionDialog.ShowBlocked         - no state at all, OK only
 #   savefailed      SceneExitInterceptor.ShowSaveFailedPopup  - zero args, OK only
-#   wiperecordings  ParsekUI.ShowWipeRecordingsConfirmation   - a count
-#   wipemilestones  ParsekUI.ShowWipeMilestonesConfirmation   - a count
 #   fastforward     RecordingsTableUI.ShowFastForwardConfirmation - a committed recording
 #   seal            UnfinishedFlightSealHandler.ShowConfirmation  - a committed recording
+# (The two Settings wipe confirmations this lane also photographed until 2026-09-26 left
+# the product with the Settings Data Management section: recordings are never
+# player-deletable. The lane needs a re-read flight after that change.)
 #
 # THE DUMP IS NOT THE EVIDENCE HERE, THE PNG IS, and that is a structural fact rather than
 # a shortcoming of this lane: every Parsek modal is a stock `PopupDialog`, which is uGUI,
@@ -31,9 +32,8 @@ tier = "operator"
 # but says nothing about the dialog. The machine-readable half of the dialog is the
 # `op=dialog` step and the raise's own response: name, title and the ordered button labels.
 #
-# NOTHING IS PRESSED THAT WOULD CHANGE THE SAVE. Four of the six carry a confirm button
-# that mutates - `Wipe All` clears every committed recording and unreserves every crew
-# reservation, `Seal Permanently` is a permanent merge plus an RP reap, `Fast-Forward`
+# NOTHING IS PRESSED THAT WOULD CHANGE THE SAVE. Two of the four carry a confirm button
+# that mutates - `Seal Permanently` is a permanent merge plus an RP reap, `Fast-Forward`
 # warps time - so `op=dismiss` defaults to `PopupDialog.DismissPopup` and the seam REFUSES
 # `press=` on any of them (`press-not-allowed`). The two informational popups carry a
 # single `OK` and nothing else, so the lane presses one of them to fly the press half of
@@ -75,8 +75,8 @@ tier = "operator"
 # Logistics confirms and Disband Group (a live Route / RouteCandidate / group closure).
 description = """
 The first pictures of any Parsek modal. Drives the new `UiAction op=raise` / `op=dismiss`
-seam ops over six of the 21 dialogs at the Space Center - the two informational popups, both
-Settings wipe confirmations and the two that need a committed recording - photographing each
+seam ops over four of the 19 dialogs at the Space Center - the two informational popups and
+the two that need a committed recording - photographing each
 one standing, with `op=dialog` reporting its name, title and buttons beside the PNG. Presses
 only the one harmless OK; every mutating confirm is dismissed unpressed, and the two typed
 refusals (no rewind owner on this host, and no second modal at a time) are pinned too.
@@ -134,44 +134,28 @@ steps = [
   # THE ONE-AT-A-TIME GUARD, flown while a modal is up rather than asserted in a unit
   # test: a second raise must be REJECTED, or the following op=dialog would report an
   # arbitrary one of two live popups.
-  { cmd = "UiAction", args = { op = "raise", popup = "wiperecordings" }, expect = "REJECTED" },
+  { cmd = "UiAction", args = { op = "raise", popup = "actionblocked" }, expect = "REJECTED" },
   { cmd = "UiAction", args = { op = "dismiss", popup = "savefailed" }, expect = "OK" },
 
-  # --- 3. Confirm: Wipe Recordings. Its `Wipe All` clears every committed recording in
-  # the save this lane is photographing, so it is dismissed UNPRESSED - and the seam
-  # refuses the press outright (press-not-allowed), which the unit cells pin.
-  { cmd = "UiAction", args = { op = "raise", popup = "wiperecordings" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "dlg-wiperecordings" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "dlg-wiperecordings" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "dismiss", popup = "wiperecordings" }, expect = "OK" },
-
-  # --- 4. Confirm: Wipe Milestones. The sibling confirmation, and the one whose wording
-  # the 2026-09-11 census read as stale ("Wipe Game Actions" in the inventory against
-  # `Confirm: Wipe Milestones` in the source) - so this picture is also the re-measurement.
-  { cmd = "UiAction", args = { op = "raise", popup = "wipemilestones" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "dlg-wipemilestones" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "dlg-wipemilestones" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "dismiss", popup = "wipemilestones" }, expect = "OK" },
-
-  # --- 5. Confirm: Fast-Forward, over the FIRST recording of the effective set (the
+  # --- 3. Confirm: Fast-Forward, over the FIRST recording of the effective set (the
   # applier resolves it through EffectiveState.ComputeERS(), so a superseded recording can
-  # never be the subject of a photographed dialog). Its confirm warps time; dismissed.
+  # never be the subject of a photographed dialog). Its confirm warps time, so it is
+  # dismissed UNPRESSED - and the seam refuses the press outright (press-not-allowed),
+  # which the unit cells pin.
   { cmd = "UiAction", args = { op = "raise", popup = "fastforward" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "dlg-fastforward" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "dlg-fastforward" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "dismiss", popup = "fastforward" }, expect = "OK" },
 
-  # --- 6. Confirm: Rewind is REJECTED on this host, and the refusal is the reading. The
+  # --- 4. Confirm: Rewind is REJECTED on this host, and the refusal is the reading. The
   # spawn site silently returns when the rewind OWNER does not resolve, and this fixture
   # carries no rewindSaveFileName on any of its recordings - so the applier refuses by
   # name rather than calling into the guard and then reporting a modal that is not there.
   # (`detail=no-rewind-owner-among=21` on this host, which is the staged corpus size.)
   { cmd = "UiAction", args = { op = "raise", popup = "rewind" }, expect = "REJECTED" },
 
-  # --- 7. Confirm: Seal Unfinished Flight, taken LAST because it is the one spawn site in
+  # --- 5. Confirm: Seal Unfinished Flight, taken LAST because it is the one spawn site in
   # the set that takes a ControlTypes.All input lock which only its own button callbacks
   # release. The dismiss clears that lock explicitly; taking it last means even a failure
   # to do so cannot wedge an earlier step.
@@ -200,8 +184,7 @@ allowedAnomalies = []
 [expectations.recordings]
 # The fixture's own STAGED corpus, unchanged, and 21 is a MEASURED number (run
 # `2026-09-15_1524`) rather than a count of the committed directory - staging is not a copy. It is the anti-vacuity floor for the two
-# recording-shaped raises AND the proof that nothing pressed a wipe: a run that had
-# confirmed one would read 0 here.
+# recording-shaped raises AND a proof that nothing pressed a mutating confirm.
 count = { min = 21, max = 21 }
 
 [expectations.logContracts]
@@ -210,21 +193,19 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
 
-  # --- THE SIX RAISES, each naming its live MultiOptionDialog and its title. The raise
+  # --- THE FOUR RAISES, each naming its live MultiOptionDialog and its title. The raise
   # line is written BEFORE the spawn and the `raise ok` line AFTER the settle confirmed
   # the standing popup carries that exact name, so the pair is what separates "the
   # production spawn site ran" from "its own guard returned silently".
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise ok popup=actionblocked name=ParsekResourceBlock title=Action Blocked nbuttons=1 buttons=OK",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise ok popup=savefailed name=ParsekSceneExitSaveFailed title=Save failed nbuttons=1 buttons=OK",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise ok popup=wiperecordings name=ParsekWipeRecordingsConfirm title=Confirm: Wipe Recordings nbuttons=2 buttons=Wipe All\\|Cancel",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise ok popup=wipemilestones name=ParsekWipeMilestonesConfirm title=Confirm: Wipe Milestones nbuttons=2 buttons=Wipe All\\|Cancel",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise ok popup=fastforward name=ParsekFastForwardConfirm title=Confirm: Fast-Forward nbuttons=2 buttons=Fast-Forward\\|Cancel",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise ok popup=seal name=ParsekUFSealDialog title=Confirm: Seal Unfinished Flight nbuttons=2 buttons=Seal Permanently\\|Cancel",
 
   # --- and `op=dialog` SAW them standing, which is the whole point of the raise: the
   # modal survived the report step and the capture after it.
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=true count=1 name=ParsekResourceBlock title=Action Blocked nbuttons=1 buttons=OK",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=true count=1 name=ParsekWipeRecordingsConfirm ",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=true count=1 name=ParsekFastForwardConfirm ",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=true count=1 name=ParsekUFSealDialog ",
 
   # --- the two recording-shaped raises resolved a REAL recording out of the effective set
@@ -232,14 +213,12 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise popup=fastforward name=ParsekFastForwardConfirm title=Confirm: Fast-Forward rec=[0-9a-f]{32} route=- candidate=- pressable=Cancel",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction raise popup=seal name=ParsekUFSealDialog title=Confirm: Seal Unfinished Flight rec=[0-9a-f]{32} route=- candidate=- pressable=Cancel",
 
-  # --- BOTH DISMISSAL ROUTES. One press (the only harmless button in the set) and five
+  # --- BOTH DISMISSAL ROUTES. One press (the only harmless button in the set) and three
   # plain dismissals, each confirmed gone after a drawn frame.
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss popup=actionblocked press=OK via=button",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=savefailed press=- open=false",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss popup=wiperecordings press=- via=dismisspopup",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=wiperecordings press=- open=false",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=wipemilestones press=- open=false",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss popup=fastforward press=- via=dismisspopup",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=fastforward press=- open=false",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=seal press=- open=false",
 
@@ -250,7 +229,7 @@ required = [
   "\\[Parsek\\]\\[VERBOSE\\]\\[UnfinishedFlights\\] Seal dialog input lock cleared",
 
   # --- THE TWO TYPED REFUSALS, each flown rather than unit-asserted.
-  "\\[Parsek\\]\\[WARN\\]\\[TestCommands\\] uiaction rejected reason=dialog-already-open popup=wiperecordings open=ParsekSceneExitSaveFailed count=1",
+  "\\[Parsek\\]\\[WARN\\]\\[TestCommands\\] uiaction rejected reason=dialog-already-open popup=actionblocked open=ParsekSceneExitSaveFailed count=1",
   "\\[Parsek\\]\\[WARN\\]\\[TestCommands\\] uiaction rejected reason=dialog-target-unavailable popup=rewind detail=no-rewind-owner-among=[0-9]+",
 
   # --- every dump, each pinning the arm-time funnel reading for its own frame. The dumps
@@ -259,8 +238,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=dlg-baseline-no-modal .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=dlg-actionblocked .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=dlg-savefailed .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=dlg-wiperecordings .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=dlg-wipemilestones .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=dlg-fastforward .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=dlg-seal .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=dlg-teardown-no-modal .*patched=17/17",
@@ -277,11 +254,9 @@ forbidden = [
   "press-unknown",
   "ui-action-not-settled",
   # NOT PRESSED, and this is the assertion that the lane cannot have destroyed its own
-  # fixture: the two wipe handlers and the seal handler each write one of these lines from
-  # inside the confirm callback, so their absence is the proof that only Cancel-shaped
-  # teardown happened. (`recordings.count` above is the second, independent proof.)
-  "All recordings wiped",
-  "All milestones wiped",
+  # fixture: the seal handler writes this line from inside its confirm callback, so its
+  # absence is the proof that only Cancel-shaped teardown happened. (`recordings.count`
+  # above is the second, independent proof.)
   "\\[Parsek\\]\\[INFO\\]\\[UnfinishedFlights\\] Sealed slot=",
 ]
 
