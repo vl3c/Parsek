@@ -67,7 +67,10 @@ namespace Parsek
         internal readonly bool AutoAccept;
         /// <summary>ContractAccept only: the accepted contract's agent as Mission Control
         /// shows it (the accept snapshot's <c>agent</c>, stock's <c>Agent.Title</c>), or null.
-        /// Several offers can share a title; the agent tells them apart.</summary>
+        /// Several offers can share a title; the agent tells them apart. The index reads the
+        /// snapshot only; a row with no snapshot agent is resolved against stock's live
+        /// contract list when the slot reason is rendered
+        /// (<see cref="ContractSlotReservation.WithStarvedAcceptAgent"/>).</summary>
         internal readonly string AgentTitle;
 
         internal CommittedFutureEntry(
@@ -96,6 +99,14 @@ namespace Parsek
             DeadlineUT = deadlineUT;
             AutoAccept = autoAccept;
             AgentTitle = string.IsNullOrEmpty(agentTitle) ? null : agentTitle;
+        }
+
+        /// <summary>A copy of this entry carrying <paramref name="agentTitle"/> as its agent.</summary>
+        internal CommittedFutureEntry WithAgentTitle(string agentTitle)
+        {
+            return new CommittedFutureEntry(
+                Kind, Key, UT, RecordingId, RecordingName, FacilityToLevel, Amount, Title,
+                FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle);
         }
     }
 
@@ -728,22 +739,37 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The agent Mission Control names for a contract: its accept snapshot's
-        /// <c>agent</c> value (stock <c>Contract.Save</c> writes <c>agent.Title</c>), else the
-        /// live contract's <c>Agent.Title</c> when stock still lists it (an offer the
-        /// committed timeline accepts later), else null.
+        /// The agent Mission Control names for a contract, from its accept snapshot's
+        /// <c>agent</c> value (stock <c>Contract.Save</c> writes <c>agent.Title</c>), or null.
+        /// Snapshot only: the index is rebuilt on scene load BEFORE stock's contract list is
+        /// loaded (<c>KspStatePatcher.PatchContracts</c> sees 0 current contracts), and nothing
+        /// rebuilds it once the list arrives, so a live read here would cache a null. A committed
+        /// accept with no snapshot agent is resolved live at render time instead
+        /// (<see cref="LiveContractAgentTitle"/> through
+        /// <see cref="ContractSlotReservation.WithStarvedAcceptAgent"/>).
         /// </summary>
         internal static string ContractAgentTitleFromSnapshot(string contractGuid)
         {
             if (string.IsNullOrEmpty(contractGuid)) return null;
-            string fromSnapshot = AgentTitleOfSnapshotNode(GameStateStore.GetContractSnapshot(contractGuid));
-            if (fromSnapshot != null) return fromSnapshot;
+            return AgentTitleOfSnapshotNode(GameStateStore.GetContractSnapshot(contractGuid));
+        }
+
+        /// <summary>
+        /// The live contract's <c>Agent.Title</c> when stock's contract list holds the guid
+        /// (an offer the committed timeline accepts later), else null. Never throws: a
+        /// missing contract system (no Career game, a headless test) reads as no agent.
+        /// </summary>
+        internal static string LiveContractAgentTitle(string contractGuid)
+        {
+            if (string.IsNullOrEmpty(contractGuid)) return null;
             try
             {
                 return ReadLiveContractAgentTitle(contractGuid);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                ParsekLog.VerboseRateLimited(Tag, "live-agent-read",
+                    "LiveContractAgentTitle: stock contract list unavailable (" + ex.GetType().Name + ") - no agent");
                 return null;
             }
         }

@@ -1159,7 +1159,15 @@ _(unreleased — entries accumulate here per commit)_
   status the three-line row cut off; the detail panel still gives the full explanation.
 - **Mission Control: the slot refusal names the contract's agent.** When several offers share
   a title, "Accept is unavailable" now says which one the committed timeline accepts, e.g.
-  "'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics".
+  "'Conduct a focused observational survey of Kerbin.' from Zaltonic Electronics". The agent
+  comes from the contract's saved accept record, or else from Mission Control's own offer list
+  at the moment the reason is shown; it was missing when the save kept no accept record,
+  because Parsek looked for the offer while the game was still loading its contracts.
+- **Astronaut Complex: a stand-in's dismiss refusal says whose seat he covers.** It read "This
+  kerbal is a stand-in in a reserved kerbal's replacement chain"; it now reads e.g. "Standing
+  in for Bill Kerman, who is held by a committed flight. Dismissing them would leave that seat
+  without a kerbal." A stand-in who covers no seat right now reads "Parsek keeps this kerbal as
+  a stand-in for a kerbal a committed flight holds."
 - **Timeline: a kerbal's experience row reads "XP: Jebediah Kerman (Landed Kerbin, Flight Kerbin,
   Recovered)" instead of the raw word "KerbalExperience".** The row a crewed recovery writes for the
   kerbal's career log had no Timeline display arm, so it showed as an unstyled event with the type name
