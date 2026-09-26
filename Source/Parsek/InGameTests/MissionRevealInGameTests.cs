@@ -40,8 +40,11 @@ namespace Parsek.InGameTests
     /// two synthetic committed trees through the non-flushing
     /// <see cref="RecordingStore.AddCommittedTreeInternal"/> (no sidecar writes, no merge, no
     /// grouping), lets the Missions tab seed their default missions the way it does for real
-    /// trees, and removes both in a finally. Nothing is written to disk; the batch's own
-    /// campaign isolation is a backstop, not the mechanism.</para>
+    /// trees, and removes both in a finally. The install writes nothing, but stock's scene-entry
+    /// save can land while the test yields, and ParsekScenario.OnSave then writes the trees'
+    /// sidecars like any committed tree's; so the points are production-shaped (a body name is
+    /// required by the binary sidecar writer) and the finally reaps any sidecars that save left.
+    /// The batch's own campaign isolation is a backstop, not the mechanism.</para>
     ///
     /// <para>The assertion is sort-independent: it reveals BOTH seeded missions and requires
     /// the two captured offsets to DIFFER. Two different rows cannot occupy the same offset,
@@ -174,6 +177,9 @@ namespace Parsek.InGameTests
             {
                 RecordingStore.RemoveCommittedTreeById(treeA, "MissionRevealInGameTests");
                 RecordingStore.RemoveCommittedTreeById(treeB, "MissionRevealInGameTests");
+                InGameTestSidecarReaper.DeleteSidecarsForIds(
+                    new[] { RootRecordingIdFor(treeA), RootRecordingIdFor(treeB) },
+                    "MissionRevealInGameTests");
                 PruneSeededMissions(treeA, treeB);
                 missions.ScrollPosForTesting = originalScroll;
                 MissionStore.HideArchived = originalHideArchived;
@@ -222,8 +228,9 @@ namespace Parsek.InGameTests
             return treeId + "-root";
         }
 
-        // A minimal committed tree: one recording with two trajectory points, installed through
-        // the non-flushing internal so nothing reaches disk.
+        // A minimal committed tree: one recording with two production-shaped trajectory points,
+        // installed through the non-flushing internal (an interleaved stock save may still write
+        // its sidecars; the finally reaps them).
         private static void SeedTree(string treeId, string vesselName)
         {
             var rec = new Recording
@@ -233,8 +240,8 @@ namespace Parsek.InGameTests
                 VesselName = vesselName,
                 SegmentPhase = "atmo"
             };
-            rec.Points.Add(new TrajectoryPoint { ut = 100.0 });
-            rec.Points.Add(new TrajectoryPoint { ut = 200.0 });
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 200.0, bodyName = "Kerbin" });
 
             var tree = new RecordingTree
             {
