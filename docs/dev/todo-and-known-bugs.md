@@ -33,7 +33,9 @@ Bugs (no ruling needed):
   captures `subject.science` (`GameStateRecorder`) and credits it as `ScienceAwarded`, so on
   Easy (x2), Moderate (x0.9) and Hard (x0.6) the ledger drifts from the live pool and a rewind
   resets science to the x1 total. Fix: stamp the multiplier at capture; never read the
-  current multiplier at replay.
+  current multiplier at replay. (The trace of this item found the capture also stored the
+  running subject total rather than the increment; filed and fixed separately as
+  SCIENCE-CUMULATIVE-CAPTURE-OVER-CREDIT below.)
 - ~~S2. `Career.RepLossDeclined` (Normal 1, Hard 3) never reaches the ledger: `ContractDeclined`
   is dropped in `GameStateEventConverter` and `ReputationPenaltySource.ContractDecline` is
   never constructed, so a rewind refunds the reputation. Fix: a KSC-origin reputation
@@ -158,6 +160,50 @@ spends no click-block covers; `AutoHireCrews` hire capture; Set Orbit / Set Posi
 inside a live recording; infinite-propellant recordings vs route cost manifests;
 `persistKerbalInventories` vs inventory-carrying recordings; alternate launch sites with
 `AllowOtherLaunchSites` off.
+
+---
+
+## ~~SCIENCE-CUMULATIVE-CAPTURE-OVER-CREDIT: a science capture stored the subject's running total, the ledger walk summed it as an increment~~ [FILED AND FIXED 2026-09-26 from the S1 science-multiplier trace, branch `kss-ledger`. Fix going forward only (owner decision 2026-09-26)]
+
+Bug: `GameStateRecorder.OnScienceReceived` built each `PendingScienceSubject` with
+`science = subject.science`, stock's CUMULATIVE subject total after the submission (and, after a
+commit, already lifted by `ScienceSubjectPatch` to the ledger's credited total), while
+`ScienceModule.ProcessEarning` and `BuildCommittedScienceSubjectCredits` sum `ScienceEarning`
+rows as increments. A second submission of one subject (a repeat transmission, a transmit then a
+partial recovery, the same subject in two recordings or at the KSC) credited
+`min(earlier total, cap - later total)` subject units too many, times the multiplier in the pool.
+Only a later submission that landed exactly on the cap hid it. Evidence: the committed
+`Source/Parsek.Tests/Fixtures/C1Career` ledger carries monotonically rising `scienceAwarded` rows
+per subject inside one recording (e.g. `mysteryGoo@MunInSpaceHigh` 6 rows walk to 24.0 against a
+last stock total of 9.106); about 45.8 subject units over-credited in total, and the save's R&D
+`sci` values equal the inflated ledger totals because the patcher wrote them back.
+`GameStateStore.CommitScienceSubject` max-merged, which is only right for totals, and its
+"merges by max" comment in the recorder described that.
+
+Fix: the capture records the increment one submission added, in pre-multiplier subject units:
+`GameStateRecorder.BuildCapturedScienceSubject` sets `science = amount / multiplier`
+(`ComputeSubjectScienceIncrement`; the amount itself when the multiplier is not positive), so
+with the S1 stamp `ScienceAwarded * ScienceGainMultiplier == amount` by construction, and flags
+it `scienceIsIncrement`. The converter carries the flag to the in-memory (never serialized)
+`GameAction.ScienceAwardedIsIncrement`. `CommitScienceActions` ADDS an increment row onto the
+cached subject total, capped at the subject cap and never lowering a total already above it
+(`MergeCommittedScienceIncrement`), and still max-merges an unflagged row as a total. That is how
+an old save's cache is not double counted: the cache stores totals in both eras, only a new
+capture's increment is ever summed onto one, and pending subjects are in-memory only, so no
+pre-fix capture can reach the new rule. The three cache mirror sites now pass only rows the dedup
+kept (`FilterSurvivingScienceActions` in `OnRecordingCommitted`; the KSC and discard re-home
+paths already did), so a row the ledger already held is not added twice. The other consumers
+already read increments: the walk, the cache rebuild, `ScienceSubjectPatch`,
+`KspStatePatcher.PatchPerSubjectScience`, the Timeline pool credit, the pending-KSC credit, the
+broken-ledger recovery (`GetLedgerScienceEarningTotal`) and the ground-truth subject diff.
+
+Owner decision: no repair of existing rows. Ledger rows written before this keep their cumulative
+values and are walked unchanged (no load-time repair, no reinterpretation), so the C1 fixture
+pins, including `C1CareerLedgerReplayTests` ReconScience, do not move. Tests:
+`ScienceIncrementCaptureTests` (same subject twice in one recording, across two recordings, KSC
+then recording, transmit then partial recovery, each at multiplier 1 and 2 through the real
+commit paths, asserting pool credit, subject credit and cache against the modelled stock totals;
+the cache merge, old-total-plus-increment and dedup-survivor cells).
 
 ---
 
