@@ -149,9 +149,9 @@ tree; different selections trace different paths.
   `VesselSwitchContinuation` and the like). Within one controlled run between
   branch points, the optimizer's env-split legs are grouped by shared `ChainId`
   and ordered by `StartUT`.
-- `ChainId` is NOT the whole-spine thread: it RESETS at vessel switches
-  (`ChainSegmentManager.CommitVesselSwitchTermination`) and at scene exit/resume
-  (only `ActiveTreeId` is restored), so it cannot identify a multi-session,
+- `ChainId` is NOT the whole-spine thread: it is minted by a recording split (the
+  optimizer's env-split legs, the rewind HEAD/TIP split), never by a live chain commit
+  (none exists in always-tree mode), and scene exit/resume restores only `ActiveTreeId`, so it cannot identify a multi-session,
   multi-vessel through-line. Its only role here is grouping the env-split legs of a
   single run; `BranchPoints` carry the cross-run topology and `TreeId` is the
   stable scope.
@@ -763,8 +763,9 @@ into stack "AB" and later undock:
 - Environment / body recording splits (optimizer):
   `RecordingOptimizer.IsSplittableEnvOrBodyBoundary`, run by
   `RecordingStore.RunOptimizationPass`.
-- Chain identity reset: `ChainSegmentManager.CommitVesselSwitchTermination` and
-  scene-resume restoring only `ActiveTreeId`.
+- Chain identity reset: scene-resume restoring only `ActiveTreeId` (the live chain
+  commits, including the vessel-switch termination, were removed as unreachable in
+  always-tree mode).
 - Cross-vessel spine continuation: `PrepareActiveTreeForFreshPostSwitchRecording`,
   `SwitchSegmentBuilder.CreateSwitchContinuationSegment`.
 - UI primitives to reuse: `RecordingsTableUI` (caret, connectors, row layout).

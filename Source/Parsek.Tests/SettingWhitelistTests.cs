@@ -9,7 +9,7 @@ namespace Parsek.Tests
     /// Guards three contracts: typed parse + range acceptance, the security boundary
     /// (an arbitrary field name is rejected, never reflectively set), and the
     /// persistence-route column (the 8 sidecar-tracked settings carry the exact
-    /// ParsekSettingsPersistence.Record* selector; the 8 GameParameters-only ones do
+    /// ParsekSettingsPersistence.Record* selector; the 5 GameParameters-only ones do
     /// not). A regression in the route column writes a tracked setting only to the
     /// live field, which ParsekScenario.OnLoad's ApplyTo would silently revert at the
     /// next save load.
@@ -100,9 +100,6 @@ namespace Parsek.Tests
         [InlineData("autoRecordOnEva")]
         [InlineData("autoRecordOnFirstModificationAfterSwitch")]
         [InlineData("autoMerge")]
-        [InlineData("verboseLogging")]
-        [InlineData("samplingDensity")]
-        [InlineData("ghostAudioVolume")]
         [InlineData("forceFaithfulLoopPlayback")]
         public void Route_GameParametersOnly_NoRecordMethod(string name)
         {
@@ -118,16 +115,21 @@ namespace Parsek.Tests
         [InlineData("ledgerTracing", "RecordLedgerTracing")]
         [InlineData("writeReadableSidecarMirrors", "RecordReadableSidecarMirrors")] // name asymmetry
         [InlineData("showRouteLines", "RecordShowRouteLines")]
+        // Install-wide since 2026-09-26: without the Record* half a stored sidecar value
+        // would revert a harness SetSetting at the next save load.
+        [InlineData("verboseLogging", "RecordVerboseLogging")]
+        [InlineData("samplingDensity", "RecordSamplingDensity")]
+        [InlineData("ghostAudioVolume", "RecordGhostAudioVolume")]
         public void Route_SidecarTracked_CarriesExactRecordMethod(string name, string expectedMethod)
         {
-            var r = SettingWhitelist.TryApply(name, "true");
+            var r = SettingWhitelist.TryApply(name, DefaultRawFor(name));
             Assert.True(r.Accepted);
             Assert.Equal(PersistenceRoute.GameParametersPlusSidecar, r.Route);
             Assert.Equal(expectedMethod, r.RecordMethod);
         }
 
         [Fact]
-        public void Whitelist_HasExactly13Entries_5Tracked()
+        public void Whitelist_HasExactly13Entries_8Tracked()
         {
             Assert.Equal(13, SettingWhitelist.WhitelistedNames.Count);
 
@@ -146,7 +148,7 @@ namespace Parsek.Tests
                     Assert.Null(r.RecordMethod);
                 }
             }
-            Assert.Equal(5, tracked);
+            Assert.Equal(8, tracked);
         }
 
         [Fact]

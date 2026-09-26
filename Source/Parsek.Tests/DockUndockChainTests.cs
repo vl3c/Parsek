@@ -324,41 +324,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region DecideOnVesselSwitch with undockSiblingPid
-
-        [Fact]
-        public void DecideOnVesselSwitch_UndockSibling_ReturnsUndockSwitch()
-        {
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, undockSiblingPid: 200);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.UndockSwitch, result);
-        }
-
-        [Fact]
-        public void DecideOnVesselSwitch_UndockSiblingPidZero_FallsThrough()
-        {
-            // undockSiblingPid = 0 should not affect the result
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, undockSiblingPid: 0);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
-        }
-
-        [Fact]
-        public void DecideOnVesselSwitch_UndockSiblingPidMismatch_FallsThrough()
-        {
-            // Vessel switched to something that's NOT the sibling
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 300, false, false, undockSiblingPid: 200);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.TransitionToBackground, result);
-        }
-
-        [Fact]
-        public void DecideOnVesselSwitch_SameVessel_UndockSiblingIgnored()
-        {
-            // Same vessel PID overrides everything, even if undockSiblingPid is set
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 100, false, false, undockSiblingPid: 100);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.None, result);
-        }
-
-        #endregion
-
         #region RecordingBuilder ChainBranch support
 
         [Fact]
@@ -630,20 +595,6 @@ namespace Parsek.Tests
             Assert.Equal(6, RecordingStore.CommittedRecordings.Count);
             foreach (var rec in RecordingStore.CommittedRecordings)
                 Assert.Equal("multi-undock", rec.ChainId);
-        }
-
-        #endregion
-
-        #region DecideOnVesselSwitch priority — undockSiblingPid vs EVA
-
-        [Fact]
-        public void DecideOnVesselSwitch_UndockSiblingPid_DoesNotOverrideEva()
-        {
-            // If switched to EVA vessel that happens to match undockSiblingPid,
-            // and recording started as EVA -> should still be ContinueOnEva?
-            // Actually undockSiblingPid check comes first, so it returns UndockSwitch.
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, true, true, undockSiblingPid: 200);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.UndockSwitch, result);
         }
 
         #endregion

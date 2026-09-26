@@ -6,9 +6,9 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// P5.1 route-dispatch coverage for <see cref="TestCommandSettingApplier.ApplySetting"/>.
-    /// The security-critical property the SetSetting design column adds is that the 5
+    /// The security-critical property the SetSetting design column adds is that the 8
     /// sidecar-authoritative settings ALSO route through the matching
-    /// <c>ParsekSettingsPersistence.Record*</c> member, while the 8 GameParameters-only
+    /// <c>ParsekSettingsPersistence.Record*</c> member, while the 5 GameParameters-only
     /// settings do NOT. A tracked setting written only to the live field would be
     /// silently reverted by <c>ParsekScenario.OnLoad</c>'s <c>ApplyTo</c> at the next
     /// save load (the exact bug this column fixes). These tests drive the pure applier
@@ -17,7 +17,7 @@ namespace Parsek.Tests
     /// </summary>
     public class TestCommandSettingApplierTests
     {
-        // The 8 GameParameters-only names (Record* must NOT fire) and the 5 tracked names
+        // The 5 GameParameters-only names (Record* must NOT fire) and the 8 tracked names
         // (Record* MUST fire with the exact member name), verified against the design
         // whitelist table. Kept exhaustive by Expected_CoversEveryWhitelistedName below, so a
         // newly whitelisted setting reds here instead of silently skipping route coverage.
@@ -27,10 +27,11 @@ namespace Parsek.Tests
             ["autoRecordOnEva"] = null,
             ["autoRecordOnFirstModificationAfterSwitch"] = null,
             ["autoMerge"] = null,
-            ["verboseLogging"] = null,
-            ["samplingDensity"] = null,
-            ["ghostAudioVolume"] = null,
             ["forceFaithfulLoopPlayback"] = null,
+
+            ["verboseLogging"] = "RecordVerboseLogging",
+            ["samplingDensity"] = "RecordSamplingDensity",
+            ["ghostAudioVolume"] = "RecordGhostAudioVolume",
 
             ["ghostRenderTracing"] = "RecordGhostRenderTracing",
             ["mapRenderTracing"] = "RecordMapRenderTracing",

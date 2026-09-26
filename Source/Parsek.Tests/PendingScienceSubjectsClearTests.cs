@@ -14,7 +14,7 @@ namespace Parsek.Tests
     ///
     /// The new invariant:
     /// "If PendingScienceSubjects were populated during recording, they remain
-    /// readable until NotifyLedgerTreeCommitted (or CommitSegmentCore for chains)
+    /// readable until NotifyLedgerTreeCommitted (or FallbackCommitSplitRecorder for a standalone commit)
     /// either commits their science safely or, on failure, leaves the still-
     /// uncommitted subjects pending so the data is not lost."
     /// </summary>
@@ -729,8 +729,8 @@ namespace Parsek.Tests
         [Fact]
         public void FinalizeScopedPendingScienceCommit_UnrelatedSuccess_DoesNotWipeEarlierRetainedScience()
         {
-            // CommitSegmentCore and FallbackCommitSplitRecorder both delegate to this helper
-            // because the real standalone commit paths are not headless-testable without Unity.
+            // FallbackCommitSplitRecorder delegates to this helper, and the real standalone
+            // commit path is not headless-testable without Unity; the caller label is free text.
             SeedSubject(
                 "crewReport@KerbinSrfLanded",
                 2.5f,

@@ -7935,6 +7935,460 @@ namespace Parsek.Tests
                 });
         }
 
+        // ----- ghost-commnet-relay: three copies of one relay craft on a synchronous orbit -----
+        //
+        // The subject of lanes CN-1 (FLIGHT) and CN-1T (TRACKSTATION), which prove the ghost
+        // CommNet relay (design 15.6) against the real stock network and the operator rulings
+        // on loops, hidden recordings and crewed control points. Each copy is the
+        // VesselSnapshotBuilder.RelaySatellite craft (RC-L01 + RA-2) as its own committed
+        // single-recording tree: ONE point at its start plus ONE Kerbin-synchronous,
+        // equatorial, circular orbit segment to its end. There are no TrackSections, so the
+        // load-time TrimBoringTail pass skips it (`no-track-sections`; it also needs two
+        // points) and the window keeps its authored end. After the point, FLIGHT resolves the
+        // node through the orbit-tail path (GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment,
+        // not predicted, so no continuity offset) and the Tracking Station through the map
+        // ProtoVessel built from the same segment, or the segment itself when there is none.
+        //
+        // THE PHASE. The element-frame angle LAN + argPe + trueAnomaly of the KSC meridian at UT t
+        // is read off a PRELAUNCH vessel's own ORBIT node: gloops-airshow's mk1-capsule sits at
+        // apoapsis (MNA = pi, LPE = 90), so the pad is at LAN(t) + 270, and LAN advances at
+        // Kerbin's sidereal rate. A relay whose element angle equals that sits over the KSC
+        // meridian; every degree of true anomaly is a degree of longitude east, and a
+        // synchronous period keeps it there. GhostCommNetRelay_PhaseCalibration* re-derives
+        // this from three fixtures and checks it against an ORBITING fixture vessel's saved
+        // longitude.
+
+        internal const double GhostCommNetKscLon = -74.557683401431589;
+        internal const double GhostCommNetKscLanAtRefUT = 105.79581171032828;
+        internal const double GhostCommNetKscLanRefUT = 21.159999999999638;
+        internal const double KerbinRotationPeriodSeconds = 21549.425;
+        internal const double KerbinGravParameter = 3.5316e12;
+        internal const double KerbinRadiusMeters = 600000.0;
+        internal const string GhostCommNetRelayPilot = "Valentina Kerman";
+        internal const string GhostCommNetRelayAName = "CN Relay A";
+        internal const string GhostCommNetRelayBName = "CN Relay B";
+        internal const string GhostCommNetRelayCName = "CN Relay C";
+        /// <summary>A and B open this long after the save's clock, so the load latches them into replay scope.</summary>
+        internal const double GhostCommNetRelayStartOffsetSeconds = 1.0;
+        /// <summary>A and B end this long after they start: far past any lane, so nothing spawns.</summary>
+        internal const double GhostCommNetRelayWindowSeconds = 100000.0;
+        /// <summary>B sits this many degrees east of A (about 1,790 km apart at synchronous height).</summary>
+        internal const double GhostCommNetRelayBLonOffsetDeg = 30.0;
+        /// <summary>C's real run is [save - 20 s, save - 5 s]: over, and never observed in scope.</summary>
+        internal const double GhostCommNetRelayCStartLeadSeconds = 20.0;
+        internal const double GhostCommNetRelayCEndLeadSeconds = 5.0;
+        internal const double GhostCommNetRelayCLonOffsetDeg = -30.0;
+
+        internal static double GhostCommNetSynchronousSma()
+        {
+            double t = KerbinRotationPeriodSeconds;
+            return Math.Pow(KerbinGravParameter * t * t / (4.0 * Math.PI * Math.PI), 1.0 / 3.0);
+        }
+
+        private static double Wrap360(double deg)
+        {
+            double w = deg % 360.0;
+            return w < 0 ? w + 360.0 : w;
+        }
+
+        private static double Wrap180(double deg)
+        {
+            double w = Wrap360(deg);
+            return w > 180.0 ? w - 360.0 : w;
+        }
+
+        /// <summary>The KSC meridian's LAN in the pad vessel's orbit shape (argPe 90, apoapsis) at a UT.</summary>
+        internal static double GhostCommNetKscLanAt(double ut)
+        {
+            return Wrap360(GhostCommNetKscLanAtRefUT
+                + 360.0 * (ut - GhostCommNetKscLanRefUT) / KerbinRotationPeriodSeconds);
+        }
+
+        /// <summary>Surface longitude of an equatorial point with element angle LAN + argPe + nu at a UT.</summary>
+        internal static double GhostCommNetSurfaceLonOfElementAngle(double elementAngleDeg, double ut)
+        {
+            return Wrap180(elementAngleDeg - (GhostCommNetKscLanAt(ut) + 270.0) + GhostCommNetKscLon);
+        }
+
+        /// <summary>
+        /// One copy of the relay craft on a Kerbin-synchronous equatorial orbit over
+        /// <paramref name="surfaceLonDeg"/>. The orbit takes the pad vessel's shape (LAN of the
+        /// KSC meridian at the start, argPe 270 so the true anomaly at the start is the
+        /// longitude offset from the KSC). <paramref name="pilot"/> seats a roster kerbal in a
+        /// Mk1 pod, which makes the RC-L01 (minimumCrew 1) a control point.
+        /// </summary>
+        internal static RecordingBuilder GhostCommNetRelayRecording(
+            string recordingId, string vesselName, double startUT, double endUT,
+            double surfaceLonDeg, string pilot, bool playbackEnabled, bool loop)
+        {
+            double sma = GhostCommNetSynchronousSma();
+            double lan = GhostCommNetKscLanAt(startUT);
+            const double argPe = 270.0;
+            double mna = Wrap360(surfaceLonDeg - GhostCommNetKscLon) * Math.PI / 180.0;
+            double alt = sma - KerbinRadiusMeters;
+            uint pid = ScenarioWriter.DeriveVesselPersistentId(recordingId);
+            string guid = ScenarioWriter.DeriveVesselLaunchGuid(recordingId);
+
+            var b = new RecordingBuilder(vesselName)
+                .WithRecordingId(recordingId)
+                .WithRecordedVesselGuid(guid)
+                .WithRecordingGroup("Synthetic");
+            b.AddPoint(startUT, 0.0, surfaceLonDeg, alt);
+            b.AddOrbitSegment(startUT, endUT,
+                inc: 0.0, ecc: 0.0, sma: sma, lan: lan, argPe: argPe, mna: mna, epoch: startUT);
+            b.WithTerminalState((int)TerminalState.Orbiting);
+            b.WithTerminalOrbit("Kerbin", sma, 0.0, 0.0, lan, argPe, mna, startUT);
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.RelaySatellite(vesselName, pid, pilot)
+                    .WithLaunchGuid(guid)
+                    .AsOrbiting(sma, 0.0, 0.0, lan: lan, argPe: argPe, mna: mna, epoch: startUT));
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.RelaySatellite(vesselName, pid, pilot)
+                    .WithLaunchGuid(guid)
+                    .AsOrbiting(sma, 0.0, 0.0, lan: lan, argPe: argPe, mna: mna, epoch: startUT));
+            if (!playbackEnabled)
+                b.WithPlaybackEnabled(false);
+            if (loop)
+            {
+                // A pure orbital coast is not loopable, and SanitizeNonLoopableLoopPlayback
+                // would clear the flag at load; a launch identity keeps it.
+                b.WithLoopPlayback(true);
+                b.WithLaunchIdentity("LaunchPad");
+            }
+            return b;
+        }
+
+        /// <summary>The three preset copies, clocked off the host save's UT.</summary>
+        internal static RecordingBuilder[] GhostCommNetRelayPreset(double baseUT)
+        {
+            double start = baseUT + GhostCommNetRelayStartOffsetSeconds;
+            double end = start + GhostCommNetRelayWindowSeconds;
+            return new[]
+            {
+                GhostCommNetRelayRecording(
+                    Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayARecordingId,
+                    GhostCommNetRelayAName, start, end, GhostCommNetKscLon,
+                    GhostCommNetRelayPilot, playbackEnabled: true, loop: false),
+                GhostCommNetRelayRecording(
+                    Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayBRecordingId,
+                    GhostCommNetRelayBName, start, end,
+                    Wrap180(GhostCommNetKscLon + GhostCommNetRelayBLonOffsetDeg),
+                    null, playbackEnabled: false, loop: false),
+                GhostCommNetRelayRecording(
+                    Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayCRecordingId,
+                    GhostCommNetRelayCName,
+                    baseUT - GhostCommNetRelayCStartLeadSeconds,
+                    baseUT - GhostCommNetRelayCEndLeadSeconds,
+                    Wrap180(GhostCommNetKscLon + GhostCommNetRelayCLonOffsetDeg),
+                    null, playbackEnabled: true, loop: true),
+            };
+        }
+
+        private static string ReadFixtureVesselBlock(string fixture, string vesselName)
+        {
+            string path = Path.Combine(ProjectRoot, "harness", "fixtures", "saves", fixture, "persistent.sfs");
+            Assert.True(File.Exists(path), "fixture save missing: " + path);
+            string text = File.ReadAllText(path).Replace("\r\n", "\n");
+            var m = Regex.Match(text,
+                @"\n\t\tVESSEL\n\t\t\{\n\t\t\tpid = \w+\n\t\t\tpersistentId = \d+\n\t\t\tname = "
+                + Regex.Escape(vesselName) + @"\n(?<body>.*?)\n\t\t\}\n",
+                RegexOptions.Singleline);
+            Assert.True(m.Success, "vessel '" + vesselName + "' not found in " + path);
+            return m.Groups["body"].Value;
+        }
+
+        private static double ReadVesselValue(string block, string key)
+        {
+            var m = Regex.Match("\n" + block, @"\n\t\t\t" + Regex.Escape(key) + @" = ([^\n]+)");
+            Assert.True(m.Success, "VESSEL key missing: " + key);
+            return double.Parse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture);
+        }
+
+        private static double ReadOrbitValue(string block, string key)
+        {
+            var orbit = Regex.Match(block, @"\t\t\tORBIT\n\t\t\t\{\n(?<o>.*?)\n\t\t\t\}", RegexOptions.Singleline);
+            Assert.True(orbit.Success, "VESSEL has no ORBIT node");
+            var m = Regex.Match("\n" + orbit.Groups["o"].Value, @"\n\t\t\t\t" + Regex.Escape(key) + @" = ([^\n]+)");
+            Assert.True(m.Success, "ORBIT key missing: " + key);
+            return double.Parse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture);
+        }
+
+        private static List<string> SnapshotCrew(ConfigNode vessel)
+        {
+            var crew = new List<string>();
+            foreach (ConfigNode part in vessel.GetNodes("PART"))
+                crew.AddRange(part.GetValues("crew"));
+            return crew;
+        }
+
+        private static double TrueAnomalyDeg(double meanAnomalyRad, double ecc)
+        {
+            double e = meanAnomalyRad;
+            for (int i = 0; i < 60; i++)
+                e -= (e - ecc * Math.Sin(e) - meanAnomalyRad) / (1.0 - ecc * Math.Cos(e));
+            double nu = 2.0 * Math.Atan2(Math.Sqrt(1.0 + ecc) * Math.Sin(e / 2.0),
+                Math.Sqrt(1.0 - ecc) * Math.Cos(e / 2.0));
+            return nu * 180.0 / Math.PI;
+        }
+
+        [Fact]
+        public void GhostCommNetRelay_PhaseCalibrationIsTheGloopsPadVesselsOwnOrbit()
+        {
+            // The constants are the gloops-airshow pad vessel's saved values, verbatim.
+            string capsule = ReadFixtureVesselBlock("gloops-airshow", "mk1-capsule");
+            Assert.Equal(GhostCommNetKscLon, ReadVesselValue(capsule, "lon"));
+            Assert.Equal(GhostCommNetKscLanAtRefUT, ReadOrbitValue(capsule, "LAN"));
+            Assert.Equal(GhostCommNetKscLanRefUT, ReadOrbitValue(capsule, "EPH"));
+            // PRELAUNCH at apoapsis with argPe 90: the pad is at element angle LAN + 270.
+            Assert.Equal(Math.PI, ReadOrbitValue(capsule, "MNA"), 9);
+            Assert.Equal(90.0, ReadOrbitValue(capsule, "LPE"), 5);
+        }
+
+        [Fact]
+        public void GhostCommNetRelay_PhaseCalibrationPredictsOtherPadVesselsAtOtherClocks()
+        {
+            // LAN advances at the sidereal rate: two other fixtures' pad vessels, saved at other
+            // UTs, sit where the rate puts them (to 0.002 deg, about 20 m at the surface).
+            string b1 = ReadFixtureVesselBlock("b1-pad-craft", "#autoLOC_501224");
+            Assert.True(Math.Abs(ReadOrbitValue(b1, "LAN")
+                - GhostCommNetKscLanAt(ReadOrbitValue(b1, "EPH"))) < 0.002);
+            string debris = ReadFixtureVesselBlock("eva2-lko-crewed", "Kerbal X Debris");
+            Assert.True(Math.Abs(ReadOrbitValue(debris, "LAN")
+                - GhostCommNetKscLanAt(ReadOrbitValue(debris, "EPH"))) < 0.002);
+        }
+
+        [Fact]
+        public void GhostCommNetRelay_PhaseCalibrationPredictsAnOrbitingFixtureVesselsLongitude()
+        {
+            // The cross-check that matters: an ORBITING vessel in another fixture, whose saved
+            // surface longitude KSP computed from its own orbit, lands where the calibration
+            // says an element angle LAN + argPe + nu maps to (inclination 0.08 deg).
+            string probe = ReadFixtureVesselBlock("eva2-lko-crewed", "Kerbal X Probe");
+            double ut = ReadOrbitValue(probe, "EPH");
+            double nu = TrueAnomalyDeg(ReadOrbitValue(probe, "MNA"), ReadOrbitValue(probe, "ECC"));
+            double angle = ReadOrbitValue(probe, "LAN") + ReadOrbitValue(probe, "LPE") + nu;
+            double predicted = GhostCommNetSurfaceLonOfElementAngle(angle, ut);
+            double saved = ReadVesselValue(probe, "lon");
+            Assert.True(Math.Abs(Wrap180(predicted - saved)) < 0.002,
+                string.Format(CultureInfo.InvariantCulture,
+                    "predicted lon {0:R} vs saved {1:R}", predicted, saved));
+        }
+
+        [Fact]
+        public void GhostCommNetRelay_OrbitIsSynchronousAndSitsOverItsLongitude()
+        {
+            double sma = GhostCommNetSynchronousSma();
+            double period = 2.0 * Math.PI * Math.Sqrt(sma * sma * sma / KerbinGravParameter);
+            Assert.Equal(KerbinRotationPeriodSeconds, period, 6);
+            Assert.InRange(sma - KerbinRadiusMeters, 2863000.0, 2864000.0);
+
+            // At the start and 10,000 s later the element angle maps back to the authored
+            // longitude (a circular orbit: nu = M).
+            const double baseUT = 21.16;
+            RecordingBuilder[] preset = GhostCommNetRelayPreset(baseUT);
+            double[] lons =
+            {
+                GhostCommNetKscLon,
+                Wrap180(GhostCommNetKscLon + GhostCommNetRelayBLonOffsetDeg),
+                Wrap180(GhostCommNetKscLon + GhostCommNetRelayCLonOffsetDeg),
+            };
+            for (int i = 0; i < preset.Length; i++)
+            {
+                ConfigNode seg = preset[i].BuildTrajectoryNode().GetNode("ORBIT_SEGMENT");
+                double epoch = double.Parse(seg.GetValue("epoch"), CultureInfo.InvariantCulture);
+                double lan = double.Parse(seg.GetValue("lan"), CultureInfo.InvariantCulture);
+                double argPe = double.Parse(seg.GetValue("argPe"), CultureInfo.InvariantCulture);
+                double mna = double.Parse(seg.GetValue("mna"), CultureInfo.InvariantCulture);
+                Assert.Equal("0", seg.GetValue("inc"));
+                Assert.Equal("0", seg.GetValue("ecc"));
+                foreach (double dt in new[] { 0.0, 10000.0 })
+                {
+                    double meanDeg = (mna + 2.0 * Math.PI * dt / period) * 180.0 / Math.PI;
+                    double lon = GhostCommNetSurfaceLonOfElementAngle(lan + argPe + meanDeg, epoch + dt);
+                    Assert.True(Math.Abs(Wrap180(lon - lons[i])) < 1e-6,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "copy {0} at +{1}s sits over {2:R}, not {3:R}", i, dt, lon, lons[i]));
+                }
+            }
+        }
+
+        [Fact]
+        public void GhostCommNetRelay_PresetCopiesCarryTheRulingShapes()
+        {
+            const double baseUT = 21.16;
+            RecordingBuilder[] preset = GhostCommNetRelayPreset(baseUT);
+            Recording a = MaterializeSpawnSafetyRecording(preset[0],
+                Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayARecordingId);
+            Recording b = MaterializeSpawnSafetyRecording(preset[1],
+                Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayBRecordingId);
+            Recording c = MaterializeSpawnSafetyRecording(preset[2],
+                Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayCRecordingId);
+
+            // A: crewed (a pilot in the Mk1 pod), playback on, not looped, window open for the lane.
+            Assert.True(a.PlaybackEnabled);
+            Assert.False(a.LoopPlayback);
+            Assert.Equal(baseUT + GhostCommNetRelayStartOffsetSeconds,
+                GhostPlaybackEngine.ResolveGhostActivationStartUT(a), 6);
+            Assert.True(a.EndUT - baseUT > 90000.0);
+            Assert.Equal(new[] { GhostCommNetRelayPilot }, SnapshotCrew(a.VesselSnapshot));
+            Assert.True(GhostPlaybackEngine.HasRenderableGhostData(a));
+
+            // B: no crew, playback off, same window.
+            Assert.False(b.PlaybackEnabled);
+            Assert.False(b.LoopPlayback);
+            Assert.Equal(a.EndUT, b.EndUT, 6);
+            Assert.Empty(SnapshotCrew(b.VesselSnapshot));
+            Assert.Empty(SnapshotCrew(c.VesselSnapshot));
+
+            // C: looped and loopable (the flag survives SanitizeNonLoopableLoopPlayback), real run over.
+            Assert.True(c.LoopPlayback);
+            Assert.True(Recording.IsLoopableRecording(c));
+            Assert.True(c.EndUT < baseUT);
+            Assert.True(GhostPlaybackEngine.ResolveGhostActivationStartUT(c) > 0.0);
+
+            // No TrackSections and one point: TrimBoringTail leaves the authored end alone.
+            foreach (Recording r in new[] { a, b, c })
+            {
+                double endBefore = r.EndUT;
+                Assert.False(RecordingOptimizer.TrimBoringTail(r, new List<Recording> { r }));
+                Assert.Equal(endBefore, r.EndUT);
+                Assert.Single(r.Points);
+                Assert.Single(r.OrbitSegments);
+            }
+        }
+
+        [Fact]
+        public void GhostCommNetRelay_LoadLatchesAAndBInScopeAndLeavesCHistorical()
+        {
+            // The window premise the in-game rulings cell reads, through the production gates:
+            // a scene that notes the playhead at the save's clock latches A and B (they start
+            // 1 s later), not C (its real run ended 5 s before). A few seconds on, A and B are
+            // in-window and C is excluded as historical-never-replayed (the spawn variant of
+            // the scope gate, which a loop member's real run takes).
+            const double baseUT = 21.16;
+            RecordingBuilder[] preset = GhostCommNetRelayPreset(baseUT);
+            string[] ids =
+            {
+                Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayARecordingId,
+                Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayBRecordingId,
+                Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayCRecordingId,
+            };
+            PlaybackScopeTracker.ResetForTesting();
+            try
+            {
+                var recs = new Recording[3];
+                for (int i = 0; i < 3; i++)
+                {
+                    recs[i] = MaterializeSpawnSafetyRecording(preset[i], ids[i]);
+                    PlaybackScopeTracker.NotePlayhead(ids[i], baseUT,
+                        GhostPlaybackEngine.ResolveGhostActivationStartUT(recs[i]));
+                }
+                double now = baseUT + 5.0;
+                var reasons = new string[3];
+                for (int i = 0; i < 3; i++)
+                {
+                    Recording r = recs[i];
+                    double activation = GhostPlaybackEngine.ResolveGhostActivationStartUT(r);
+                    var input = new GhostCommNetEligibilityInput
+                    {
+                        HasRecordingId = true,
+                        HasRenderableData = GhostPlaybackEngine.HasRenderableGhostData(r),
+                        HistoricalNeverReplayed = GhostPlaybackLogic.ResolveHistoricalNeverReplayed(
+                            r.LoopPlayback, false,
+                            PlaybackScopeTracker.IsHistoricalNeverReplayed(ids[i], now, activation),
+                            forSpawn: true),
+                        ActivationStartUT = activation,
+                        EndUT = r.EndUT,
+                    };
+                    reasons[i] = GhostCommNetMath.EvaluateEligibility(input, now).Reason;
+                }
+                Assert.Equal("in-window", reasons[0]);
+                Assert.Equal("in-window", reasons[1]);
+                Assert.Equal("historical-never-replayed", reasons[2]);
+            }
+            finally
+            {
+                PlaybackScopeTracker.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void GhostCommNetRelay_SidecarRoundTripKeepsThePointAndTheOrbit()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            string dir = Path.Combine(Path.GetTempPath(), "parsek-cn-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var writer = new ScenarioWriter().WithV3Format();
+                foreach (RecordingBuilder b in GhostCommNetRelayPreset(21.16))
+                    writer.AddRecordingAsTree(b);
+                try
+                {
+                    writer.WriteSidecarFiles(dir);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    throw new InvalidOperationException(
+                        ex.Message + "\n" + string.Join("\n", logLines), ex);
+                }
+
+                string recDir = Path.Combine(dir, "Parsek", "Recordings");
+                string id = Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayARecordingId;
+                var loaded = new Recording { RecordingId = id };
+                Assert.True(RecordingStore.LoadRecordingFilesFromPathsForTesting(
+                    loaded,
+                    Path.Combine(recDir, id + ".prec"),
+                    Path.Combine(recDir, id + "_vessel.craft"),
+                    Path.Combine(recDir, id + "_ghost.craft")));
+                Assert.Single(loaded.Points);
+                Assert.Single(loaded.OrbitSegments);
+                Assert.Equal(GhostCommNetSynchronousSma(), loaded.OrbitSegments[0].semiMajorAxis, 3);
+                Assert.NotNull(loaded.VesselSnapshot);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                if (Directory.Exists(dir))
+                    Directory.Delete(dir, recursive: true);
+            }
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="GhostCommNetRelayPreset"/> (the <c>ghost-commnet-relay</c>
+        /// preset behind <c>CN-1-ghost-commnet-relay</c> / <c>CN-1T-ghost-commnet-relay-ts</c>):
+        /// three committed single-recording trees, no RewindPoint sidecar. Authored against
+        /// <c>gloops-airshow</c> (Valentina Kerman, a Pilot, is Available and on no vessel, so
+        /// reserving her for relay A moves no one off the pad vessel). The clock is read off the
+        /// target save; C's real run needs 20 s of history before it, so a save earlier than
+        /// that is refused.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("ghost-commnet-relay-fixture")]
+        public void InjectGhostCommNetRelays()
+        {
+            InjectSingleSubjectPreset("ghost-commnet-relay-fixture",
+                (writer, baseUT) =>
+                {
+                    Assert.True(baseUT - GhostCommNetRelayCStartLeadSeconds > 0.0,
+                        "ghost-commnet-relay needs a save clock past "
+                        + GhostCommNetRelayCStartLeadSeconds.ToString("R", CultureInfo.InvariantCulture)
+                        + " s for relay C's past real run; the save reads UT="
+                        + baseUT.ToString("R", CultureInfo.InvariantCulture));
+                    foreach (RecordingBuilder b in GhostCommNetRelayPreset(baseUT))
+                        writer.AddRecordingAsTree(b);
+                },
+                content =>
+                {
+                    Assert.Contains("vesselName = " + GhostCommNetRelayAName, content);
+                    Assert.Contains("vesselName = " + GhostCommNetRelayBName, content);
+                    Assert.Contains("vesselName = " + GhostCommNetRelayCName, content);
+                    Assert.Contains(Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayARecordingId, content);
+                    Assert.Contains(Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayBRecordingId, content);
+                    Assert.Contains(Parsek.InGameTests.GhostCommNetInGameTests.PresetRelayCRecordingId, content);
+                });
+        }
+
         /// <summary>
         /// Injects ONLY <see cref="DrillHarvestRouteTree"/> (the <c>drill-harvest-route</c>
         /// preset behind <c>HV-1-harvest-route-analysis</c>): the M2 synthetic drill-run

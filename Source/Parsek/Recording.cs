@@ -81,6 +81,15 @@ namespace Parsek
         // Save/LoadRecordingInto so the epoch survives scene reloads.
         internal int SidecarEpoch;
 
+        // Set when an out-of-band write (RecordingStore.FlushDirtyFiles) rewrote the
+        // sidecars WITHOUT advancing SidecarEpoch, so the .prec content changed under an
+        // epoch an older .sfs (a quicksave) may also carry. The next OnSave treats it like
+        // FilesDirty and rewrites with incrementEpoch=true, putting .prec and .sfs on N+1
+        // together; any epoch-advancing write clears it. Process-lifetime only: committed
+        // recordings live in the static RecordingStore, so it survives scene changes, and
+        // it is lost on quit, which is the accepted window (see the flush's docs).
+        [NonSerialized] internal bool SidecarEpochAdvancePending;
+
         // Runtime-only hydration state: LoadRecordingFiles can fail because the current save
         // point does not have a compatible sidecar for this recording. These flags are used to
         // avoid destructive follow-on behavior (for example pruning an empty leaf that only
@@ -251,11 +260,6 @@ namespace Parsek
         // Terrain height at recording end (for terrain correction on spawn)
         // NaN = not set (non-surface terminal state)
         public double TerrainHeightAtEnd = double.NaN;
-
-        // Antenna specifications for CommNet ghost relay registration (Phase 6f)
-        // Extracted from ModuleDataTransmitter modules in vessel snapshot at commit time.
-        // null = not extracted (legacy recording or no antennas).
-        internal List<AntennaSpec> AntennaSpecs;
 
         // Per-crew end state (inferred at commit time from terminal state + snapshot)
         // null = not yet populated (legacy recording or pre-commit).
@@ -937,8 +941,6 @@ namespace Parsek
             ExplicitEndUT = source.ExplicitEndUT;
             RecordingGroups = source.RecordingGroups != null
                 ? new List<string>(source.RecordingGroups) : null;
-            AntennaSpecs = source.AntennaSpecs != null
-                ? new List<AntennaSpec>(source.AntennaSpecs) : null;
             StartResources = source.StartResources;
             EndResources = source.EndResources;
             StartInventory = source.StartInventory;
@@ -1072,6 +1074,7 @@ namespace Parsek
             clone.RouteHarvestWindows = RouteProofMetadata.CloneHarvestWindows(source.RouteHarvestWindows);
             clone.FilesDirty = source.FilesDirty;
             clone.SidecarEpoch = source.SidecarEpoch;
+            clone.SidecarEpochAdvancePending = source.SidecarEpochAdvancePending;
             clone.SidecarLoadFailed = source.SidecarLoadFailed;
             clone.SidecarLoadFailureReason = source.SidecarLoadFailureReason;
             clone.LoopSyncParentIdx = source.LoopSyncParentIdx;

@@ -1746,6 +1746,13 @@ namespace Parsek
                 otherPreserved++;
             }
 
+            // A deferred epoch advance from an out-of-band flush of the replaced object
+            // must not be lost with it, or the next OnSave would skip the rewrite and keep
+            // the preserved epoch for good. Not counted: it is bookkeeping, not a field
+            // the pending tree lost, and carrying it costs at most one extra rewrite.
+            if (existing.SidecarEpochAdvancePending)
+                incoming.SidecarEpochAdvancePending = true;
+
             // Playback resource cursor.
             if (incoming.LastAppliedResourceIndex == -1
                 && existing.LastAppliedResourceIndex != -1)

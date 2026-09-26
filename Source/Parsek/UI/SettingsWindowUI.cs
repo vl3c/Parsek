@@ -5,8 +5,8 @@ namespace Parsek
 {
     /// <summary>
     /// Settings window extracted from ParsekUI.
-    /// Manages all Parsek settings: interface mode, looping period, ghosts, diagnostics,
-    /// sampling density, data management (the Recording and Stock UI sections were
+    /// Manages all Parsek settings: interface mode, ghosts, looping period, sampling density,
+    /// diagnostics, data management (the Recording and Stock UI sections were
     /// retired by the 2026-08-27 settings simplification).
     /// </summary>
     internal class SettingsWindowUI
@@ -29,6 +29,17 @@ namespace Parsek
         /// </summary>
         private const int HeightFitLogPassBudget = 12;
 
+        // Pressed-toggle style for the Basic / Advanced and Low / Medium / High option rows
+        // (the Timeline / Kerbals / Career idiom): the selected option draws pressed, and
+        // every option keeps one fixed width. Built lazily inside OnGUI (GUI.skin is only
+        // valid there).
+        private GUIStyle optionToggleStyle;
+
+        // A ghost-audio slider change not yet written to settings.cfg. Flushed once the
+        // drag ends (SettingsWindowPresentation.ShouldFlushGhostAudioVolume), so dragging
+        // does not write the file every frame.
+        private bool ghostAudioVolumePersistPending;
+
         // Auto-loop editing
         private string settingsAutoLoopText = "";
         private bool settingsAutoLoopEditing;
@@ -44,6 +55,28 @@ namespace Parsek
         /// plausible rect for a control in another window.
         /// </summary>
         internal const string WindowIdKey = "ParsekSettings";
+
+        // Hover texts. Each fits the 280 px window's two-line help strip (71 characters,
+        // TooltipEchoBudgetTests); the ones passed straight to a GUIContent are also
+        // scanned there, the rest are pinned by SettingsWindowTextTests.
+        internal const string BasicModeTooltip =
+            "Core windows only: Timeline, Missions, Logistics, Kerbals, Settings.";
+        internal const string AdvancedModeTooltip =
+            "Show every Parsek window and settings section.";
+        internal const string AutoLaunchTooltip =
+            "Loop period of missions whose period is set to auto. Shorter = overlap.";
+        internal const string VerboseLoggingLabel = " Verbose logging";
+        internal const string VerboseLoggingTooltip =
+            "Detailed Parsek lines in KSP.log. Keep on if you report bugs.";
+        internal const string ReadableMirrorsLabel = " Write readable .txt recording copies";
+        internal const string ReadableMirrorsTooltip =
+            "Also write .txt copies of recordings for bug reports. Uses extra disk.";
+        internal const string WipeRecordingsTooltip =
+            "Deletes every recorded flight and its files. Asks first.";
+        // True to MilestoneStore.ClearAll: it clears the milestone list only, and every
+        // ledger GameAction survives (the confirm dialog says the same).
+        internal const string WipeMilestonesTooltip =
+            "Deletes Parsek's milestone list; career actions stay. Asks first.";
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
@@ -67,6 +100,7 @@ namespace Parsek
         {
             if (!showSettingsWindow)
             {
+                FlushGhostAudioVolumeIfPending(0);
                 ReleaseInputLock();
                 // A pending fit REPORT cannot outlive the window: no pass runs while closed,
                 // so reopening later would otherwise announce a fit for a long-dead switch.
@@ -378,7 +412,15 @@ namespace Parsek
             // and auto-merge are hardwired ON (fields survive for the harness command seam),
             // and the committed-future overlays + committed-action click blocks are always
             // active.
+            // Order: Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
+            // Management - the player-facing sections first, developer instrumentation
+            // last before the destructive wipes. Basic draws Interface, Ghosts and Data
+            // Management only.
+            EnsureOptionToggleStyle();
             DrawInterfaceSettings(s);
+            GUILayout.Space(SpacingSmall);
+
+            DrawGhostSettings(s);
             GUILayout.Space(SpacingSmall);
 
             // Manual-loop authoring, global half (design section 4.5): the auto-launch period
@@ -392,8 +434,13 @@ namespace Parsek
                 GUILayout.Space(SpacingSmall);
             }
 
-            DrawGhostSettings(s);
-            GUILayout.Space(SpacingSmall);
+            // Recorder fidelity tuning: a wrong value degrades recordings, and the Medium
+            // default is correct for normal play (design section 4).
+            if (UiSurfaceVisibility.IsVisible(UiSurface.SettingsSectionSampleDensity, complexity))
+            {
+                DrawSamplingSettings(s);
+                GUILayout.Space(SpacingSmall);
+            }
 
             // Developer instrumentation (verbose logging, the three tracing toggles, the
             // RewindPoints disk-usage readout, and the Settings-launched Test Runner).
@@ -404,14 +451,6 @@ namespace Parsek
             if (UiSurfaceVisibility.IsVisible(UiSurface.SettingsSectionDiagnostics, complexity))
             {
                 DrawDiagnosticsSettings(s);
-                GUILayout.Space(SpacingSmall);
-            }
-
-            // Recorder fidelity tuning: a wrong value degrades recordings, and the Medium
-            // default is correct for normal play (design section 4).
-            if (UiSurfaceVisibility.IsVisible(UiSurface.SettingsSectionSampleDensity, complexity))
-            {
-                DrawSamplingSettings(s);
                 GUILayout.Space(SpacingSmall);
             }
 
@@ -443,6 +482,10 @@ namespace Parsek
                 // (finding P8). uiComplexityMode stays where the player left it - see
                 // SettingsDefaults' remarks and the button tooltip above.
                 s.ghostAudioVolume = defaults.GhostAudioVolume;
+                ghostAudioVolumePersistPending = false;
+                ParsekSettingsPersistence.RecordVerboseLogging(s.verboseLogging);
+                ParsekSettingsPersistence.RecordSamplingDensity(s.samplingDensity);
+                ParsekSettingsPersistence.RecordGhostAudioVolume(s.ghostAudioVolume);
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
                 ParsekSettingsPersistence.RecordShowRouteLines(s.showRouteLines);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
@@ -467,10 +510,9 @@ namespace Parsek
 
         /// <summary>
         /// Basic / Advanced UI complexity toggle (design 6.2). Drawn FIRST because it
-        /// governs which of the sections below a player even sees once the phase 4-6
-        /// gates land. Uses the two-option selected-is-a-box button row of
-        /// <see cref="DrawSamplingSettings"/> rather than a checkbox: the two modes are
-        /// peers, not an on/off of one of them.
+        /// governs which of the sections below a player even sees. A two-option
+        /// pressed-toggle row (shared with <see cref="DrawSamplingSettings"/>) rather than a
+        /// checkbox: the two modes are peers, not an on/off of one of them.
         ///
         /// <para>The click routes through <see cref="ParsekUI.SetUiComplexityMode"/>, the
         /// single setter seam - never a direct write to the settings field.</para>
@@ -490,22 +532,23 @@ namespace Parsek
             // through, and that seam - not this disable - is the load-bearing half.
             bool gloopsRecording = parentUI.Flight != null && parentUI.Flight.IsGloopsRecording;
 
+            float cellWidth = SettingsWindowPresentation.OptionCellWidth(settingsWindowRect.width, 2);
             GUILayout.BeginHorizontal();
             foreach (UiComplexityMode mode in new[] { UiComplexityMode.Basic, UiComplexityMode.Advanced })
             {
                 bool isSelected = s.UiComplexityModeLevel == mode;
-                GUIStyle style = isSelected ? GUI.skin.box : GUI.skin.button;
 
                 // GUI.enabled changes how the control renders and whether it reports a
                 // click; it does NOT change the control COUNT, so this is safe to vary
                 // between one frame's Layout and Repaint passes.
                 bool prevEnabled = GUI.enabled;
                 GUI.enabled = prevEnabled && !IsModeOptionDisabled(mode, gloopsRecording);
-                bool clicked = GUILayout.Button(
-                    new GUIContent(UiComplexityModeLabel(mode), UiComplexityModeTooltip(mode)), style);
+                bool pressed = GUILayout.Toggle(isSelected,
+                    new GUIContent(UiComplexityModeLabel(mode), UiComplexityModeTooltip(mode)),
+                    optionToggleStyle, GUILayout.Width(cellWidth));
                 GUI.enabled = prevEnabled;
 
-                if (clicked && !isSelected)
+                if (pressed && !isSelected)
                     ParsekUI.SetUiComplexityMode(mode);
             }
             GUILayout.EndHorizontal();
@@ -538,17 +581,36 @@ namespace Parsek
         private static string UiComplexityModeLabel(UiComplexityMode mode)
             => mode == UiComplexityMode.Basic ? "Basic" : "Advanced";
 
-        private static string UiComplexityModeTooltip(UiComplexityMode mode)
-            => mode == UiComplexityMode.Basic
-                ? "Show only the core loop: Timeline, Missions, Logistics, and Settings."
-                : "Show every Parsek window and settings section.";
+        internal static string UiComplexityModeTooltip(UiComplexityMode mode)
+            => mode == UiComplexityMode.Basic ? BasicModeTooltip : AdvancedModeTooltip;
+
+        /// <summary>
+        /// Builds the pressed-toggle style once: a button whose ON state draws with the
+        /// skin's pressed background and white text, matching the Timeline, Kerbals and
+        /// Career windows. Replaces the old selected-is-a-box look, which read as greyed
+        /// out and changed the row's widths on every switch.
+        /// </summary>
+        private void EnsureOptionToggleStyle()
+        {
+            if (optionToggleStyle != null) return;
+            optionToggleStyle = new GUIStyle(GUI.skin.button)
+            {
+                margin = new RectOffset(
+                    SettingsWindowPresentation.OptionToggleMarginPx,
+                    SettingsWindowPresentation.OptionToggleMarginPx,
+                    GUI.skin.button.margin.top, GUI.skin.button.margin.bottom)
+            };
+            optionToggleStyle.onNormal.background = GUI.skin.button.active.background;
+            optionToggleStyle.onHover.background = GUI.skin.button.active.background;
+            optionToggleStyle.onNormal.textColor = Color.white;
+            optionToggleStyle.onHover.textColor = Color.white;
+        }
 
         private void DrawLoopingSettings(ParsekSettings s)
         {
             GUILayout.Label("Looping", parentUI.GetSectionHeaderStyle());
             GUILayout.BeginHorizontal();
-            GUILayout.Label(new GUIContent("Auto-launch every",
-                "Default launch-to-launch period for 'auto' rows. Shorter = overlap."),
+            GUILayout.Label(new GUIContent("Auto-launch every", AutoLaunchTooltip),
                 GUILayout.ExpandWidth(false));
             GUILayout.FlexibleSpace();
             {
@@ -612,9 +674,11 @@ namespace Parsek
             if (UnityEngine.Mathf.Abs(newAudioVol - s.ghostAudioVolume) > 0.001f)
             {
                 s.ghostAudioVolume = newAudioVol;
+                ghostAudioVolumePersistPending = true;
                 ParsekLog.VerboseRateLimited("UI", "ghostAudioVolume",
                     $"Ghost audio volume set to {newAudioVol:F2}", 1.0);
             }
+            FlushGhostAudioVolumeIfPending(GUIUtility.hotControl);
 
             bool showRouteLines = GUILayout.Toggle(s.showRouteLines,
                 new GUIContent(" Show supply route paths on map",
@@ -627,13 +691,36 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Writes a finished ghost-audio slider change to settings.cfg, once, after the drag
+        /// ends (or when the window closes). Logs the persisted value at Info.
+        /// </summary>
+        private void FlushGhostAudioVolumeIfPending(int hotControl)
+        {
+            if (!SettingsWindowPresentation.ShouldFlushGhostAudioVolume(
+                    ghostAudioVolumePersistPending, hotControl))
+                return;
+            ghostAudioVolumePersistPending = false;
+            ParsekSettings s = ParsekSettings.Current;
+            if (s == null)
+            {
+                ParsekLog.Verbose("UI", "Ghost audio volume persist skipped: no active game settings");
+                return;
+            }
+            ParsekSettingsPersistence.RecordGhostAudioVolume(s.ghostAudioVolume);
+            ParsekLog.Info("UI",
+                $"Setting changed: ghostAudioVolume={s.ghostAudioVolume.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+
         private void DrawDiagnosticsSettings(ParsekSettings s)
         {
             GUILayout.Label("Diagnostics", parentUI.GetSectionHeaderStyle());
-            bool verboseLogging = GUILayout.Toggle(s.verboseLogging, " Verbose logging (development default)");
+            bool verboseLogging = GUILayout.Toggle(s.verboseLogging,
+                new GUIContent(VerboseLoggingLabel, VerboseLoggingTooltip));
             if (verboseLogging != s.verboseLogging)
             {
                 s.verboseLogging = verboseLogging;
+                ParsekSettingsPersistence.RecordVerboseLogging(s.verboseLogging);
                 ParsekLog.Info("UI", $"Setting changed: verboseLogging={s.verboseLogging}");
             }
 
@@ -668,8 +755,7 @@ namespace Parsek
             }
 
             bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,
-                new GUIContent(" Write readable sidecar mirrors (Warning: extra disk usage)",
-                    "Also write .txt mirrors of recording sidecars, for debugging."));
+                new GUIContent(ReadableMirrorsLabel, ReadableMirrorsTooltip));
             if (writeReadableSidecarMirrors != s.writeReadableSidecarMirrors)
             {
                 s.writeReadableSidecarMirrors = writeReadableSidecarMirrors;
@@ -701,26 +787,26 @@ namespace Parsek
             var rpSnap = RewindPointDiskUsage.GetSnapshot(rpDir);
             GUILayout.Label(new GUIContent(
                 RewindPointDiskUsage.FormatLine(rpSnap),
-                "Rewind-point quicksave disk use, by crashed / stable / concluded."));
+                RewindPointDiskUsage.FormatTooltip(rpSnap)));
         }
 
         private void DrawSamplingSettings(ParsekSettings s)
         {
             GUILayout.Label("Recorder Sample Density", parentUI.GetSectionHeaderStyle());
 
+            float cellWidth = SettingsWindowPresentation.OptionCellWidth(settingsWindowRect.width, 3);
             GUILayout.BeginHorizontal();
             foreach (SamplingDensity level in new[] { SamplingDensity.Low, SamplingDensity.Medium, SamplingDensity.High })
             {
                 bool isSelected = s.SamplingDensityLevel == level;
-                GUIStyle style = isSelected ? GUI.skin.box : GUI.skin.button;
-                if (GUILayout.Button(new GUIContent(ParsekSettings.DensityLabel(level),
-                    ParsekSettings.DensityTooltip(level)), style))
+                bool pressed = GUILayout.Toggle(isSelected,
+                    new GUIContent(ParsekSettings.DensityLabel(level), ParsekSettings.DensityTooltip(level)),
+                    optionToggleStyle, GUILayout.Width(cellWidth));
+                if (pressed && !isSelected)
                 {
-                    if (!isSelected)
-                    {
-                        s.SamplingDensityLevel = level;
-                        ParsekLog.Info("UI", $"Setting changed: samplingDensity={level}");
-                    }
+                    s.SamplingDensityLevel = level;
+                    ParsekSettingsPersistence.RecordSamplingDensity(s.samplingDensity);
+                    ParsekLog.Info("UI", $"Setting changed: samplingDensity={level}");
                 }
             }
             GUILayout.EndHorizontal();
@@ -749,6 +835,16 @@ namespace Parsek
             return milestoneCount > 0 ? string.Empty : "There are no milestones to wipe";
         }
 
+        /// <summary>
+        /// A wipe button's own hover: what it deletes while it is enabled, and nothing while
+        /// it is greyed (the disabled reason then comes through <see cref="DisabledHoverEcho"/>,
+        /// so the two never compete for the strip). Pure for unit testing.
+        /// </summary>
+        internal static string WipeButtonTooltip(bool enabled, string enabledTooltip)
+        {
+            return enabled ? enabledTooltip : string.Empty;
+        }
+
         private void DrawDataManagementSettings(ParsekSettings s)
         {
             GUILayout.Label("Data Management", parentUI.GetSectionHeaderStyle());
@@ -761,10 +857,10 @@ namespace Parsek
             int milestoneCount = MilestoneStore.Milestones.Count;
 
             GUI.enabled = committedCount > 0;
-            bool wipeRecordingsClicked =
-                GUILayout.Button($"Wipe All Recordings ({committedCount})");
-            // Both wipe buttons are plain string overloads with no GUIContent, so a
-            // fresh save greyed them out with nothing to say.
+            bool wipeRecordingsClicked = GUILayout.Button(new GUIContent(
+                $"Wipe All Recordings ({committedCount})",
+                WipeButtonTooltip(committedCount > 0, WipeRecordingsTooltip)));
+            // Greyed at zero: the reason rides the disabled-hover carrier instead.
             DisabledHoverEcho.CarryLastControl(
                 committedCount > 0, WipeRecordingsDisabledReason(committedCount));
             if (wipeRecordingsClicked)
@@ -776,8 +872,9 @@ namespace Parsek
             // reservations - is untouched and is still walked by the next recalc, so the
             // old "Wipe All Game Actions" label named an effect this button never had.
             GUI.enabled = milestoneCount > 0;
-            bool wipeMilestonesClicked =
-                GUILayout.Button($"Wipe All Milestones ({milestoneCount})");
+            bool wipeMilestonesClicked = GUILayout.Button(new GUIContent(
+                $"Wipe All Milestones ({milestoneCount})",
+                WipeButtonTooltip(milestoneCount > 0, WipeMilestonesTooltip)));
             DisabledHoverEcho.CarryLastControl(
                 milestoneCount > 0, WipeMilestonesDisabledReason(milestoneCount));
             if (wipeMilestonesClicked)

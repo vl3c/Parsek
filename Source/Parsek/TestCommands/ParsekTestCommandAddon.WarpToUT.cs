@@ -94,7 +94,12 @@ namespace Parsek.TestCommands
                 feasibility = TestCommandWarpToUT.EvaluateModeFeasibility(mode, SafePhysicsWarpAllowed());
             if (feasibility != null)
             {
-                ParsekLog.Warn(Tag, $"warptout refused reason={feasibility} ut={Inv(target)}");
+                // The warp-locked line names the TIMEWARP lock holders (log only; the
+                // response msg stays the bare reason token the harness maps).
+                string lockDetail = feasibility == TestCommandWarpToUT.WarpLockedReason
+                    ? " holders=" + SafeTimeWarpLockHolders()
+                    : "";
+                ParsekLog.Warn(Tag, $"warptout refused reason={feasibility} ut={Inv(target)}{lockDetail}");
                 SetExecResult("REJECTED", null, feasibility);
                 return;
             }
@@ -419,6 +424,19 @@ namespace Parsek.TestCommands
         {
             try { return InputLockManager.IsLocked(ControlTypes.TIMEWARP); }
             catch (Exception) { return false; }
+        }
+
+        /// <summary>The <c>InputLockManager.lockStack</c> ids whose mask includes TIMEWARP
+        /// (<see cref="TestCommandWarpToUT.FormatTimeWarpLockHolders"/>), or <c>unknown</c>
+        /// when the stack cannot be read.</summary>
+        private static string SafeTimeWarpLockHolders()
+        {
+            try
+            {
+                return TestCommandWarpToUT.FormatTimeWarpLockHolders(
+                    InputLockManager.lockStack, (ulong)ControlTypes.TIMEWARP);
+            }
+            catch (Exception) { return "unknown"; }
         }
 
         private static float SafeCurrentWarpRate()
