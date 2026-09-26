@@ -25,7 +25,8 @@ namespace Parsek.TestCommands
     /// <summary>
     /// Pure decision / payload half of <c>UiAction op=state</c>: the automation-only op that
     /// drives a window's SCALAR view state - the filter toggles, the archive filters, the
-    /// expanded-stats columns, the time-range preset and the scroll offset.
+    /// time-range preset and the scroll offset. (The Recordings tab's `expandedStats` key
+    /// went with its Info toggle, removed 2026-09-26.)
     ///
     /// <para><b>WHY A SEPARATE OP FROM <c>op=expand</c>.</b> <c>expand</c> drives SETS of
     /// keys a window enumerates (group folders, chain blocks, mission rows); every state
@@ -89,7 +90,6 @@ namespace Parsek.TestCommands
         internal const string CustomRangeKey = "customRange";
         internal const string PresetKey = "preset";
         internal const string ScrollYKey = "scrollY";
-        internal const string ExpandedStatsKey = "expandedStats";
         internal const string ArchivedMissionsKey = "archivedMissions";
 
         // ----- the time-range presets -----
@@ -161,11 +161,6 @@ namespace Parsek.TestCommands
 
             // The Missions tab's own archive filter, in MissionStore's HIDE sense.
             NewKey(ArchivedMissionsKey, UiStateKeyKind.Bool),
-
-            // The Recordings tab's Info toggle: six extra columns and a window that widens
-            // to its own DefaultExpandedWindowWidth. The largest single layout change in
-            // the window, and absent from every capture.
-            NewKey(ExpandedStatsKey, UiStateKeyKind.Bool),
         };
 
         private static UiStateKeySpec NewKey(string key, UiStateKeyKind kind)

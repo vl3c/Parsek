@@ -1800,6 +1800,42 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Recordings tab: a presentation round.** How the table shows recordings changes; the one
+  data effect is that a mission folder's Loop box now also sets the launched vessel's loop
+  range, as that vessel's own chain row did before (see the last bullet).
+  - A folder's Duration is now the time its flights cover (the latest end minus the earliest
+    start), the figure a chain row already showed, instead of a sum that counted every booster,
+    debris piece and EVA flying at the same time again. Sorting by Duration uses the same
+    figure for folders and chains. The STASH row leaves Duration blank: it lists re-flyable
+    separations, not a flight.
+  - A subfolder drawn under its mission drops the repeated mission name: `R.1-S.1 / Debris`
+    reads `Debris` under `R.1-S.1` (the same in the Manage Groups / Set Parent Group tree).
+    The stored name, renaming and the census seam keep the full name.
+  - The Period cell is blank while a row's Loop is off, instead of a greyed value and unit;
+    hovering it still says `Turn Loop on for this flight to set its period`.
+  - Rewind / FF is shown once: a row drawn under a folder or flight row that already offers
+    the same R (or FF) target leaves its cell blank. A row whose button goes somewhere else
+    keeps it, and the rows inside STASH keep theirs (STASH draws no R of its own).
+  - The Info button and its extra columns (MaxAlt, MaxSpd, Dist, Pts, Start, End) are gone. A
+    row's Status hover now says where the flight ended (`Ends: Shores, Kerbin`, `Ends: Orbiting
+    Kerbin`), the vessel an EVA started from (`EVA from Kerbal X`) and how high and fast it
+    went (`Max altitude 70.0km, max speed 2.2km/s`). The Phase column is wider (120 px), so
+    two-body labels such as `Kerbin -> Mun exo` fit on one line; the window keeps its 1355 px
+    width (the Missions tab and its one-line help strip need it), and the room comes out of
+    the Name column and slightly narrower Site (80) and Duration (70) columns.
+  - Debris rows show how they ended (`Destroyed`, `Landed`, ...) in Status instead of `past`.
+    A folder's Status still ignores its debris, so a mission does not read `Destroyed`
+    because its booster fell.
+  - A mission folder no longer repeats its launched vessel as a flight row of its own: that
+    vessel's segments are listed directly under the mission (other vessels' flight rows stay).
+    The mission row takes over what the removed row offered: its Loop box loops the launched
+    vessel's segments the way that row did (trimming each loop to the interesting part) and
+    the rest of the mission the way the folder always did, and its Group cell gains an `S`
+    button that picks folders for every segment of the launched vessel at once.
+  - The table now uses the same row, header, list-area and cell styles as the Career, Kerbals,
+    Real Spawn Control and Structure tables, so every cell's text starts exactly under its
+    heading (it sat one pixel to the right).
+
 - **Recordings can no longer be deleted.** A committed recording is part of the timeline and the
   career ledger, and deleting one broke both. The Settings window's Data Management section is
   gone, with its "Wipe All Recordings" and "Wipe All Milestones" buttons and their confirmation

@@ -49,7 +49,23 @@ namespace Parsek.Tests
             /// <summary>Methods that pick one of <see cref="CellStyles"/> for a row (their
             /// every <c>return</c> must name one).</summary>
             public string[] CellStyleSelectors;
+            /// <summary>For a table whose rows draw a column through a HELPER method rather
+            /// than a <c>GUILayout.Width(ColW_...)</c> call in the row method itself: the
+            /// helper call's text mapped to the width constant that helper draws, so the
+            /// scan counts the column where the row calls it. Null for every other table.</summary>
+            public Dictionary<string, string> CallWidths;
         }
+
+        /// <summary>The Recordings tab's column helpers: each draws exactly one fixed
+        /// column of the width named here (the Missions tab reuses the first two, which is
+        /// why they are helpers).</summary>
+        private static readonly Dictionary<string, string> RecordingsCallWidths =
+            new Dictionary<string, string>
+            {
+                { "DrawLegacyRewindForwardCell(", "ColW_Rewind" },
+                { "DrawReFlyColumnCell(", "ColW_ReFly" },
+                { "DrawRewindColumnButton(", "ColW_Rewind" },
+            };
 
         private static readonly string[] CareerCellStyles = { "cellStyle", "alertStyle", "nameCellStyle" };
         private static readonly string[] KerbalsCellStyles =
@@ -115,6 +131,20 @@ namespace Parsek.Tests
                 CellStyles = KerbalsCellStyles,
                 CellStyleSelectors = KerbalsCellSelectors,
             },
+            // The Recordings tab (the Missions window's raw table), moved onto the house
+            // table styles 2026-09-26. Its header is pinned ABOVE the body scroll view, so it
+            // takes the gutter-reserving header row style. The Missions tab stays OFF this
+            // list (GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL). This row pins the header
+            // against the LEAF row; RecordingsTabEveryRowKindDrawsTheHeaderColumnSequence pins
+            // it against all four row kinds, with the Info / flight-only columns' guards.
+            new TableSite
+            {
+                File = Path.Combine("UI", "RecordingsTableUI.cs"),
+                HeaderMethod = "DrawRecordingsTableHeader",
+                RowMethod = "DrawRecordingRow",
+                HeaderPinnedOutsideScrollView = true,
+                CallWidths = RecordingsCallWidths,
+            },
         };
 
         // A column-width constant: ColW_Foo / SpawnColW_Foo. The ORDERED sequence of
@@ -139,8 +169,8 @@ namespace Parsek.Tests
                 string header = MethodBody(prepared, t.HeaderMethod, t.File);
                 string row = MethodBody(prepared, t.RowMethod, t.File);
 
-                List<string> headerWidths = OrderedWidthConstants(header);
-                List<string> rowWidths = OrderedWidthConstants(row);
+                List<string> headerWidths = OrderedWidthConstants(header, t.CallWidths);
+                List<string> rowWidths = OrderedWidthConstants(row, t.CallWidths);
 
                 Assert.True(headerWidths.Count > 0,
                     t.File + " / " + t.HeaderMethod
@@ -194,6 +224,7 @@ namespace Parsek.Tests
                          Path.Combine("UI", "StructureListWindowUI.cs"),
                          Path.Combine("UI", "CareerStateWindowUI.cs"),
                          Path.Combine("UI", "KerbalsWindowUI.cs"),
+                         Path.Combine("UI", "RecordingsTableUI.cs"),
                      })
             {
                 string prepared = ReadPreparedSource(file);
@@ -531,10 +562,13 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The Recordings tab reserves the gutter as a trailing <c>GUILayout.Space</c>
-        /// rather than as row padding, and owes the SAME derived number: its body box
-        /// spends a 4px <c>padding.right</c> (rows measured at x=14 width 1311 inside a
-        /// 1319-wide box), which is the same term a pinned header's padding replaces.
+        /// The Recordings tab owes its pinned header the SAME derived gutter as the other
+        /// pinned-header tables, and since 2026-09-26 takes it the same way: through the
+        /// header row style (<c>GetTableHeaderRowStyle</c>, whose right padding is
+        /// <c>VerticalScrollbarGutterWidth()</c>, pinned above), not a trailing
+        /// <c>GUILayout.Space</c> - which would now reserve it twice. Its header's last cell
+        /// (the Archive container) has margin R0, so the padding form ends the header at the
+        /// x the old Space form did.
         ///
         /// <para>The Missions tab is deliberately NOT here. The same census measured its
         /// rows at x=10 width 1319 - its body box spends NO padding - so its header owes
@@ -547,9 +581,13 @@ namespace Parsek.Tests
         public void TheRecordingsTabGutterRoutesThroughTheSharedDerivation()
         {
             string recordings = ReadPreparedSource(Path.Combine("UI", "RecordingsTableUI.cs"));
-            Assert.Contains(
+            string header = MethodBody(recordings, "DrawRecordingsTableHeader",
+                "RecordingsTableUI.cs");
+            Assert.Contains("GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle())", header);
+            // ... and reserves it exactly once: no trailing Space on top of the padding, and
+            // no Space sized from a locally read fixedWidth.
+            Assert.DoesNotContain(
                 "GUILayout.Space(ParsekUI.VerticalScrollbarGutterWidth())", recordings);
-            // ... and no longer sizes that Space from a locally read fixedWidth.
             Assert.DoesNotContain("GUILayout.Space(scrollbarWidth)", recordings);
 
             string missions = ReadPreparedSource(Path.Combine("UI", "MissionsWindowUI.cs"));
@@ -655,6 +693,172 @@ namespace Parsek.Tests
             }
         }
 
+        /// <summary>
+        /// The Recordings tab draws FOUR kinds of row under one header - the recording leaf
+        /// (<c>DrawRecordingRow</c>), the folder (<c>DrawGroupTree</c>), the chain / grouped
+        /// block (<c>DrawRecordingBlock</c>) and the STASH virtual group
+        /// (<c>DrawVirtualUnfinishedFlightsGroup</c>) - and one column is CONDITIONAL: the
+        /// Watch column draws only while <c>parentUI.InFlightMode</c>. Every row kind must
+        /// draw the header's exact column sequence - name column included - with the Watch
+        /// column behind the SAME guard, or in flight every column right of the gap shifts.
+        /// (Until 2026-09-26 an Info toggle guarded a second band the same way; it is gone,
+        /// and a stray <c>showExpandedStats</c> guard would now read as an untagged column
+        /// only if the field came back.)
+        /// The row is the span from its <c>BeginHorizontal(parentUI.GetTableRowStyle())</c>
+        /// to the matching <c>EndHorizontal</c>; columns a row draws through a helper count
+        /// where the helper is called (<see cref="RecordingsCallWidths"/>).
+        /// </summary>
+        [Fact]
+        public void RecordingsTabEveryRowKindDrawsTheHeaderColumnSequence()
+        {
+            string file = Path.Combine("UI", "RecordingsTableUI.cs");
+            string prepared = ReadPreparedSource(file);
+
+            string header = RowSpan(MethodBody(prepared, "DrawRecordingsTableHeader", file),
+                "GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle())", file);
+            List<string> expected = TaggedColumnSequence(header);
+
+            // Non-vacuous: the sequence carries the name column and both guarded groups.
+            Assert.Contains(NameColumnToken, expected);
+            Assert.Contains("ColW_Phase", expected);
+            Assert.Contains("ColW_Site", expected);
+            Assert.Contains("flight:ColW_Watch", expected);
+            Assert.DoesNotContain(expected, t => t.Contains("MaxAlt") || t.Contains("MaxSpd"));
+            Assert.Contains("ColW_Rewind", expected);
+            Assert.True(expected.Count >= 15,
+                "header column sequence is implausibly short: " + string.Join(", ", expected));
+
+            foreach (string method in new[]
+                     {
+                         "DrawRecordingRow", "DrawGroupTree", "DrawRecordingBlock",
+                         "DrawVirtualUnfinishedFlightsGroup",
+                     })
+            {
+                // From the method's signature rather than MethodBody: DrawGroupTree's Watch
+                // log lines nest quotes inside interpolation holes, which the literal masker
+                // does not model, so its brace walk ends that body early. The row span only
+                // counts Begin/EndHorizontal calls, which no literal carries.
+                string row = RowSpan(TextFromMethod(prepared, method, file),
+                    "GUILayout.BeginHorizontal(parentUI.GetTableRowStyle())", file + " / " + method);
+                List<string> actual = TaggedColumnSequence(row);
+                Assert.True(expected.SequenceEqual(actual),
+                    "RecordingsTableUI." + method + " draws a different column sequence than the header."
+                    + " header=[" + string.Join(", ", expected) + "] row=["
+                    + string.Join(", ", actual) + "]");
+            }
+        }
+
+        private const string NameColumnToken = "<name>";
+
+        // What marks the expanding name column: the header's sortable Name cell (its
+        // expand flag is the `true` after the zero width), the leaf's name helper, and a
+        // folder / block / STASH row's own ExpandWidth label.
+        private static readonly Regex NameColumnMarker = new Regex(
+            @"DrawSortableHeader\([^;]*?SortColumn\.Name\s*,\s*0\s*,\s*true"
+            + @"|DrawRecordingNameCell\("
+            + @"|GUILayout\.ExpandWidth\(\s*true\s*\)",
+            RegexOptions.Compiled);
+
+        /// <summary>
+        /// The column sequence of one row span: width constants, helper-drawn columns and the
+        /// name column in source order, each tagged <c>flight:</c> when it sits under an
+        /// <c>if (parentUI.InFlightMode)</c> guard,
+        /// with runs of one column collapsed (a cell drawn by one of several exclusive
+        /// branches names its width once per branch).
+        /// </summary>
+        private static List<string> TaggedColumnSequence(string span)
+        {
+            var guards = new List<Tuple<int, int, string>>();
+            AddGuardSpans(span, "if (parentUI.InFlightMode)", "flight:", guards);
+
+            var hits = WidthConstant.Matches(span).Cast<Match>()
+                .Select(m => Tuple.Create(m.Index, m.Value)).ToList();
+            foreach (Match m in NameColumnMarker.Matches(span))
+                hits.Add(Tuple.Create(m.Index, NameColumnToken));
+            foreach (var kv in RecordingsCallWidths)
+            {
+                int at = 0;
+                while ((at = span.IndexOf(kv.Key, at, StringComparison.Ordinal)) >= 0)
+                {
+                    hits.Add(Tuple.Create(at, kv.Value));
+                    at += kv.Key.Length;
+                }
+            }
+
+            var collapsed = new List<string>();
+            foreach (var hit in hits.OrderBy(h => h.Item1))
+            {
+                string tag = "";
+                foreach (var g in guards)
+                    if (hit.Item1 > g.Item1 && hit.Item1 < g.Item2) tag = g.Item3;
+                string token = tag + hit.Item2;
+                if (collapsed.Count == 0 || collapsed[collapsed.Count - 1] != token)
+                    collapsed.Add(token);
+            }
+            return collapsed;
+        }
+
+        /// <summary>Every <paramref name="guard"/> in the span, as the range its body covers:
+        /// a braced block, or the single statement up to its semicolon.</summary>
+        private static void AddGuardSpans(string span, string guard, string tag,
+            List<Tuple<int, int, string>> into)
+        {
+            int at = 0;
+            while ((at = span.IndexOf(guard, at, StringComparison.Ordinal)) >= 0)
+            {
+                int bodyStart = at + guard.Length;
+                while (bodyStart < span.Length && char.IsWhiteSpace(span[bodyStart])) bodyStart++;
+                int bodyEnd;
+                if (bodyStart < span.Length && span[bodyStart] == '{')
+                {
+                    // The closing brace is the first later line that is a lone "}" at the
+                    // guard's own indent. By LINE rather than by brace count: the literal
+                    // masker does not model quotes nested in interpolation holes (the folder
+                    // row's Watch log lines have them), so a brace walk can end early.
+                    int lineStart = span.LastIndexOf('\n', at) + 1;
+                    int indent = 0;
+                    while (lineStart + indent < at && span[lineStart + indent] == ' ') indent++;
+                    var closer = new Regex(@"\n {" + indent + @"}\}[ \t]*\r?(\n|$)");
+                    Match close = closer.Match(span, bodyStart + 1);
+                    bodyEnd = close.Success ? close.Index + 1 + indent : span.Length;
+                }
+                else
+                {
+                    bodyEnd = span.IndexOf(';', bodyStart);
+                    if (bodyEnd < 0) bodyEnd = span.Length;
+                }
+                into.Add(Tuple.Create(at, bodyEnd, tag));
+                at = bodyEnd;
+            }
+        }
+
+        /// <summary>The prepared text from a method's signature to the end of the file.</summary>
+        private static string TextFromMethod(string prepared, string method, string file)
+        {
+            var sig = new Regex(@"\b" + Regex.Escape(method) + @"\s*\([^;{}]*\)\s*\{",
+                RegexOptions.Singleline);
+            Match m = sig.Match(prepared);
+            Assert.True(m.Success, file + ": method " + method + " not found, this gate is vacuous.");
+            return prepared.Substring(m.Index);
+        }
+
+        /// <summary>The text of one table row: from <paramref name="opener"/> to the
+        /// <c>EndHorizontal</c> that closes it (nested horizontal groups balanced).</summary>
+        private static string RowSpan(string body, string opener, string file)
+        {
+            int start = body.IndexOf(opener, StringComparison.Ordinal);
+            Assert.True(start >= 0, file + ": row opener " + opener + " not found, this gate is vacuous.");
+            var marks = new Regex(@"GUILayout\.(Begin|End)Horizontal\(");
+            int depth = 0;
+            foreach (Match m in marks.Matches(body, start))
+            {
+                depth += m.Groups[1].Value == "Begin" ? 1 : -1;
+                if (depth == 0)
+                    return body.Substring(start, m.Index - start);
+            }
+            throw new InvalidOperationException(file + ": unbalanced horizontal groups after " + opener);
+        }
+
         // ───────────────────────────── helpers ─────────────────────────────
 
         /// <summary>
@@ -665,9 +869,26 @@ namespace Parsek.Tests
         /// one width constant read as a single column here - which still catches a width
         /// changing on one side, just not a duplicated column.
         /// </summary>
-        private static List<string> OrderedWidthConstants(string span)
+        private static List<string> OrderedWidthConstants(string span,
+            Dictionary<string, string> callWidths = null)
         {
-            var all = WidthConstant.Matches(span).Cast<Match>().Select(m => m.Value);
+            // Width constants and (for a table that has them) column-helper calls, merged
+            // in source order.
+            var hits = WidthConstant.Matches(span).Cast<Match>()
+                .Select(m => Tuple.Create(m.Index, m.Value)).ToList();
+            if (callWidths != null)
+            {
+                foreach (var kv in callWidths)
+                {
+                    int at = 0;
+                    while ((at = span.IndexOf(kv.Key, at, StringComparison.Ordinal)) >= 0)
+                    {
+                        hits.Add(Tuple.Create(at, kv.Value));
+                        at += kv.Key.Length;
+                    }
+                }
+            }
+            var all = hits.OrderBy(h => h.Item1).Select(h => h.Item2);
             var collapsed = new List<string>();
             foreach (string w in all)
             {

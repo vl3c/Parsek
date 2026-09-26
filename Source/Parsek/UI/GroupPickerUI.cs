@@ -257,7 +257,8 @@ namespace Parsek
                     0,
                     treeModel.ParentToChildren,
                     treeModel.CycleInvalid,
-                    isGroupPopup);
+                    isGroupPopup,
+                    parentName: null);
             }
 
             GUILayout.EndScrollView();
@@ -309,7 +310,7 @@ namespace Parsek
 
         private void DrawGroupPopupNode(string groupName, int depth,
             Dictionary<string, List<string>> parentToChildren,
-            HashSet<string> cycleInvalid, bool singleSelect)
+            HashSet<string> cycleInvalid, bool singleSelect, string parentName)
         {
             // Skip self + all descendants (can't assign a group to itself or its children)
             if (cycleInvalid != null && cycleInvalid.Contains(groupName))
@@ -341,7 +342,11 @@ namespace Parsek
                 }
             }
 
-            GUILayout.Label(groupName, GUILayout.ExpandWidth(true));
+            // Display label only: a nested "Parent / Sub" name drawn under its parent reads
+            // "Sub" (the checkbox and every write below keep the full stored name).
+            GUILayout.Label(
+                GroupPickerPresentation.DisplayLabelUnderParent(groupName, parentName),
+                GUILayout.ExpandWidth(true));
 
             GUILayout.EndHorizontal();
 
@@ -349,7 +354,8 @@ namespace Parsek
             if (hasChildren && groupPopupExpanded.Contains(groupName))
             {
                 for (int c = 0; c < children.Count; c++)
-                    DrawGroupPopupNode(children[c], depth + 1, parentToChildren, cycleInvalid, singleSelect);
+                    DrawGroupPopupNode(children[c], depth + 1, parentToChildren, cycleInvalid, singleSelect,
+                        groupName);
             }
         }
 

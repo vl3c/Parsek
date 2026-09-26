@@ -1577,13 +1577,14 @@ namespace Parsek
         /// <c>max(style.padding.right, lastChild.margin.right)</c> - a MAX, not a sum.
         /// A body row carries no right padding, so its content already ends one cell
         /// margin inside its group; a header's reserved padding REPLACES that margin
-        /// rather than adding to it, so the padding has to cover both terms. The same
-        /// number is right for the Recordings tab, which reserves the gutter as a
-        /// trailing <c>GUILayout.Space</c> instead: a Space entry carries
-        /// <c>GUIStyle.none</c>, so it is not considered for margin and consumes exactly
-        /// its width at the group's right edge, and that body loses its own 4px to the
-        /// list-area box's <c>padding.right</c>. The Missions tab's box spends no such
-        /// padding, so it owes the bare footprint and is deliberately NOT routed here
+        /// rather than adding to it, so the padding has to cover both terms. The
+        /// Recordings tab takes the same number through the same pinned header row style
+        /// (<see cref="GetTableHeaderRowStyle"/>) since 2026-09-26; before that it reserved
+        /// it as a trailing <c>GUILayout.Space</c> (a Space entry carries
+        /// <c>GUIStyle.none</c> and consumes exactly its width at the group's right edge,
+        /// and the header's last cell has margin R0, so both forms end that header at the
+        /// same x). The Missions tab's box spends no such padding, so it owes the bare
+        /// footprint and is deliberately NOT routed here
         /// (GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL).</para>
         ///
         /// <para>The 5px the 2026-09-11 re-flight measured after PR #1679 (Real Spawn
@@ -1662,7 +1663,7 @@ namespace Parsek
 
             // Dark list-area background for a table body. Horizontal margin AND
             // padding zeroed so the box contributes no inset of its own; vertical
-            // kept at the skin's 4px. Mirrors RecordingsTableUI.tableBodyBoxStyle.
+            // kept at the skin's 4px. The Recordings tab's list area uses it too.
             sharedTableBodyBoxStyle = new GUIStyle(GUI.skin.box)
             {
                 margin = new RectOffset(
@@ -2039,8 +2040,8 @@ namespace Parsek
         internal static double GetGroupEarliestStartUT(HashSet<int> descendants, IReadOnlyList<Recording> committed)
             => RecordingsTableUI.GetGroupEarliestStartUT(descendants, committed);
 
-        internal static double GetGroupTotalDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
-            => RecordingsTableUI.GetGroupTotalDuration(descendants, committed);
+        internal static double GetGroupSpanDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
+            => RecordingsTableUI.GetGroupSpanDuration(descendants, committed);
 
         internal static int FindGroupMainRecordingIndex(
             HashSet<int> descendants, IReadOnlyList<Recording> committed)

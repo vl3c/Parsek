@@ -51,28 +51,36 @@ namespace Parsek
         internal const string WindowIdKey = "ParsekRecordings";
 
         private const float ResizeHandleSize = 16f;
-        // Minimum resize width = the Recordings tab's collapsed width (Info toggled off), so the
-        // window can never be dragged narrow enough to clip the Recordings table. Shared by both
-        // tabs (one window, one resize clamp in DrawIfOpen -> HandleResizeDrag), so the Missions
-        // tab also cannot shrink below it. C# resolves the forward const reference regardless of
-        // textual order. (Expanding Info still widens the window to DefaultExpandedWindowWidth.)
-        internal const float MinWindowWidth = DefaultCollapsedWindowWidth;
+        // Minimum resize width = the window's default width, so the window can never be
+        // dragged narrow enough to clip either tab or push the shared help strip past its
+        // one-line budget. Shared by both tabs (one window, one resize clamp in DrawIfOpen ->
+        // HandleResizeDrag). C# resolves the forward const reference regardless of textual
+        // order.
+        internal const float MinWindowWidth = DefaultWindowWidth;
         internal const float MinWindowHeight = 150f;
 
         // Column widths — shared between header and body for alignment
         private const float ColW_Enable = 20f;
-        private const float ColW_Phase = 90f;
+        // Wide enough for a two-body phase label on one line ("Kerbin -> Mun exo" measured
+        // ~107 px of text in the 2026-09-26 census, plus the cell's 4 + 4 padding).
+        private const float ColW_Phase = 120f;
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
-        private const float ColW_Dur = 80f;
+        // The longest FormatDuration output ("394d 4h", "10m 57s") is about 55 px of text.
+        private const float ColW_Dur = 70f;
         private const float ColW_Status = 120f;
         private const float ColW_Loop = 60f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 60f;
         private const float ColW_ReFly = 90f;
         private const float ColW_Hide = 80f;
-        internal const float DefaultCollapsedWindowWidth = 1205f + ColW_Rewind + ColW_ReFly;
-        internal const float DefaultExpandedWindowWidth = 1663f + ColW_Rewind + ColW_ReFly;
+        // The width the window opens at, and its minimum. Held by the WINDOW, not by the
+        // Recordings columns: the window is shared with the Missions tab (its default tab,
+        // whose header bar needs this width), and the one-line help strip both tabs share is
+        // budgeted at 189 characters for exactly this width (TooltipEchoBudgetTests,
+        // DisabledReasonWordingTests). Wider fixed columns come out of the expanding Name
+        // column, never out of a wider window.
+        internal const float DefaultWindowWidth = 1355f;
         private const string RewindActionLabel = "R";
         private const string FastForwardActionLabel = "FF";
 
@@ -82,8 +90,15 @@ namespace Parsek
         // uniform; +10px over the single-label default balances with the toggle
         // cells without over-inflating them.
         private const float ColHeaderHeight = 32f;
-        private const float ColW_Site = 90f;
+        // "Launch Pad" measured ~69 px of text; 80 holds it with the cell padding.
+        private const float ColW_Site = 80f;
         private const float ColW_Group = 60f;
+        // The header's merged [select-all toggle + "#"] cell: the two body cells it sits over
+        // plus the 8 px of margin budget between them (see DrawRecordingsTableHeader). Named
+        // outside the ColW_ family on purpose: it is a HEADER-only container around the two
+        // real columns, whose own ColW_Enable / ColW_Index widths the header's inner toggle
+        // and "#" button draw, so the header and every row declare one column sequence.
+        private const float HeaderMergedEnableIndexWidth = ColW_Enable + ColW_Index + 8f;
 
         // Reusable per-frame buffers (avoid allocation each frame)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
@@ -577,34 +592,6 @@ namespace Parsek
         // DrawRecordingsWindowTooltip runs.
         private string recordingsWindowTooltipText = "";
 
-        // Expanded stats columns
-        private bool showExpandedStats;
-
-        /// <summary>
-        /// The Info toggle's own state - six extra columns and a wider window - readable and
-        /// writable from outside the draw pass for the automation-only
-        /// <c>UiAction op=state key=expandedStats</c> seam op.
-        ///
-        /// <para>Plain property over the same field the toggle writes. It deliberately does
-        /// NOT carry the toggle handler's window WIDENING (the handler grows the rect to
-        /// DefaultExpandedWindowWidth so the new columns fit): a census sizes every window
-        /// with <c>op=rect</c> anyway, and a property that resized the window would make the
-        /// commanded rect of the step after it unpredictable. A lane that wants the columns
-        /// visible passes the wide rect itself, which is what every existing census lane
-        /// already does.</para>
-        /// </summary>
-        internal bool ShowExpandedStatsForTesting
-        {
-            get { return showExpandedStats; }
-            set { showExpandedStats = value; }
-        }
-        private const float ColW_MaxAlt = 65f;
-        private const float ColW_MaxSpd = 65f;
-        private const float ColW_Dist = 65f;
-        private const float ColW_Pts = 35f;
-        private const float ColW_StartPos = 120f;
-        private const float ColW_EndPos = 120f;
-
         // Loop period editing — buffer used while text field is focused
         private int loopPeriodFocusedRi = -1;
         private string loopPeriodEditText = "";
@@ -625,6 +612,24 @@ namespace Parsek
         // mirrors lastCanRewind. Logged once per transition so a tree merge
         // doesn't flood the log with one line per branch every frame.
         private Dictionary<int, bool> lastSuppressedTreeBranch = new Dictionary<int, bool>();
+
+        // "Shown once" for the Rewind column: the committed index the nearest DRAWN enclosing
+        // row (folder or block) offers R / FF to, or -1. A child whose own button would target
+        // the same recording draws a blank cell instead. Set around each child draw pass and
+        // restored in a finally, so they are -1 whenever no Recordings-tab parent is drawing
+        // (the Missions tab reuses DrawLegacyRewindForwardCell and is never suppressed). The
+        // STASH virtual group resets both: it draws a blank R, so its leaves keep theirs.
+        private int enclosingRewindTargetIdx = -1;
+        private int enclosingForwardTargetIdx = -1;
+        // Transition-log dedup for that suppression, keyed "row:{ri}:{r|ff}" for a leaf and
+        // "group:{name}" / "block:{id}" for an aggregate row. Cleared with the index-keyed
+        // dicts on every committed-list membership change.
+        private readonly Dictionary<string, bool> lastSuppressedByEnclosingRow =
+            new Dictionary<string, bool>();
+        // Transition-log dedup for the mission folder absorbing its launched vessel's block,
+        // keyed by group name (same quiet-first-false rule as the suppression cache).
+        private readonly Dictionary<string, bool> lastRootBlockAbsorbedByGroup =
+            new Dictionary<string, bool>();
 
         // Watch button enabled-state tracking for transition logging (bug #279).
         // Both dicts are keyed by RecordingId (stable across rewind/truncate
@@ -651,10 +656,6 @@ namespace Parsek
         private GUIStyle statusStyleStatic;
         private GUIStyle statusStyleStationary;
 
-        // Zero-horizontal-padding body-box style: preserves the dark list-area
-        // background without shifting rows inward (so column left edges align with
-        // the fixed header above the scroll view).
-        private GUIStyle tableBodyBoxStyle;
         private GUIStyle boldHeaderInnerLabel;
         private GUIStyle indexRowStyle;
         private GUIStyle bodyCellLabel;
@@ -679,10 +680,6 @@ namespace Parsek
         // Space(5) before Name shifts Name text right inside the ExpandWidth cell so it
         // sits under the header "Name" text (which is 5 px inset by its colHdr box padding).
         private const float NameColumnLeadGap = 5f;
-        // padding.left applied to every fixed-width body cell after Name. Matches the
-        // visual text inset produced by the header's colHdr box padding, so body text
-        // lands under header text without moving the body cells' layout boundaries.
-        private const int BodyCellTextIndent = 5;
         // Left-only inset for DrawBodyCenteredButton and the Period wrap: the button
         // / Period val visible rect starts this many px into the cell and extends to
         // the cell's right edge, shifting the rectangle right (asymmetric inset) so
@@ -911,7 +908,7 @@ namespace Parsek
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    DefaultCollapsedWindowWidth, recHeight);
+                    DefaultWindowWidth, recHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
@@ -968,31 +965,44 @@ namespace Parsek
             recordingsWindowHasInputLock = false;
         }
 
+        /// <summary>A body label style on the house table cell (header-matched horizontal
+        /// text inset), with this table's zero vertical padding. Must run inside a draw.</summary>
+        private GUIStyle NewTableCellLabelStyle()
+        {
+            GUIStyle tableCell = parentUI.GetTableCellStyle();
+            return new GUIStyle(tableCell)
+            {
+                padding = new RectOffset(tableCell.padding.left, tableCell.padding.right, 0, 0)
+            };
+        }
+
         private void EnsurePhaseStyles()
         {
             if (phaseStyleAtmo != null) return;
 
-            var cellLabelPadding = new RectOffset(BodyCellTextIndent, 0, 0, 0);
-            phaseStyleAtmo = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            // Every left-aligned body label (and the tinted phase / status labels) is built on
+            // the house table cell style, whose HORIZONTAL padding is the column header's, so
+            // cell text starts at its header's text x (the old hand-set L5 indent read 1px
+            // right of the header's L4). Vertical padding stays 0, the row pitch this table
+            // always had (the cross-link scroll steps 22 px per row).
+            phaseStyleAtmo = NewTableCellLabelStyle();
             phaseStyleAtmo.normal.textColor = new Color(0.4f, 0.7f, 1f); // blue
 
-            phaseStyleExo = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            phaseStyleExo = NewTableCellLabelStyle();
             phaseStyleExo.normal.textColor = new Color(0.75f, 0.55f, 1f); // light purple
 
-            phaseStyleSpace = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            phaseStyleSpace = NewTableCellLabelStyle();
             phaseStyleSpace.normal.textColor = new Color(0.2f, 1f, 0.6f); // lime green
 
-            phaseStyleApproach = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            phaseStyleApproach = NewTableCellLabelStyle();
             phaseStyleApproach.normal.textColor = new Color(0.3f, 0.8f, 1f); // cyan
 
-            phaseStyleSurface = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            phaseStyleSurface = NewTableCellLabelStyle();
             phaseStyleSurface.normal.textColor = new Color(1f, 0.6f, 0.2f); // orange
 
-            // Generic body-cell label style (used by Site/Launch/Duration/expanded stats/
-            // Period placeholder/Watch placeholder/Rewind placeholder). Same padding as
-            // phaseStyle* so every left-aligned body label has a consistent text inset
-            // matching the header's colHdr box padding.
-            bodyCellLabel = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+            // Generic body-cell label style (Site / Launch / Duration / every blank
+            // placeholder cell).
+            bodyCellLabel = NewTableCellLabelStyle();
             // Zero horizontal margin variant for use inside DrawBodyCenteredButton wrap.
             bodyCellButtonFlush = new GUIStyle(GUI.skin.button)
             {
@@ -1015,14 +1025,6 @@ namespace Parsek
             bodyCellWrapStyle = new GUIStyle
             {
                 margin = new RectOffset(4, 4, 0, 0)
-            };
-
-            // Body box: dark background only, zero horizontal padding. Keeps the
-            // Career-State-style list surface without pushing row columns inward.
-            tableBodyBoxStyle = new GUIStyle(GUI.skin.box)
-            {
-                padding = new RectOffset(0, 0, 2, 2),
-                margin = new RectOffset(0, 0, 0, 0)
             };
 
             // Bold label for header cells that share their box with a toggle (Loop /
@@ -1322,6 +1324,20 @@ namespace Parsek
             return string.Empty;
         }
 
+        /// <summary>
+        /// Hover text of a Period cell drawn BLANK because the row's Loop is off: the
+        /// loop-off reason, so the empty cell still says why it is empty. Null-safe; a
+        /// looping recording yields the empty string (its cell is the live editor, which
+        /// carries its own tooltips). Pure for unit testing.
+        /// </summary>
+        internal static string LoopPeriodBlankCellTooltip(Recording rec)
+        {
+            bool looping = rec != null && rec.LoopPlayback;
+            if (looping) return string.Empty;
+            return LoopPeriodDisabledReason(
+                false, rec != null && rec.LoopTimeUnit == LoopTimeUnit.Auto);
+        }
+
         /// <inheritdoc cref="GetWatchButtonReason"/>
         internal static string GetWatchButtonTooltip(
             bool isWatching, bool hasGhost, bool sameBody, bool inRange, bool isDebris,
@@ -1484,8 +1500,11 @@ namespace Parsek
 
         private void DrawRecordingsTableHeader(IReadOnlyList<Recording> committed)
         {
-            // Header row
-            GUILayout.BeginHorizontal();
+            // Header row: the house pinned-header row container (shared left inset, and the
+            // scroll view's scrollbar gutter as its own right padding - see
+            // ParsekUI.VerticalScrollbarGutterWidth), so the header ends where the body rows
+            // below the forced vertical scrollbar do.
+            GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle());
 
             // Select-all enable toggle + "#" sortable header live in ONE boxed cell
             // so the column reads as a single unit (toggle above column 0's toggles,
@@ -1502,7 +1521,7 @@ namespace Parsek
             // Without the +8, the merged container is 8 px narrower than the body pair, so
             // every column right of # drifts 8 px relative to its header cell.
             GUILayout.BeginHorizontal(colHdrCellContainerStyle,
-                GUILayout.Width(ColW_Enable + ColW_Index + 8f),
+                GUILayout.Width(HeaderMergedEnableIndexWidth),
                 GUILayout.Height(ColHeaderHeight));
             bool newAllEnabled = GUILayout.Toggle(allEnabled,
                 new GUIContent("",
@@ -1548,27 +1567,6 @@ namespace Parsek
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrDur");
 
             var colHdr = parentUI.GetColumnHeaderStyle();
-            if (showExpandedStats)
-            {
-                GUILayout.Label(new GUIContent("MaxAlt",
-                    "Highest altitude this flight reached."),
-                    colHdr, GUILayout.Width(ColW_MaxAlt), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label(new GUIContent("MaxSpd",
-                    "Highest speed this flight reached."),
-                    colHdr, GUILayout.Width(ColW_MaxSpd), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label(new GUIContent("Dist",
-                    "Total distance this flight travelled."),
-                    colHdr, GUILayout.Width(ColW_Dist), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label(new GUIContent("Pts",
-                    "How many trajectory points were recorded - a rough measure of how detailed and how large the recording is."),
-                    colHdr, GUILayout.Width(ColW_Pts), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label(new GUIContent("Start",
-                    "Where this flight starts: body and site, or the parent vessel it separated from."),
-                    colHdr, GUILayout.Width(ColW_StartPos), GUILayout.Height(ColHeaderHeight));
-                GUILayout.Label(new GUIContent("End",
-                    "Where this flight ends up: body and site, or the parent vessel it is attached to."),
-                    colHdr, GUILayout.Width(ColW_EndPos), GUILayout.Height(ColHeaderHeight));
-            }
 
             DrawSortableHeader("Status", SortColumn.Status, ColW_Status, false,
                 "Sort by status - counting down to launch, flying now, or finished.");
@@ -1667,16 +1665,9 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.HideActive}");
             }
 
-            // Reserve the vertical-scrollbar gutter so the fixed header's right edge
-            // aligns with the row cells' right edges: the scroll view claims a strip on
-            // the right, and the body's list-area box spends a cell margin of its own.
-            // One shared derivation (ParsekUI.VerticalScrollbarGutterWidth) so this
-            // header cannot drift from the pinned-header tables. Reserving only
-            // fixedWidth left this header 5px too wide: the 2026-09-11 census
-            // (bd-missions-recordings-expanded-advanced) put header cells at 1330 and
-            // row cells at 1325.
-            GUILayout.Space(ParsekUI.VerticalScrollbarGutterWidth());
-
+            // No trailing gutter Space: the header row style above already reserves the
+            // scrollbar gutter as its right padding, and its last cell (the Archive container,
+            // margin R0) ends exactly there. A Space here as well would reserve it twice.
             GUILayout.EndHorizontal();
 
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured && Event.current.type == EventType.Repaint)
@@ -1696,23 +1687,6 @@ namespace Parsek
             DrawRecordingsWindowTooltip();
 
             GUILayout.BeginHorizontal();
-
-            if (committed.Count > 0)
-            {
-                string statsLabel = showExpandedStats ? "Info \u25c0" : "Info \u25b6";
-                if (GUILayout.Button(
-                        new GUIContent(statsLabel,
-                            "Show or hide the extra statistics columns. Turning them on widens the window."),
-                        GUILayout.Width(65)))
-                {
-                    showExpandedStats = !showExpandedStats;
-                    ParsekLog.Verbose("UI", $"Recordings Info toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                    if (showExpandedStats && recordingsWindowRect.width < DefaultExpandedWindowWidth)
-                        recordingsWindowRect.width = DefaultExpandedWindowWidth;
-                    else if (!showExpandedStats)
-                        recordingsWindowRect.width = DefaultCollapsedWindowWidth;
-                }
-            }
 
             if (GUILayout.Button(
                     new GUIContent("New Group",
@@ -1923,12 +1897,17 @@ namespace Parsek
                 DrawRecordingsTableHeader(committed);
 
                 renderedRowCounter = 0;
+                // Top-level rows have no enclosing row (the fields are restored in a
+                // finally by every nested draw; this is the belt to that).
+                enclosingRewindTargetIdx = -1;
+                enclosingForwardTargetIdx = -1;
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
-                // Dark list-area background (matches Career State) without horizontal
-                // padding so row columns align with the header above.
-                GUILayout.BeginVertical(tableBodyBoxStyle);
+                // Dark list-area background: the house table body box, which adds no
+                // horizontal inset of its own, and every row below opens with the house row
+                // container, so row columns align with the header above.
+                GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
 
                 // Rebuild if a header click invalidated during this frame
                 RebuildSortedIndices(committed, now);
@@ -2116,7 +2095,7 @@ namespace Parsek
             }
             renderedRowCounter++;
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             bool captureThisRow = alignmentDebugArmed && !alignmentDebugRowCaptured;
 
             // Enable checkbox (always at column 0)
@@ -2166,7 +2145,6 @@ namespace Parsek
             }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowPhase");
 
-            // Site (launch site name)
             GUILayout.Label(rec.LaunchSiteName ?? "", bodyCellLabel, GUILayout.Width(ColW_Site));
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowSite");
 
@@ -2181,48 +2159,15 @@ namespace Parsek
             GUILayout.Label(FormatDuration(dur), bodyCellLabel, GUILayout.Width(ColW_Dur));
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowDur");
 
-            // Expanded stats
-            if (showExpandedStats)
-            {
-                var stats = GetOrComputeStats(rec);
-                GUILayout.Label(FormatAltitude(stats.maxAltitude), bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label(FormatSpeed(stats.maxSpeed), bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
-                GUILayout.Label(FormatDistance(stats.distanceTravelled), bodyCellLabel, GUILayout.Width(ColW_Dist));
-                GUILayout.Label(stats.pointCount.ToString(), bodyCellLabel, GUILayout.Width(ColW_Pts));
-                string parentVessel = ResolveParentVesselName(rec, committed);
-                GUILayout.Label(FormatStartPosition(rec, parentVessel), bodyCellLabel, GUILayout.Width(ColW_StartPos));
-                GUILayout.Label(FormatEndPosition(rec, parentVessel), bodyCellLabel, GUILayout.Width(ColW_EndPos));
-            }
-
-            // Status (#98: merged countdown into status column)
-            GUIStyle statusStyle;
-            string statusText;
-            bool statusTextIsTerminalState = false;
-            if (now < rec.StartUT)
-            {
-                statusStyle = statusStyleFuture;
-                statusText = rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
-                    : "future";
-            }
-            else if (now <= rec.EndUT && !rec.TerminalStateValue.HasValue)
-            {
-                statusStyle = statusStyleActive;
-                statusText = rec.Points.Count > 0
-                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
-                    : "active";
-            }
-            else
-            {
-                statusStyle = statusStylePast;
-                if (rec.TerminalStateValue.HasValue && !rec.IsDebris)
-                {
-                    statusText = rec.TerminalStateValue.Value.ToString();
-                    statusTextIsTerminalState = true;
-                }
-                else
-                    statusText = "past";
-            }
+            // Status (#98: merged countdown into status column). Debris shows its ending word
+            // too (Destroyed, Landed, ...), like every other row.
+            int statusOrder;
+            bool statusTextIsTerminalState;
+            string statusText = ResolveRecordingStatusText(
+                rec, now, out statusOrder, out statusTextIsTerminalState);
+            GUIStyle statusStyle = statusOrder == 0 ? statusStyleFuture
+                : statusOrder == 1 ? statusStyleActive
+                : statusStylePast;
 
             string visualStatusText = FormatRecordingVisualStatusText(
                 visualKind, statusText, statusTextIsTerminalState);
@@ -2243,11 +2188,24 @@ namespace Parsek
                 if (chainStatus != null)
                     chainStatusTooltip = chainStatus;
             }
+            // Where the flight came from (an EVA's vessel), where it ended up, and how high
+            // and fast it went lead the hover: they were the old Start / End / MaxAlt /
+            // MaxSpd columns, which are gone. The stats are cached per recording.
+            string parentVesselName = ResolveParentVesselName(rec, committed);
+            string statusPlaceTooltip = BuildStatusPlaceTooltip(
+                FormatStartPosition(rec, parentVesselName),
+                FormatEndPosition(rec, parentVesselName),
+                statusText);
+            var stats = GetOrComputeStats(rec);
+            string statusStatsTooltip = BuildStatusStatsTooltip(
+                stats.maxAltitude, stats.maxSpeed, stats.pointCount);
             string statusTooltip = CombineTooltipText(
+                CombineTooltipText(statusPlaceTooltip, statusStatsTooltip),
                 CombineTooltipText(
-                    GetRecordingVisualStatusTooltip(visualKind),
-                    chainStatusTooltip),
-                ResolveDockPartnerTooltip(rec));
+                    CombineTooltipText(
+                        GetRecordingVisualStatusTooltip(visualKind),
+                        chainStatusTooltip),
+                    ResolveDockPartnerTooltip(rec)));
             // Fall back to the column's own explanation when this row composed nothing
             // specific, so the cell is never a silent hover.
             if (string.IsNullOrEmpty(statusTooltip))
@@ -2328,6 +2286,16 @@ namespace Parsek
             if (suppressRowLoop)
             {
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
+            }
+            else if (!rec.LoopPlayback)
+            {
+                // Loop off: the period means nothing yet, so the cell draws blank rather
+                // than a greyed value + unit pair. It still explains itself on hover (the
+                // cell is never a silent hover), with the same reason the greyed pair
+                // carried.
+                GUILayout.Label(
+                    new GUIContent("", LoopPeriodBlankCellTooltip(rec)),
+                    bodyCellLabel, GUILayout.Width(ColW_Period));
             }
             else
             {
@@ -2668,7 +2636,8 @@ namespace Parsek
             Dictionary<string, List<int>> chainToRecs,
             Dictionary<string, List<string>> grpChildren,
             IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
-            string treeConnector = null)
+            string treeConnector = null,
+            string parentGroupName = null)
         {
             // Compute this tree's unfinished-flight members up front so the
             // nested virtual subgroup can be rendered even when the mission
@@ -2694,10 +2663,35 @@ namespace Parsek
             CollectDescendantRecordings(groupName, grpToRecs, grpChildren, descendants);
             int memberCount = descendants.Count;
 
+            // The folder's own display blocks, built BEFORE the header row: on a mission
+            // folder the tree-root vessel's block is absorbed (its segments draw directly
+            // under the mission row), and the header's Loop and G cells take over what that
+            // block's header offered, so they need its members now.
+            List<int> directMembers;
+            grpToRecs.TryGetValue(groupName, out directMembers);
+            List<GroupDisplayBlock> displayBlocks = directMembers != null
+                ? BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs)
+                : null;
+            List<int> absorbedRootMembers = null;
+            if (displayBlocks != null)
+            {
+                RecordingTree missionTree = MissionGroupLink.FindTreeByRootGroup(groupName);
+                string rootBlockKey = missionTree != null
+                    ? ResolveRootVesselBlockKey(groupName, ResolveTreeRootRecording(missionTree))
+                    : null;
+                int absorbedIdx = FindRootVesselBlockIndex(displayBlocks, rootBlockKey);
+                if (absorbedIdx >= 0)
+                {
+                    absorbedRootMembers = displayBlocks[absorbedIdx].Members;
+                    displayBlocks = FlattenAbsorbedBlock(displayBlocks, absorbedIdx, groupName);
+                }
+                LogRootBlockAbsorptionTransition(groupName, rootBlockKey, absorbedRootMembers);
+            }
+
             float indent = SelfConnectorIndent(depth);
 
             // -- Group header --
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
 
             // Enable checkbox (always at column 0)
             int enabledCount = 0;
@@ -2758,8 +2752,12 @@ namespace Parsek
             }
             else
             {
+                // Display label only: "Mission / Debris" drawn under "Mission" reads "Debris".
+                // The rename seed below, the stores and the census seam keep the full name.
+                string groupLabel = GroupPickerPresentation.DisplayLabelUnderParent(
+                    groupName, parentGroupName);
                 if (GUILayout.Button(
-                    new GUIContent($"{treeConnector ?? ""}{arrow} {groupName} ({memberCount})",
+                    new GUIContent($"{treeConnector ?? ""}{arrow} {groupLabel} ({memberCount})",
                         "Click to expand or collapse this folder; double-click to rename it."),
                     GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
@@ -2810,20 +2808,10 @@ namespace Parsek
                 : "-";
             GUILayout.Label(grpLaunchText, bodyCellLabel, GUILayout.Width(ColW_Launch));
 
-            // Duration (sum of descendant durations)
-            double grpTotalDur = GetGroupTotalDuration(descendants, committed);
-            GUILayout.Label(FormatDuration(grpTotalDur), bodyCellLabel, GUILayout.Width(ColW_Dur));
-
-            // Expanded stats spacers
-            if (showExpandedStats)
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Dist));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Pts));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartPos));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndPos));
-            }
+            // Duration: the span the descendants cover (latest end - earliest start), the
+            // figure a chain block shows, never a sum that double-counts parallel branches.
+            double grpSpanDur = GetGroupSpanDuration(descendants, committed);
+            GUILayout.Label(FormatDuration(grpSpanDur), bodyCellLabel, GUILayout.Width(ColW_Dur));
 
             // Status (closest active T- among descendants)
             string grpStatusText;
@@ -2841,7 +2829,18 @@ namespace Parsek
             // G via DrawBodyCenteredButton.
             bool grpGClicked;
             bool grpXClicked = false;
-            if (canDisbandGroup)
+            bool grpSegmentsClicked = false;
+            if (absorbedRootMembers != null)
+            {
+                // A mission folder that absorbed its launched vessel's block keeps that
+                // block's "every segment to folders" picker as the second half of the cell.
+                // No X here: a mission folder is a permanent (auto-generated tree) group.
+                DrawBodyCenteredTwoButtons(
+                    new GUIContent("G", "Choose which folder this folder sits inside."), true,
+                    new GUIContent("S", "Choose which folders every segment of the launched vessel belongs to."), true,
+                    ColW_Group, out grpGClicked, out grpSegmentsClicked);
+            }
+            else if (canDisbandGroup)
             {
                 DrawBodyCenteredTwoButtons(
                     new GUIContent("G", "Choose which folder this folder sits inside."), true,
@@ -2865,6 +2864,14 @@ namespace Parsek
                 ShowDisbandGroupConfirmation(groupName, descendants, grpChildren);
                 ParsekLog.Verbose("UI", $"Disband clicked for group '{groupName}'");
             }
+            if (grpSegmentsClicked)
+            {
+                var mousePos = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
+                groupPicker.OpenForRecordings(absorbedRootMembers, mousePos);
+                ParsekLog.Verbose("UI",
+                    $"Group popup opened for the launched vessel's segments of '{groupName}' "
+                    + $"({absorbedRootMembers.Count.ToString(CultureInfo.InvariantCulture)} recordings)");
+            }
 
             // Aggregate Loop toggle. Group writes do not call ApplyAutoLoopRange
             // (so a user-customized LoopStartUT/LoopEndUT survives off/on toggle);
@@ -2873,8 +2880,20 @@ namespace Parsek
             // Mutual exclusion (design §0.6): grey OFF + block the group loop when ANY
             // descendant lives on a route-bound tree (safe default: a group spanning a
             // route-bound recording never partially applies).
-            bool grpRouteBound = AnyRecordingRouteBound(committed, descendants);
-            var grpLoopAgg = ComputeLoopAggregate(committed, descendants);
+            //
+            // A mission folder that absorbed its launched vessel's block also takes over that
+            // block's Loop semantics for those members: they are written WITH the auto loop
+            // range (what the block's own toggle did), every other loopable descendant WITHOUT
+            // (the folder's own behaviour). The aggregate and the route gate read the union.
+            IEnumerable<int> grpLoopScope = descendants;
+            if (absorbedRootMembers != null)
+            {
+                var union = new HashSet<int>(descendants);
+                union.UnionWith(absorbedRootMembers);
+                grpLoopScope = union;
+            }
+            bool grpRouteBound = AnyRecordingRouteBound(committed, grpLoopScope);
+            var grpLoopAgg = ComputeLoopAggregate(committed, grpLoopScope);
             if (grpLoopAgg.SuppressToggle)
             {
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
@@ -2903,6 +2922,20 @@ namespace Parsek
                     {
                         ParsekLog.Info("RouteGuard",
                             $"Recordings-tab group Loop blocked for '{groupName}' (a descendant is on a route-bound tree); request={newLoop} ignored");
+                    }
+                    else if (absorbedRootMembers != null)
+                    {
+                        SplitAbsorbedLoopWrite(grpLoopScope, absorbedRootMembers,
+                            out List<int> withAutoRange, out List<int> withoutAutoRange);
+                        int rootWritten = BulkSetLoopPlayback(
+                            committed, withAutoRange, newLoop, applyAutoRange: true);
+                        int otherWritten = BulkSetLoopPlayback(
+                            committed, withoutAutoRange, newLoop, applyAutoRange: false);
+                        ParsekLog.Info("UI",
+                            $"Group '{groupName}' loop set to {newLoop} "
+                            + $"(launched vessel {rootWritten.ToString(CultureInfo.InvariantCulture)} "
+                            + "recordings with auto loop range, other "
+                            + $"{otherWritten.ToString(CultureInfo.InvariantCulture)} without)");
                     }
                     else
                     {
@@ -3064,7 +3097,21 @@ namespace Parsek
             // an escalation surface for any child launch rewind.
             bool isRecording = parentUI.InFlightMode && flight.IsRecording;
             int forwardIdx = FindAggregateForwardRecordingIndex(descendants, committed, now);
-            if (forwardIdx >= 0)
+            int grpRewindIdx = forwardIdx >= 0
+                ? -1
+                : FindGroupLegacyRewindRecordingIndex(descendants, committed, now);
+            // Shown once: a folder nested under a row that already offers this exact target
+            // (a "/ Debris" folder under its mission, say) draws a blank cell.
+            bool grpTimeSuppressed = forwardIdx >= 0
+                ? IsTimeTargetShownByEnclosingRow(forwardIdx, enclosingForwardTargetIdx)
+                : IsTimeTargetShownByEnclosingRow(grpRewindIdx, enclosingRewindTargetIdx);
+            LogEnclosingTimeSuppressionTransition("group:" + groupName, grpTimeSuppressed,
+                $"Group '{groupName}'");
+            if (grpTimeSuppressed)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+            }
+            else if (forwardIdx >= 0)
             {
                 var mainRec = committed[forwardIdx];
 
@@ -3079,30 +3126,27 @@ namespace Parsek
                 }
                 GUI.enabled = true;
             }
+            else if (grpRewindIdx >= 0)
+            {
+                int rewindIdx = grpRewindIdx;
+                var rewindRec = committed[rewindIdx];
+                string rewindReason;
+                bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
+                GUI.enabled = canRewind;
+                string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
+                    ? "this launch"
+                    : rewindRec.VesselName;
+                string tooltip = canRewind ? $"Rewind to launch: {targetName}" : rewindReason;
+                if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
+                {
+                    ParsekLog.Info("UI", $"Group '{groupName}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
+                    ShowRewindConfirmation(rewindRec);
+                }
+                GUI.enabled = true;
+            }
             else
             {
-                int rewindIdx = FindGroupLegacyRewindRecordingIndex(descendants, committed, now);
-                if (rewindIdx >= 0)
-                {
-                    var rewindRec = committed[rewindIdx];
-                    string rewindReason;
-                    bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
-                    GUI.enabled = canRewind;
-                    string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
-                        ? "this launch"
-                        : rewindRec.VesselName;
-                    string tooltip = canRewind ? $"Rewind to launch: {targetName}" : rewindReason;
-                    if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
-                    {
-                        ParsekLog.Info("UI", $"Group '{groupName}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
-                        ShowRewindConfirmation(rewindRec);
-                    }
-                    GUI.enabled = true;
-                }
-                else
-                {
-                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
-                }
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
             }
 
             // Group rows do not expose aggregate Re-Fly actions. Stash/Fly/Seal
@@ -3170,6 +3214,41 @@ namespace Parsek
 
             if (!expanded) return false;
 
+            // The rows drawn under this folder compare their own R / FF against what this
+            // row actually drew (or, when it drew a blank, against what its own parent drew).
+            int savedEnclosingRewind = enclosingRewindTargetIdx;
+            int savedEnclosingForward = enclosingForwardTargetIdx;
+            ResolveChildEnclosingTimeTargets(
+                forwardIdx, grpRewindIdx, grpTimeSuppressed,
+                savedEnclosingForward, savedEnclosingRewind,
+                out enclosingForwardTargetIdx, out enclosingRewindTargetIdx);
+            try
+            {
+                return DrawGroupChildren(groupName, depth, committed, now,
+                    grpToRecs, chainToRecs, grpChildren, supersedes,
+                    nestedUnfinished, hasNestedUnfinished, displayBlocks);
+            }
+            finally
+            {
+                enclosingRewindTargetIdx = savedEnclosingRewind;
+                enclosingForwardTargetIdx = savedEnclosingForward;
+            }
+        }
+
+        /// <summary>
+        /// Draws an expanded folder's children. Returns true if the recording list was
+        /// modified (the caller stops iterating).
+        /// </summary>
+        private bool DrawGroupChildren(string groupName, int depth,
+            IReadOnlyList<Recording> committed, double now,
+            Dictionary<string, List<int>> grpToRecs,
+            Dictionary<string, List<int>> chainToRecs,
+            Dictionary<string, List<string>> grpChildren,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyList<Recording> nestedUnfinished,
+            bool hasNestedUnfinished,
+            List<GroupDisplayBlock> displayBlocks)
+        {
             // -- Draw children --
             // Children render in three sections, in order: display blocks
             // (chain/grouped blocks + single recording rows), child sub-groups,
@@ -3180,15 +3259,11 @@ namespace Parsek
             // (filtered out under the hide filter, inactive-for-display, or a
             // hidden child group with no escape hatch) are excluded from the
             // "last visible" computation so the corner never lands on a row
-            // that draws nothing.
-            List<int> directMembers;
-            grpToRecs.TryGetValue(groupName, out directMembers);
-
-            List<GroupDisplayBlock> displayBlocks = null;
+            // that draws nothing. `displayBlocks` arrives already built (and, on a mission
+            // folder, with the launched vessel's block flattened into single rows).
             int lastVisibleBlockIdx = -1;
-            if (directMembers != null)
+            if (displayBlocks != null)
             {
-                displayBlocks = BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs);
                 for (int i = 0; i < displayBlocks.Count; i++)
                     if (DisplayBlockRendersAnything(displayBlocks[i], committed, supersedes))
                         lastVisibleBlockIdx = i;
@@ -3245,7 +3320,8 @@ namespace Parsek
                     string connector = TreeConnector(
                         cornerSection == TreeChildSection.ChildGroup && c == lastRenderableChildGroupIdx);
                     if (DrawGroupTree(children[c], depth + 1, committed, now,
-                        grpToRecs, chainToRecs, grpChildren, supersedes, connector))
+                        grpToRecs, chainToRecs, grpChildren, supersedes, connector,
+                        parentGroupName: groupName))
                         return true;
                 }
             }
@@ -3366,7 +3442,7 @@ namespace Parsek
             if (memberCount == 0)
                 return false;
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
 
             // -- Enable checkbox (aggregate) --
             int enabledCount = 0;
@@ -3421,19 +3497,11 @@ namespace Parsek
                 : "-";
             GUILayout.Label(grpLaunchText, bodyCellLabel, GUILayout.Width(ColW_Launch));
 
-            // Total duration.
-            double grpTotalDur = GetGroupTotalDuration(descendants, committed);
-            GUILayout.Label(FormatDuration(grpTotalDur), bodyCellLabel, GUILayout.Width(ColW_Dur));
-
-            if (showExpandedStats)
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Dist));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Pts));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartPos));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndPos));
-            }
+            // Duration placeholder. STASH is a to-do list of re-flyable separations picked
+            // out of the mission it sits under; neither a sum nor a span of those unrelated
+            // siblings describes a flight, so the cell stays blank like the virtual group's
+            // Loop / Period / Rewind cells.
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Dur));
 
             // Status.
             string grpStatusText;
@@ -3541,6 +3609,13 @@ namespace Parsek
             });
 
             unfinishedFlightRowDepth++;
+            // STASH draws a blank Rewind cell, so nothing above its members offers their
+            // R / FF: they keep their own (the mission folder's button is not "enclosing"
+            // for a mirror list that repeats rows drawn elsewhere under it).
+            int savedEnclosingRewind = enclosingRewindTargetIdx;
+            int savedEnclosingForward = enclosingForwardTargetIdx;
+            enclosingRewindTargetIdx = -1;
+            enclosingForwardTargetIdx = -1;
             try
             {
                 float memberIndent = ChildConnectorIndent(depth);
@@ -3558,6 +3633,8 @@ namespace Parsek
             finally
             {
                 unfinishedFlightRowDepth--;
+                enclosingRewindTargetIdx = savedEnclosingRewind;
+                enclosingForwardTargetIdx = savedEnclosingForward;
             }
 
             return false;
@@ -3582,6 +3659,18 @@ namespace Parsek
 
             if (ShouldShowForwardButton(rec, now))
             {
+                // Shown once: the folder / block row this row is drawn under already
+                // offers FF to this very recording, so the child cell stays blank.
+                bool ffShownAbove = IsTimeTargetShownByEnclosingRow(ri, enclosingForwardTargetIdx);
+                LogEnclosingTimeSuppressionTransition(
+                    "row:" + ri.ToString(CultureInfo.InvariantCulture) + ":ff",
+                    ffShownAbove, $"Forward #{ri} \"{rec.VesselName}\"");
+                if (ffShownAbove)
+                {
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                    return;
+                }
+
                 // Future recording: Forward button advances UT to recording start.
                 string ffReason;
                 bool canFF = RecordingStore.CanFastForward(
@@ -3613,6 +3702,20 @@ namespace Parsek
                 // Past/active recording with save AND we are the rewind owner.
                 // The helper suppresses tree branches and rows whose own
                 // unfinished-flight action lives in the Re-Fly column.
+                ClearLegacyRewindSuppressionForOwnerRow(rec, ri);
+
+                // Shown once: the folder / block row this row is drawn under already
+                // offers R to this very launch, so the child cell stays blank.
+                bool rewindShownAbove = IsTimeTargetShownByEnclosingRow(ri, enclosingRewindTargetIdx);
+                LogEnclosingTimeSuppressionTransition(
+                    "row:" + ri.ToString(CultureInfo.InvariantCulture) + ":r",
+                    rewindShownAbove, $"Rewind #{ri} \"{rec.VesselName}\"");
+                if (rewindShownAbove)
+                {
+                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+                    return;
+                }
+
                 string rewindReason;
                 bool canRewind = RecordingStore.CanRewind(
                     rec, out rewindReason, isRecording: isRecording);
@@ -3624,7 +3727,6 @@ namespace Parsek
                         $"Rewind #{ri} \"{rec.VesselName}\": {(canRewind ? "enabled" : "disabled — " + rewindReason)}");
                 }
 
-                ClearLegacyRewindSuppressionForOwnerRow(rec, ri);
                 GUI.enabled = canRewind;
                 string tooltip = canRewind
                     ? "Rewind to this launch"
@@ -4074,6 +4176,69 @@ namespace Parsek
         }
 
         /// <summary>
+        /// "Shown once" for the Rewind column: true when the nearest DRAWN enclosing row
+        /// already offers the same R (or FF) target - the same committed index - that this
+        /// row's own button would, so this row draws a blank cell. Only an equal target
+        /// suppresses: a child whose button would go somewhere else keeps it, and a row with
+        /// no target of its own (-1) is never "suppressed". Pure for unit testing.
+        /// </summary>
+        internal static bool IsTimeTargetShownByEnclosingRow(int ownTargetIdx, int enclosingTargetIdx)
+        {
+            return ownTargetIdx >= 0 && ownTargetIdx == enclosingTargetIdx;
+        }
+
+        /// <summary>
+        /// The enclosing R / FF targets a row hands to the rows drawn under it. A row that
+        /// DREW its own button passes that target down (FF replaces the forward target, R the
+        /// rewind one); a row that drew a blank cell - suppressed, or with no target - passes
+        /// the targets it inherited through unchanged, because the row that drew them is still
+        /// the enclosing one for its grandchildren. Pure for unit testing.
+        /// </summary>
+        internal static void ResolveChildEnclosingTimeTargets(
+            int ownForwardIdx, int ownRewindIdx, bool ownSuppressed,
+            int inheritedForwardIdx, int inheritedRewindIdx,
+            out int childForwardIdx, out int childRewindIdx)
+        {
+            childForwardIdx = inheritedForwardIdx;
+            childRewindIdx = inheritedRewindIdx;
+            if (ownSuppressed) return;
+            if (ownForwardIdx >= 0)
+                childForwardIdx = ownForwardIdx;
+            else if (ownRewindIdx >= 0)
+                childRewindIdx = ownRewindIdx;
+        }
+
+        /// <summary>
+        /// Transition gate for the shown-once suppression log: true when a key flips, or the
+        /// first time a key is seen already suppressed. A key first seen UNsuppressed is
+        /// recorded silently, so the ordinary state of every row never logs. Updates the
+        /// cache. Pure over the dictionary for unit testing.
+        /// </summary>
+        internal static bool UpdateEnclosingSuppressionCache(
+            Dictionary<string, bool> cache, string key, bool suppressed)
+        {
+            if (cache == null || string.IsNullOrEmpty(key)) return false;
+            bool prev;
+            if (!cache.TryGetValue(key, out prev))
+            {
+                cache[key] = suppressed;
+                return suppressed;
+            }
+            if (prev == suppressed) return false;
+            cache[key] = suppressed;
+            return true;
+        }
+
+        internal void LogEnclosingTimeSuppressionTransition(string key, bool suppressed, string subject)
+        {
+            if (!UpdateEnclosingSuppressionCache(lastSuppressedByEnclosingRow, key, suppressed))
+                return;
+            ParsekLog.Verbose("UI", suppressed
+                ? $"{subject}: time button suppressed - the enclosing row shows the same target (key={key})"
+                : $"{subject}: time button no longer suppressed by the enclosing row (key={key})");
+        }
+
+        /// <summary>
         /// Is an Archive write refused because it would bury an Unfinished Flight? The one
         /// decision both Archive controls read: the per-row checkbox
         /// (<c>DrawRecordingRow</c>) and the group hide-all (<c>DrawGroupHeaderRow</c>).
@@ -4440,7 +4605,7 @@ namespace Parsek
 
             float indent = SelfConnectorIndent(depth);
 
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
 
             int blockEnabledCount = 0;
             for (int m = 0; m < members.Count; m++)
@@ -4501,16 +4666,6 @@ namespace Parsek
                 bodyCellLabel, GUILayout.Width(ColW_Launch));
 
             GUILayout.Label(FormatDuration(blockEnd - blockStart), bodyCellLabel, GUILayout.Width(ColW_Dur));
-
-            if (showExpandedStats)
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxAlt));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_MaxSpd));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Dist));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Pts));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartPos));
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndPos));
-            }
 
             string blockStatusText;
             int blockStatusOrder;
@@ -4585,7 +4740,21 @@ namespace Parsek
             // affordance as the recordings they contain.
             bool isRecording = parentUI.InFlightMode && parentUI.Flight.IsRecording;
             int forwardIdx = FindAggregateForwardRecordingIndex(members, committed, now);
-            if (forwardIdx >= 0)
+            int blockRewindIdx = forwardIdx >= 0
+                ? -1
+                : FindAggregateLegacyRewindRecordingIndex(members, committed, now);
+            // Shown once: the block's target is usually the very launch its mission folder
+            // already offers, so under that folder the block draws a blank cell.
+            bool blockTimeSuppressed = forwardIdx >= 0
+                ? IsTimeTargetShownByEnclosingRow(forwardIdx, enclosingForwardTargetIdx)
+                : IsTimeTargetShownByEnclosingRow(blockRewindIdx, enclosingRewindTargetIdx);
+            LogEnclosingTimeSuppressionTransition("block:" + blockId, blockTimeSuppressed,
+                $"{logKind} '{logId}'");
+            if (blockTimeSuppressed)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
+            }
+            else if (forwardIdx >= 0)
             {
                 var forwardRec = committed[forwardIdx];
                 string ffReason;
@@ -4599,30 +4768,27 @@ namespace Parsek
                 }
                 GUI.enabled = true;
             }
+            else if (blockRewindIdx >= 0)
+            {
+                int rewindIdx = blockRewindIdx;
+                var rewindRec = committed[rewindIdx];
+                string rewindReason;
+                bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
+                GUI.enabled = canRewind;
+                string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
+                    ? "this launch"
+                    : rewindRec.VesselName;
+                string tooltip = canRewind ? $"Rewind to launch: {targetName}" : rewindReason;
+                if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
+                {
+                    ParsekLog.Info("UI", $"{logKind} '{logId}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
+                    ShowRewindConfirmation(rewindRec);
+                }
+                GUI.enabled = true;
+            }
             else
             {
-                int rewindIdx = FindAggregateLegacyRewindRecordingIndex(members, committed, now);
-                if (rewindIdx >= 0)
-                {
-                    var rewindRec = committed[rewindIdx];
-                    string rewindReason;
-                    bool canRewind = RecordingStore.CanRewind(rewindRec, out rewindReason, isRecording: isRecording);
-                    GUI.enabled = canRewind;
-                    string targetName = string.IsNullOrEmpty(rewindRec.VesselName)
-                        ? "this launch"
-                        : rewindRec.VesselName;
-                    string tooltip = canRewind ? $"Rewind to launch: {targetName}" : rewindReason;
-                    if (DrawRewindColumnButton(new GUIContent(RewindActionLabel, tooltip)))
-                    {
-                        ParsekLog.Info("UI", $"{logKind} '{logId}' Rewind button: #{rewindIdx} \"{rewindRec.VesselName}\"");
-                        ShowRewindConfirmation(rewindRec);
-                    }
-                    GUI.enabled = true;
-                }
-                else
-                {
-                    GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
-                }
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
             }
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Hide));
@@ -4631,15 +4797,29 @@ namespace Parsek
 
             if (expanded)
             {
-                int lastVisibleMember = -1;
-                for (int m = 0; m < members.Count; m++)
-                    if (IsRowVisible(committed[members[m]], supersedes))
-                        lastVisibleMember = m;
-                for (int m = 0; m < members.Count; m++)
+                int savedEnclosingRewind = enclosingRewindTargetIdx;
+                int savedEnclosingForward = enclosingForwardTargetIdx;
+                ResolveChildEnclosingTimeTargets(
+                    forwardIdx, blockRewindIdx, blockTimeSuppressed,
+                    savedEnclosingForward, savedEnclosingRewind,
+                    out enclosingForwardTargetIdx, out enclosingRewindTargetIdx);
+                try
                 {
-                    string connector = TreeConnector(m == lastVisibleMember);
-                    if (DrawRecordingRow(members[m], committed, now, ChildConnectorIndent(depth), supersedes, connector))
-                        return true;
+                    int lastVisibleMember = -1;
+                    for (int m = 0; m < members.Count; m++)
+                        if (IsRowVisible(committed[members[m]], supersedes))
+                            lastVisibleMember = m;
+                    for (int m = 0; m < members.Count; m++)
+                    {
+                        string connector = TreeConnector(m == lastVisibleMember);
+                        if (DrawRecordingRow(members[m], committed, now, ChildConnectorIndent(depth), supersedes, connector))
+                            return true;
+                    }
+                }
+                finally
+                {
+                    enclosingRewindTargetIdx = savedEnclosingRewind;
+                    enclosingForwardTargetIdx = savedEnclosingForward;
                 }
             }
             return false;
@@ -4959,6 +5139,7 @@ namespace Parsek
             lastCanFF.Clear();
             lastStashSealInReFlyColumn.Clear();
             lastSuppressedTreeBranch.Clear();
+            lastSuppressedByEnclosingRow.Clear();
             sortedIndices = new int[committed.Count];
             for (int i = 0; i < committed.Count; i++)
                 sortedIndices[i] = i;
@@ -4974,6 +5155,83 @@ namespace Parsek
             var asc = sortAscending;
             Array.Sort(sortedIndices, (a, b) =>
                 CompareRecordings(committed[a], committed[b], col, asc, now));
+        }
+
+        /// <summary>
+        /// A recording row's Status text: a countdown (or "future" / "active" with no points)
+        /// before and during the flight, then its ending word (<c>Destroyed</c>, <c>Landed</c>,
+        /// ...) once it is over, or "past" when it never recorded one. Debris gets its ending
+        /// word like every other row (it used to read "past"). The FOLDER status
+        /// (<see cref="GetGroupStatus"/>) still ignores debris when picking its word, so a
+        /// mission folder does not read "Destroyed" because its booster fell. Pure for unit
+        /// testing; <paramref name="statusOrder"/> is 0 future, 1 active, 2 past.
+        /// </summary>
+        internal static string ResolveRecordingStatusText(Recording rec, double now,
+            out int statusOrder, out bool statusTextIsTerminalState)
+        {
+            statusTextIsTerminalState = false;
+            if (now < rec.StartUT)
+            {
+                statusOrder = 0;
+                return rec.Points.Count > 0
+                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    : "future";
+            }
+            if (now <= rec.EndUT && !rec.TerminalStateValue.HasValue)
+            {
+                statusOrder = 1;
+                return rec.Points.Count > 0
+                    ? SelectiveSpawnUI.FormatCountdown(rec.StartUT - now)
+                    : "active";
+            }
+            statusOrder = 2;
+            if (rec.TerminalStateValue.HasValue)
+            {
+                statusTextIsTerminalState = true;
+                return rec.TerminalStateValue.Value.ToString();
+            }
+            return "past";
+        }
+
+        /// <summary>The prefix of the end-place clause in a Status hover.</summary>
+        internal const string StatusEndPlacePrefix = "Ends: ";
+
+        /// <summary>
+        /// The place half of a recording row's Status hover: an EVA's "EVA from vessel" (the
+        /// old Start column's one fact the rest of the row does not show) and where the flight
+        /// ended up (the old End column: body and biome, orbit, or the vessel boarded). A
+        /// clause that would only repeat the status word, or the formatter's "-" placeholder,
+        /// is dropped. Pure for unit testing; the formatters are
+        /// <see cref="FormatStartPosition"/> / <see cref="FormatEndPosition"/>.
+        /// </summary>
+        internal static string BuildStatusPlaceTooltip(
+            string startPosition, string endPosition, string statusText)
+        {
+            string startClause = !string.IsNullOrEmpty(startPosition)
+                && startPosition.StartsWith(
+                    RecordingsTableFormatters.EvaFromPrefix, StringComparison.Ordinal)
+                ? startPosition
+                : null;
+            string endClause = null;
+            if (!string.IsNullOrEmpty(endPosition)
+                && endPosition != "-"
+                && !string.Equals(endPosition, statusText, StringComparison.OrdinalIgnoreCase))
+            {
+                endClause = StatusEndPlacePrefix + endPosition;
+            }
+            return CombineTooltipText(startClause, endClause);
+        }
+
+        /// <summary>
+        /// The stats half of a recording row's Status hover: "Max altitude 70.0km, max speed
+        /// 2.2km/s", through the table's own formatters. Empty for a recording with no
+        /// trajectory points (there is nothing to measure). Pure for unit testing.
+        /// </summary>
+        internal static string BuildStatusStatsTooltip(double maxAltitude, double maxSpeed, int pointCount)
+        {
+            if (pointCount <= 0) return string.Empty;
+            return "Max altitude " + FormatAltitude(maxAltitude)
+                + ", max speed " + FormatSpeed(maxSpeed);
         }
 
         internal static int GetStatusOrder(Recording rec, double now)
@@ -5154,7 +5412,8 @@ namespace Parsek
 
         /// <summary>
         /// Sort key for a chain based on the current sort column.
-        /// Uses earliest StartUT for launch, sum for duration, etc.
+        /// Uses earliest StartUT for launch, the covered span for duration (the figure the
+        /// chain row shows), etc.
         /// </summary>
         internal static double GetChainSortKey(List<int> members, IReadOnlyList<Recording> committed,
             SortColumn column, double now)
@@ -5170,15 +5429,7 @@ namespace Parsek
                     return earliest;
                 }
                 case SortColumn.Duration:
-                {
-                    double total = 0;
-                    for (int m = 0; m < members.Count; m++)
-                    {
-                        double dur = committed[members[m]].EndUT - committed[members[m]].StartUT;
-                        if (dur > 0) total += dur;
-                    }
-                    return total;
-                }
+                    return GetGroupSpanDuration(members, committed);
                 case SortColumn.Status:
                 {
                     // Best (lowest) status order among members
@@ -5350,17 +5601,32 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns the sum of durations (EndUT - StartUT) for all descendant recordings.
+        /// The wall-clock SPAN a folder's recordings cover: the latest EndUT minus the
+        /// earliest StartUT over the descendants, the same figure a chain block shows. A sum
+        /// of durations double-counts every parallel branch (a booster, debris, an EVA flying
+        /// at the same time as its parent), so a mission read longer than it took.
+        /// Recordings whose EndUT precedes their StartUT carry no trajectory data (the
+        /// no-data fallback reads StartUT = ExplicitStartUT, EndUT = 0) and are skipped so
+        /// they cannot stretch the span. Zero when nothing qualifies.
         /// </summary>
-        internal static double GetGroupTotalDuration(HashSet<int> descendants, IReadOnlyList<Recording> committed)
+        internal static double GetGroupSpanDuration(IEnumerable<int> descendants, IReadOnlyList<Recording> committed)
         {
-            double total = 0;
+            if (descendants == null || committed == null) return 0;
+            double earliest = double.MaxValue;
+            double latest = double.MinValue;
             foreach (int idx in descendants)
             {
-                double dur = committed[idx].EndUT - committed[idx].StartUT;
-                if (dur > 0) total += dur;
+                if (idx < 0 || idx >= committed.Count) continue;
+                var rec = committed[idx];
+                if (rec == null) continue;
+                double start = rec.StartUT;
+                double end = rec.EndUT;
+                if (end < start) continue;
+                if (start < earliest) earliest = start;
+                if (end > latest) latest = end;
             }
-            return total;
+            if (earliest == double.MaxValue || latest == double.MinValue) return 0;
+            return Math.Max(0, latest - earliest);
         }
 
         /// <summary>
@@ -5688,6 +5954,121 @@ namespace Parsek
             return blocks;
         }
 
+        // ----- Tree-root vessel block absorption (the mission folder draws its launched
+        // vessel's segments directly) -----
+
+        /// <summary>The recording a tree names as its root (the launched vessel), or null.</summary>
+        internal static Recording ResolveTreeRootRecording(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || string.IsNullOrEmpty(tree.RootRecordingId))
+                return null;
+            Recording root;
+            return tree.Recordings.TryGetValue(tree.RootRecordingId, out root) ? root : null;
+        }
+
+        /// <summary>
+        /// The display-block key the tree-root vessel's block carries inside a mission folder:
+        /// the same <c>group + "::" + identity</c> <see cref="BuildGroupDisplayBlocks"/> builds,
+        /// where the identity is <c>treevessel:{TreeId}:{pid}</c> or, for a root without a pid,
+        /// the <c>chain:{ChainId}</c> fallback. Null when the root has neither.
+        /// </summary>
+        internal static string ResolveRootVesselBlockKey(string groupName, Recording rootRecording)
+        {
+            string identity = GetGroupDisplayIdentity(rootRecording);
+            return string.IsNullOrEmpty(identity) ? null : (groupName ?? "") + "::" + identity;
+        }
+
+        /// <summary>
+        /// Index of the block to absorb: the multi-member block whose key is the root vessel's.
+        /// A single-member block is already drawn as a plain row, so there is nothing to
+        /// absorb (-1); so is a missing key.
+        /// </summary>
+        internal static int FindRootVesselBlockIndex(List<GroupDisplayBlock> blocks, string rootBlockKey)
+        {
+            if (blocks == null || string.IsNullOrEmpty(rootBlockKey)) return -1;
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                if (blocks[i].Members != null && blocks[i].Members.Count > 1
+                    && string.Equals(blocks[i].Key, rootBlockKey, StringComparison.Ordinal))
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Replaces the absorbed block with one single-member block per segment, in the
+        /// block's own member order and at the block's position, so the folder draws those
+        /// segments as its own rows (single-member blocks draw as plain rows). A segment that
+        /// another single-member block of the folder already draws is not drawn twice.
+        /// </summary>
+        internal static List<GroupDisplayBlock> FlattenAbsorbedBlock(
+            List<GroupDisplayBlock> blocks, int absorbedIdx, string groupName)
+        {
+            if (blocks == null || absorbedIdx < 0 || absorbedIdx >= blocks.Count)
+                return blocks;
+
+            var alreadySingle = new HashSet<int>();
+            for (int i = 0; i < blocks.Count; i++)
+                if (i != absorbedIdx && blocks[i].Members != null && blocks[i].Members.Count == 1)
+                    alreadySingle.Add(blocks[i].Members[0]);
+
+            var flattened = new List<GroupDisplayBlock>(blocks.Count + blocks[absorbedIdx].Members.Count);
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                if (i != absorbedIdx)
+                {
+                    flattened.Add(blocks[i]);
+                    continue;
+                }
+                List<int> members = blocks[i].Members;
+                for (int m = 0; m < members.Count; m++)
+                {
+                    int ri = members[m];
+                    if (alreadySingle.Contains(ri)) continue;
+                    flattened.Add(new GroupDisplayBlock
+                    {
+                        Key = (groupName ?? "") + "::rec:" + ri.ToString(CultureInfo.InvariantCulture),
+                        DisplayName = null,
+                        Members = new List<int> { ri }
+                    });
+                }
+            }
+            return flattened;
+        }
+
+        /// <summary>
+        /// The mission folder's Loop write when it absorbed its launched vessel's block: the
+        /// absorbed members go WITH the auto loop range (what that block's toggle wrote), every
+        /// other index in scope WITHOUT (the folder's own behaviour). Pure for unit testing.
+        /// </summary>
+        internal static void SplitAbsorbedLoopWrite(
+            IEnumerable<int> scope, List<int> absorbedMembers,
+            out List<int> withAutoRange, out List<int> withoutAutoRange)
+        {
+            withAutoRange = new List<int>();
+            withoutAutoRange = new List<int>();
+            var absorbed = absorbedMembers != null ? new HashSet<int>(absorbedMembers) : new HashSet<int>();
+            if (absorbedMembers != null)
+                foreach (int idx in absorbedMembers)
+                    if (!withAutoRange.Contains(idx)) withAutoRange.Add(idx);
+            if (scope == null) return;
+            foreach (int idx in scope)
+                if (!absorbed.Contains(idx) && !withoutAutoRange.Contains(idx))
+                    withoutAutoRange.Add(idx);
+        }
+
+        private void LogRootBlockAbsorptionTransition(
+            string groupName, string rootBlockKey, List<int> absorbedMembers)
+        {
+            bool absorbed = absorbedMembers != null;
+            if (!UpdateEnclosingSuppressionCache(lastRootBlockAbsorbedByGroup, groupName, absorbed))
+                return;
+            ParsekLog.Verbose("UI", absorbed
+                ? $"Group '{groupName}': the launched vessel's block is drawn as the folder's own rows "
+                  + $"({absorbedMembers.Count.ToString(CultureInfo.InvariantCulture)} segments, key={rootBlockKey})"
+                : $"Group '{groupName}': the launched vessel's block is no longer absorbed (key={rootBlockKey ?? "<none>"})");
+        }
+
         /// <summary>
         /// Computes a sort key for a group based on the current sort column.
         /// Used to interleave groups with recordings in the sorted draw order.
@@ -5702,7 +6083,7 @@ namespace Parsek
                 case SortColumn.LaunchTime:
                     return GetGroupEarliestStartUT(descendants, committed);
                 case SortColumn.Duration:
-                    return GetGroupTotalDuration(descendants, committed);
+                    return GetGroupSpanDuration(descendants, committed);
                 case SortColumn.Status:
                 {
                     string unused;
@@ -6083,41 +6464,10 @@ namespace Parsek
             // ColW_Period - BodyCellButtonLeftInset. The wrapping BeginHorizontal at the call
             // site provides the Space(BodyCellButtonLeftInset) on the left so val+unit start
             // 10 px into the Period cell.
+            // Only a LOOPING row reaches this: DrawRecordingRow draws a blank cell (with the
+            // loop-off reason as its hover) while Loop is off.
             const float unitBtnW = 40f;
             float valueBtnW = ColW_Period - unitBtnW - 4f - BodyCellButtonLeftInset;
-
-            if (!rec.LoopPlayback)
-            {
-                // Disabled: gray out the same two-control layout
-                GUI.enabled = false;
-                string disabledText;
-                if (rec.LoopTimeUnit == LoopTimeUnit.Auto)
-                {
-                    var settings = ParsekSettings.Current;
-                    double gv = settings != null
-                        ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
-                        : LoopTiming.DefaultLoopIntervalSeconds;
-                    var gu = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
-                    disabledText = ParsekUI.FormatLoopValue(gv, gu) + UnitSuffix(gu);
-                }
-                else
-                {
-                    disabledText = ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(rec.LoopIntervalSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit);
-                }
-                string loopOffReason = LoopPeriodDisabledReason(false, false);
-                GUILayout.TextField(disabledText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
-                // A TextField takes no GUIContent, so the value half of this cell could
-                // never explain itself at all before the carrier existed.
-                DisabledHoverEcho.CarryLastControl(false, loopOffReason);
-                GUILayout.Space(4f);
-                GUILayout.Button(
-                    new GUIContent(ParsekUI.UnitLabel(rec.LoopTimeUnit),
-                        "Period unit for this recording. Enable Loop to change it."),
-                    bodyCellButtonFlush, GUILayout.Width(unitBtnW));
-                DisabledHoverEcho.CarryLastControl(false, loopOffReason);
-                GUI.enabled = true;
-                return;
-            }
 
             if (rec.LoopTimeUnit == LoopTimeUnit.Auto)
             {
@@ -6388,17 +6738,17 @@ namespace Parsek
         {
             if (statusStyleFuture != null) return;
 
-            var statusPadding = new RectOffset(BodyCellTextIndent, 0, 0, 0);
-            statusStyleFuture = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            // Built on the house table cell style like every other body label.
+            statusStyleFuture = NewTableCellLabelStyle();
             statusStyleFuture.normal.textColor = Color.white;
 
-            statusStyleActive = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            statusStyleActive = NewTableCellLabelStyle();
             statusStyleActive.normal.textColor = Color.green;
 
-            statusStylePast = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            statusStylePast = NewTableCellLabelStyle();
             statusStylePast.normal.textColor = new Color(0.5f, 0.5f, 0.5f);
 
-            statusStyleStatic = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            statusStyleStatic = NewTableCellLabelStyle();
             statusStyleStatic.normal.textColor = new Color(1f, 0.72f, 0.25f);
 
             // L4: only the Stationary cyan matches the shared house palette
@@ -6406,7 +6756,7 @@ namespace Parsek
             // four recording-lifecycle colors above (white / green / 0.5 grey / orange)
             // are a separate semantic set and stay local literals so the Recordings
             // window colors do not shift.
-            statusStyleStationary = new GUIStyle(GUI.skin.label) { padding = statusPadding };
+            statusStyleStationary = NewTableCellLabelStyle();
             statusStyleStationary.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Cyan);
         }
 
