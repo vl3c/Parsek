@@ -761,8 +761,19 @@ values = ["sidecar-prec", "sidecar-craft", "sidecar-pann",
 # operator tier, ONE reading flight, tokens pinned from that flight's `launchSite=` line;
 # a MechJeb ascent failure from the Desert is driver-INVALID, never PARSEK-FAIL. Ranked
 # LAST of D17: the cell has no declarer until that spec and that flight exist.
+#
+# `remotetech-commnet` IS RETIRED (operator ruling 2026-09-26) and removed from the list.
+# RemoteTech's only Parsek behaviour is switching ghost CommNet OFF: RemoteTech disables
+# stock CommNet, so no CommNetScenario exists, and `GhostCommNetMath.DecideAvailability`
+# (GhostCommNet.cs) returns CommNetDisabled and registers no ghost node, logging "CommNet is
+# off in scene ... (difficulty setting, or a mod such as RemoteTech that replaces CommNet)".
+# That guard stays and is unit-tested (GhostCommNetTests `DecideAvailability_AllCases`,
+# `LogAvailability_OneLinePerOutcome`); a flown lane would prove only that a mod with no
+# Parsek integration is not integrated. Ghost relays under RemoteTech are not planned (todo
+# GHOST-COMMNET-RELAYS-UNDER-REMOTETECH). The retirement lowers the denominator by one; it
+# is not coverage.
 values = ["waterfall-swe-fallback", "restock", "persistent-rotation", "better-time-warp",
-          "remotetech-commnet", "making-history"]
+          "making-history"]
 
 # D18 `background-event-claims` (CLAIMED 2026-09-26 on CI-5-background-event-claim) is SCOPED
 # TO THE CHAIN-WALKER DECISION ON A BACKGROUND RECORDING: the claimed recording is a

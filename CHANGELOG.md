@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the coverage-wave rulings are confirmed, and the RemoteTech cell is retired.**
+  The rulings the coverage waves applied pending the operator (three retired cells, the atmosphere,
+  1x-warp, editor-scene and commit-abort definitions, the scoped synthetic claims and the rest) are
+  confirmed. D17 `remotetech-commnet` is retired: Parsek's only RemoteTech behaviour is switching
+  ghost CommNet off, which stays unit-tested, and ghost relays under RemoteTech are not planned.
+  Coverage 244 of 247 -> 244 of 246.
 - **Ghost relays and control points now count for CommNet during the ghost window.** A ghost
   replaying a committed recording now takes part in CommNet as the vessel it replays, from the
   start of its recording until the vessel spawns. Its relay antennas carry signal for the

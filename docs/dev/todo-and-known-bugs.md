@@ -15,6 +15,19 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~GHOST-COMMNET-RELAYS-UNDER-REMOTETECH: ghost CommNet relays under RemoteTech~~ [FILED 2026-09-26 by the operator rulings of that day, branch `operator-rulings-0926`. NOT PLANNED]
+
+RemoteTech replaces stock CommNet, so stock creates no `CommNetScenario`, and
+`GhostCommNetMath.DecideAvailability` (`Source/Parsek/GhostCommNet.cs`) returns `CommNetDisabled`:
+Parsek registers no ghost CommNet node and logs `CommNet is off in scene ... (difficulty setting, or a
+mod such as RemoteTech that replaces CommNet)`. That is RemoteTech's only Parsek behaviour, and it
+stays, unit-tested by `GhostCommNetTests.DecideAvailability_AllCases` and
+`LogAvailability_OneLinePerOutcome`. Making ghosts relay under RemoteTech would mean integrating
+RemoteTech's own satellite API, which is out of scope. The registry cell D17 `remotetech-commnet` is
+retired with this ruling (it would only have proved that an unintegrated mod is not integrated).
+
+---
+
 ## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
 
 The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
