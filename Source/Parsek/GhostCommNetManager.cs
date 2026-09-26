@@ -271,8 +271,18 @@ namespace Parsek
             public GhostCommNetVesselSpec Spec;
             public GhostCommNetTimeline Timeline;
             public bool HoldAtEnd;
+            public bool ExpectHoldPastEnd;
             public double WindowStartUT;
             public double EndUT;
+            public Recording Rec;
+            public string DarkLogKey;
+            // Held-position source, resolved once per EndUT (see ResolveHeldSource).
+            public bool HeldSourceResolved;
+            public double HeldSourceEndUT;
+            public GhostCommNetHeldPositionSource HeldSource;
+            public CelestialBody HeldBody;
+            public Orbit HeldOrbit;
+            public SurfacePosition HeldSurface;
             public ConfigNode ChainSnapshot;
             public Orbit ChainOrbit;
             public bool ChainOrbitTried;
@@ -303,11 +313,14 @@ namespace Parsek
         private GhostCommNetAvailability? lastAvailability;
         private double rangeModifier = 1.0;
         private bool subscribed;
+        private readonly string tickSummaryKey;
+        private float nextTickSummaryRealtime;
         private static DoubleCurve defaultRangeCurve;
 
         internal GhostCommNetManager(string scene, GhostCommNetRecordingPositionResolver resolver)
         {
             this.scene = scene ?? "?";
+            tickSummaryKey = "tick-summary-" + this.scene;
             resolveRecordingPosition = resolver;
             GameEvents.CommNet.OnNetworkInitialized.Add(OnNetworkInitialized);
             subscribed = true;
@@ -353,6 +366,26 @@ namespace Parsek
             recordingId = e.RecordingId;
             indexHint = e.IndexHint;
             return true;
+        }
+
+        /// <summary>The hook's decision for a registered node at <paramref name="now"/> (in-game tests).</summary>
+        internal bool TryDescribeHookSample(string key, double now, out GhostCommNetHookSample sample)
+        {
+            sample = default(GhostCommNetHookSample);
+            if (key == null || !entries.TryGetValue(key, out Entry e))
+                return false;
+            sample = GhostCommNetMath.ResolveHookSample(
+                now, e.WindowStartUT, e.EndUT, e.HoldAtEnd, e.ExpectHoldPastEnd);
+            return true;
+        }
+
+        /// <summary>Where a held registered node sits at <paramref name="now"/> (in-game tests).</summary>
+        internal bool TryResolveHeldPosition(string key, double now, out Vector3d pos)
+        {
+            pos = Vector3d.zero;
+            if (key == null || !entries.TryGetValue(key, out Entry e))
+                return false;
+            return TryResolveHeldPositionCore(e, now, out pos);
         }
 
         internal static DoubleCurve DefaultRangeCurve
@@ -525,8 +558,10 @@ namespace Parsek
                 {
                     e.IndexHint = c.RecordingIndex;
                     e.HoldAtEnd = c.Eligibility.HoldAtEnd;
+                    e.ExpectHoldPastEnd = c.Eligibility.ExpectHoldPastEnd;
                     e.WindowStartUT = c.WindowStartUT;
                     e.EndUT = c.EndUT;
+                    e.Rec = c.Recording;
                     if (e.Reason != c.Eligibility.Reason)
                     {
                         GhostCommNetMath.LogWindowChange(
@@ -550,13 +585,19 @@ namespace Parsek
             // Forget derivations and exclusion notes for keys that left the candidate set.
             PruneUnseen();
 
-            ParsekLog.VerboseRateLimited(Tag, "tick-summary-" + scene,
-                string.Format(IC,
-                    "Ghost CommNet tick ({0}): candidates={1} eligible={2} typeIgnored={3} incapable={4} " +
-                    "chainCovered={5} registered={6} added={7} removed={8} rangeModifier={9:R}",
-                    scene, count, eligible, typeIgnored, incapable, covered, entries.Count,
-                    toAdd.Count, toRemove.Count, rangeModifier),
-                5.0);
+            // Per-frame path: build the summary only when verbose logging is on and the
+            // 5 s real-time gate is open, so a quiet tick allocates nothing here.
+            if (ParsekLog.IsVerboseEnabled && Time.realtimeSinceStartup >= nextTickSummaryRealtime)
+            {
+                nextTickSummaryRealtime = Time.realtimeSinceStartup + 5f;
+                ParsekLog.VerboseRateLimited(Tag, tickSummaryKey,
+                    string.Format(IC,
+                        "Ghost CommNet tick ({0}): candidates={1} eligible={2} typeIgnored={3} incapable={4} " +
+                        "chainCovered={5} registered={6} added={7} removed={8} rangeModifier={9:R}",
+                        scene, count, eligible, typeIgnored, incapable, covered, entries.Count,
+                        toAdd.Count, toRemove.Count, rangeModifier),
+                    5.0);
+            }
         }
 
         private void NoteExclusion(string key, string vesselName, string reason)
@@ -656,8 +697,11 @@ namespace Parsek
                 Spec = d.Spec,
                 Timeline = d.Timeline,
                 HoldAtEnd = c.Eligibility.HoldAtEnd,
+                ExpectHoldPastEnd = c.Eligibility.ExpectHoldPastEnd,
                 WindowStartUT = c.WindowStartUT,
                 EndUT = c.EndUT,
+                Rec = c.Recording,
+                DarkLogKey = "dark-" + scene + "-" + c.Key,
                 ChainSnapshot = c.ChainSnapshot,
                 Reason = c.Eligibility.Reason,
             };
@@ -744,21 +788,26 @@ namespace Parsek
             try
             {
                 double now = Planetarium.GetUniversalTime();
-                if (!e.HoldAtEnd && now < e.WindowStartUT)
+                GhostCommNetHookSample sample = GhostCommNetMath.ResolveHookSample(
+                    now, e.WindowStartUT, e.EndUT, e.HoldAtEnd, e.ExpectHoldPastEnd);
+                if (!sample.Lit)
                 {
-                    SetDark(e, "before-window", now);
+                    SetDark(e, sample.DarkReason, now);
                     return;
                 }
-                // Past EndUT without a hold verdict yet: keep the end state until the host's
-                // next tick decides (spawn hold or removal), so a relay does not blink at the seam.
-                double sampleUT = e.HoldAtEnd || now > e.EndUT ? e.EndUT : now;
-                if (!TryResolvePosition(e, sampleUT, out Vector3d pos) || !IsFinite(pos))
+                // Held: the antenna / control state stays the recording's END state, but the
+                // position is where the vessel about to spawn is NOW (never the stale EndUT point).
+                Vector3d pos;
+                bool resolved = sample.Held
+                    ? TryResolveHeldPositionCore(e, now, out pos)
+                    : TryResolvePosition(e, now, out pos);
+                if (!resolved || !IsFinite(pos))
                 {
-                    SetDark(e, "position-unresolved", sampleUT);
+                    SetDark(e, sample.Held ? "held-position-unresolved" : "position-unresolved", now);
                     return;
                 }
                 node.precisePosition = pos;
-                GhostCommNetState state = e.Timeline.Sample(sampleUT);
+                GhostCommNetState state = e.Timeline.Sample(sample.StateUT);
                 double m = rangeModifier;
                 node.antennaRelay.power = state.Powers.RelayPower * m;
                 node.antennaRelay.combined = state.Powers.RelayCombined;
@@ -774,7 +823,8 @@ namespace Parsek
                 {
                     e.Dark = false;
                     ParsekLog.Verbose(Tag, string.Format(IC,
-                        "Ghost node lit again: key={0} vessel=\"{1}\" ut={2:F1}", e.Key, e.VesselName, sampleUT));
+                        "Ghost node lit again: key={0} vessel=\"{1}\" ut={2:F1} held={3}",
+                        e.Key, e.VesselName, now, sample.Held));
                 }
             }
             catch (Exception ex)
@@ -794,9 +844,10 @@ namespace Parsek
             node.isControlSource = false;
             node.isControlSourceMultiHop = false;
             e.Dark = true;
-            ParsekLog.VerboseRateLimited(Tag, "dark-" + scene + "-" + e.Key, string.Format(IC,
-                "Ghost node dark this rebuild: key={0} vessel=\"{1}\" reason={2} ut={3:F1}",
-                e.Key, e.VesselName, why, ut));
+            if (ParsekLog.IsVerboseEnabled)
+                ParsekLog.VerboseRateLimited(Tag, e.DarkLogKey ?? ("dark-" + scene + "-" + e.Key), string.Format(IC,
+                    "Ghost node dark this rebuild: key={0} vessel=\"{1}\" reason={2} ut={3:F1}",
+                    e.Key, e.VesselName, why, ut));
         }
 
         /// <summary>
@@ -812,6 +863,107 @@ namespace Parsek
                 if (curve != null) return curve;
             }
             return rangeCurve ? DefaultRangeCurve : null;
+        }
+
+        /// <summary>
+        /// Position of a node held past EndUT at <paramref name="now"/>. Chain-ghosted vessels
+        /// are never held. The source is chosen once per EndUT and logged once.
+        /// </summary>
+        private bool TryResolveHeldPositionCore(Entry e, double now, out Vector3d pos)
+        {
+            pos = Vector3d.zero;
+            if (e.ChainSnapshot != null)
+                return TryResolveSnapshotPosition(e, now, out pos);
+            if (!e.HeldSourceResolved || e.HeldSourceEndUT != e.EndUT)
+                ResolveHeldSource(e, now);
+            switch (e.HeldSource)
+            {
+                case GhostCommNetHeldPositionSource.TerminalSurface:
+                    pos = e.HeldBody.GetWorldSurfacePosition(
+                        e.HeldSurface.latitude, e.HeldSurface.longitude, e.HeldSurface.altitude);
+                    return true;
+                case GhostCommNetHeldPositionSource.TerminalOrbit:
+                    pos = e.HeldOrbit.getPositionAtUT(now);
+                    return true;
+                case GhostCommNetHeldPositionSource.RecordedEndBodyFixed:
+                    return resolveRecordingPosition != null
+                        && resolveRecordingPosition(e.RecordingId, e.IndexHint, e.EndUT, out pos);
+                default:
+                    return false;
+            }
+        }
+
+        private void ResolveHeldSource(Entry e, double now)
+        {
+            e.HeldSourceResolved = true;
+            e.HeldSourceEndUT = e.EndUT;
+            e.HeldBody = null;
+            e.HeldOrbit = null;
+            Recording rec = e.Rec;
+            string detail = "no-recording";
+            bool hasSurface = false, terminalIsSurface = false, hasOrbit = false, endBodyFixed = false;
+            if (rec != null)
+            {
+                terminalIsSurface = rec.TerminalStateValue == TerminalState.Landed
+                    || rec.TerminalStateValue == TerminalState.Splashed;
+                if (rec.TerminalPosition.HasValue)
+                {
+                    CelestialBody sb = FindBody(rec.TerminalPosition.Value.body);
+                    if (sb != null)
+                    {
+                        hasSurface = true;
+                        e.HeldBody = sb;
+                        e.HeldSurface = rec.TerminalPosition.Value;
+                    }
+                }
+                if (!hasSurface && !terminalIsSurface)
+                {
+                    // The same orbit the terminal spawn builds, so node and vessel coincide.
+                    string bodyName = RecordingEndpointResolver.TryGetPreferredEndpointBodyName(rec, out string endpointBody)
+                        ? endpointBody
+                        : rec.TerminalOrbitBody;
+                    CelestialBody ob = FindBody(bodyName);
+                    try
+                    {
+                        if (ob != null
+                            && VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn(rec, ob, now, out Orbit orbit)
+                            && orbit != null)
+                        {
+                            hasOrbit = true;
+                            e.HeldBody = ob;
+                            e.HeldOrbit = orbit;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Warn(Tag, string.Format(IC,
+                            "Held-node terminal orbit build threw for key={0}: {1}", e.Key, ex.Message));
+                    }
+                }
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, e.EndUT);
+                bool anchorOrCheckpointEnd = sectionIdx >= 0
+                    && (rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative
+                        || rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.OrbitalCheckpoint);
+                endBodyFixed = !anchorOrCheckpointEnd
+                    && !TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, e.EndUT).HasValue;
+                detail = string.Format(IC, "terminal={0} surfacePos={1} orbit={2} endBodyFixed={3} body={4}",
+                    rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "(none)",
+                    hasSurface, hasOrbit, endBodyFixed, e.HeldBody != null ? e.HeldBody.name : "(none)");
+            }
+            e.HeldSource = GhostCommNetMath.ChooseHeldPositionSource(hasSurface, terminalIsSurface, hasOrbit, endBodyFixed);
+            GhostCommNetMath.LogHeldSource(e.Key, e.VesselName, scene, e.HeldSource, e.EndUT, detail);
+        }
+
+        private static CelestialBody FindBody(string name)
+        {
+            if (string.IsNullOrEmpty(name) || FlightGlobals.Bodies == null)
+                return null;
+            for (int i = 0; i < FlightGlobals.Bodies.Count; i++)
+            {
+                if (FlightGlobals.Bodies[i] != null && FlightGlobals.Bodies[i].name == name)
+                    return FlightGlobals.Bodies[i];
+            }
+            return null;
         }
 
         private bool TryResolvePosition(Entry e, double ut, out Vector3d pos)

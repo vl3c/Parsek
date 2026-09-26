@@ -18,7 +18,9 @@ _(unreleased — entries accumulate here per commit)_
   no path to KSC. Antenna power follows stock exactly (combined antennas, upgrades, the range
   modifier), deployable antennas count only while the recording has them extended, the ghost
   sits at its recorded position so planets block it as they would the real vessel, and a
-  destroyed vessel stops at its recorded destruction. Only the real run counts: loop replays
+  destroyed vessel stops at its recorded destruction. While a vessel waits to spawn (for
+  example until time warp stops) its ghost keeps relaying from where that vessel is now, on
+  its final orbit or landing spot. Only the real run counts: loop replays
   carry no signal, while a recording hidden from playback still does. Works in flight, map
   view and the Tracking Station. Debris, flags and space objects get no node, as in stock, and
   nothing changes when CommNet is off or replaced by a mod such as RemoteTech or RealAntennas.

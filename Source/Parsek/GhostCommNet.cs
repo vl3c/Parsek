@@ -217,13 +217,45 @@ namespace Parsek
         public bool Eligible;
         /// <summary>Past EndUT, held at the end position until a spawn or a chain continuation takes over.</summary>
         public bool HoldAtEnd;
+        /// <summary>
+        /// In the window, and the host already knows the node will be held once EndUT passes
+        /// (spawn pending, or a mid-chain segment before its chain's end). Lets the CommNet
+        /// hook bridge the EndUT seam before the host's next tick turns it into a hold.
+        /// </summary>
+        public bool ExpectHoldPastEnd;
         public string Reason;
+    }
+
+    /// <summary>Where a node held past its recording's end is placed at the current UT.</summary>
+    internal enum GhostCommNetHeldPositionSource
+    {
+        /// <summary>No sound source: the node is dark while held.</summary>
+        None,
+        /// <summary>The recorded terminal surface position; body-fixed, so it turns with the body.</summary>
+        TerminalSurface,
+        /// <summary>The terminal orbit the spawn path would use, propagated to the current UT.</summary>
+        TerminalOrbit,
+        /// <summary>The recording's own end sample, which is body-fixed (no orbit or anchor at EndUT).</summary>
+        RecordedEndBodyFixed,
+    }
+
+    /// <summary>What the CommNet pre-update hook does with a node on one rebuild.</summary>
+    internal struct GhostCommNetHookSample
+    {
+        public bool Lit;
+        /// <summary>Past EndUT: state from EndUT, position from the held source at the current UT.</summary>
+        public bool Held;
+        /// <summary>UT the antenna / control state is sampled at.</summary>
+        public double StateUT;
+        public string DarkReason;
     }
 
     internal static class GhostCommNetMath
     {
         internal const string Tag = "GhostCommNet";
         internal const string NodeNamePrefix = "ParsekGhost:";
+        internal const string ReasonChainGapHold = "chain-gap-hold";
+        internal const string ReasonWindowEnded = "window-ended";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         /// <summary>
@@ -707,19 +739,76 @@ namespace Parsek
             if (double.IsNaN(currentUT) || currentUT < input.ActivationStartUT)
                 return Excluded("before-window");
             if (currentUT <= input.EndUT)
-                return new GhostCommNetEligibility { Eligible = true, Reason = "in-window" };
+                return new GhostCommNetEligibility
+                {
+                    Eligible = true,
+                    Reason = "in-window",
+                    ExpectHoldPastEnd = ExpectsHoldPastEnd(input),
+                };
             if (input.VesselSpawned) return Excluded("vessel-spawned");
             if (input.NeedsSpawn && !input.SpawnAbandoned && !input.CannotSpawnSafely)
                 return new GhostCommNetEligibility { Eligible = true, HoldAtEnd = true, Reason = "held-for-spawn" };
             if (input.IsMidChain && currentUT <= input.ChainEndUT && !input.ChainSuccessorStarted)
-                return new GhostCommNetEligibility { Eligible = true, HoldAtEnd = true, Reason = "chain-gap-hold" };
+                return new GhostCommNetEligibility { Eligible = true, HoldAtEnd = true, Reason = ReasonChainGapHold };
             if (input.SpawnAbandoned || input.CannotSpawnSafely) return Excluded("spawn-abandoned");
-            return Excluded("window-ended");
+            return Excluded(ReasonWindowEnded);
         }
 
         private static GhostCommNetEligibility Excluded(string reason)
         {
             return new GhostCommNetEligibility { Eligible = false, Reason = reason };
+        }
+
+        /// <summary>Will this in-window recording be held once its EndUT passes?</summary>
+        internal static bool ExpectsHoldPastEnd(GhostCommNetEligibilityInput input)
+        {
+            if (input.VesselSpawned) return false;
+            if (input.NeedsSpawn && !input.SpawnAbandoned && !input.CannotSpawnSafely) return true;
+            return input.IsMidChain && input.EndUT < input.ChainEndUT;
+        }
+
+        /// <summary>
+        /// The CommNet pre-update hook's decision for one rebuild. Before the window: dark.
+        /// In the window: state and position at the current UT. Past EndUT: held (state at
+        /// EndUT, position from the held source at the current UT) when the host holds it or
+        /// already expects to; otherwise dark, even between two host ticks, so a destroyed
+        /// vessel never relays past its recorded end.
+        /// </summary>
+        internal static GhostCommNetHookSample ResolveHookSample(
+            double now, double windowStartUT, double endUT, bool holdAtEnd, bool expectHoldPastEnd)
+        {
+            if (holdAtEnd)
+                return new GhostCommNetHookSample { Lit = true, Held = true, StateUT = endUT };
+            if (double.IsNaN(now) || now < windowStartUT)
+                return new GhostCommNetHookSample { DarkReason = "before-window", StateUT = now };
+            if (now <= endUT)
+                return new GhostCommNetHookSample { Lit = true, StateUT = now };
+            if (expectHoldPastEnd)
+                return new GhostCommNetHookSample { Lit = true, Held = true, StateUT = endUT };
+            return new GhostCommNetHookSample { DarkReason = "past-end", StateUT = endUT };
+        }
+
+        /// <summary>
+        /// Where a held node sits. A recorded terminal surface position wins (body-fixed, and
+        /// what a landed spawn uses). A non-surface end with the spawn path's terminal orbit is
+        /// propagated to the current UT, so the node stays with its planet through a warp-long
+        /// spawn hold. Otherwise the recording's own end sample is used only when it is
+        /// body-fixed (no orbit segment and no anchor-relative section at EndUT); an orbit or
+        /// anchor end without a propagatable orbit has no sound position and stays dark.
+        /// </summary>
+        internal static GhostCommNetHeldPositionSource ChooseHeldPositionSource(
+            bool hasTerminalSurfacePosition,
+            bool terminalIsSurface,
+            bool hasTerminalOrbit,
+            bool endSampleIsBodyFixed)
+        {
+            if (hasTerminalSurfacePosition)
+                return GhostCommNetHeldPositionSource.TerminalSurface;
+            if (!terminalIsSurface && hasTerminalOrbit)
+                return GhostCommNetHeldPositionSource.TerminalOrbit;
+            if (endSampleIsBodyFixed)
+                return GhostCommNetHeldPositionSource.RecordedEndBodyFixed;
+            return GhostCommNetHeldPositionSource.None;
         }
 
         /// <summary>
@@ -856,6 +945,15 @@ namespace Parsek
             ParsekLog.Info(Tag, string.Format(IC,
                 "Ghost node state change: key={0} vessel=\"{1}\" ut={2:F1} {3}",
                 key, vesselName ?? "", ut, FormatState(state, rangeModifier)));
+        }
+
+        /// <summary>Once per held entry (per EndUT): where the held node is placed and why.</summary>
+        internal static void LogHeldSource(
+            string key, string vesselName, string scene, GhostCommNetHeldPositionSource source, double endUT, string detail)
+        {
+            ParsekLog.Info(Tag, string.Format(IC,
+                "Held ghost node position source: key={0} vessel=\"{1}\" scene={2} source={3} endUT={4:F1} {5}",
+                key, vesselName ?? "", scene, source, endUT, detail ?? ""));
         }
 
         internal static void LogRebind(int readded, string scene, string reason, double rangeModifier)

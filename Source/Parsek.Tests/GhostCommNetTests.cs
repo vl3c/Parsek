@@ -506,6 +506,100 @@ namespace Parsek.Tests
             Assert.False(GhostCommNetMath.EvaluateEligibility(i, 150 + 3600).Eligible);
         }
 
+        // ---------------------------------------------------------------- hook sample / held position
+
+        [Fact]
+        public void HookSample_HeldThroughWarp_StateAtEnd_PositionAtNow()
+        {
+            // A relay recording ending in Duna orbit at UT 200, spawn deferred through a
+            // one-day warp: at UT 200+21600 the node is held. The antenna state is the END
+            // state (StateUT = EndUT), and Held tells the hook to place it from the held
+            // source at the CURRENT UT, so it stays with Duna instead of trailing where Duna
+            // was at EndUT.
+            var s = GhostCommNetMath.ResolveHookSample(200 + 21600, 100, 200, holdAtEnd: true, expectHoldPastEnd: true);
+            Assert.True(s.Lit);
+            Assert.True(s.Held);
+            Assert.Equal(200.0, s.StateUT);
+        }
+
+        [Fact]
+        public void HookSample_AllBranches()
+        {
+            var before = GhostCommNetMath.ResolveHookSample(50, 100, 200, false, false);
+            Assert.False(before.Lit);
+            Assert.Equal("before-window", before.DarkReason);
+
+            var inWindow = GhostCommNetMath.ResolveHookSample(150, 100, 200, false, true);
+            Assert.True(inWindow.Lit);
+            Assert.False(inWindow.Held);
+            Assert.Equal(150.0, inWindow.StateUT);
+
+            // Past EndUT between host ticks, a hold already expected: bridged, no seam gap.
+            var bridged = GhostCommNetMath.ResolveHookSample(201, 100, 200, false, true);
+            Assert.True(bridged.Lit);
+            Assert.True(bridged.Held);
+            Assert.Equal(200.0, bridged.StateUT);
+
+            // Past EndUT, no hold (destroyed vessel, scenario 10): dark on this very rebuild,
+            // even at high warp before the Tracking Station's next 0.25 s tick removes it.
+            var destroyed = GhostCommNetMath.ResolveHookSample(200 + 5000, 100, 200, false, false);
+            Assert.False(destroyed.Lit);
+            Assert.Equal("past-end", destroyed.DarkReason);
+
+            // A host hold wins even before the window start (never happens live; defensive).
+            Assert.True(GhostCommNetMath.ResolveHookSample(10, 100, 200, true, false).Lit);
+        }
+
+        [Fact]
+        public void ExpectsHoldPastEnd_FromSpawnOrChainGap()
+        {
+            var i = InWindowInput();
+            Assert.False(GhostCommNetMath.ExpectsHoldPastEnd(i));
+            i.NeedsSpawn = true;
+            Assert.True(GhostCommNetMath.ExpectsHoldPastEnd(i));
+            Assert.True(GhostCommNetMath.EvaluateEligibility(i, 150).ExpectHoldPastEnd);
+            i.SpawnAbandoned = true;
+            Assert.False(GhostCommNetMath.ExpectsHoldPastEnd(i));
+            i.SpawnAbandoned = false;
+            i.VesselSpawned = true;
+            Assert.False(GhostCommNetMath.ExpectsHoldPastEnd(i));
+
+            var chain = InWindowInput();
+            chain.IsMidChain = true;
+            chain.ChainEndUT = 400;
+            Assert.True(GhostCommNetMath.ExpectsHoldPastEnd(chain));
+            chain.ChainEndUT = 200;
+            Assert.False(GhostCommNetMath.ExpectsHoldPastEnd(chain));
+        }
+
+        [Theory]
+        // surfacePos, terminalIsSurface, orbit, endBodyFixed -> source (0 None, 1 TerminalSurface, 2 TerminalOrbit, 3 RecordedEndBodyFixed)
+        [InlineData(true, true, false, true, 1)]
+        [InlineData(true, false, true, false, 1)]
+        [InlineData(false, false, true, false, 2)]
+        [InlineData(false, false, true, true, 2)]
+        [InlineData(false, true, true, true, 3)]
+        [InlineData(false, false, false, true, 3)]
+        [InlineData(false, false, false, false, 0)]
+        [InlineData(false, true, false, false, 0)]
+        public void ChooseHeldPositionSource_Precedence(
+            bool surfacePos, bool terminalIsSurface, bool orbit, bool endBodyFixed,
+            int expected)
+        {
+            Assert.Equal((GhostCommNetHeldPositionSource)expected,
+                GhostCommNetMath.ChooseHeldPositionSource(surfacePos, terminalIsSurface, orbit, endBodyFixed));
+        }
+
+        [Fact]
+        public void LogHeldSource_OneLine()
+        {
+            GhostCommNetMath.LogHeldSource("rec7", "Duna Relay", "FLIGHT",
+                GhostCommNetHeldPositionSource.TerminalOrbit, 200, "terminal=Orbiting orbit=True body=Duna");
+            Assert.Contains(logLines, l => l.Contains("[GhostCommNet]")
+                && l.Contains("Held ghost node position source: key=rec7 vessel=\"Duna Relay\" scene=FLIGHT source=TerminalOrbit endUT=200.0")
+                && l.Contains("body=Duna"));
+        }
+
         // ---------------------------------------------------------------- stock plumbing
 
         [Theory]

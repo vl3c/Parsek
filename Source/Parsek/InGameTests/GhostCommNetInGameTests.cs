@@ -246,8 +246,14 @@ namespace Parsek.InGameTests
                     checkedCount++;
                     continue; // chain-ghosted vessel: position comes from its despawn snapshot orbit
                 }
-                double sampleUT = hold || now > endUT ? endUT : now;
-                bool resolved = resolve(recordingId, hint, sampleUT, out Vector3d expected);
+                // Held past EndUT: the node sits where the vessel about to spawn is NOW
+                // (terminal orbit propagated / surface point), not at the stale EndUT point.
+                InGameAssert.IsTrue(manager.TryDescribeHookSample(key, now, out GhostCommNetHookSample hook),
+                    "cannot describe the hook sample of " + key);
+                Vector3d expected = Vector3d.zero;
+                bool resolved = hook.Lit && (hook.Held
+                    ? manager.TryResolveHeldPosition(key, now, out expected)
+                    : resolve(recordingId, hint, now, out expected));
                 if (!resolved)
                 {
                     dark++;

@@ -4927,13 +4927,21 @@ unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by de
   `CommPowerUnloaded`, `CanControlUnloaded`, stock `FindModule` matching), crew qualified by name
   through the roster (`FullVesselControlSkill`); one free `GhostCommNetNode` per recording id
   whose `position` returns `precisePosition`, positioned and powered in its own CommNet pre-update
-  hook (dark for a rebuild when the position cannot resolve), registered only against stock
-  CommNet types, re-added on `OnNetworkInitialized`.
-- Hosts: `ParsekFlight` ticks it every frame after the spawn passes (window inputs from
+  hook (dark for a rebuild when the position cannot resolve, and dark past EndUT unless held),
+  registered only against stock CommNet types, re-added on `OnNetworkInitialized`. A node
+  held past EndUT (spawn pending, warp-deferred spawns included, or a chain gap) keeps the
+  END antenna state but sits where the vessel about to spawn is NOW: the recorded terminal
+  surface point, else the terminal orbit the spawn path builds
+  (`VesselSpawner.TryBuildRecordedTerminalOrbitForSpawn`) propagated to the current UT, else
+  a body-fixed end sample; an orbit / anchor end with no buildable orbit is dark.
+- Hosts: `ParsekFlight` ticks it every frame after the spawn passes, re-reading each
+  recording's spawn state so a spawn hands over in the same frame (window inputs from
   `ComputePlaybackFlags`, position from the mesh-independent `TryResolvePlaybackWorldPosition`,
   chain-ghosted real vessels from their despawn snapshot's orbit before the first claim);
   `ParsekTrackingStation` at its 0.25 s lifecycle cadence (position: the map ProtoVessel, else
-  the covering orbit segment, else body-fixed frames covering the UT).
+  the covering orbit segment, else body-fixed frames covering the UT). Known seam: the
+  Tracking Station learns a spawn hold only past EndUT, so a held node there can be dark for
+  up to one 0.25 s tick at its EndUT; FLIGHT bridges that seam.
 - Proof so far: unit tests with hand-derived stock numbers, and a new in-game `GhostCommNet`
   category (routing probe with a negative control in FLIGHT and TRACKSTATION, per-node state
   checks, active-vessel control path). Never flown. `VesselSnapshotBuilder.RelaySatellite`

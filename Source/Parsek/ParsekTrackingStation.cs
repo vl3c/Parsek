@@ -382,22 +382,28 @@ namespace Parsek
                         input.VesselSpawned = rec.VesselSpawned;
                         input.SpawnAbandoned = rec.SpawnAbandoned;
                         input.CannotSpawnSafely = rec.TerminalSpawnCannotSpawnSafely;
-                        if (currentUT > input.EndUT && !rec.VesselSpawned)
+                    }
+                    GhostCommNetEligibility eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT);
+                    // The spawn / chain-hold inputs are only worth their cost for a recording
+                    // that passed every other gate and is past its end without a hold yet.
+                    if (eligibility.Reason == GhostCommNetMath.ReasonWindowEnded)
+                    {
+                        if (chains == null)
+                            chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
+                        input.NeedsSpawn = GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
+                            rec, currentUT, chains, (HashSet<string>)null).needsSpawn;
+                        input.IsMidChain = RecordingStore.IsChainMidSegment(rec);
+                        input.ChainEndUT = RecordingStore.GetChainEndUT(rec);
+                        eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT);
+                        if (eligibility.Reason == GhostCommNetMath.ReasonChainGapHold)
                         {
-                            if (chains == null)
-                                chains = GhostChainWalker.ComputeAllGhostChains(RecordingStore.CommittedTrees, currentUT);
-                            input.NeedsSpawn = GhostMapPresence.ShouldSpawnAtTrackingStationEnd(
-                                rec, currentUT, chains, (HashSet<string>)null).needsSpawn;
-                            input.IsMidChain = RecordingStore.IsChainMidSegment(rec);
-                            input.ChainEndUT = RecordingStore.GetChainEndUT(rec);
-                            if (input.IsMidChain)
-                            {
-                                int next = GhostPlaybackLogic.ResolveChainNextSlotIndex(
-                                    i, committed,
-                                    object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
-                                input.ChainSuccessorStarted = next >= 0
-                                    && currentUT >= GhostPlaybackEngine.ResolveGhostActivationStartUT(committed[next]);
-                            }
+                            int next = GhostPlaybackLogic.ResolveChainNextSlotIndex(
+                                i, committed,
+                                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
+                            input.ChainSuccessorStarted = next >= 0
+                                && currentUT >= GhostPlaybackEngine.ResolveGhostActivationStartUT(committed[next]);
+                            if (input.ChainSuccessorStarted)
+                                eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT);
                         }
                     }
                     ghostCommNetCandidates.Add(new GhostCommNetCandidate
@@ -409,7 +415,7 @@ namespace Parsek
                         VesselName = rec.VesselName,
                         VesselPid = rec.VesselPersistentId,
                         LaunchGuid = rec.RecordedVesselGuid,
-                        Eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT),
+                        Eligibility = eligibility,
                         WindowStartUT = input.ActivationStartUT,
                         EndUT = input.EndUT,
                     });

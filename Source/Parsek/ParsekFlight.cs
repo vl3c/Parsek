@@ -19565,8 +19565,9 @@ namespace Parsek
             mapViewScene.DriveMapPresence(Planetarium.GetUniversalTime());
 
             // Ghost CommNet relay / control-point nodes (design 15.6). After the spawn
-            // passes above, so a vessel spawned this frame hands its node over to the
-            // real vessel's stock node in the same frame.
+            // passes above; DriveGhostCommNet re-reads each recording's spawn state, so a
+            // vessel spawned this frame hands its node over to the real vessel's stock node
+            // in the same frame.
             DriveGhostCommNet(committed, currentUT);
 
             // Phase 4 decision-only shadow: run the new map-render pipeline (chain -> sample -> intent)
@@ -19625,14 +19626,24 @@ namespace Parsek
                     if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                         continue;
                     GhostCommNetEligibilityInput input = ghostCommNetInputs[i];
-                    // The chain successor only matters for a mid-chain segment past its end.
-                    if (input.IsMidChain && currentUT > input.EndUT)
+                    // ComputePlaybackFlags ran BEFORE engine.UpdatePlayback and the spawn
+                    // passes; re-read the spawn state so a vessel spawned this frame drops its
+                    // ghost node this frame, not the next.
+                    input.VesselSpawned = rec.VesselSpawned;
+                    input.SpawnAbandoned = rec.SpawnAbandoned;
+                    input.CannotSpawnSafely = rec.TerminalSpawnCannotSpawnSafely;
+                    GhostCommNetEligibility eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT);
+                    // The chain successor scan only runs for a segment that would otherwise
+                    // hold in a chain gap (past its end, every other gate passed).
+                    if (eligibility.Reason == GhostCommNetMath.ReasonChainGapHold)
                     {
                         int next = GhostPlaybackLogic.ResolveChainNextSlotIndex(
                             i, committed,
                             object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes);
                         input.ChainSuccessorStarted = next >= 0
                             && currentUT >= GhostPlaybackEngine.ResolveGhostActivationStartUT(committed[next]);
+                        if (input.ChainSuccessorStarted)
+                            eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT);
                     }
                     ghostCommNetCandidates.Add(new GhostCommNetCandidate
                     {
@@ -19643,7 +19654,7 @@ namespace Parsek
                         VesselName = rec.VesselName,
                         VesselPid = rec.VesselPersistentId,
                         LaunchGuid = rec.RecordedVesselGuid,
-                        Eligibility = GhostCommNetMath.EvaluateEligibility(input, currentUT),
+                        Eligibility = eligibility,
                         WindowStartUT = input.ActivationStartUT,
                         EndUT = input.EndUT,
                     });
