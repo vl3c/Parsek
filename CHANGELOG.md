@@ -1653,6 +1653,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **A kerbal lost on a committed flight now respawns when your difficulty says so.** Stock KSP
+  brings a dead kerbal back after the respawn timer when "Missing crews respawn" is on (2 hours
+  by default on Easy and Normal). Parsek now does the same: the kerbal is lost until the death
+  plus that timer and is free to fly again after it, instead of staying lost forever. The
+  setting and timer are recorded when the death is recorded, so changing the difficulty later
+  does not change a death that already happened; with respawn off the death stays permanent.
+  A death still ahead of you on the timeline (after a rewind) holds the kerbal until its own
+  respawn, and a re-fly that undoes the death removes the respawn wait with it. The Kerbals
+  window reads "Lost until <date>", the stock crew screens name the respawn date in their
+  hover text, and the Timeline's "Lost" entry says when the kerbal respawns. Deaths recorded
+  before this change keep their permanent loss.
+
 - **Settings: a round of fixes to the Settings window.**
   - The sections now run Interface, Ghosts, Looping, Recorder Sample Density, Diagnostics, Data
     Management. Basic still shows Interface, Ghosts and Data Management.

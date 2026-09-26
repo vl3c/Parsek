@@ -81,6 +81,14 @@ namespace Parsek
                         // Rescue Missing crew — they're alive but orphaned from a
                         // removed vessel (e.g. --clean-start or manual save edits).
                         // The recording will respawn them, so restore them first.
+                        // This is never a recorded death: stock's crew death marks the
+                        // kerbal Dead and enters Missing only when MissingCrewsRespawn
+                        // is on (decompiled Part death path), and that respawn window is
+                        // the recorded death's own hold (KerbalsModule, owner ruling S8),
+                        // whose vessel never spawns. Missing here comes from stock's
+                        // roster validation of an orphaned kerbal (StartRespawnPeriod(2000)),
+                        // which kills him at the timer when respawn is off - the rescue
+                        // prevents exactly that for a kerbal the recording keeps alive.
                         if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing)
                         {
                             pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
@@ -1145,22 +1153,31 @@ namespace Parsek
             // release actually moves is IsPermanent — the Dead row's merge sets it
             // true, and stripping that row demotes the entry to temporary. Emit
             // both counts so the strip is observable from the log alone.
+            // A death recorded with stock respawn on is a TEMPORARY hold ending at its
+            // respawn instant (owner ruling S8), so it is counted as respawnDeath= inside
+            // temporary: a tombstone that strips such a row moves that term, not permanent=.
+            // The term is printed only when non-zero so the respawn-off line stays
+            // byte-identical for the specs that pin it.
             int permanent = 0;
             int temporary = 0;
+            int respawnDeath = 0;
             foreach (var reservation in kerbals.Reservations.Values)
             {
                 if (reservation == null) continue;
                 if (reservation.IsPermanent) permanent++;
                 else temporary++;
+                if (!reservation.IsPermanent && !double.IsNaN(reservation.DeathRespawnUT))
+                    respawnDeath++;
             }
 
             // The count is the RAW reservation set (harness specs and tests pin this line
             // verbatim); how many of those are still held at the walk's clock is the
             // PostWalk summary's released= term.
             string detailPart = string.IsNullOrEmpty(detail) ? "" : $" ({detail})";
+            string respawnPart = respawnDeath > 0 ? $" respawnDeath={respawnDeath}" : "";
             ParsekLog.Info("CrewReservations",
                 $"Recomputed {reason}: {remaining} reservations remain " +
-                $"(permanent={permanent} temporary={temporary}){detailPart}.");
+                $"(permanent={permanent} temporary={temporary}{respawnPart}){detailPart}.");
         }
 
         #endregion

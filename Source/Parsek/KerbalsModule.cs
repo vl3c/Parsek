@@ -204,6 +204,10 @@ namespace Parsek
             public string ChainId;
             public string TreeId;
             public double EndUT;
+            // The recording's stamped crew death respawn policy (Recording.CrewDeathRespawns
+            // / CrewDeathRespawnSeconds); null = unstamped, a death is permanent.
+            public bool? DeathRespawns;
+            public double DeathRespawnSeconds;
         }
 
         /// <summary>
@@ -213,7 +217,38 @@ namespace Parsek
         {
             public string KerbalName;
             public double ReservedUntilUT;  // double.PositiveInfinity for permanent/open-ended
-            public bool IsPermanent;        // Dead — never freed
+            public bool IsPermanent;        // Dead with respawn off (or unstamped) — never freed
+            /// <summary>
+            /// The latest stock respawn instant among the recorded deaths behind this hold
+            /// (death UT + the respawn timer stamped at the death), or NaN when no death
+            /// with respawn on contributes. While it defines the hold's end
+            /// (<see cref="IsRespawnPendingHold"/>) the kerbal reads as lost until then.
+            /// </summary>
+            public double DeathRespawnUT = double.NaN;
+        }
+
+        /// <summary>
+        /// True when the hold is a recorded death that stock respawns: not permanent, and the
+        /// death's respawn instant is what ends it (no later flight extends it). The kerbal is
+        /// lost until <see cref="KerbalReservation.ReservedUntilUT"/> and free after. Pure.
+        /// </summary>
+        internal static bool IsRespawnPendingHold(KerbalReservation reservation)
+        {
+            return reservation != null
+                && !reservation.IsPermanent
+                && !double.IsNaN(reservation.DeathRespawnUT)
+                && reservation.DeathRespawnUT >= reservation.ReservedUntilUT;
+        }
+
+        /// <summary>
+        /// True when the hold reads as a LOSS (the kerbal is dead on the committed timeline):
+        /// a permanent death, or a death still waiting for its stock respawn. Every "Lost"
+        /// surface (Kerbals window, stock-screen marks, crew dialog) routes here. Pure.
+        /// </summary>
+        internal static bool IsLossHold(KerbalReservation reservation)
+        {
+            return reservation != null
+                && (reservation.IsPermanent || IsRespawnPendingHold(reservation));
         }
 
         /// <summary>
@@ -224,6 +259,10 @@ namespace Parsek
         {
             public string OwnerName;
             public string OwnerTrait;       // "Pilot" / "Engineer" / "Scientist"
+            // Derived each walk: the owner is dead on the committed timeline (a permanent
+            // death, or a death whose stock respawn is still pending at the walk's clock).
+            // No stand-in covers him, matching stock (a dead or missing kerbal is not
+            // replaced); a respawn clears it on the walk that releases the hold.
             public bool OwnerPermanentlyGone;
             public List<string> Chain = new List<string>(); // stand-in names, ordered by depth
         }
@@ -255,17 +294,19 @@ namespace Parsek
             int slotCount,
             int retiredCount,
             int slotsCreated,
-            int releasedReservations = 0)
+            int releasedReservations = 0,
+            int respawnPendingReservations = 0)
         {
             return string.Format(CultureInfo.InvariantCulture,
-                "PostWalk summary: reservations={0} permanent={1} temporary={2} slots={3} retired={4} slotsCreated={5} released={6}",
+                "PostWalk summary: reservations={0} permanent={1} temporary={2} slots={3} retired={4} slotsCreated={5} released={6} respawnPending={7}",
                 reservationCount,
                 permanentReservations,
                 temporaryReservations,
                 slotCount,
                 retiredCount,
                 slotsCreated,
-                releasedReservations);
+                releasedReservations,
+                respawnPendingReservations);
         }
 
         /// <summary>
@@ -273,9 +314,11 @@ namespace Parsek
         /// <paramref name="nowUT"/>?
         ///
         /// <para>Design 9.2 / 9.3: a reservation is one continuous block from UT 0 to its
-        /// end. A permanent one (Dead) never ends; an open-ended one (Aboard / Unknown, and
-        /// any flight in a chain with a looping segment) carries +inf and so never ends by
-        /// time alone; a Recovered one ends at the flight's recovery UT.</para>
+        /// end. A permanent one (Dead with stock respawn off at the death) never ends; an
+        /// open-ended one (Aboard / Unknown, and any flight in a chain with a looping
+        /// segment) carries +inf and so never ends by time alone; a Recovered one ends at
+        /// the flight's recovery UT; a Dead one with stock respawn on at the death ends at
+        /// the death UT + the stamped respawn timer.</para>
         ///
         /// <para>BOUNDARY: the kerbal is free AT exactly <c>ReservedUntilUT</c>
         /// (<c>nowUT &lt; ReservedUntilUT</c> holds, equality releases). The end UT of a
@@ -680,7 +723,9 @@ namespace Parsek
                     IsChainRecording = isChain,
                     ChainId = chainId,
                     TreeId = rec.TreeId,
-                    EndUT = rec.EndUT
+                    EndUT = rec.EndUT,
+                    DeathRespawns = rec.CrewDeathRespawns,
+                    DeathRespawnSeconds = rec.CrewDeathRespawnSeconds
                 };
 
                 var rawCrew = ExtractRawCrewFromRecording(rec);
@@ -797,20 +842,44 @@ namespace Parsek
             KerbalEndState endState = action.KerbalEndStateField;
 
             // Map end states to reservation parameters:
-            //   Dead      -> permanent, endUT = infinity
+            //   Dead      -> stock respawn on at the death (stamped on the recording):
+            //                temporary, endUT = death UT (rec.EndUT) + stamped timer;
+            //                respawn off, or no stamp -> permanent, endUT = infinity
             //   Recovered -> temporary, endUT = rec.EndUT
             //   Aboard    -> open-ended temporary, endUT = infinity (crew still on vessel)
             //   Unknown   -> open-ended temporary (conservative)
             // Override: if this recording belongs to a chain with a looping segment,
             // keep endUT = infinity regardless of Recovered state — the ghost replays
             // past the tip's EndUT via the loop.
-            bool permanent = (endState == KerbalEndState.Dead);
+            bool dead = endState == KerbalEndState.Dead;
+            double deathRespawnUT = double.NaN;
+            string deathPolicy = null;
+            if (dead)
+            {
+                deathRespawnUT = ResolveDeathRespawnUT(
+                    meta.DeathRespawns, meta.DeathRespawnSeconds, meta.EndUT, out deathPolicy);
+            }
+            bool permanent = dead && double.IsNaN(deathRespawnUT);
             bool chainHasLoop = meta.IsChainRecording
                 && !string.IsNullOrEmpty(meta.ChainId)
                 && loopingChainIds.Contains(meta.ChainId);
             // Use recording's double-precision EndUT (not action's float EndUT)
             double endUT = (endState == KerbalEndState.Recovered && !chainHasLoop)
                 ? meta.EndUT : double.PositiveInfinity;
+            if (dead && !permanent && !chainHasLoop)
+                endUT = deathRespawnUT;
+
+            if (dead)
+            {
+                ParsekLog.Verbose(Tag,
+                    permanent
+                        ? $"Death hold: '{name}' recording '{recordingId}' is permanent " +
+                          $"(respawn suppressed: {deathPolicy})"
+                        : $"Death hold: '{name}' recording '{recordingId}' respawn scheduled " +
+                          $"deathUT={FormatClockUT(meta.EndUT)} respawnUT={FormatClockUT(deathRespawnUT)} " +
+                          $"timer={meta.DeathRespawnSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                          $"({deathPolicy}{(chainHasLoop ? "; chainHasLoop keeps the hold open-ended" : "")})");
+            }
 
             // Design 9.3: an open-ended (Aboard / Unknown) hold ends when the kerbal is
             // recovered from a real vessel continuing this flight's tree
@@ -836,12 +905,18 @@ namespace Parsek
             KerbalReservation existing;
             if (reservations.TryGetValue(name, out existing))
             {
-                // Merge: take max endUT, permanent wins
+                // Merge: take max endUT, permanent wins, latest respawn instant kept
                 if (permanent) existing.IsPermanent = true;
                 if (endUT > existing.ReservedUntilUT) existing.ReservedUntilUT = endUT;
+                if (!double.IsNaN(deathRespawnUT)
+                    && (double.IsNaN(existing.DeathRespawnUT) || deathRespawnUT > existing.DeathRespawnUT))
+                    existing.DeathRespawnUT = deathRespawnUT;
                 ParsekLog.Verbose(Tag,
                     $"Reservation extended: '{name}' endUT->{existing.ReservedUntilUT:F1} " +
-                    $"(permanent={existing.IsPermanent})");
+                    $"(permanent={existing.IsPermanent})" +
+                    (double.IsNaN(existing.DeathRespawnUT)
+                        ? ""
+                        : $" respawnUT={FormatClockUT(existing.DeathRespawnUT)}"));
             }
             else
             {
@@ -849,11 +924,14 @@ namespace Parsek
                 {
                     KerbalName = name,
                     ReservedUntilUT = endUT,
-                    IsPermanent = permanent
+                    IsPermanent = permanent,
+                    DeathRespawnUT = deathRespawnUT
                 };
                 ParsekLog.Verbose(Tag,
                     $"Reservation: '{name}' endUT={( permanent ? "INDEFINITE" : endUT.ToString("F1") )} " +
-                    $"({endState}{(chainHasLoop ? ", chainHasLoop" : "")}), recording '{recordingId}'");
+                    $"({endState}{(chainHasLoop ? ", chainHasLoop" : "")}" +
+                    $"{(dead && !permanent ? ", respawn at " + FormatClockUT(deathRespawnUT) : "")}), " +
+                    $"recording '{recordingId}'");
             }
         }
 
@@ -1024,6 +1102,7 @@ namespace Parsek
             int permanentReservations = 0;
             int temporaryReservations = 0;
             int releasedReservations = 0;
+            int respawnPendingReservations = 0;
             int slotsCreated = 0;
             foreach (var kvp in reservations)
             {
@@ -1039,13 +1118,27 @@ namespace Parsek
                 temporaryReservations++;
 
                 // Released (design 9.3 / 9.4): the clock has reached the Recovered
-                // flight's end, so the owner holds his own seat again. No slot is created
-                // for him and no chain depth is demanded; an EXISTING slot keeps its chain
-                // names (a rewind before the end reuses them), and ApplyToRoster's
-                // displacement pass deletes the unused stand-in / retires a used one.
+                // flight's end (or a recorded death's stock respawn instant), so the owner
+                // holds his own seat again. No slot is created for him and no chain depth
+                // is demanded; an EXISTING slot keeps its chain names (a rewind before the
+                // end reuses them), and ApplyToRoster's displacement pass deletes the
+                // unused stand-in / retires a used one.
                 if (!IsHoldInForce(kvp.Key, kvp.Value, walkClockUT))
                 {
                     releasedReservations++;
+                    continue;
+                }
+
+                // A recorded death waiting for its stock respawn: the owner is gone until
+                // then exactly like a permanent death (stock leaves a dead or missing
+                // kerbal unreplaced), so no stand-in is demanded; the walk that crosses the
+                // respawn instant releases him through the branch above.
+                if (IsRespawnPendingHold(kvp.Value))
+                {
+                    respawnPendingReservations++;
+                    KerbalSlot goneSlot;
+                    if (slots.TryGetValue(kvp.Key, out goneSlot))
+                        goneSlot.OwnerPermanentlyGone = true;
                     continue;
                 }
 
@@ -1090,7 +1183,8 @@ namespace Parsek
                     slots.Count,
                     retiredKerbals.Count,
                     slotsCreated,
-                    releasedReservations)
+                    releasedReservations,
+                    respawnPendingReservations)
                 + (provisional ? " provisional=True" : "")
                 + " walkClockUT=" + FormatClockUT(walkClockUT)
                 + " nextReleaseUT=" + FormatClockUT(nextReservationReleaseUT));
@@ -1143,8 +1237,12 @@ namespace Parsek
                         $"endUT={FormatClockUT(reservation.ReservedUntilUT)} " +
                         $"nowUT={FormatClockUT(walkClockUT)} " +
                         (active
-                            ? "(held again at this clock: a rewind before the end, or a later row extended the hold)"
-                            : "(the clock has reached the Recovered flight's end - the kerbal is free again)"));
+                            ? (IsRespawnPendingHold(reservation)
+                                ? "(held again at this clock: a rewind before the recorded death's stock respawn)"
+                                : "(held again at this clock: a rewind before the end, or a later row extended the hold)")
+                            : (IsRespawnPendingHold(reservation)
+                                ? "(respawn applied: the clock has reached the recorded death's stock respawn instant - the kerbal is available again)"
+                                : "(the clock has reached the Recovered flight's end - the kerbal is free again)")));
                 }
                 lastKnownHold[kvp.Key] = new KnownHold
                 {
@@ -1563,6 +1661,134 @@ namespace Parsek
             }
         }
 
+        // ────────────────────────────────────────────────────────
+        // Crew death respawn policy (stock Difficulty.MissingCrewsRespawn / RespawnTimer)
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>Reads the live stock crew respawn policy. See
+        /// <see cref="CrewRespawnPolicyProviderForTesting"/>.</summary>
+        internal delegate bool CrewRespawnPolicyReader(out bool respawns, out double timerSeconds);
+
+        /// <summary>
+        /// Test seam for the stock crew respawn difficulty settings. Null in production
+        /// (reads <c>HighLogic.CurrentGame.Parameters.Difficulty</c>).
+        /// </summary>
+        internal static CrewRespawnPolicyReader CrewRespawnPolicyProviderForTesting;
+
+        /// <summary>
+        /// The live stock crew respawn policy: <c>Difficulty.MissingCrewsRespawn</c> and
+        /// <c>Difficulty.RespawnTimer</c> (seconds). Stock's crew death (decompiled
+        /// <c>Part</c> death path) calls <c>Die()</c> and then, only when the flag is on,
+        /// <c>StartRespawnPeriod()</c> (Missing until death + RespawnTimer, then
+        /// Available). False when no game is loaded (null-guarded).
+        /// </summary>
+        internal static bool TryReadStockCrewRespawnPolicy(out bool respawns, out double timerSeconds)
+        {
+            var provider = CrewRespawnPolicyProviderForTesting;
+            if (provider != null)
+                return provider(out respawns, out timerSeconds);
+            try
+            {
+                return ReadStockCrewRespawnPolicyCore(out respawns, out timerSeconds);
+            }
+            catch (Exception)
+            {
+                // Headless host (xUnit / mono) where HighLogic cannot initialise.
+                respawns = false;
+                timerSeconds = double.NaN;
+                return false;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool ReadStockCrewRespawnPolicyCore(out bool respawns, out double timerSeconds)
+        {
+            respawns = false;
+            timerSeconds = double.NaN;
+            var difficulty = HighLogic.CurrentGame?.Parameters?.Difficulty;
+            if (difficulty == null)
+                return false;
+            respawns = difficulty.MissingCrewsRespawn;
+            timerSeconds = difficulty.RespawnTimer;
+            return true;
+        }
+
+        /// <summary>
+        /// Owner ruling S8 (2026-09-26): a recorded crew death follows the stock respawn
+        /// policy AS IT STOOD AT THE DEATH. Stamps the live policy onto
+        /// <paramref name="rec"/> the first time its end states record a death, and never
+        /// again: a stamp already present is kept (a re-inference after a terminal re-stamp,
+        /// a merge that carried the absorbed segment's stamp), so a difficulty edit after
+        /// the death does not rewrite it. With no readable game the recording stays
+        /// unstamped and its deaths stay permanent. Returns true when a stamp was written.
+        /// </summary>
+        internal static bool StampCrewDeathRespawnPolicy(Recording rec, int deadCount)
+        {
+            if (rec == null || deadCount <= 0) return false;
+            if (rec.CrewDeathRespawns.HasValue)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Crew death respawn policy kept: recording='{rec.RecordingId}' " +
+                    $"respawn={rec.CrewDeathRespawns.Value} " +
+                    $"timer={rec.CrewDeathRespawnSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                    "(stamped at the first recorded death)");
+                return false;
+            }
+
+            bool respawns;
+            double timerSeconds;
+            if (!TryReadStockCrewRespawnPolicy(out respawns, out timerSeconds))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Crew death respawn policy not stamped: recording='{rec.RecordingId}' " +
+                    $"deadCrew={deadCount.ToString(CultureInfo.InvariantCulture)} - no game difficulty " +
+                    "readable; the death stays permanent");
+                return false;
+            }
+
+            rec.CrewDeathRespawns = respawns;
+            rec.CrewDeathRespawnSeconds = timerSeconds;
+            ParsekLog.Info(Tag,
+                $"Crew death respawn policy stamped: recording='{rec.RecordingId}' " +
+                $"({rec.VesselName}) deadCrew={deadCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"respawn={respawns} timer={timerSeconds.ToString("R", CultureInfo.InvariantCulture)}");
+            return true;
+        }
+
+        /// <summary>
+        /// The instant a recorded death releases its kerbal under the stamped respawn
+        /// policy: <paramref name="deathUT"/> + <paramref name="respawnSeconds"/> when the
+        /// policy was stamped ON with a usable timer, else NaN (a permanent death).
+        /// <paramref name="reason"/> names the decision for the walk's log line. Pure.
+        /// </summary>
+        internal static double ResolveDeathRespawnUT(
+            bool? respawns, double respawnSeconds, double deathUT, out string reason)
+        {
+            if (!respawns.HasValue)
+            {
+                reason = "no respawn policy stamped at the death";
+                return double.NaN;
+            }
+            if (!respawns.Value)
+            {
+                reason = "stock crew respawn was off at the death";
+                return double.NaN;
+            }
+            if (double.IsNaN(respawnSeconds) || double.IsInfinity(respawnSeconds) || respawnSeconds < 0.0)
+            {
+                reason = "stamped respawn timer is not usable";
+                return double.NaN;
+            }
+            if (double.IsNaN(deathUT) || double.IsInfinity(deathUT))
+            {
+                reason = "death UT is not usable";
+                return double.NaN;
+            }
+            reason = "stock crew respawn was on at the death";
+            return deathUT + respawnSeconds;
+        }
+
         /// <summary>
         /// Populates CrewEndStates on a recording by extracting crew from the
         /// ghost visual snapshot (start-of-recording crew roster) and inferring
@@ -1642,6 +1868,7 @@ namespace Parsek
                 $"crew={startingCrew.Count} aboard={aboardCount} dead={deadCount} " +
                 $"recovered={recoveredCount} unknown={unknownCount}");
             rec.CrewEndStatesResolved = true;
+            StampCrewDeathRespawnPolicy(rec, deadCount);
         }
 
         /// <summary>
@@ -2308,9 +2535,13 @@ namespace Parsek
         /// every seat placement (StockUiCrewDialogDecoration). KerbalDismissalPatch
         /// prevents dismissal.
         ///
-        /// MIA Respawn: If KSP respawns a Dead kerbal to Available, the crew
-        /// dialog still refuses them (they remain in the reservations dict).
-        /// No rosterStatus manipulation needed.
+        /// Crew death respawn (owner ruling S8): a recorded death holds its kerbal until
+        /// death UT + the respawn timer stamped at the death when stock respawn was on
+        /// then (stock: Dead -> Missing -> Available at that instant), and forever when it
+        /// was off or no policy was stamped. No rosterStatus is written either way: after
+        /// the respawn the hold is released and the kerbal is whatever stock left him
+        /// (Available after stock's own respawn, or Available all along when a rewind put
+        /// the death in the future). While a hold is in force the crew dialog refuses him.
         ///
         /// Must be called AFTER PostWalk().
         /// Wraps all mutations in SuppressCrewEvents.

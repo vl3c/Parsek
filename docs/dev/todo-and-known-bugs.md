@@ -65,8 +65,24 @@ Owner rulings (2026-09-26):
   (they are Parsek's own time mechanic). Only the re-fly exit must stay reachable: stock
   builds the Esc-menu Revert button only when `CanRestart`, so `ReFlyRevertButtonGate` alone
   cannot surface Retry / Discard on the Hard preset (inferred, needs a live check).
-- S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
-  kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.
+- ~~S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
+  kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.~~
+  FIXED 2026-09-26, branch `kss-respawn`: `KerbalsModule.PopulateCrewEndStates` stamps the
+  live policy on the recording the first time its end states record a death
+  (`Recording.CrewDeathRespawns` / `CrewDeathRespawnSeconds`, sparse keys `crewDeathRespawn` /
+  `crewDeathRespawnSec`, kept on re-inference, moved by the optimizer split and merge, no
+  generation bump). The ledger `KerbalAssignment` rows are re-derived from the recording on
+  load, so the recording is the durable home. The walk turns a Dead row with respawn on into a
+  finite hold ending at the recording's EndUT + the stamped timer (`DeathRespawnUT`); off or
+  unstamped (every pre-S8 death) stays permanent. While the hold is in force the kerbal reads
+  Lost (Kerbals window "Lost until <date>", stock-screen `KerbalLost` marks with the date,
+  Timeline "respawns after"), no stand-in is made (as stock leaves him unreplaced), and the
+  ordinary time-release frees him at the respawn; a tombstoned Dead row takes the window
+  with it. No rosterStatus is written; the ground-truth roster carve-out now explains
+  Available+permanent as a future or unstamped death. Cells: `KerbalDeathRespawnTests`.
+  Not modelled: a per-part `Part.crewRespawnTime` override (mission-builder field), and stock
+  re-reading the flag at the respawn instant (a policy turned off after a respawn-on death
+  kills the kerbal in stock's roster while Parsek's stamped hold still releases him).
 - S9 (Q3). Parsek is inert (no recording, ghosts or rewind; one log line) in `MISSION`,
   `MISSION_BUILDER`, `SCENARIO` and `SCENARIO_NON_RESUMABLE` games.
 

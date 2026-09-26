@@ -498,17 +498,25 @@ namespace Parsek
         /// <summary>
         /// A kerbal a committed flight killed. The way back is the Kerbals window's own
         /// (<see cref="KerbalsPresentation.LostReFlyRemedy"/>): a Re-Fly merge tombstones
-        /// the death row, which is what releases the permanent reservation.
+        /// the death row, which is what releases the permanent reservation. When the
+        /// death's stock crew respawn is pending (owner ruling S8), the title and rule name
+        /// the day the kerbal is back (<paramref name="respawnUT"/>, NaN for a permanent
+        /// death).
         /// </summary>
-        internal static ReservationText KerbalLost(string flightName)
+        internal static ReservationText KerbalLost(
+            string flightName, double respawnUT = double.NaN, Func<double, string> formatDate = null)
         {
+            bool respawns = !double.IsNaN(respawnUT) && !double.IsInfinity(respawnUT);
+            string respawnDate = respawns ? FormatDate(respawnUT, formatDate) : null;
             return new ReservationText
             {
-                Title = "Lost",
+                Title = respawns ? "Lost until " + respawnDate : "Lost",
                 Fact = string.IsNullOrEmpty(flightName)
                     ? "Lost on a committed flight."
                     : "Lost on the committed flight '" + flightName + "'.",
-                Rule = LostRule,
+                Rule = respawns
+                    ? LostRule + " " + KerbalsPresentation.FormatLostRespawnRule(respawnDate)
+                    : LostRule,
                 WayOut = KerbalsPresentation.LostReFlyRemedy
             };
         }

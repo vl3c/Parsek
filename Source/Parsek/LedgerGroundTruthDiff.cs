@@ -751,15 +751,16 @@ namespace Parsek
         /// divergence: the ledger is delta-only and the stock starting four plus
         /// every applicant are legitimately unmentioned.
         ///
-        /// THE RESPAWN CARVE-OUT. A permanently-reserved kerbal listed
-        /// <c>Available</c> is the DOCUMENTED intended production state, not a
-        /// divergence: <see cref="KerbalsModule.ApplyToRoster"/> leaves reserved
-        /// kerbals at their natural rosterStatus and performs NO rosterStatus
-        /// manipulation when stock's MIA respawn flips a Dead kerbal back to
-        /// Available - the reservation persists and the crew dialog refuses to seat
-        /// them (StockUiCrewDialogDecoration). Flagging that state made the facet raise on
-        /// correct behavior. It is counted in the census line instead
-        /// (<c>respawnedButReserved</c>), so the signal stays observable without
+        /// THE AVAILABLE CARVE-OUT. A permanently-reserved kerbal listed
+        /// <c>Available</c> is an explained production state, not a divergence:
+        /// <see cref="KerbalsModule.ApplyToRoster"/> never writes rosterStatus, so the
+        /// kerbal is Available and held when (a) his committed death lies in the save
+        /// clock's FUTURE (a rewind to before it), or (b) the death was recorded before
+        /// the respawn policy stamp existed (unstamped, so permanent) and stock's own
+        /// respawn flipped him back. A death recorded with stock respawn ON is no longer
+        /// permanent (owner ruling S8: it holds until death UT + the stamped timer) and
+        /// never reaches this facet. The state is counted in the census line
+        /// (<c>availableButPermanentlyHeld</c>), so the signal stays observable without
         /// being a divergence. What DOES still raise is a state the reservation
         /// cannot explain at all (Assigned, Hired, an unrecognized value).
         ///
@@ -828,7 +829,7 @@ namespace Parsek
             }
 
             int aliveButGone = 0;
-            int respawnedButReserved = 0;
+            int availableButPermanentlyHeld = 0;
             foreach (string name in recon.PermanentlyGoneKerbals)
             {
                 if (string.IsNullOrEmpty(name))
@@ -842,11 +843,11 @@ namespace Parsek
                 }
                 if (string.Equals(state, "Available", StringComparison.Ordinal))
                 {
-                    // DOCUMENTED intended production state (KerbalsModule.ApplyToRoster,
-                    // "MIA Respawn"): stock respawns a Dead kerbal to Available and Parsek
-                    // deliberately does NOT touch rosterStatus - the reservation persists
-                    // and the crew-dialog filter keeps them hidden. Counted, not flagged.
-                    respawnedButReserved++;
+                    // Explained production state (see the AVAILABLE CARVE-OUT above): a
+                    // death still in the save clock's future, or an unstamped death stock
+                    // respawned. Parsek never writes rosterStatus; the hold persists and
+                    // the crew-dialog filter refuses the kerbal. Counted, not flagged.
+                    availableButPermanentlyHeld++;
                     continue;
                 }
 
@@ -869,7 +870,7 @@ namespace Parsek
                 $"reconCreated={recon.LedgerCreatedKerbals.Count.ToString(IC)} " +
                 $"reconPermanentlyGone={recon.PermanentlyGoneKerbals.Count.ToString(IC)} " +
                 $"phantoms={phantoms.ToString(IC)} aliveButGone={aliveButGone.ToString(IC)} " +
-                $"respawnedButReserved={respawnedButReserved.ToString(IC)} (stock MIA respawn, expected)");
+                $"availableButPermanentlyHeld={availableButPermanentlyHeld.ToString(IC)} (future or unstamped death, expected)");
         }
 
         // ----------------------------------------------------------------
