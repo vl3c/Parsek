@@ -559,6 +559,27 @@ namespace Parsek
             return string.IsNullOrEmpty(recordingTag) && !hasLiveRecorder;
         }
 
+        /// <summary>
+        /// Stock experiment-id prefix of every Breaking Ground deployed experiment
+        /// (<c>deployedSeismicSensor</c>, <c>deployedWeatherReport</c>,
+        /// <c>deployedGooObservation</c>, <c>deployedIONCollector</c> in
+        /// <c>SquadExpansion/Serenity/Resources/ScienceDefs.cfg</c>). A subject id is
+        /// <c>experimentId@Body+Situation+Biome</c> (<c>ResearchAndDevelopment.GetExperimentSubject</c>),
+        /// so the prefix of the subject id is the experiment id's.
+        /// </summary>
+        internal const string DeployedScienceSubjectIdPrefix = "deployed";
+
+        /// <summary>
+        /// Operator ruling 2026-09-26: true for a Breaking Ground deployed-experiment
+        /// science subject, which is always recorded as an untagged ledger row.
+        /// Ordinal and case-sensitive, matching stock's own ids. Pure.
+        /// </summary>
+        internal static bool IsDeployedScienceSubjectId(string subjectId)
+        {
+            return !string.IsNullOrEmpty(subjectId)
+                && subjectId.StartsWith(DeployedScienceSubjectIdPrefix, System.StringComparison.Ordinal);
+        }
+
         internal static bool ShouldForwardDirectScienceSubject(
             string recordingTag,
             bool hasLiveRecorder,

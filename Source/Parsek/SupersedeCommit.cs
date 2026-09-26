@@ -2065,7 +2065,13 @@ namespace Parsek
             // and hard safety terminals (Recovered / Docked / Boarded) seal via
             // their own dedicated gates (HasReFlySessionStructuralMutation +
             // IsHardSafetyTerminal), not through this predicate.
-            return action.Type == GameActionType.ScienceEarning;
+            //
+            // Deployed-experiment science (operator ruling 2026-09-26) is a ground
+            // station's output, not a player action on the re-flown vessel. The capture
+            // writes it untagged so it never reaches this gate; the subject check also
+            // keeps a row an older build tagged from sealing a slot.
+            return action.Type == GameActionType.ScienceEarning
+                && !GameStateRecorder.IsDeployedScienceSubjectId(action.SubjectId);
         }
 
         // Auto-seal-after-safety-close is now encoded entirely in the
