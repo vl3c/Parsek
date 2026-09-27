@@ -47,8 +47,11 @@ respecting the sealing rules defined in the design docs."
   `ChildSlot.EffectiveRecordingId` and every slot consumer (reaper, Seal, Stash,
   `IsVisibleUnfinishedFlight`, CommitTree promotion, Site B-1 / B-2, RP slot resolution,
   `LoadTimeSweep`). Hops log `[Supersede] SwitchContinuationWalk: hop ... kind=switch|eva|board`.
-  A Board by a kerbal from another vessel stops it (`boardForeignParent`, a foreign merge). The map
-  presence chain-tip segment borrow keeps the switch-only walk (`followOwnEvaBoard: false`).
+  A Board by a kerbal from another vessel stops it (`boardForeignParent`, a foreign merge). A walk
+  that starts mid-stretch first registers the crew of every own EVA behind its start
+  (`PreRegisterOwnEvaCrewBehind`; RF-16's reading run caught a mid-stretch walk reading the Board as
+  foreign). The map presence chain-tip segment borrow keeps the switch-only walk
+  (`followOwnEvaBoard: false`).
 - `UnfinishedFlightClassifier`: the walk starts at the slot stretch head
   (`ResolveSlotStretchHead`, so every stretch member reaches the origin's verdict), rule 2 rejects with
   `evaCrewJoinedForeignVessel`, verdict lines carry `walkedEva=N walkedBoard=M`, and the retry-blocking
