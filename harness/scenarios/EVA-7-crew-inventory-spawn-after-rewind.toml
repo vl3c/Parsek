@@ -59,7 +59,8 @@ id = "EVA-7-crew-inventory-spawn-after-rewind"
 # The FIRST flight, 2026-09-27_1344, was INVALID driver-unresolved-handle before any
 # Parsek verdict: the `EvaGroundScience place` step timed out (`placement-timeout ...
 # onTerrain=false collisions=1`), a seam placement flake EVA-6 shares (todo
-# EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE).
+# EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE, FIXED 2026-09-27 on `eva-harness-hardening`:
+# the seam now holds the face-away heading; flown `2026-09-27_1819` PASS attempt 1).
 
 tier = "nightly"
 description = "A kerbal's carried inventory comes back with him at spawn-at-end, exactly once: on kerbin-splashdown-recorded Jeb (evaChute + seismometer) steps out of his landed capsule, a recording started on the kerbal places the seismometer and leaves it, commit, Rewind-to-Launch, and 1x Space Center time spawns him through the ordinary KSC spawn-at-end with the recorded ONE-part inventory restored onto the seated kerbal's roster entry, not the two-part one the rewind put back."

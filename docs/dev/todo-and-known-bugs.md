@@ -158,18 +158,46 @@ vessel blocks the slot; a kerbal-free probe slot is untouched.
 the Lost-hover cells in `KerbalsWindowUITests`, `KerbalDeathRespawnTests`, `ReservationExplanationTests`.
 Design: `docs/parsek-rewind-to-separation-design.md` section 1.6.
 
-## EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE: the `EvaGroundScience place` seam step can time out with the placement preview held off-terrain against a collider [FILED 2026-09-27 from EVA-7's first flight. OPEN, harness flake, not a Parsek defect]
+## ~~EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE: the `EvaGroundScience place` seam step can time out with the placement preview held off-terrain against a collider~~ [FILED 2026-09-27 from EVA-7's first flight. FIXED 2026-09-27, branch `eva-harness-hardening`, harness seam only, no product change]
 
-Run `2026-09-27_1344_EVA-7-crew-inventory-spawn-after-rewind` classified INVALID
-driver-unresolved-handle: the step `EvaGroundScience place DeployedSeismicSensor` logged
-`evagroundscience failed reason=placement-timeout part=DeployedSeismicSensor elapsed=120.0s
-built=true onTerrain=false insideCap=false collisions=1 presses=1 hit=COL/layer0`. The stock
-placement preview was built but stayed off-terrain against a collider for the seam's whole
-120 s budget, so the confirm never landed and no Parsek code ran past the placement. An EVA-6
-control on the same build (`2026-09-27_1347`) and the EVA-7 re-fly (`2026-09-27_1349`) both
-passed; EVA-5, EVA-6 and EVA-7 share the step. Next: read the seam's placement loop
-(`Source/Parsek/TestCommands/ParsekTestCommandAddon.EvaGroundScience.cs`) for a re-aim or a nudge of the kerbal when the ray
-hits a collider rather than terrain, or a retry of the press; until then a re-fly clears it.
+**Symptom.** Run `2026-09-27_1344_EVA-7-crew-inventory-spawn-after-rewind` classified INVALID
+driver-unresolved-handle: `evagroundscience failed reason=placement-timeout
+part=DeployedSeismicSensor elapsed=120.0s built=true onTerrain=false insideCap=false
+collisions=1 presses=1 hit=COL/layer0`. EVA-5's `2026-09-26_1821` / `_1824` failed the same
+way before the re-turn mitigation existed (one turn, 120 s of a blocked preview).
+
+**Root cause (seam, not Parsek).** The `faceAway` turn did not stick. Stock places the
+preview at `vesselTransform.forward * spawnDistance` and re-reads that every frame, and the
+turned kerbal swung back to face the hull: every logged re-turn read an `angle=` of 146-166
+degrees one second after a turn to 0, and the fix's own drift reading shows it happens
+within ONE frame (`faceaway hold n=1 drift=147.7` on EVA-6 `2026-09-27_1815`, `155.3` on
+EVA-7 `_1819`). The old placement only succeeded when a press landed in the one or two
+frames the turn held. On `_1344` the re-turn read placeable, the press armed for the next
+frame missed (the kerbal had turned back), and the old `ShouldReTurn` refused every
+re-turn once a press had gone out, so the preview stayed blocked for the whole budget.
+`Vessel.SetRotation` writes the part transforms only (decompiled), and `KerbalEVA`'s idle
+`UpdateHeading` zeroes the yaw rate with no movement input, so the exact stock mechanism
+that turns the kerbal back was not pinned down; the fix does not depend on it.
+
+**Fix.** `ParsekTestCommandAddon.EvaGroundScience.cs` + pure `TestCommandEvaGroundScience`:
+(1) the turn also writes each part's rigidbody rotation and zeroes its spin; (2) the chosen
+heading is kept in the body frame and HELD: any poll whose drift exceeds
+`HeadingHoldToleranceDegrees` (10) re-asserts it until the placement is confirmed, bounded by
+`MaxHeadingHolds` (1200), first hold at Info, later ones rate-limited, cap logged;
+(3) `ShouldReTurn` no longer ends after a press: a press that did not land (the preview still
+up and the spot blocked past `ReTurnFrames` since both the turn and the press) re-turns;
+(4) re-turns fan out on `TurnOffsetDegrees` (0, +30, -30, +60, -60), so a spot blocked by
+something other than the nearest vessel is not retried on the same line; (5) bounds
+`MaxReTurns` 5 -> 8 and `MaxConfirmPresses` 5 -> 8 (a press per re-turn); (6) the preview
+diagnostic now carries `answered= reTurns= holds= drift=`. The grep-stable lines the EVA
+specs require (`place start`, `place confirmed ... presses=`, `place complete`) are
+unchanged. Cells: `TestCommandEvaGroundScienceTests` (the after-press re-turn cell reds on
+the old `pressesSoFar > 0` gate; hold, offset ladder and budget cells).
+
+**Proof.** One flight each on the fix's DLL (sha256 `540428aa...`): EVA-5 `2026-09-27_1812`
+PASS (turn held, drift 0.0, first press landed), EVA-6 `2026-09-27_1815` PASS (108 holds kept
+drift at 0.0; the straight-away spot read `collisions=2` and the +30 degree re-turn cleared
+it), EVA-7 `2026-09-27_1819` PASS (6 holds, first press landed).
 
 ---
 
