@@ -1284,7 +1284,7 @@ namespace Parsek.Tests
             var text = StockUiReservationPredicates.ExplainKerbalReservation(
                 null, Jeb, RespawnHold(7500.0), null, Fmt);
             Assert.Equal("Lost until D7500", text.Title);
-            Assert.Contains("Stock respawn returns this kerbal on D7500.", text.Body);
+            Assert.Contains(", back on D7500.", text.Body);
 
             var permanent = StockUiReservationPredicates.ExplainKerbalReservation(
                 null, Jeb, new KerbalsModule.KerbalReservation

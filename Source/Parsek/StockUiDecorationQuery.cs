@@ -107,11 +107,6 @@ namespace Parsek
         /// count's own subtraction rule, or null (<c>StandInSeatCount.SeatSharedOwner</c>):
         /// only then does the stand-in's tooltip say it does not count against the limit.</summary>
         internal Func<string, string> SeatSharedOwner;
-        /// <summary>True when an open Re-Fly would rewrite the given (death) recording, so
-        /// a Lost explanation may name the Re-Fly way back
-        /// (<see cref="KerbalsPresentation.ShouldOfferLostReFlyRemedy"/>); null offers it
-        /// never.</summary>
-        internal Func<string, bool> LossReFlyReachable;
         /// <summary>Names already in the live Crew or Tourist lists: a committed future
         /// hire of one of them is moot, so it is not marked.</summary>
         internal ISet<string> LiveCrewOrTourist;
@@ -337,17 +332,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The explanation for a kerbal a committed flight holds: <c>Lost</c> for a death
+        /// The explanation for a kerbal a flight on timeline holds: <c>Lost</c> for a death
         /// hold (permanent, or waiting for its stock respawn - then with the respawn date),
-        /// else the on-flight text naming the holding flight.
+        /// naming the flight and the death date, else the on-flight text naming the holding
+        /// flight.
         /// </summary>
         internal static ReservationText ExplainKerbalReservation(
             CommittedFutureIndex index,
             string kerbalName,
             KerbalsModule.KerbalReservation reservation,
             string slotOwner,
-            Func<double, string> formatDate,
-            Func<string, bool> lossReFlyReachable = null)
+            Func<double, string> formatDate)
         {
             if (KerbalsModule.IsLossHold(reservation))
             {
@@ -363,10 +358,9 @@ namespace Parsek
                 }
                 return ReservationExplanation.KerbalLost(
                     death?.RecordingName,
+                    death != null ? death.EndUT : double.NaN,
                     KerbalsModule.LossRespawnUT(reservation),
-                    formatDate,
-                    offerReFlyRemedy: KerbalsPresentation.ShouldOfferLostReFlyRemedy(
-                        death?.RecordingId, lossReFlyReachable));
+                    formatDate);
             }
 
             double release = reservation != null ? reservation.ReservedUntilUT : double.PositiveInfinity;
@@ -585,8 +579,7 @@ namespace Parsek
                     var reservation = context.Reservation != null ? context.Reservation(name) : null;
                     string owner = context.SlotOwner != null ? context.SlotOwner(name) : null;
                     var text = StockUiReservationPredicates.ExplainKerbalReservation(
-                        index, name, reservation, owner, formatDate,
-                        context.LossReFlyReachable);
+                        index, name, reservation, owner, formatDate);
                     Mark(ref d,
                         KerbalsModule.IsLossHold(reservation)
                             ? StockUiDecorationKind.KerbalLost

@@ -798,7 +798,8 @@ namespace Parsek.Patches
                 }
                 StockUiAdministrationDecoration.RefreshButtonLook(
                     __instance.btnAcceptCancel, parsekBlocked, id,
-                    strategy.IsActive ? AdministrationButtonBackstopPatch.CancelState : AdministrationButtonBackstopPatch.AcceptState);
+                    strategy.IsActive ? AdministrationButtonBackstopPatch.CancelState : AdministrationButtonBackstopPatch.AcceptState,
+                    parsekBlocked ? text.Body : null);
             }
             catch (Exception ex)
             {
@@ -849,7 +850,8 @@ namespace Parsek.Patches
                 ReservationText text;
                 bool parsekBlocked = StrategyReservationGate.TryRefuseActivation(id, out text);
                 StockUiAdministrationDecoration.RefreshButtonLook(
-                    __instance.btnAcceptCancel, parsekBlocked, id, AdministrationButtonBackstopPatch.AcceptState);
+                    __instance.btnAcceptCancel, parsekBlocked, id, AdministrationButtonBackstopPatch.AcceptState,
+                    parsekBlocked ? text.Body : null);
             }
             catch (Exception ex)
             {

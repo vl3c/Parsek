@@ -234,7 +234,7 @@ Smaller corrections:
 - A `TooltipController_Text` added from code has no `prefab` and draws nothing until one is copied from a stock controller.
 - There is no shared "one-shot Warn on target resolution failure" helper: each patch's `TargetMethod()` warns and returns null, and `ParsekHarmony.Awake` logs per patch class.
 
-## 6. The "why" text: fact + rule + way out
+## 6. The "why" text: fact + rule + way out (superseded by 6.1)
 
 **Finding: for most blocks, the obvious way out does not exist.**
 - **Rewind (R) frees nothing.** It reloads the launch quicksave and re-applies every committed action as the timeline replays (`docs/user-guide.md`, "Rewind / Fast-Forward"). Rewinding is what CREATES the committed future.
@@ -274,6 +274,47 @@ Wording rules:
 - ONE pure `ReservationExplanation` builder per kind feeds the tooltip, the reason field and the backstop `CommittedActionDialog`, so a hover and a refused click say the same thing.
 - Add `Re-Fly that flight to change it.` only where a Re-Fly genuinely releases the item.
 - Parsek's text is English; stock reason fields are localized. This matches every other Parsek string today.
+
+### 6.1 The owner's wording of 2026-09-27 (supersedes the table above)
+
+The fact + rule + way-out composition above is retired. Every player-facing reservation text (element hover, button hover and caption, refused-click dialog, row label) is ONE short sentence: the participle, the exact date and time (the compact date with hour and minute, `Y1, D06, 14:05`), then `blocked by timeline until then.` No append-only rule sentence, no way-out sentence, never "committed", "your timeline" or "the timeline" (a flight's name may appear). `ReservationExplanationTests.EveryText_FollowsTheOwnersWording_AndNeverSaysYourTimeline` pins it over every builder and the dismissal texts.
+
+| Kind | Text |
+|---|---|
+| Tech node | `Researched on Y1, D06, 14:05, blocked by timeline until then.` |
+| Part | `Purchased on Y1, D06, 14:05, blocked by timeline until then.` |
+| Contract accepted later (Accept, Decline) | `Accepted on Y1, D03, 01:53, blocked by timeline until then.` |
+| Active contract (Cancel) | `Completed on ...` / `Failed on ...` / `Expired on ...` (deadline expiry) / `Cancelled on ...`, `blocked by timeline until then.` Row label: `- completed Y1 D7` (date only) |
+| Contract slot starved (Accept) | `Slot needed from Y1, D03, 01:53 for 'Survey Kerbin' (Zaltonic Electronics), blocked by timeline.` |
+| Strategy | `Activated on Y1, D08, 06:00, blocked by timeline until then.` / active: `Deactivated on ...` or `Activated again on ...` |
+| Strategy slot | `Slot needed from Y1, D08, 06:00 for 'Outsourced R&D', blocked by timeline.` |
+| Strategy conflict | `Conflicts with 'X' from DATE [until DATE], blocked by timeline.` |
+| Stock refuses a strategy timeline activates later (gap 2) | stock's own reason, then on its own line `Activated on DATE, blocked by timeline until then.` |
+| Facility | `Upgraded to level 2 on Y1, D12, 09:15, blocked by timeline until then.` (several: `to level 2 on A and to level 3 on B`); repair `Repaired on ..., blocked by timeline until then.` |
+| Applicant / dismissal | `Hired on ...` / `Dismissed on ...`, `blocked by timeline until then.` |
+| Reserved kerbal (label hover, Dismiss, crew dialog, EVA / Transfer) | `Reserved by timeline for 'Mun Lander' until Y1, D09, 18:40.`; open-ended: `... until it is recovered.`; a stand-in held in another's seat: `... in Jebediah Kerman's seat ...` |
+| Active stand-in (Dismiss) | `Standing in for Jebediah Kerman, reserved by timeline for 'Mun Lander'.` plus the seat-sharing sentence where it was |
+| Retired stand-in | `Retired after standing in for Jebediah Kerman, kept off new crews by timeline.`; its Dismiss: `Retired after standing in on a flight on timeline, blocked by timeline.` |
+| Returned owner (Dismiss) | `Flew a flight on timeline, blocked by timeline.` |
+| Lost kerbal | `Lost on 'Mun Lander' on Y1, D09, 18:40.`; pending respawn: `..., back on DATE.` (the Re-Fly remedy sentence stays in the Kerbals window only) |
+| R&D science short | `Not enough science: tech unlocks later on timeline need it, blocked by timeline.` |
+
+### 6.2 Coverage: the sentence on the element AND on every disabled button (owner, 2026-09-27)
+
+| Screen | Element: where the state sentence shows | Disabled button: where the reason shows |
+|---|---|---|
+| R&D tech tree | node tint + the node's stock tooltip + the side-panel description (on select) | Research / Purchase-all: greyed, the reason on a stock tooltip on the action button (`StockUiReasonTooltip`; purchase-all lists each blocked part) |
+| R&D and VAB part list | the part tooltip's greyout message | Purchase / Purchase (red) inside the same tooltip: disabled, the greyout message beside them |
+| Mission Control | the row's own label (`- accepted DATE` / `- completed DATE`) + the detail-panel text with the heading | Accept / Decline / Cancel: greyed, the reason on a stock tooltip on each button (and in the panel) |
+| Mission Control slot block | no row mark by design (section 4 C2): the detail-panel text | Accept: greyed, tooltip |
+| Administration | the stock reason line of the description panel when selected (the list item has no stock hover) | Accept / Cancel: greyed, the reason on a stock tooltip on the button; stock's own refusals keep stock's reason, plus the committed activation fact (gap 2) |
+| KSC facility menu | the menu's stock description text | Upgrade / Repair: greyed, the reason on a stock tooltip |
+| Astronaut Complex | the row's own label / trait line (`Reserved until ...`, `Hired on ...`, `Stand-in for ...`) + the crew tooltip | Hire / Dismiss: stock's locked-with-reason (`SetButtonEnabled(false, title, why)`) |
+| VAB/SPH crew dialog | the row greyed with stock's inactive look | the seat move: stock's locked-with-reason tooltip on the row |
+| Flight crew hatch dialog (K2) | the row's own name label `Name (Reserved until ...)` | EVA / Transfer: greyed, the reason on a stock tooltip |
+| Flight crew portrait (K2) | none: the portrait's crew tooltip is stock's `TooltipController_CrewAC`, not annotated | EVA: greyed, the reason in stock's own `evaTooltip` |
+
+Left without text: the Mission Control slot-refused rows (no row mark by design, C2); the portrait element (only its EVA button speaks). `StockUiReasonTooltip` needs a stock tooltip prefab: on an install with none it logs one Warn and the button keeps only its greyed look, with the reason still on the element.
 
 ## 7. Decision analysis: Decline and Cancel on contracts the committed future relies on
 
@@ -340,7 +381,7 @@ As implemented (PR 2b for Decline, PR 3 for Cancel), following the hook correcti
   - Cancel uses `StockUiReservationPredicates.CommittedContractResolutionAfter`: a pure query over the PR 1 `CommittedFutureIndex` returning the earliest committed `ContractComplete` / `ContractFail` / `ContractCancel` row after now (kind, UT, recording; a UT tie resolves Complete, Fail, Cancel). `IsContractCancelBlocked` and `ExplainContractCancel` wrap it. The index is UT-keyed and committed-filtered, so it is free of the stale slice and a live or Re-Fly tree reserves nothing.
   - The Active-row annotation reads the SAME helper, through `StockUiDecorationQuery.ForMissionControl` (kind `ContractResolution` on the Active tab) and `MissionControlStockAnnotation.Decide`.
 - **Button state.** The `MissionControl.UpdateInfoPanelContract` postfix: stock sets `btnCancel.interactable = contract.CanBeCancelled()` there on every Active selection (and nowhere else; `RefreshUIControls` never writes it), and the postfix then sets it false for a blocked contract and appends `Cancel is unavailable` plus the explanation to `contractText`. The `RefreshUIControls` postfix re-asserts it for the selection, and a timeline change while the screen is open re-evaluates the selection and restores `CanBeCancelled()` when the block lifts. CC's select handler calls stock `UpdateInfoPanelContract` and never writes `btnCancel`, so this holds under CC too. The PR 2b Accept restore (`ResolveAcceptWrite`) reads only the accept block, so a Cancel-blocked Active selection neither greys Accept nor consumes a pending restore.
-- **Row label.** The PR 2b `MissionControl.AddItem` label prefix, now also for Active rows: `<stock title> - completes <date>` (or `fails` / `expires` / `cancelled`; date only). A committed fail that is the deadline running out reads `expires` (branch `overlay-gaps`): the index stamps the fail row `DeadlineExpiry` through the Timeline's own `GameActionDisplay.IsExpiredContractFail` against the accept it closes. Only contracts with a committed resolution row are labelled; a deadline alone is not (stock already shows it). Under CC the Active and Archive tabs stay stock, and CC's `SetContractTitle` seam applies the same label to its own rows.
+- **Row label.** The PR 2b `MissionControl.AddItem` label prefix, now also for Active rows: `<stock title> - completed <date>` (or `failed` / `expired` / `cancelled`, the participles of the 2026-09-27 wording; date only). A committed fail that is the deadline running out reads `expired` (branch `overlay-gaps`): the index stamps the fail row `DeadlineExpiry` through the Timeline's own `GameActionDisplay.IsExpiredContractFail` against the accept it closes. Only contracts with a committed resolution row are labelled; a deadline alone is not (stock already shows it). Under CC the Active and Archive tabs stay stock, and CC's `SetContractTitle` seam applies the same label to its own rows.
 - **Backstop.** `ContractCancelPatch`, a prefix on the non-virtual `Contract.Cancel()`, refusing an Active contract with the section 6 text via `CommittedActionDialog`; bypassed while `GameStateRecorder.IsReplayingActions` is set. Callers (whole-assembly IL scan of `call(virt) Contracts.Contract::Cancel()` in KSP 1.12.5): `MissionControl.OnClickCancel`, `DebugToolbar.ContractsActive` and `ScreenContractExistingItem.OnRightButtonClicked` (player actions, refused) and `ContractSystem.RebuildContracts()`, reached only from the debug toolbar's regenerate buttons, which cancels every Active contract and then clears and regenerates the whole list. A refusal there would not keep the contract, only drop it without its stock end state, so `ContractSystemRebuildContractsScopePatch` (prefix + finalizer on `RebuildContracts`) marks that scope and the Cancel prefix lets it through. CC's `OnClickCancel` and kRPC's `Contract.Cancel` are refused like the player button. `PatchContracts` writes state directly and calls neither (`KspStatePatcher.cs:2506`), and no Parsek path calls `Cancel()`. Not added: a pre-block on `MissionControl.OnClickCancel`, because the greyed button makes it unreachable; a refused Cancel reached another way leaves stock clearing the panel and rebuilding the list, with the contract still Active.
 - **Tests.**
   - Pairing cells: decline vs the accept mark (`MissionControlStockUiTests.Pairing_*`), and the Active-row mark, the greyed Cancel and the Cancel backstop as one set with the same text (`MissionControlCancelBlockTests.Pairing_ActiveRowMark_PanelCancelBlock_CancelBackstop_AreOneSet_WithTheSameText`).

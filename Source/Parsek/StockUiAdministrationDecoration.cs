@@ -108,9 +108,12 @@ namespace Parsek
         /// button for the current selection. <paramref name="buttonState"/> is <c>accept</c>
         /// or <c>cancel</c>, for the log.
         /// </summary>
-        internal static void RefreshButtonLook(UIStateButton button, bool parsekBlocked, string strategyId, string buttonState)
+        internal static void RefreshButtonLook(UIStateButton button, bool parsekBlocked, string strategyId, string buttonState,
+            string why = null)
         {
             if (button == null) return;
+            // The reason on the button's own stock tooltip, while (and only while) Parsek refuses.
+            StockUiReasonTooltip.Sync(button, parsekBlocked, why, button, "Administration " + buttonState);
             try
             {
                 Image image = button.Image;

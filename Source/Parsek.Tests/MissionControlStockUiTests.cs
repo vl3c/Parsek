@@ -104,7 +104,7 @@ namespace Parsek.Tests
             Assert.Equal(StockUiDecorationKind.ContractAccept, d.Kind);
             Assert.Equal("Available", d.Tab);
             Assert.Equal("Accepted on D5", d.Title);
-            Assert.StartsWith("Accepted on D5 on your committed timeline.", d.Why);
+            Assert.Equal("Accepted on D5, blocked by timeline until then.", d.Why);
         }
 
         [Theory]
@@ -191,11 +191,11 @@ namespace Parsek.Tests
 
         [Theory]
         [InlineData("Accepted on Y2, D114, 03:12", false, "accepted Y2 D114")]
-        [InlineData("Completes on Y1, D07, 00:07", true, "completes Y2 D114")]
-        [InlineData("Fails on Y1, D07", true, "fails Y2 D114")]
+        [InlineData("Completed on Y1, D07, 00:07", true, "completed Y2 D114")]
+        [InlineData("Failed on Y1, D07", true, "failed Y2 D114")]
         [InlineData("Cancelled on Y1, D07", true, "cancelled Y2 D114")]
         [InlineData("", false, "accepted Y2 D114")]
-        [InlineData(null, true, "completes Y2 D114")]
+        [InlineData(null, true, "completed Y2 D114")]
         public void RowStatus_IsTheTimelineVerbAndADateOnly(string title, bool resolution, string expected)
         {
             // The date comes from the UT through the row formatter, never the title's
@@ -235,7 +235,7 @@ namespace Parsek.Tests
         {
             // The census row "Conduct a focused observational survey of Kerbin." was clipped
             // by the old "..., 01:53 on your committed time..." tail.
-            foreach (var verbTitle in new[] { "Accepted on x", "Completes on x", "Fails on x", "Cancelled on x" })
+            foreach (var verbTitle in new[] { "Accepted on x", "Completed on x", "Failed on x", "Expired on x", "Cancelled on x" })
             {
                 var d = new StockUiDecoration
                 {

@@ -644,6 +644,10 @@ namespace Parsek
             StockUiGreyedButton.Sync(mc.btnAccept, accept, "MissionControl Accept");
             StockUiGreyedButton.Sync(mc.btnDecline, decline, "MissionControl Decline");
             StockUiGreyedButton.Sync(mc.btnCancel, cancel, "MissionControl Cancel");
+            // The same sentence as the detail panel, on each greyed button's stock tooltip.
+            StockUiReasonTooltip.Sync(mc.btnAccept, accept, shown.Why, mc, "MissionControl Accept");
+            StockUiReasonTooltip.Sync(mc.btnDecline, decline, shown.Why, mc, "MissionControl Decline");
+            StockUiReasonTooltip.Sync(mc.btnCancel, cancel, shown.Why, mc, "MissionControl Cancel");
         }
 
         private static bool IsInteractable(Button button)

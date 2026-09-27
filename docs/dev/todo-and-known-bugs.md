@@ -1965,7 +1965,8 @@ panel; reserved kerbals greyed in both crew lists. The findings, none fixed here
    `CanBeActivated` postfix now appends the committed activation fact after stock's reason
    when stock refuses and a committed StrategyActivate of THAT strategy is ahead
    (`StrategyReservationPredicates.AppendCommittedActivationToStockReason`); stock's refusal
-   stays the block.
+   stays the block. Wording since the owner's 2026-09-27 rule: stock's reason, then
+  `Activated on DATE, blocked by timeline until then.`
 
 Two kerbal-side readings the same captures show, outside the overlay code:
 
@@ -2254,8 +2255,22 @@ pairing rule):
   Fixed (branch `overlay-gaps`): `CommittedFutureIndex.Build` stamps a fail row
   `DeadlineExpiry` through the Timeline's own test (`GameActionDisplay.IsExpiredContractFail`
   against the accept the fail closes, `FindAcceptForOutcome`), and
-  `ReservationExplanation.ContractResolution` reads "Expires" for it, so the Active-row label,
-  the detail panel and the Cancel refusal say "expires" / "Expires on".
+  `ReservationExplanation.ContractResolution` reads "Expired" for it (the owner's 2026-09-27
+  participle wording), so the Active-row label, the detail panel and the Cancel refusal say
+  "expired" / "Expired on".
+- ~~The reservation text was fact + "fixed once committed" rule + way out, said "your
+  committed timeline", and a greyed stock button (Research, Accept / Decline / Cancel,
+  Administration Accept / Cancel) had no hover saying why.~~ Owner wording and coverage
+  rules of 2026-09-27, applied (branch `overlay-gaps`): one sentence per text
+  (`<Participle> on <date and time>, blocked by timeline until then.`; kerbals `Reserved by
+  timeline for 'Flight' until <date>.`), never "committed" / "your timeline" / "the timeline"
+  (pinned by `ReservationExplanationTests`), and every Parsek-greyed stock button carries the
+  reason in a stock tooltip (`StockUiReasonTooltip`); the facility menu also shows it in its
+  description. Final strings and the per-screen matrix: reference sections 6.1 and 6.2. Left
+  without text: the slot-refused Mission Control rows (no row mark by design, C2) and the
+  crew portrait element (its EVA button carries it). The Lost text no longer names the Re-Fly
+  way back on stock screens (the owner dropped every way-out sentence); the Kerbals window
+  keeps it.
 
 **Defects in the existing PR #721 layer:**
 - ~~The Mission Control badges are lost on a tab switch.~~ Fixed by PR 2b: the badge is gone;

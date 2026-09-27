@@ -471,8 +471,10 @@ namespace Parsek
                 tip.RequireInteractable = false;
                 tip.SetText(ComposeTooltipText(state.TooltipOwned, state.StockTooltipText, WrapTooltipText(why)));
                 tip.enabled = true;
-                RemoveDescriptionReason(menu, state);
-                return "stock tooltip";
+                // The facility's own state sentence in the menu's stock description too
+                // (owner coverage rule 2026-09-27: element and button both carry it).
+                AppendDescriptionReason(menu, state, why);
+                return "stock tooltip and description text";
             }
 
             AppendDescriptionReason(menu, state, why);

@@ -146,10 +146,7 @@ namespace Parsek.Tests
             Assert.Equal(300.0, d.Entry.UT);
             var text = StrategyReservationPredicates.ExplainActivation(d, null, Date);
             Assert.Equal("Activated on D300", text.Title);
-            Assert.Equal(
-                "Activated on D300 on your committed timeline. " + ReservationExplanation.TimelineRule +
-                " It becomes active on that date.",
-                text.Body);
+            Assert.Equal("Activated on D300, blocked by timeline until then.", text.Body);
         }
 
         [Fact]
@@ -172,7 +169,8 @@ namespace Parsek.Tests
             var index = CommittedFutureIndex.Build(new[] { On(300.0, "A", Committed) },
                 id => id == Committed, id => "Mun Lander 3", null);
             var text = StrategyReservationPredicates.ExplainActivation(Activate(index, "A", new string[0], 5), null, Date);
-            Assert.StartsWith("Activated on D300 by the committed flight 'Mun Lander 3'.", text.Body);
+            // The flight name is not needed in the sentence; a flight-tagged row reads the same.
+            Assert.Equal("Activated on D300, blocked by timeline until then.", text.Body);
         }
 
         // ================================================================
@@ -189,12 +187,8 @@ namespace Parsek.Tests
             Assert.Equal(2, d.CountAtOverflow);
             Assert.Equal(1, d.LimitAtOverflow);
             var text = StrategyReservationPredicates.ExplainActivation(d, id => "Title of " + id, Date);
-            Assert.Equal("Slot needed on D200", text.Title);
-            Assert.Equal(
-                "A committed activation of 'Title of B' on D200 needs this slot. " +
-                ReservationExplanation.TimelineRule +
-                " A slot frees when one of your active strategies ends.",
-                text.Body);
+            Assert.Equal("Slot needed from D200", text.Title);
+            Assert.Equal("Slot needed from D200 for 'Title of B', blocked by timeline.", text.Body);
         }
 
         [Fact]
@@ -270,10 +264,7 @@ namespace Parsek.Tests
             Assert.True(StrategyReservationPredicates.IsDeactivationBlocked(index, "A", 100.0));
             var text = StrategyReservationPredicates.ExplainDeactivation(index, "A", 100.0, Date);
             Assert.Equal("Deactivated on D300", text.Title);
-            Assert.Equal(
-                "Deactivated on D300 on your committed timeline. " + ReservationExplanation.TimelineRule +
-                " It stays active until that date.",
-                text.Body);
+            Assert.Equal("Deactivated on D300, blocked by timeline until then.", text.Body);
         }
 
         [Fact]
@@ -282,10 +273,7 @@ namespace Parsek.Tests
             var index = Index(On(10.0, "A"), On(300.0, "A"));
             Assert.True(StrategyReservationPredicates.IsDeactivationBlocked(index, "A", 100.0));
             var text = StrategyReservationPredicates.ExplainDeactivation(index, "A", 100.0, Date);
-            Assert.Equal(
-                "Activated again on D300 on your committed timeline. " + ReservationExplanation.TimelineRule +
-                " It can be deactivated after that date.",
-                text.Body);
+            Assert.Equal("Activated again on D300, blocked by timeline until then.", text.Body);
         }
 
         [Fact]
@@ -750,10 +738,7 @@ namespace Parsek.Tests
             Assert.Null(d.ConflictEnd);
             var text = StrategyReservationPredicates.ExplainActivation(d, id => "Fundraising Campaign", Date);
             Assert.Equal("Conflicts with 'Fundraising Campaign'", text.Title);
-            Assert.Equal(
-                "Conflicts with 'Fundraising Campaign', which is activated on D200 on your committed timeline. " +
-                ReservationExplanation.TimelineRule,
-                text.Body);
+            Assert.Equal("Conflicts with 'Fundraising Campaign' from D200, blocked by timeline.", text.Body);
         }
 
         [Fact]
@@ -764,7 +749,7 @@ namespace Parsek.Tests
                 stockStrategies: StockList());
             Assert.Equal(300.0, d.ConflictEnd.UT);
             var text = StrategyReservationPredicates.ExplainActivation(d, id => "Fundraising Campaign", Date);
-            Assert.EndsWith(" The conflict ends when 'Fundraising Campaign' is deactivated on D300.", text.Body);
+            Assert.Equal("Conflicts with 'Fundraising Campaign' from D200 until D300, blocked by timeline.", text.Body);
         }
 
         [Fact]

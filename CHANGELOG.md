@@ -1236,10 +1236,10 @@ _(unreleased — entries accumulate here per commit)_
   strategy slot in use, the strategy the committed timeline activates later showed only
   stock's "cannot support more than N active strategies"; the committed activation date now
   follows stock's reason on its own line. Stock's refusal still decides.
-- **Mission Control says "expires" for a committed contract deadline expiry.** An Active
+- **Mission Control says "expired" for a committed contract deadline expiry.** An Active
   contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
   the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
-  it now reads "expires" / "Expires on".
+  it now reads "expired" / "Expired on".
 - **A Re-Fly that brings back a vessel you recovered now takes the recovery money back.** If
   you flew, landed and recovered a vessel, then re-flew an earlier separation whose rewind
   point still had that vessel in the world, the vessel came back and its recovery funds stayed
@@ -2097,6 +2097,17 @@ _(unreleased — entries accumulate here per commit)_
   changes, because there the two answers were already the same.
 
 ### Changed
+
+- **The reservation explanations on the stock screens are one short sentence.** Every
+  hover, button tooltip, refused-click dialog and row label now reads like "Researched on
+  Y1, D06, 14:05, blocked by timeline until then." or, for a kerbal, "Reserved by timeline
+  for 'Mun Lander' until Y1, D09, 18:40."; the "fixed once committed" rule and the way-out
+  sentence are gone, and no text says "your timeline" or "committed". A contract row now
+  reads "- completed / failed / expired / cancelled <date>".
+- **Every button Parsek greys on a stock screen now says why on hover.** Research and
+  Purchase-all in R&D, Accept / Decline / Cancel in Mission Control, Accept / Cancel in
+  Administration carry the reason in a stock tooltip, and the KSC facility menu shows the
+  facility's reason in its description as well as on Upgrade / Repair.
 
 - **Re-Fly is for vessel separations only: EVA kerbals no longer appear in Unfinished Flights and
   cannot be re-flown.** Rewind Points are made when a vessel stages, decouples or undocks into two
