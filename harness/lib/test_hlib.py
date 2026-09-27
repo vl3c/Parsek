@@ -23603,6 +23603,17 @@ class KscActionRefusalSourceSyncTests(unittest.TestCase):
                 self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
                 self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
 
+    def test_the_accept_contract_refusals_classify_as_designed(self):
+        tokens = self._emitted_tokens()
+        for msg, expected in (
+                ("unknown-contract", "driver-arg"),
+                ("contract-not-offered", "driver-career"),
+                ("blocked-committed", "driver-career")):
+            with self.subTest(msg=msg):
+                self.assertIn(msg, tokens)
+                self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
+                self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
+
 
 class ListHandlesSourceSyncTests(unittest.TestCase):
     """Reads OUTSIDE harness/: `Source/Parsek/TestCommands/TestCommandListHandles.cs`.

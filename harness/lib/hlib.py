@@ -9436,6 +9436,11 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "strategy-cannot-deactivate": "driver-career",
     "activate-not-applied": "driver-gate",
     "deactivate-not-applied": "driver-gate",
+    # KscAction accept-contract (Mission Control's Accept, Contract.Accept()). A guid the
+    # contract system does not hold is the SPEC's fault; a contract that is no longer
+    # Offered is career state. A committed-timeline refusal is `blocked-committed`, above.
+    "unknown-contract": "driver-arg",
+    "contract-not-offered": "driver-career",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these

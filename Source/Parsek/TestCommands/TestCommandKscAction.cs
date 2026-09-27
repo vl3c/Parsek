@@ -29,6 +29,11 @@ namespace Parsek.TestCommands
         /// Administration building's Cancel path.</summary>
         DeactivateStrategy,
 
+        /// <summary>Accept one Offered contract through Mission Control's own call,
+        /// <c>Contract.Accept()</c> (the Accept button's <c>OnClickAccept</c> ends in it; stock
+        /// pays the advance).</summary>
+        AcceptContract,
+
         /// <summary>An unrecognized <c>action</c> arg (REJECTED unknown-action).</summary>
         Unknown,
     }
@@ -52,8 +57,8 @@ namespace Parsek.TestCommands
         /// kerbal-not-applicant / kerbal-not-dismissable / kerbal-parsek-managed /
         /// unknown-building / building-already-down / facility-intact / unknown-strategy /
         /// factor-arg-invalid / strategy-already-active / no-strategy-slot /
-        /// strategy-not-active. The building applier adds demolish-not-applied /
-        /// repair-not-applied when stock's call left no effect; the strategy applier adds
+        /// strategy-not-active / unknown-contract / contract-not-offered. The building
+        /// applier adds demolish-not-applied / repair-not-applied when stock's call left no effect; the strategy applier adds
         /// strategy-cannot-activate / strategy-cannot-deactivate (carrying stock's own reason)
         /// and activate-not-applied / deactivate-not-applied.</summary>
         public string RejectReason;
@@ -63,7 +68,8 @@ namespace Parsek.TestCommands
 
         /// <summary>The seam-declared manifest kind the harness attaches (M-B2):
         /// tech-unlock / facility-upgrade / kerbal-hire / kerbal-dismiss /
-        /// facility-destruction / facility-repair / strategy-activate / strategy-deactivate.</summary>
+        /// facility-destruction / facility-repair / strategy-activate / strategy-deactivate /
+        /// contract-accept.</summary>
         public string ManifestKind;
     }
 
@@ -83,7 +89,7 @@ namespace Parsek.TestCommands
 
         /// <summary>research: node already researched; upgrade: facility already at max level;
         /// demolish: the building is not intact (down, or mid-collapse / mid-repair); repair:
-        /// no building of the facility is destroyed.</summary>
+        /// no building of the facility is destroyed; accept: the contract is not Offered.</summary>
         public bool AlreadyApplied;
 
         /// <summary>hire: the resolved kerbal is in the applicant pool.</summary>
@@ -132,6 +138,7 @@ namespace Parsek.TestCommands
                 case "repair-facility": return KscActionKind.RepairFacility;
                 case "activate-strategy": return KscActionKind.ActivateStrategy;
                 case "deactivate-strategy": return KscActionKind.DeactivateStrategy;
+                case "accept-contract": return KscActionKind.AcceptContract;
                 default: return KscActionKind.Unknown;
             }
         }
@@ -150,6 +157,7 @@ namespace Parsek.TestCommands
                 case KscActionKind.RepairFacility: return "facility-repair";
                 case KscActionKind.ActivateStrategy: return "strategy-activate";
                 case KscActionKind.DeactivateStrategy: return "strategy-deactivate";
+                case KscActionKind.AcceptContract: return "contract-accept";
                 default: return string.Empty;
             }
         }
@@ -234,6 +242,14 @@ namespace Parsek.TestCommands
                 case KscActionKind.DeactivateStrategy:
                     if (inputs.AlreadyApplied) { d.RejectReason = "strategy-not-active"; return d; }
                     break;
+
+                case KscActionKind.AcceptContract:
+                    // Stock's Mission Control greys Accept when every slot is used; the seam
+                    // does not model the slot count, so a spec pressing Accept over a full
+                    // Mission Control reaches stock's Contract.Accept as a caller other than
+                    // the button would.
+                    if (inputs.AlreadyApplied) { d.RejectReason = "contract-not-offered"; return d; }
+                    break;
             }
 
             d.Accepted = true;
@@ -252,6 +268,7 @@ namespace Parsek.TestCommands
                 case KscActionKind.DismissKerbal: return "unknown-kerbal";
                 case KscActionKind.ActivateStrategy:
                 case KscActionKind.DeactivateStrategy: return "unknown-strategy";
+                case KscActionKind.AcceptContract: return "unknown-contract";
                 default: return "unknown-target";
             }
         }
@@ -292,7 +309,7 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static KscActionExecOutcome Execute(
             string action, string node, string facility, string kerbal, string building = null,
-            string strategy = null, string factor = null)
+            string strategy = null, string factor = null, string contract = null)
         {
             KscActionKind kind = ParseKind(action);
             switch (kind)
@@ -305,6 +322,7 @@ namespace Parsek.TestCommands
                 case KscActionKind.RepairFacility: return ExecuteRepairFacility(facility);
                 case KscActionKind.ActivateStrategy: return ExecuteActivateStrategy(strategy, factor);
                 case KscActionKind.DeactivateStrategy: return ExecuteDeactivateStrategy(strategy);
+                case KscActionKind.AcceptContract: return ExecuteAcceptContract(contract);
                 default:
                     ParsekLog.Warn(Tag, "kscaction refused action=" + (action ?? string.Empty) + " reason=unknown-action target=");
                     return KscActionExecOutcome.Reject("unknown-action");
@@ -381,6 +399,8 @@ namespace Parsek.TestCommands
             // and Warmup() so partsAssigned / partsPurchased are non-null for the
             // UnlockTech(true) -> AutoPurchaseAllParts walk. The GameObject is destroyed in
             // finally so the seam leaves no live RDTech component behind.
+            string stateBefore = ResearchAndDevelopment.GetTechnologyState(node).ToString();
+            double fundsBefore = LiveFunds();
             RDTech.OperationResult result = RDTech.OperationResult.Failure;
             UnityEngine.GameObject go = null;
             try
@@ -411,7 +431,12 @@ namespace Parsek.TestCommands
             // insufficient-science; the guard-blocked Failure maps to blocked-committed.
             bool researchedNow = ResearchAndDevelopment.GetTechnologyState(node) == RDTech.State.Available;
             if (result != RDTech.OperationResult.Successful || !researchedNow)
+            {
+                ParsekLog.Info(Tag, FormatNotAppliedLine(action, node, "state",
+                    stateBefore, ResearchAndDevelopment.GetTechnologyState(node).ToString(),
+                    fundsBefore, LiveFunds(), science, LiveScience()));
                 return Refuse(action, node, MapResearchFailure(result));
+            }
 
             double scienceAfter = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0.0;
             string observed = scienceAfter.ToString("R", CultureInfo.InvariantCulture);
@@ -476,6 +501,7 @@ namespace Parsek.TestCommands
                 return Refuse(action, facility, d.RejectReason);
 
             int levelBefore = fac.FacilityLevel;
+            double scienceBefore = LiveScience();
             try { InvokeUpgradeFacility(building); }
             catch (System.Exception ex)
             {
@@ -486,7 +512,13 @@ namespace Parsek.TestCommands
             // no level bump).
             int levelAfter = building.Facility != null ? building.Facility.FacilityLevel : levelBefore;
             if (levelAfter <= levelBefore)
+            {
+                ParsekLog.Info(Tag, FormatNotAppliedLine(action, facility, "level",
+                    levelBefore.ToString(CultureInfo.InvariantCulture),
+                    levelAfter.ToString(CultureInfo.InvariantCulture),
+                    funds, LiveFunds(), scienceBefore, LiveScience()));
                 return Refuse(action, facility, "blocked-committed");
+            }
 
             string observed = levelAfter.ToString(CultureInfo.InvariantCulture);
             LogApplied(action, facility, d.ManifestKind, "level=" + observed);
@@ -720,6 +752,106 @@ namespace Parsek.TestCommands
                 + " fundsDelta=" + (fundsAfter - fundsBefore).ToString("R", ic);
         }
 
+        /// <summary>
+        /// The line a guard-refused research / upgrade / hire / accept writes before its
+        /// refusal: the target's own state and the funds and science pools on both sides of
+        /// stock's call, so a lane can read that a refused click changed nothing (KB-3 pins
+        /// each with a backreference). Keys: <c>&lt;stateKey&gt;Before</c> /
+        /// <c>&lt;stateKey&gt;After</c>, then <c>funds*</c> and <c>science*</c> with a delta.
+        /// A space in the target or a state is replaced so each value stays one field.
+        /// </summary>
+        internal static string FormatNotAppliedLine(
+            string action, string target, string stateKey, string stateBefore, string stateAfter,
+            double fundsBefore, double fundsAfter, double scienceBefore, double scienceAfter)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return "kscaction " + (action ?? string.Empty) + " not applied: target=" + OneField(target)
+                + " " + stateKey + "Before=" + OneField(stateBefore)
+                + " " + stateKey + "After=" + OneField(stateAfter)
+                + " fundsBefore=" + fundsBefore.ToString("R", ic)
+                + " fundsAfter=" + fundsAfter.ToString("R", ic)
+                + " fundsDelta=" + (fundsAfter - fundsBefore).ToString("R", ic)
+                + " scienceBefore=" + scienceBefore.ToString("R", ic)
+                + " scienceAfter=" + scienceAfter.ToString("R", ic)
+                + " scienceDelta=" + (scienceAfter - scienceBefore).ToString("R", ic);
+        }
+
+        private static string OneField(string value)
+            => string.IsNullOrEmpty(value) ? "-" : value.Replace(' ', '_');
+
+        private static double LiveFunds()
+            => Funding.Instance != null ? Funding.Instance.Funds : 0.0;
+
+        private static double LiveScience()
+            => ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0.0;
+
+        /// <summary>Pure: whether a contract guid string names the arg (case-insensitive,
+        /// with or without braces).</summary>
+        internal static bool ContractGuidMatches(string guid, string arg)
+        {
+            if (string.IsNullOrEmpty(guid) || string.IsNullOrEmpty(arg)) return false;
+            string a = arg.Trim().TrimStart('{').TrimEnd('}');
+            return string.Equals(guid, a, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static Contracts.Contract ResolveContract(string arg)
+        {
+            var system = Contracts.ContractSystem.Instance;
+            if (system == null || system.Contracts == null) return null;
+            for (int i = 0; i < system.Contracts.Count; i++)
+            {
+                var c = system.Contracts[i];
+                if (c != null && ContractGuidMatches(c.ContractGuid.ToString(), arg))
+                    return c;
+            }
+            return null;
+        }
+
+        private static KscActionExecOutcome ExecuteAcceptContract(string contractArg)
+        {
+            const string action = "accept-contract";
+            bool argPresent = !string.IsNullOrEmpty(contractArg);
+            Contracts.Contract contract = argPresent ? ResolveContract(contractArg) : null;
+
+            var inputs = new KscActionInputs
+            {
+                ArgPresent = argPresent,
+                TargetResolves = contract != null,
+                AlreadyApplied = contract != null && contract.ContractState != Contracts.Contract.State.Offered,
+            };
+
+            KscActionDecision d = Decide(action, contractArg, inputs);
+            if (!d.Accepted)
+                return Refuse(action, contractArg, d.RejectReason);
+
+            // Mission Control's Accept button (MissionControl.OnClickAccept) ends in this
+            // call; ContractAcceptPatch refuses it for a contract the committed timeline
+            // accepts (or whose slot it needs), before stock pays the advance.
+            string stateBefore = contract.ContractState.ToString();
+            double fundsBefore = LiveFunds();
+            double scienceBefore = LiveScience();
+            try { contract.Accept(); }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn(Tag, "kscaction accept-contract Accept threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+
+            if (contract.ContractState != Contracts.Contract.State.Active)
+            {
+                ParsekLog.Info(Tag, FormatNotAppliedLine(action, contractArg, "state",
+                    stateBefore, contract.ContractState.ToString(),
+                    fundsBefore, LiveFunds(), scienceBefore, LiveScience()));
+                return Refuse(action, contractArg, "blocked-committed");
+            }
+
+            double fundsAfter = LiveFunds();
+            string observed = fundsAfter.ToString("R", CultureInfo.InvariantCulture);
+            LogApplied(action, contractArg, d.ManifestKind, "state=Active funds=" + observed);
+            var payload = OkPayload(action, contractArg, "state", "Active");
+            payload.Add(new KeyValuePair<string, string>("fundsAfter", observed));
+            return KscActionExecOutcome.Ok(payload);
+        }
+
         private static int CountDestroyed(SpaceCenterBuilding building)
         {
             if (building == null || building.destructibles == null) return 0;
@@ -789,6 +921,8 @@ namespace Parsek.TestCommands
             // A prior "mirror the stock debit" AddFunds(-cost) here double-charged the pool
             // (seed 500000 -> two -62113 debits -> 375774 instead of 437887), so the ledger
             // oracle flagged a hard divergence. Just drive the hire and let stock charge once.
+            string typeBefore = applicant.type.ToString();
+            double scienceBefore = LiveScience();
             try { roster.HireApplicant(applicant); }
             catch (System.Exception ex)
             {
@@ -801,7 +935,11 @@ namespace Parsek.TestCommands
             // funds are untouched -- no refund needed (there was no debit to undo).
             bool hiredNow = applicant.type == ProtoCrewMember.KerbalType.Crew;
             if (!hiredNow)
+            {
+                ParsekLog.Info(Tag, FormatNotAppliedLine(action, kerbal, "type",
+                    typeBefore, applicant.type.ToString(), funds, LiveFunds(), scienceBefore, LiveScience()));
                 return Refuse(action, kerbal, "blocked-committed");
+            }
 
             double fundsAfter = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
             string observed = fundsAfter.ToString("R", CultureInfo.InvariantCulture);
