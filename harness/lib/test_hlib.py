@@ -7059,7 +7059,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     per-category BATCH_COMPLETE line plus the `category=multi:<n>` aggregate.
 
     WHY THE FAMILY EXISTS. Roughly eighteen in-game categories hold one or two
-    tests each (`Bug289`, `ContinuationIntegrity`, `ForwardRender`,
+    tests each (`Bug289`, `ForwardRender`,
     `PartEventTiming`, the small `Pipeline-*` four, `RecordingStore`,
     `ResourceManifest`, `StockWarpLimits`, `TestRunner`, `Watch`, `Unity`, ...).
     Under the pre-2026-09-07 rule each would have cost its own KSP boot, which is
@@ -7097,7 +7097,6 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
         "LT-1-long-tail-flight": ("FLIGHT", {
             "BackgroundSeeder": 2,
             "Bug289": 2,
-            "ContinuationIntegrity": 2,
             "DisabledHoverEcho": 1,
             "FinalizeLimbo": 2,
             "Flight": 2,

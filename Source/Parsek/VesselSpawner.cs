@@ -446,6 +446,11 @@ namespace Parsek
                 ConfigNode node = new ConfigNode("VESSEL");
                 pv.Save(node);
                 NormalizeBackedUpSnapshotFromLiveVessel(node, vessel);
+                // Crew inventories live on the roster, not in PART nodes: capture them with
+                // the snapshot so a spawn from it restores what the crew carried at this
+                // moment (CrewInventorySnapshot). Keyed by live names; the reverse map below
+                // renames the keys together with the PART crew values.
+                CrewInventorySnapshot.CaptureFromLiveVessel(vessel, node);
                 // Live PART/crew= reflects whichever kerbal is physically seated, which
                 // after a SwapReservedCrewInFlight pass is a stand-in. Persisting the
                 // stand-in name would cause EnsureCrewExistInRoster to fabricate a new
@@ -657,6 +662,7 @@ namespace Parsek
         public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null, bool preserveIdentity = false)
         {
             ProtoVessel pv = null;
+            CrewInventoryRestoreResult crewInventoryRestore = default(CrewInventoryRestoreResult);
             try
             {
                 if (!TryValidateSnapshotHasParts(vesselNode, out string partRejectionReason)
@@ -721,6 +727,12 @@ namespace Parsek
 
                 StripDeliberatePositionOverrideStamp(spawnNode, "RespawnVessel");
 
+                // Give each kerbal still seated in the final spawn node the inventory he
+                // carried when the snapshot was taken, replacing his current roster
+                // inventory, before the ProtoVessel reads the roster (no duplicated or
+                // lost cargo). No capture on the snapshot keeps the roster inventory.
+                crewInventoryRestore = CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "RespawnVessel");
+
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
@@ -729,6 +741,7 @@ namespace Parsek
                 {
                     ParsekLog.Error("Spawner", "CRITICAL: ProtoVessel.Load() produced null vesselRef — vessel will not appear");
                     CleanupFailedSpawnedProtoVessel(pv, "Spawner", "RespawnVessel cleanup");
+                    CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "RespawnVessel null vesselRef");
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
@@ -774,6 +787,7 @@ namespace Parsek
             {
                 ParsekLog.Error("Spawner", $"Failed to respawn vessel: {ex.Message}");
                 CleanupFailedSpawnedProtoVessel(pv, "Spawner", "RespawnVessel cleanup");
+                CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "RespawnVessel exception");
                 return 0;
             }
         }
@@ -1094,6 +1108,7 @@ namespace Parsek
             Orbit orbitOverride = null)
         {
             ProtoVessel pv = null;
+            CrewInventoryRestoreResult crewInventoryRestore = default(CrewInventoryRestoreResult);
             try
             {
                 ConfigNode spawnNode = vesselNode.CreateCopy();
@@ -1216,6 +1231,12 @@ namespace Parsek
 
                 StripDeliberatePositionOverrideStamp(spawnNode, "SpawnAtPosition");
 
+                // Give each kerbal still seated in the final spawn node the inventory he
+                // carried when the snapshot was taken, replacing his current roster
+                // inventory, before the ProtoVessel reads the roster (no duplicated or
+                // lost cargo). No capture on the snapshot keeps the roster inventory.
+                crewInventoryRestore = CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "SpawnAtPosition");
+
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
@@ -1224,6 +1245,7 @@ namespace Parsek
                 {
                     ParsekLog.Error("Spawner", "CRITICAL: SpawnAtPosition — ProtoVessel.Load() produced null vesselRef");
                     CleanupFailedSpawnedProtoVessel(pv, "Spawner", "SpawnAtPosition cleanup");
+                    CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "SpawnAtPosition null vesselRef");
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
@@ -1270,6 +1292,7 @@ namespace Parsek
             {
                 ParsekLog.Error("Spawner", $"SpawnAtPosition failed: {ex.Message}");
                 CleanupFailedSpawnedProtoVessel(pv, "Spawner", "SpawnAtPosition cleanup");
+                CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "SpawnAtPosition exception");
                 return 0;
             }
         }

@@ -86,6 +86,46 @@ Cheapest next flights (proposed 2026-09-27, deferred by the supervisor): GS-9, G
 about 6-8 min each), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,
 V3F, V3R. The long harvest missions (B17, V3C, B23-B30, RF-2, RF-3, RF-12L) are not proposed.
 
+## ~~REFLY-SEPARATIONS-ONLY: an EVA authored a Rewind Point and a stranded or dead EVA kerbal surfaced as a Re-Fly~~ [OWNER RULING 2026-09-27; IMPLEMENTED 2026-09-27, branch `refly-separations-only`]
+
+**Ruling (Vlad, 2026-09-27).** "Re-Fly is for vessel separations only (staging, decoupling,
+undocking). An EVA is not a separation event and never gets a Re-Fly. We are not responsible for
+every player mistake: they can F9 or Discard if something happens. The point of Re-Fly was to be
+able to return-land boosters etc., not to prevent mistakes."
+
+**What changed.**
+- `RewindPointAuthor.Begin` refuses an EVA BranchPoint before writing anything
+  (`RewindPointAuthor.IsReFlySplitType`; every authoring path funnels through `Begin`) and logs
+  `[Rewind] Split type=EVA: no Rewind Point (Re-Fly is for vessel separations only) bp=<id>`.
+  Undock / JointBreak / Breakup authoring is unchanged. An EVA stays a split in the recording DAG.
+- `UnfinishedFlightClassifier` never qualifies an EVA kerbal (chain tip or subject carrying
+  `EvaCrewName`), whatever its terminal, `Destroyed` included: the `strandedEva` reason is gone and
+  the verdict is the non-qualifying `evaNotSeparation`. The candidate-shape and stash-shape helpers
+  refuse the same recordings, and a slot of a legacy RP authored at an EVA BranchPoint is refused
+  with the same reason on the vessel side too. The commit-time stable-EVA auto-seal path
+  (`RecordingStore.ShouldAutoSealStableEvaCommitSlot`) and the EVA branches of
+  `SupersedeCommit.IsTerminalFailureReFlyOutcome` / `RequiresSlotAwareMergeClassification` were
+  dead after that and are removed.
+- `LoadTimeSweep.SweepLegacyEvaRewindPoints` reaps RPs an older build authored at an EVA split:
+  their `CommittedProvisional` slot tips are concluded to `Immutable`, then the ordinary
+  `RewindPointReaper` deletes the quicksave, the scenario entry, the BranchPoint back-reference and
+  the contract snapshots. The RP a live `ReFlySessionMarker` names and a still session-provisional
+  RP are kept (reaped on a later load). One summary line:
+  `[LoadSweep] Legacy EVA Rewind Points (Re-Fly is for vessel separations only): found=... reaped=...`.
+  The operator's c1 career (`Source/Parsek.Tests/Fixtures/C1Career`) carries one such RP
+  (`rp_3bfc1cfd...`, EVA BranchPoint `bdc98328...`); no committed harness fixture does.
+- Unchanged by design: an EVA taken DURING a Re-Fly of a vessel is still a structural mutation that
+  auto-seals the slot on merge (`ReFlyAutoSealPreview`, `SupersedeCommit.HasReFlySessionStructuralMutation`).
+
+**Harness.** `ST-2-rewind-point-quicksave` authored its rewind point through an EVA split; it is
+re-hosted on GS-2's in-orbit decoupler road (`gs2-orbital-stack` + mission
+`gs2_orbital_probe_deploy`). `EVA-3-multi-kerbal` now requires the no-RP line and forbids an EVA
+RewindPoint begin line.
+
+**Tests.** `ReFlySeparationsOnlyTests` (authoring gate, reap decision, sweep), rewritten EVA cells in
+`TreeCommitTests` and `UnfinishedFlightsMembershipTests`, in-game `StableLeafUnfinishedFlightsRuntimeTest`
+updated. Design: `docs/parsek-rewind-to-separation-design.md` section 1.5.
+
 ## ~~RECORDINGS-TAB-ROUND-2026-09-26: an approved set of Recordings-tab presentation changes~~ [FILED AND FIXED 2026-09-26, branch `recordings-tab-round`]
 
 A reviewed list of presentation changes to the Recordings tab (no recording data, schema or
@@ -540,8 +580,79 @@ Supervisor defaults (not overridden):
 To trace before filing as defects (low): `AllowNegativeCurrency` against reserved funds on
 spends no click-block covers; `AutoHireCrews` hire capture; Set Orbit / Set Position teleports
 inside a live recording; infinite-propellant recordings vs route cost manifests;
-`persistKerbalInventories` vs inventory-carrying recordings; alternate launch sites with
+`persistKerbalInventories` vs inventory-carrying recordings (traced 2026-09-27: filed and fixed as
+KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 `AllowOtherLaunchSites` off.
+
+---
+
+## ~~KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN: a vessel spawned at a recording's end gave each kerbal his current roster inventory, not what he carried~~ [FILED AND FIXED 2026-09-27 from KSP-SETTINGS-AUDIT-2026-09-26's `persistKerbalInventories` trace, branch `kss2-inventory`. Live check owed]
+
+Problem: a crewed kerbal's inventory lives on his roster entry (`ProtoCrewMember.InventoryNode`,
+the roster CREW node's `INVENTORY`) or, while its UI is live, on a `KerbalInventoryScenario`
+module instance - never in the vessel's PART nodes, which is all the recorded snapshot held. An EVA
+kerbal is no exception: `ModuleInventoryPart.OnStart` reloads the EVA part from the same roster
+node, so the EVA vessel's own module values do not survive a load. A vessel spawned from a
+recording therefore gave each kerbal whatever his roster held at spawn time. Cargo could
+DUPLICATE (a part carried from the VAB, stowed in the pod or placed during the flight, then
+revert and commit: the pod snapshot has it and the kerbal's launch-save roster entry still has
+it; with `Difficulty.persistKerbalInventories` on, any editor-loaded cargo, with it off the default
+EVA items) or VANISH (a part taken out of the pod and kept by the kerbal to the end: missing from
+the snapshot, and the roster entry is the pre-flight one).
+
+Owner ruling (2026-09-27): capture and restore.
+
+Fix: `CrewInventorySnapshot`. The single seam every recorded snapshot passes through,
+`VesselSpawner.TryBackupSnapshot`, writes one additive `PARSEK_CREW_INVENTORY { KERBAL { name
+INVENTORY { ... } } }` child under the VESSEL node, one entry per crew member in the shape stock
+persists: a loaded EVA kerbal's own `ModuleInventoryPart` first, then a live
+`KerbalInventoryScenario` instance (stock only writes it back to the roster on save), then the
+roster's backing field `ProtoCrewMember.inventoryNode`, read by reflection because the
+`InventoryNode` getter writes a default inventory when it is null; a null field records NO entry
+(the capture never mutates the roster, and the restore leaves that kerbal alone). Crewless vessels
+get no node. It is not a schema change (no generation bump): stock
+`ProtoVessel` ignores unknown VESSEL children, and the node rides with the snapshot through the
+`_vessel.craft` sidecar, `DeepClone`, the optimizer split (end half) and merge (absorbed end wins),
+and every snapshot refresh (the end snapshot and its inventories are always the same moment). The
+spawn primitives `RespawnVessel` and `SpawnAtPosition` call `CrewInventorySnapshot.RestoreForSpawn`
+on the FINAL spawn copy (after dead, excluded, duplicate and swapped crew are settled) just before
+`ProtoVessel` construction: every kerbal still seated gets the recorded inventory on his roster
+entry, and any live `KerbalInventoryScenario` instance is dropped (as stock does after an EVA
+board) so it neither shows nor saves back the old contents; the node is stripped from the spawn
+copy. Each restored kerbal's prior roster inventory (a live instance's contents, else the backing
+field, null included) is kept, and the spawn-failure paths (null `vesselRef`, exception) roll it
+back with `CrewInventorySnapshot.RollbackRestoreLive`. Logged: capture rate-limited per vessel,
+one Info line per spawn with `seated / restored / noEntry / applyFailed / unseated`, one Info
+line per rollback.
+
+Decisions:
+- Stand-ins: the inventory follows the SEAT. The capture-time reverse map
+  (`KerbalsModule.ReverseMapCrewNamesInSnapshot`) renames the key with the PART crew value, so a
+  stand-in's carried items are recorded under the original; the KSC spawn swap
+  (`CrewReservationManager.SwapReservedCrewInSnapshot`) renames it to the stand-in who takes the
+  seat, so the recorded cargo arrives with the vessel and the reserved original keeps his own
+  roster inventory. A seat the swap leaves empty keeps its entry under the original and the
+  restore reports it unseated without applying it.
+- EVA recordings: NOT already covered by the snapshot (OnStart reloads from the roster), so the
+  EVA kerbal's inventory is captured and restored the same way.
+- Recordings made before this change: no node, roster inventory kept (today's behaviour), one
+  Info line per spawn saying so.
+- Re-Fly / rewind: nothing to do. The roster, inventories included, comes back from the rewind
+  point's quicksave (the reconciliation bundle carries no roster), and a spawn after the rewind
+  restores the recorded inventory again.
+- A crew member removed from the spawn (dead, EVA'd into a child recording, already on another
+  vessel) is not touched.
+
+Tests: `CrewInventorySnapshotTests` (codec round-trip, sidecar round-trip, DeepClone, optimizer
+split and merge, restore replaces / no-key unchanged / only seated crew, stand-in reverse map and
+KSC swap) and the builder's `VesselSnapshotBuilder.WithCrewInventory`. In-game: new category
+`KerbalInventorySpawn` (two self-skipping FLIGHT cells: the live capture, and the roster applier
+replacing and restoring an active crew member's inventory), no lane.
+
+Live check owed: fly a crewed craft whose kerbal carries a cargo part from the VAB (persist
+inventories on), stow it in the pod, revert and commit, and confirm the spawned vessel holds the
+part exactly once; then the reverse (take a part from the pod, keep it on the kerbal) and confirm
+it survives the spawn.
 
 ---
 
@@ -566,7 +677,7 @@ fix needs that read first.
 
 ---
 
-## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
+## ~~CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more~~ [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. RULED REMOVE 2026-09-27 (operator) and REMOVED, branch `remove-chain-state`]
 
 The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
 `StartUndockContinuation` and their `ParsekFlight` / `FlightRecorder` gates) was removed as
@@ -596,6 +707,27 @@ The `Recording` revert-rollback fields `ContinuationBoundaryIndex` and the
 `RecordingStore` rollback that reads them and the hydration-repair copy go with this
 cleanup. Recording-side chain DATA (`ChainId`, `ChainIndex`, `ChainBranch`,
 `ParentRecordingId`, `EvaCrewName`) is serialized and read by playback and must stay.
+
+Fix: removed as ruled. Dead-ness was re-derived from the full caller set, not from the
+comments: every write of the chain identity fields and `PendingBoundaryAnchor` assigned
+`null` / `false` / `0` or restored a saved copy of the same field, so every reader saw an
+empty chain. Gone: `ChainSegmentManager.cs` whole (its only remaining field, `ActiveTreeId`,
+was read solely by `StartRecording`'s stale-chain guard, whose only effect with the chain
+fields gone was a Warn line and clearing itself), the recorder's `BoundaryAnchor` (its only
+setter copied `PendingBoundaryAnchor`), the `ParsekFlight` bake-and-stop and destroy blocks
+with their `MarkContinuationVesselDestroyed` / `FormatContinuationVesselDestroyedMessage`
+helpers, `AutoDiscardActiveTreeCore`'s `chainStopReason`, `StartRecording`'s `isContinuation`,
+the `Recording` rollback fields (`[NonSerialized]`, never in a save or sidecar key, so no
+schema question) with `RecordingStore.RollbackContinuationData` and the hydration-repair
+preserve, the `chain=` / `chain.*` `RecState` tokens (no harness spec, harness Python or
+xUnit log capture pinned them; `RecorderStateObservabilityTests` now asserts their
+absence) and the in-game `ContinuationIntegrity` category (LT-1 re-pinned mechanically to
+30 constituents, `total=56 passed=49 skipped=7`). The committed-list contract's subscriber
+list (CLAUDE.md, `RecordingStore.CommittedListNotifications.cs`) drops the chain
+continuation indices. Left: `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`'s
+`isActiveChainMember` parameter and `TrajectoryPlaybackFlags.isActiveChainMember`, now
+`false` at every caller; removing them reaches the playback-decision API and its tests,
+outside this ruling.
 
 ---
 
@@ -722,7 +854,7 @@ Pure helpers `GroundPartPlacement` + `ParsekFlight.GroundPartPlacement.cs`; cell
 `GroundPartPlacementTests`; generators `RecordingBuilder.AsPlacedGroundPart` and
 `ScenarioWriter.GroundPartPlacedBranch` / `MaterializeTree(..., branchPoints)`. EVA-5 is re-armed (no
 `[expectedFail]`) and claims D7 `inventory-place-remove`. Follow-ups filed:
-REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS, EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE.
+REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS (closed as moot 2026-09-27), EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE.
 
 
 **Fingerprint.** The offline analyzer's `INV4-PARTEVENT-PID` rule, `unresolved-pid`:
@@ -784,7 +916,7 @@ which starts count as a placement. Also measured on `2026-09-25_2341`: one pick-
 `onGroundSciencePartRemoved` TWICE (`ModuleGroundPart.RetrievePart`, then `OnRetractCompleted` about 4.7 s
 later), so the recording carries two `InventoryPartRemoved` events per pick-up.
 
-## REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS: re-flying an EVA kerbal does not supersede a ground part it placed in the re-flown interval [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. DESIGN DECISION, open]
+## ~~REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS: re-flying an EVA kerbal does not supersede a ground part it placed in the re-flown interval~~ [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. CLOSED AS MOOT 2026-09-27 by REFLY-SEPARATIONS-ONLY, branch `refly-separations-only`]
 
 A placed ground part's member recording has its own pid, so the Re-Fly supersede closure
 (`EffectiveState.ComputeSubtreeClosureInternal`) treats it as a side-off branch: the same-pid gate skips
@@ -795,6 +927,20 @@ kept today. Options: (1) admit GroundPartPlaced children whose branch point's pa
 dequeued recording and whose start is after the rewind UT (the placement is the kerbal's action, not a
 separate vessel's flight), or (2) keep the side-off policy. The switch-segment scoped Discard already
 owns the member (it walks GroundPartPlaced children by parent id).
+
+**Closed as moot (2026-09-27).** With no EVA Re-Fly the placing kerbal can never be a Re-Fly root:
+an EVA authors no Rewind Point and an EVA kerbal never qualifies as an Unfinished Flight
+(REFLY-SEPARATIONS-ONLY). No other Re-Fly reaches the member either. A Re-Fly root is now always a
+vessel slot of a separation RP; `EffectiveState.ComputeSubtreeClosureInternal` walks that vessel's
+branch points and at the EVA BranchPoint skips the kerbal's recording as a side-off child (both pids
+known and different, `sideOffSkips`), so the kerbal's recording is never dequeued and its
+`GroundPartPlaced` child is never visited. `EnqueuePidPeerSiblings` needs the same pid,
+`EnqueueChainSiblings` the same chain, and `EnqueueDebrisChildren` admits only `IsDebris` children
+with a `ParentAnchorRecordingId` (a placed-part member is neither). So re-flying the vessel keeps the
+kerbal's EVA recording and every part it placed, which is the consistent answer: the placement
+belongs to the kerbal, and the kerbal is not re-flown. The one residual path is a Re-Fly session a
+player started on a legacy EVA Rewind Point before upgrading and has not concluded; it ends under the
+old side-off policy, and its RP is reaped on the next load.
 
 ## ~~EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind~~ [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. CLOSED 2026-09-27, branch `eva-placed-spawn-lane`]
 
