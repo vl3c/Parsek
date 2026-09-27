@@ -48,6 +48,11 @@ window's DestinationFull capacity line). The writer lines for
 these in-range endpoints now read `path=loaded`; RVR-2, RVR-4, RVR-7, RVR-8, RVR-15, RVR-16,
 RVR-20 and GUI-20 are re-pinned from `path=unloaded`. Unit tests: `EndpointStoreGateTests`.
 
+**Live proof (2026-09-27, automation DLL `d5b0f410`).** All eight re-pinned lanes PASS attempt 1
+(`2026-09-27_1310` RVR-8 through `_1330` GUI-20). RVR-8 blocks cycle 1 `OriginLacksCargo`
+shortfall=108.8 and its produced save holds B=45.6 / A=400; RVR-7, RVR-15 and RVR-2 saves carry
+their delivered and debited amounts too, where every earlier save had reverted them.
+
 ## ~~REFLY-SEPARATIONS-ONLY: an EVA authored a Rewind Point and a stranded or dead EVA kerbal surfaced as a Re-Fly~~ [OWNER RULING 2026-09-27; IMPLEMENTED 2026-09-27, branch `refly-separations-only`]
 
 **Ruling (Vlad, 2026-09-27).** "Re-Fly is for vessel separations only (staging, decoupling,
