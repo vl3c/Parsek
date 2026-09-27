@@ -644,6 +644,13 @@ namespace Parsek
                     ? IsWarpActiveOverrideForTesting()
                     : IsAnyWarpActiveFromGlobalsCore();
                 var committedForRetire = RecordingStore.CommittedRecordings;
+                if (!evt.Flags.isMidChain
+                    && evt.Index >= 0 && evt.Index < committedForRetire.Count)
+                {
+                    GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
+                        "Policy", "FLIGHT", evt.Index, committedForRetire[evt.Index],
+                        evt.CurrentUT, evt.Flags.isChainLooping);
+                }
                 if (isWarp
                     && evt.Index >= 0 && evt.Index < committedForRetire.Count
                     && !host.IsActiveGhostChainTipFromPolicy(committedForRetire[evt.Index])

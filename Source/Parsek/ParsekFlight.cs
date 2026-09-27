@@ -18981,7 +18981,7 @@ namespace Parsek
                 bool liveSameLaunchVesselPresent =
                     GhostPlaybackLogic.ResolveRewindSuppressionLiveLaunchPresence(rec);
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    rec, isActiveChain, chainLooping, treeContext: null,
+                    rec, isActiveChain, treeContext: null,
                     liveSameLaunchVesselPresent);
 
                 var chainSuppressed = activeGhostChains != null
@@ -27542,11 +27542,9 @@ namespace Parsek
 
                 // Check spawn eligibility
                 bool isActiveChainMember = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
-                bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId) &&
-                    RecordingStore.IsChainLooping(rec.ChainId);
 
                 var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    rec, isActiveChainMember, isChainLooping);
+                    rec, isActiveChainMember);
                 if (!needsSpawn)
                     continue;
 

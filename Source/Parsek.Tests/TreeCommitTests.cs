@@ -397,7 +397,7 @@ namespace Parsek.Tests
                 prior.TerminalSpawnSupersededByRecordingId);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                prior, isActiveChainMember: false, isChainLooping: false);
+                prior, isActiveChainMember: false);
             Assert.False(needsSpawn);
             Assert.Contains("terminal spawn superseded", reason);
         }
@@ -465,7 +465,7 @@ namespace Parsek.Tests
             Assert.Equal(0u, prior.SpawnedVesselPersistentId);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                prior, isActiveChainMember: false, isChainLooping: false);
+                prior, isActiveChainMember: false);
             Assert.False(needsSpawn);
             Assert.Contains("terminal spawn superseded", reason);
         }
@@ -606,7 +606,7 @@ namespace Parsek.Tests
                 prior.TerminalSpawnSupersededByRecordingId);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                prior, isActiveChainMember: false, isChainLooping: false);
+                prior, isActiveChainMember: false);
             Assert.False(needsSpawn);
             Assert.Contains("terminal spawn superseded", reason);
         }
@@ -665,7 +665,7 @@ namespace Parsek.Tests
             Assert.Equal(0u, prior.SpawnedVesselPersistentId);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                prior, isActiveChainMember: false, isChainLooping: false);
+                prior, isActiveChainMember: false);
             Assert.False(needsSpawn);
             Assert.Contains("terminal spawn superseded", reason);
         }

@@ -232,8 +232,7 @@ namespace Parsek.Tests
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
 
             Assert.True(needsSpawn, $"Should be spawn-eligible after reset, but got: {reason}");
             Assert.NotNull(rec.VesselSnapshot);

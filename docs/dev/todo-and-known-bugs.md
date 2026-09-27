@@ -2832,7 +2832,7 @@ not loaded; a looping ghost is not held for a retry, because the loop renderer o
 pad terminal therefore materializes only at the Space Center or the Tracking Station, which
 has always been true of non-looping pad recordings too.
 
-## LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS: should a chain with a looped segment still leave its real vessel at the end of the first run? [FILED 2026-09-23 from LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS. OPEN; OPERATOR QUESTION]
+## ~~LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS: should a chain with a looped segment still leave its real vessel at the end of the first run?~~ [FILED 2026-09-23 from LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS. **RULED + FIXED 2026-09-27** on branch `chain-loop-first-run`; see "Ruling" and "Fix" below]
 
 In gameplay terms: a long flight that Parsek split into phases (launch, coast, landing) is a
 chain. If the player turns on the loop toggle for ONE phase (say, to watch the landing
@@ -2848,6 +2848,34 @@ where a chain tip would otherwise spawn (a merge after a revert, a future-dated 
 spawns once, later replays ghost-only), or is a chain with any looped phase a pure replay?
 A mission loop over a chain-split tree is NOT affected: mission loops set no per-recording
 toggle, so its tip takes the first-run spawn like a standalone recording.
+
+**Ruling (2026-09-27).** Looping one phase of a chain keeps the chain's first run REAL: the
+tip spawns once at the end of the first run, later loop replays are ghost-only. Design 12.7
+now says so for chains.
+
+**Fix (2026-09-27).** `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` lost its "chain looping"
+refusal and the `isChainLooping` parameter that fed only it (every caller: flight timeline
+flags, flight nearby-spawn candidates, the Space Center `ShouldSpawnAtKscEnd`, the Tracking
+Station `ShouldSpawnAtTrackingStationEnd`; `MergeDialog.CanPersistVessel` and the EVA in-game
+test passed false). `IsFinalSpawnSegment` (the crew side of the KSC end-of-flight retirement)
+dropped the same clause so it still agrees with the spawn side. Nothing else was needed: the
+tip rule already refuses mid-chain segments in every scene, the #1778 loop first-run seams
+already take a chain tip (`!isMidChain`, the chain's effective end), and VesselSpawned keeps
+later cycles ghost-only. `RecordingStore.IsChainLooping` remains as the replay-scope render
+term (`loopingLike`) and the log flag. Each scene's spawn point logs one rate-limited Info
+`Chain loop first-run spawn: ... scene=FLIGHT|SPACECENTER|TRACKSTATION` for a looping chain's
+tip (`GhostPlaybackLogic.LogChainLoopFirstRunSpawn`). Unit tests: `ChainLoopFirstRunSpawnTests`
+(the decision with each phase looped, the looped tip's one spawn then "already spawned", the
+Space Center and Tracking Station gates, the flight engine seam fed by the real decision for a
+looped tip and a looped mid segment, `IsFinalSpawnSegment`, the log line); re-inserting the
+refusal reds 9 cells, re-inserting the crew clause reds 1. Three tests that pinned "chain
+looping" were removed or flipped (`KscSpawnTests.ShouldSpawnAtKscEnd_ChainLooping_TipSpawnsFirstRun_MidStaysSuppressed`).
+
+**No harness lane (by cost).** No seam verb sets a single recording's loop toggle
+(`MissionConfig` loops a whole mission, the unaffected shape), and a chain tip only spawns
+where the #573 block does not hold it (a chain of ANOTHER tree ahead of the rewind UT, or a
+future-dated chain), so a lane needs a new automation verb plus a two-tree chain fixture. The
+decision is shared by every scene's gate and pinned in xUnit above.
 
 ## ~~LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED: with a mission loop armed, a Rewind-to-Launch shows no ghost for the whole first run~~ [FILED 2026-09-24 from the #1808 review. PRODUCT DEFECT, operator ruling. **FIXED 2026-09-25** on branch `loop-first-run-visible`; see "Fix" below]
 

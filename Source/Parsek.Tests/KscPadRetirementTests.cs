@@ -508,7 +508,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             Assert.True(VesselSpawner.TryRetireEndedFlightAtKsc(rec, 0));
 
-            var flight = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(rec, false, false);
+            var flight = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(rec, false);
             var ksc = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, 1000.0);
             Assert.False(flight.needsSpawn);
             Assert.False(ksc.needsSpawn);

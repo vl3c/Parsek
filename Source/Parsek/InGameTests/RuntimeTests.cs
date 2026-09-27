@@ -2467,7 +2467,7 @@ namespace Parsek.InGameTests
                 // vessel snapshot, so ShouldSpawnAtRecordingEnd must not report
                 // "no vessel snapshot" for it.
                 var evaSpawnDecision = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    finalizedEva, isActiveChainMember: false, isChainLooping: false);
+                    finalizedEva, isActiveChainMember: false);
                 bool sawNoSnapshotSuppression =
                     evaSpawnDecision.reason == "no vessel snapshot";
                 bool sawDestroyedClassification = captured.Any(line =>

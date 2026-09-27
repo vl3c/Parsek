@@ -1206,6 +1206,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Looping one phase of a chain no longer stops its final vessel from spawning.** A long
+  flight that Parsek splits into phases (launch, coast, landing) is a chain. Turning on the
+  loop toggle for any one phase used to make the whole chain a pure replay: its final vessel
+  never spawned, not on the first run and not later. Now the chain's first run is the real
+  flight, as it already was for a single looping recording: when the first run reaches the end
+  of the chain, the final vessel spawns once, and every later loop replay stays ghost-only.
+  This holds in flight, at the Space Center and in the Tracking Station, and a crew member of a
+  looping chain that ends parked at the Space Center is retired with the flight exactly like any
+  other finished flight. Phases before the end still never spawn a vessel, looped or not, and a
+  looped mission (which loops the whole mission, not one phase) is unchanged. The log names the
+  spawn with `Chain loop first-run spawn:`.
+
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:
@@ -1788,8 +1800,8 @@ _(unreleased — entries accumulate here per commit)_
   not a purely historical recording, the rewind and chain rules). Every later loop is still
   ghost-only. This applies in flight and at the Space Center. The Tracking Station already
   spawned looping recordings; it now applies the same "never replayed" check to them as to
-  any other recording. A chain with one looped phase still never spawns its final vessel
-  (an open question, not changed here).
+  any other recording. A chain with one looped phase now follows the same rule (see "Looping
+  one phase of a chain no longer stops its final vessel from spawning").
 - **A ghost whose vessel cannot spawn yet now stays visible while Parsek retries.** When a
   recording's spawn could not settle at once (a one-point recording on an occupied spot, or
   a spawn that failed), Parsek logged that it would keep the ghost at its final position for the 5 second retry
