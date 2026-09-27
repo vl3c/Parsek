@@ -62,7 +62,7 @@ of this guide described no longer exists.)
 
 ### Rewind to Separation (v0.9+)
 
-When a vessel stages, undocks, or EVAs into two or more controllable pieces, Parsek automatically captures a **Rewind Point** (a quicksave plus a per-slot vessel map) so you can replay the split. This is the booster-recovery feature in spirit: launch an AB stack, stage, take B to orbit and commit — and later come back to fly A down as a self-landing booster.
+When a vessel stages, decouples, or undocks into two or more controllable pieces, Parsek automatically captures a **Rewind Point** (a quicksave plus a per-slot vessel map) so you can replay the split. An EVA is not a separation: going EVA never creates a Rewind Point, and an EVA kerbal never appears in Unfinished Flights. To undo an EVA mistake, use F9 (quickload) or Discard the flight. This is the booster-recovery feature in spirit: launch an AB stack, stage, take B to orbit and commit — and later come back to fly A down as a self-landing booster.
 
 - **Unfinished Flights group** — appears in the Recordings Manager when a sibling from a past split ends badly (crash, destroyed, BG-crash). The group is read-only: you cannot hide it and you cannot drag its members into manual groups.
 - **Rewind button** — click the row to re-fly the unfinished sibling from the moment of the split. Parsek loads the Rewind Point quicksave, strips the other split siblings to ghosts, and hands you the active vessel. The five preconditions (Corrupted flag, quicksave file present, no active session already, scene is not transitioning, parts still load) are checked before the button enables.

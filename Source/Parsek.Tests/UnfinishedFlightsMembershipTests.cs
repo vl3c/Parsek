@@ -285,55 +285,30 @@ namespace Parsek.Tests
             Assert.Equal("rec_A", members[0].RecordingId);
         }
 
-        // Positive case for stranded EVA: a tagged ScienceEarning row
-        // (player pressed Crew Report / EVA Report on the stranded kerbal)
-        // retires the slot from Unfinished Flights.
-        [Fact]
-        public void StrandedEvaWithRecordingScopedScienceEarningAction_NotMember()
+        // Re-Fly is for vessel separations only (owner ruling 2026-09-27): an EVA
+        // kerbal is never an Unfinished Flight, and the EVA gate runs before the
+        // recording-scoped world-action rejects, so a tagged ledger row does not
+        // change the verdict either way.
+        [Theory]
+        [InlineData(GameActionType.ScienceEarning)]
+        [InlineData(GameActionType.ScienceSpending)]
+        public void EvaKerbalWithRecordingScopedAction_NotMember_EvaGateWins(GameActionType actionType)
         {
             var rec = Rec("rec_eva", MergeState.CommittedProvisional, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
-            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_eva") });
-            Ledger.AddAction(RecordingScopedAction(
-                GameActionType.ScienceEarning,
-                "rec_eva",
-                "act_sci_eva"));
+            var rp = Rp("rp_1", "bp_1", "rec_eva");
+            InstallScenario(rps: new List<RewindPoint> { rp });
+            Ledger.AddAction(RecordingScopedAction(actionType, "rec_eva", "act_eva"));
 
             ParsekLog.ResetRateLimitsForTesting();
             logLines.Clear();
             var members = UnfinishedFlightsGroup.ComputeMembers();
 
             Assert.Empty(members);
-            Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]")
-                && l.Contains("rec=rec_eva")
-                && l.Contains("reason=recordingAction:ScienceEarning:act_sci_eva"));
-        }
-
-        // Negative twin of the stranded-EVA + ScienceEarning case above.
-        // ScienceSpending no longer retires a stranded EVA from Unfinished
-        // Flights — the kerbal stays retrievable.
-        [Fact]
-        public void StrandedEvaWithRecordingScopedScienceSpendingAction_IsMember()
-        {
-            var rec = Rec("rec_eva", MergeState.CommittedProvisional, TerminalState.Landed,
-                parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
-            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
-            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_eva") });
-            Ledger.AddAction(RecordingScopedAction(
-                GameActionType.ScienceSpending,
-                "rec_eva",
-                "act_sci_spend_eva"));
-
-            ParsekLog.ResetRateLimitsForTesting();
-            logLines.Clear();
-            var members = UnfinishedFlightsGroup.ComputeMembers();
-
-            Assert.Single(members);
-            Assert.Equal("rec_eva", members[0].RecordingId);
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("reason=recordingAction:ScienceSpending"));
+            Assert.False(UnfinishedFlightClassifier.TryQualify(rec, rp.ChildSlots[0], rp, out string reason));
+            Assert.Equal(UnfinishedFlightClassifier.EvaNotSeparationReason, reason);
+            Assert.DoesNotContain(logLines, l => l.Contains("reason=recordingAction:"));
         }
 
         [Fact]
@@ -761,27 +736,21 @@ namespace Parsek.Tests
                 && l.Contains("reason=stableTerminalFocusSlot"));
         }
 
-        [Fact]
-        public void StrandedEvaLegacyNoFocusSignal_IsMember()
+        // An EVA kerbal never qualifies, whatever its terminal (Destroyed
+        // included) and whether or not the slot was stashed.
+        [Theory]
+        [InlineData(TerminalState.Landed, false)]
+        [InlineData(TerminalState.Splashed, false)]
+        [InlineData(TerminalState.Orbiting, false)]
+        [InlineData(TerminalState.SubOrbital, false)]
+        [InlineData(TerminalState.Destroyed, false)]
+        [InlineData(TerminalState.Boarded, false)]
+        [InlineData(TerminalState.Landed, true)]
+        [InlineData(TerminalState.Orbiting, true)]
+        [InlineData(TerminalState.Boarded, true)]
+        public void EvaKerbalUnderRp_NeverMember(TerminalState terminal, bool stashed)
         {
-            var rec = Rec("rec_eva", MergeState.CommittedProvisional, TerminalState.Landed,
-                parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
-            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
-            InstallScenario(rps: new List<RewindPoint>
-            {
-                Rp("rp_1", "bp_1", "rec_eva")
-            });
-
-            var members = UnfinishedFlightsGroup.ComputeMembers();
-
-            Assert.Single(members);
-            Assert.Equal("rec_eva", members[0].RecordingId);
-        }
-
-        [Fact]
-        public void StashedBoardedEva_NotMember()
-        {
-            var rec = Rec("rec_eva", MergeState.CommittedProvisional, TerminalState.Boarded,
+            var rec = Rec("rec_eva", MergeState.CommittedProvisional, terminal,
                 parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             var rp = new RewindPoint
@@ -792,7 +761,7 @@ namespace Parsek.Tests
                 SessionProvisional = false,
                 ChildSlots = new List<ChildSlot>
                 {
-                    Slot(0, "rec_eva", stashedSlot: true)
+                    Slot(0, "rec_eva", stashedSlot: stashed)
                 }
             };
             InstallScenario(rps: new List<RewindPoint> { rp });
@@ -800,8 +769,14 @@ namespace Parsek.Tests
             var members = UnfinishedFlightsGroup.ComputeMembers();
 
             Assert.Empty(members);
+            Assert.False(UnfinishedFlightClassifier.IsUnfinishedFlightCandidateShape(rec));
+            Assert.False(UnfinishedFlightClassifier.IsPotentialManualStashShape(rec));
+            Assert.False(UnfinishedFlightClassifier.TryQualify(rec, rp.ChildSlots[0], rp, out string reason));
+            Assert.Equal(UnfinishedFlightClassifier.EvaNotSeparationReason, reason);
             Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("reason=stableTerminal"));
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("IsUnfinishedFlight=false rec=rec_eva reason=evaNotSeparation")
+                && l.Contains("crew=Jebediah Kerman"));
         }
 
         [Theory]

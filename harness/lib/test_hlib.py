@@ -7044,7 +7044,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     per-category BATCH_COMPLETE line plus the `category=multi:<n>` aggregate.
 
     WHY THE FAMILY EXISTS. Roughly eighteen in-game categories hold one or two
-    tests each (`Bug289`, `ContinuationIntegrity`, `ForwardRender`,
+    tests each (`Bug289`, `ForwardRender`,
     `PartEventTiming`, the small `Pipeline-*` four, `RecordingStore`,
     `ResourceManifest`, `StockWarpLimits`, `TestRunner`, `Watch`, `Unity`, ...).
     Under the pre-2026-09-07 rule each would have cost its own KSP boot, which is
@@ -7082,7 +7082,6 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
         "LT-1-long-tail-flight": ("FLIGHT", {
             "BackgroundSeeder": 2,
             "Bug289": 2,
-            "ContinuationIntegrity": 2,
             "DisabledHoverEcho": 1,
             "FinalizeLimbo": 2,
             "Flight": 2,
@@ -23605,6 +23604,17 @@ class KscActionRefusalSourceSyncTests(unittest.TestCase):
                 ("activate-not-applied", "driver-gate"),
                 ("deactivate-not-applied", "driver-gate")):
             with self.subTest(msg=msg):
+                self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
+                self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
+
+    def test_the_accept_contract_refusals_classify_as_designed(self):
+        tokens = self._emitted_tokens()
+        for msg, expected in (
+                ("unknown-contract", "driver-arg"),
+                ("contract-not-offered", "driver-career"),
+                ("blocked-committed", "driver-career")):
+            with self.subTest(msg=msg):
+                self.assertIn(msg, tokens)
                 self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
                 self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
 

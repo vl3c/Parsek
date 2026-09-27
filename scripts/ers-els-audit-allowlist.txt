@@ -54,7 +54,6 @@ Source/Parsek/InGameTests/
 # walk). Each exemption is documented at the call site.
 Source/Parsek/GhostMapPresence.cs
 Source/Parsek/WatchModeController.cs
-Source/Parsek/ChainSegmentManager.cs
 Source/Parsek/ParsekFlight.cs
 Source/Parsek/ParsekPlaybackPolicy.cs
 Source/Parsek/ParsekTrackingStation.cs

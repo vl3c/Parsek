@@ -117,6 +117,8 @@ these rather than editing them by memory; both numbers have moved many times.
 
 ### Coverage: 246 of 246 registry cells (was 245 of 246 on `origin/main` before `MC-5-persistent-rotation` claimed D17 `persistent-rotation` on 2026-09-26; every cell is covered)
 
+RE-DERIVED 2026-09-27 on `clickblock-lanes`: `hlib.compute_coverage(specs, [], registry)` over the 333 committed specs prints 246 of 246. `KB-3-ksc-click-blocks-after-rewind` (reading `2026-09-27_1238`, armed `_1240`, offline negative control 20 of 20) is the behavioural proof of the tech, facility-upgrade, hire and contract-accept click-blocks after a rewind and claims no new cell (its D8 / D14 values are already covered). The strategy, Decline, Cancel, contract-slot, dismissal, crew-dialog and part-purchase blocks still have no pressing lane (todo `STOCK-UI-RESERVATION-OVERLAYS-2026-09-25`).
+
 RE-DERIVED 2026-09-27 on `eva-placed-spawn-lane` after merging `origin/main` (which retired `S0.11-ksc-table-delete`): `hlib.compute_coverage(specs, [], registry)` over the 329 committed specs prints 246 of 246. `EVA-6-placed-part-spawn-after-rewind` (reading `2026-09-26_2058`, armed `_2106`) closes todo EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE and claims no new cell (its D9 / D14 values are already covered).
 
 RE-DERIVED 2026-09-26 on `remove-deletions-verb` after merging `origin/main`: `hlib.compute_coverage(specs, [], registry)` over the 328 committed specs prints 246 of 246. `S0.11-ksc-table-delete` retired with the `DeleteRecording` seam verb (recordings are never player-deletable); it claimed only V22K's D14 values, each covered elsewhere.

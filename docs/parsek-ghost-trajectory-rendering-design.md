@@ -231,7 +231,7 @@ This section enumerates every situation that produces an anchor. Each entry spec
 
 ### 7.1 Re-fly Separation Anchor (Live)
 
-**Trigger:** Player rewinds to a multi-controllable split and re-flies one sibling. The live sibling spawns at the split UT. The ghost siblings begin playback.
+**Trigger:** Player rewinds to a multi-controllable vessel separation (staging, decoupling, undocking; an EVA never carries a Rewind Point) and re-flies one sibling. The live sibling spawns at the split UT. The ghost siblings begin playback.
 
 **Reference position:** Live sibling's spawn position plus the recorded relative offset between the two vessels at separation UT. The recorded offset is `ghost_abs(t_sep) - live_abs(t_sep)`, common-mode clean.
 
@@ -686,7 +686,6 @@ This pipeline is a rendering-layer addition. It does not modify any existing dat
 | RELATIVE-frame world resolver            | `TryResolveRelativeWorldPosition` / `TryResolveRelativeOffsetWorldPosition` | `Source/Parsek/ParsekFlight.cs` (line numbers omitted - approximate/volatile) | Dispatches the accepted v0 Relative contract through body-fixed primary, recorded-anchor, and loop-anchor paths. Stage 4 anchor-lerp must hook here, not before — RELATIVE positions are already exact. |
 | Map / tracking-station ghosts            | `class GhostMapPresence`                                                | `Source/Parsek/GhostMapPresence.cs`    | Parallel path. Same trajectory inputs but ProtoVessel-driven; pipeline outputs feed both via `IPlaybackTrajectory`. |
 | Camera follow                            | `class WatchModeController`                                             | `Source/Parsek/WatchModeController.cs` | Reads `U_render(t)` to position camera. Out of pipeline scope.                       |
-| Chain segment state                      | `class ChainSegmentManager`                                             | `Source/Parsek/ChainSegmentManager.cs` | Owns chain ID + boundary-anchor scratch state used by Stage 3 propagation across recordings. |
 | Recorder                                 | `class FlightRecorder`                                                  | `Source/Parsek/FlightRecorder.cs`      | Section 12 (sample-time alignment) lands here.                                       |
 | Ballistic tail extension                 | `BallisticExtrapolator` + `IncompleteBallisticSceneExitFinalizer`       | `Source/Parsek/BallisticExtrapolator.cs`, `IncompleteBallisticSceneExitFinalizer.cs` | Produces `OrbitSegment`s for incomplete tails — feeds Stage 3 SOI / orbital-checkpoint anchors at scene exit. |
 | Patched-conic snapshot                   | `PatchedConicSnapshot`                                                  | `Source/Parsek/PatchedConicSnapshot.cs` | Snapshots predicted-orbit chain. Already produces analytical anchor points consumed by Section 7.5/7.6. |

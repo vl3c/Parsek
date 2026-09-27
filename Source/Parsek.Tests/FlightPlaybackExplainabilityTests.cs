@@ -1097,7 +1097,6 @@ namespace Parsek.Tests
         private static ParsekFlight CreateFlightHostForPlaybackFlagTests()
         {
             var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
-            SetPrivateField(host, "chainManager", new ChainSegmentManager());
             SetPrivateField(host, "activeGhostChains", new Dictionary<uint, GhostChain>());
             SetPrivateField(host, "activeGhostSkipReasonLogIdentities", new HashSet<string>());
             SetPrivateField(host, "reFlyAnchorHoldStartFrameByAnchor", new Dictionary<string, int>(StringComparer.Ordinal));

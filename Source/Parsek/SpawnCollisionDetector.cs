@@ -298,21 +298,50 @@ namespace Parsek
             double endpointLatitude = double.NaN,
             double endpointLongitude = double.NaN)
         {
+            return DecideLaunchSiteEndOfFlightRetirement(
+                effectiveTerminal, isEva, bodyIsHomeWorld, latitude, longitude, bodyRadius,
+                altSiteCircles: null,
+                positionIsSnapshot: positionIsSnapshot,
+                endpointLatitude: endpointLatitude,
+                endpointLongitude: endpointLongitude).Kind;
+        }
+
+        /// <summary>
+        /// The end-of-flight retirement predicate over EVERY stock launch site (owner ruling
+        /// 2026-09-27): the same rules as <see cref="DecideKscEndOfFlightRetirement"/> (which
+        /// is this with no non-KSC circles), with the KSC pad / runway circles checked first
+        /// and unchanged, then <paramref name="altSiteCircles"/> (the Making History sites,
+        /// <see cref="LaunchSiteExclusionZones.GetAltSiteCircles"/>). All stock sites are on
+        /// the home world. A snapshot-sourced position retires only when the known trajectory
+        /// endpoint also lies in a launch-site circle.
+        /// </summary>
+        internal static LaunchSiteZoneHit DecideLaunchSiteEndOfFlightRetirement(
+            TerminalState? effectiveTerminal,
+            bool isEva,
+            bool bodyIsHomeWorld,
+            double latitude,
+            double longitude,
+            double bodyRadius,
+            IList<LaunchSiteCircle> altSiteCircles,
+            bool positionIsSnapshot = false,
+            double endpointLatitude = double.NaN,
+            double endpointLongitude = double.NaN)
+        {
             if (isEva || !bodyIsHomeWorld)
-                return KscExclusionZone.None;
+                return LaunchSiteZoneHit.None;
             if (!VesselSpawner.IsSurfaceTerminal(effectiveTerminal))
-                return KscExclusionZone.None;
-            KscExclusionZone zone = ClassifyKscExclusionZone(
-                latitude, longitude, bodyRadius, DefaultKscExclusionRadiusMeters);
-            if (zone == KscExclusionZone.None)
-                return zone;
+                return LaunchSiteZoneHit.None;
+            LaunchSiteZoneHit hit = LaunchSiteExclusionZones.Classify(
+                latitude, longitude, bodyRadius, DefaultKscExclusionRadiusMeters, altSiteCircles);
+            if (!hit.IsHit)
+                return hit;
             if (positionIsSnapshot
                 && !double.IsNaN(endpointLatitude) && !double.IsNaN(endpointLongitude)
-                && ClassifyKscExclusionZone(
+                && !LaunchSiteExclusionZones.Classify(
                     endpointLatitude, endpointLongitude, bodyRadius,
-                    DefaultKscExclusionRadiusMeters) == KscExclusionZone.None)
-                return KscExclusionZone.None;
-            return zone;
+                    DefaultKscExclusionRadiusMeters, altSiteCircles).IsHit)
+                return LaunchSiteZoneHit.None;
+            return hit;
         }
 
         /// <summary>
