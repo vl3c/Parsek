@@ -512,8 +512,79 @@ Supervisor defaults (not overridden):
 To trace before filing as defects (low): `AllowNegativeCurrency` against reserved funds on
 spends no click-block covers; `AutoHireCrews` hire capture; Set Orbit / Set Position teleports
 inside a live recording; infinite-propellant recordings vs route cost manifests;
-`persistKerbalInventories` vs inventory-carrying recordings; alternate launch sites with
+`persistKerbalInventories` vs inventory-carrying recordings (traced 2026-09-27: filed and fixed as
+KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 `AllowOtherLaunchSites` off.
+
+---
+
+## ~~KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN: a vessel spawned at a recording's end gave each kerbal his current roster inventory, not what he carried~~ [FILED AND FIXED 2026-09-27 from KSP-SETTINGS-AUDIT-2026-09-26's `persistKerbalInventories` trace, branch `kss2-inventory`. Live check owed]
+
+Problem: a crewed kerbal's inventory lives on his roster entry (`ProtoCrewMember.InventoryNode`,
+the roster CREW node's `INVENTORY`) or, while its UI is live, on a `KerbalInventoryScenario`
+module instance - never in the vessel's PART nodes, which is all the recorded snapshot held. An EVA
+kerbal is no exception: `ModuleInventoryPart.OnStart` reloads the EVA part from the same roster
+node, so the EVA vessel's own module values do not survive a load. A vessel spawned from a
+recording therefore gave each kerbal whatever his roster held at spawn time. Cargo could
+DUPLICATE (a part carried from the VAB, stowed in the pod or placed during the flight, then
+revert and commit: the pod snapshot has it and the kerbal's launch-save roster entry still has
+it; with `Difficulty.persistKerbalInventories` on, any editor-loaded cargo, with it off the default
+EVA items) or VANISH (a part taken out of the pod and kept by the kerbal to the end: missing from
+the snapshot, and the roster entry is the pre-flight one).
+
+Owner ruling (2026-09-27): capture and restore.
+
+Fix: `CrewInventorySnapshot`. The single seam every recorded snapshot passes through,
+`VesselSpawner.TryBackupSnapshot`, writes one additive `PARSEK_CREW_INVENTORY { KERBAL { name
+INVENTORY { ... } } }` child under the VESSEL node, one entry per crew member in the shape stock
+persists: a loaded EVA kerbal's own `ModuleInventoryPart` first, then a live
+`KerbalInventoryScenario` instance (stock only writes it back to the roster on save), then the
+roster's backing field `ProtoCrewMember.inventoryNode`, read by reflection because the
+`InventoryNode` getter writes a default inventory when it is null; a null field records NO entry
+(the capture never mutates the roster, and the restore leaves that kerbal alone). Crewless vessels
+get no node. It is not a schema change (no generation bump): stock
+`ProtoVessel` ignores unknown VESSEL children, and the node rides with the snapshot through the
+`_vessel.craft` sidecar, `DeepClone`, the optimizer split (end half) and merge (absorbed end wins),
+and every snapshot refresh (the end snapshot and its inventories are always the same moment). The
+spawn primitives `RespawnVessel` and `SpawnAtPosition` call `CrewInventorySnapshot.RestoreForSpawn`
+on the FINAL spawn copy (after dead, excluded, duplicate and swapped crew are settled) just before
+`ProtoVessel` construction: every kerbal still seated gets the recorded inventory on his roster
+entry, and any live `KerbalInventoryScenario` instance is dropped (as stock does after an EVA
+board) so it neither shows nor saves back the old contents; the node is stripped from the spawn
+copy. Each restored kerbal's prior roster inventory (a live instance's contents, else the backing
+field, null included) is kept, and the spawn-failure paths (null `vesselRef`, exception) roll it
+back with `CrewInventorySnapshot.RollbackRestoreLive`. Logged: capture rate-limited per vessel,
+one Info line per spawn with `seated / restored / noEntry / applyFailed / unseated`, one Info
+line per rollback.
+
+Decisions:
+- Stand-ins: the inventory follows the SEAT. The capture-time reverse map
+  (`KerbalsModule.ReverseMapCrewNamesInSnapshot`) renames the key with the PART crew value, so a
+  stand-in's carried items are recorded under the original; the KSC spawn swap
+  (`CrewReservationManager.SwapReservedCrewInSnapshot`) renames it to the stand-in who takes the
+  seat, so the recorded cargo arrives with the vessel and the reserved original keeps his own
+  roster inventory. A seat the swap leaves empty keeps its entry under the original and the
+  restore reports it unseated without applying it.
+- EVA recordings: NOT already covered by the snapshot (OnStart reloads from the roster), so the
+  EVA kerbal's inventory is captured and restored the same way.
+- Recordings made before this change: no node, roster inventory kept (today's behaviour), one
+  Info line per spawn saying so.
+- Re-Fly / rewind: nothing to do. The roster, inventories included, comes back from the rewind
+  point's quicksave (the reconciliation bundle carries no roster), and a spawn after the rewind
+  restores the recorded inventory again.
+- A crew member removed from the spawn (dead, EVA'd into a child recording, already on another
+  vessel) is not touched.
+
+Tests: `CrewInventorySnapshotTests` (codec round-trip, sidecar round-trip, DeepClone, optimizer
+split and merge, restore replaces / no-key unchanged / only seated crew, stand-in reverse map and
+KSC swap) and the builder's `VesselSnapshotBuilder.WithCrewInventory`. In-game: new category
+`KerbalInventorySpawn` (two self-skipping FLIGHT cells: the live capture, and the roster applier
+replacing and restoring an active crew member's inventory), no lane.
+
+Live check owed: fly a crewed craft whose kerbal carries a cargo part from the VAB (persist
+inventories on), stow it in the pod, revert and commit, and confirm the spawned vessel holds the
+part exactly once; then the reverse (take a part from the pod, keep it on the kerbal) and confirm
+it survives the spawn.
 
 ---
 
@@ -1675,6 +1746,18 @@ every annotated screen drew; the findings below are what the screenshots showed.
 - The census lane's `record` / `control` lines live on the unmerged census branch; its
   Administration records call `StrategyReservationGate.TryRefuseActivation(id, out text)`, which now
   reads stock's verdict itself, so they follow the precedence without a change there.
+
+**Live behavioural proof of the click-blocks after a rewind (2026-09-27, branch `clickblock-lanes`):**
+`KB-3-ksc-click-blocks-after-rewind` (reading `2026-09-27_1238`, armed `2026-09-27_1240`, both PASS
+attempt 1) presses the R&D Research, facility-menu Upgrade, Astronaut Complex Hire and Mission Control
+Accept controls on `stock-screen-census` through the stock call behind each (`KscAction`, with the new
+`accept-contract` sub-action), and reads each refused by its backstop with the blocked dialog's body
+equal to the hover record's why, the target's state and the funds and science pools unchanged, and the
+ledger at 26 rows throughout. No product finding. A grep of all 333 specs for `Blocked action`,
+`blocked-committed` and `actionblocked` finds only KB-2 and KB-3 pressing a blocked control (GUI-10
+raises the dialog synthetically; KB-1 lists the refusals as forbidden), so the strategy activate /
+deactivate, Decline, Cancel, contract-slot, dismissal, crew-dialog seat and part-purchase blocks still
+have no behavioural lane (unit and in-game decision cells only).
 
 ---
 

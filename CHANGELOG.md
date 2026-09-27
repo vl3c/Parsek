@@ -10,6 +10,7 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a lane for the tech, upgrade, hire and contract-accept blocks after a rewind.** `KB-3-ksc-click-blocks-after-rewind` runs on the stock-screen census career, whose committed timeline researches a tech, upgrades the Tracking Station, hires an applicant and accepts a contract after the save clock. For each of the four it checks that the stock control is greyed with the committed-timeline explanation, that the stock call behind the control is refused with the blocked dialog, that the dialog shows exactly the explanation the hover showed, and that no state, funds, science or ledger row changes. The `KscAction` test verb gains `action=accept-contract contract=<guid>` (Mission Control's own `Contract.Accept()` call), and a refused research, upgrade, hire or accept now logs the target's state and the funds and science pools before and after stock's call.
 - **Dev: a lane for the facility repair block after a rewind.** `KB-2-ksc-repair-block-after-rewind` (never flown) runs on a new committed fixture, `stock-screen-census-repair`: the stock-screen census career with the Tracking Station dish destroyed before the save clock and its repair committed after it, built by `Source/Parsek.Tests/StockScreenRepairFixture.cs`. It checks that the Tracking Station menu greys Repair and shows the explanation on its tooltip, and that a repair made through the menu's own call is refused with the blocked dialog, repairs nothing and leaves funds unchanged. The `StockScreen` test verb can now hover the facility menu's Repair button (`item=repair`), and a refused `KscAction repair-facility` logs the destroyed-building count and the funds before and after stock's call.
 - **Automated testing: the coverage-wave rulings are confirmed, and the RemoteTech cell is retired.**
   The rulings the coverage waves applied pending the operator (three retired cells, the atmosphere,
@@ -1218,7 +1219,15 @@ _(unreleased — entries accumulate here per commit)_
   end still never spawn a vessel, and a looped mission (which loops the whole mission) is
   unchanged. A kerbal's hover no longer says a loop holds him. The log names the spawn with
   `Chain loop first-run spawn:`.
-
+- **Kerbals keep the inventory they carried when their vessel reappears.** A vessel that
+  appears at the end of a recording used to give each kerbal the inventory he has on the roster
+  now, not what he carried at the end of the flight, because a kerbal's own inventory is stored
+  with him rather than with the vessel. A part could exist twice (brought from the VAB, stowed
+  in the pod or placed during the flight, then revert and commit) or disappear (taken out of the
+  pod and kept by the kerbal). Parsek now records each crew member's inventory with the vessel
+  and gives it back to him when the vessel appears, EVA kerbals included; a stand-in who takes a
+  reserved kerbal's seat gets that seat's recorded inventory. Recordings made before this
+  version keep the old behaviour.
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:
