@@ -423,8 +423,12 @@ Owner rulings (2026-09-26):
   flight (`SceneExitInterceptor` -> Re-Fly merge dialog; Esc "Space Center" / "Tracking
   Station" are not CanRestart-gated). `ReFlyRevertButtonGate.Apply` logs one Info line per
   evaluation while a re-fly is live on such a game (`Flight.CanRestart=False ... re-fly Retry
-  not offered`). Live check still owed: fly a Hard-preset re-fly, leave the flight, confirm
-  the scene-exit merge dialog appears.
+  not offered`). Live check automated 2026-09-27, branch `lane-hard-refly-exit`, NOT YET
+  FLOWN: `RF-16-hard-preset-refly-exit-merge` / `RF-17-hard-preset-refly-exit-discard` re-fly
+  on the derived fixture `gloops-airshow-hard` (`gloops-airshow` with `preset = Hard` and the
+  three Hard FLIGHT flags off), require the gate line, the scene-exit drive to the Space
+  Center and the `labels=ReFlyAttempt` merge dialog, answer Merge / Discard, and forbid every
+  revert road. Owed: their reading runs.
 - ~~S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
   kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.~~
   FIXED 2026-09-26, branch `kss-respawn`: `KerbalsModule.PopulateCrewEndStates` stamps the
