@@ -40,9 +40,9 @@ namespace Parsek.Logistics
         // Injected by the caller - captured once per gate-check / debit and
         // shared with the writer so the stored-amount read and the
         // resource-mutation path read from the SAME loaded/unloaded branch.
-        // Re-evaluating <c>vessel.loaded && !vessel.packed</c> per-call would
-        // diverge if the origin vessel transitions packed state mid-tick
-        // (same rationale as <see cref="LiveDeliveryCapacityProbe.isLoaded"/>).
+        // Re-evaluating <see cref="RouteOrchestrator.EndpointStoreIsLiveParts(Vessel)"/>
+        // per call would diverge if the origin vessel loads or unloads
+        // mid-tick (same rationale as <see cref="LiveDeliveryCapacityProbe.isLoaded"/>).
         internal readonly bool isLoaded;
 
         internal LiveOriginCargoProbe(Vessel vessel, bool isLoaded)

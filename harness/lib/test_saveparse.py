@@ -2802,10 +2802,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         #     gate, so a driven route's STOP resolves to `rover fuel 0`, ~568 m
         #     from the focus (inside stock's landed LOAD distance, outside its
         #     350 m PACK distance; the earlier `5.4 km` reading was wrong, see
-        #     `build_rover_route_recorded.py`) and therefore PACKED -
-        #     `path=unloaded`, which IS
-        #     a delivering path (`LiveDeliveryWriters.WriteResourceUnloaded`
-        #     writes `ProtoPartResourceSnapshot.amount`).
+        #     `build_rover_route_recorded.py`) and therefore LOADED but PACKED -
+        #     `path=loaded` since 2026-09-27 (live parts; the old proto-snapshot
+        #     write for a loaded vessel was discarded by the next BackupVessel).
         #   `terminalStates` SUMS TO 4, NOT 5: the dock member f2fb77ea carries
         #     no `terminalState` (it is a mid-tree merged child).
         #   `branchPoints` is the suite's second `Dock`/`Undock` pair and carries

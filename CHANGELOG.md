@@ -1206,6 +1206,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Supply routes between nearby vessels now really move the cargo during time warp.** When a
+  route's pickup or delivery vessel was close enough to your active vessel to be loaded but was
+  on rails (time warp), Parsek wrote the fuel and parts into the vessel's saved copy instead of
+  the vessel itself. The next save or scene change rebuilt that copy from the vessel, so the
+  pickup and the delivery quietly vanished: the source kept its fuel, the destination never got
+  it, and the route could run again on cargo it had already taken. A loaded vessel now always
+  has its tanks and inventories changed directly, whether or not it is on rails; only a vessel
+  that is truly unloaded is written through its saved copy.
 - **Kerbals keep the inventory they carried when their vessel reappears.** A vessel that
   appears at the end of a recording used to give each kerbal the inventory he has on the roster
   now, not what he carried at the end of the flight, because a kerbal's own inventory is stored

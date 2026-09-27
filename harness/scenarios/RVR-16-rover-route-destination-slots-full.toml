@@ -370,7 +370,7 @@ required  = [
   "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='RVR16 Slot Limit' status=Paused",
   "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
   "DestinationHasCapacity: route [0-9a-f]{8} full manifest fits \\(stopsResolved=1 stopsUnresolved=0\\)",
-  "Delivery write: route=.* dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.[0-9]* written=97\\.[0-9]* tankBefore=100 tankAfter=197\\.[0-9]* capacity=400 path=unloaded",
+  "Delivery write: route=.* dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.[0-9]* written=97\\.[0-9]* tankBefore=100 tankAfter=197\\.[0-9]* capacity=400 path=loaded",
   "Inventory store: route=.* dest=rover fuel 0 pid=2123618197 part=evaChute",
   "Inventory store: route=.* dest=rover fuel 0 pid=2123618197 part=evaScienceKit",
   "Inventory store: route=.* dest=rover fuel 0 pid=2123618197 part=DeployedCentralStation",

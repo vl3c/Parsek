@@ -6,8 +6,8 @@ namespace Parsek.Logistics
 {
     /// <summary>
     /// Live <see cref="IDeliveryCapacityProbe"/> over the destination vessel.
-    /// Picks the loaded or unloaded probe automatically based on
-    /// <c>vessel.loaded</c> / <c>vessel.packed</c>. Tracks
+    /// Reads the live parts or the proto snapshots per the injected
+    /// <see cref="isLoaded"/> gate. Tracks
     /// <c>consumedSlots</c> (module-qualified <see cref="InventorySlotAddress"/>
     /// keys) across calls so the planner's per-item inventory walk can ask for
     /// "next empty slot" across ALL inventory modules without double-assigning
@@ -69,13 +69,12 @@ namespace Parsek.Logistics
         // Injected by the orchestrator (ApplyDelivery) — captured once per
         // delivery and passed into BOTH the probe and the writer so the
         // free-capacity calculation and the resource-mutation path read
-        // from the SAME loaded/unloaded branch. Re-evaluating
-        // <c>vessel.loaded && !vessel.packed</c> per-call would diverge
-        // if the destination vessel transitions packed state mid-tick (KSP
-        // synchronously transitions on warp boundaries, focus changes, scene
-        // events): the probe could report loaded-path free capacity while
-        // the writer mutates the unloaded-path snapshot, causing under-fill
-        // or writes into a snapshot about to be re-initialized.
+        // from the SAME loaded/unloaded branch. The value comes from
+        // <see cref="RouteOrchestrator.EndpointStoreIsLiveParts(Vessel)"/>;
+        // re-evaluating it per call would diverge if the destination loads or
+        // unloads mid-tick: the probe could report live-part free capacity
+        // while the writer mutates the proto snapshot, causing under-fill or
+        // writes the next BackupVessel discards.
         internal readonly bool isLoaded;
 
         internal LiveDeliveryCapacityProbe(Vessel vessel, bool isLoaded)

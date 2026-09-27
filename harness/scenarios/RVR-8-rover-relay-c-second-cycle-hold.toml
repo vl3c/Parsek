@@ -188,9 +188,13 @@ count = { min = 10, max = 10 }
 # TOKENS 7-10 ARE CYCLE 0, RE-DRIVEN. All four are MEASURED lines from RVR-7's green
 # flights (`2026-09-02_2245` / `_2251`). They are here as the PRECONDITION of everything
 # below: if cycle 0 did not actually spend the endpoints, the hold this lane is about is
-# not the hold it claims to be. `path=unloaded` is kept as measured - the seam TimeJump
-# warps with the endpoints packed, so it is the load state at the dispatch tick that
-# decides the path, not the 313 m / 731 m / 1041 m separations.
+# not the hold it claims to be. `path=loaded` since 2026-09-27: the endpoints are LOADED
+# (313 m / 731 m / 1041 m, inside physics range) and merely PACKED by the seam TimeJump.
+# The earlier measured `path=unloaded` was the defect this lane caught on
+# `2026-09-27_1147`: the writers wrote a loaded vessel's proto snapshot, stock's
+# flight-ready autosave landed between the two cycles on a slow load and rebuilt it from
+# the live parts, and cycle 1 re-read B at 200 and delivered again
+# (todo RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE).
 #
 # TOKENS 11-15 ARE THE SECOND CYCLE, THE SUBJECT.
 #   11 THE GATE, from `LiveRouteRuntimeEnvironment`'s pickup-source Verbose line. One
@@ -237,8 +241,8 @@ required  = [
   "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
   "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
   "PostWalk: routes=0",
-  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* tankBefore=200 tankAfter=45\\.[56][0-9]* path=unloaded",
-  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=200 tankAfter=400 .* path=unloaded",
+  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* tankBefore=200 tankAfter=45\\.[56][0-9]* path=loaded",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=200 tankAfter=400 .* path=loaded",
   "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0",
   "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 COMPLETED cycle consumed the armed pause",
   "PickupSourcesHaveCargo: route [0-9a-f]{8} all-or-nothing FAIL first-short source pid=90564594 name=B short=LiquidFuel shortfall=108\\.79.* inventory=False sources=1",

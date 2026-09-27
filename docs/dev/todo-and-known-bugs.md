@@ -15,6 +15,38 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE: RVR-8's second cycle delivered instead of blocking on the spent origin~~ [FILED 2026-09-27 from run `2026-09-27_1147` (PARSEK-FAIL(expectation), automation DLL `d6dbc5e0`, origin/main `6437750ba`). FIXED 2026-09-27, branch `fix-rvr8-armed-pause`]
+
+**Symptom.** Cycle 0 consumed the send-once pause on completion (`delivered-then-paused`), as it
+should. The second send-once then dispatched cycle 1 at ut=2400 and picked up 154.4 LiquidFuel
+from origin B again: the `Origin debit:` line read `tankBefore=200`, not the 45.6 cycle 0 left.
+saveParse read `completedCycles 2` against a window of 1. The green 2026-09-10 run had blocked
+cycle 1 `OriginLacksCargo` (B raw 45.6, shortfall 108.8).
+
+**Not the armed pause, and not a skipped cargo check.** Both runs consume the pause the same way.
+The cycle-1 gate did run: its `all ... pickup source(s) cover - eligible` line is
+`VerboseRateLimited` per route and fell inside cycle 0's window. It passed because B really read
+200.
+
+**Root cause (a latent product defect, not a bisectable regression).** Every Logistics
+probe/writer pair picked its store with `vessel.loaded && !vessel.packed`, so an endpoint that is
+LOADED but PACKED (inside physics range, on rails under warp or a seam `TimeJump`) was read and
+written through its `ProtoVessel` snapshot. For a loaded vessel the live parts are the authority:
+stock `Vessel.BackupVessel` rebuilds `protoVessel` from them on every save and on unload, so the
+debit and the delivery were discarded at the next save. Evidence: even the GREEN 2026-09-10 run's
+produced save holds B=200 / A=200 after a completed cycle; it only passed because no save ran
+between the two cycles, so cycle 1 re-read the edited-but-doomed snapshot. On the 09-27 run the
+scene load was slow (OnLoad 1238 ms against 237 ms), so stock's first flight-ready autosave
+(`Flight State Captured` / `Game State Saved as persistent`) landed after cycle 0 and before
+cycle 1, and wiped both writes. For a player this means a route between vessels near the active
+one, run during time warp, moved nothing durable.
+
+**Fix.** `RouteOrchestrator.EndpointStoreIsLiveParts` (live parts iff `vessel.loaded`, packed or
+not) is the one gate at all seven capture sites (origin debit, pickup debit, inventory pickup,
+delivery, origin-cargo gate, pickup-source gate, multi-stop capacity probe). The writer lines for
+these in-range endpoints now read `path=loaded`; RVR-2, RVR-4, RVR-7, RVR-8, RVR-15, RVR-16,
+RVR-20 and GUI-20 are re-pinned from `path=unloaded`. Unit tests: `EndpointStoreGateTests`.
+
 ## ~~REFLY-SEPARATIONS-ONLY: an EVA authored a Rewind Point and a stranded or dead EVA kerbal surfaced as a Re-Fly~~ [OWNER RULING 2026-09-27; IMPLEMENTED 2026-09-27, branch `refly-separations-only`]
 
 **Ruling (Vlad, 2026-09-27).** "Re-Fly is for vessel separations only (staging, decoupling,

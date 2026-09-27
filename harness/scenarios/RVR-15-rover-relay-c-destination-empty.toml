@@ -184,11 +184,11 @@ required  = [
   "PickupSourcesHaveCargo: route [0-9a-f]{8} all 1 pickup source\\(s\\) cover - eligible",
   "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ dispatch fired \\(carrierStopIndex=0\\)",
   # THE ORIGIN HALF, RVR-7's measurement on untouched bytes.
-  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* tankBefore=200 tankAfter=45\\.[56][0-9]* path=unloaded",
-  "Inventory remove \\(unloaded\\): source=B pid=90564594 .* removed=1",
+  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* tankBefore=200 tankAfter=45\\.[56][0-9]* path=loaded",
+  "Inventory remove \\(loaded\\): source=B pid=90564594 .* removed=1",
   # THE DELIVERY HALF, THE SUBJECT: the same manifest into an EMPTY tank.
-  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=unloaded",
-  "Inventory store: route=.* dest=A pid=4280917262 .* path=unloaded",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=loaded",
+  "Inventory store: route=.* dest=A pid=4280917262 .* path=loaded",
   "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0",
   "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 COMPLETED cycle consumed the armed pause",
 ]
