@@ -2131,7 +2131,6 @@ namespace Parsek
                 ui.DrawRecordingsWindowIfOpen(windowRect);
                 ui.DrawTimelineWindowIfOpen(windowRect);
                 ui.DrawKerbalsWindowIfOpen(windowRect);
-                ui.DrawCareerStateWindowIfOpen(windowRect);
                 ui.DrawLogisticsWindowIfOpen(windowRect);
                 ui.DrawStructureWindowIfOpen(windowRect);
                 ui.DrawSettingsWindowIfOpen(windowRect);

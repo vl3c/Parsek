@@ -29,7 +29,7 @@ namespace Parsek.Tests
     /// direction a guard wants.</para>
     ///
     /// <para><b>Which windows are single-line.</b> The wide windows whose ENTIRE help
-    /// corpus fits one wrapped line at their first-open width - Career State, Timeline,
+    /// corpus fits one wrapped line at their first-open width - Timeline,
     /// Logistics, Real Spawn Control and Recordings (with the Missions tab it hosts) -
     /// construct their <see cref="TooltipEchoBox"/> with
     /// <see cref="TooltipEchoBox.SingleLine"/> and are budgeted at L=1 below; every other
@@ -109,15 +109,7 @@ namespace Parsek.Tests
             // column headers, the plain-bucket fold, the chain expand, the Flights fold,
             // the row cross-link), so a removal still reds this row.
             yield return new object[] { "UI/KerbalsWindowUI.cs", 760f, 5, TooltipEchoBox.DoubleLine };
-            // Career State: DefaultWindowWidth = 820. Single-line strip: longest help
-            // text is 76 chars against a 112-char one-line budget. Floor lowered 14 -> 8
-            // with the 2026-09-24 rework that removed the Facilities and Milestones tabs:
-            // the file carries 9 literal tooltips (two tab labels, six column headers, the
-            // pending fold). The two row cross-link tooltips are named consts behind a
-            // conditional, so the scan does not count them; their length is pinned by
-            // CareerStateWindowUITests.TheLinkTooltipsFitTheHelpStrip instead.
-            yield return new object[] { "UI/CareerStateWindowUI.cs", 820f, 8, TooltipEchoBox.SingleLine };
-            // Timeline: DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth (820).
+            // Timeline: DefaultWindowWidth = 820.
             // Single-line strip: longest literal is 93 chars; watch-button tooltips cap
             // at 77 ("No active ghost - recording is in the past/future ...").
             // Margin 0 as of 2026-08-29: the file carries exactly 14 literal tooltips
@@ -126,10 +118,13 @@ namespace Parsek.Tests
             // this row immediately - lower the floor in the same commit.
             // RESTORED 2026-09-11 alongside the main-window row above (same accidental
             // deletion in 454b4df7e).
-            // Floor 20: the Career view button and the five category buttons added six
+            // Floor 18: the Career view button and the five category buttons added six
             // tooltips; the Custom preset button keeps its own (the short-lived Time fold
-            // button and its tooltip are gone), so the file carries exactly 20.
-            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 20, TooltipEchoBox.SingleLine };
+            // button and its tooltip are gone). The Contracts and Strategies category
+            // hovers became runtime-composed on 2026-09-27 (the Career-mode slot counts
+            // appended to a const base), so the scan no longer sees those two; their
+            // worst case is pinned by CareerSlotHovers_FitTheTimelineStrip below.
+            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 18, TooltipEchoBox.SingleLine };
             // Recordings: DefaultWindowWidth = 1355, held by this budget: wider columns come out
             // of the expanding Name column, never out of a wider window (2026-09-26).
             // Single-line strip: the window's whole help corpus was trimmed to fit one
@@ -237,6 +232,39 @@ namespace Parsek.Tests
                 string.Format("RewindInvoker.FutureRewindPointReason is {0} chars, over the {1}-char "
                     + "single-line Timeline help-strip budget: \"{2}\"",
                     tip.Length, budget, tip));
+        }
+
+        // catches: the Timeline's Contracts / Strategies category hover growing past the
+        // SINGLE-line Timeline strip once the Career-mode slot counts are appended. The
+        // hover is composed at runtime from a const base plus
+        // CareerSlotSummary.FormatSlotSentence, so the literal scan cannot see it; the
+        // worst case is two-digit counts with a reservation.
+        [Fact]
+        public void CareerSlotHovers_FitTheTimelineStrip()
+        {
+            int budget = BudgetChars(TimelineWindowUI.DefaultWindowWidth, TooltipEchoBox.SingleLine);
+            var worst = new CareerSlotSummary.SlotUsage
+            {
+                Active = 12, Limit = 99, Reserved = 44, Free = 43, PeakNeed = 56
+            };
+            var unlimited = new CareerSlotSummary.SlotUsage { Active = 99, Limit = 999, Unlimited = true };
+            foreach (CareerSlotSummary.SlotUsage usage in new[] { worst, unlimited })
+            {
+                string contracts = TimelineWindowUI.BuildCategoryTooltip(
+                    TimelineWindowUI.ContractsToggleTooltip,
+                    CareerSlotSummary.FormatSlotSentence(CareerSlotSummary.SlotKind.Contracts, usage));
+                string strategies = TimelineWindowUI.BuildCategoryTooltip(
+                    TimelineWindowUI.StrategiesToggleTooltip,
+                    CareerSlotSummary.FormatSlotSentence(CareerSlotSummary.SlotKind.Strategies, usage));
+                foreach (string tip in new[] { contracts, strategies })
+                {
+                    Assert.DoesNotContain("\n", tip);
+                    Assert.True(tip.Length <= budget,
+                        string.Format("the Timeline category hover is {0} chars, over the {1}-char "
+                            + "single-line Timeline help-strip budget: \"{2}\"",
+                            tip.Length, budget, tip));
+                }
+            }
         }
 
         // catches: the Supply-Run cost explanation growing past the Logistics strip.

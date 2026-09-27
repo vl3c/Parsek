@@ -5,27 +5,26 @@ using System.Security;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Smoke-guard tests for ParsekUI wiring. Narrow scope: verifies that Phase 3
-    /// wiring constructed the Career State window and exposes it via the accessor.
-    /// Fails fast if ParsekUI forgets to `new` a sub-window or rename breaks the
-    /// accessor — both invisible to CareerStateWindowUI-only tests.
+    /// Smoke-guard tests for ParsekUI wiring. Narrow scope: verifies that the KSC
+    /// constructor built the Timeline window and exposes it via the accessor.
+    /// Fails fast if ParsekUI forgets to `new` a sub-window or a rename breaks the
+    /// accessor - both invisible to window-only tests.
     /// </summary>
     [Collection("Sequential")]
     public class ParsekUITests
     {
         [Fact]
-        public void ParsekUI_Ksc_Ctor_Exposes_CareerStateWindowUI()
+        public void ParsekUI_Ksc_Ctor_Exposes_TimelineWindowUI()
         {
-            // Regression: fails if Phase 3 wiring forgets to construct or expose
-            // the Career State window. Mirrors how GetTimelineUI is the only
-            // cross-window access path for the Kerbals Fates companion item.
+            // Regression: fails if the KSC wiring forgets to construct or expose the
+            // Timeline window, the host of the Career-mode slot counts.
             // Bracketed like the sibling classes: constructing a ParsekUI writes the static
             // activeInstance and re-seeds the static applied-mode latch.
             ParsekUI.ResetUiComplexityModeForTesting();
             var ui = new ParsekUI(UIMode.KSC);
             try
             {
-                Assert.NotNull(ui.GetCareerStateUI());
+                Assert.NotNull(ui.GetTimelineUI());
             }
             finally
             {
@@ -98,11 +97,9 @@ namespace Parsek.Tests
         public void MainWindowButtonLabels_UseShortTopLevelText()
         {
             string kerbalsLabel = ParsekUI.GetKerbalsMainButtonLabel();
-            string careerLabel = ParsekUI.GetCareerMainButtonLabel();
 
             Assert.Equal("Kerbals", kerbalsLabel);
             Assert.DoesNotContain("(", kerbalsLabel);
-            Assert.Equal("Career", careerLabel);
         }
     }
 }

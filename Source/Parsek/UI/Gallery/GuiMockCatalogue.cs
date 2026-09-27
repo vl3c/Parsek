@@ -31,7 +31,6 @@ namespace Parsek.UI.Gallery
         internal static readonly string[] SupportedWindows =
         {
             GuiMockSession.KerbalsWindow,
-            GuiMockSession.CareerWindow,
             GuiMockSession.StructureWindow,
         };
 
@@ -82,13 +81,12 @@ namespace Parsek.UI.Gallery
         /// has one.
         ///
         /// <para>It exists because the complexity mode decides whether a window can be on
-        /// screen at all: Basic HIDES the Kerbals and Career State launchers
-        /// (<c>UiSurfaceVisibility.IsVisible</c>) and the mode switch FORCE-CLOSES both
-        /// (<c>ParsekUI.BuildGatedWindowCloseSet</c>), so applying a mock to one of them
-        /// in Basic would photograph a window no player can open - and the coverage audit
-        /// already established those index rows are UNREACHABLE rather than uncaptured.
+        /// screen at all: a launcher Basic hides (<c>UiSurfaceVisibility.IsVisible</c>) has
+        /// its window force-closed by the mode switch (<c>ParsekUI.BuildGatedWindowCloseSet</c>),
+        /// so applying a mock to it in Basic would photograph a window no player can open.
         /// The applier refuses with <c>mock-refused-mode</c> instead of producing the
-        /// picture.</para>
+        /// picture. The Kerbals launcher draws in both modes (owner re-ruling 2026-09-22),
+        /// so no mockable window is refused today; the check stays for the next one.</para>
         ///
         /// <para>Structure List has NO launcher: it is opened from a Missions or Logistics
         /// row, it is not in the gated close set, and it draws in both modes - so it
@@ -100,11 +98,6 @@ namespace Parsek.UI.Gallery
             if (string.Equals(window, GuiMockSession.KerbalsWindow, StringComparison.Ordinal))
             {
                 surface = UiSurface.MainButtonKerbals;
-                return true;
-            }
-            if (string.Equals(window, GuiMockSession.CareerWindow, StringComparison.Ordinal))
-            {
-                surface = UiSurface.MainButtonCareer;
                 return true;
             }
             return false;
@@ -145,7 +138,6 @@ namespace Parsek.UI.Gallery
             if (all != null) return;
             var rows = new List<GuiMockState>();
             GuiMockKerbalsStates.Append(rows);
-            GuiMockCareerStates.Append(rows);
             GuiMockStructureStates.Append(rows);
             var index = new Dictionary<string, GuiMockState>(StringComparer.Ordinal);
             for (int i = 0; i < rows.Count; i++)

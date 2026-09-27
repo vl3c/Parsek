@@ -58,9 +58,6 @@ namespace Parsek
         /// <summary>Kerbals launcher.</summary>
         MainButtonKerbals,
 
-        /// <summary>Career State launcher.</summary>
-        MainButtonCareer,
-
         /// <summary>
         /// Gloops Flight Recorder launcher. RETIRED in every mode (see
         /// <see cref="UiSurfaceVisibility.IsRetired"/>): Gloops is winding down toward a
@@ -179,7 +176,6 @@ namespace Parsek
 
                 // --- Basic hides these (design section 4) ---
                 case UiSurface.MainButtonSpawnControl:       // advanced staging tool
-                case UiSurface.MainButtonCareer:             // read-only career reference
                 case UiSurface.TabRecordings:                // raw per-recording table
                 case UiSurface.MissionsLoopControls:         // manual-loop authoring on the Missions tab
                 case UiSurface.SettingsSectionLooping:       // the global half of the same authoring set

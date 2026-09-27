@@ -275,8 +275,9 @@ namespace Parsek.Tests
             Assert.Single(scoped);
             Assert.EndsWith("Label = \"", scoped[0], StringComparison.Ordinal);
 
-            // And the scan reads real files rather than nothing.
-            Assert.True(GalleryFiles().Count >= 8);
+            // And the scan reads real files rather than nothing (seven gallery files since
+            // the Career window's builder file went with the window).
+            Assert.True(GalleryFiles().Count >= 7);
         }
 
         [Fact]

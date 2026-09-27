@@ -2081,6 +2081,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The Career window is gone; its slot counts are in the Timeline's Contracts and Strategies
+  button hovers.** Everything the Career window showed is on screens you already use: stock
+  Mission Control and Administration carry Parsek's marks (what is active, when a contract
+  completes or a strategy ends), and the Timeline's Career view lists every dated contract and
+  strategy event, past and future. The one thing only the Career window said, how many slots
+  your recorded flights still need later, now ends the hover of the Timeline's Contracts and
+  Strategies buttons in Career mode, free first: "Contract slots: 4 of 7 free now (2 active,
+  1 reserved for later)." (or "no slot limit" at a fully upgraded building). The numbers are
+  the same Mission Control forecast that refuses an accept which would leave a committed one
+  without a slot. The main window no longer has a Career button.
+  Dev: `UiAction window=career` and its `pending:` expand keys, the `career` mock states and
+  the Career in-game mock cell are removed; `GUI-15-census-career-contracts` now photographs
+  the Timeline's Contracts view and its hover, and GUI-1 / GUI-5 / GUI-6 drop their Career
+  captures (every census `describe` now reads `windows=11`).
+
 - **Re-Fly is for vessel separations only: EVA kerbals no longer appear in Unfinished Flights and
   cannot be re-flown.** Rewind Points are made when a vessel stages, decouples or undocks into two
   or more controllable pieces, so a booster or lander can be flown again from the moment it

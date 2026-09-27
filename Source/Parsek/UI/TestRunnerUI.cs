@@ -32,7 +32,7 @@ namespace Parsek
 
         private Vector2 testRunnerScrollPos;
         private bool testRunnerWindowHasInputLock;
-        // Internal: see CareerStateWindowUI.CareerStateInputLockId (design 7.2 close set).
+        // Internal so the design-7.2 close set (ParsekUI.BuildGatedWindowCloseSet) can name it.
         // This is the SETTINGS-launched runner window; the global Ctrl+Shift+T
         // `ParsekTestRunnerGlobal` window is a separate window with a separate lock and is
         // never gated (design 6.3, edge case 13).
@@ -162,7 +162,7 @@ namespace Parsek
 
         /// <summary>
         /// Whether this window currently holds its KSP input lock (diagnostic read for the
-        /// design-7.2 close handler; see CareerStateWindowUI.HasInputLock).
+        /// design-7.2 close handler; see ParsekUI.BuildGatedWindowCloseSet).
         /// </summary>
         internal bool HasInputLock => testRunnerWindowHasInputLock;
 

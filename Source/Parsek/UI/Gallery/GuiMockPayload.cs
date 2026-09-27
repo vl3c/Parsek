@@ -35,10 +35,6 @@ namespace Parsek.UI.Gallery
         /// <summary>Kerbals: a whole built view model (both tabs).</summary>
         internal KerbalsWindowUI.KerbalsViewModel? Kerbals;
 
-        /// <summary>Career State: a whole built view model (all four tabs plus the
-        /// banner).</summary>
-        internal CareerStateWindowUI.CareerStateViewModel? Career;
-
         /// <summary>Structure List: steps plus target mode and title.</summary>
         internal GuiMockStructure Structure;
 

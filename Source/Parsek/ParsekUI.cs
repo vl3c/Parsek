@@ -36,8 +36,8 @@ namespace Parsek
         private GUIStyle mainWindowTitleStyle;
         private GUIStyle mainWindowTitleStyleSource;
 
-        // Shared header styles (promoted from CareerStateWindowUI so every window
-        // renders section bars and column headers the same way). Lazy-initialized
+        // Shared header styles, so every window renders section bars and column
+        // headers the same way. Lazy-initialized
         // via EnsureSharedHeaderStyles because GUIStyle construction requires a
         // valid GUI.skin — only available during draw.
         private GUIStyle sharedSectionHeaderStyle;
@@ -71,9 +71,6 @@ namespace Parsek
 
         // Kerbals window (reserved crew, active stand-ins, retired stand-ins; #385)
         private KerbalsWindowUI kerbalsUI;
-
-        // Career State window (contracts, strategies, facilities, milestones; #416)
-        private CareerStateWindowUI careerStateUI;
 
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
@@ -131,7 +128,6 @@ namespace Parsek
         internal RecordingsTableUI GetRecordingsTableUI() => recordingsTableUI;
         internal SettingsWindowUI GetSettingsWindowUI() => settingsUI;
         internal TimelineWindowUI GetTimelineUI() => timelineUI;
-        internal CareerStateWindowUI GetCareerStateUI() { return careerStateUI; }
 
         // The remaining gated, lock-owning sub-windows (design 7.2 close set). Exposed the
         // same way as the accessors above so the unit and in-game mode tests can open them
@@ -176,7 +172,6 @@ namespace Parsek
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
             this.kerbalsUI = new KerbalsWindowUI(this);
-            this.careerStateUI = new CareerStateWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
@@ -197,7 +192,6 @@ namespace Parsek
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
             this.kerbalsUI = new KerbalsWindowUI(this);
-            this.careerStateUI = new CareerStateWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
             this.logisticsUI = new LogisticsWindowUI(this);
@@ -212,7 +206,6 @@ namespace Parsek
         {
             timelineUI.InvalidateCache();
             kerbalsUI.InvalidateCache();
-            careerStateUI.InvalidateCache();
         }
 
         private const float SpacingSmall = 3f;
@@ -228,16 +221,6 @@ namespace Parsek
         private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
 
         internal static string GetKerbalsMainButtonLabel() => "Kerbals";
-
-        internal static string GetCareerMainButtonLabel() => "Career";
-
-        // The live game mode for launcher gating, or CAREER when no game is loaded (the
-        // pre-change behavior: the launcher shows).
-        private static Game.Modes CurrentGameModeOrCareer()
-        {
-            Game game = HighLogic.CurrentGame;
-            return game != null ? game.Mode : Game.Modes.CAREER;
-        }
 
         // --- Frame-latched Basic / Advanced UI complexity mode (design 7.2) ---
         // Static because the setter seam is static and the setting is global; both
@@ -550,12 +533,6 @@ namespace Parsek
             return new List<GatedWindowCloseTarget>
             {
                 new GatedWindowCloseTarget(
-                    "CareerState",
-                    CareerStateWindowUI.CareerStateInputLockId,
-                    () => careerStateUI.IsOpen,
-                    () => careerStateUI.HasInputLock,
-                    () => { careerStateUI.IsOpen = false; careerStateUI.ReleaseInputLock(); }),
-                new GatedWindowCloseTarget(
                     "GloopsRecorder",
                     GloopsRecorderUI.InputLockId,
                     () => gloopsUI.IsOpen,
@@ -802,7 +779,7 @@ namespace Parsek
             // Button order (separator groups requested by the player):
             //   1. Real Spawn Control  (InFlight-only; its trailing separator is inside the block)
             //   2. Timeline / Recordings
-            //   3. Kerbals / Career
+            //   3. Kerbals
             //   4. Gloops Flight Recorder  (InFlight-only; RETIRED in every mode - never draws)
             //   5. Settings
             //
@@ -953,21 +930,14 @@ namespace Parsek
                 GUI.color = prevLogisticsColor;
             }
 
-            // --- Kerbals / Career, with their LEADING separator ---
-            // Kerbals draws in both modes (owner re-ruling 2026-09-22), Career is hidden in
-            // Basic. The separator that opens this group is gated on the group being
-            // non-empty, so Basic shows Logistics, one gap, Kerbals, one gap, Settings -
-            // never two gaps in a row (design 7.1).
+            // --- Kerbals, with its LEADING separator ---
+            // Kerbals draws in both modes (owner re-ruling 2026-09-22). The separator that
+            // opens this group is gated on the group being non-empty, so a hidden Kerbals
+            // launcher never leaves two gaps in a row (design 7.1).
             bool showKerbalsButton =
                 UiSurfaceVisibility.IsVisible(UiSurface.MainButtonKerbals, complexity);
-            // Career is additionally hidden outside Career mode: contracts and strategies
-            // exist nowhere else, and Science mode's dated history (milestones, facilities,
-            // tech) is the Timeline's Career view.
-            bool showCareerButton =
-                UiSurfaceVisibility.IsVisible(UiSurface.MainButtonCareer, complexity)
-                && CareerStateWindowUI.ModeOffersLauncher(CurrentGameModeOrCareer());
 
-            if (showKerbalsButton || showCareerButton)
+            if (showKerbalsButton)
                 GUILayout.Space(SpacingLarge);
 
             // Keep top-level launch-surface labels short; detailed counts stay inside the window.
@@ -979,17 +949,6 @@ namespace Parsek
                 {
                     kerbalsUI.IsOpen = !kerbalsUI.IsOpen;
                     ParsekLog.Verbose("UI", $"Kerbals window toggled: {(kerbalsUI.IsOpen ? "open" : "closed")}");
-                }
-            }
-
-            if (showCareerButton)
-            {
-                if (GUILayout.Button(new GUIContent(
-                    GetCareerMainButtonLabel(),
-                    "Contracts and strategies you hold along the timeline.")))
-                {
-                    careerStateUI.IsOpen = !careerStateUI.IsOpen;
-                    ParsekLog.Verbose("UI", $"Career window toggled: {(careerStateUI.IsOpen ? "open" : "closed")}");
                 }
             }
 
@@ -1089,11 +1048,6 @@ namespace Parsek
         public void DrawKerbalsWindowIfOpen(Rect mainWindowRect)
         {
             kerbalsUI.DrawIfOpen(mainWindowRect);
-        }
-
-        public void DrawCareerStateWindowIfOpen(Rect mainWindowRect)
-        {
-            careerStateUI.DrawIfOpen(mainWindowRect);
         }
 
         public void DrawLogisticsWindowIfOpen(Rect mainWindowRect)
@@ -1509,8 +1463,8 @@ namespace Parsek
         // child. So a header row opened as BeginHorizontal() outside a scroll view
         // and body rows opened the same way inside one do NOT share an origin: the
         // scroll view contributes the row's own 4px margin, and a GUI.skin.box
-        // wrapper contributes another 4px on top of that. That is the 4px (Career
-        // State, Structure) / 8px (Real Spawn Control) cell-vs-header offset the
+        // wrapper contributes another 4px on top of that. That is the 4px
+        // (Structure) / 8px (Real Spawn Control) cell-vs-header offset the
         // 2026-09-11 GUI census measured.
         //
         // The fix is one shared inset for both rows: every table row - header and
@@ -3073,7 +3027,6 @@ namespace Parsek
             recordingsTableUI.ReleaseInputLock();
             timelineUI.ReleaseInputLock();
             kerbalsUI.ReleaseInputLock();
-            careerStateUI.ReleaseInputLock();
             settingsUI.ReleaseInputLock();
             spawnControlUI.ReleaseInputLock();
             structureListUI.ReleaseInputLock();

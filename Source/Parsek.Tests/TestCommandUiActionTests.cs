@@ -216,7 +216,7 @@ namespace Parsek.Tests
             // the global Ctrl+Shift+T runner, the one window the main window has no button
             // for at all.
             Assert.Equal(
-                new[] { "main", "missions", "timeline", "kerbals", "career", "logistics",
+                new[] { "main", "missions", "timeline", "kerbals", "logistics",
                         "structure", "settings", "spawncontrol", "gloops", "testrunner",
                         "testrunnerglobal" },
                 TestCommandUiAction.Windows.Select(w => w.Name).ToArray());
@@ -312,9 +312,6 @@ namespace Parsek.Tests
                                  "contracts", "strategies", "facilities", "milestones", "tech" },
                 TabsOf("timeline"));
             Assert.Equal(new[] { "roster", "outcomes" }, TabsOf("kerbals"));
-            // Career keeps two tabs; its Facilities and Milestones tabs were removed (the
-            // Timeline's Career view owns that history), and their tokens went with them.
-            Assert.Equal(new[] { "contracts", "strategies" }, TabsOf("career"));
         }
 
         [Fact]
@@ -349,14 +346,16 @@ namespace Parsek.Tests
         [Fact]
         public void TabResolution_YieldsTheLiveFieldIndex()
         {
-            TestCommandUiAction.TryResolveWindow("career", out UiWindowSpec career, out _);
+            TestCommandUiAction.TryResolveWindow("timeline", out UiWindowSpec timeline, out _);
             Assert.True(TestCommandUiAction.TryResolveTab(
-                career, "strategies", out int index, out string reason));
-            Assert.Equal(CareerStateWindowUI.TabStrategies, index);
+                timeline, "strategies", out int index, out string reason));
+            Assert.Equal(5, index);
             Assert.Null(reason);
-            Assert.Equal("strategies", TestCommandUiAction.TabTokenAt(career, 1));
-            // A removed tab is an unknown one, not a silently different index.
-            Assert.False(TestCommandUiAction.TryResolveTab(career, "facilities", out _, out _));
+            Assert.Equal("strategies", TestCommandUiAction.TabTokenAt(timeline, 5));
+            // An unknown tab is refused, not a silently different index.
+            Assert.False(TestCommandUiAction.TryResolveTab(timeline, "pending", out _, out _));
+            // And the removed Career window is an unknown window, not a silent no-op.
+            Assert.False(TestCommandUiAction.TryResolveWindow("career", out _, out _));
         }
 
         [Fact]
@@ -890,15 +889,15 @@ namespace Parsek.Tests
             {
                 new UiWindowState
                 {
-                    Name = "career", Available = true, Open = true, RectKnown = true,
+                    Name = "kerbals", Available = true, Open = true, RectKnown = true,
                     Rect = new UiActionRect { X = 280f, Y = 100f, W = 980f, H = 560f },
-                    Tab = "strategies",
+                    Tab = "outcomes",
                 },
             };
             var p = TestCommandUiAction.BuildDescribePayload("FLIGHT", true, rows);
             Assert.Equal("280,100,980,560", Value(p, "w0rect"));
-            Assert.Equal("contracts,strategies", Value(p, "w0tabs"));
-            Assert.Equal("strategies", Value(p, "w0tab"));
+            Assert.Equal("roster,outcomes", Value(p, "w0tabs"));
+            Assert.Equal("outcomes", Value(p, "w0tab"));
             Assert.Equal("basic", Value(p, "complexity"));
         }
 

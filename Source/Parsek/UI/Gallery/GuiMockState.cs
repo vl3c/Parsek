@@ -16,7 +16,7 @@ namespace Parsek.UI.Gallery
     /// <para><b>AND WHY A BUILDER NEVER TYPES A RENDERED STRING.</b> The point of a mocked
     /// capture is to show the owner a picture the product can actually produce. A builder
     /// therefore constructs the INPUTS and lets the real pure presentation helper render
-    /// the cell - <c>KerbalsPresentation.BuildRosterRows</c>, <c>CareerStateWindowUI.Build</c>,
+    /// the cell - <c>KerbalsPresentation.BuildRosterRows</c>,
     /// <c>MissionComposition.TerminalName</c> - exactly as the game does. A state that
     /// typed its own cell text would teach the owner about a string no code path emits.</para>
     /// </summary>
