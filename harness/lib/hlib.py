@@ -584,6 +584,20 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # axis (SAS off first) so a lane can put a rotating vessel on rails. Single-phase on
     # the default budget.
     "SpinVessel",
+    # StashSlot. The SEVENTH strict PROMOTION out of RESERVED_SEAM_VERBS below (43 ->
+    # 44 implemented, 5 -> 4 reserved), same shape as SealSlot: the wire token is
+    # byte-identical and only the response changes, so no committed spec's bytes move.
+    # It is the Recordings table's per-row Stash button
+    # (UnfinishedFlightStashHandler.TryStash): open a stable separation leaf the default
+    # Unfinished Flights predicate excluded (set ChildSlot.Stashed, demote the slot's
+    # effective tip to CommittedProvisional) so it can be re-flown. `rp=` + `slot=`
+    # only - SealSlot's slot-mode vocabulary verbatim (`target-arg-missing` /
+    # `unknown-rp` / `unknown-slot`, all already mapped below); a handler refusal is
+    # ERROR `stash-refused <handlerReason>`. SINGLE-PHASE with a read-back (the slot's
+    # row reads as an Unfinished Flight), so it rides the 60 s default budget. Its
+    # consumer is RF-20: the live re-fly of a focus slot that went EVA and re-boarded,
+    # which ends Orbiting and is never an Unfinished Flight until stashed.
+    "StashSlot",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -591,11 +605,11 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
 # expectations-block name.
 RENDER_MANIFEST_EXPORT_VERB = "ExportRenderManifest"
 
-# The remaining FIVE stay RESERVED (SimulateStockSwitchClick left this set in R12;
+# The remaining FOUR stay RESERVED (SimulateStockSwitchClick left this set in R12;
 # MissionConfig left it for the arrival-validation lane; StartLoopPlayback and
 # EnterWatchMode left it for the player-workflow lane; SealSlot and RouteCommand left
-# it for the logistics lane). Three deliberate hold-outs, each with a reason rather
-# than a backlog position:
+# it for the logistics lane; StashSlot left it for the live EVA re-fly lane RF-20).
+# Two deliberate hold-outs, each with a reason rather than a backlog position:
 #   StopPlayback  - teardown is FlushAndQuit's job, so a stop verb would be a second,
 #                   weaker owner of it.
 #   FlySlot       - its mechanism is ALREADY driveable under a different name
@@ -603,10 +617,8 @@ RENDER_MANIFEST_EXPORT_VERB = "ExportRenderManifest"
 #                   token ambiguous about which half of the timeline machinery a spec
 #                   exercised - the same argument that kept InvokeRewindToLaunch a
 #                   separate verb rather than an InvokeRewind mode.
-#   StashSlot     - no consumer. Nothing in the suite needs to OPEN a slot, only to
-#                   close one, which is what its promoted sibling SealSlot does.
 RESERVED_SEAM_VERBS: Tuple[str, ...] = (
-    "StopPlayback", "StashSlot", "FlySlot",
+    "StopPlayback", "FlySlot",
     "CrashAfterJournalPhase", "RunInvariantReport",
 )
 
@@ -1092,6 +1104,12 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     #     unmet tail exists to stop firing.
     "SealSlot": TAIL_ROLE_WORLD_MUTATING,
     "RouteCommand": TAIL_ROLE_WORLD_MUTATING,
+    # StashSlot is world-mutating for SealSlot's reason run backwards: it sets the
+    # monotonic ChildSlot.Stashed bit (no un-stash path exists) and demotes the slot's
+    # tip Immutable -> CommittedProvisional, which keeps the rewind point alive and puts
+    # a new Unfinished Flight on the table. Driving it on an unmet run would open a
+    # re-fly option the attempt never earned in the state collect-logs preserves.
+    "StashSlot": TAIL_ROLE_WORLD_MUTATING,
     # ListHandles is `inert` for RecordingState's reason exactly: it walks in-memory
     # state and answers, changing nothing in the game, the save or the career, so it is
     # safe on an unmet tail. It is SKIPPED there anyway - not because it is dangerous
@@ -1284,6 +1302,10 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # Both are WORLD-MUTATING on the tail axis; the two axes disagree by design.
     "SealSlot": POST_MISSION_ROLE_RECORDING,
     "RouteCommand": POST_MISSION_ROLE_RECORDING,
+    # StashSlot is `recording`: its OK is a read-back of PARSEK's own merge state (the
+    # slot is stashed and its row reads as an Unfinished Flight), never a claim about a
+    # kerbal's physical in-world state.
+    "StashSlot": POST_MISSION_ROLE_RECORDING,
     # ListHandles is `recording`: its OK is a read-back of Parsek's OWN store (which
     # RewindPoints / committed recordings / background members exist), never a claim
     # about a kerbal's physical in-world state, which is the whole content of `outcome`.
@@ -9569,7 +9591,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # lanes: both ship a typed refusal taxonomy and without these rows every token
     # collapses to the coarse driver-verdict-mismatch.
     #
-    # SealSlot needs NO NEW ROWS AT ALL, and that is a property of the design rather
+    # SealSlot (and, since RF-20, StashSlot, whose REJECTED set is SealSlot's slot mode
+    # verbatim) needs NO NEW ROWS AT ALL, and that is a property of the design rather
     # than an oversight: it deliberately reuses vocabulary that is already mapped -
     # `target-arg-missing` (SimulateStockSwitchClick), `unknown-rp` / `unknown-slot`
     # (InvokeRewind, verbatim, including the "an absent arg is just an unresolvable

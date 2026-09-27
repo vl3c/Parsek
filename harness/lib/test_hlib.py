@@ -977,14 +977,14 @@ class SpecValidationRejectTests(unittest.TestCase):
             "is impossible - the ceiling must still fire when the spec is isolated")
 
     def test_reserved_seam_verb_rejected(self):
-        # StashSlot stays RESERVED. This cell used to name SealSlot, which the
-        # logistics lane promoted; StashSlot is the right remaining stand-in - same
-        # D9 slot family, and nothing in the suite needs the slot-OPEN direction.
+        # FlySlot stays RESERVED. This cell named SealSlot, then StashSlot, until each
+        # was promoted (the logistics lane, then RF-20); FlySlot is the last member of
+        # that D9 slot family still reserved (its mechanism is InvokeRewind).
         def m(s):
-            s["driver"]["steps"].insert(1, {"cmd": "StashSlot", "expect": "OK"})
+            s["driver"]["steps"].insert(1, {"cmd": "FlySlot", "expect": "OK"})
         v = self._reject(m)
         self.assertFalse(v.ok)
-        self.assertTrue(any("StashSlot" in e and "RESERVED" in e for e in v.errors))
+        self.assertTrue(any("FlySlot" in e and "RESERVED" in e for e in v.errors))
 
     def test_mc1_implemented_verbs_not_reserved(self):
         # M-C1 moved these four RESERVED -> IMPLEMENTED, mirroring the C# verb-table move.
@@ -994,16 +994,16 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
 
     def test_mc1_reserved_verbs_still_reserved(self):
-        # The remaining FIVE names stay RESERVED (not v1-drivable).
+        # The remaining FOUR names stay RESERVED (not v1-drivable).
         # SimulateStockSwitchClick WAS in this list and left it in R12; MissionConfig
         # left it for the arrival-validation lane; StartLoopPlayback and EnterWatchMode
         # left it for the player-workflow lane; SealSlot and RouteCommand left it for
-        # the logistics lane - see the promotion cells below. The three hold-outs each
-        # have a reason: StopPlayback (teardown is FlushAndQuit's job), FlySlot (its
-        # mechanism is already driveable as InvokeRewind) and StashSlot (no consumer -
-        # nothing needs to OPEN a slot).
+        # the logistics lane; StashSlot left it for RF-20 - see the promotion cells
+        # below. The two hold-outs each have a reason: StopPlayback (teardown is
+        # FlushAndQuit's job) and FlySlot (its mechanism is already driveable as
+        # InvokeRewind).
         for verb in ("StopPlayback",
-                     "StashSlot", "FlySlot",
+                     "FlySlot",
                      "CrashAfterJournalPhase", "RunInvariantReport"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.RESERVED_SEAM_VERBS)
@@ -1096,8 +1096,10 @@ class SpecValidationRejectTests(unittest.TestCase):
         # 44 / 5 after SpinVessel, an ADDITION by one: the reserved envelope never
         # carried a physics verb.
         # 43 / 5 after DeleteRecording's removal (2026-09-26), a REMOVAL by one.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 43)
-        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
+        # 44 / 4 after StashSlot, a PROMOTION by one (both numbers move, in opposite
+        # directions): the Recordings table's Stash button, consumed by RF-20.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 44)
+        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
         self.assertEqual(
@@ -1315,12 +1317,12 @@ class SpecValidationRejectTests(unittest.TestCase):
         # assumed, because a promotion and an addition have different bookkeeping.
         self.assertIn("InvokeRewindToLaunch", hlib.IMPLEMENTED_SEAM_VERBS)
         self.assertNotIn("InvokeRewindToLaunch", hlib.RESERVED_SEAM_VERBS)
-        # SealSlot has since been PROMOTED by the logistics lane, so only the other two
-        # slot names are still reserved. The point of this loop survives the promotion:
-        # neither remaining slot verb is InvokeRewindToLaunch under another spelling.
-        for slot_verb in ("FlySlot", "StashSlot"):
-            self.assertIn(slot_verb, hlib.RESERVED_SEAM_VERBS)
-        self.assertIn("SealSlot", hlib.IMPLEMENTED_SEAM_VERBS)
+        # SealSlot and StashSlot have since been PROMOTED (the logistics lane, RF-20),
+        # so only FlySlot is still reserved. The point of this cell survives the
+        # promotions: no slot verb is InvokeRewindToLaunch under another spelling.
+        self.assertIn("FlySlot", hlib.RESERVED_SEAM_VERBS)
+        for slot_verb in ("SealSlot", "StashSlot"):
+            self.assertIn(slot_verb, hlib.IMPLEMENTED_SEAM_VERBS)
 
     def test_rewind_to_launch_step_accepted(self):
         # A spec step using the verb is not flagged RESERVED / unknown. The base
@@ -1432,13 +1434,12 @@ class SpecValidationRejectTests(unittest.TestCase):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
-        # The two slot names left behind, each for a stated reason rather than a
-        # backlog position: FlySlot's mechanism is already driveable as InvokeRewind,
-        # and nothing in the suite needs StashSlot's slot-OPEN direction.
-        for verb in ("FlySlot", "StashSlot"):
-            with self.subTest(verb=verb):
-                self.assertIn(verb, hlib.RESERVED_SEAM_VERBS)
-                self.assertNotIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+        # The slot name left behind, for a stated reason rather than a backlog
+        # position: FlySlot's mechanism is already driveable as InvokeRewind.
+        # (StashSlot was left behind too until RF-20 gave it a consumer; its own
+        # promotion cells follow.)
+        self.assertIn("FlySlot", hlib.RESERVED_SEAM_VERBS)
+        self.assertNotIn("FlySlot", hlib.IMPLEMENTED_SEAM_VERBS)
 
     def test_logistics_steps_are_no_longer_rejected_as_reserved(self):
         # The BEHAVIOURAL half of both promotions: before this lane a spec naming
@@ -1705,6 +1706,45 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
                                  hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
                 self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_stashslot_promoted_not_reserved(self):
+        # RF-20's promotion: the name moves out of RESERVED into IMPLEMENTED, never
+        # both (a half-done promotion) and never neither.
+        self.assertIn("StashSlot", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn("StashSlot", hlib.RESERVED_SEAM_VERBS)
+
+    def test_stashslot_step_is_no_longer_rejected_as_reserved(self):
+        # The BEHAVIOURAL half: before RF-20 a spec naming the verb failed validation
+        # with "is RESERVED, not v1-drivable", so a stable slot could never be opened
+        # for a live re-fly.
+        def m(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "StashSlot", "args": {"rp": "rp-1", "slot": "0"},
+                    "expect": "OK"})
+        v = self._reject(m)
+        self.assertFalse(any("StashSlot" in e for e in v.errors),
+                         "StashSlot wrongly flagged: %s" % list(v.errors))
+
+    def test_stashslot_is_single_phase_and_carries_explicit_role_rows(self):
+        self.assertNotIn("StashSlot", hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget("StashSlot"))
+        # Tail axis: world-mutating (a monotonic Stashed bit plus a tip demotion that
+        # keeps the rewind point alive). Post-mission axis: recording (a read-back of
+        # Parsek's own merge state, never a kerbal claim).
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                         hlib.SEAM_VERB_TAIL_ROLE["StashSlot"])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                         hlib.SEAM_VERB_POST_MISSION_ROLE["StashSlot"])
+        self.assertFalse(hlib.post_mission_step_gates("StashSlot"))
+
+    def test_stashslot_refusals_reuse_mapped_tokens(self):
+        # StashSlot's REJECTED set is SealSlot's slot mode verbatim, so it needs no new
+        # _SEAM_REFUSAL_SUBKINDS rows; asserted rather than assumed.
+        for token in ("target-arg-missing", "unknown-rp", "unknown-slot"):
+            with self.subTest(token=token):
+                self.assertEqual("driver-arg",
+                                 hlib.classify_seam_refusal_subkind(token))
 
     def test_r12_verbs_implemented_not_reserved(self):
         # R12 landed TWO verbs of DIFFERENT shapes, and the distinction is the point:
@@ -10034,6 +10074,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "red on the pre-fix shape; rewind + structure ARMED 2026-09-27 on the owner "
             "ruling of 2026-09-27. Discharged: cadence promotion is the step left, a "
             "human call",
+        "RF-20-stashed-eva-slot-refly.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-27 with the "
+            "StashSlot promotion: RF-18's split + EVA + re-board, then StashSlot opens "
+            "the pod stack's stable focus slot and InvokeRewind + merge re-fly it. "
+            "rewind + structure REPORT-ONLY until the reading run. Owes a flight, then "
+            "an arming call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",

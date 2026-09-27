@@ -266,6 +266,9 @@ namespace Parsek.TestCommands
         void SafeWriteCrash(ParsedCommand cmd);
         // ----- SpinVessel (D17 persistent-rotation: a spinning vessel to put on rails) -----
         void SpinVessel(ParsedCommand cmd);
+        // ----- StashSlot (the seventh promoted reserved verb: the Unfinished Flights Stash
+        // button, which opens a stable separation leaf for a re-fly) -----
+        void StashSlot(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -494,6 +497,11 @@ namespace Parsek.TestCommands
                 ["SafeWriteCrash"] = VerbSceneRequirement.RequiresGameLoaded,
                 // SpinVessel. RequiresFlight: it acts on the active vessel's rigidbodies.
                 ["SpinVessel"] = VerbSceneRequirement.RequiresFlight,
+                // StashSlot. RequiresGameLoaded for SealSlot's reason verbatim: it reads
+                // and mutates save-scoped stores only (ParsekScenario.RewindPoints and a
+                // committed recording's MergeState), and the Recordings table it
+                // reproduces is open in FLIGHT and at the KSC alike.
+                ["StashSlot"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -681,8 +689,11 @@ namespace Parsek.TestCommands
 
                 case "SealSlot":
                 case "RouteCommand":
+                case "StashSlot":
                     // The same pair ExitToSpaceCenter and SimulateStockSwitchClick carry,
-                    // for reasons specific to these two. A re-fly merge journal
+                    // for reasons specific to these verbs (StashSlot takes SealSlot's
+                    // reasons: it walks the same supersede list to the same tip, and the
+                    // merge journal's Finalize flips that tip's MergeState). A re-fly merge journal
                     // mid-finalize is REWRITING the very RecordingSupersedes list a seal
                     // walks to find a slot's effective tip and a candidacy sweep walks to
                     // resolve a tree's recordings, and its RpReap phase races SealSlot's

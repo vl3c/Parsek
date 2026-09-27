@@ -1,0 +1,215 @@
+schema = 1
+id = "RF-20-stashed-eva-slot-refly"
+# =====================================================================================
+# THE LIVE RE-FLY OF A SEPARATION SLOT WHOSE ORIGINAL FLIGHT WENT EVA AND RE-BOARDED
+# (owner ruling 2026-09-27, design docs/parsek-rewind-to-separation-design.md sections
+# 1.6 and 4.9; the seam verb it needed is StashSlot, promoted for this lane).
+#
+# RF-18's flight, unchanged up to its scene exit: GS-2's crewed Kerbal X stack parked at
+# ~100 km fires its decoupler in orbit (a staging RewindPoint; slot 0 = the pod stack,
+# the tree-branching parent and the FOCUS slot; slot 1 = the released probe), then
+# Valentina steps out on the ladder (EvaExit) and climbs back in (EvaBoard), and the
+# scene exit auto-commits. RF-18 proves the pod stack slot's walk through its own EVA and
+# Board (`walkedEva=1 walkedBoard=1`) but stops there: the pod stack is the focus slot
+# ending Orbiting, a stable leaf the default Unfinished Flights predicate excludes, so it
+# has no Fly button until the player presses Stash.
+#
+# THEN, from the reloaded flight scene (RF-4's order: LoadGame, StopRecording,
+# ListHandles), this lane presses that button - `StashSlot rp= slot=0`, the per-row
+# Stash through `UnfinishedFlightStashHandler.TryStash` - checks that a second press is
+# refused the way the table hides the button (`stash-refused alreadyStashed`), re-flies
+# the slot (`InvokeRewind`, the Fly click) and merges straight away (the simplest honest
+# outcome: the pod stack is restored in its stable orbit at the separation and ends
+# Orbiting).
+#
+# WHAT IT PROVES LIVE, on recorder-produced topology:
+#   1. the slot qualified THROUGH THE WALK: the commit's focus verdict carries
+#      `walkedEva=1 walkedBoard=1`, and after the stash the slot reads
+#      `IsUnfinishedFlight=true ... reason=stashedStableLeaf ... walkedEva=1 walkedBoard=1`;
+#   2. the Re-Fly rewound to the SEPARATION (the staging RP) and bound its session;
+#   3. the Re-Fly closure contained the old EVA kerbal recording
+#      (`SessionSuppressedSubtree: admitted own-EVA kerbal child=... crew=Valentina Kerman`)
+#      and the merge split the spanning tree-branching parent (the pod stack root) rather
+#      than the non-spanning walked tip (`SplitOriginAtRewindUT: closure root ... does not
+#      span ...; splitting own-vessel stretch ancestor`);
+#   4. supersede rows were written (`Added N supersede relations`, N >= 1);
+#   5. the slot's final seal state is section 4.9 rule 1: the player-chosen slot reached
+#      a stable terminal, so the merge seals it (`Auto-sealed re-fly slot=0 ...
+#      reason=classifierClosed:stableTerminalFocusSlot`) even though it was stashed -
+#      the override precedes the stashed-keep-open branch by design - while the probe
+#      slot stays open, so the RewindPoint survives.
+#
+# WHAT IT DOES NOT PROVE. The seam's InvokeRewind reproduces the Fly click without the
+# table's row gate, so "Fly exists only because of the stash" is witnessed by the stash
+# verb's own read-back (`unfinishedFlight=true unfinishedRow=...`, the Fly button's
+# predicate) rather than by a refused rewind. Which supersede row names the kerbal is not
+# a saveParse facet (only counts are); the closure admission line is the witness.
+#
+# NEVER FLOWN at authoring. The regexes below are DERIVED from the emitting sites, not
+# measured; the rewind / structure blocks are REPORT-ONLY and the recording count window
+# is deliberately wide until the reading run.
+# =====================================================================================
+tier = "operator"
+description = "RF-18's in-orbit staging split plus an EVA and re-board from the crewed pod stack, committed; then StashSlot opens the pod stack's stable focus slot (qualified through its own EVA and Board, walkedEva=1 walkedBoard=1), InvokeRewind re-flies it from the separation and the merge supersedes the old stretch including the EVA kerbal and seals the slot on its Orbiting ending while the probe slot keeps the RewindPoint alive."
+instanceProfile = "stock-minimal"
+tags = ["RF-20", "rewind", "refly", "unfinished-flights", "stash", "eva", "board",
+        "staging", "orbital", "supersede", "auto-seal", "seam-verb", "runtime-handles",
+        "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs2-orbital-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs2_orbital_probe_deploy"
+
+steps = [
+  # ---- RF-18's flight and commit, verbatim ----
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  # LOAD-BEARING: the classifier verdicts, the walk hops and the closure lines are Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                             expect = "OK" },
+  { phase = "mission",                                                                  expect = "MISSION-OK", budget = 300 },
+  { cmd = "EvaExit",           args = { kerbal = "Valentina Kerman", settleSeconds = "10" }, expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",                                                                   expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  # ---- back to flight on the committed save (RF-4's order) ----
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # InvokeRewind REJECTs `recording-active`.
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",     expect = "OK" },
+  # THE STASH. Slot 0 is the pod stack: RewindPointAuthor lists the original vessel first
+  # (measured on RF-18 `2026-09-27_1439`: focusSlot=0, the pod stack verdict slot=0).
+  { cmd = "StashSlot",         args = { rp = "${handles.rp0}", slot = "0" },            expect = "OK" },
+  # The second press: the stash resolver that hides the button refuses it.
+  { cmd = "StashSlot",         args = { rp = "${handles.rp0}", slot = "0" },            expect = "ERROR" },
+  # THE RE-FLY (the Fly click) and its merge.
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },            expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                             expect = "OK", budget = 240 },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "after",       expect = "OK" },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[driver.missionParams]
+# RF-18's (GS-2's) values, verbatim.
+settleSituations = ["ORBITING"]
+settleDebounceFrames = 3
+settleTimeoutSeconds = 120
+deployTimeoutSeconds = 60
+deployDebounceFrames = 2
+postDeployDwellSeconds = 45
+postDeployDebounceFrames = 3
+postDeployTimeoutSeconds = 180
+minSafePeriapsisMeters = 75000
+siblingVesselName = "Kerbal X Probe"
+
+[dimensionsCovered]
+# Every value is backed by a REQUIRED token below (claim-is-not-gate).
+#   rewind-to-separation    <- StartInvoke rp=... + Invocation complete
+#   unfinished-flights-stash <- `Stashed slot=0 ... tipDemoted=True` + the stashedStableLeaf verdict
+#   seal-stash-fly          <- stash -> fly -> `Auto-sealed re-fly slot=0 ...`
+#   supersede-relation      <- `Added N supersede relations`
+#   head-tip-split          <- `splitting own-vessel stretch ancestor`
+D1 = ["commit-scene-exit", "auto-merge"]
+D5 = ["controlled-decoupled-child"]
+D9 = ["rewind-to-separation", "unfinished-flights-stash", "seal-stash-fly",
+      "supersede-relation", "head-tip-split"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# WIDE until the reading run: RF-18's 5 plus the merge's HEAD/TIP split and the re-fly
+# fork, and whatever the session recorder adds.
+count = { min = 6, max = 20 }
+
+[expectations.logContracts]
+required = [
+  # GROUP 1 - GS-2's split and RewindPoint (RF-18 measured).
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2 focusSlot=0",
+  "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
+  # GROUP 2 - the EVA and Board, no Rewind Point at the EVA (RF-18 measured).
+  "Tree branch created: type=EVA",
+  "\\[Rewind\\] Split type=EVA: no Rewind Point \\(Re-Fly is for vessel separations only\\) bp=[0-9a-f]{32}",
+  "detected boarding from EVA",
+  "SwitchContinuationWalk: hop from=\\S+ to=\\S+ bp=\\S+ hop=[0-9]+ kind=eva",
+  "SwitchContinuationWalk: hop from=\\S+ to=\\S+ bp=\\S+ hop=[0-9]+ kind=board",
+  # GROUP 3 - the commit: the pod stack slot is the focus leaf, read THROUGH the walk
+  # (RF-18 measured), and the probe slot opens.
+  "IsUnfinishedFlight=false rec=\\S+ reason=stableTerminalFocusSlot slot=0 focusSlot=0 terminal=Orbiting .*walkedEva=1 walkedBoard=1",
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+  "CommitTree: promoted 1 normal staging RP\\(s\\)",
+  "CommitTree promoted (?:chain-tip )?rec=\\S+ .*slot=1 .*reason=stableLeafUnconcluded to CommittedProvisional",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+  # GROUP 4 - THE STASH (derived: ParsekTestCommandAddon.StashSlot.cs and
+  # UnfinishedFlightStashHandler.TryStash). The handler's own line pins the state change
+  # on the walked tip; the verb's complete line pins the read-back (the Fly predicate).
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "stashslot start rp=rp_[0-9a-f]{32} slot=0",
+  "Stashed slot=0 rec=\\S+ bp=\\S+ rp=rp_[0-9a-f]{32} tip=\\S+ tipMergeState=CommittedProvisional tipDemoted=True terminal=Orbiting reaperBlocked=True",
+  "stashslot complete rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ tipMergeState=Immutable->CommittedProvisional stashed=true unfinishedFlight=true unfinishedRow=\\S+",
+  "IsUnfinishedFlight=true rec=\\S+ reason=stashedStableLeaf slot=0 .*walkedEva=1 walkedBoard=1",
+  "stashslot refused rp=rp_[0-9a-f]{32} slot=0 tip=\\S+ msg=stash-refused alreadyStashed",
+  # GROUP 5 - THE RE-FLY from the separation (RF-19 measured tokens).
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  # The closure admits the OLD flight's EVA kerbal and the re-boarded vessel (PR #1907,
+  # EffectiveState.ComputeSessionSuppressedSubtree, Verbose).
+  "SessionSuppressedSubtree: admitted own-EVA kerbal child=\\S+ crew=Valentina Kerman",
+  "SessionSuppressedSubtree: admitted same-vessel board child=\\S+",
+  "evaKerbalsAdded=1",
+  # GROUP 6 - THE MERGE: split the spanning stretch ancestor, write the rows, seal the
+  # stashed slot on its stable ending (section 4.9 rule 1, override before stashed).
+  "SplitOriginAtRewindUT: closure root '\\S+' does not span rewindUT=[0-9.]+; splitting own-vessel stretch ancestor '\\S+' that does",
+  "Added [1-9][0-9]* supersede relations for subtree rooted at",
+  "Auto-sealed re-fly slot=0 rec=\\S+ rp=rp_[0-9a-f]{32} mergeState=Immutable terminal=Orbiting reason=classifierClosed:stableTerminalFocusSlot",
+  "End reason=merged sess=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # A stash that wrote but failed its read-back (the verb's product-inconsistency line).
+  "stashslot readback-failed",
+  # The merge refused the fork and wrote no row (RF-19's bug).
+  "outcome=refused-unflown-provisional",
+  # The probe slot is still open, so the RewindPoint must not reap.
+  "Reaped rp=",
+  # RF-18 forbade it since its second flight; nothing here boards a foreign vessel.
+  "reason=boardForeignParent",
+]
+
+[expectations.rewind]
+# REPORT-ONLY until the reading run. Derived: the RewindPoint survives (probe slot open),
+# at least the split TIP of the pod stack is superseded (expected: TIP, the continuation
+# after the EVA, the kerbal and the re-boarded vessel), and no crew died.
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 1 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until the reading run: the original flight's one EVA and one Board survive
+# in the tree (superseded, not deleted); the re-fly authors none.
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+branchPoints   = { EVA = { min = 1, max = 1 }, Board = { min = 1, max = 1 } }
+
+[runtime]
+# RF-18's 1340 (its chain up to ExitToSpaceCenter plus FlushAndQuit) plus
+# LoadGame 660 + SetSetting 120 + StopRecording 120 + ListHandles x2 240
+#   + StashSlot x2 240 + InvokeRewind 660 + AnswerMergeDialog 540 + RecordingState 120
+#   = 4040. 4500 clears it.
+budgetSeconds = 4500
+
+[retry]
+# none, as RF-19: a MISSION give-up retried is a second identical flight.
+policy = "none"
+
+[expectedFail]
+bugId = ""
