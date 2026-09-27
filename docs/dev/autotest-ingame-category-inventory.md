@@ -125,7 +125,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `IncompleteBallistic` | 11 | 11 | 0 | 0 | 0 | 0 | H9 | A |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
-| `KerbalInventorySpawn` | 2 | 2 | 0 | 0 | 0 | 2 | NOT DRIVEN (KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN, 2026-09-27, branch `kss2-inventory`). Two FLIGHT cells over the ACTIVE vessel: a `TryBackupSnapshot` captures one `INVENTORY` per crew member with a stored inventory (roster backing field, a live `KerbalInventoryScenario` instance or a loaded EVA kerbal's own module) without writing a default onto anyone who had none, and the spawn restore's roster applier replaces a kerbal's roster inventory and drops the live instance, then the spawn-failure rollback writer puts the prior back. Both self-skip without a crewed active vessel (the first also when no crew member has a stored inventory). Its OWN category for the standing reason - a cell added to a pinned category moves a committed `BATCH_COMPLETE` tally. No lane claims it; any crewed FLIGHT host (`gs1-two-stage-pad`) would execute both. NEVER FLOWN | B |
+| `KerbalInventorySpawn` | 2 | 2 | 0 | 0 | 0 | 2 | H72-kerbal-inventory-spawn (authored 2026-09-27, branch `lane-inventory-spawn`, NOT YET FLOWN: `total=2` literal with the split regexed, predicted `passed=2 skipped=0`, and both cells already required through the runner's `PASSED:` lines, over `b1-pad-craft`'s seated Jeb, whose roster entry carries a two-part inventory so neither self-skip can fire; A1, `H36`'s standing, like CN-2 / CN-3 before their reading runs; the end-to-end capture -> commit -> spawn-at-end restore is `EVA-7-crew-inventory-spawn-after-rewind`, a seam lane with no batch). Opened by KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN (2026-09-27, branch `kss2-inventory`). Two FLIGHT cells over the ACTIVE vessel: a `TryBackupSnapshot` captures one `INVENTORY` per crew member with a stored inventory (roster backing field, a live `KerbalInventoryScenario` instance or a loaded EVA kerbal's own module) without writing a default onto anyone who had none, and the spawn restore's roster applier replaces a kerbal's roster inventory and drops the live instance, then the spawn-failure rollback writer puts the prior back. Both self-skip without a crewed active vessel (the first also when no crew member has a stored inventory). Its OWN category for the standing reason - a cell added to a pinned category moves a committed `BATCH_COMPLETE` tally. NEVER FLOWN | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | H48 (flown 2026-08-28, executes 4 of 4) | A |
 | `LedgerGroundTruth` | 3 | 3 | 0 | 0 | 0 | 3 | L2, L4 (the third cell, `CurrencyTooltipLiveInvariantTest`, was added 2026-09-02 and both lanes' tallies were RE-DERIVED to total=3 ahead of a flight; all three members self-skip - career-only, singleton and live-tree guards) | B |
@@ -215,8 +215,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **121 categories / 657 declarations**. Buckets **A 90 categories
-(363 declarations)**, **B 30 categories (289 declarations)**, **C 1 category (5
+Totals, re-derived: **121 categories / 657 declarations**. Buckets **A 91 categories
+(365 declarations)**, **B 29 categories (287 declarations)**, **C 1 category (5
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -328,13 +328,14 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **118 of 121 categories**, covering **649 of 657
+Driven by a committed spec: **119 of 121 categories**, covering **651 of 657
 declarations** (re-derived mechanically the same way: count the table rows whose
 Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 657 declarations in
 121 categories over `Source/Parsek`. The 2026-09-27 chain-state removal deleted
 `ContinuationIntegrity` (2 cells, bucket A via LT-1) with the recording fields it checked. The 2026-09-27 crew inventory capture / restore
 (KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN) opened a row, `KerbalInventorySpawn`, UNCLAIMED
-(two self-skipping FLIGHT cells, no lane). The 2026-09-26 vessel-budget fix (KSP-SETTINGS-AUDIT S5) opened a 121st row,
+(two self-skipping FLIGHT cells, no lane); `H72-kerbal-inventory-spawn` drove it the same day
+(never flown, interim pin), moving it B -> A (A 90 / 363 -> 91 / 365, B 30 / 289 -> 29 / 287). The 2026-09-26 vessel-budget fix (KSP-SETTINGS-AUDIT S5) opened a 121st row,
 `VesselBudget`, UNCLAIMED by the owner's ruling (unit and in-game cells, no dedicated lane). The 119th and 120th rows,
 `GhostCommNetLive` and `GhostCommNetTimeline`, arrived 2026-09-26 already driven by CN-2 / CN-3. The 2026-09-26 ghost CommNet relay opened a 118th
 row, `GhostCommNet`, UNCLAIMED like `GuiMock` until CN-1 / CN-1T drove it the same day. The 2026-09-08 reading was 112 of 112; the GUI-tree
@@ -727,7 +728,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (90 categories, 363 declarations)
+### Bucket A - wired now (91 categories, 365 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.
@@ -1100,7 +1101,7 @@ drive WHOLE: `Contracts` (2 of 2, LT-3), `RouteLiveAnchor` (1 of 1, LT-4) and
 to be read against, and LT-1 flew its own 30-constituent pin green the same evening
 (`2026-09-07_2030`, 292 s).
 
-### Bucket B - wireable, but needs something first (30 categories, 289 declarations)
+### Bucket B - wireable, but needs something first (29 categories, 287 declarations)
 
 Not one list but seven reasons, and the reason is what decides whether it is worth
 doing. (Seven since 2026-09-10, when the GUI-tree dump spike added B7; B7 is RETIRED as of

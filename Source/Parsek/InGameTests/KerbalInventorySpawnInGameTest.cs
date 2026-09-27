@@ -12,8 +12,9 @@ namespace Parsek.InGameTests
     /// drops the live instance. The pure codec, stand-in renames, carry-over and restore
     /// planning are covered by <c>CrewInventorySnapshotTests</c>.</para>
     ///
-    /// <para>Both cells self-skip without a crewed active vessel. The category is new and
-    /// no committed harness spec pins it, so no <c>BATCH_COMPLETE</c> tally moves.</para>
+    /// <para>Both cells self-skip without a crewed active vessel. The harness lane
+    /// <c>H72-kerbal-inventory-spawn</c> pins this category's <c>BATCH_COMPLETE</c>
+    /// <c>total=</c>, so adding a cell here moves that pin in the same commit.</para>
     /// </summary>
     public class KerbalInventorySpawnInGameTest
     {

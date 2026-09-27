@@ -4021,6 +4021,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H52-reentry-fx":            ("ReentryFx", 3, "FLIGHT"),
         "H53-scene-and-patch":       ("SceneAndPatch", 7, "FLIGHT"),
         "H54-missions":              ("Missions", 13, "FLIGHT"),
+        # KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN's live half (2026-09-27): two FLIGHT
+        # cells over b1-pad-craft's seated Jeb. Never flown, so its split is INTERIM.
+        "H72-kerbal-inventory-spawn": ("KerbalInventorySpawn", 2, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -4301,7 +4304,12 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # both PASS attempt 1, measured the prediction, `passed=3 failed=0 skipped=0`, and both
     # specs took the line WHOLE. Like CN-1 they are not H-series ids, so this class's own
     # cells never read them; CommittedBatchTallySourceSyncTests gates their `total=`.
-    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
+    #
+    # H72-kerbal-inventory-spawn ENTERED on 2026-09-27 (the KerbalInventorySpawn category, 2
+    # FLIGHT cells, `total=2` literal with the split regexed, predicted passed=2 skipped=0 and
+    # already required cell by cell through the runner's PASSED lines). It leaves when its
+    # reading run measures the split and the spec takes the line WHOLE.
+    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay", "H72-kerbal-inventory-spawn"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -4383,8 +4391,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(44, len(self.GROUP),
-                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 group is 44 "
+        self.assertEqual(45, len(self.GROUP),
+                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 + H72 group is 45 "
                          "specs; if it genuinely changed size, update this floor AND the "
                          "counts in docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")

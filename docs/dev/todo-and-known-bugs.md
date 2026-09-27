@@ -702,12 +702,23 @@ Tests: `CrewInventorySnapshotTests` (codec round-trip, sidecar round-trip, DeepC
 split and merge, restore replaces / no-key unchanged / only seated crew, stand-in reverse map and
 KSC swap) and the builder's `VesselSnapshotBuilder.WithCrewInventory`. In-game: new category
 `KerbalInventorySpawn` (two self-skipping FLIGHT cells: the live capture, and the roster applier
-replacing and restoring an active crew member's inventory), no lane.
+replacing and restoring an active crew member's inventory), driven by `H72-kerbal-inventory-spawn`.
 
 Live check owed: fly a crewed craft whose kerbal carries a cargo part from the VAB (persist
 inventories on), stow it in the pod, revert and commit, and confirm the spawned vessel holds the
 part exactly once; then the reverse (take a part from the pod, keep it on the kerbal) and confirm
 it survives the spawn.
+
+Lanes (2026-09-27, branch `lane-inventory-spawn`, both NOT YET FLOWN): `H72-kerbal-inventory-spawn`
+runs the in-game category over `b1-pad-craft`'s seated Jeb; `EVA-7-crew-inventory-spawn-after-rewind`
+replays EVA-6's chain (Jeb carries evaChute + a seismometer, places it on EVA, commit,
+Rewind-to-Launch, 1x Space Center spawn) and requires the restore inside Jeb's own KSC spawn to
+apply the recorded ONE-part inventory (not the two-part roster the rewind restored), exactly
+once. That is the "keep a part on the kerbal" direction for an EVA recording. The pod-cargo
+directions above (stow a part in the pod, or take one out, then REVERT and commit) are not
+lane-reachable with today's seam: no verb moves a part between a kerbal's and a pod's
+inventory, and none drives stock Revert to Launch. They need two new seam verbs (an
+inventory transfer, a stock revert) or stay a manual check.
 
 ---
 
