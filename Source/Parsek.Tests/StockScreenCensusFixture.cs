@@ -476,7 +476,7 @@ namespace Parsek.Tests
             throw new InvalidOperationException("unterminated node at line " + nameLine);
         }
 
-        private static int FindScenario(List<string> lines, string name)
+        internal static int FindScenario(List<string> lines, string name)
         {
             for (int i = 0; i < lines.Count; i++)
             {
@@ -489,7 +489,7 @@ namespace Parsek.Tests
             throw new InvalidOperationException("SCENARIO " + name + " not found");
         }
 
-        private static int FindChild(List<string> lines, int parent, string childName)
+        internal static int FindChild(List<string> lines, int parent, string childName)
         {
             string tabs = new string('\t', IndentOf(lines[parent]) + 1);
             int end = BlockEnd(lines, parent);
@@ -515,7 +515,7 @@ namespace Parsek.Tests
             throw new InvalidOperationException(childName + " with " + key + " = " + value + " not found");
         }
 
-        private static void ReplaceExactlyOnce(List<string> lines, string from, string to)
+        internal static void ReplaceExactlyOnce(List<string> lines, string from, string to)
         {
             int at = -1;
             for (int i = 0; i < lines.Count; i++)
@@ -528,7 +528,7 @@ namespace Parsek.Tests
             lines[at] = to;
         }
 
-        private static void ReplaceInBlockExactlyOnce(List<string> lines, int block, string from, string to)
+        internal static void ReplaceInBlockExactlyOnce(List<string> lines, int block, string from, string to)
         {
             int end = BlockEnd(lines, block);
             int at = -1;

@@ -66,8 +66,24 @@ namespace Parsek.Tests
             Assert.Equal("active", select.Pane);
             Assert.Equal(StockScreenKind.MissionControl, select.Screen);
             Assert.Equal(StockScreenAct.Select, select.Act);
-            // The facility menu has one hover target, so it needs no item.
+            // The facility menu hover defaults to Upgrade, so it needs no item; item= may
+            // name Repair instead.
             Assert.True(Parse("facilitymenu", "hover", null, null, null, out _, out _));
+            Assert.True(Parse("facilitymenu", "hover", "repair", null, null, out var repairHover, out _));
+            Assert.Equal("repair", repairHover.Item);
+        }
+
+        [Theory]
+        [InlineData(null, "upgrade")]
+        [InlineData("", "upgrade")]
+        [InlineData("upgrade", "upgrade")]
+        [InlineData("Repair", "repair")]
+        [InlineData("repair", "repair")]
+        [InlineData("SpaceCenter/TrackingStation", null)]
+        [InlineData("demolish", null)]
+        public void ResolveFacilityMenuHoverControl_DefaultsToUpgrade_AndNamesRepair(string item, string expected)
+        {
+            Assert.Equal(expected, TestCommandStockScreen.ResolveFacilityMenuHoverControl(item));
         }
 
         [Fact]

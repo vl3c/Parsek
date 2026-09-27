@@ -1,0 +1,152 @@
+schema = 1
+id = "KB-2-ksc-repair-block-after-rewind"
+# =====================================================================================
+# THE REPAIR BLOCK AFTER A REWIND, LIVE (todo KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE,
+# PR #1881).
+#
+# THE DEFECT PR #1881 CLOSED. A Parsek rewind to a UT between a building's collapse and
+# its committed repair leaves the building destroyed NOW with the repair a FUTURE ledger
+# row. Repairing it again now put a second repair of the same collapse in the ledger and
+# the funds walk charged both. The fix refuses the repair and greys the facility menu's
+# Repair button with the ReservationExplanation text, both off ONE predicate
+# (StockUiReservationPredicates.IsFacilityRepairBlocked over
+# CommittedRepairCoveringDestruction), refused FIRST in the RepairFacility(bool) prefix so
+# a refused repair debits nothing. Headless-proven by FacilityRepairBlockTests; this lane
+# is its first live run.
+#
+# THE HOST IS BUILT FOR IT. No earlier committed fixture carried the state (a flight
+# operator found none could). `stock-screen-census-repair` is the GUI-28 host
+# `stock-screen-census` plus, by construction (Source/Parsek.Tests/StockScreenRepairFixture.cs,
+# proven headless by StockScreenRepairFixtureTests):
+#   ScenarioDestructibles  SpaceCenter/TrackingStation/Facility/OuterDish  intact = False
+#   ledger (past)          FacilityDestruction  OuterDish  UT 400      (clock UT 409.56)
+#   ledger (future)        FacilityRepair       OuterDish  UT 80000    cost 4000
+# The dish is KB-1's target (the Tracking Station has two live destructibles at level 0,
+# `building` and `OuterDish`; 4000 is the repair cost KB-1's flights measured). The repair
+# row precedes the census's Tracking Station upgrade (UT 90000), whose structure reset would
+# otherwise have repaired the dish first. A lane at 1x never reaches UT 80000.
+#
+# WHAT IT PROVES, each pinned below:
+#   (a) THE GREYED CONTROL. Opening the Tracking Station menu decorates Repair: the
+#       decoration item line (marked + blocked, kind FacilityRepair, the explanation), the
+#       applicator's "Repair disabled, reason on the stock tooltip", the capture-time
+#       record, and the control readback `name=Repair:... interactable=false visible=true`
+#       (the fact behind the greyed look). The hover (`item=repair`, added with this lane)
+#       photographs the tooltip carrying the explanation.
+#   (b) THE REFUSED CLICK. KscAction repair-facility makes the menu's own call,
+#       SpaceCenterBuilding.RepairFacility(true). The prefix refuses it ("Blocking facility
+#       repair" naming the dish and the covering row at UT 80000), shows the blocked dialog
+#       with the same text, and the seam reads no building repaired (REJECTED
+#       repair-not-applied) with the funds pool identical on both sides of the call
+#       (`fundsBefore=X fundsAfter=X fundsDelta=0`, a backreference).
+#   (c) NOTHING CHARGED OR REPAIRED. No StructureRepair funds change, no BuildingRepaired,
+#       no repair scope, no FacilityRepair ledger row, no "Allowing facility repair", and
+#       the live building patch leaves the dish alone.
+#
+# A POINTER LANE. The `act=hover` step moves the OS cursor machine-wide (the verb writes
+# `stockscreen pointer moving the OS cursor ...`); a hover capture that looks wrong reads
+# back against "someone was using the mouse". Nothing gated depends on the picture.
+#
+# NEVER FLOWN. The first flight is a reading run: every token below is derived from the
+# source, not a log. A driver-INVALID on the Repair hover (`stockscreen-item-not-found
+# control=Repair (not shown)` or `stockscreen-no-tooltip control=Repair`) means stock did
+# not show the Repair button over the loaded destroyed dish - a fixture reading, not a
+# product defect. OWED after a green reading: one negative control per the house pattern
+# (a scratch copy of this spec OUTSIDE harness/scenarios/ with the control readback
+# inverted to `interactable=true`, which must read PARSEK-FAIL on exactly that token).
+tier = "nightly"
+description = "Rewound career with the Tracking Station dish destroyed before the clock and its committed repair after it: the KSC facility menu's Repair button is greyed with the committed-timeline explanation on its stock tooltip, and a repair through the menu's own RepairFacility call is refused with the blocked dialog, repairing nothing and charging no funds."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "facilities", "stock-ui", "action-blocking", "KB-2"]
+
+[fixture]
+saveTemplate = "fixtures/saves/stock-screen-census-repair"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # Vessel-less, so the NoVesselSpaceCenter route (GUI-28's boot).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # The decoration item lines and the applicator line are Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb2-ksc" }, expect = "OK" },
+
+  # (a) the greyed Repair control
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "open", item = "SpaceCenter/TrackingStation" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb2-facility-menu" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "hover", item = "repair" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb2-repair-hover" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "close" }, expect = "OK" },
+
+  # (b) the refused click: the menu's own RepairFacility(true) call
+  { cmd = "KscAction",  args = { action = "repair-facility", facility = "SpaceCenter/TrackingStation" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb2-repair-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  # The block holds after the refusal: the menu still greys Repair, the dish still down.
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "open", item = "SpaceCenter/TrackingStation" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb2-facility-menu-after" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "close" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["facilities", "action-blocking"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's three committed recordings (GUI-28's host); nothing in this lane records.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # (a) the menu's own decoration pass: the Repair item, marked and blocked, with the
+  #     ReservationExplanation text for one covering repair on the committed timeline.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] decorate screen=FacilityMenu tab=Repair item=SpaceCenter/TrackingStation kind=FacilityRepair marked=true blocked=true why=\"Repaired on [^\"]+ on your committed timeline\\. Parsek's timeline is fixed once committed, so this cannot happen earlier or twice\\. The repair happens on that date\\.\"",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] FacilityMenu SpaceCenter/TrackingStation: Repair disabled, reason on the stock tooltip",
+  # ...read back at capture time from the same decision, and the stock control as stock
+  #    holds it in that frame.
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=kb2-facility-menu screen=FacilityMenu tab=Repair items=1 marked=1 blocked=1",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=kb2-facility-menu screen=FacilityMenu tab=Repair item=SpaceCenter/TrackingStation kind=FacilityRepair marked=true blocked=true why=\"Repaired on ",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb2-facility-menu screen=FacilityMenu name=Repair:SpaceCenter/TrackingStation state=- interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=facilitymenu act=hover item=repair ",
+  # (b) the refusal in the RepairFacility prefix, the dialog with the same text, the seam's
+  #     own before / after read (funds identical), and the typed refusal.
+  "\\[Parsek\\]\\[INFO\\]\\[FacilityRepairPatch\\] Blocking facility repair: 'SpaceCenter/TrackingStation' - 1 destroyed building\\(s\\) of 1 already repaired by a committed future row, first building='SpaceCenter/TrackingStation/Facility/OuterDish' ut=80000 last ut=80000 nowUT=",
+  "\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot repair \"[^\"]+\" - Repaired on [^\\n]+ on your committed timeline\\.",
+  "kscaction repair-facility not applied: target=SpaceCenter/TrackingStation destroyedBefore=1 destroyedAfter=1 fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0",
+  "kscaction refused action=repair-facility reason=repair-not-applied target=SpaceCenter/TrackingStation",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false",
+  # The block holds after the refusal.
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb2-facility-menu-after screen=FacilityMenu name=Repair:SpaceCenter/TrackingStation state=- interactable=false visible=true",
+]
+forbidden = [
+  # (c) nothing charged, nothing repaired, no second repair row.
+  "Game state: FundsChanged -?[0-9.]+ \\(StructureRepair\\)",
+  "Game state: BuildingRepaired",
+  "FacilityRepair scope open",
+  "KSC spending recorded: type=FacilityRepair",
+  "Allowing facility repair: 'SpaceCenter/TrackingStation'",
+  "FacilityMenu SpaceCenter/TrackingStation Repair left to stock",
+  "PatchDestructionState: (demolished|repaired) '\\S*/OuterDish'",
+  "Facility repair block check failed",
+  "Facility menu Repair block failed",
+]
+
+[runtime]
+# One LoadGame (~300 s ceiling), eight UI steps, one 60 s KscAction; GUI-28's 900 s class.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
