@@ -1,4 +1,4 @@
-# In-game test category inventory (all 121 categories)
+# In-game test category inventory (all 122 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -91,6 +91,7 @@ Two limits of this table, stated so nobody over-reads it:
 
 | Category | Decls | Exec FLIGHT | Exec SPACECENTER | Exec TRACKSTATION | Batch-disabled | Members with self-skip | Driven by | Bucket |
 |---|---|---|---|---|---|---|---|---|
+| `AutoHireReservation` | 1 | 0 | 1 | 0 | 0 | 1 | AH-1-auto-hire-reserved-applicant (authored 2026-09-27, NOT YET FLOWN; interim pin `total=1` with the split regexed, predicted 1 / 0). The live check for the auto-hire fix (`KerbalAutoHireApplicantPatch`, todo KSP-SETTINGS-FOLLOWUPS-2026-09-27 item 4) on the `fresh-career` host: the first applicant in roster order gets a committed future CrewHired row (the rewound state, seeded in-process), auto-hire is switched on, and the REAL stock `DefaultCrewForVessel` runs on a Mk1-3 pod two seats short. The cell asserts the prefix skipped that applicant once per short seat, `KerbalHirePatch` never refused him, he stays an Applicant and unseated, nobody is seated twice, and every seat is filled by the kept crew plus one hire per short seat; everything is reverted in its finally. Its OWN category so no pinned tally moves. The cell self-skips off career or at the crew limit | A |
 | `AutoMergeCommit` | 1 | 0 | 0 | 0 | 1 | 1 | H67-automerge-commit-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2016`: PASS attempt 1, 55 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoMergeCommit scene=FLIGHT` pinned whole. EXECUTED 1 of 1. H21's scene-exit seam with `autoMerge` FLIPPED ON, over the ORBITING `gs2-orbital-stack`: stock save-and-exit out of FLIGHT commits SILENTLY and at FULL FIDELITY, keeping the committed leaf's `VesselSnapshot` and spawn-at-end eligibility. The host is DICTATED by the cell, whose own skip says only an ORBITING vessel produces the stable-terminal shape `CommitTreeSceneExit` preserves a snapshot for - which is why this lane added the `orbiting` fixture-requirement class. All six guards were settled by host + driver as predicted, so the census rode entirely on the assertions and they held) | A |
 | `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | H61-autorecord-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2010`: PASS attempt 1, 82 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5 category=AutoRecord scene=FLIGHT` pinned whole, `skipped=5` declared in `MEASURED_SKIPPED`. EXECUTED 5 of 10, so this is a SLICE and the category stays in bucket B on `Logistics`' precedent. The largest isolated batch in the suite, over the crewed PRELAUNCH `gs1-two-stage-pad`: launch auto-record starting exactly once, deferred EVA auto-record after a real `FlightEVA.spawnEVA`, the post-switch watch's negative case, and the two #526 pad-transient canaries. The spec header's PREDICTED 5-execute / 5-skip census held CELL FOR CELL. RESIDUE, all HOST properties and none a product claim: `AutoRecordOnPostSwitch_LandedMotion_*` and `AutoRecordOnPostSwitch_GearToggle_*` want a LANDED host, `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_*` an ORBITING one, `EvaKerbalGhostHasVesselSnapshot` a MID-FLIGHT crewed one, and `EvaTwiceFromSameCapsuleProducesTwoBranches` a host with 2+ crew - `eva3-pad-3crew` would buy the last, but its launch clamps carry `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so it trades a cell rather than closing the lane. Claims D1 `auto-record-launch` + `auto-record-eva` only: `auto-record-first-mod-switch` is NOT claimed, and the census MEASURED why - the only post-switch cell that executes here is the negative one). THREE SIBLING HOSTS were added 2026-09-07 to buy that residue from fixtures the repo already owns, each changing only the fixture so a census delta is attributable to the host alone, and ALL THREE FLEW GREEN THE SAME DAY (PASS attempt 1, every verifier PASS or SKIPPED, each pinned whole with its `skipped=` in `MEASURED_SKIPPED`): H68-autorecord-orbiting over `gs2-orbital-stack`, run `2026-09-07_1618`, 74 s wall, `total=10 passed=3 failed=0 skipped=7`, EXECUTING 3 of 10 - the ORBITING positive post-switch cell (`mode=engine situation=ORBITING autoStartCount=1`), the first orbital EVA auto-record any unattended lane has driven, and the post-switch no-op; H69-autorecord-landed over `rover-route-recorded`, run `2026-09-07_1619`, 99 s, `total=10 passed=4 failed=0 skipped=6`, EXECUTING 4 - the LANDED positive post-switch cell (`situation=LANDED autoStartCount=1`), the no-op, and both #526 canaries from LANDED including the Real Spawn Control one no clamped host can run; and H70-autorecord-pad-crew over `eva3-pad-3crew`, run `2026-09-07_1621`, 91 s, `total=10 passed=5 failed=0 skipped=5`, EXECUTING 5 including `EvaTwiceFromSameCapsuleProducesTwoBranches` for the FIRST TIME ANYWHERE (`first='Valentina Kerman' second='Bob Kerman' evaBranches=2`). H69 and H70 confirmed their headers cell for cell and string for string; H68 was REFUTED TWICE - the two-EVA cell does NOT work in orbit (the first kerbal floats in front of the hatch after the walk-clear - an INFERENCE from two different skip strings on two flights, not a logged measurement - so `spawnEVA` refuses the second EVA and H70 is the host that runs it), and its PREDICTED FAIL on `EvaKerbalGhostHasVesselSnapshot` became a measured SKIP when that cell's guard was WIDENED in `Source/` to require a crewed vessel FLYING inside an atmosphere. UNION ACROSS THE FOUR HOSTS: 8 OF 10 CELLS NOW EXECUTE SOMEWHERE. Residue reduced to TWO cells that execute NOWHERE, both HARVEST requirements: `AutoRecordOnPostSwitch_GearToggle_*` needs a LANDED craft carrying `ModuleWheels.ModuleWheelDeployment` (H69 MEASURED the rover passing its situation guard and skipping one guard later on `active landed vessel has no deployable landing-gear module the canary can toggle`, so a LANDED host is necessary but NOT SUFFICIENT), and `EvaKerbalGhostHasVesselSnapshot` needs a crewed vessel FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one; no committed fixture is, so a forge or a derived in-flight save sized to that bound. D1 `auto-record-first-mod-switch` is now CLOSED, claimed and measured by H68 and H69, not by H61. THE CATEGORY STAYS IN BUCKET B: no SINGLE lane drives it whole - the best is 5 of 10 - and the bucket is a per-lane property, so a four-lane union of 8 does not promote it to A. A FIFTH HOST WAS TRIED 2026-09-07 AND REFUSED: the second census ran the category over `mun-landing-recorded` (scratch CEN-5 and CEN-7, the second with a 12-step `RecordingState` dwell after StopRecording + DiscardTree) and EVERY cell skipped `recording already active`, because about 7 ms after DiscardTree the committed-tree restore re-arms and promotes the recorder again (`ArmCommittedTreeRestoreAttempt: replacing stale context ... reason=TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write`). No dwell length changes that, so the seam cannot idle a committed-tree-restore host; H69 already executes the LANDED cells on `rover-route-recorded`, so no coverage is lost. Filed as `DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST`. | B |
 | `BackgroundSeeder` | 2 | 2 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue is the seed cell, which wants stateful parts the 1-part pod host does not carry) | B |
@@ -215,8 +216,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **121 categories / 657 declarations**. Buckets **A 91 categories
-(365 declarations)**, **B 29 categories (287 declarations)**, **C 1 category (5
+Totals, re-derived: **122 categories / 658 declarations**. Buckets **A 92 categories
+(366 declarations)**, **B 29 categories (287 declarations)**, **C 1 category (5
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -227,7 +228,9 @@ follow-on categories `GhostCommNetLive` (CN-2) and `GhostCommNetTimeline` (CN-3)
 their never-flown lanes, 3 FLIGHT cells each, straight into **A** (A1, `H36`'s standing: an
 interim pin until the reading run measures the split), A 89 -> 91 categories, 359 -> 365
 declarations. Both flew the same day (CN-2 `2026-09-26_2030`, CN-3 `2026-09-26_2053`, PASS
-attempt 1, 3 of 3 each) and the pins are now WHOLE. All re-derived
+attempt 1, 3 of 3 each) and the pins are now WHOLE. The 2026-09-27 auto-hire live check's
+`AutoHireReservation` (AH-1, one SPACECENTER cell) landed WITH its never-flown lane straight into
+**A** on the same standing, A 91 -> 92 categories, 365 -> 366 declarations (after H72's B -> A move below). All re-derived
 mechanically by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
@@ -328,10 +331,11 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **119 of 121 categories**, covering **651 of 657
+Driven by a committed spec: **120 of 122 categories**, covering **652 of 658
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 657 declarations in
-121 categories over `Source/Parsek`. The 2026-09-27 chain-state removal deleted
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 658 declarations in
+122 categories over `Source/Parsek`. The 2026-09-27 auto-hire live check opened a 122nd row,
+`AutoHireReservation`, already driven by AH-1 (not yet flown). The 2026-09-27 chain-state removal deleted
 `ContinuationIntegrity` (2 cells, bucket A via LT-1) with the recording fields it checked. The 2026-09-27 crew inventory capture / restore
 (KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN) opened a row, `KerbalInventorySpawn`, UNCLAIMED
 (two self-skipping FLIGHT cells, no lane); `H72-kerbal-inventory-spawn` drove it the same day
@@ -728,7 +732,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (91 categories, 365 declarations)
+### Bucket A - wired now (92 categories, 366 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.
