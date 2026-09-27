@@ -8246,7 +8246,8 @@ namespace Parsek
                     return;
             }
 
-            StartRecording(suppressStartScreenMessage: true);
+            StartRecording(suppressStartScreenMessage: true,
+                fromPrelaunchTransition: launchDecision == AutoRecordLaunchDecision.StartFromPrelaunch);
             Log($"Auto-record started ({data.from} → {data.to})");
             ScreenMessage("Recording STARTED (auto)", 2f);
         }
@@ -10924,6 +10925,21 @@ namespace Parsek
             backgroundRecorder?.OnBackgroundVesselSOIChanged(data.host, data.from);
         }
 
+        /// <summary>
+        /// Stock Alt+F12 teleport (Set Orbit / Rendezvous / Set Position) finished
+        /// <c>FlightGlobals.PostOrbitSet</c> for the active vessel; forwarded by
+        /// <see cref="Patches.CheatTeleportPatch"/>. Returns false when no recorder exists,
+        /// so the patch writes the log line itself.
+        /// </summary>
+        internal bool HandleCheatTeleport(Vessel v, CelestialBody oldBody)
+        {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return true;
+            if (recorder == null)
+                return false;
+            recorder.OnCheatTeleport(v, oldBody);
+            return true;
+        }
+
         void OnTimeWarpRateChanged()
         {
             bool isWarpNow = IsAnyWarpActive();
@@ -13117,7 +13133,8 @@ namespace Parsek
 
         // Pass suppressStartScreenMessage=true for fresh starts where the caller posts
         // its own custom screen message.
-        public void StartRecording(bool suppressStartScreenMessage = false)
+        public void StartRecording(bool suppressStartScreenMessage = false,
+            bool fromPrelaunchTransition = false)
         {
             // Commit orphaned CaptureAtStop from a previous recorder that was stopped
             // by vessel switch but never committed (e.g., auto-record started on new
@@ -13212,6 +13229,7 @@ namespace Parsek
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
             if (activeTree != null)
                 recorder.ActiveTree = activeTree;
+            recorder.StartedFromPrelaunchTransition = fromPrelaunchTransition;
             recorder.StartRecording(
                 isPromotion: false,
                 suppressStartScreenMessage: suppressStartScreenMessage);
@@ -16297,23 +16315,56 @@ namespace Parsek
 
         internal static Func<string, double?> TerminalInferenceBodyRadiusResolverForTesting;
 
+        /// <summary>
+        /// Test seam for the periapsis floor (<see cref="OrbitClearance"/>) the inference reads.
+        /// When only the radius seam is installed the floor defaults to sea level.
+        /// </summary>
+        internal static Func<string, double?> TerminalInferencePeriapsisFloorResolverForTesting;
+
+        /// <summary>
+        /// Orbiting evidence for a recording whose vessel is gone: a bound last orbit segment
+        /// whose periapsis clears the body's periapsis floor (the atmosphere top, or the
+        /// highest terrain on an airless body), the same line commit classification and the
+        /// terminal-orbit spawn-safety check use. A periapsis inside the atmosphere is a
+        /// decaying flight, so it is not Orbiting evidence and the caller falls back to
+        /// SubOrbital.
+        /// </summary>
         internal static bool HasStableOrbitEvidenceForTerminalInference(OrbitSegment lastOrbit)
         {
             if (lastOrbit.eccentricity >= 1.0 || string.IsNullOrEmpty(lastOrbit.bodyName))
                 return false;
-            if (!TryResolveTerminalInferenceBodyRadius(lastOrbit.bodyName, out double bodyRadius)
+            if (!TryResolveTerminalInferenceBody(
+                    lastOrbit.bodyName, out double bodyRadius, out double periapsisFloor)
                 || bodyRadius <= 0.0)
                 return false;
 
             double periapsisRadius = lastOrbit.semiMajorAxis * (1.0 - lastOrbit.eccentricity);
-            return !double.IsNaN(periapsisRadius)
-                && !double.IsInfinity(periapsisRadius)
-                && periapsisRadius > bodyRadius;
+            bool clear = OrbitClearance.IsBoundOrbitClear(
+                lastOrbit.eccentricity,
+                periapsisRadius,
+                bodyRadius,
+                periapsisFloor);
+            if (!clear
+                && OrbitClearance.IsFinite(periapsisRadius)
+                && periapsisRadius > bodyRadius)
+            {
+                ParsekLog.Verbose("Flight", string.Format(CultureInfo.InvariantCulture,
+                    "HasStableOrbitEvidenceForTerminalInference: periapsis {0:F0}m on {1} is under " +
+                    "the periapsis floor {2:F0}m - not Orbiting evidence",
+                    periapsisRadius - bodyRadius,
+                    lastOrbit.bodyName,
+                    periapsisFloor));
+            }
+            return clear;
         }
 
-        private static bool TryResolveTerminalInferenceBodyRadius(string bodyName, out double bodyRadius)
+        private static bool TryResolveTerminalInferenceBody(
+            string bodyName,
+            out double bodyRadius,
+            out double periapsisFloor)
         {
             bodyRadius = 0.0;
+            periapsisFloor = 0.0;
             if (string.IsNullOrEmpty(bodyName))
                 return false;
 
@@ -16324,18 +16375,34 @@ namespace Parsek
                 if (resolved.HasValue && resolved.Value > 0.0)
                 {
                     bodyRadius = resolved.Value;
+                    Func<string, double?> floorResolver = TerminalInferencePeriapsisFloorResolverForTesting;
+                    double? floor = floorResolver != null ? floorResolver(bodyName) : null;
+                    periapsisFloor = floor.HasValue ? floor.Value : 0.0;
                     return true;
                 }
 
                 return false;
             }
 
+            return TryResolveTerminalInferenceBodyLive(bodyName, out bodyRadius, out periapsisFloor);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool TryResolveTerminalInferenceBodyLive(
+            string bodyName,
+            out double bodyRadius,
+            out double periapsisFloor)
+        {
+            bodyRadius = 0.0;
+            periapsisFloor = 0.0;
             try
             {
                 var body = FlightGlobals.GetBodyByName(bodyName);
                 if (body != null && body.Radius > 0.0)
                 {
                     bodyRadius = body.Radius;
+                    periapsisFloor = OrbitClearance.ResolvePeriapsisFloorAltitude(body);
                     return true;
                 }
             }

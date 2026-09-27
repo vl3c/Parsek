@@ -342,11 +342,14 @@ forbidden = [
   #   keep it clear.
 ]
 
-# REPORT-ONLY, and DERIVED from the fixture's committed bytes (RF-10 pins them exactly:
+# ARMED 2026-09-27 off `2026-09-27_1231` (PASS attempt 1: rewindPoints 1, supersedeRows 2,
+# tombstones 8; the red `2026-09-22_1941` read the same facets),
+# and DERIVED from the fixture's committed bytes (RF-10 pins them exactly:
 # 1 point, 2 supersede rows, 8 tombstones) plus what one in-batch merge could add. Floors
 # only; there is no ceiling, because whether a cell merges the session at all is a
-# discovery-order question. ARMING WAITS FOR A MATCHING READING RUN, per the M-C2 rule.
+# discovery-order question.
 [expectations.rewind]
+gating = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 2 }
 tombstones    = { min = 8 }

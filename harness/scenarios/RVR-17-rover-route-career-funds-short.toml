@@ -321,8 +321,11 @@ forbidden = [
   "BLOCKED kind=DestinationFull",
 ]
 
+# ARMED 2026-09-27 off the reading run `2026-09-27_1221` (PASS attempt 1, automation DLL built
+# from origin/main 6437750ba): every window met.
 [expectations.recordings.structure]
-# REPORT-ONLY (no `gating` key), the committed fixture's own structure re-read through
+gating = true
+# The committed fixture's own structure re-read through
 # `harness/lib/saveparse.py` and unchanged by a driver that creates no recordings.
 trees          = { min = 2, max = 2 }
 committedTrees = { min = 2, max = 2 }
@@ -336,8 +339,8 @@ branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 # window read exactly as declared - count=1 dormant=0 stops=1 sourceRefs=2
 # completedCycles=0 skippedCycles=2 statuses={Paused:1}; measured-only
 # holdKinds={FundsShort:1} - so the arming moved NO number. Any report-only wording
-# below is the authoring record. `recordings.structure` above stays a report-only
-# reading. ARMED RE-FLIGHT `2026-09-10_2130` (same DLL): PASS attempt 1, saveParse
+# below is the authoring record. `recordings.structure` above was a report-only
+# reading until 2026-09-27. ARMED RE-FLIGHT `2026-09-10_2130` (same DLL): PASS attempt 1, saveParse
 # gating PASS, armed ['routes'], no mismatch, every routes and structure facet identical
 # to the reading. The windows gate through the routes evaluator paths already inverted
 # live (RVR-7 skippedCycles, RVR-20 completedCycles, V18T statuses); the one path never

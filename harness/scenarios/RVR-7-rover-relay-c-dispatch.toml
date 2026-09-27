@@ -485,13 +485,13 @@ forbidden = [
   "BLOCKED kind=DestinationFull",
 ]
 
+# ARMED 2026-09-27 off the reading run `2026-09-27_1144` (PASS attempt 1, automation DLL built
+# from origin/main 6437750ba): every window met.
 [expectations.recordings.structure]
-# STILL REPORT-ONLY: NO `gating` KEY, deliberately. The standing arming rule
-# (`harness/lib/saveparse.py` -> `ARMED_ALLOWLIST`) is that a block is armed only after a
-# report-only READING run whose facets match the declared windows, and this spec has now
-# had TWO (`2026-09-02_2245` and `2026-09-02_2251`), which read identical values. Arming
-# is the separate per-scenario operator decision those readings unlock; it has not been
-# taken. The numbers were MEASURED off the committed fixture bytes by
+gating = true
+# AUTHORING RECORD: the block landed report-only and waited for a reading on current
+# code; it was armed 2026-09-27 (the line above the header).
+# The numbers were MEASURED off the committed fixture bytes by
 # `saveparse.observed_structure_facets` and re-asserted in `harness/lib` by
 # `RECORDED_FIXTURES`, and both flights confirmed them on the PRODUCED save too - the two
 # are different claims, and this block evaluates the second.
@@ -522,8 +522,8 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 # The arming re-pins NOTHING: not one window moved in the arming edit, which is the S4.1
 # rule ("arming must not smuggle in a re-pinned window") and is checkable against the diff.
 # The spec is registered in `ARMED_ALLOWLIST` in `harness/lib/test_hlib.py` in the same
-# commit, and the sibling `[expectations.recordings.structure]` block above stays
-# REPORT-ONLY - one block per arming decision.
+# commit, and the sibling `[expectations.recordings.structure]` block above stayed
+# REPORT-ONLY (armed separately 2026-09-27) - one block per arming decision.
 #
 # WHY THIS BLOCK AND WHY NOW. V18T armed the `routes` facet on a route it never MUTATES
 # (a tracking-station observation of a committed Active route); this is the first arming

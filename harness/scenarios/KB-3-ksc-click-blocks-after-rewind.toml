@@ -1,0 +1,217 @@
+schema = 1
+id = "KB-3-ksc-click-blocks-after-rewind"
+# =====================================================================================
+# FOUR STOCK-SCREEN CLICK-BLOCKS AFTER A REWIND, LIVE: tech research, facility upgrade,
+# kerbal hire, contract accept.
+#
+# WHY THIS LANE EXISTS. KB-2 proves ONE stock-screen click-block (facility repair) as
+# behaviour: the control greyed with the committed-timeline explanation, the click refused
+# with the same text, nothing charged. The other stock-screen blocks the overlay program
+# shipped (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md, section 4 T1 /
+# F1 / K1 / C1) were proven only inside H45's in-game batch, which asks each backstop for
+# its DECISION and never presses a control. This lane presses all four.
+#
+# THE HOST IS GUI-28's. `stock-screen-census` (a rewound career: save clock UT 409.56,
+# every committed row 30000 s or more after it; built by
+# Source/Parsek.Tests/StockScreenCensusFixture.cs, proven headless by
+# StockScreenCensusFixtureTests) already carries all four reservations:
+#   R&D              basicRocketry researched later            (KSC-origin ScienceSpending, 5 sci)
+#   Facility menu    the Tracking Station upgraded later        (KSC-origin FacilityUpgrade)
+#   Astronaut Cplx   applicant Verhat Kerman hired later       (KSC-origin KerbalHire)
+#   Mission Control  survey 90e4faaf accepted later            (KSC-origin ContractAccept)
+# so ONE lane carries the four blocks. A lane at 1x never reaches the first committed row.
+#
+# FOR EACH BLOCK, pinned below:
+#   (a) THE HOVER. The stock screen is opened and the control hovered / its row selected
+#       through `StockScreen`; the capture writes the decision the screen draws
+#       (`[StockUiOverlay] record label=<capture> ... marked=true blocked=true why="..."`)
+#       and, where the control is a button, its stock state (`control ... interactable=false`).
+#   (b) THE REFUSED CLICK. `KscAction` makes the stock call behind the control, the same way
+#       KB-2 makes RepairFacility(true): research-node -> RDTech.ResearchTech() on a hosted
+#       tech (R&D's Research button), upgrade-facility -> SpaceCenterBuilding.UpgradeFacility
+#       (the facility menu's Upgrade), hire-kerbal -> KerbalRoster.HireApplicant (the
+#       Astronaut Complex's Hire ends in it), accept-contract -> Contract.Accept() (Mission
+#       Control's Accept; the sub-action added with this lane). Each is refused by the
+#       backstop that reads the greyed control's own predicate (the pairing rule), which
+#       writes its Blocking line and shows the blocked dialog; the seam reads the target's
+#       state, funds and science identical on both sides of the call
+#       (`kscaction <action> not applied: ...`, backreferences) and refuses
+#       `blocked-committed`.
+#   (c) THE SAME TEXT. Each refusal's dialog line `[CommittedAction] Blocked action:
+#       <title> - <body>` must END in exactly the `why` its hover record carried, captured
+#       and backreferenced across the log (`\1`), so the refused click shows the same
+#       ReservationExplanation text as the hover, not merely text of the same shape.
+#   (d) THE LEDGER UNCHANGED. The ledger loads 26 rows and every save of it (the scene
+#       saves on each screen close, and FlushAndQuit's last) still holds 26; no row is
+#       added, no KSC spending recorded, and no game-state event of any kind is recorded
+#       (only the facility cache seed line may read `Game state:`).
+#
+# A POINTER LANE. The `act=hover` steps move the OS cursor machine-wide (the verb writes
+# `stockscreen pointer moving the OS cursor ...`); a hover capture that looks wrong reads
+# back against "someone was using the mouse". Nothing gated depends on the pictures.
+#
+# DRIVER NOTE. A KscAction refused for any reason reads REJECTED, including a seam
+# pre-check such as `insufficient-funds` (the Tracking Station upgrade costs 150000); the
+# step verdict alone would pass on it. The `kscaction refused ... reason=blocked-committed`
+# tokens are what say the committed-timeline backstop refused each click.
+#
+# READING RUN AND ARMING. Every token was derived from the source and GUI-28's census log,
+# not from a flight of this lane. The reading run `2026-09-27_1238` read PASS attempt 1 with
+# every token matched as written (each backstop's Blocking line, four dialogs whose body
+# equals the hover's why, funds 236416.75 and science 106.59999847412109 on both sides of
+# every call, the ledger at 26 rows on load and on every save), so the lane is armed with no
+# token change; armed run `2026-09-27_1240` PASS attempt 1. Negative controls OFFLINE through
+# hlib.evaluate_expectations over the reading log: green as recorded, and each of 20 seeded
+# faults reds (a dialog body differing from its hover's why, for each block, and one carrying
+# an extra sentence; each button read interactable; each pool, level or state moved; the
+# upgrade refused for insufficient-funds; a backstop line missing; a dialog never dismissed;
+# a ledger save at 27 rows; a ledger row added; a game-state event; a KSC spending line; an
+# accept let through).
+#
+# THE DIALOG TITLE for the tech reads the tech id (`Cannot research "basicRocketry"`): the
+# seam's hosted RDTech carries no title, where the R&D node's own RDTech does. The body,
+# which is what (c) compares, does not depend on it.
+tier = "nightly"
+description = "Rewound career whose committed timeline researches basicRocketry, upgrades the Tracking Station, hires Verhat Kerman and accepts a survey contract after the clock: each stock control is greyed with the committed-timeline explanation, and the stock call behind each (Research, Upgrade, Hire, Accept) is refused with the blocked dialog carrying the SAME explanation, changing no state, funds, science or ledger row."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "stock-ui", "action-blocking", "career", "KB-3"]
+
+[fixture]
+saveTemplate = "fixtures/saves/stock-screen-census"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # Vessel-less, so the NoVesselSpaceCenter route (GUI-28's boot).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb3-ksc" }, expect = "OK" },
+
+  # ---- T1: tech research ----
+  { cmd = "StockScreen", args = { screen = "rnd", act = "open" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "rnd", act = "select", item = "basicRocketry" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb3-rnd-panel" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "rnd", act = "hover", item = "basicRocketry" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb3-rnd-hover" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "rnd", act = "close" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "research-node", node = "basicRocketry" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb3-rnd-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  # ---- F1: facility upgrade ----
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "open", item = "SpaceCenter/TrackingStation" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "hover", item = "upgrade" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb3-facility-hover" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "facilitymenu", act = "close" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb3-facility-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  # ---- K1: kerbal hire ----
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "open" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "hover", item = "Verhat Kerman" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb3-ac-hover" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "close" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "hire-kerbal", kerbal = "Verhat Kerman" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb3-ac-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  # ---- C1: contract accept ----
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "open", pane = "available" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "select", item = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27", pane = "available" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb3-mc-detail" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "close" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "accept-contract", contract = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb3-mc-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science", "facilities", "kerbals", "contracts", "action-blocking"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's three committed recordings (GUI-28's host); nothing in this lane records.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ---- T1 (a) the greyed Research button and its explanation ----
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb3-rnd-panel screen=RnD name=actionButton:basicRocketry state=research interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=rnd act=hover item=basicRocketry ",
+  # ---- T1 (b) the refusal: the backstop, state + pools unchanged, the typed refusal ----
+  "\\[Parsek\\]\\[INFO\\]\\[TechResearchPatch\\] Blocking tech research: 'basicRocketry' \\([^)]*\\) - committed future row ut=\\d+ nowUT=\\d+ recording=\\(ksc\\), 5\\.0 science reserved for this action",
+  "kscaction research-node not applied: target=basicRocketry stateBefore=Unavailable stateAfter=Unavailable fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=research-node reason=blocked-committed target=basicRocketry",
+  # ---- T1 (c) the dialog body IS the hover's why ----
+  "record label=kb3-rnd-panel screen=RnD tab=Tree item=basicRocketry kind=TechResearch marked=true blocked=true why=\"(Researched on [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot research \"[^\"]+\" - \\1 \\(5\\.0 science reserved for this action\\)\\r?\\n",
+
+  # ---- F1 (a) ----
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb3-facility-hover screen=FacilityMenu name=Upgrade:SpaceCenter/TrackingStation state=- interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=facilitymenu act=hover item=upgrade ",
+  # ---- F1 (b) ----
+  "\\[Parsek\\]\\[INFO\\]\\[FacilityUpgradePatch\\] Blocking facility upgrade: 'SpaceCenter/TrackingStation' - 1 committed future upgrade\\(s\\), last ut=\\d+ toLevel=\\d+ nowUT=\\d+",
+  "kscaction upgrade-facility not applied: target=SpaceCenter/TrackingStation levelBefore=(\\d+) levelAfter=\\1 fundsBefore=(\\S+) fundsAfter=\\2 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\3 scienceDelta=0",
+  "kscaction refused action=upgrade-facility reason=blocked-committed target=SpaceCenter/TrackingStation",
+  # ---- F1 (c) ----
+  "record label=kb3-facility-hover screen=FacilityMenu tab=Upgrade item=SpaceCenter/TrackingStation kind=FacilityUpgrade marked=true blocked=true why=\"(Upgraded to level [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot upgrade \"Tracking Station\" - \\1\\r?\\n",
+
+  # ---- K1 (a) ----
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=astronaut act=hover item=Verhat_Kerman ",
+  # ---- K1 (b) ----
+  "\\[Parsek\\]\\[INFO\\]\\[KerbalHirePatch\\] blocking hire for name=Verhat Kerman - committed future hire ut=\\d+ nowUT=\\d+ recording=\\(ksc\\)",
+  "kscaction hire-kerbal not applied: target=Verhat_Kerman typeBefore=Applicant typeAfter=Applicant fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=hire-kerbal reason=blocked-committed target=Verhat Kerman",
+  # ---- K1 (c) ----
+  "record label=kb3-ac-hover screen=AstronautComplex tab=Applicants item=Verhat Kerman kind=KerbalHire marked=true blocked=true why=\"(Hired on [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot hire \"Verhat Kerman\" - \\1\\r?\\n",
+
+  # ---- C1 (a) ----
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb3-mc-detail screen=MissionControl name=btnAccept:90e4faaf-2029-4c6b-8bc1-40226bb0fc27 state=- interactable=false visible=true",
+  # ---- C1 (b) ----
+  "\\[Parsek\\]\\[INFO\\]\\[ContractAcceptPatch\\] blocking accept for guid=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 - committed future accept ut=\\d+ nowUT=\\d+ recording=\\(ksc\\)",
+  "kscaction accept-contract not applied: target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 stateBefore=Offered stateAfter=Offered fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=accept-contract reason=blocked-committed target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+  # ---- C1 (c) ----
+  "record label=kb3-mc-detail screen=MissionControl tab=Available item=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 kind=ContractAccept marked=true blocked=true why=\"(Accepted on [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot accept \"[^\"]+\" - \\1\\r?\\n",
+
+  # ---- each dialog was up and was dismissed (four times) ----
+  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){4}",
+
+  # ---- (d) the ledger: loaded with 26 rows, saved with 26 after the last refusal ----
+  "\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Loaded ledger from '[^']*': version=0, actions=26, parseErrors=0",
+  "kscaction refused action=accept-contract [\\s\\S]*\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=26\\r?\\n",
+]
+forbidden = [
+  # (d) no ledger row added, no save holding any other count, no KSC spending.
+  "\\[Ledger\\] Added action:",
+  "\\[Ledger\\] AddActions batch: added=[1-9]",
+  "\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=(?!26\\r?\\n)",
+  "KSC spending recorded",
+  # No game-state event of any kind (research, upgrade, hire, accept, a funds / science
+  # change); the facility cache seed is the one `Game state:` line a KSC boot writes.
+  "Game state: (?!Facility cache seeded)",
+  # No backstop let a click through.
+  "Allowing tech research: 'basicRocketry'",
+  "Allowing facility upgrade: 'SpaceCenter/TrackingStation'",
+  "allowing accept for guid=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+  "kscaction action=(research-node|upgrade-facility|hire-kerbal|accept-contract) .*applied=true",
+]
+
+[runtime]
+# One LoadGame (~300 s ceiling), fourteen UI steps, four 60 s KscActions; GUI-28's 900 s class.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

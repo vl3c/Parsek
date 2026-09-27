@@ -838,11 +838,13 @@ namespace Parsek
                 ? ResolveHoldFlight(reservation, ownGroup)
                 : null;
             // A Lost kerbal carries a release date only when his death's stock respawn is
-            // pending (owner ruling S8): a permanent death has none.
+            // pending (owner ruling S8): a permanent death has none. The date is the
+            // respawn, not the hold's end, which a later flight may extend past it (G6).
             string releaseDateText = status == RosterStatus.Reserved
-                    || (status == RosterStatus.Lost && KerbalsModule.IsRespawnPendingHold(reservation))
                 ? FormatReleaseDate(reservation, ctx.FormatDate)
-                : null;
+                : status == RosterStatus.Lost && KerbalsModule.IsLossHold(reservation)
+                    ? FormatLostUntilDate(reservation, ctx.FormatDate)
+                    : null;
             FlightRow deathRow;
             FlightRow? death = ctx.DeathFlightOf.TryGetValue(name, out deathRow)
                 ? deathRow
@@ -996,6 +998,18 @@ namespace Parsek
         /// The calendar date a FINITE reservation ends at (a Recovered flight's end), or
         /// null for a permanent / open-ended hold, which time alone never releases.
         /// </summary>
+        /// <summary>
+        /// The calendar date a Lost kerbal respawns (the recorded death's stock respawn
+        /// instant), or null for a permanent death. Pure.
+        /// </summary>
+        internal static string FormatLostUntilDate(
+            KerbalsModule.KerbalReservation reservation, Func<double, string> formatDate)
+        {
+            double until = KerbalsModule.LossRespawnUT(reservation);
+            if (double.IsNaN(until) || double.IsInfinity(until)) return null;
+            return FormatDateCell(until, formatDate);
+        }
+
         internal static string FormatReleaseDate(
             KerbalsModule.KerbalReservation reservation, Func<double, string> formatDate)
         {

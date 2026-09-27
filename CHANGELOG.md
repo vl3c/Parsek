@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: the automated tests now gate on 37 more save-structure checks.** Report-only checks
+  on the saved game (rewind points, supersede rows, tombstones, tree and recording shape) now
+  fail a test run when they drift, wherever a recent run read them correctly: 21 lanes were
+  flown on current code to read them. 31 checks on 25 lanes still wait for a reading. The
+  stock-screen annotation batch (H45) was re-flown and now pins its exact result, after a
+  timing fix in one of its tests. One logistics lane (RVR-8) found that a route's second
+  cycle no longer holds when its origin is out of cargo; it is filed, not fixed.
+- **Dev: a lane for the tech, upgrade, hire and contract-accept blocks after a rewind.** `KB-3-ksc-click-blocks-after-rewind` runs on the stock-screen census career, whose committed timeline researches a tech, upgrades the Tracking Station, hires an applicant and accepts a contract after the save clock. For each of the four it checks that the stock control is greyed with the committed-timeline explanation, that the stock call behind the control is refused with the blocked dialog, that the dialog shows exactly the explanation the hover showed, and that no state, funds, science or ledger row changes. The `KscAction` test verb gains `action=accept-contract contract=<guid>` (Mission Control's own `Contract.Accept()` call), and a refused research, upgrade, hire or accept now logs the target's state and the funds and science pools before and after stock's call.
 - **Dev: a lane for the facility repair block after a rewind.** `KB-2-ksc-repair-block-after-rewind` (never flown) runs on a new committed fixture, `stock-screen-census-repair`: the stock-screen census career with the Tracking Station dish destroyed before the save clock and its repair committed after it, built by `Source/Parsek.Tests/StockScreenRepairFixture.cs`. It checks that the Tracking Station menu greys Repair and shows the explanation on its tooltip, and that a repair made through the menu's own call is refused with the blocked dialog, repairs nothing and leaves funds unchanged. The `StockScreen` test verb can now hover the facility menu's Repair button (`item=repair`), and a refused `KscAction repair-facility` logs the destroyed-building count and the funds before and after stock's call.
 - **Automated testing: the coverage-wave rulings are confirmed, and the RemoteTech cell is retired.**
   The rulings the coverage waves applied pending the operator (three retired cells, the atmosphere,
@@ -1214,6 +1222,74 @@ _(unreleased — entries accumulate here per commit)_
   it, and the route could run again on cargo it had already taken. A loaded vessel now always
   has its tanks and inventories changed directly, whether or not it is on rails; only a vessel
   that is truly unloaded is written through its saved copy.
+- **Every orbit Parsek calls Orbiting now spawns, and a refused ghost no longer lingers.** A
+  recording ending in orbit is marked Orbiting only when its periapsis clears the body's
+  atmosphere, and on a body with no atmosphere its highest terrain, so a low Mun orbit that
+  would hit a mountain ends as a sub-orbital flight. The spawn check now uses that same line.
+  Before, a vessel whose periapsis was up to 5 km above the atmosphere (a 72 x 100 km Kerbin
+  orbit, and the same band over Duna, Eve, Laythe and Jool) was recorded as Orbiting and then
+  refused at spawn, and its ghost stayed on screen past the end of the recording for the rest
+  of the scene. The 5 km margin is now used only to wait while the vessel is low in that band,
+  and the vessel spawns once it climbs. A recording that ended with its vessel unloaded no
+  longer counts as Orbiting just because its periapsis is above sea level: a periapsis inside
+  the atmosphere makes it sub-orbital. A spawn that can never succeed (an orbit that cannot
+  be rebuilt, a spawned vessel that died, bad numbers) no longer holds its ghost: the ghost
+  finishes its replay and disappears at the recording's end, along with its map-view orbit.
+  A refusal saved in an existing game is checked again under the new rule when the game loads,
+  except a vessel that already died when it spawned, which stays refused. Ruling 2026-09-27.
+- **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
+  its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
+  merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier
+  recorded leg of the same vessel as recovered too: the leg before a staging, undock or EVA,
+  the leg before a dock, and each earlier part of a background recording. Those legs then
+  claimed to last until the recovery, lost their saved vessel, and on merge each one booked
+  the recovery payout again. Only the leg the vessel was actually flying at the recovery is
+  marked now, so the payout is booked once; a flight that shed only debris is still marked as
+  before.
+- **A kerbal who died and respawns reads Lost until his respawn even when he flies again
+  later.** With crew respawn on, a kerbal killed on a recorded flight who was then flown again
+  on a flight ending after his respawn read as reserved for that later flight over the whole
+  time, including while stock still had him dead or missing, and a free stand-in took his seat
+  there (also before the death after a rewind). He now reads Lost until the respawn date, with
+  no stand-in, exactly as with the death alone; from the respawn on the later flight holds him
+  as usual and a stand-in covers his seat, which now appears at the respawn without waiting for
+  a scene change.
+- **No false "Held your funds at the spent value" message on Moderate or Hard when your
+  funds go negative.** Those presets let stock take funds (or science) below zero, for
+  example with a failed contract's penalty. Parsek treated the negative balance as a spend it
+  had missed: it showed the message, wrote a warning to the log on every recalculation, and a
+  rewind reset the balance to zero. It now keeps a negative balance that already exists, as
+  stock shows it; money a committed future flight will spend later still never takes the
+  balance below zero early. On the presets that keep currency at zero nothing changes.
+- **Auto-hire no longer seats a kerbal your committed future hires.** With the difficulty
+  option that hires crew automatically for empty seats, after a rewind to before a kerbal's
+  recorded hire, auto-hire could pick that same applicant: Parsek refused the hire, but the
+  game seated him anyway without hiring him, announced a hire that cost nothing, and with two
+  seats short put him in both. Auto-hire now passes over applicants a committed flight hires
+  later and takes the next one (or a new applicant when none is left).
+- **Recording through the Alt+F12 cheats and from alternate launch sites.** Four follow-ups
+  from the stock-settings audit:
+  - A Set Orbit, Rendezvous or Set Position teleport during a recording is now recorded as a
+    jump. A same-planet jump is not itself a split point (the recording still splits where the
+    flight phase really changes, such as surface to orbit), and a jump from the surface
+    or the atmosphere to another planet or moon now splits the recording at the new body the
+    way an SOI change does (before, one piece of the recording spanned both bodies). In orbit
+    the ghost follows the new orbit from the moment of the jump instead of the old orbit for a
+    few frames. Every teleport is logged.
+  - A recording that did not start with a launch no longer carries a launch site. Starting a
+    recording on a vessel taken off from a remote landing, switched to, or picked in the
+    Tracking Station tagged it with the site of your last launch, and a supply route built from
+    it was treated and priced as a KSC launch. A launch from the pad or runway, a vessel still
+    on a launch site, and a fresh rollout keep their site, and a vessel standing on a site now
+    names that site rather than the last one you launched from.
+  - A flight that ends parked on any stock launch site (the Making History Desert pad and
+    airfield, the Woomerang pad and the Island airfield when Making History is installed, as
+    well as the KSC pad and runway) is retired: no vessel is spawned there, its crew is freed
+    and no funds are paid. KSC behaves exactly as before.
+  - Recording while Hack Gravity is on now writes one warning to KSP.log: orbits recorded under
+    changed gravity replay at the wrong rate once gravity is back to normal. Nothing else
+    changes.
+
 - **Kerbals keep the inventory they carried when their vessel reappears.** A vessel that
   appears at the end of a recording used to give each kerbal the inventory he has on the roster
   now, not what he carried at the end of the flight, because a kerbal's own inventory is stored
