@@ -47,8 +47,43 @@ namespace Parsek
             /// <summary>True when no recovery funds row existed and EndUT was used as the anchor.</summary>
             public bool UsedFallbackAnchor;
 
+            /// <summary>
+            /// What proved the recovery: <see cref="EvidenceTerminal"/> (the recording's own
+            /// <see cref="TerminalState.Recovered"/> verdict) or <see cref="EvidenceLedgerRow"/>
+            /// (a post-cutoff recovery row on a recording committed before the recovery fired).
+            /// </summary>
+            public string Evidence;
+
             /// <summary>ActionIds to tombstone, in ledger order.</summary>
             public List<string> RetiredActionIds = new List<string>();
+        }
+
+        /// <summary>Evidence tag: the recording itself ended <see cref="TerminalState.Recovered"/>.</summary>
+        internal const string EvidenceTerminal = "terminal-recovered";
+
+        /// <summary>Evidence tag: the ledger holds a post-cutoff recovery row for the recording.</summary>
+        internal const string EvidenceLedgerRow = "recovery-row";
+
+        /// <summary>
+        /// True when a recording's terminal leaves the recorded vessel in the world, so a LATER
+        /// recovery of it is possible: no verdict yet, or a situation verdict (Orbiting,
+        /// Landed, Splashed, SubOrbital). False for Recovered (handled as its own evidence)
+        /// and for every verdict that ended the vessel (Destroyed, Docked, Boarded,
+        /// Disassembled).
+        /// </summary>
+        internal static bool VesselOutlivedTerminal(TerminalState? terminal)
+        {
+            if (!terminal.HasValue) return true;
+            switch (terminal.Value)
+            {
+                case TerminalState.Orbiting:
+                case TerminalState.Landed:
+                case TerminalState.Splashed:
+                case TerminalState.SubOrbital:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         /// <summary>
@@ -70,11 +105,49 @@ namespace Parsek
         /// the ledger actions each resurrection retires.
         ///
         /// <para>
-        /// A recording qualifies when: a surviving live vessel is POSITIVELY its launch
-        /// (<see cref="IsPositivelySameLaunch"/>), the recording's terminal verdict is
-        /// <see cref="TerminalState.Recovered"/>, and the recovery evidence lies after
-        /// <paramref name="retireCutoffUT"/> (a recovery from BEFORE the rewind point is
-        /// still true in the reverted world and must be left alone).
+        /// A recording qualifies when a surviving live vessel is POSITIVELY its launch
+        /// (<see cref="IsPositivelySameLaunch"/>) and the recording carries recovery evidence
+        /// after <paramref name="retireCutoffUT"/> (a recovery from BEFORE the rewind point is
+        /// still true in the reverted world and must be left alone). Two kinds of evidence
+        /// count:
+        /// </para>
+        ///
+        /// <para>
+        /// (1) The recording's terminal verdict is <see cref="TerminalState.Recovered"/>. Only
+        /// a PENDING tree is ever stamped Recovered (<c>UpdateRecordingsForTerminalEvent</c>),
+        /// so this is the manual-merge shape: the merge dialog waits at the Space Center, the
+        /// recovery fires first, and the commit sees the stamp.
+        /// </para>
+        ///
+        /// <para>
+        /// (2) A <see cref="GameActionType.FundsEarning"/> row with
+        /// <see cref="FundsEarningSource.Recovery"/>, or a
+        /// <see cref="GameActionType.KerbalRecovered"/> row, on the recording with a UT after
+        /// the cutoff, on a recording whose terminal left the vessel in the world
+        /// (<see cref="VesselOutlivedTerminal"/>). This is the SHIPPING shape: with auto-merge
+        /// on, an in-flight Recover commits the tree at the scene change (terminal from the
+        /// vessel situation, e.g. Landed) BEFORE stock fires <c>onVesselRecovered</c> at the
+        /// Space Center, and a Tracking Station recovery reaches a recording committed long
+        /// before. Committed recordings are never re-stamped by a terminal event, so the
+        /// recovery lives only in the ledger, as the #444 funds row
+        /// (<c>LedgerOrchestrator.OnVesselRecoveryFunds</c>) and the crew-close row
+        /// (<c>LedgerOrchestrator.OnRealVesselCrewRecovered</c>). Both are written only from a
+        /// real <c>onVesselRecovered</c>, and the commit-time pairing in
+        /// <c>CreateVesselCostActions</c> emits a recovery row only for a Recovered terminal,
+        /// so a recovery row always means the vessel was recovered. The funds row's recording
+        /// pick drops any candidate whose launch guid conclusively differs from the recovered
+        /// vessel's, and this classifier additionally requires the survivor to be POSITIVELY
+        /// the recording's launch, so the survivor is the vessel that was recovered.
+        /// </para>
+        ///
+        /// <para>
+        /// A <see cref="GameActionType.KerbalRecovered"/> row is evidence but is NOT retired.
+        /// It closes the recording's open-ended Aboard hold at the recovery UT. Retired, the
+        /// hold would stay open, and a later recovery of the resurrected vessel BEFORE the
+        /// recording's end could not close it again (<c>CrewRecoveryReservationClose</c> picks
+        /// only owners that ended at or before the recovery), so the kerbal would be held
+        /// forever. Kept, the hold ends where it ended before the Re-Fly, and the kerbal
+        /// aboard the resurrected vessel is protected by the live roster meanwhile.
         /// </para>
         ///
         /// <para>
@@ -143,6 +216,25 @@ namespace Parsek
             IReadOnlyList<GameAction> ledgerActions,
             double retireCutoffUT)
         {
+            return Classify(
+                survivingIdentities, committedRecordings, ledgerActions, retireCutoffUT,
+                out _);
+        }
+
+        /// <summary>
+        /// The classifier above, plus the number of committed recordings a survivor
+        /// POSITIVELY matched that carried no post-cutoff recovery evidence
+        /// (<paramref name="matchedWithoutRecovery"/>): a resurrected launch that was not
+        /// recovered after the rewind point. The caller's summary line names that skip.
+        /// </summary>
+        internal static List<ResurrectedRecovery> Classify(
+            IReadOnlyList<(uint pid, string guid)> survivingIdentities,
+            IReadOnlyList<Recording> committedRecordings,
+            IReadOnlyList<GameAction> ledgerActions,
+            double retireCutoffUT,
+            out int matchedWithoutRecovery)
+        {
+            matchedWithoutRecovery = 0;
             var result = new List<ResurrectedRecovery>();
             if (survivingIdentities == null || survivingIdentities.Count == 0) return result;
             if (committedRecordings == null || committedRecordings.Count == 0) return result;
@@ -156,8 +248,8 @@ namespace Parsek
                 var rec = committedRecordings[r];
                 if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
                 if (claimedRecordingIds.Contains(rec.RecordingId)) continue;
-                if (!rec.TerminalStateValue.HasValue) continue;
-                if (rec.TerminalStateValue.Value != TerminalState.Recovered) continue;
+                bool terminalRecovered = rec.TerminalStateValue.HasValue
+                    && rec.TerminalStateValue.Value == TerminalState.Recovered;
 
                 uint matchedPid = 0;
                 for (int i = 0; i < survivingIdentities.Count; i++)
@@ -188,14 +280,55 @@ namespace Parsek
                     retired.Add(action.ActionId);
                 }
 
+                // Crew-close rows: evidence of a post-commit recovery, never retired (see the
+                // KerbalRecovered remarks on Classify).
+                var crewCloseUTs = new List<double>();
+                for (int a = 0; a < ledgerActions.Count; a++)
+                {
+                    var action = ledgerActions[a];
+                    if (action == null) continue;
+                    if (!string.Equals(action.RecordingId, rec.RecordingId, StringComparison.Ordinal))
+                        continue;
+                    if (action.Type != GameActionType.KerbalRecovered) continue;
+                    if (!(action.UT > retireCutoffUT)) continue;
+                    crewCloseUTs.Add(action.UT);
+                }
+
+                if (!terminalRecovered && !VesselOutlivedTerminal(rec.TerminalStateValue))
+                {
+                    // Destroyed / Docked / Boarded / Disassembled: the recorded vessel no
+                    // longer existed to be recovered, so a recovery row on it is a
+                    // misattribution. Leaving it banked is the pro-player direction.
+                    matchedWithoutRecovery++;
+                    continue;
+                }
+
+                if (!terminalRecovered && anchorUTs.Count == 0 && crewCloseUTs.Count == 0)
+                {
+                    // The survivor IS this launch, but nothing recovered it after the rewind
+                    // point: a Landed / Orbiting flight whose vessel simply lives on.
+                    matchedWithoutRecovery++;
+                    continue;
+                }
+
                 bool usedFallbackAnchor = false;
                 if (anchorUTs.Count == 0)
                 {
-                    // Zero-value recovery: no funds row exists to anchor on. The recording's
-                    // own end is when the recovery happened.
-                    if (!(rec.EndUT > retireCutoffUT)) continue;
-                    anchorUTs.Add(rec.EndUT);
-                    usedFallbackAnchor = true;
+                    if (crewCloseUTs.Count > 0)
+                    {
+                        // Zero-value crewed recovery after the commit: the crew-close row
+                        // carries the recovery's own UT.
+                        anchorUTs.AddRange(crewCloseUTs);
+                    }
+                    else
+                    {
+                        // Zero-value recovery of a Recovered-terminal recording: no funds row
+                        // exists to anchor on. The recording's own end is when the recovery
+                        // happened.
+                        if (!(rec.EndUT > retireCutoffUT)) continue;
+                        anchorUTs.Add(rec.EndUT);
+                        usedFallbackAnchor = true;
+                    }
                 }
 
                 // Bundled science: same recording, and RECOVERED rather than transmitted.
@@ -263,6 +396,7 @@ namespace Parsek
                     LiveVesselPid = matchedPid,
                     AnchorUT = earliestAnchor,
                     UsedFallbackAnchor = usedFallbackAnchor,
+                    Evidence = terminalRecovered ? EvidenceTerminal : EvidenceLedgerRow,
                     RetiredActionIds = retired
                 });
             }

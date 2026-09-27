@@ -19,9 +19,11 @@ id = "RB-1-rewind-readback-divergence"
 # recalc patches it), so the target can only drop below eBefore through something the
 # rewind itself retires. The one designed retirement is Step 3b,
 # RetireResurrectedVesselRecoveryRows: a vessel that is IN the RP quicksave, whose
-# committed recording ended Recovered with its recovery funds row AFTER the retire cutoff
-# (the post-load live UT), is back in the world, so its recovery bundle is tombstoned
-# (ResurrectionRetirementEligibility.Classify, positive guid match only). With R the
+# committed recording carries recovery evidence AFTER the retire cutoff (the post-load
+# live UT) - a Recovered terminal, or, in the shipping auto-merge shape this lane flies, a
+# Landed terminal plus the post-commit FundsEarning(Recovery) row - is back in the world,
+# so its recovery bundle is tombstoned (ResurrectionRetirementEligibility.Classify,
+# positive guid match only). With R the
 # retired recovery credit, S the post-RP spending and E the other post-RP earnings:
 #     eBefore = eRp + E + R - S,   target = eRp + E - S,
 #     FLAG  <=>  R > 1  AND  S - E > 1.
@@ -69,14 +71,29 @@ id = "RB-1-rewind-readback-divergence"
 #     focused orbiting vessel earns stock progress (`Orbit` +12000, altitude / speed /
 #     distance records). They now stand on the runway. The confound does not change the
 #     verdict: with nothing retired the target equals the pre-rewind pool.
-# The lane is an EXPECTED-FAIL witness of that defect with the three mismatches as its
-# exact signature; a fix that stamps the recovery onto the committed recording turns it
-# XPASS. Not loosened (operator instruction 2026-09-27).
+# The lane was an EXPECTED-FAIL witness of that defect with the three mismatches as its
+# exact signature. Not loosened (operator instruction 2026-09-27).
+# -------------------------------------------------------------------------------------
+# FIX + XPASS 2026-09-27 (branch `recovered-after-commit`, automation DLL sha256
+# 567982e3...). Classify now also accepts the post-cutoff recovery row, so the fix keys on
+# the ledger rather than stamping the committed recording. Three attempts first died in
+# the MISSION on a fixture defect (`set deploy_altitude=2500m on 0 parachute(s)`, crash):
+# the runway relay and RP slot clones shared the Flea's part flight ids, and kRPC read the
+# relay's parts; fixed in the preset (GiveClonePartsFreshIdentities). Reading
+# 2026-09-27_1423: XPASS, every expectation met, with
+#   `Resurrected-recovery retirement: rec=8a79b68a... pid=2905720181 anchorUT=347.4
+#    fallbackAnchor=False actions=4 evidence=recovery-row`
+#   `FLAGGED DIVERGENCE resource=funds eBefore=479245 eRp=500000 floor=479245
+#    target=474687 delta=-4558 tolerance=1`
+# and four tombstones on the Flea's recording (the 4558 recovery funds row, two
+# Recovered-method science rows, Jebediah's recovery XP). The measured E and S differ
+# from the prediction above (eBefore 479245, not 474445); R = 4558 exactly. The
+# expectedFail block is removed and D9 `read-back-guard` is claimed here.
 # -------------------------------------------------------------------------------------
 tier = "operator"
 description = "Rewind read-back guard, first live flag: fly and recover career-science-pad's Flea after an injected RP, hire a kerbal, re-fly the RP's crashed slot; Step 3b retires the resurrected Flea's recovery and the funds target drops below min(pre-rewind, RP) -> FLAGGED DIVERGENCE resource=funds."
 instanceProfile = "stock-minimal"
-tags = ["RB-1", "rewind", "refly", "read-back-guard", "career", "ledger", "flown", "expected-fail"]
+tags = ["RB-1", "rewind", "refly", "read-back-guard", "career", "ledger", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/career-science-pad"
@@ -119,9 +136,10 @@ recoverMinFundsGain = 1.0
 recoverTimeoutSeconds = 180
 
 [dimensionsCovered]
-# D9 `read-back-guard` is NOT claimed: this lane is an expected-fail witness whose guard
-# assertion reds today (R7a / CL-3 hold the cell). Claim it here when the lane XPASSes.
-D9  = ["rewind-to-separation"]
+# D9 `read-back-guard` is claimed off the REQUIRED `FLAGGED DIVERGENCE resource=funds`
+# token: the first live flag of the guard's designed cause (R7a / CL-3 claim it off the
+# within-range and restore legs).
+D9  = ["rewind-to-separation", "read-back-guard"]
 D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
 
 [expectations]
@@ -148,11 +166,3 @@ budgetSeconds = 2400
 [retry]
 policy = "once"
 
-[expectedFail]
-bugId = "REFLY-RESURRECTED-RECOVERY-STAYS-BANKED"
-subkind = "expectation"
-mismatches = [
-  "logContracts.required not matched: Resurrected-recovery retirement: rec=\\S+ pid=2905720181 anchorUT=[0-9.]+ fallbackAnchor=False actions=[1-9]",
-  "logContracts.required not matched: FLAGGED DIVERGENCE resource=funds eBefore=[0-9.]+ eRp=[0-9.]+ floor=[0-9.]+ target=[0-9.]+ delta=-[0-9.]+ tolerance=1 ",
-  "logContracts.forbidden matched: within-expected-range resource=funds",
-]

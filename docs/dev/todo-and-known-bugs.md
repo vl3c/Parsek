@@ -90,11 +90,38 @@ recovery through `MergeJournalOrchestrator.RunFinisher`, mid-session `MarkerVali
 a pre-session undock and a legacy marker (both still refused), and the pure `IsSessionSeparationStop` gates.
 Mutation: passing a null marker to `AppendRelations` reds exactly the three undock-merge cells.
 
-**No live lane.** No committed fixture can host it: the only Undock Rewind Point
-(`bdock-recorded` / `bdock-second-dock-recorded`, bp `857e997a`) splits a two-vessel docked pair into two
-single vessels, so re-flying either half can undock only after docking again, and a session-time dock
-closes the fork `Docked` (already validated). A host needs a Rewind Point whose slot vessel is itself a
-docked assembly at the rewind point (a three-body stack), which is a new harvest flight plus mission work.
+**No live lane (feasibility checked 2026-09-27, deferred on cost).** A host needs a Rewind Point whose
+slot vessel is itself a docked assembly, so the re-flown fork can undock without docking first (a
+session-time dock closes the fork `Docked`, a path that already validates). What the committed
+fixtures hold:
+- **No such Rewind Point exists.** All ten RP quicksaves (`bdock-recorded` 3, `bdock-second-dock-recorded`
+  4, `refly-autopilot-recorded`, `refly-split-crewed-recorded`, `refly-split-crewed-merged`; none under
+  `Source/Parsek.Tests/Fixtures/`) carry docking ports only in `Ready` / `Disengage`. The only Undock RP
+  (bp `857e997a`) splits a docked pair into two single vessels.
+- **No in-run producer exists either.** The only docked vessel in any fixture is
+  `bdock-second-dock-recorded`'s Station + third Kerbal X (pid 3620499050). Its two `dockingPort2` join the
+  two `mk1-3pod` noses, so undocking yields two single vessels, and its only decouplers (the two
+  `Decoupler.2` under the pods, both `istg 0`) cut away command-less service modules, which is not the
+  multi-controllable split an RP needs (`SegmentBoundaryLogic.IsMultiControllableSplit`). No vessel in
+  any fixture carries two docking ports, so no three-body chain can be formed without a new craft.
+
+Options and cost (the cap was 3 flights in total):
+- **(b) Synthetic injected preset.** `ScenarioWriter.BuildRewindPointQuicksave` clones the donor save's
+  first vessel for every slot and restamps only the vessel identity and the root part pid, so a donor of
+  `bdock-second-dock-recorded` would give a genuinely docked slot vessel. Needed: a per-slot donor (one
+  donor for both slots stacks two identical Station clones on one spot), a synthetic origin tree whose
+  Undock branch point never happened, an undock-only mode for `d5_redock` (it re-docks today, which
+  closes the fork `Docked`), and the spec. Nominally 2 flights, realistically 3-4: a cloned docked
+  vessel has never been loaded through a Re-Fly, and synthetic RP origins have caused a fixture-shaped
+  divergence before (the `BuildRewindPointQuicksave` R1 note). It also proves only the session half
+  live, not an RP authored over a docked slot.
+- **(c) Harvest flight.** A new craft with two docking ports (or a docking that keeps a probe-cored
+  lower stage attached so a later staging leaves a controllable docked slot), a launch, rendezvous and
+  dock mission of BDOCK-2's shape (which took 4 flights), a harvest, then the lane's reading and arming
+  runs: about 4-6 flights.
+
+Neither fits the cap. The fix stands on the unit and mutation evidence above. Revisit when a two-port
+craft or a docked-assembly harvest lands for another reason, since (c) then costs only the lane.
 
 ## ~~REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA: a separation slot whose vessel put a crew member out on EVA was refused `downstreamBp`~~ [FOUND 2026-09-27 behind REFLY-SEPARATIONS-ONLY; OWNER DECISIONS 2026-09-27 (interview); IMPLEMENTED 2026-09-27, branch `refly-through-eva`]
 
@@ -6475,7 +6502,7 @@ fail-loud contract working as designed, but it is not what `ParsekUI.cs:937-940`
 the check is advisory. A named, unarmed safety gate is worse than none, because the next
 reader assumes it fires. D7 is closed above.
 
-## REFLY-RESURRECTED-RECOVERY-STAYS-BANKED: a Re-Fly that brings back a vessel you recovered keeps its recovery funds [FILED 2026-09-27 from the RB-1 reading run, branch `cap-divergence-lanes`. OPEN, over-credit, reproduced live]
+## ~~REFLY-RESURRECTED-RECOVERY-STAYS-BANKED~~: a Re-Fly that brings back a vessel you recovered keeps its recovery funds [FILED 2026-09-27 from the RB-1 reading run, branch `cap-divergence-lanes`. FIXED 2026-09-27 on branch `recovered-after-commit` (Step 3b keys on the ledger's recovery row too); see Fix below]
 
 **What the player gets.** Recover a vessel, then Re-Fly an earlier separation whose rewind point still has that vessel in its world (it was sitting on the pad, in orbit, anywhere the Re-Fly preserves). The vessel is back, and its recovery money is still in the account. Issue #15's Step 3b (`RewindInvoker.RetireResurrectedVesselRecoveryRows`) exists to retire exactly that money, but in the shipping configuration it never matches.
 
@@ -6485,7 +6512,27 @@ reader assumes it fires. D7 is closed above.
 
 **Fix direction (needs a ruling).** Classify could key on the recovery evidence the ledger already holds (a `FundsEarning` with `FundsEarningSource.Recovery` on a recording positively guid-matched to the resurrected vessel) instead of the terminal state, or the recovery could stamp the committed leaf. Either way the fix turns RB-1 XPASS; claim D9 `read-back-guard` on it then, fly RB-2 (the no-spend control), and arm both.
 
-## REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE [FILED 2026-09-14 by the guard-retire decision. UPDATED 2026-09-27: the lane exists (RB-1) and found that its designed cause cannot happen in the shipping configuration; blocked on REFLY-RESURRECTED-RECOVERY-STAYS-BANKED]
+**Fix (branch `recovered-after-commit`).** Classify keys on the ledger. The three candidates, weighed against the traced ordering:
+- Stamping Recovered on the committed recording when the recovery arrives would break the "committed recordings are never modified by a terminal event" rule (`UpdateRecordingsForTerminalEvent`), which KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL already chose to keep for the same ordering ("a row, not a re-stamp"), and it would also have to re-run the commit-time crew and funds derivations.
+- Deferring the auto-commit until the recovery resolves only covers the in-flight Recover. A Tracking Station recovery of an older flight reaches a recording committed long before, with the same Landed / Orbiting terminal, and needs the ledger answer anyway.
+- The ledger answer covers all three producers. A recovery row exists only when the vessel was recovered: the commit-time pairing emits one only for a Recovered terminal, and #444 (`OnVesselRecoveryFunds`) and the crew close (`OnRealVesselCrewRecovered`) write only from a real `onVesselRecovered`.
+
+A recording now qualifies when a survivor is POSITIVELY its launch and it either ended Recovered (the manual-merge shape, unchanged) or carries a `FundsEarning(Recovery)` or `KerbalRecovered` row after the cutoff, on a terminal that left the vessel in the world (`VesselOutlivedTerminal`: none, Orbiting, Landed, Splashed, SubOrbital). The retired bundle is unchanged: funds, Recovered-method science, recovery XP, and Recovered-end-state crew rows. The `KerbalRecovered` row counts as evidence but is NOT retired. Retiring it would leave the recording's Aboard hold open, and a later recovery of the resurrected vessel before the recording's end could not close it again (`CrewRecoveryReservationClose.SelectOwnerRecordings` takes only owners that ended by the recovery). Mirror directions: the manual merge keeps the Recovered-terminal path, and a Tracking Station recovery and an in-flight auto-merge recovery both go through the row path. Logs: each entry line gains `evidence=terminal-recovered|recovery-row`; the `none` and summary lines gain `matchedWithoutRecovery=N` (the number of committed recordings a survivor positively matched that carry no post-cutoff recovery or ended on a vessel-ending terminal; earlier segments of one launch each count). Tests: `ResurrectionRetirementEligibilityTests` (the RB-1 shape `LandedCommitWithPostCutoffRecoveryRow_Classifies`, guid gate, cutoff, vessel-ending terminals, crew-close evidence-not-retired).
+
+**Live proof (2026-09-27, automation DLL sha256 `567982e3...`).** `RB-1-rewind-readback-divergence` `2026-09-27_1423` XPASS: `Resurrected-recovery retirement: rec=8a79b68a... pid=2905720181 anchorUT=347.4 fallbackAnchor=False actions=4 evidence=recovery-row`, then `FLAGGED DIVERGENCE resource=funds eBefore=479245 eRp=500000 floor=479245 target=474687 delta=-4558`. The produced save carries four tombstones: the 4558 recovery funds row, two Recovered-method science rows and Jebediah's recovery XP. The control `RB-2-rewind-readback-within-range` `2026-09-27_1431` XPASS: the same retirement, and `within-expected-range resource=funds ... delta=36800`. The first three attempts (RB-1 `_1353`, RB-2 `_1417` and `_1420_a2`) never reached the rewind. The `rewind-readback` preset's runway relay and RP slot clones shared the Flea's part flight ids, kRPC read the relay's parts, and the mission logged `set deploy_altitude=2500m on 0 parachute(s)` and crashed. The preset now gives the clones their own part ids (`RewindReadbackFixture.GiveClonePartsFreshIdentities`, pinned by `CapReadbackFixtureTests`). The harness flake-quarantine entry those attempts left for RB-2 is a fixture artifact, not a flake. Both lanes' `expectedFail` blocks are removed, and RB-1 claims D9 `read-back-guard`.
+
+**Sibling, filed below:** the committed Landed terminal of a recovered vessel is read by two other consumers that assume a recovery reads Recovered (RECOVERED-AFTER-COMMIT-READS-LANDED-ELSEWHERE).
+
+## RECOVERED-AFTER-COMMIT-READS-LANDED-ELSEWHERE: with auto-merge on, a recovered flight is committed Landed, and two more consumers read that as "not recovered" [FILED 2026-09-27 while fixing REFLY-RESURRECTED-RECOVERY-STAYS-BANKED, branch `recovered-after-commit`. OPEN, BY READING ONLY: neither path has been flown]
+
+The ordering is measured (RB-1 `2026-09-27_1249`: `FinalizeIndividualRecording ... stable terminal state Landed (vessel.situation=LANDED, isSceneExit=True)`, then `Silent full-fidelity auto-commit (scene-exit)`, then `[VesselRecovery]: Jumping Flea recovered` at the Space Center). With a manual merge the same flight commits `Recovered`. Step 3b now reads the ledger instead. Two other readers still key on the terminal alone:
+
+- **Spawn at the recording's end** (`GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`): Recovered is not spawnable, Landed is. After a rewind to before such a flight, its replay would materialize the vessel at the landing site, and the recovery row would still credit the payout when the clock passes the recovery UT. The vessel could then be recovered again. Pad and runway ends are retired by #1783, so this needs a landing away from the KSC. Check it with a lane or an in-game test before designing anything.
+- **The Stash classifier** (`UnfinishedFlightClassifier.StashedTerminalQualifies`): its comment excludes recoveries as "not safe to re-fly", but Landed qualifies. A recovered flight can therefore be stashed and re-flown. With the Step 3b fix its recovery money is retired on the Re-Fly, so the economy stays consistent, but the rule the comment states does not hold.
+
+The candidate fix is one shared predicate, "recovered by the Recovered terminal or by a recovery row", used by all three readers. It is not done here because the spawn half changes what a rewind puts in the world and needs a ruling.
+
+## ~~REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE~~ [FILED 2026-09-14 by the guard-retire decision. UPDATED 2026-09-27: the lane exists (RB-1) and found that its designed cause cannot happen in the shipping configuration. CLOSED 2026-09-27 (branch `recovered-after-commit`): with REFLY-RESURRECTED-RECOVERY-STAYS-BANKED fixed, RB-1 `2026-09-27_1423` is the first live `FLAGGED DIVERGENCE` and RB-2 `2026-09-27_1431` its within-range control. The A7 strategy / mod-grant follow-up below stays OPEN]
 
 **2026-09-27 (branch `cap-divergence-lanes`).** The guard, re-derived from source: `RewindInvoker` arms it with eBefore (the live career before the rewind load) and eRp (the live career right after it), and `KspStatePatcher.RunRewindReadbackGuard` warns when the funds recalc target is below min(eBefore, eRp) - 1. Before a rewind the target equals the live pool, so only something the rewind itself retires can put it below eBefore, and the only designed retirement is Step 3b (`RetireResurrectedVesselRecoveryRows`). With R the retired recovery credit, S the post-RP spending and E the other post-RP earnings, it flags exactly when R > 1 and S - E > 1. A recovered SLOT cannot be re-flown (`UnfinishedFlightClassifier` admits no Recovered terminal, stashed or not), so the resurrected vessel has to be one unrelated to the RP's slots. `RB-1-rewind-readback-divergence` flies that (new `rewind-readback` preset: career-science-pad's own Flea is in the RP quicksave, the lane flies and recovers it, hires a kerbal, then re-flies slot 1). Reading `2026-09-27_1249` did not flag: Step 3b retired nothing (see REFLY-RESURRECTED-RECOVERY-STAYS-BANKED), so the guard read `within-expected-range resource=funds eBefore=625645 eRp=548000 floor=548000 target=673645 delta=125645`. The guard itself behaved as written. RB-1 and its control RB-2 are expected-fail witnesses of that defect; they become this entry's live witness when it is fixed. The strategy / mod-grant follow-up below is unchanged.
 

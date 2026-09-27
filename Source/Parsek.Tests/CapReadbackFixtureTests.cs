@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using Parsek;
@@ -37,9 +38,14 @@ namespace Parsek.Tests
             "\t\t\tlaunchedFrom = LaunchPad\n" +
             "\t\t\troot = 0\n" +
             "\t\t\tORBIT\n\t\t\t{\n\t\t\t\tSMA = 300819.3\n\t\t\t\tREF = 1\n\t\t\t}\n" +
+            "\t\t\tref = 4000001\n" +
             "\t\t\tPART\n\t\t\t{\n\t\t\t\tname = mk1pod.v2\n" +
+            "\t\t\t\tuid = 4000001\n" +
             "\t\t\t\tpersistentId = 111222333\n" +
             "\t\t\t\tcrew = Jebediah Kerman\n\t\t\t}\n" +
+            "\t\t\tPART\n\t\t\t{\n\t\t\t\tname = parachuteSingle\n" +
+            "\t\t\t\tuid = 4000002\n" +
+            "\t\t\t\tpersistentId = 1253190902\n\t\t\t}\n" +
             "\t\t}\n" +
             "\t}\n" +
             "}\n";
@@ -159,6 +165,21 @@ namespace Parsek.Tests
 
             ConfigNode flea = FindByPid(vessels, RewindReadbackFixture.HostFleaPersistentId);
             Assert.NotNull(flea);
+            // The Flea is readmitted verbatim, so its part ids are the host save's own.
+            Assert.Equal("4000002", flea.GetNodes("PART")[1].GetValue("uid"));
+            Assert.Equal("1253190902", flea.GetNodes("PART")[1].GetValue("persistentId"));
+            foreach (string recId in new[]
+            {
+                RewindReadbackFixture.UpperRecordingId, RewindReadbackFixture.BoosterRecordingId,
+            })
+            {
+                ConfigNode slotClone = FindByPid(vessels, ScenarioWriter.DeriveVesselPersistentId(recId));
+                AssertSharesNoPartIdentityWith(flea, slotClone);
+                // The slot map keys on the root part pid, which must survive the re-roll.
+                Assert.Equal(
+                    ScenarioWriter.DeriveRootPartPersistentId(recId).ToString(CultureInfo.InvariantCulture),
+                    slotClone.GetNodes("PART")[0].GetValue("persistentId"));
+            }
             Assert.Equal(RewindReadbackFixture.HostFleaLaunchGuid, flea.GetValue("pid"));
             Assert.Equal("PRELAUNCH", flea.GetValue("sit"));
             Assert.Equal("Jebediah Kerman", flea.GetNodes("PART")[0].GetValue("crew"));
@@ -213,6 +234,7 @@ namespace Parsek.Tests
             foreach (ConfigNode part in relay.GetNodes("PART"))
                 Assert.Null(part.GetValue("crew"));
             Assert.NotEqual(RewindReadbackFixture.HostFleaLaunchGuid, relay.GetValue("pid"));
+            AssertSharesNoPartIdentityWith(live[0], relay);
             // The injected Parsek scenario survives the round trip.
             Assert.Contains("rewindPointId = " + RewindReadbackFixture.RewindPointId,
                 File.ReadAllText(savePath));
@@ -220,6 +242,32 @@ namespace Parsek.Tests
             // The RP quicksave was written before the relay existed.
             Assert.Null(FindByPid(LoadFlightState(sidecar).GetNodes("VESSEL"),
                 RewindReadbackFixture.RelayVesselPid));
+        }
+
+        /// <summary>
+        /// A Flea clone must not share a part flight id (or a non-root persistentId) with the
+        /// Flea: kRPC resolves parts by flight id, and a loaded clone on the runway made the
+        /// flown Flea read no thrust and then no parachute (RB-1 2026-09-27_1353, RB-2
+        /// 2026-09-27_1417). Fails if the fixture copies the Flea's PART ids again.
+        /// </summary>
+        private static void AssertSharesNoPartIdentityWith(ConfigNode flea, ConfigNode clone)
+        {
+            var fleaUids = new HashSet<string>();
+            var fleaPids = new HashSet<string>();
+            foreach (ConfigNode part in flea.GetNodes("PART"))
+            {
+                fleaUids.Add(part.GetValue("uid"));
+                fleaPids.Add(part.GetValue("persistentId"));
+            }
+            ConfigNode[] cloneParts = clone.GetNodes("PART");
+            Assert.Equal(flea.GetNodes("PART").Length, cloneParts.Length);
+            foreach (ConfigNode part in cloneParts)
+            {
+                Assert.False(string.IsNullOrEmpty(part.GetValue("uid")));
+                Assert.DoesNotContain(part.GetValue("uid"), fleaUids);
+                Assert.DoesNotContain(part.GetValue("persistentId"), fleaPids);
+            }
+            Assert.Equal(cloneParts[0].GetValue("uid"), clone.GetValue("ref"));
         }
 
         private string InjectReadbackAndReturnSidecar()
