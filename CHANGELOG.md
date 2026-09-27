@@ -1219,6 +1219,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Supply routes between nearby vessels now really move the cargo during time warp.** When a
+  route's pickup or delivery vessel was close enough to your active vessel to be loaded but was
+  on rails (time warp), Parsek wrote the fuel and parts into the vessel's saved copy instead of
+  the vessel itself. The next save or scene change rebuilt that copy from the vessel, so the
+  pickup and the delivery quietly vanished: the source kept its fuel, the destination never got
+  it, and the route could run again on cargo it had already taken. A loaded vessel now always
+  has its tanks and inventories changed directly, whether or not it is on rails; only a vessel
+  that is truly unloaded is written through its saved copy.
 - **A Re-Fly in which a crew member goes EVA now replaces the old flight when you merge.**
   Stepping out of the re-flown vessel (for an EVA report, a flag, a part) and climbing back in,
   or leaving the kerbal outside, used to make the merge keep the old flight: the log read

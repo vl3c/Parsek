@@ -173,28 +173,43 @@ hits a collider rather than terrain, or a retry of the press; until then a re-fl
 
 ---
 
-## RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE: RVR-8's second cycle dispatches and delivers instead of holding on an origin that lacks cargo [FILED 2026-09-27 from the arming-pass reading flight. OPEN, PARSEK-FAIL, regression since 2026-09-10]
+## ~~RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE: RVR-8's second cycle delivered instead of blocking on the spent origin~~ [FILED 2026-09-27 from run `2026-09-27_1147` (PARSEK-FAIL(expectation), automation DLL `d6dbc5e0`, origin/main `6437750ba`). FIXED 2026-09-27, branch `fix-rvr8-armed-pause`]
 
-`RVR-8-rover-relay-c-second-cycle-hold` flew `2026-09-27_1147` PARSEK-FAIL(expectation)
-attempt 1 on an automation DLL built from origin/main `6437750ba` (branch `arm-save-checks`),
-after green runs on 2026-09-03 and 2026-09-10 (`2026-09-10_1731`, `_2133`). saveParse
-read `routes.completedCycles 2 > max 1` and `routes.skippedCycles 0 < min 1`, and six
-cycle-1 hold tokens were missing (`PickupSourcesHaveCargo ... all-or-nothing FAIL`,
-`Route ... hold recorded kind=OriginLacksCargo`, `ArmedPause ... cycle=cycle-1 BLOCKED`,
-`reason=blocked-then-paused`).
+**Symptom.** Cycle 0 consumed the send-once pause on completion (`delivered-then-paused`), as it
+should. The second send-once then dispatched cycle 1 at ut=2400 and picked up 154.4 LiquidFuel
+from origin B again: the `Origin debit:` line read `tankBefore=200`, not the 45.6 cycle 0 left.
+saveParse read `completedCycles 2` against a window of 1. The green 2026-09-10 run had blocked
+cycle 1 `OriginLacksCargo` (B raw 45.6, shortfall 108.8).
 
-What the logs show. Green `2026-09-10_2133`: cycle 0 delivers, cycle 1 runs
-`PickupSourcesHaveCargo` and finds B short (`raw=45.6`, shortfall 108.8 LiquidFuel), BLOCKS
-`OriginLacksCargo`, and that blocked cycle consumes the send-once armed pause. Red
-`2026-09-27_1147`: cycle 0 delivers and itself consumes the armed pause
-(`ArmedPause: ... cycle=cycle-0 COMPLETED ... Active->Paused reason=delivered-then-paused`);
-after the lane's second send-once, cycle 1 dispatches at ut=2400 with NO
-`PickupSourcesHaveCargo` line and picks up from B with `short=0`. Two open questions:
-why the pause is consumed on cycle 0 now, and why cycle 1 skips the eligibility check (or
-why B is no longer short after cycle 0). Collected log:
-`Parsek-arm-save-checks/harness/results/2026-09-27_1147_RVR-8-rover-relay-c-second-cycle-hold_shots/KSP.log`.
-Its `recordings.structure` block matched on that run but stays report-only until the lane is green.
+**Not the armed pause, and not a skipped cargo check.** Both runs consume the pause the same way.
+The cycle-1 gate did run: its `all ... pickup source(s) cover - eligible` line is
+`VerboseRateLimited` per route and fell inside cycle 0's window. It passed because B really read
+200.
 
+**Root cause (a latent product defect, not a bisectable regression).** Every Logistics
+probe/writer pair picked its store with `vessel.loaded && !vessel.packed`, so an endpoint that is
+LOADED but PACKED (inside physics range, on rails under warp or a seam `TimeJump`) was read and
+written through its `ProtoVessel` snapshot. For a loaded vessel the live parts are the authority:
+stock `Vessel.BackupVessel` rebuilds `protoVessel` from them on every save and on unload, so the
+debit and the delivery were discarded at the next save. Evidence: even the GREEN 2026-09-10 run's
+produced save holds B=200 / A=200 after a completed cycle; it only passed because no save ran
+between the two cycles, so cycle 1 re-read the edited-but-doomed snapshot. On the 09-27 run the
+scene load was slow (OnLoad 1238 ms against 237 ms), so stock's first flight-ready autosave
+(`Flight State Captured` / `Game State Saved as persistent`) landed after cycle 0 and before
+cycle 1, and wiped both writes. For a player this means a route between vessels near the active
+one, run during time warp, moved nothing durable.
+
+**Fix.** `RouteOrchestrator.EndpointStoreIsLiveParts` (live parts iff `vessel.loaded`, packed or
+not) is the one gate at all eight capture sites (origin debit, pickup debit, inventory pickup,
+delivery, origin-cargo gate, pickup-source gate, multi-stop capacity probe, and the Logistics
+window's DestinationFull capacity line). The writer lines for
+these in-range endpoints now read `path=loaded`; RVR-2, RVR-4, RVR-7, RVR-8, RVR-15, RVR-16,
+RVR-20 and GUI-20 are re-pinned from `path=unloaded`. Unit tests: `EndpointStoreGateTests`.
+
+**Live proof (2026-09-27, automation DLL `d5b0f410`).** All eight re-pinned lanes PASS attempt 1
+(`2026-09-27_1310` RVR-8 through `_1330` GUI-20). RVR-8 blocks cycle 1 `OriginLacksCargo`
+shortfall=108.8 and its produced save holds B=45.6 / A=400; RVR-7, RVR-15 and RVR-2 saves carry
+their delivered and debited amounts too, where every earlier save had reverted them.
 ## ~~H45-MISSION-CONTROL-TAB-SWITCH-ASSERTED-SAME-FRAME: an in-game cell asserted a row absent in the frame stock destroyed it~~ [FILED AND FIXED 2026-09-27, branch `arm-save-checks`, test-only]
 
 H45's first flight of its twelve-cell shape (`2026-09-27_1140`) red on
@@ -238,7 +253,8 @@ needs a reading flight on current code (or a decision) before it can be armed:
 - A reading that contradicts the window: RF-4 `rewind` read rewindPoints 1 against
   `max = 0` (`2026-09-15_1553`, before #1788); the window needs a decision under the
   rewind-point-survives ruling, not just a flight.
-- A red reading: RVR-8 `structure` (see RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE).
+- A red reading: RVR-8 `structure` (see RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE, since fixed;
+  the green re-fly `2026-09-27_1310` is a candidate reading for arming it).
 
 Cheapest next flights (proposed 2026-09-27, deferred by the supervisor): GS-9, GS-8 (nightly,
 about 6-8 min each), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,

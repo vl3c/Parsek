@@ -403,7 +403,7 @@ forbidden = [
   # on the state a no-op fill would leave behind (A at 0 LiquidFuel with its three
   # committed free slots - RVR-15's staging exactly, which RVR-15 measured DELIVERING).
   # A fill that silently did nothing therefore reds on a green lane's measurement.
-  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=unloaded",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=loaded",
   "inventoryUnitsSkipped=0 partial=0",
   # THE RESOURCE HALF MUST NOT BE THE REFUSER. With 400 of headroom against a 200 manifest
   # it arithmetically cannot be, so this line appearing would mean the resource staging

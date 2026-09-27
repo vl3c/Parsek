@@ -31,8 +31,8 @@ namespace Parsek.Logistics
         // delivery and shared with <see cref="LiveDeliveryCapacityProbe"/> so
         // the writer mutates the SAME branch (loaded vs unloaded) that the
         // probe reported free capacity against. Re-evaluating
-        // <c>vessel.loaded && !vessel.packed</c> per-call would diverge if
-        // the destination transitions packed state mid-tick.
+        // <see cref="RouteOrchestrator.EndpointStoreIsLiveParts(Vessel)"/>
+        // per call would diverge if the destination loads or unloads mid-tick.
         internal readonly bool isLoaded;
         private readonly Dictionary<string, double> actualPerResource;
         private int inventoryUnitsStored;

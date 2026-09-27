@@ -48,9 +48,9 @@ namespace Parsek.Logistics
         // debit and shared with <see cref="LiveOriginCargoProbe"/> so the
         // writer mutates the SAME branch (loaded vs unloaded) that the probe
         // reported stored amounts against. Re-evaluating
-        // <c>vessel.loaded && !vessel.packed</c> per-call would diverge if
-        // the origin transitions packed state mid-tick (same rationale as
-        // <see cref="LiveDeliveryWriters.isLoaded"/>).
+        // <see cref="RouteOrchestrator.EndpointStoreIsLiveParts(Vessel)"/>
+        // per call would diverge if the origin loads or unloads mid-tick
+        // (same rationale as <see cref="LiveDeliveryWriters.isLoaded"/>).
         internal readonly bool isLoaded;
         private readonly Dictionary<string, double> actualPerResource;
 
