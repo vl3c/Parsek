@@ -676,6 +676,8 @@ namespace Parsek
         [HarmonyPrefix]
         internal static bool Prefix(GameScenes scene)
         {
+            // S9 game-mode gate: no Merge / Discard interception in a mission / scenario game.
+            if (ParsekGameModeGate.CheckInert("HighLogic_LoadScene_Patch.Prefix")) return true;
             // (1) one-shot self-bypass token: our own dialog callback
             //     re-invoked LoadScene. Includes a destination check so
             //     a stray foreign LoadScene between our callback's set

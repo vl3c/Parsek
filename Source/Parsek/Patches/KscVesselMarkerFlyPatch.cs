@@ -28,6 +28,7 @@ namespace Parsek.Patches
     {
         static void Prefix(Vessel v)
         {
+            if (ParsekGameModeGate.CheckInert("KscVesselMarkerFlyPatch.Prefix")) return; // S9 game-mode gate
             if (v == null)
             {
                 ParsekLog.Warn("SwitchIntentPatch",

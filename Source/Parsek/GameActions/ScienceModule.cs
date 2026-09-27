@@ -211,8 +211,10 @@ namespace Parsek
         // ================================================================
 
         /// <summary>
-        /// Processes a ScienceEarning action: applies the subject hard cap, computes effective science,
-        /// updates the credited total and running balance. Sets <see cref="GameAction.EffectiveScience"/>.
+        /// Processes a ScienceEarning action: applies the subject hard cap in subject units,
+        /// scales the capped value by the row's captured <see cref="GameAction.ScienceGainMultiplier"/>
+        /// for the pool, updates the credited total (subject units) and running balance (pool
+        /// units). Sets <see cref="GameAction.EffectiveScience"/> (pool units).
         /// </summary>
         internal void ProcessEarning(GameAction action)
         {
@@ -243,25 +245,39 @@ namespace Parsek
             double headroom = state.MaxValue - state.CreditedTotal;
             if (headroom < 0.0) headroom = 0.0;
 
-            double effectiveScience = Math.Min((double)scienceAwarded, headroom);
-            if (effectiveScience < 0.0) effectiveScience = 0.0;
+            // The cap walk runs in SUBJECT units (pre-multiplier): stock adds the
+            // un-multiplied value to subject.science, and that is what the cap and the
+            // committed-science cache (ScienceSubjectPatch) compare against.
+            double effectiveSubjectScience = Math.Min((double)scienceAwarded, headroom);
+            if (effectiveSubjectScience < 0.0) effectiveSubjectScience = 0.0;
+
+            // The POOL received the subject value times the ScienceGainMultiplier frozen at
+            // capture (stock SubmitScienceData multiplies before AddScience).
+            double gainMultiplier = GameAction.NormalizeScienceGainMultiplier(action.ScienceGainMultiplier);
+            double effectiveScience = effectiveSubjectScience * gainMultiplier;
 
             // Update state
-            state.CreditedTotal += effectiveScience;
+            state.CreditedTotal += effectiveSubjectScience;
             subjects[subjectId] = state;
             runningScience += effectiveScience;
             totalEffectiveEarnings += effectiveScience;
 
-            // Set derived field on the action
+            // Set derived field on the action, in POOL units: every reconcile reads it
+            // against a ScienceChanged delta, which stock fires post-multiplier.
             action.EffectiveScience = (float)effectiveScience;
 
+            string gainText = gainMultiplier != 1.0
+                ? $", gainMultiplier={gainMultiplier.ToString("R", IC)}, " +
+                  $"subjectEffective={effectiveSubjectScience.ToString("R", IC)}"
+                : "";
+
             // Log — always log earnings (bounded by number of science actions, not per-frame)
-            bool capHit = effectiveScience < (double)scienceAwarded;
+            bool capHit = effectiveSubjectScience < (double)scienceAwarded;
             if (capHit)
             {
                 ParsekLog.Verbose("ScienceModule",
                     $"Earning (cap hit): subject={subjectId}, awarded={scienceAwarded.ToString("R", IC)}, " +
-                    $"effective={effectiveScience.ToString("R", IC)}, headroom={headroom.ToString("R", IC)}, " +
+                    $"effective={effectiveScience.ToString("R", IC)}{gainText}, headroom={headroom.ToString("R", IC)}, " +
                     $"creditedTotal={state.CreditedTotal.ToString("R", IC)}, " +
                     $"maxValue={state.MaxValue.ToString("R", IC)}, " +
                     $"runningScience={runningScience.ToString("R", IC)}, " +
@@ -271,7 +287,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("ScienceModule",
                     $"Earning: subject={subjectId}, awarded={scienceAwarded.ToString("R", IC)}, " +
-                    $"effective={effectiveScience.ToString("R", IC)}, " +
+                    $"effective={effectiveScience.ToString("R", IC)}{gainText}, " +
                     $"creditedTotal={state.CreditedTotal.ToString("R", IC)}, " +
                     $"maxValue={state.MaxValue.ToString("R", IC)}, " +
                     $"runningScience={runningScience.ToString("R", IC)}, " +

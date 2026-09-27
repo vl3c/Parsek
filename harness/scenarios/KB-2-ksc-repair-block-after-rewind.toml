@@ -47,13 +47,16 @@ id = "KB-2-ksc-repair-block-after-rewind"
 # `stockscreen pointer moving the OS cursor ...`); a hover capture that looks wrong reads
 # back against "someone was using the mouse". Nothing gated depends on the picture.
 #
-# NEVER FLOWN. The first flight is a reading run: every token below is derived from the
-# source, not a log. A driver-INVALID on the Repair hover (`stockscreen-item-not-found
-# control=Repair (not shown)` or `stockscreen-no-tooltip control=Repair`) means stock did
-# not show the Repair button over the loaded destroyed dish - a fixture reading, not a
-# product defect. OWED after a green reading: one negative control per the house pattern
-# (a scratch copy of this spec OUTSIDE harness/scenarios/ with the control readback
-# inverted to `interactable=true`, which must read PARSEK-FAIL on exactly that token).
+# READING RUN AND ARMING. Every token below was derived from the source, not a log. A
+# driver-INVALID on the Repair hover (`stockscreen-item-not-found control=Repair (not
+# shown)` or `stockscreen-no-tooltip control=Repair`) means stock did not show the Repair
+# button over the loaded destroyed dish - a fixture reading, not a product defect. The
+# reading run `2026-09-27_1024` read PASS attempt 1 with every token matched as written
+# (funds read `fundsBefore=232416.75 fundsAfter=232416.75 fundsDelta=0`), so the lane is
+# armed with no token change. Negative controls OFFLINE through hlib.evaluate_expectations
+# over that log: green as recorded; the control readback flipped to `interactable=true`
+# reds on exactly the two gated readback tokens; the `Blocking facility repair` line
+# removed reds on exactly that token.
 tier = "nightly"
 description = "Rewound career with the Tracking Station dish destroyed before the clock and its committed repair after it: the KSC facility menu's Repair button is greyed with the committed-timeline explanation on its stock tooltip, and a repair through the menu's own RepairFacility call is refused with the blocked dialog, repairing nothing and charging no funds."
 instanceProfile = "stock-minimal"

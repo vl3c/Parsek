@@ -15,6 +15,7 @@ namespace Parsek.Patches
     {
         static bool Prefix(UpgradeableFacility __instance, int lvl)
         {
+            if (ParsekGameModeGate.CheckInert("FacilityUpgradePatch.Prefix")) return true; // S9 game-mode gate
             if (__instance == null) return true;
 
             // Only block upgrades (level increases), not downgrades or resets

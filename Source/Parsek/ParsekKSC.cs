@@ -149,8 +149,21 @@ namespace Parsek
             internal string RecordingId { get; }
         }
 
+        // S9: true when this instance started in an inert game mode (ParsekGameModeGate).
+        private bool inertForGameMode;
+
         void Start()
         {
+            // S9 game-mode gate: no UI, toolbar button, KSC ghosts or store subscriptions
+            // in a mission / scenario game.
+            if (ParsekGameModeGate.CheckInert("ParsekKSC.Start"))
+            {
+                inertForGameMode = true;
+                enabled = false;
+                Destroy(this);
+                return;
+            }
+
             ParsekLog.Info("KSC", "ParsekKSC starting in Space Center scene");
 
             ui = new ParsekUI(UIMode.KSC);
@@ -2420,6 +2433,8 @@ namespace Parsek
 
         void OnDestroy()
         {
+            if (inertForGameMode)
+                return; // nothing was built or subscribed (S9 game-mode gate)
             RecordingStore.CommittedRecordingRemoving -= OnCommittedRecordingRemoving;
             RecordingStore.CommittedRecordingRemoved -= OnCommittedRecordingRemoved;
             RecordingStore.CommittedRecordingInserted -= OnCommittedRecordingInserted;

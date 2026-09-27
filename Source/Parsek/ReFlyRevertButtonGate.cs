@@ -153,6 +153,18 @@ namespace Parsek
                         ParsekLog.Verbose(Tag,
                             $"ReFlyRevertButtonGate: CanRevertToPostInit already true at {site ?? "(no-site)"} — no override needed");
                     }
+
+                    // Stock builds the Esc-menu Revert Flight button only when
+                    // Flight.CanRestart is true. On the Hard preset Retry is therefore not
+                    // offered (owner decision 2026-09-26); Merge / Discard stay reachable by
+                    // leaving the flight (SceneExitInterceptor -> merge dialog).
+                    var game = HighLogic.CurrentGame;
+                    if (game != null && game.Parameters != null && game.Parameters.Flight != null
+                        && !game.Parameters.Flight.CanRestart)
+                    {
+                        ParsekLog.Info(Tag,
+                            $"ReFlyRevertButtonGate: Flight.CanRestart=False at {site ?? "(no-site)"} - stock hides Revert Flight, re-fly Retry not offered; Merge / Discard by leaving the flight");
+                    }
                 }
                 else if (forcedFlag)
                 {

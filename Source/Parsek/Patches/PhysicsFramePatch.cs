@@ -39,6 +39,7 @@ namespace Parsek.Patches
 
         static void Postfix(VesselPrecalculate __instance)
         {
+            if (ParsekGameModeGate.CheckInert("PhysicsFramePatch.Postfix")) return; // S9 game-mode gate
             ParsekFlight flight = ParsekFlight.Instance;
             bool hasPostSwitchAutoRecordWatch =
                 flight != null && flight.HasArmedPostSwitchAutoRecordWatch;

@@ -44,6 +44,9 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, $"CurrencyOverlay: scene={scene} has no currency bar - controller idle");
                 return;
             }
+            // S9 game-mode gate: no reservation tooltips in a mission / scenario game.
+            if (ParsekGameModeGate.CheckInert("CurrencyReservationOverlay.Start"))
+                return;
 
             active = true;
             ParsekLog.Info(Tag, $"CurrencyOverlay: initialised for scene={scene} - starting widget refresh loop");

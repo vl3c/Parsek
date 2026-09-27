@@ -269,6 +269,16 @@ namespace Parsek
         // becomes true even when the recording is confirmed to have no crew.
         public bool CrewEndStatesResolved;
 
+        // Stock crew respawn policy (Difficulty.MissingCrewsRespawn / RespawnTimer) as it
+        // stood when this recording's crew end states first recorded a death. Stamped once
+        // and never re-read from the live difficulty, so a later difficulty edit does not
+        // rewrite a recorded death. Null = not stamped (no death recorded, or a death
+        // recorded before the stamp existed): the death is permanent.
+        public bool? CrewDeathRespawns;
+        // Seconds from the death to the respawn, stamped with CrewDeathRespawns. NaN when
+        // unstamped.
+        public double CrewDeathRespawnSeconds = double.NaN;
+
         // Resource manifests (Phase 11) — per-resource amount/capacity at recording start and end
         // null = no data (legacy recording or not yet captured)
         internal Dictionary<string, ResourceAmount> StartResources;
@@ -968,6 +978,10 @@ namespace Parsek
             // the states behind it and leave the target reading as crewless forever.
             // Copy the dictionary too, or leave this field alone, if that changes.
             CrewEndStatesResolved = source.CrewEndStatesResolved;
+            // The respawn stamp travels with the end states it qualifies (the hydration
+            // repair copies the dictionary right after this call).
+            CrewDeathRespawns = source.CrewDeathRespawns;
+            CrewDeathRespawnSeconds = source.CrewDeathRespawnSeconds;
             TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;
 
             // Copy segment events and tracks if source has them
@@ -1043,6 +1057,8 @@ namespace Parsek
                 ? new Dictionary<string, KerbalEndState>(source.CrewEndStates)
                 : null;
             clone.CrewEndStatesResolved = source.CrewEndStatesResolved;
+            clone.CrewDeathRespawns = source.CrewDeathRespawns;
+            clone.CrewDeathRespawnSeconds = source.CrewDeathRespawnSeconds;
             clone.StartResources = source.StartResources != null
                 ? new Dictionary<string, ResourceAmount>(source.StartResources)
                 : null;

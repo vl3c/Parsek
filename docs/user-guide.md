@@ -68,7 +68,7 @@ When a vessel stages, decouples, or undocks into two or more controllable pieces
 - **Rewind button** — click the row to re-fly the unfinished sibling from the moment of the split. Parsek loads the Rewind Point quicksave, strips the other split siblings to ghosts, and hands you the active vessel. The five preconditions (Corrupted flag, quicksave file present, no active session already, scene is not transitioning, parts still load) are checked before the button enables.
 - **Merging the re-fly** — when your re-fly ends, the normal Merge dialog appears. Merging writes supersede relations for the retired siblings; if the re-fly landed/recovered/orbited it seals as `Immutable`, if it crashed it commits as `CommittedProvisional` and remains re-rewindable from the same slot.
 - **What survives supersede** — Parsek retires reviewed recording-scoped career actions from the superseded subtree: contracts, milestones, facilities, strategies, tech unlocks, science, funds/reputation, and crew consequences are recalculated from the surviving ledger. Seed rows, KSC/system rows that are not tied to a recording, already-paid rollout costs, and unknown future action types stay preserved until reviewed.
-- **Revert during re-fly** — pressing stock Revert-to-Launch or Revert-to-VAB/SPH while a session is active shows the same three-option dialog: Retry from Rewind Point (re-loads the split moment in FLIGHT either way), Discard Re-fly (throws away the current attempt and returns you to the scene you clicked at the split UT; the tree's other re-fly state is preserved and the Unfinished Flights entry remains), or Continue Flying.
+- **Revert during re-fly** — pressing stock Revert-to-Launch or Revert-to-VAB/SPH while a session is active shows the same three-option dialog: Retry from Rewind Point (re-loads the split moment in FLIGHT either way), Discard Re-fly (throws away the current attempt and returns you to the scene you clicked at the split UT; the tree's other re-fly state is preserved and the Unfinished Flights entry remains), or Continue Flying. On a game with "Allow Revert" off (the Hard preset) stock hides the revert buttons, so Retry is not offered there; leave the flight (Esc > Space Center) to merge or discard the re-fly.
 - **Disk usage** — Settings > Diagnostics shows "Rewind points on disk" (total size + file count; hover it for the live counts). Rewind Points self-reap when the split has been fully resolved.
 
 See `docs/parsek-rewind-to-separation-design.md` for the full feature design.
@@ -115,29 +115,28 @@ Each entry row shows UT, a description, and (for `RecordingStart` entries) the f
 
 ### Recordings Manager
 
-Click the "Recordings" button in the main Parsek window to open the Recordings Manager. This secondary window shows all committed recordings in a sortable table. Recordings that belong to the same mission tree or user group collapse into expandable parent rows.
+Click the "Recordings" button in the main Parsek window to open the Recordings Manager. This secondary window shows all committed recordings in a sortable table. Recordings that belong to the same mission tree or user group collapse into expandable parent rows. Under a mission's row, the launched vessel's own segments are listed directly, while every other vessel that flew in the mission (a probe, a lander) gets an expandable flight row of its own; a mission's `/ Debris` and `/ Crew` subfolders show just `Debris` and `Crew` under it.
 
 Columns:
 
 - **Playback enable** - per-row checkbox; when unchecked, the flight has no ghost anywhere: no ghost in the world, no map icon, no orbit line, no Tracking Station entry and no drawn trajectory. Re-ticking it brings all of them straight back. Visual-only: the recording's career effects (resources, contracts, crew, and the final vessel spawn) still apply regardless. To fully exclude a recording from the career, Delete (post-commit) or Discard (pre-commit) it. The header checkbox toggles all rows at once, and so do the folder and flight-block checkboxes for their own members.
 - **#** - row index.
 - **Name** - vessel name; double-click to rename.
-- **Phase** - colored label (`atmo`, `exo`, `space`, `approach`, `surface`).
+- **Phase** - colored label (`atmo`, `exo`, `space`, `approach`, `surface`), with the body path when the flight changed bodies (`Kerbin -> Mun exo`).
 - **Site** - launch site name.
 - **Launch** - KSP calendar format.
-- **Duration** - compact format (e.g. "56s", "2m 30s", "1h 15m").
-- **Info columns** (shown when the **Info** toggle at the bottom of the window is expanded) - Max altitude, max speed, distance travelled, point count, start/end positions.
-- **Status** - `future` / `active` / countdown `T-Xd Xh Xm Xs` for unspawned recordings, `past` or a terminal state (`Orbiting`, `Landed`, `Splashed`, `Docked`, `Recovered`, `Destroyed`) for finished ones. Color-coded. Hovering shows chain status when flying alongside an active ghost.
-- **Group** - "G" button opens a group picker; custom (user-created) groups add an "X" button to disband the group. Recordings themselves cannot be deleted; use **Archive** to hide one.
+- **Duration** - compact format (e.g. "56s", "2m 30s", "1h 15m"). On a folder or flight row it is the time the flights inside cover, from the earliest launch to the latest end.
+- **Status** - `future` / `active` / countdown `T-Xd Xh Xm Xs` for unspawned recordings, `past` or a terminal state (`Orbiting`, `Landed`, `Splashed`, `Docked`, `Recovered`, `Destroyed`) for finished ones, debris included. Color-coded. Hovering shows where the flight ended (for example `Ends: Shores, Kerbin`), the vessel an EVA started from, the highest altitude and speed it reached, and chain status when flying alongside an active ghost.
+- **Group** - "G" button opens a group picker; custom (user-created) groups add an "X" button to disband the group. A mission's row adds an "S" button that picks folders for every segment of the launched vessel at once. Recordings themselves cannot be deleted; use **Archive** to hide one.
 - **Loop Ghost** - per-row loop toggle. Header checkbox toggles all rows. See Loop Playback below.
-- **Period** - launch-to-launch loop period with a unit button that cycles `sec -> min -> hr -> auto`. "auto" inherits the default from Settings -> Looping.
+- **Period** - launch-to-launch loop period with a unit button that cycles `sec -> min -> hr -> auto`. "auto" inherits the default from Settings -> Looping. Blank while the row's Loop is off.
 - **Watch** (flight only) - "W" / "W*" button. See Watch Mode below.
-- **Rewind / F.Forward** - "R" (rewind) for past/active recordings with a rewind save; "FF" (fast-forward) for future recordings. The button is disabled if the operation is currently not safe; hover for the reason.
+- **Rewind / F.Forward** - "R" (rewind) for past/active recordings with a rewind save; "FF" (fast-forward) for future recordings. The button is disabled if the operation is currently not safe; hover for the reason. Each target is offered once: a row under a folder that already offers the same R or FF leaves its own cell blank.
 - **Archive** - per-row archive toggle. The header checkbox controls whether archived recordings are filtered out of the table (checked, default) or shown (unchecked). Archived recordings still play as ghosts, still apply their career effects, still spawn vessels — the toggle only hides the row from this table.
 
 Click any sortable column header (#, Name, Phase, Site, Launch, Duration, Status) to sort by that column. Click again to reverse. The window is draggable and resizable.
 
-Bottom bar: **Info** toggles the expanded-stats columns; **New Group** creates a user-defined group you can drag recordings into via the "G" picker.
+Bottom bar: **New Group** creates a user-defined group you can drag recordings into via the "G" picker.
 
 ### Time-Range Filter
 
@@ -248,6 +247,8 @@ Each tab opens with one heading line that counts slots free first, then active, 
 Click a contract or strategy name to open the Timeline on that category (Contracts or Strategies), scrolled to its first row - for a contract, its accept row, with how it ends beneath.
 
 In Science and Sandbox games the Career button is hidden: there are no contracts or strategies there. Science games still record milestones, facility changes and tech unlocks, which the Timeline's Career view shows.
+
+Parsek runs in Career, Science and Sandbox games only. In Making History missions, the mission builder and stock training or scenario saves it stays off: no toolbar button, no recording, ghosts or rewind, and no changes to stock screens.
 
 The window is draggable and resizable down to 520 x 320, and the tab bar uses the same styling as the rest of Parsek. It keeps its tab and its folds when you close and reopen it.
 

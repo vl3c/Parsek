@@ -251,8 +251,6 @@ namespace Parsek.TestCommands
                     return TimelineWindowUI.ShowArchivedRecordings;
                 case TestCommandUiWindowState.ArchivedMissionsKey:
                     return MissionStore.HideArchived;
-                case TestCommandUiWindowState.ExpandedStatsKey:
-                    return ui.GetRecordingsTableUI().ShowExpandedStatsForTesting;
                 default:
                     // Unreachable through the parse (the key came from that window's own
                     // table), so a miss here means the table and this switch have drifted.
@@ -283,9 +281,6 @@ namespace Parsek.TestCommands
                     return;
                 case TestCommandUiWindowState.ArchivedMissionsKey:
                     MissionStore.HideArchived = value;
-                    return;
-                case TestCommandUiWindowState.ExpandedStatsKey:
-                    ui.GetRecordingsTableUI().ShowExpandedStatsForTesting = value;
                     return;
                 default:
                     throw new InvalidOperationException(

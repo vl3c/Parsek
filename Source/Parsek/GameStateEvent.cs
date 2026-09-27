@@ -528,10 +528,27 @@ namespace Parsek
     public struct PendingScienceSubject
     {
         public string subjectId;
+
+        /// <summary>
+        /// Subject science this ONE submission added, in PRE-multiplier subject units
+        /// (stock's <c>scienceValue</c> before <c>ScienceGainMultiplier</c>). The ledger walk
+        /// sums <c>ScienceEarning</c> rows as increments, so this must never be the running
+        /// <c>subject.science</c> total: a repeated collection of one subject would then be
+        /// credited again for every earlier submission.
+        /// </summary>
         public float science;
         public float subjectMaxValue;
         public double captureUT;
         public string reasonKey;
         public string recordingId;
+
+        /// <summary>
+        /// <c>Career.ScienceGainMultiplier</c> in effect when stock credited this subject.
+        /// <see cref="science"/> is the PRE-multiplier subject value (stock adds to
+        /// <c>subject.science</c> before it multiplies); the pool received
+        /// <c>science * scienceGainMultiplier</c>. 0 (the struct default) means "not
+        /// captured" and reads as 1 through <see cref="GameAction.NormalizeScienceGainMultiplier"/>.
+        /// </summary>
+        public float scienceGainMultiplier;
     }
 }

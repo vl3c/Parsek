@@ -846,15 +846,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Diff_PermanentlyGoneKerbalRespawnedToAvailable_IsNotADivergence()
+        public void Diff_PermanentlyHeldKerbalListedAvailable_IsNotADivergence()
         {
             // Guards a FALSE POSITIVE. A permanently-reserved kerbal listed
-            // "Available" is the DOCUMENTED intended production state, not drift:
-            // KerbalsModule.ApplyToRoster leaves reserved kerbals at their natural
-            // rosterStatus and does NO rosterStatus manipulation when stock's MIA
-            // respawn flips a Dead kerbal back to Available (the reservation persists;
-            // the crew-dialog filter keeps them hidden). This cell previously asserted
-            // the divergence - it was pinning the false positive.
+            // "Available" is an explained production state, not drift:
+            // KerbalsModule.ApplyToRoster never writes rosterStatus, so a death still in
+            // the save clock's future (a rewind before it) or an unstamped pre-S8 death
+            // that stock respawned leaves the kerbal Available and held. This cell
+            // previously asserted the divergence - it was pinning the false positive.
             var save = SaveWithRoster(Kerbal("Bill Kerman", "Available"));
             var recon = HealthyRecon();
             recon.HasRosterSurface = true;
@@ -866,7 +865,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(report.All, d => d.Facet == DivergenceFacet.Roster);
             // The signal stays OBSERVABLE as a census count, just not as a divergence.
             Assert.Contains(logLines, l => l.Contains("CompareRoster")
-                && l.Contains("respawnedButReserved=1"));
+                && l.Contains("availableButPermanentlyHeld=1"));
         }
 
         [Fact]
