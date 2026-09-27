@@ -483,7 +483,7 @@ kerbal's own KSC spawn (`Attempting spawn for #9 "Jebediah Kerman" (id=<kerbal r
 ... sit=LANDED`, after the #573 standalone lift) and forbids the safety-net answer; green on
 `2026-09-26_2058` and `_2106`.
 
-## REWIND-STRIPS-RESUMED-COMMITTED-TIP: a rewind of a later tree strips an earlier tree's resumed tip vessel and nothing re-spawns it [FILED 2026-09-27 from EVA-6's reading run, branch `eva-placed-spawn-lane`. OPEN, not investigated]
+## ~~REWIND-STRIPS-RESUMED-COMMITTED-TIP: a rewind of a later tree strips an earlier tree's spawned vessel and nothing re-spawns it~~ [FILED 2026-09-27 from EVA-6's reading run, branch `eva-placed-spawn-lane`; FIXED 2026-09-27, branch `fix-rewind-strips-tip`]
 
 **Evidence** (`2026-09-26_2058` and `_2106`, `kerbin-splashdown-recorded`). The boot lands in FLIGHT on
 the fixture's committed tip, the Kerbal X capsule (pid 2708531065), and restores its tree
@@ -496,9 +496,53 @@ superseded by continuation 'd1f3243...' vesselPid=2708531065 reason=spawned-pid-
 orphaned spawned vessel '#autoLOC_501232' (pid=2708531065 ...) matched recording 'Kerbal X' ...
 same-launch recording match`, and no `[KSCSpawn]` line for any Kerbal X recording follows in the next
 64 s of Space Center time (to UT 1328). The produced save holds four `Kerbal X Debris`, Jeb and the
-seismometer, and no capsule. Open questions: whether the resume (which re-stamped the tip's terminal
-at 1276.7, after the rewind UT) or the harness-only DiscardTree is the trigger, and why the chain tip
-the terminal spawn was handed to never spawned. EVA-6 does not assert anything about the capsule.
+seismometer, and no capsule.
+
+**Root cause.** Neither the resume nor the harness DiscardTree. The resumed tree was thrown away at the
+rewind's scene exit (`TryAutoDiscardNoOpNoSessionCommittedResume ... reverting to committed original`)
+and DiscardTree was a no-op (`discardtree nothing=true`). What matters is that the chain head
+`28b6e543` still carried the fixture's spawn fields (`spawnedPid=2708531065`; the load-time optimizer
+split moved the terminal to `c108e0a2` but left the spawn fields on the head). The plain rewind's
+pre-load strip (`RecordingStore.ExecuteRewindSaveLoad` -> `PreProcessRewindSave`) removed EVERY
+committed recording's spawned pid from the rewind quicksave (`CollectSpawnedVesselInfo: 3 PID(s)`,
+`Stripped 2 vessel(s) from save (1 by name [Jebediah Kerman], 1 by PID)`), so the capsule was also
+missing from the quicksave whitelist (`Captured 5 surviving vessel PID(s)`: four debris and the
+asteroid). The OnLoad launch-identity strip then removed it (`same-launch recording match`). The
+strip assumes the recording spawns the vessel again, but the replay-scope gate forbids that: the
+chain tip `c108e0a2` [853.7, 1276.6] has its activation start behind the post-rewind playhead
+(1264.3) and was never latched into replay scope (the fixture's spawn came from an earlier process),
+so `ParsekKSC` classifies it historical-never-replayed and draws no ghost and spawns nothing. The
+`superseded by continuation ... reason=spawned-pid-match` line is a side effect of the stale head
+pid (the head's own chain successor); it did not decide anything, since the head never spawns.
+
+**Ordinary play reaches it** with no harness step: land a capsule and commit it through the
+Switch-To Merge dialog (`CommitTreeFlight` adopts the live vessel, stamping its spawned pid), launch
+another flight, commit, rewind that flight: the capsule is lost. Same for a vessel a replay spawned
+in an earlier game session (the scope latch does not survive a restart).
+
+**Fix.** The pre-load PID strip is scoped at the save's adjusted UT
+(`RecordingStore.ResolveRewindSpawnStripScope`, new `PreProcessRewindSave` resolver overload): a
+spawned pid is stripped only when a recording that replays after the rewind re-produces it (the
+holder itself, the continuation its terminal spawn was handed to, a member of its chain, or a
+recording flying the same vessel - a unique spawn pid by pid, an adoption-stamped pid only when the
+launch guids do not differ). Everything else is committed history: it stays in the save and in the
+quicksave whitelist, so the OnLoad strip keeps it as `pre-existing`, and `ResetAllPlaybackState`
+keeps those holders' spawn state (the guid-aware post-strip reconcile still resets one whose vessel
+is gone), which is how a revert already treats an earlier tree's vessels. A latched in-scope
+recording is still stripped and re-spawned as before. Unit tests `RewindHistorySpawnScopeTests` (the
+EVA-6-shaped repro fails with the old strip set; mirror cases: latched holder, replaying chain tip,
+replaying continuation, replaying flier of a unique spawn pid, same-craft relaunch with a different
+guid kept, NaN UT). Live proof pending: EVA-6 re-flown should log `Rewind strip scope: ...
+keptHistoryPids=1`, `Keeping vessel '#autoLOC_501232' (pid=2708531065 ...) - pre-existing in
+launch/rewind quicksave`, no `Stripping orphaned spawned vessel '#autoLOC_501232'`, and the
+produced save should hold the capsule.
+
+**Open, not fixed here.** The pre-load strip's NAME half (`BuildRewindStripNames`: the rewind
+owner's vessel name) is still name-only: rewinding a relaunch of the same craft also strips an
+earlier flight's same-named vessel from the quicksave, and the OnLoad passes then remove it. It
+needs an identity-aware owner strip (the quicksave VESSEL `pid` guid against the owner's
+`RecordedVesselGuid`), with care for the owner vessel itself; filed here rather than widened into
+this fix.
 
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 
