@@ -1124,14 +1124,15 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
                 if want["cmd"] == "TimeJump":
                     self.assertEqual(want["args"]["ut"], got["args"]["ut"], name)
 
-    def test_every_matrix_lane_arms_routes_and_only_routes(self):
+    def test_every_matrix_lane_arms_routes_and_structure(self):
         """Each declares `[expectations.routes]` and
         `[expectations.recordings.structure]`. `routes` was ARMED 2026-09-10
         (wave package A2) on all three, each off its own reading run on the wave
         DLL whose facets matched every declared window, with its own
         `ARMED_ALLOWLIST` entry - `test_hlib` reds if one is armed without it.
-        `recordings.structure` stays a REPORT-ONLY reading: the arming ruling
-        named `routes`, and a structure arming would owe its own inversion.
+        `recordings.structure` was ARMED 2026-09-27 on all three, each off its
+        own reading on current code (every window met), with the inversion run
+        offline against each produced save.
 
         PARSED, not text-scanned: the headers use the word "gating" in prose,
         and a substring scan would read prose as a key."""
@@ -1144,8 +1145,8 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
                             "%s declares no recordings.structure block at all" % name)
             self.assertIs(True, routes.get("gating"),
                           "%s: routes must stay ARMED" % name)
-            self.assertNotIn("gating", structure,
-                             "%s arms its recordings.structure block" % name)
+            self.assertIs(True, structure.get("gating"),
+                          "%s: recordings.structure must stay ARMED" % name)
 
     def test_no_matrix_lane_arms_render_composition_capture(self):
         for name in self.MATRIX:
