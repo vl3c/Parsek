@@ -1228,8 +1228,16 @@ _(unreleased — entries accumulate here per commit)_
   rules say (a stable ending or an EVA during the Re-Fly seals it; a crash keeps it open for
   another try; a kerbal who left for a different vessel seals it). The kerbal's own EVA and the
   vessel after the re-board are part of the new flight and are never hidden by the merge. The
-  same fix covers a stock Switch-To away and back during a Re-Fly. An undock during a Re-Fly
-  still keeps the old flight (filed, REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE).
+  same fix covers a stock Switch-To away and back during a Re-Fly.
+
+- **A Re-Fly in which the re-flown vessel undocks now replaces the old flight when you merge.**
+  An undock during a Re-Fly used to make the merge keep the old flight next to the new one
+  (`refused-unflown-provisional`): the recorder ends the vessel's recording at the undock with no
+  ending of its own, and the Re-Fly slot stops at a separation by design. The merge now accepts a
+  flight that ended at a separation made during this Re-Fly, writes the supersede rows and closes
+  the slot (the undock is a downstream separation, which the Re-Fly rules always seal). Both
+  halves after the undock are part of the new flight and are never hidden by the merge. An
+  undock that already existed before the Re-Fly began does not count.
 
 - **Looping one phase of a split flight is now visual only.** A long flight that Parsek
   splits into phases (launch, coast, landing) is a chain. Ticking Loop on any one phase used to
