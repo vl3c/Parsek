@@ -273,7 +273,65 @@ segment and may be similarly off. A fix would skip, or clamp at the surface, a s
 periapsis lies below the body's radius; verify against the fixture's sidecar first.
 
 ---
-## ~~SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: every repeat submission of a science subject re-credited the earlier ones~~ [FILED AND FIXED 2026-09-26, branch `fix-deployed-science-ledger`]
+## ~~REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL: rewinding a relaunch of a craft strips the earlier launch of that craft from the rewind save~~ [FILED AND FIXED 2026-09-27, branch `fix-rewind-name-strip`; the open half of REWIND-STRIPS-RESUMED-COMMITTED-TIP. Headless-proven; NOT yet live-proven]
+
+**What the name strip is for.** The plain rewind's pre-load strip (`RecordingStore.ExecuteRewindSaveLoad`
+-> `PreProcessRewindSave`) removes the rewind OWNER's own vessel from the `parsek_rw_` quicksave: the
+owner is the recording that captured that quicksave (`GetRewindRecording`: the recording itself or its
+tree root), and `FlightRecorder.CaptureRewindSave` takes it at the owner's recording start, so the
+quicksave holds the owner's vessel as it was then. The rewind replays that flight as a ghost and spawns
+its vessel at the end, so the quicksave copy must go (the strip dates from `937bf9c5b`, "Strip only the
+recorded vessel on rewind"). It matched by NAME because that was the only key used then; the
+persistentId is craft-baked, so a pid would not have been safer. EVA-6's `1 by name [Jebediah Kerman]`
+is this strip removing the owner itself (the kerbal's own recording captured the save).
+
+**Defect.** A relaunch of a craft carries the craft's name. Land Kerbal X, commit it (the in-flight commit
+adopts the live vessel), relaunch Kerbal X, commit, and rewind the second flight: the quicksave taken at
+the second launch holds BOTH vessels, and the name strip removed both. The first one is committed
+history (its recording ends before the rewind point and never replays), so nothing re-spawns it; it also
+missed the quicksave whitelist, and the guid-aware post-strip reconcile then reset its recording's spawn
+state. Ordinary play, no harness step. Mutation check: making the classifier name-only again reds
+`SameCraftRelaunch_RewindOfSecondFlight_KeepsFirstLandedVessel` and `Classify_Table`.
+
+**The OnLoad passes do not share the flaw.** `StripOrphanedSpawnedVessels` (`same-launch recording
+match`, `matchSource: true` on rewind) is launch-identity-aware (BUG-H) and never strips a pid in the
+rewind-quicksave whitelist; `StripFuturePrelaunchVessels` keeps whatever the quicksave held; the
+`PendingCleanupNames` set is only a trigger now (`CleanupOrphanedSpawnedVessels` decides by identity).
+All three removed an earlier vessel only because the pre-load strip had already dropped it from the
+quicksave, and so from the whitelist. Note that without the whitelist the rewind's `matchSource` strip
+WOULD match an earlier launch's adopted vessel (its spawn pid and guid are that recording's own), so the
+whitelist is load-bearing there.
+
+**Fix.** `RecordingStore.BuildRewindOwnerStrip` + `ClassifyRewindOwnerStripVessel`
+(`RecordingStore.RewindOwnerStrip.cs`), wired into a new `PreProcessRewindSave(RewindOwnerStrip, ...)`
+overload; the old name-set overloads delegate to it as name-only. Per quicksave VESSEL: an EVA child name
+of the owner's chain is stripped by name (kerbal names are roster-unique, and a chain EVA kerbal standing
+outside at the save boards later and re-exits under a new guid, so a guid gate would leave a duplicate
+kerbal); the owner's name is stripped UNLESS some vessel in the save carries the owner's
+`RecordedVesselGuid` (the owner is anchored) and this vessel's `pid` guid conclusively differs
+(`VesselLaunchIdentity.GuidsConclusivelyDiffer`), in which case it is another launch and kept
+(`Rewind owner strip: keeping vessel ... different launch`); a vessel under another name carrying the
+owner's guid is the owner's own vessel after a recordings-table rename and is stripped by guid. An
+unknown guid on either side, or an unanchored owner, falls back to the name. The strip summary line
+keeps its `N by name [...]` prefix and adds `by owner guid` and `kept N other launch(es)` counts.
+Re-Fly (`RewindInvoker`), revert and warp-to-game-start (no pre-process) are untouched.
+
+**Tests.** `RewindOwnerStripTests` (9): the repro through the whole plain-rewind chain (pre-load strip,
+whitelist, OnLoad identity strip, future-prelaunch pass, playback reset, post-strip reconcile); owner
+guid unknown, owner not anchored, save vessel without a guid (all name-decided); renamed owner stripped
+by guid; EVA-6 shape (Jeb stripped, `1 by name [Jebediah Kerman], 0 by owner guid`, capsule kept); chain
+EVA child name-only; the decision table; the anchor predicate.
+
+**Live proof (not flown).** EVA-6 keeps its tokens in logic (its owner is Jeb's own recording, stripped
+by name exactly as before, and the capsule's name is not the owner's). A cheap new lane would re-launch
+the same craft on a host with a committed landed vessel of that craft, commit, rewind `tree=latest`, and
+require the `Rewind owner strip: keeping vessel` line plus the earlier vessel in the produced save.
+Authored as `RR-1-relaunch-rewind-keeps-earlier-launch` (nightly, never flown, branch
+`lane-relaunch-rewind`): on `kerbin-splashdown-recorded` it relaunches the stock Kerbal X from the SPH
+onto the Runway, commits, rewinds `tree=latest`, and gates on the keep line naming the fixture capsule
+(pid 2708531065), the summary `1 by name [Kerbal X], 0 by owner guid, ... kept 1 other launch(es)`, the
+OnLoad keep of `#autoLOC_501232` and the committed store still holding the capsule's spawn pid. The live
+proof is owed by that lane's reading flight.
 
 ---
 
@@ -1321,7 +1379,8 @@ owner's vessel name) is still name-only: rewinding a relaunch of the same craft 
 earlier flight's same-named vessel from the quicksave, and the OnLoad passes then remove it. It
 needs an identity-aware owner strip (the quicksave VESSEL `pid` guid against the owner's
 `RecordedVesselGuid`), with care for the owner vessel itself; filed here rather than widened into
-this fix.
+this fix. Now filed and fixed as REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL (branch
+`fix-rewind-name-strip`).
 
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 

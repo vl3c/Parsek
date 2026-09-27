@@ -1,0 +1,190 @@
+schema = 1
+id = "RR-1-relaunch-rewind-keeps-earlier-launch"
+# =====================================================================================
+# THE LIVE PROOF OF PR #1894 (todo REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL).
+# NEVER FLOWN: every token below is derived from the source and from the EVA-6 / SE-1
+# logs on this same host, not from a flight of this lane.
+#
+# THE DEFECT. A plain rewind removes the rewind owner's own vessel from the parsek_rw_
+# quicksave before loading it (RecordingStore.PreProcessRewindSave). It matched by NAME.
+# A relaunch of a craft carries the craft's name, so rewinding the SECOND flight also
+# removed the FIRST launch still standing in the quicksave. That vessel is committed
+# history (its recording never replays after the rewind), so nothing re-spawned it, and
+# the post-strip reconcile reset its recording's spawn state. The fix
+# (RecordingStore.RewindOwnerStrip.cs) also reads each quicksave VESSEL's `pid` guid
+# against the owner's RecordedVesselGuid: a vessel with the owner's name whose guid
+# conclusively differs is KEPT, provided the owner's own vessel is identified by guid in
+# the same save.
+#
+# HOST: `kerbin-splashdown-recorded`. Its one committed tree was flown from the STOCK
+# Kerbal X and left the capsule LANDED ~1,690 km from the pad as the tree's spawned
+# vessel: in the save `name = #autoLOC_501232` (the stock localization tag, which the
+# strip resolves to "Kerbal X"), persistentId 2708531065, VESSEL pid (launch guid)
+# 5493223fe49b42b181998849a9a2aefa, held by recording 28b6e543... (`spawnedPid`). These
+# three literals are FIXTURE constants (EVA-6 and SE-1 read the same values off their
+# flights); a re-harvest of the fixture moves them and must re-pin this spec.
+#
+# THE FLIGHT, SE-1's proven editor road without its loop:
+#   ACT 0  boot hygiene. The fixture boots FLIGHT on its committed tip, which the recorder
+#          promotes; stop and discard that continuation, set the settings, save, reload
+#          at the Space Center (SE-1's order).
+#   ACT 1  the RELAUNCH. GoToEditor SPH + the stock Kerbal X (the craft the fixture flew),
+#          LaunchFromEditor onto the Runway (the pad carries the fixture's launch-clamp
+#          debris, whose LaunchSiteClear dialog would recover it), StartRecording (a
+#          non-promotion start: `Captured rewind save ... vessel "Kerbal X" in PRELAUNCH`,
+#          as SE-1 logged), a few seconds on the Runway, stop, commit (a second tree).
+#   ACT 2  InvokeRewindToLaunch tree=latest: the relaunch tree. Its quicksave holds BOTH
+#          the relaunched Kerbal X (the owner, anchored by its own guid) and the capsule
+#          (same resolved name, the fixture's guid). The relaunch is stripped by name; the
+#          capsule is kept.
+#   ACT 3  read the committed store back at the Space Center, save, quit. No wait: the
+#          produced save is taken ~15 s before the relaunch recording starts, so the
+#          relaunch vessel is absent from it (stripped, not yet re-produced) and the
+#          capsule present.
+#
+# THE GATE (each pinned below):
+#   (a) the keep line naming the capsule by its fixture pid and guid, with the owner guid
+#       tied by backreference to the owner-strip line (a different launch);
+#   (b) the strip summary `1 by name [Kerbal X], 0 by owner guid, N by PID; kept 1 other
+#       launch(es)`: exactly one owner-named vessel stripped (the relaunch itself, the
+#       only other "Kerbal X" in the quicksave), one kept;
+#   (c) the capsule survives into the loaded game: the #1891 scope keep line for its pid
+#       and the OnLoad `Keeping vessel '#autoLOC_501232' (pid=2708531065 ...)
+#       pre-existing in launch/rewind quicksave` line, ordered after (a) and (b);
+#   (d) the committed store after the rewind: some fixture row still holds
+#       spawnedPid 2708531065 (the reconcile would have reset it to 0 had the capsule
+#       gone), and the relaunch row (rec9, tied by recording id) is unspawned, pid 0.
+#   Forbidden: either strip form for the capsule, the pre-fix summary shape (no `by owner
+#   guid` count: also a wrong-DLL guard), `kept 0 other launch(es)`, and 2+ by name.
+#   Report-only save census: `#autoLOC_501232` once, `Kerbal X` zero.
+#
+# NEGATIVE CONTROL (offline, at authoring). hlib.evaluate_expectations over a seeded log
+# built from the source literals: green as seeded; with the pre-fix shape seeded (the
+# summary `2 by name [Kerbal X], 0 by PID`, no keep line, no OnLoad keep line, the
+# capsule row reset to 0) it reds on exactly the tokens that name the fix. The same check
+# over the real reading-run log is owed, with the pre-fix log absent (no pre-fix flight
+# of this lane exists).
+# =====================================================================================
+tier = "nightly"
+description = "Live proof of PR #1894: on kerbin-splashdown-recorded (the committed stock Kerbal X capsule landed far from the pad), relaunch the same stock Kerbal X from the SPH onto the Runway, record a few seconds, commit, Rewind-to-Launch that newest tree, and settle at the Space Center. The rewind strips the relaunch's own vessel by name but keeps the earlier capsule (same resolved name, a different launch guid) in the rewind save and the loaded game."
+instanceProfile = "stock-minimal"
+tags = ["RR1", "rewind-to-launch", "rewind-strip", "same-craft-relaunch", "editor-route"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: boot hygiene (SE-1's recipe without the loop).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" },                      expect = "OK" },
+  # ACT 1: the relaunch of the same stock craft, recorded and committed as a second tree.
+  { cmd = "GoToEditor", args = { facility = "SPH", craft = "Kerbal X" },     expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "rr1-commit-count-${c0.count}-caps-${c0.rec0spawnedPid}-${c0.rec1spawnedPid}-${c0.rec2spawnedPid}-${c0.rec3spawnedPid}-${c0.rec4spawnedPid}-${c0.rec5spawnedPid}-${c0.rec6spawnedPid}-${c0.rec7spawnedPid}-${c0.rec8spawnedPid}-own-${c0.rec9}-${c0.rec9spawned}-${c0.rec9spawnedPid}" }, expect = "OK" },
+  # ACT 2: Rewind-to-Launch the relaunch tree; it lands at the Space Center 15 s before
+  # the relaunch recording started.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  # ACT 3: the committed store read back, then save before the relaunch replay starts.
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "rr1-rewound-count-${c1.count}-caps-${c1.rec0spawnedPid}-${c1.rec1spawnedPid}-${c1.rec2spawnedPid}-${c1.rec3spawnedPid}-${c1.rec4spawnedPid}-${c1.rec5spawnedPid}-${c1.rec6spawnedPid}-${c1.rec7spawnedPid}-${c1.rec8spawnedPid}-own-${c1.rec9}-${c1.rec9spawned}-${c1.rec9spawnedPid}" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "rr1-settle" },                    expect = "OK" },
+  { cmd = "MissionMark", args = { label = "rr1-settle" },                    expect = "OK" },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-editor"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+# REPORT-ONLY (never flown): the produced save holds the fixture's capsule once and no
+# relaunched Kerbal X (stripped, and saved before its replay starts); one fixture tree
+# plus the relaunch tree, 10 recordings (SE-1's measured facets for the same shape).
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 2, max = 2 }
+committedTrees = { min = 2, max = 2 }
+recordings     = { min = 10, max = 10 }
+vesselNames    = { "#autoLOC_501232" = 1, "Kerbal X" = 0 }
+
+[expectations.logContracts]
+required = [
+  # The relaunch: the same stock craft, onto the Runway, a fresh (non-promotion) start
+  # whose rewind save the rewind then loads.
+  "goeditor complete facility=SPH craft=Kerbal X scene=EDITOR parts=[1-9][0-9]* ship=Kerbal X ",
+  "launchfromeditor complete scene=FLIGHT vessel=Kerbal X pid=[0-9]+ site=Runway situation=PRELAUNCH ",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Captured rewind save at UT ([0-9.]+): vessel \"Kerbal X\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  "Committed tree 'Kerbal X' \\(1 recordings\\)\\. Total committed: 10 recordings, 2 trees",
+  "MISSIONMARK label=rr1-commit-count-10-caps-(?:[0-9]+-)*2708531065-",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=2",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # (a) THE KEEP LINE: the capsule, by its fixture pid and guid, kept as a different
+  # launch of the owner's craft; the owner guid is the one the owner strip was built with.
+  "\\[Parsek\\]\\[INFO\\]\\[Rewind\\] Rewind owner strip: keeping vessel 'Kerbal X' \\(pid=2708531065, guid=5493223fe49b42b181998849a9a2aefa\\) in rewind save: owner's name but a different launch \\(owner guid=[0-9a-f]{32}\\)",
+  "Rewind owner strip: owner='Kerbal X' guid=([0-9a-f]{32}) evaChildNames=0[\\s\\S]*Rewind owner strip: keeping vessel 'Kerbal X' \\(pid=2708531065, guid=5493223fe49b42b181998849a9a2aefa\\) in rewind save: owner's name but a different launch \\(owner guid=\\1\\)",
+  # (b) THE SUMMARY: exactly one owner-named vessel stripped (the relaunch itself), one
+  # other launch kept.
+  "\\[Parsek\\]\\[INFO\\]\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save \\(1 by name \\[Kerbal X\\], 0 by owner guid, [0-9]+ by PID; kept 1 other launch\\(es\\) of the owner's craft\\)",
+  # (c) THE CAPSULE SURVIVES INTO THE LOADED GAME, in order: the #1891 scope keeps its
+  # pid, the owner strip keeps its VESSEL, the summary counts it kept, the OnLoad pass
+  # finds it pre-existing in the rewind quicksave.
+  "Rewind strip scope: keep spawned pid=2708531065 of 'Kerbal X' \\(id=[0-9a-f]{32}\\) as committed history[\\s\\S]*Rewind owner strip: keeping vessel 'Kerbal X' \\(pid=2708531065, [\\s\\S]*kept 1 other launch\\(es\\) of the owner's craft\\)[\\s\\S]*Keeping vessel '#autoLOC_501232' \\(pid=2708531065, guid=5493223fe49b42b181998849a9a2aefa, situation=LANDED\\)[^\\r\\n]*pre-existing in launch/rewind quicksave",
+  # (d) THE COMMITTED STORE after the rewind: a fixture row still holds the capsule's
+  # spawn pid, and the relaunch row (tied by recording id) is unspawned.
+  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=rr1-rewound-count-10-caps-(?:[0-9]+-)*2708531065-(?:[0-9]+-)*own-\\1-false-0(?:\\s|$)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "goeditor rejected",
+  "goeditor error",
+  "launchfromeditor refused",
+  "launchfromeditor timeout",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "Updated committed tree",
+  # The capsule stripped, by any pass.
+  "Rewind strip scope: strip spawned pid=2708531065 ",
+  "Stripping orphaned spawned vessel '#autoLOC_501232'",
+  # The pre-fix name strip: two owner-named vessels removed, none kept.
+  "Stripped [0-9]+ vessel\\(s\\) from save \\((?!1 by name)[0-9]+ by name \\[Kerbal X\\]",
+  "kept 0 other launch\\(es\\) of the owner's craft",
+  # The pre-fix summary shape (no owner-guid count): also the wrong-DLL guard.
+  "Stripped [0-9]+ vessel\\(s\\) from save \\([0-9]+ by name \\[[^\\]\\r\\n]*\\], [0-9]+ by PID\\)",
+]
+
+[runtime]
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
