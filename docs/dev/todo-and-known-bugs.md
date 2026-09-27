@@ -15,6 +15,68 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA: a separation slot whose vessel put a crew member out on EVA was refused `downstreamBp`~~ [FOUND 2026-09-27 behind REFLY-SEPARATIONS-ONLY; OWNER DECISIONS 2026-09-27 (interview); IMPLEMENTED 2026-09-27, branch `refly-through-eva`]
+
+**The gap.** A separation slot's tip walk (`EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations`,
+consumed by `UnfinishedFlightClassifier.TryQualify`) followed only chain hops and
+`VesselSwitchContinuation` branch points. A vessel whose crew member went EVA ended its segment at the
+EVA branch point, and a non-Destroyed segment there was refused `downstreamBp`: Kerbal X stages (a
+staging RP), Jeb EVAs from the upper stage for a report and re-boards, the upper stage later crashes -
+no Re-Fly from the staging point, while the same crash with no EVA was offered. Before
+REFLY-SEPARATIONS-ONLY the EVA's own Rewind Point had covered this.
+
+**Owner decisions (2026-09-27).** Goal: "re-fly is available from the point of separation,
+respecting the sealing rules defined in the design docs."
+1. The slot follows its own vessel through the vessel's EVA branch points (the same-pid vessel
+   continuation) and through the Board where the kerbal re-boards the SAME vessel. Any other branch
+   point stops the walk as before.
+2. A kerbal who went EVA from the vessel after the separation and joined a DIFFERENT vessel makes the
+   slot non-re-flyable (new reason `evaCrewJoinedForeignVessel`). Left standing or dead on EVA does not
+   block.
+3. Re-flying the vessel rewrites the kerbal's EVA: the closure and supersede write-set include the EVA
+   crew recordings, their placed parts and flags; an EVA death is tombstoned like a crash death.
+4. Sealing rules apply across the walked history: EVA science is retry-blocking; automatic
+   consequence rows are not; an EVA during a Re-Fly still auto-seals; hard-safety terminals are read on
+   the vessel's real tip.
+5. The Kerbals window's Lost hover offers the Re-Fly way back only when an open Unfinished Flight
+   would reach that kerbal's loss.
+
+**What changed.**
+- `EffectiveState.WalkSlotVessel` (new; `SlotVesselWalk` result) behind
+  `ResolveTerminalRecordingAcrossSwitchContinuations` and so behind `EffectiveTipRecordingId` /
+  `ChildSlot.EffectiveRecordingId` and every slot consumer (reaper, Seal, Stash,
+  `IsVisibleUnfinishedFlight`, CommitTree promotion, Site B-1 / B-2, RP slot resolution,
+  `LoadTimeSweep`). Hops log `[Supersede] SwitchContinuationWalk: hop ... kind=switch|eva|board`.
+  A Board by a kerbal from another vessel stops it (`boardForeignParent`, a foreign merge). A walk
+  that starts mid-stretch first registers the crew of every own EVA behind its start
+  (`PreRegisterOwnEvaCrewBehind`; RF-18's reading run (flown as RF-16 before a lane-id collision renamed it) caught a mid-stretch walk reading the Board as
+  foreign). The map presence chain-tip segment borrow keeps the switch-only walk
+  (`followOwnEvaBoard: false`).
+- `UnfinishedFlightClassifier`: the walk starts at the slot stretch head
+  (`ResolveSlotStretchHead`, so every stretch member reaches the origin's verdict), rule 2 rejects with
+  `evaCrewJoinedForeignVessel`, verdict lines carry `walkedEva=N walkedBoard=M`, and the retry-blocking
+  scan reads the stretch head. `SupersedeCommit.CollectRecordingIdsForSafetyGate` adds the walked
+  stretch; Site B-1 auto-seals on the new reason like `downstreamBp`.
+- `EffectiveState.ComputeSubtreeClosureInternal`: own-EVA crew admission
+  (`IsOwnEvaKerbalClosureChild`), same-vessel Board admission, `GroundPartPlaced` children of a kerbal
+  in the closure, and backward stretch seeding from a merge-time root
+  (`CollectOwnVesselStretchBackward`, stopping at the slot origin, at a re-fly fork and before a
+  recording that starts before the rewind UT). `RecordingTreeSplitter.SplitOriginAtRewindUT` splits the
+  spanning stretch ancestor when the walked tip does not span the rewind point
+  (`FindSpanningOwnVesselStretchAncestor`).
+- Lost hover: `KerbalsPresentation.ShouldOfferLostReFlyRemedy` over
+  `EffectiveState.ComputeOpenSlotReFlyReachRecordingIds`, also on the stock-screen Lost explanation.
+
+**Cases decided from the rules** (reported to the supervisor): a Board by a kerbal from another vessel
+onto the slot vessel stops the walk (`downstreamBp`); a kerbal who re-boards after the vessel docked is
+unreachable (the walk already stopped at the Dock); with several EVAs, one kerbal joining a foreign
+vessel blocks the slot; a kerbal-free probe slot is untouched.
+
+**Tests.** `ReFlyThroughEvaTests` over the new generator `ReFlyThroughEvaFixture` (+ `ScenarioWriter`
+`EvaBranch` / `BoardBranch` / `SeparationBranch`); the graph fuzzer's continuation-free agreement cell;
+the Lost-hover cells in `KerbalsWindowUITests`, `KerbalDeathRespawnTests`, `ReservationExplanationTests`.
+Design: `docs/parsek-rewind-to-separation-design.md` section 1.6.
+
 ## EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE: the `EvaGroundScience place` seam step can time out with the placement preview held off-terrain against a collider [FILED 2026-09-27 from EVA-7's first flight. OPEN, harness flake, not a Parsek defect]
 
 Run `2026-09-27_1344_EVA-7-crew-inventory-spawn-after-rewind` classified INVALID
@@ -1145,6 +1207,11 @@ kerbal's EVA recording and every part it placed, which is the consistent answer:
 belongs to the kerbal, and the kerbal is not re-flown. The one residual path is a Re-Fly session a
 player started on a legacy EVA Rewind Point before upgrading and has not concluded; it ends under the
 old side-off policy, and its RP is reaped on the next load.
+
+**Superseded 2026-09-27 by REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA.** The owner then ruled that a
+separation slot's Re-Fly rewrites its vessel's own EVAs: the closure now admits the vessel's own EVA
+crew recordings and, by parent id, the ground parts they placed (option 1 above, reached through the
+vessel rather than a kerbal root). The paragraph above describes the state between the two rulings.
 
 ## ~~EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind~~ [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. CLOSED 2026-09-27, branch `eva-placed-spawn-lane`]
 

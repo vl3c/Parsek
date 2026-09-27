@@ -216,6 +216,68 @@ namespace Parsek.Tests.Generators
             };
         }
 
+        /// <summary>
+        /// The branch point the live recorder writes when a crew member goes EVA
+        /// (docs/parsek-flight-recorder-design.md section 4.6 / 9A.D): parent = the
+        /// vessel's recording, children = the vessel's continuation (same pid) and the
+        /// kerbal's recording.
+        /// </summary>
+        public static BranchPoint EvaBranch(
+            string branchPointId, string vesselRecordingId, string vesselContinuationId,
+            string kerbalRecordingId, double evaUT)
+        {
+            return new BranchPoint
+            {
+                Id = branchPointId,
+                UT = evaUT,
+                Type = BranchPointType.EVA,
+                SplitCause = "EVA",
+                ParentRecordingIds = new List<string> { vesselRecordingId },
+                ChildRecordingIds = new List<string> { vesselContinuationId, kerbalRecordingId }
+            };
+        }
+
+        /// <summary>
+        /// The branch point the live recorder writes when an EVA kerbal boards a vessel
+        /// (<c>ParsekFlight.HandleTreeBoardMerge</c>): parents = the kerbal's recording and
+        /// the boarded vessel's recording, child = the merged vessel (the boarded vessel's
+        /// pid).
+        /// </summary>
+        public static BranchPoint BoardBranch(
+            string branchPointId, string kerbalRecordingId, string vesselRecordingId,
+            string mergedRecordingId, double boardUT)
+        {
+            return new BranchPoint
+            {
+                Id = branchPointId,
+                UT = boardUT,
+                Type = BranchPointType.Board,
+                MergeCause = "BOARD",
+                ParentRecordingIds = new List<string> { kerbalRecordingId, vesselRecordingId },
+                ChildRecordingIds = new List<string> { mergedRecordingId }
+            };
+        }
+
+        /// <summary>
+        /// A vessel separation (staging / decoupling) split: parent = the pre-split
+        /// recording, children = the separated vessels. Pass
+        /// <paramref name="type"/> <see cref="BranchPointType.Undock"/> for an undock.
+        /// </summary>
+        public static BranchPoint SeparationBranch(
+            string branchPointId, string parentRecordingId, IEnumerable<string> childRecordingIds,
+            double splitUT, BranchPointType type = BranchPointType.JointBreak)
+        {
+            return new BranchPoint
+            {
+                Id = branchPointId,
+                UT = splitUT,
+                Type = type,
+                SplitCause = type == BranchPointType.Undock ? "UNDOCK" : "DECOUPLE",
+                ParentRecordingIds = new List<string> { parentRecordingId },
+                ChildRecordingIds = new List<string>(childRecordingIds)
+            };
+        }
+
         private static List<RecordingBuilder> ValidateTreeBuilders(
             IEnumerable<RecordingBuilder> builders)
         {
