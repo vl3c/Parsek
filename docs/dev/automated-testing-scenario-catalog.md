@@ -275,7 +275,8 @@ HARD = hand-build; IMPRACTICAL = human needed.
 
 ### Tier 4 - rewind / re-fly / cross-tree / station (mixed)
 - S4.1 re-fly crashed booster (supersede + tombstone); S4.2 re-fly stranded
-  EVA kerbal; S4.3 4-probe constellation deploy + later flies; S4.4 station
+  EVA kerbal (RETIRED by the 2026-09-27 owner ruling: Re-Fly is for vessel
+  separations only, an EVA never gets a Rewind Point); S4.3 4-probe constellation deploy + later flies; S4.4 station
   rendezvous phase-locked loop; S4.5 cross-tree partner-journey loop;
   S4.6 land+dock dual constraint.
 - S4.7 chain rewind (D18, the paradox-prevention scenario): commit B6

@@ -585,8 +585,8 @@ namespace Parsek
             // blocks vessel materialization at "snapshot situation unsafe (FLYING/SUB_ORBITAL)".
             //
             // Runs OUTSIDE the !TerminalStateValue.HasValue gate above because the user's case
-            // is precisely "terminal state was already set (e.g. by ChainSegmentManager during
-            // active recording) so the gate above is skipped — but the snapshot is still stale".
+            // is precisely "terminal state was already set (during active recording) so the
+            // gate above is skipped — but the snapshot is still stale".
             //
             // Reuses finalizeVessel from the lookup above — no double FindVesselByPid.
             if (!(sceneExitLifetimeExtended && sceneExitSuppliedSnapshots)

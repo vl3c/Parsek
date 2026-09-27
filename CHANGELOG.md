@@ -1926,6 +1926,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Re-Fly is for vessel separations only: EVA kerbals no longer appear in Unfinished Flights and
+  cannot be re-flown.** Rewind Points are made when a vessel stages, decouples or undocks into two
+  or more controllable pieces, so a booster or lander can be flown again from the moment it
+  separated. Going EVA is not a separation: it no longer makes a Rewind Point, and an EVA kerbal
+  (stranded, crashed or killed) is never listed in Unfinished Flights. If something goes wrong on
+  an EVA, use F9 (quickload) or Discard the flight. Rewind Points an earlier version made at an
+  EVA are removed when the save loads (their quicksave file is deleted and the slots they held
+  open are closed), except one a Re-Fly in progress is using, which is removed after that Re-Fly
+  ends. Nothing else about EVAs changes: they are still recorded and replayed as before.
 - **Recordings tab: a presentation round.** How the table shows recordings changes; the one
   data effect is that a mission folder's Loop box now also sets the launched vessel's loop
   range, as that vessel's own chain row did before (see the last bullet).
@@ -4857,6 +4866,27 @@ _(unreleased — entries accumulate here per commit)_
   CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL). Comments in the test-command seam, `hlib.py`,
   the GL-2 spec and the coverage registry that called the dock chain path a live producer of
   the sub-2-point drop are corrected.
+
+- **Removed the chain identity and continuation-sampling state the chain-commit removal left
+  behind.** Nothing has set it since the chain-segment commit path went, so every read of it
+  saw an empty chain and every continuation block was skipped. Removed: `ChainSegmentManager`
+  (chain identity, pending transition and boundary-anchor fields, continuation and undock
+  continuation sampling, and its committed-list subscriber that rebound continuation indices
+  after optimizer merges, splits and deletes), the recorder's `BoundaryAnchor`, the bake-and-stop
+  blocks in `ParsekFlight` on scene change, commit, discard, tree branch and vessel destroy,
+  `StartRecording`'s always-false continuation flag, and the `Recording` revert-rollback
+  fields `ContinuationBoundaryIndex` / `PreContinuationVesselSnapshot` /
+  `PreContinuationGhostSnapshot` with the `RecordingStore` rollback and the hydration-repair
+  copy that read them. Those three fields were `[NonSerialized]` and never written to a save,
+  so no save format changes; the chain data saved on recordings (`ChainId`, `ChainIndex`,
+  `ChainBranch`, `ParentRecordingId`, `EvaCrewName`) is kept and still played back. The
+  committed-list index contract keeps its other subscribers (engine, held ghosts, map
+  presence, watch mode, KSC and Tracking Station). Diagnostics: the `RecState` line no longer
+  carries its `chain=` / `chain.*` fields, `StartRecording` no longer logs a
+  `clearing stale chain state` warning, and `FallbackCommitSplitRecorder` no longer appends
+  a chain suffix. The in-game `ContinuationIntegrity` category (2 cells over the removed
+  fields) is deleted, so the LT-1 long-tail lane runs 30 categories (aggregate
+  `total=56 passed=49 skipped=7 category=multi:30`). No gameplay change.
 
 - **Dev tooling: the fixture harvest clears rewind-save names inside rewind-point
   quicksaves too.** `harness/tools/harvest_bdock_station.py` drops the saves that

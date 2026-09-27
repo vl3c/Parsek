@@ -1,4 +1,4 @@
-# In-game test category inventory (all 122 categories)
+# In-game test category inventory (all 121 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -97,7 +97,6 @@ Two limits of this table, stated so nobody over-reads it:
 | `Bug289` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | H42 (flown 2026-08-28, executes 2 of 2) | A |
 | `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | H62-coalescer-isolated (ISOLATED, flown 2026-09-06, executes 2 of 2 - LIVE-PROVEN on its second flight `2026-09-06_2017`, `total=2 passed=2 failed=0 skipped=0` pinned whole; the first flight on `gs1-two-stage-pad` read `passed=0 skipped=2` because gs1's first stage lights the engine, so the host is now the derived `coalescer-pad`, gs1 with the decoupler moved into the first stage. A REAL controlled-decoupled split over a host carrying PRELAUNCH + an engine + 2 command modules + a decoupler IN THE NEXT STAGE: the live seed residual decision line with numeric `seedLiveRootDist=` / `propagatedResidual=`, and the child's `ParentAnchorRecordingId` stamped at the focused parent at split time. Both cells executed as predicted once the stage order matched. Claims D5 `controlled-decoupled-child` only - `crash-coalescing` is NOT claimed, because neither cell crashes anything) | A |
-| `ContinuationIntegrity` | 2 | 2 | 2 | 2 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | LT-3-long-tail-career-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2035`, PASS attempt 1, 64 s wall, every verifier PASS or REPORT, every per-constituent `BATCH_COMPLETE` line matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-1, run `2026-09-07_2007`) at 2 of 2 - the whole category with zero skips, at FLIGHT on the `career-earned-pad` career, which is what both cells' career-only guards want and what no sandbox host could give them - and the flight measured that line exactly. The FIRST execution of either cell anywhere; PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below: the tally is pinned whole AND the lane drove the category whole at its own boot) | A |
 | `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | H31 | A |
 | `CrewReservationLive` | 2 | 2 | 2 | 2 | 0 | 2 | LT-4-long-tail-route-flight (MULTI, added as a fourth constituent 2026-09-08, flown run `2026-09-08_1040`, executes 2 of 2 - the whole category at FLIGHT with zero skips. The census that found the host is CEN-9 (scratch, run `2026-09-08_1029`) on `depot-route-recorded`, whose store carries THREE committed recordings with a non-zero `SpawnedVesselPersistentId` that survives the load-time spawn reconcile - the one thing both cells short-circuit on, and the thing five earlier hosts did not have. CEN-10 (`2026-09-08_1030`) read the same 2 of 2 on `bdock-recorded`, so the property belongs to RECORDED stores rather than to `depot-route-recorded` alone. THE B1 READING WAS WRONG IN ITS SCOPE, not in its mechanism: the corpus writer still authors no spawned pid (`RecordingBuilder.WithSpawnedPid` has zero callers), but a recorded fixture is not an authored corpus, and the second census had only ever asked injected and career hosts. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below: the tally is pinned whole AND the lane drove the category whole at its own boot) | A |
@@ -216,8 +215,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **122 categories / 659 declarations**. Buckets **A 91 categories
-(365 declarations)**, **B 30 categories (289 declarations)**, **C 1 category (5
+Totals, re-derived: **121 categories / 657 declarations**. Buckets **A 90 categories
+(363 declarations)**, **B 30 categories (289 declarations)**, **C 1 category (5
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -329,11 +328,12 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **119 of 122 categories**, covering **651 of 659
+Driven by a committed spec: **118 of 121 categories**, covering **649 of 657
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 659 declarations in
-122 categories over `Source/Parsek`. The 2026-09-27 crew inventory capture / restore
-(KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN) opened a 122nd row, `KerbalInventorySpawn`, UNCLAIMED
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 657 declarations in
+121 categories over `Source/Parsek`. The 2026-09-27 chain-state removal deleted
+`ContinuationIntegrity` (2 cells, bucket A via LT-1) with the recording fields it checked. The 2026-09-27 crew inventory capture / restore
+(KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN) opened a row, `KerbalInventorySpawn`, UNCLAIMED
 (two self-skipping FLIGHT cells, no lane). The 2026-09-26 vessel-budget fix (KSP-SETTINGS-AUDIT S5) opened a 121st row,
 `VesselBudget`, UNCLAIMED by the owner's ruling (unit and in-game cells, no dedicated lane). The 119th and 120th rows,
 `GhostCommNetLive` and `GhostCommNetTimeline`, arrived 2026-09-26 already driven by CN-2 / CN-3. The 2026-09-26 ghost CommNet relay opened a 118th
@@ -727,7 +727,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (91 categories, 365 declarations)
+### Bucket A - wired now (90 categories, 363 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.
@@ -1031,11 +1031,11 @@ rather than replaced with a guess.
 | `H39-logistics-isolated-bdock` | Logistics | 47 declared, 46 admitted | The same 46 cells over `bdock-recorded` - the FIRST time the restore-flagged Logistics declarations run against a non-empty recording store (two committed trees, 19 recordings, one dock window). Pays two of H38's five missing-recorded-subject skips, and is the fixture-axis negative control on H38: the census delta says which of its 39 passes were RIG properties rather than universal ones - measured, 5 of them. FLOWN 3x 2026-08-28, pinned whole `47/34/0/13` with count 21; its census-2 recordings-floor red is half of how the tree-deletion data loss was found |
 | `H40-logistics-isolated-depot-route` | Logistics | 47 declared, 46 admitted | The same 46 cells over `depot-route-recorded`, the suite's ONLY committed Active GhostDriving route (four `SOURCE_REF` rows carrying `routeProofHash`, a Dock and an Undock branch point, 22 recordings). The axis it adds is ROUTE-PRESENT vs ROUTE-ABSENT: every route-reading cell in the category has until now executed only against state a test forged in-body. Carries the `RevalidateSources ... routes=1 transitioned=0` anti-vacuity token, tightened to `reason=OnLoad` by the census (the authored wildcard also matched on the route-less host). FLOWN 3x 2026-08-28, pinned whole `47/35/0/12` with count 22. It adds ZERO distinct declarations over `H38 ∪ H39` - its value is the execution context plus the nine-cell destination-headroom test-defect family its census 1 exposed against a 720/720 tank |
 
-**A3 - the MULTI-CATEGORY batch path (33 categories, 4 specs), opened 2026-09-07.**
+**A3 - the MULTI-CATEGORY batch path (32 categories, 4 specs), opened 2026-09-07.**
 Neither of A1's derivation nor A2's isolated arg: these categories are admitted
 because ONE boot drove each of them WHOLE, alongside three dozen siblings, through
-the seam's comma-list `RunTests` selector. `LT-1-long-tail-flight` contributes 25
-(`Bug289`, `ContinuationIntegrity`, `DisabledHoverEcho`, `FinalizeLimbo`, `Flight`, `ForwardRender`,
+the seam's comma-list `RunTests` selector. `LT-1-long-tail-flight` contributes 24
+(`Bug289`, `DisabledHoverEcho`, `FinalizeLimbo`, `Flight`, `ForwardRender`,
 `IdentityLoss`, `PartEventTiming`, the four small `Pipeline-*`, `RecordingStore`,
 `RenderComposition`, `ResourceManifest`, `RevertVesselStrip`, `RewindSaves`,
 `SpawnCollision`, `SpawnTerminalOrbit`, `StockWarpLimits`, `TerminalOrbit`,
