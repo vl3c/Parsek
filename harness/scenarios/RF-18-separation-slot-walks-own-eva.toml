@@ -1,5 +1,8 @@
 schema = 1
-id = "RF-16-separation-slot-walks-own-eva"
+id = "RF-18-separation-slot-walks-own-eva"
+# RENAMED from RF-16 before merge: a parallel branch landed RF-16 / RF-17 (the Hard-preset
+# re-fly lanes) first. The reading run below was flown under the old id, so its results
+# directory is `2026-09-27_1334_RF-16-separation-slot-walks-own-eva`.
 # =====================================================================================
 # THE SEPARATION SLOT FOLLOWS ITS VESSEL THROUGH THE CREW'S OWN EVA (owner ruling
 # 2026-09-27, todo REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA, design
@@ -32,7 +35,7 @@ id = "RF-16-separation-slot-walks-own-eva"
 tier = "operator"
 description = "GS-2's in-orbit staging split, then an EVA and re-board from the crewed pod stack: the pod stack slot walks through its own EVA and Board to the real tip (walkedEva=1 walkedBoard=1, focus verdict, not downstreamBp) while the probe slot still opens an Unfinished Flight and the RewindPoint survives."
 instanceProfile = "stock-minimal"
-tags = ["RF16", "rewind", "unfinished-flights", "eva", "board", "staging", "orbital", "auto-merge", "scene-exit"]
+tags = ["RF18", "rewind", "unfinished-flights", "eva", "board", "staging", "orbital", "auto-merge", "scene-exit"]
 
 [fixture]
 # GS-2's committed template: the crewed Kerbal X stack (Valentina Kerman, Bob Kerman)

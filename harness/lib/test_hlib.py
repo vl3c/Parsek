@@ -4021,6 +4021,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H52-reentry-fx":            ("ReentryFx", 3, "FLIGHT"),
         "H53-scene-and-patch":       ("SceneAndPatch", 7, "FLIGHT"),
         "H54-missions":              ("Missions", 13, "FLIGHT"),
+        # KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN's live half (2026-09-27): two FLIGHT
+        # cells over b1-pad-craft's seated Jeb. LIVE-PROVEN on its reading run
+        # 2026-09-27_1339 (`passed=2 skipped=0`); the pin is whole.
+        "H72-kerbal-inventory-spawn": ("KerbalInventorySpawn", 2, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -4316,6 +4320,19 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # both PASS attempt 1, measured the prediction, `passed=3 failed=0 skipped=0`, and both
     # specs took the line WHOLE. Like CN-1 they are not H-series ids, so this class's own
     # cells never read them; CommittedBatchTallySourceSyncTests gates their `total=`.
+    #
+    # H72-kerbal-inventory-spawn ENTERED on 2026-09-27 (the KerbalInventorySpawn category, 2
+    # FLIGHT cells, `total=2` literal with the split regexed, predicted passed=2 skipped=0 and
+    # already required cell by cell through the runner's PASSED lines) and LEFT the same day:
+    # its reading run 2026-09-27_1339 (PASS attempt 1) measured the prediction, `passed=2
+    # failed=0 skipped=0`, and the spec took the line WHOLE.
+    #
+    # AH-1-auto-hire-reserved-applicant ENTERED on 2026-09-27 (the new AutoHireReservation
+    # category, 1 SPACECENTER cell, `total=1` literal with the split regexed, predicted
+    # 1 / 0). Like CN-1 it is not an H-series id, so this class's own cells never read it;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT the same day: its
+    # reading run 2026-09-27_1341 (PASS attempt 1) measured the prediction, `passed=1
+    # failed=0 skipped=0`, and the spec pinned the line whole.
     INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -4398,8 +4415,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(44, len(self.GROUP),
-                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 group is 44 "
+        self.assertEqual(45, len(self.GROUP),
+                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 + H72 group is 45 "
                          "specs; if it genuinely changed size, update this floor AND the "
                          "counts in docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -10002,7 +10019,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "defect in the first build (fixed); re-flight 2026-09-24_1811 PASS, rewind "
             "block armed off it. Discharged: cadence promotion is the only step left, a "
             "human call",
-        "RF-16-separation-slot-walks-own-eva.toml":
+        "RF-18-separation-slot-walks-own-eva.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-27 as the live lane "
             "of REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA (owner ruling: a separation slot "
             "follows its vessel through the crew's own EVA and re-board): GS-2's split, "

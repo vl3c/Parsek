@@ -173,7 +173,7 @@ namespace Parsek.Tests
         {
             // A walk that starts MID-stretch never crossed the EVA, so the Board's kerbal
             // parent must still be recognised as the vessel's own crew. Measured live on
-            // RF-16's first flight (2026-09-27_1334): before the pre-registration the walk
+            // RF-18's first flight (2026-09-27_1334, flown under the id RF-16): before the pre-registration the walk
             // from the continuation stopped at the Board with reason=boardForeignParent.
             var tree = Install(ReFlyThroughEvaVariant.Reboard);
             InstallScenario(ReFlyThroughEvaFixture.BuildRewindPoint());
