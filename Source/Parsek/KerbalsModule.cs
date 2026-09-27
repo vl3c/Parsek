@@ -83,6 +83,8 @@ namespace Parsek
         // ── Recording metadata cache (built in PrePass) ──
         private Dictionary<string, RecordingMeta> recordingMeta
             = new Dictionary<string, RecordingMeta>();
+        // Diagnostic only (the PrePass summary's loopingChains count): a looped segment
+        // does not change a chain's crew holds (design 12.7, operator ruling 2026-09-27).
         private HashSet<string> loopingChainIds = new HashSet<string>();
 
         /// <summary>
@@ -276,8 +278,8 @@ namespace Parsek
         {
             public string KerbalName;
             public double ReservedUntilUT;  // double.PositiveInfinity for permanent/open-ended
-            // Dead with respawn off or unstamped, or a respawn-on death in a looping chain or
-            // merged with an open-ended co-row (owner decision 2026-09-26) - never freed
+            // Dead with respawn off or unstamped, or a respawn-on death merged with an
+            // open-ended co-row (owner decision 2026-09-26) - never freed
             public bool IsPermanent;
             /// <summary>
             /// The latest stock respawn instant among the recorded deaths behind this hold
@@ -288,7 +290,7 @@ namespace Parsek
             public double DeathRespawnUT = double.NaN;
             /// <summary>
             /// The earliest start UT among this kerbal's OPEN-ENDED non-death rows (an
-            /// un-closed Aboard / Unknown row, or any row a looping chain keeps open), or NaN
+            /// un-closed Aboard / Unknown row), or NaN
             /// when none. <see cref="ResolveOpenEndedRespawnDeaths"/> compares it with
             /// <see cref="DeathRespawnUT"/>: a row starting before the respawn keeps the
             /// kerbal committed across the dead window (permanent loss); one starting at or
@@ -313,15 +315,16 @@ namespace Parsek
         /// <summary>
         /// Owner decision 2026-09-26: a hold that carries a respawn-on death is a finite
         /// respawn-pending hold only when nothing keeps the kerbal committed ACROSS the dead
-        /// window. An open-ended co-row of the same kerbal (an un-closed Aboard / Unknown row,
-        /// or a row a looping chain keeps open) that STARTS before the respawn UT overlaps
+        /// window. An open-ended co-row of the same kerbal (an un-closed Aboard / Unknown row)
+        /// that STARTS before the respawn UT overlaps
         /// that window, so the death is a PERMANENT loss: no stand-in, reads Lost, never
         /// respawns - the same answer the data gives with respawn off. An open-ended co-row
         /// starting at or after the respawn UT is a post-respawn reuse (e.g. he flew again
         /// to a station and is still aboard): the respawn stays intact and the later flight
         /// is an ordinary hold. A finite co-row that outlasts the respawn keeps the S8
-        /// ordinary hold too. A death in a looping chain is made permanent per row in
-        /// <see cref="ProcessAction"/>. Runs on the merged reservation set (the earliest
+        /// ordinary hold too. A death in a chain with a looped segment follows the same rules
+        /// as any death (operator ruling 2026-09-27: the loop is visual only). Runs on the
+        /// merged reservation set (the earliest
         /// open-ended start is carried through the merge), so the result never depends on
         /// row order. Returns the number of holds converted.
         /// </summary>
@@ -368,8 +371,7 @@ namespace Parsek
         /// <summary>
         /// The respawn delay a Timeline death entry may name: the recording's stamped timer,
         /// but only when the stamp says respawn on AND the walk's resolved hold for that
-        /// kerbal still carries a respawn (not permanent: no looping chain, no overlapping
-        /// open-ended co-row). NaN otherwise, including when no resolved hold is available,
+        /// kerbal still carries a respawn (not permanent: no overlapping open-ended co-row). NaN otherwise, including when no resolved hold is available,
         /// so the Timeline never promises a respawn the reservation walk does not grant. Pure.
         /// </summary>
         internal static double ResolveTimelineRespawnSeconds(
@@ -884,7 +886,7 @@ namespace Parsek
                     rawCrewMembers += rawCrew.Count;
                 }
 
-                // Identify chains that contain a looping segment
+                // Count chains that contain a looping segment (diagnostic only)
                 if (isLoop && isChain && !string.IsNullOrEmpty(chainId))
                     loopingChainIds.Add(chainId);
 
@@ -1037,16 +1039,17 @@ namespace Parsek
             // Map end states to reservation parameters:
             //   Dead      -> stock respawn on at the death (stamped on the recording):
             //                temporary, endUT = death UT (rec.EndUT) + stamped timer;
-            //                respawn off, no stamp, or a looping chain -> permanent,
+            //                respawn off or no stamp -> permanent,
             //                endUT = infinity (an open-ended co-row makes it permanent
             //                too, decided after the merge in ResolveOpenEndedRespawnDeaths)
             //   Recovered -> temporary, endUT = rec.EndUT
             //   Aboard    -> open-ended temporary, endUT = infinity (crew still on vessel)
             //   Unknown   -> open-ended temporary (conservative); Aboard / Unknown end at
             //                the split when a child of this recording carries the kerbal on
-            // Override: if this recording belongs to a chain with a looping segment,
-            // keep endUT = infinity regardless of Recovered state — the ghost replays
-            // past the tip's EndUT via the loop.
+            // A looped segment elsewhere in the chain changes none of this: the loop is
+            // visual only, the chain's first run is the real flight and its tip spawns
+            // (design 12.7, operator ruling 2026-09-27). The looped segment's own rows are
+            // skipped above like any loop recording's.
             bool dead = endState == KerbalEndState.Dead;
             double deathRespawnUT = double.NaN;
             string deathPolicy = null;
@@ -1056,20 +1059,8 @@ namespace Parsek
                     meta.DeathRespawns, meta.DeathRespawnSeconds, meta.EndUT, out deathPolicy);
             }
             bool permanent = dead && double.IsNaN(deathRespawnUT);
-            bool chainHasLoop = meta.IsChainRecording
-                && !string.IsNullOrEmpty(meta.ChainId)
-                && loopingChainIds.Contains(meta.ChainId);
-            // Owner decision 2026-09-26: a death in a chain with a looping segment stays
-            // PERMANENT even when stock respawn was on at the death. The looping ghost
-            // replays the flight past its end, so no finite respawn instant exists.
-            if (dead && !permanent && chainHasLoop)
-            {
-                deathRespawnUT = double.NaN;
-                deathPolicy = "looping chain";
-                permanent = true;
-            }
             // Use recording's double-precision EndUT (not action's float EndUT)
-            double endUT = (endState == KerbalEndState.Recovered && !chainHasLoop)
+            double endUT = endState == KerbalEndState.Recovered
                 ? meta.EndUT : double.PositiveInfinity;
             if (dead && !permanent)
                 endUT = deathRespawnUT;
@@ -1088,15 +1079,14 @@ namespace Parsek
 
             // Design 9.3: an open-ended (Aboard / Unknown) hold ends when the kerbal is
             // recovered from a real vessel continuing this flight's tree
-            // (KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL). A looping chain keeps
-            // +inf for the same reason a Recovered end does: the ghost replays past it.
+            // (KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL).
             // A recording that ended at a split (staging, undock, EVA, dock) handed the kerbal
             // to the child of that branch point that carries him on: its Aboard / Unknown row
             // ends at the split and the child's own row (Dead with or without respawn,
             // Recovered, still Aboard) decides the rest. Without this the parent's Unknown
             // row, which starts before any death on the child, kept the hold open-ended.
             bool handedOff = false;
-            if (!permanent && !chainHasLoop
+            if (!permanent
                 && (endState == KerbalEndState.Aboard || endState == KerbalEndState.Unknown))
             {
                 string handoffChild;
@@ -1114,7 +1104,7 @@ namespace Parsek
                 }
             }
 
-            if (!permanent && !chainHasLoop && !handedOff
+            if (!permanent && !handedOff
                 && (endState == KerbalEndState.Aboard || endState == KerbalEndState.Unknown))
             {
                 string closingOwner;
@@ -1169,7 +1159,7 @@ namespace Parsek
                 };
                 ParsekLog.Verbose(Tag,
                     $"Reservation: '{name}' endUT={( permanent ? "INDEFINITE" : endUT.ToString("F1") )} " +
-                    $"({endState}{(chainHasLoop ? ", chainHasLoop" : "")}" +
+                    $"({endState}" +
                     $"{(dead && !permanent ? ", respawn at " + FormatClockUT(deathRespawnUT) : "")}), " +
                     $"recording '{recordingId}'");
             }

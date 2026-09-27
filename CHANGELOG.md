@@ -1206,17 +1206,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
-- **Looping one phase of a chain no longer stops its final vessel from spawning.** A long
-  flight that Parsek splits into phases (launch, coast, landing) is a chain. Turning on the
-  loop toggle for any one phase used to make the whole chain a pure replay: its final vessel
-  never spawned, not on the first run and not later. Now the chain's first run is the real
-  flight, as it already was for a single looping recording: when the first run reaches the end
-  of the chain, the final vessel spawns once, and every later loop replay stays ghost-only.
-  This holds in flight, at the Space Center and in the Tracking Station, and a crew member of a
-  looping chain that ends parked at the Space Center is retired with the flight exactly like any
-  other finished flight. Phases before the end still never spawn a vessel, looped or not, and a
-  looped mission (which loops the whole mission, not one phase) is unchanged. The log names the
-  spawn with `Chain loop first-run spawn:`.
+- **Looping one phase of a split flight is now visual only.** A long flight that Parsek
+  splits into phases (launch, coast, landing) is a chain. Ticking Loop on any one phase used to
+  change the whole flight's outcome: its final vessel never spawned, its crew stayed reserved
+  forever, and a crew death became permanent even with stock respawn on. Now the loop only adds
+  ghost replays. The flight plays once for real and its final vessel spawns once at the end, in
+  flight, at the Space Center and in the Tracking Station. Its crew are freed exactly as for any
+  flight: at the end of a recovered flight, when the vessel is recovered, or when a flight that
+  ends parked at the Space Center is retired. A death follows stock respawn. Phases before the
+  end still never spawn a vessel, and a looped mission (which loops the whole mission) is
+  unchanged. A kerbal's hover no longer says a loop holds him. The log names the spawn with
+  `Chain loop first-run spawn:`.
 
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
@@ -1548,7 +1548,7 @@ _(unreleased — entries accumulate here per commit)_
   by which committed flight (for example `Researched on Y2 D114 by the committed flight
   'Mun Lander 3'.`), that committed history cannot happen earlier or twice, and when the item
   frees up. A kerbal held by a committed flight says when he is free again, or that he is
-  free once the flight is recovered, or that its loop holds him. The hover and the refused
+  free once the flight is recovered. The hover and the refused
   click now show the same text, and the facility dialog names the building instead of its
   internal id.
 - **Space Center: facility upgrades no longer stay blocked after the committed upgrade has

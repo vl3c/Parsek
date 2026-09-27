@@ -274,7 +274,6 @@ namespace Parsek
                 DismissalRefusal = name => Patches.KerbalDismissalPatch.DescribeDismissalRefusal(LedgerOrchestrator.Kerbals, name),
                 ActiveStandInOwner = name => LedgerOrchestrator.Kerbals?.FindActiveStandInOwner(name),
                 SeatSharedOwner = StandInSeatCount.LiveSeatSharedOwner,
-                IsLoopingRecording = IsRecordingInLoopingChain,
                 LiveCrewOrTourist = liveCrewOrTourist
             };
         }
@@ -319,27 +318,6 @@ namespace Parsek
             return reservations != null && reservations.TryGetValue(name, out reservation)
                 ? reservation
                 : null;
-        }
-
-        /// <summary>
-        /// True when the committed recording, or any committed recording of its chain,
-        /// plays as a loop: the case KerbalsModule holds a chain's crew open-ended for.
-        /// </summary>
-        internal static bool IsRecordingInLoopingChain(string recordingId)
-        {
-            Recording rec = LedgerOrchestrator.FindRecordingById(recordingId);
-            if (rec == null) return false;
-            if (rec.LoopPlayback) return true;
-            if (string.IsNullOrEmpty(rec.ChainId)) return false;
-            var ers = EffectiveState.ComputeERS();
-            for (int i = 0; i < ers.Count; i++)
-            {
-                var other = ers[i];
-                if (other != null && other.LoopPlayback
-                    && string.Equals(other.ChainId, rec.ChainId, StringComparison.Ordinal))
-                    return true;
-            }
-            return false;
         }
 
         private static string ResolveReservationSlotOwner(string name)

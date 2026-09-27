@@ -680,14 +680,16 @@ namespace Parsek.Tests
             });
         }
 
-        // catches: a respawn-on death in a looping chain becoming an ordinary never-ending
-        // hold with a free stand-in (G1), or respawning; respawn off / unstamped unchanged.
+        // catches: a looped segment elsewhere in the chain changing a death's hold. The loop
+        // is visual only (design 12.7, operator ruling 2026-09-27, which retired the
+        // 2026-09-26 "a looping chain's death is permanent" rule): a respawn-on death
+        // respawns exactly as in a non-looping chain; respawn off / unstamped stay permanent.
         [Theory]
-        [InlineData(true, 1000.0)]   // inside the would-be respawn window
-        [InlineData(true, 1e7)]      // long after the would-be respawn
+        [InlineData(true, 1000.0)]   // inside the respawn window
+        [InlineData(true, 1e7)]      // long after the respawn
         [InlineData(false, 1e7)]
         [InlineData(null, 1e7)]
-        public void DeathInLoopingChain_IsPermanentLoss_NoStandIn(bool? respawns, double clock)
+        public void DeathInLoopingChain_FollowsTheStockRespawnLikeAnyChain(bool? respawns, double clock)
         {
             CommitLoopingSegment("chain-loop");
             CommitDeath(respawns, 7200.0, chainId: "chain-loop");
@@ -695,20 +697,19 @@ namespace Parsek.Tests
             KerbalsModule kerbals = Walk(clock);
 
             string label = clock.ToString("R", CultureInfo.InvariantCulture);
-            AssertPermanent(kerbals, label);
-            Assert.False(kerbals.IsKerbalAvailable(Jeb));
-            Assert.False(kerbals.Slots.ContainsKey(Jeb), "stand-in slot created at clock " + label);
-            Assert.Equal(KerbalsPresentation.RosterStatus.Lost,
-                KerbalsPresentation.ClassifyStatus(Jeb, false, false, kerbals.Reservations[Jeb], null, null));
+            Assert.DoesNotContain(logLines, l => l.Contains("looping chain"));
+            if (respawns != true)
+            {
+                AssertPermanent(kerbals, label);
+                return;
+            }
+            var r = kerbals.Reservations[Jeb];
+            Assert.False(r.IsPermanent);
+            Assert.Equal(7500.0, r.DeathRespawnUT);
+            Assert.True(KerbalsModule.IsRespawnPendingHold(r), "respawn-pending at clock " + label);
             Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
                 && l.Contains("Death hold: 'Jebediah Kerman'")
-                && l.Contains("is permanent (respawn suppressed:"));
-            Assert.DoesNotContain(logLines, l => l.Contains("respawn scheduled"));
-            if (respawns == true)
-            {
-                Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
-                    && l.Contains("respawn suppressed: looping chain"));
-            }
+                && l.Contains("respawn scheduled"));
         }
 
         // catches: an un-closed Aboard co-row that overlaps the dead window turning a
@@ -770,10 +771,10 @@ namespace Parsek.Tests
                 && e.RecordingId == RecordingId);
         }
 
-        // catches: the Timeline promising a respawn for a death the walk made permanent
-        // (a looping chain), i.e. reading the raw stamp instead of the resolved hold.
+        // catches: the Timeline dropping the respawn of a death in a chain with a looped
+        // segment (the loop is visual only; the walk keeps the respawn).
         [Fact]
-        public void Timeline_LoopingChainDeath_NamesNoRespawn()
+        public void Timeline_LoopingChainDeath_NamesTheRespawn()
         {
             ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
             CommitLoopingSegment("chain-loop");
@@ -783,7 +784,7 @@ namespace Parsek.Tests
             TimelineEntry death = DeathEntry();
 
             Assert.NotNull(death);
-            Assert.DoesNotContain("respawns after", death.DisplayText);
+            Assert.Contains("respawns after", death.DisplayText);
         }
 
         // catches: the same for an overlapping open-ended co-row, and the resolved lookup
@@ -1066,7 +1067,7 @@ namespace Parsek.Tests
         public void StockScreens_RespawningDeathIsMarkedLost_WithTheRespawnDate()
         {
             var text = StockUiReservationPredicates.ExplainKerbalReservation(
-                null, Jeb, RespawnHold(7500.0), null, null, Fmt);
+                null, Jeb, RespawnHold(7500.0), null, Fmt);
             Assert.Equal("Lost until D7500", text.Title);
             Assert.Contains("Stock respawn returns this kerbal on D7500.", text.Body);
 
@@ -1074,7 +1075,7 @@ namespace Parsek.Tests
                 null, Jeb, new KerbalsModule.KerbalReservation
                 {
                     KerbalName = Jeb, ReservedUntilUT = double.PositiveInfinity, IsPermanent = true
-                }, null, null, Fmt);
+                }, null, Fmt);
             Assert.Equal("Lost", permanent.Title);
             Assert.DoesNotContain("respawn", permanent.Body);
         }
