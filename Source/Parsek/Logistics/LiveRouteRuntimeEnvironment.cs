@@ -183,9 +183,9 @@ namespace Parsek.Logistics
             }
 
             // Capture the loaded gate ONCE and thread it into the probe so a
-            // mid-tick packed-state flip cannot split the read across branches
+            // mid-tick load/unload flip cannot split the read across branches
             // (same contract as the delivery side's destinationIsLoaded).
-            bool originIsLoaded = originVessel.loaded && !originVessel.packed;
+            bool originIsLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(originVessel);
             var probe = new LiveOriginCargoProbe(originVessel, originIsLoaded);
             bool covered = RouteOriginCargoCheck.HasRequired(
                 route.CostManifest, probe.ProbeResourceStored,
@@ -262,7 +262,7 @@ namespace Parsek.Logistics
         /// (NO new persisted Route field). Resolves each pickup stop's endpoint to
         /// a live vessel, GROUPS the stops by resolved pid (one source vessel may
         /// back several windows - OQ6), SUMS the per-pid pickup manifests, captures
-        /// the loaded-gate (<c>loaded &amp;&amp; !packed</c>) ONCE per resolved
+        /// the loaded-gate (<see cref="RouteOrchestrator.EndpointStoreIsLiveParts(Vessel)"/>) ONCE per resolved
         /// vessel, and gates each source via the pure
         /// <see cref="RoutePickupSourceGate"/>. ALL sources must cover; the FIRST
         /// short source (ordered by the source's earliest dock UT) names the source
@@ -308,7 +308,7 @@ namespace Parsek.Logistics
                 {
                     // Capture the loaded-gate ONCE for THIS vessel and bake it into
                     // both readers.
-                    bool isLoaded = vessel.loaded && !vessel.packed;
+                    bool isLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(vessel);
                     var probe = new LiveOriginCargoProbe(vessel, isLoaded);
                     var inventoryWriter = new LiveInventoryPickupWriter(vessel, isLoaded);
 
@@ -527,7 +527,7 @@ namespace Parsek.Logistics
                         return cached;
                     // Capture the loaded gate ONCE per stop vessel, same
                     // contract as the delivery applier's destinationIsLoaded.
-                    bool isLoaded = vessel.loaded && !vessel.packed;
+                    bool isLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(vessel);
                     var probe = new LiveDeliveryCapacityProbe(vessel, isLoaded);
                     probeByPid[pid] = probe;
                     return probe;

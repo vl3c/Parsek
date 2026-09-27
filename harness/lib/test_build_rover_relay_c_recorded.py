@@ -415,12 +415,13 @@ class RoverRelayCRecordedFixtureDriftTests(unittest.TestCase):
         of each other. It is what makes this a DRIVE relay rather than a warp, and
         it decides which live-vessel guards find a subject.
 
-        IT DOES **NOT** DECIDE THE WRITER PATH, and the authored version of this
-        docstring said it did ("what makes a driven route over these bytes take
-        `path=loaded`"). RVR-7's first census measured `path=unloaded` on every
-        writer over exactly these bytes: a seam `TimeJump` warps with the endpoints
-        PACKED, so the load state at the DISPATCH TICK decides, not the
-        separation."""
+        It is also what decides the writer path: inside physics range every
+        endpoint is LOADED, so the writers take `path=loaded` (live parts) even
+        though a seam `TimeJump` leaves them PACKED. Until 2026-09-27 the writers
+        treated loaded-but-packed as `path=unloaded` and wrote the proto snapshot,
+        which stock `BackupVessel` rebuilds from the live parts on the next save -
+        the RVR-8 `2026-09-27_1147` defect (cycle 0's debit and delivery lost, a
+        second full cycle delivered)."""
         problems = self.builder.verify_geometry(self.lines)
         self.assertEqual([], problems, "\n".join(problems))
 
@@ -567,15 +568,15 @@ class RoverRelayCSpecFixtureSyncTests(unittest.TestCase):
         self.assertEqual(1, text.count('action = "send-once"'))
         self.assertEqual(1, text.count('cmd = "TimeJump"'))
 
-    def test_rvr7_pins_the_unloaded_path_on_both_halves(self):
-        """`path=unloaded` on all THREE writer lines, MEASURED on the first census
-        (run 2026-09-02_2346 UTC): the seam `TimeJump` to ut=1100 warps with the
-        endpoints packed, so the load state at the dispatch tick decides the
-        writer path, not physics range. The authored prediction was `loaded`
-        (all three rovers sit within 313 m / 731 m / 1041 m of each other, pinned
-        by `verify_geometry`) and the first flight red on exactly that, with the
-        route otherwise created, dispatched and delivered in full. This cell pins
-        the measured spelling so the prediction cannot creep back.
+    def test_rvr7_pins_the_loaded_path_on_both_halves(self):
+        """`path=loaded` on all THREE writer lines. The three rovers sit within
+        313 m / 731 m / 1041 m of each other (pinned by `verify_geometry`), so
+        every endpoint is LOADED at the dispatch tick; the seam `TimeJump` leaves
+        them PACKED, and packed no longer routes a loaded vessel to the proto
+        snapshot (2026-09-27, `RouteOrchestrator.EndpointStoreIsLiveParts`). The
+        first census (2026-09-02_2346 UTC) measured `path=unloaded` under the old
+        gate, whose proto write the next save discarded; this cell pins the
+        corrected spelling so the old one cannot creep back.
 
         SCOPED TO THE `required` LIST, not to the whole file: the header still
         carries the `loaded` reasoning as a superseded prediction, and a
@@ -584,8 +585,8 @@ class RoverRelayCSpecFixtureSyncTests(unittest.TestCase):
         required_block = self._required_block()
         self.assertIn("Origin debit: route=.* origin=B", required_block)
         self.assertIn("Delivery write: route=.* dest=A", required_block)
-        self.assertEqual(3, required_block.count("path=unloaded"))
-        self.assertEqual(0, required_block.count("path=loaded\""))
+        self.assertEqual(3, required_block.count("path=loaded\""))
+        self.assertEqual(0, required_block.count("path=unloaded"))
 
     def _required_block(self):
         text = self.text["RVR-7-rover-relay-c-dispatch.toml"]
@@ -596,13 +597,13 @@ class RoverRelayCSpecFixtureSyncTests(unittest.TestCase):
 
         `LiveInventoryPickupWriter.RemoveOne` emits it as a Warn ONLY when the
         removal threw; the success line is `Inventory remove (loaded|unloaded): ...
-        removed=1` - and RVR-7 measured the UNLOADED spelling. Requiring the catch-block string would red every correct run
+        removed=1` - and RVR-7 pins the LOADED spelling (endpoints in physics range). Requiring the catch-block string would red every correct run
         and pass only on an exception, so this cell keeps it out of the spec for
         good rather than leaving the next author to re-derive it."""
         text = self.text["RVR-7-rover-relay-c-dispatch.toml"]
         required_block = text.split("required  = [", 1)[1].split("]", 1)[0]
         self.assertNotIn("RemoveInventory(", required_block)
-        self.assertIn("Inventory remove \\\\(unloaded\\\\)", required_block)
+        self.assertIn("Inventory remove \\\\(loaded\\\\)", required_block)
 
     def test_the_spec_does_not_arm_render_composition_capture(self):
         """`run.py` sets `PARSEK_RENDER_MANIFEST=1` for any spec that DECLARES an
@@ -774,7 +775,7 @@ class RoverRelayCEndpointMatrixTests(unittest.TestCase):
         that flow: it DEBITS the restored 200 by the recorded manifest in ONE
         write, so the live tank reads `200 - 154.3999999999952 =
         45.6000000000048`. Same number to four significant figures, different last
-        digits, and `tankAfter=45\\.6 path=unloaded` matched neither (it is a
+        digits, and `tankAfter=45\\.6 path=...` matched neither (it is a
         PREFIX pin followed by a literal space, so the trailing digits break it).
         RVR-8's first census (`2026-09-03_1807`) and RVR-15's
         (`2026-09-03_1814`) both red on exactly that, with every other token -
@@ -803,7 +804,7 @@ class RoverRelayCEndpointMatrixTests(unittest.TestCase):
                 for reading in (recorded_left, live_left):
                     line = ("[Parsek][INFO][Logi] Origin debit: route=r1 origin=B "
                             "pid=90564594 resource=LiquidFuel requested=%r "
-                            "debited=%r tankBefore=200 tankAfter=%r path=unloaded"
+                            "debited=%r tankBefore=200 tankAfter=%r path=loaded"
                             % (need, need, reading))
                     cause = ("[Parsek][VERBOSE][Route] PickupSourcesHaveCargo: "
                              "route 698efc9d short-cause=physical pid=90564594 "

@@ -417,15 +417,85 @@ namespace Parsek.Tests
                 Rec(ReFlyThroughEvaFixture.ForkAfterSwitchId).MergeState);
         }
 
-        [Fact]
-        public void Mirror_Undock_WalkStopsAtTheUndock_StillRefused_KnownGap()
+        [Theory]
+        [InlineData(TerminalState.Landed)]
+        [InlineData(TerminalState.Destroyed)]
+        public void Merge_Undock_SupersedesAndSealsOnTheSessionSeparation(TerminalState survivorEnd)
         {
-            // Pins the CURRENT behavior of the mirror direction this change leaves alone
-            // (todo REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE): an undock is a separation, the
-            // slot walk stops there by design, and the recorder leaves the parent's
-            // terminal untouched, so the fork still reads "null TerminalState". Flip this
-            // cell when that entry is fixed.
+            // REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE (owner-approved 2026-09-27). An undock
+            // ends the fork at the Undock split with its terminal untouched, and the slot
+            // walk stops there (a separation, design section 1.6). The fork concluded at a
+            // separation THIS session authored, so it replaces the old stretch, and the
+            // section 4.9 close rules seal the slot whatever the halves did afterwards -
+            // the survivor's crash is past the slot's end.
+            var scenario = Install(ReFlySessionShape.Undock, survivorEnd, out var fork);
+
+            Assert.True(MergeJournalOrchestrator.RunMerge(scenario.ActiveReFlySessionMarker, fork));
+
+            AssertOldStretchSupersededByFork(scenario);
+            var oldIds = OldIds(scenario);
+            Assert.DoesNotContain(ReFlyThroughEvaFixture.ForkAfterUndockId, oldIds);
+            Assert.DoesNotContain(ReFlyThroughEvaFixture.ForkUndockedPartnerId, oldIds);
+            Assert.Contains(logLines, l => l.Contains("[Supersede]")
+                && l.Contains("outcome=validated-at-session-separation")
+                && l.Contains("provisional=" + ReFlyThroughEvaFixture.ForkId)
+                && l.Contains("bp=" + ReFlyThroughEvaFixture.SessionUndockBranchPointId)
+                && l.Contains("type=Undock"));
+            Assert.Equal(ReFlyThroughEvaFixture.ForkId, SlotTipId(scenario));
+            Assert.Equal(MergeState.Immutable, fork.MergeState);
+            // Section 4.9 rule 4: the classifier reads the fork (the slot's walked tip)
+            // ending at a downstream branch point and closes the slot before the rule 2
+            // structural gate is reached; either rule seals, this is the one that fires.
+            Assert.Contains(logLines, l => l.Contains("Auto-sealed re-fly slot=")
+                && l.Contains("rec=" + ReFlyThroughEvaFixture.ForkId)
+                && l.Contains("mergeState=Immutable")
+                && l.Contains("reason=classifierClosed:downstreamBp"));
+            Assert.False(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(
+                scenario.RewindPoints[0].ChildSlots[ReFlyThroughEvaFixture.UpperSlotIndex]));
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+        }
+
+        [Fact]
+        public void Undock_CrashMidMerge_FinisherDrivesForward_SameRows()
+        {
             var scenario = Install(ReFlySessionShape.Undock, TerminalState.Landed, out var fork);
+            MergeJournalOrchestrator.FaultInjectionPoint = MergeJournalOrchestrator.Phase.Supersede;
+            Assert.Throws<MergeJournalOrchestrator.FaultInjectionException>(() =>
+                MergeJournalOrchestrator.RunMerge(scenario.ActiveReFlySessionMarker, fork));
+            MergeJournalOrchestrator.FaultInjectionPoint = null;
+
+            Assert.True(MergeJournalOrchestrator.RunFinisher());
+
+            Assert.Null(scenario.ActiveMergeJournal);
+            Assert.Null(scenario.ActiveReFlySessionMarker);
+            AssertOldStretchSupersededByFork(scenario);
+            Assert.Equal(OldStretchIds.Length, scenario.RecordingSupersedes.Count);
+            Assert.Equal(MergeState.Immutable, fork.MergeState);
+        }
+
+        [Fact]
+        public void Undock_MidSession_MarkerStaysValid_AndTheSweepKeepsTheSession()
+        {
+            var scenario = Install(ReFlySessionShape.Undock, TerminalState.Landed, out _);
+            MarkerValidator.NowUtProvider = () => ReFlyThroughEvaFixture.SessionEndUT;
+
+            Assert.True(MarkerValidator.Validate(scenario.ActiveReFlySessionMarker).Valid);
+            LoadTimeSweep.Run();
+
+            Assert.NotNull(scenario.ActiveReFlySessionMarker);
+            Assert.NotNull(Rec(ReFlyThroughEvaFixture.ForkId));
+            Assert.NotNull(Rec(ReFlyThroughEvaFixture.ForkAfterUndockId));
+            Assert.NotNull(Rec(ReFlyThroughEvaFixture.ForkUndockedPartnerId));
+        }
+
+        [Fact]
+        public void Undock_PreSessionBranchPoint_IsNotASessionConclusion_StillRefused()
+        {
+            // The rule reads the marker's pre-session baseline: a separation that already
+            // existed when the session began is not something this re-fly concluded at.
+            var scenario = Install(ReFlySessionShape.Undock, TerminalState.Landed, out var fork);
+            scenario.ActiveReFlySessionMarker.PreSessionBranchPointIds.Add(
+                ReFlyThroughEvaFixture.SessionUndockBranchPointId);
 
             Assert.True(MergeJournalOrchestrator.RunMerge(scenario.ActiveReFlySessionMarker, fork));
 
@@ -433,6 +503,69 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("outcome=refused-unflown-provisional")
                 && l.Contains("reason=null TerminalState")
                 && l.Contains("walkStop=notSwitchBranchPoint"));
+        }
+
+        [Fact]
+        public void Undock_LegacyMarkerWithoutBaseline_StillRefused()
+        {
+            var scenario = Install(ReFlySessionShape.Undock, TerminalState.Landed, out var fork);
+            scenario.ActiveReFlySessionMarker.PreSessionBranchPointIds = null;
+
+            Assert.True(MergeJournalOrchestrator.RunMerge(scenario.ActiveReFlySessionMarker, fork));
+
+            Assert.Empty(scenario.RecordingSupersedes);
+            Assert.Contains(logLines, l => l.Contains("outcome=refused-unflown-provisional"));
+        }
+
+        [Fact]
+        public void Pure_IsSessionSeparationStop_Gates()
+        {
+            Install(ReFlySessionShape.Undock, TerminalState.Landed, out var fork);
+            var marker = ReFlyThroughEvaFixture.BuildSessionMarker();
+            SlotVesselWalk walk = EffectiveState.WalkSlotVessel(fork, null, true, false);
+            BranchPoint bp;
+
+            Assert.True(SupersedeCommit.IsSessionSeparationStop(walk, marker, null, out bp));
+            Assert.Equal(BranchPointType.Undock, bp.Type);
+
+            Assert.False(SupersedeCommit.IsSessionSeparationStop(walk, null, null, out _));
+            Assert.False(SupersedeCommit.IsSessionSeparationStop(null, marker, null, out _));
+            var baselined = ReFlyThroughEvaFixture.BuildSessionMarker();
+            baselined.PreSessionBranchPointIds.Add(ReFlyThroughEvaFixture.SessionUndockBranchPointId);
+            Assert.False(SupersedeCommit.IsSessionSeparationStop(walk, baselined, null, out _));
+
+            // A walk that did not stop at a branch point (the fork simply ended) never counts.
+            var noStop = new SlotVesselWalk { Start = fork, Tip = fork };
+            Assert.False(SupersedeCommit.IsSessionSeparationStop(noStop, marker, null, out _));
+
+            // Only a separation counts: a foreign Board or a Dock stop does not.
+            var stop = new SlotVesselWalk
+            {
+                Start = fork, Tip = fork,
+                StopReason = "notSwitchBranchPoint",
+                StopBranchPointId = ReFlyThroughEvaFixture.SessionUndockBranchPointId,
+            };
+            var tree = EffectiveState.ResolveOwningTree(fork, null);
+            var undockBp = EffectiveState.FindBranchPointByIdInTree(
+                tree, ReFlyThroughEvaFixture.SessionUndockBranchPointId);
+            undockBp.Type = BranchPointType.Board;
+            Assert.False(SupersedeCommit.IsSessionSeparationStop(stop, marker, null, out _));
+            undockBp.Type = BranchPointType.Dock;
+            Assert.False(SupersedeCommit.IsSessionSeparationStop(stop, marker, null, out _));
+            undockBp.Type = BranchPointType.JointBreak;
+            Assert.True(SupersedeCommit.IsSessionSeparationStop(stop, marker, null, out _));
+            undockBp.Type = BranchPointType.Breakup;
+            Assert.True(SupersedeCommit.IsSessionSeparationStop(stop, marker, null, out _));
+
+            // The tip must be a parent of the stop branch point.
+            undockBp.Type = BranchPointType.Undock;
+            var foreignTip = new SlotVesselWalk
+            {
+                Start = fork, Tip = Rec(ReFlyThroughEvaFixture.UpperId),
+                StopReason = "notSwitchBranchPoint",
+                StopBranchPointId = ReFlyThroughEvaFixture.SessionUndockBranchPointId,
+            };
+            Assert.False(SupersedeCommit.IsSessionSeparationStop(foreignTip, marker, null, out _));
         }
 
         // ------------------------------------------------------------------

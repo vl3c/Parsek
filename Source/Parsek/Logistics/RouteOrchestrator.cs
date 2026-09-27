@@ -2938,7 +2938,7 @@ namespace Parsek.Logistics
             // and the writers so the plan and the mutation read from the SAME
             // loaded/unloaded branch (same rationale as the delivery side's
             // destinationIsLoaded, ApplyDelivery STEP 3).
-            bool originIsLoaded = originVessel.loaded && !originVessel.packed;
+            bool originIsLoaded = EndpointStoreIsLiveParts(originVessel);
             var probe = new LiveOriginCargoProbe(originVessel, originIsLoaded);
             OriginDebitPlan plan = RouteOriginDebitPlanner.PrepareDebit(route, probe);
 
@@ -3159,7 +3159,7 @@ namespace Parsek.Logistics
             // mutation read from the SAME loaded/unloaded branch. A
             // two-direction applier touching multiple endpoint vessels captures
             // this PER VESSEL - never hoist one flag across vessels (design D5).
-            bool endpointIsLoaded = endpointVessel.loaded && !endpointVessel.packed;
+            bool endpointIsLoaded = EndpointStoreIsLiveParts(endpointVessel);
             var probe = new LiveOriginCargoProbe(endpointVessel, endpointIsLoaded);
             OriginDebitPlan plan = RouteOriginDebitPlanner.PrepareDebit(pickupManifest, probe);
 
@@ -3326,7 +3326,7 @@ namespace Parsek.Logistics
 
             // Capture the loaded gate ONCE for THIS endpoint vessel (design D5
             // per-vessel capture) and thread it into the writer.
-            bool endpointIsLoaded = endpointVessel.loaded && !endpointVessel.packed;
+            bool endpointIsLoaded = EndpointStoreIsLiveParts(endpointVessel);
             var writer = new LiveInventoryPickupWriter(endpointVessel, endpointIsLoaded);
 
             ParsekLog.Info(Tag,
@@ -4268,7 +4268,7 @@ namespace Parsek.Logistics
             // while the writer mutates the other branch — under-fill, or
             // writes into a snapshot that's about to be re-initialized. One
             // source of truth, threaded through every consumer.
-            bool destinationIsLoaded = destVessel.loaded && !destVessel.packed;
+            bool destinationIsLoaded = EndpointStoreIsLiveParts(destVessel);
             LiveDeliveryCapacityProbe probe = new LiveDeliveryCapacityProbe(destVessel, destinationIsLoaded);
 
             // STEP 4: planner. Pure decision over the resource + inventory
@@ -5083,6 +5083,27 @@ namespace Parsek.Logistics
             Ledger.AddAction(action);
             ParsekLog.Info(Tag,
                 $"EndpointLost: route {ShortIdForLog(route)} reason={reason ?? "<none>"} (at delivery)");
+        }
+
+        /// <summary>
+        /// Which store an endpoint's resources and inventory live in, decided
+        /// once per probe/writer pair: the live <c>Part</c> objects whenever the
+        /// vessel is LOADED, packed or not; the <c>ProtoVessel</c> snapshots only
+        /// when it is unloaded. A loaded vessel that is packed (on rails under
+        /// warp or a time jump, still inside physics range) keeps its live parts
+        /// as the authority: stock <c>Vessel.BackupVessel</c> rebuilds
+        /// <c>protoVessel</c> from those parts on every save and on unload, so a
+        /// write into a loaded vessel's proto snapshot is silently discarded and
+        /// a read from it can go stale in either direction.
+        /// </summary>
+        internal static bool EndpointStoreIsLiveParts(bool vesselLoaded, bool vesselPacked)
+        {
+            return vesselLoaded;
+        }
+
+        internal static bool EndpointStoreIsLiveParts(Vessel vessel)
+        {
+            return vessel != null && EndpointStoreIsLiveParts(vessel.loaded, vessel.packed);
         }
 
         /// <summary>
