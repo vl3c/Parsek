@@ -261,8 +261,7 @@ namespace Parsek
 
         /// <summary>
         /// The live lookups the Astronaut Complex decoration and the dismissal refusal
-        /// read: the ledger's kerbal reservations, slots and dismissal predicate, and
-        /// whether a committed flight's chain loops.
+        /// read: the ledger's kerbal reservations, slots and dismissal predicate.
         /// </summary>
         internal static AstronautComplexContext BuildLiveAstronautContext(ISet<string> liveCrewOrTourist)
         {

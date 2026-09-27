@@ -1211,9 +1211,10 @@ _(unreleased — entries accumulate here per commit)_
   change the whole flight's outcome: its final vessel never spawned, its crew stayed reserved
   forever, and a crew death became permanent even with stock respawn on. Now the loop only adds
   ghost replays. The flight plays once for real and its final vessel spawns once at the end, in
-  flight, at the Space Center and in the Tracking Station. Its crew are freed exactly as for any
-  flight: at the end of a recovered flight, when the vessel is recovered, or when a flight that
-  ends parked at the Space Center is retired. A death follows stock respawn. Phases before the
+  flight, at the Space Center and in the Tracking Station. The crew of its other phases are
+  freed exactly as for any flight: at the end of a recovered flight, when the vessel is
+  recovered, or when a flight that ends parked at the Space Center is retired (the looped
+  phase's own crew are still not reserved, a known gap). A death follows stock respawn. Phases before the
   end still never spawn a vessel, and a looped mission (which loops the whole mission) is
   unchanged. A kerbal's hover no longer says a loop holds him. The log names the spawn with
   `Chain loop first-run spawn:`.

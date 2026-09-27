@@ -461,8 +461,8 @@ namespace Parsek
         ///
         /// <para>Design 9.2 / 9.3: a reservation is one continuous block from UT 0 to its
         /// end. A permanent one (Dead with stock respawn off at the death) never ends; an
-        /// open-ended one (Aboard / Unknown, and any flight in a chain with a looping
-        /// segment) carries +inf and so never ends by time alone; a Recovered one ends at
+        /// open-ended one (Aboard / Unknown) carries +inf and so never ends by time alone;
+        /// a Recovered one ends at
         /// the flight's recovery UT; a Dead one with stock respawn on at the death ends at
         /// the death UT + the stamped respawn timer.</para>
         ///
