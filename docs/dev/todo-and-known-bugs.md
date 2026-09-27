@@ -15,6 +15,10 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RF-20-FIRST-FLIGHT-SPEC-RELOAD-BEFORE-COMMIT-SAVE: RF-20's first flight reloaded a pre-commit persistent.sfs~~ [FILED AND CLOSED 2026-09-27, branch `stashslot-live-refly`. LANE SPEC DEFECT, not a Parsek defect]
+
+Run `2026-09-27_1827` classified PARSEK-FAIL: the tree commits on arrival at the Space Center, after the scene exit has saved, so the lane's reload read a pre-commit `persistent.sfs` and `TryRestoreActiveTreeNode` resumed the tree as a live recording; with nothing committed, `StashSlot` correctly answered `stash-refused tip-unresolvable`. Loading an older save is intended to restore it that way (a player only meets it after a crash at the KSC before the next save, and the tree resumes rather than being lost). Fix: a `SaveGame persistent` step after `ExitToSpaceCenter`, the order RF-13H already uses. Re-flown: `_1832` reading run, `_1838` PASS.
+
 ## ~~REFLY-SESSION-EVA-CANNOT-SUPERSEDE: a Re-Fly session in which the player went EVA from the re-flown vessel merged with 0 supersede rows~~ [FOUND 2026-09-27 by the PR #1907 review (pre-existing, made likely by REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA); FIXED 2026-09-27, branch `refly-session-eva-merge`]
 
 **Symptom.** Re-fly a separation slot, step a kerbal out of the re-flown vessel (and back in, or not),
