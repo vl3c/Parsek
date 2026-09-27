@@ -2245,6 +2245,9 @@ namespace Parsek
         internal struct KscRetirementDecision
         {
             public KscExclusionZone Zone;
+            /// <summary>Stock site name of the circle hit ("KSC" for the KSC pair).</summary>
+            public string SiteName;
+            public bool IsKsc;
             public double Latitude;
             public double Longitude;
             public string BodyName;
@@ -2329,12 +2332,13 @@ namespace Parsek
                 if (!body.isHomeWorld)
                     return decision;
 
-                // A known endpoint outside both circles settles it: whatever the snapshot
-                // says, the flight did not END on KSC infrastructure.
+                // A known endpoint outside every launch-site circle settles it: whatever the
+                // snapshot says, the flight did not END on launch-site infrastructure.
+                IList<LaunchSiteCircle> altCircles = LaunchSiteExclusionZones.GetAltSiteCircles();
                 if (haveEndpoint
-                    && SpawnCollisionDetector.ClassifyKscExclusionZone(
+                    && !LaunchSiteExclusionZones.Classify(
                         endpointLat, endpointLon, body.Radius,
-                        SpawnCollisionDetector.DefaultKscExclusionRadiusMeters) == KscExclusionZone.None)
+                        SpawnCollisionDetector.DefaultKscExclusionRadiusMeters, altCircles).IsHit)
                     return decision;
 
                 // The spawn gate re-hydrates a dropped snapshot before it spawns; do the same
@@ -2353,11 +2357,14 @@ namespace Parsek
                 decision.Latitude = lat;
                 decision.Longitude = lon;
                 decision.BodyName = bodyName;
-                decision.Zone = SpawnCollisionDetector.DecideKscEndOfFlightRetirement(
-                    terminal, isEva, body.isHomeWorld, lat, lon, body.Radius,
+                LaunchSiteZoneHit hit = SpawnCollisionDetector.DecideLaunchSiteEndOfFlightRetirement(
+                    terminal, isEva, body.isHomeWorld, lat, lon, body.Radius, altCircles,
                     positionIsSnapshot: source == SpawnCoordinateSource.Snapshot,
                     endpointLatitude: haveEndpoint ? endpointLat : double.NaN,
                     endpointLongitude: haveEndpoint ? endpointLon : double.NaN);
+                decision.Zone = hit.Kind;
+                decision.SiteName = hit.SiteName;
+                decision.IsKsc = hit.IsKsc;
                 return decision;
             }
             catch (Exception ex)
@@ -2388,6 +2395,20 @@ namespace Parsek
         /// the adoption check (the warp-deferred completion): they retire only when no
         /// real counterpart exists, and otherwise leave the recording to the normal path.
         /// </summary>
+        /// <summary>
+        /// Zone phrase of the retirement log line. The KSC wording is unchanged
+        /// ("KSC exclusion zone (pad)", pinned by EX-1); another stock site reads
+        /// "launch-site exclusion zone (Desert Launch Site pad)".
+        /// </summary>
+        internal static string FormatRetirementZone(KscRetirementDecision decision)
+        {
+            string kind = SpawnCollisionDetector.DescribeKscExclusionZone(decision.Zone);
+            if (decision.IsKsc || string.IsNullOrEmpty(decision.SiteName))
+                return "KSC exclusion zone (" + kind + ")";
+            return "launch-site exclusion zone ("
+                + LaunchSiteExclusionZones.DescribeSite(decision.SiteName) + " " + kind + ")";
+        }
+
         internal static bool TryRetireEndedFlightAtKsc(
             Recording rec,
             int index,
@@ -2407,11 +2428,11 @@ namespace Parsek
             rec.SpawnAbandoned = true;
             rec.CollisionBlockCount = 0;
             ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
-                "Spawn RETIRED for #{0} ({1}): flight ended within KSC exclusion zone ({2}) - no vessel " +
+                "Spawn RETIRED for #{0} ({1}): flight ended within {2} - no vessel " +
                 "lat={3:F4} lon={4:F4} body={5} terminal={6} rec={7}",
                 index,
                 rec.VesselName,
-                SpawnCollisionDetector.DescribeKscExclusionZone(decision.Zone),
+                FormatRetirementZone(decision),
                 decision.Latitude,
                 decision.Longitude,
                 decision.BodyName ?? "(null)",
