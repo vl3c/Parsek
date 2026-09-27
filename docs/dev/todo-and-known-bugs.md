@@ -980,8 +980,8 @@ pairing rule):
   `MissionControl.OnClickCancel` and two debug-toolbar buttons (player actions, refused)
   plus `ContractSystem.RebuildContracts()` (the debug toolbar's regenerate, which clears
   and rebuilds the whole list right after), let through by
-  `ContractSystemRebuildContractsScopePatch`. The unconditional double penalty itself is
-  the ledger bug below and stays open.
+  `ContractSystemRebuildContractsScopePatch`. The unconditional double penalty itself was
+  the ledger bug below, since fixed in the walk (branch `fix-reservation-ledger`).
   Open: the in-game cell `MissionControlActiveRowLabelAndCancelBlockedWithReason` needs a
   career host with an Active contract (it never accepts one: SPACECENTER batches restore
   `persistent.sfs` on disk only); H45's `career-earned-ksc` has none, so it skips there.
@@ -1044,9 +1044,37 @@ pairing rule):
   `RecordingStore.RewindUTAdjustmentPending`. It runs before `PatchPurchasedParts`, so a committed
   purchase on the node lands in the same pass. Pinned by `CommittedTechUnlockPatchTests`
   (drives the cursor's own decisions into the real orchestrator path). Not proven in game.
-- Contract fail / cancel penalties are charged unconditionally, so an already-resolved
-  contract is charged again (C4 X2/X3, C6, and a world-driven failure).
-- F3: a facility repair row charges even when nothing is destroyed.
+- ~~Contract fail / cancel penalties are charged unconditionally, so an already-resolved
+  contract is charged again (C4 X2/X3, C6, and a world-driven failure).~~ Fixed (branch
+  `fix-reservation-ledger`). **Fix:** `ContractsModule.ProcessFail` / `ProcessCancel` mark the
+  row `Effective=false` when the contract's current lifecycle already ended earlier in the
+  walk (pure `ResolvePriorContractResolution`: an effective completion, or a charged fail /
+  cancel; an Accept clears it). A deadline expiry found by `CheckDeadlines` is not a charged
+  resolution, so the recorded or synthetic fail that carries its penalty still charges, and a
+  fail of a contract the walk never saw accepted (pre-ledger) still charges: only positive
+  knowledge skips. `FundsModule.ProcessContractPenalty`, `ReputationModule.ProcessContractPenaltyRep`,
+  `FundsModule.TryGetProjectionDelta` (so the committed future no longer reserves it), the
+  post-walk reconciler and the commit-window emitted deltas all gate on `Effective`, like a
+  duplicate completion. An ineffective row leaves the terminal maps alone, so the FIRST
+  resolution stays the contract's terminal outcome (the state stock holds, which
+  `KspStatePatcher`'s terminal-contract survival reads); the audit cell that pinned
+  last-wins is flipped (`TerminalContractMaps_SecondTerminalActionWithNoReAccept_KeepsTheFirst`).
+  Pinned by `ChargeOnceLedgerTests` (X3, C6, world-driven fail then committed fail / cancel,
+  the X1 path unchanged, the mirror cells) and the flipped section 12 cell
+  `X2X3_CancelNowPlusCommittedFailOrCancel_ChargesOnlyTheFirstPenalty_Fixed`.
+- ~~F3: a facility repair row charges even when nothing is destroyed.~~ Fixed (branch
+  `fix-reservation-ledger`), alongside the Repair control block. **Fix:** the facilities tier
+  dispatches after the funds tier, so `FundsModule` keeps its own per-building state from the
+  walk's FacilityDestruction / FacilityRepair rows; a repair of a building whose last row was
+  a repair is `Effective=false`, charges nothing and logs `FacilityRepair not charged`
+  (projection and commit-window deltas gate on it too). A repair of a building with no row in
+  the walk still charges (pure `FundsModule.ShouldChargeFacilityRepair`): the repair row
+  proves stock found it destroyed, and a pre-ledger collapse leaves no row, the same "never
+  infer intact from an absent row" rule `FacilityStatePatcher.PatchLiveDestructionState`
+  follows. Known cost: a repair whose collapse row left the effective ledger (a Re-Fly that
+  supersedes the flight that knocked the building down) still charges. Pinned by
+  `ChargeOnceLedgerTests` (one destruction one charge, two repairs of one destruction one
+  charge, no-row repair charges, repair after repair free, per building, cutoff projection).
 - K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.
 
 **Defects in the existing PR #721 layer:**

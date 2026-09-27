@@ -1205,6 +1205,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A contract penalty or a facility repair is no longer charged twice across a rewind.**
+  After a rewind, the timeline can hold two endings for one contract: something you did in
+  the present (a cancel, a completion, or a failure caused by losing a vessel) and the fail or
+  cancel your committed flights recorded later. Parsek charged the later penalty as well, so
+  the contract cost you twice. It now charges a fail or cancel penalty only if the contract is
+  still open at that point, as stock does, and the first ending stays the contract's state. A
+  repair of a building the timeline already has repaired (a second repair of one collapse) now
+  costs nothing and is logged. A repair of a building Parsek has no collapse record for still
+  charges, because stock only repairs destroyed buildings. A single fail, cancel or repair
+  still costs exactly what it did.
+
 - **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
   Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
   "recovered" ending from committed recordings that Parsek had marked as handled, which hit

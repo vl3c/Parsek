@@ -67,6 +67,16 @@ namespace Parsek
         /// </summary>
         private bool hasInitialSeed;
 
+        /// <summary>
+        /// Per destructible building id, whether the walk's own FacilityDestruction /
+        /// FacilityRepair rows seen so far leave it destroyed (true) or intact (false).
+        /// A building with no row yet is absent: its state is unknown to the ledger.
+        /// Read by <see cref="ProcessFacilityRepair"/>, which runs before the facilities
+        /// tier sees the same row.
+        /// </summary>
+        private readonly Dictionary<string, bool> buildingDestroyedInWalk =
+            new Dictionary<string, bool>(StringComparer.Ordinal);
+
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -90,6 +100,7 @@ namespace Parsek
             projectedAvailableFunds = 0.0;
             projectedMinBalance = 0.0;
             hasInitialSeed = false;
+            buildingDestroyedInWalk.Clear();
 
             ParsekLog.Verbose(Tag,
                 $"Reset: prevSeed={prevSeed.ToString("R", IC)}, " +
@@ -162,8 +173,11 @@ namespace Parsek
                 case GameActionType.FacilityUpgrade:
                     ProcessFacilityCost(action, "FacilityUpgrade");
                     break;
+                case GameActionType.FacilityDestruction:
+                    ProcessFacilityDestruction(action);
+                    break;
                 case GameActionType.FacilityRepair:
-                    ProcessFacilityCost(action, "FacilityRepair");
+                    ProcessFacilityRepair(action);
                     break;
                 case GameActionType.KerbalHire:
                     ProcessKerbalHire(action);
@@ -456,7 +470,9 @@ namespace Parsek
 
         /// <summary>
         /// Shared processing for ContractFail/ContractCancel: deducts FundsPenalty from running balance.
-        /// Penalties apply unconditionally (not gated by Effective flag).
+        /// Gated on Effective: ContractsModule marks a fail / cancel of a contract whose
+        /// lifecycle already ended earlier in the walk ineffective, so the penalty is charged
+        /// once, on the transition, as stock charges it.
         /// </summary>
         private void ProcessContractPenalty(GameAction action, string label)
         {
@@ -464,12 +480,82 @@ namespace Parsek
             if (penalty <= 0.0)
                 return;
 
+            if (!action.Effective)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"{label} penalty skipped (not effective: contract already resolved), " +
+                    $"penalty={penalty.ToString("R", IC)}, " +
+                    $"contractId={action.ContractId ?? "(none)"}, " +
+                    $"runningBalance={runningBalance.ToString("R", IC)}");
+                return;
+            }
+
             runningBalance -= penalty;
 
             ParsekLog.Verbose(Tag,
                 $"{label} penalty: -{penalty.ToString("R", IC)}, " +
                 $"contractId={action.ContractId ?? "(none)"}, " +
                 $"runningBalance={runningBalance.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Processes FacilityDestruction: no funds move (stock charges nothing for a
+        /// collapse); records the building as destroyed for <see cref="ProcessFacilityRepair"/>.
+        /// </summary>
+        private void ProcessFacilityDestruction(GameAction action)
+        {
+            if (string.IsNullOrEmpty(action.FacilityId))
+                return;
+            buildingDestroyedInWalk[action.FacilityId] = true;
+        }
+
+        /// <summary>
+        /// Pure: whether a FacilityRepair row charges its cost, given the building's state
+        /// from the walk's own destruction / repair rows before it (null = no row yet).
+        /// Stock can only repair a destroyed building, so a repair the walk finds INTACT
+        /// (its last row was a repair, e.g. a second repair of one destruction after a
+        /// rewind) is a no-op and is free. A building the walk has no row for charges:
+        /// the repair row itself proves stock found it destroyed, and a destruction from
+        /// before the ledger began leaves no row (the ledger never infers "intact" from the
+        /// absence of a row, as <c>FacilityStatePatcher.PatchLiveDestructionState</c>).
+        /// </summary>
+        internal static bool ShouldChargeFacilityRepair(bool? buildingDestroyedBefore)
+        {
+            return !buildingDestroyedBefore.HasValue || buildingDestroyedBefore.Value;
+        }
+
+        /// <summary>
+        /// Processes FacilityRepair: deducts FacilityCost when the walk finds the building
+        /// destroyed (or has no row for it); a repair of a building the walk already has
+        /// intact is marked ineffective and charges nothing.
+        /// </summary>
+        private void ProcessFacilityRepair(GameAction action)
+        {
+            string buildingId = action.FacilityId;
+            bool? destroyedBefore = null;
+            bool known;
+            if (!string.IsNullOrEmpty(buildingId)
+                && buildingDestroyedInWalk.TryGetValue(buildingId, out known))
+            {
+                destroyedBefore = known;
+            }
+
+            if (!ShouldChargeFacilityRepair(destroyedBefore))
+            {
+                action.Effective = false;
+                action.Affordable = true;
+                ParsekLog.Info(Tag,
+                    $"FacilityRepair not charged: building '{buildingId}' is already intact " +
+                    $"at ut={action.UT.ToString("R", IC)} (its last destruction was already repaired " +
+                    $"earlier in the walk), cost={action.FacilityCost.ToString("R", IC)}, " +
+                    $"recording={action.RecordingId ?? "(none)"}, " +
+                    $"runningBalance={runningBalance.ToString("R", IC)}");
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(buildingId))
+                buildingDestroyedInWalk[buildingId] = false;
+            ProcessFacilityCost(action, "FacilityRepair");
         }
 
         /// <summary>
@@ -672,10 +758,14 @@ namespace Parsek
                     return true;
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
+                    if (!action.Effective) return false;
                     delta = -(double)action.FundsPenalty;
                     return true;
                 case GameActionType.FacilityUpgrade:
+                    delta = -(double)action.FacilityCost;
+                    return true;
                 case GameActionType.FacilityRepair:
+                    if (!action.Effective) return false;
                     delta = -(double)action.FacilityCost;
                     return true;
                 case GameActionType.KerbalHire:

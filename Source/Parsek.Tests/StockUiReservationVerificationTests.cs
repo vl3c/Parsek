@@ -294,7 +294,7 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(GameActionType.ContractFail, 500f)]
         [InlineData(GameActionType.ContractCancel, 300f)]
-        public void X2X3_CancelNowPlusCommittedFailOrCancel_ChargesBothPenalties_DocumentsDefect(
+        public void X2X3_CancelNowPlusCommittedFailOrCancel_ChargesOnlyTheFirstPenalty_Fixed(
             GameActionType committedType, float committedPenalty)
         {
             var funds = new FundsModule();
@@ -311,9 +311,14 @@ namespace Parsek.Tests
 
             RecalculationEngine.Recalculate(actions);
 
-            // DEFECT (section 7.5): FundsModule.ProcessContractPenalty is unconditional,
-            // so the contract the player already cancelled is penalized a second time.
-            Assert.Equal(10000.0 - 200.0 - committedPenalty, funds.GetRunningBalance(), 1);
+            // Was ..._ChargesBothPenalties_DocumentsDefect (section 7.5): the committed fail
+            // or cancel of a contract the player already cancelled is charged nothing, as
+            // stock charges a penalty once, on the transition out of Active.
+            Assert.Equal(10000.0 - 200.0, funds.GetRunningBalance(), 1);
+            Assert.True(actions[2].Effective);
+            Assert.False(actions[3].Effective);
+            Assert.Contains(logLines, l => l.Contains("[Contracts]") && l.Contains("c-x2")
+                && l.Contains("effective=false (already cancelled earlier in the walk)"));
         }
 
         // ================================================================
