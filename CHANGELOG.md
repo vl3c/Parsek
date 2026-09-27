@@ -1217,6 +1217,58 @@ _(unreleased — entries accumulate here per commit)_
   a window cannot be dragged wider than the screen, and it returns to its normal width when
   the screen is large enough again. On a screen the window already fits, nothing changes: it
   stays where you put it, even partly off-screen.
+- **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
+  its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
+  merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier
+  recorded leg of the same vessel as recovered too: the leg before a staging, undock or EVA,
+  the leg before a dock, and each earlier part of a background recording. Those legs then
+  claimed to last until the recovery, lost their saved vessel, and on merge each one booked
+  the recovery payout again. Only the leg the vessel was actually flying at the recovery is
+  marked now, so the payout is booked once; a flight that shed only debris is still marked as
+  before.
+- **A kerbal who died and respawns reads Lost until his respawn even when he flies again
+  later.** With crew respawn on, a kerbal killed on a recorded flight who was then flown again
+  on a flight ending after his respawn read as reserved for that later flight over the whole
+  time, including while stock still had him dead or missing, and a free stand-in took his seat
+  there (also before the death after a rewind). He now reads Lost until the respawn date, with
+  no stand-in, exactly as with the death alone; from the respawn on the later flight holds him
+  as usual and a stand-in covers his seat, which now appears at the respawn without waiting for
+  a scene change.
+- **No false "Held your funds at the spent value" message on Moderate or Hard when your
+  funds go negative.** Those presets let stock take funds (or science) below zero, for
+  example with a failed contract's penalty. Parsek treated the negative balance as a spend it
+  had missed: it showed the message, wrote a warning to the log on every recalculation, and a
+  rewind reset the balance to zero. It now keeps a negative balance that already exists, as
+  stock shows it; money a committed future flight will spend later still never takes the
+  balance below zero early. On the presets that keep currency at zero nothing changes.
+- **Auto-hire no longer seats a kerbal your committed future hires.** With the difficulty
+  option that hires crew automatically for empty seats, after a rewind to before a kerbal's
+  recorded hire, auto-hire could pick that same applicant: Parsek refused the hire, but the
+  game seated him anyway without hiring him, announced a hire that cost nothing, and with two
+  seats short put him in both. Auto-hire now passes over applicants a committed flight hires
+  later and takes the next one (or a new applicant when none is left).
+- **Recording through the Alt+F12 cheats and from alternate launch sites.** Four follow-ups
+  from the stock-settings audit:
+  - A Set Orbit, Rendezvous or Set Position teleport during a recording is now recorded as a
+    jump. A same-planet jump is not itself a split point (the recording still splits where the
+    flight phase really changes, such as surface to orbit), and a jump from the surface
+    or the atmosphere to another planet or moon now splits the recording at the new body the
+    way an SOI change does (before, one piece of the recording spanned both bodies). In orbit
+    the ghost follows the new orbit from the moment of the jump instead of the old orbit for a
+    few frames. Every teleport is logged.
+  - A recording that did not start with a launch no longer carries a launch site. Starting a
+    recording on a vessel taken off from a remote landing, switched to, or picked in the
+    Tracking Station tagged it with the site of your last launch, and a supply route built from
+    it was treated and priced as a KSC launch. A launch from the pad or runway, a vessel still
+    on a launch site, and a fresh rollout keep their site, and a vessel standing on a site now
+    names that site rather than the last one you launched from.
+  - A flight that ends parked on any stock launch site (the Making History Desert pad and
+    airfield, the Woomerang pad and the Island airfield when Making History is installed, as
+    well as the KSC pad and runway) is retired: no vessel is spawned there, its crew is freed
+    and no funds are paid. KSC behaves exactly as before.
+  - Recording while Hack Gravity is on now writes one warning to KSP.log: orbits recorded under
+    changed gravity replay at the wrong rate once gravity is back to normal. Nothing else
+    changes.
 - **Kerbals keep the inventory they carried when their vessel reappears.** A vessel that
   appears at the end of a recording used to give each kerbal the inventory he has on the roster
   now, not what he carried at the end of the flight, because a kerbal's own inventory is stored

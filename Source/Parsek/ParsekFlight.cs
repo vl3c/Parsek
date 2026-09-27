@@ -8246,7 +8246,8 @@ namespace Parsek
                     return;
             }
 
-            StartRecording(suppressStartScreenMessage: true);
+            StartRecording(suppressStartScreenMessage: true,
+                fromPrelaunchTransition: launchDecision == AutoRecordLaunchDecision.StartFromPrelaunch);
             Log($"Auto-record started ({data.from} → {data.to})");
             ScreenMessage("Recording STARTED (auto)", 2f);
         }
@@ -10924,6 +10925,21 @@ namespace Parsek
             backgroundRecorder?.OnBackgroundVesselSOIChanged(data.host, data.from);
         }
 
+        /// <summary>
+        /// Stock Alt+F12 teleport (Set Orbit / Rendezvous / Set Position) finished
+        /// <c>FlightGlobals.PostOrbitSet</c> for the active vessel; forwarded by
+        /// <see cref="Patches.CheatTeleportPatch"/>. Returns false when no recorder exists,
+        /// so the patch writes the log line itself.
+        /// </summary>
+        internal bool HandleCheatTeleport(Vessel v, CelestialBody oldBody)
+        {
+            if (v != null && GhostMapPresence.IsGhostMapVessel(v.persistentId)) return true;
+            if (recorder == null)
+                return false;
+            recorder.OnCheatTeleport(v, oldBody);
+            return true;
+        }
+
         void OnTimeWarpRateChanged()
         {
             bool isWarpNow = IsAnyWarpActive();
@@ -13117,7 +13133,8 @@ namespace Parsek
 
         // Pass suppressStartScreenMessage=true for fresh starts where the caller posts
         // its own custom screen message.
-        public void StartRecording(bool suppressStartScreenMessage = false)
+        public void StartRecording(bool suppressStartScreenMessage = false,
+            bool fromPrelaunchTransition = false)
         {
             // Commit orphaned CaptureAtStop from a previous recorder that was stopped
             // by vessel switch but never committed (e.g., auto-record started on new
@@ -13212,6 +13229,7 @@ namespace Parsek
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
             if (activeTree != null)
                 recorder.ActiveTree = activeTree;
+            recorder.StartedFromPrelaunchTransition = fromPrelaunchTransition;
             recorder.StartRecording(
                 isPromotion: false,
                 suppressStartScreenMessage: suppressStartScreenMessage);
