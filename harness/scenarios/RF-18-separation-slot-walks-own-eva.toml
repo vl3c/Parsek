@@ -24,6 +24,10 @@ id = "RF-18-separation-slot-walks-own-eva"
 # `reason=stableTerminalFocusSlot` carrying `walkedEva=1 walkedBoard=1`. The probe slot
 # still opens its Unfinished Flight and the RewindPoint survives, exactly as GS-2.
 #
+# FLOWN: reading run `2026-09-27_1334` PASS attempt 1 (as RF-16; caught one mid-stretch
+# walk reading the Board as foreign - fixed, token now forbidden), re-flight
+# `2026-09-27_1439` PASS attempt 1 on the merged branch (DLL sha256 `4ef9e054...`).
+#
 # WHAT IT DOES NOT PROVE, and where that is proven instead. The pod stack is the FOCUS
 # slot ending Orbiting, so it is not itself an Unfinished Flight (stock physics cannot
 # crash a vessel parked in a stable orbit inside the seam's verbs, and no verb opens a
