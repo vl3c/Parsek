@@ -3001,6 +3001,7 @@ namespace Parsek
                 }
 
                 ClassifyCargoBayState(animModule.animTime, cargo.closedPosition,
+                    ResolveCargoBayDeployLimitStop(animModule, cargo.closedPosition),
                     out bool isOpen, out bool isClosed);
 
                 if (!isOpen && !isClosed)
@@ -3709,8 +3710,18 @@ namespace Parsek
 
                 ModuleCargoBay cargoBay = p.FindModuleImplementing<ModuleCargoBay>();
                 if (cargoBay != null)
+                {
+                    int cargoIdx = cargoBay.DeployModuleIndex;
+                    ModuleAnimateGeneric cargoAnim = cargoIdx >= 0 && cargoIdx < p.Modules.Count
+                        ? p.Modules[cargoIdx] as ModuleAnimateGeneric
+                        : null;
+                    float? limitStop = ResolveCargoBayDeployLimitStop(cargoAnim, cargoBay.closedPosition);
+                    string limitText = limitStop.HasValue
+                        ? $",limitStop={limitStop.Value.ToString("F2", CultureInfo.InvariantCulture)}"
+                        : "";
                     coverage.CargoBayParts.Add(
-                        $"{partRef}(deployIdx={cargoBay.DeployModuleIndex},closed={cargoBay.closedPosition:F2})");
+                        $"{partRef}(deployIdx={cargoBay.DeployModuleIndex},closed={cargoBay.closedPosition:F2}{limitText})");
+                }
 
                 if (p.FindModuleImplementing<ModuleProceduralFairing>() != null)
                     coverage.FairingParts.Add(partRef);

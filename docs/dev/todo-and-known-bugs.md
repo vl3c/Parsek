@@ -483,7 +483,7 @@ kerbal's own KSC spawn (`Attempting spawn for #9 "Jebediah Kerman" (id=<kerbal r
 ... sit=LANDED`, after the #573 standalone lift) and forbids the safety-net answer; green on
 `2026-09-26_2058` and `_2106`.
 
-## REWIND-STRIPS-RESUMED-COMMITTED-TIP: a rewind of a later tree strips an earlier tree's resumed tip vessel and nothing re-spawns it [FILED 2026-09-27 from EVA-6's reading run, branch `eva-placed-spawn-lane`. OPEN, not investigated]
+## ~~REWIND-STRIPS-RESUMED-COMMITTED-TIP: a rewind of a later tree strips an earlier tree's spawned vessel and nothing re-spawns it~~ [FILED 2026-09-27 from EVA-6's reading run, branch `eva-placed-spawn-lane`; FIXED 2026-09-27, branch `fix-rewind-strips-tip`]
 
 **Evidence** (`2026-09-26_2058` and `_2106`, `kerbin-splashdown-recorded`). The boot lands in FLIGHT on
 the fixture's committed tip, the Kerbal X capsule (pid 2708531065), and restores its tree
@@ -496,9 +496,53 @@ superseded by continuation 'd1f3243...' vesselPid=2708531065 reason=spawned-pid-
 orphaned spawned vessel '#autoLOC_501232' (pid=2708531065 ...) matched recording 'Kerbal X' ...
 same-launch recording match`, and no `[KSCSpawn]` line for any Kerbal X recording follows in the next
 64 s of Space Center time (to UT 1328). The produced save holds four `Kerbal X Debris`, Jeb and the
-seismometer, and no capsule. Open questions: whether the resume (which re-stamped the tip's terminal
-at 1276.7, after the rewind UT) or the harness-only DiscardTree is the trigger, and why the chain tip
-the terminal spawn was handed to never spawned. EVA-6 does not assert anything about the capsule.
+seismometer, and no capsule.
+
+**Root cause.** Neither the resume nor the harness DiscardTree. The resumed tree was thrown away at the
+rewind's scene exit (`TryAutoDiscardNoOpNoSessionCommittedResume ... reverting to committed original`)
+and DiscardTree was a no-op (`discardtree nothing=true`). What matters is that the chain head
+`28b6e543` still carried the fixture's spawn fields (`spawnedPid=2708531065`; the load-time optimizer
+split moved the terminal to `c108e0a2` but left the spawn fields on the head). The plain rewind's
+pre-load strip (`RecordingStore.ExecuteRewindSaveLoad` -> `PreProcessRewindSave`) removed EVERY
+committed recording's spawned pid from the rewind quicksave (`CollectSpawnedVesselInfo: 3 PID(s)`,
+`Stripped 2 vessel(s) from save (1 by name [Jebediah Kerman], 1 by PID)`), so the capsule was also
+missing from the quicksave whitelist (`Captured 5 surviving vessel PID(s)`: four debris and the
+asteroid). The OnLoad launch-identity strip then removed it (`same-launch recording match`). The
+strip assumes the recording spawns the vessel again, but the replay-scope gate forbids that: the
+chain tip `c108e0a2` [853.7, 1276.6] has its activation start behind the post-rewind playhead
+(1264.3) and was never latched into replay scope (the fixture's spawn came from an earlier process),
+so `ParsekKSC` classifies it historical-never-replayed and draws no ghost and spawns nothing. The
+`superseded by continuation ... reason=spawned-pid-match` line is a side effect of the stale head
+pid (the head's own chain successor); it did not decide anything, since the head never spawns.
+
+**Ordinary play reaches it** with no harness step: land a capsule and commit it through the
+Switch-To Merge dialog (`CommitTreeFlight` adopts the live vessel, stamping its spawned pid), launch
+another flight, commit, rewind that flight: the capsule is lost. Same for a vessel a replay spawned
+in an earlier game session (the scope latch does not survive a restart).
+
+**Fix.** The pre-load PID strip is scoped at the save's adjusted UT
+(`RecordingStore.ResolveRewindSpawnStripScope`, new `PreProcessRewindSave` resolver overload): a
+spawned pid is stripped only when a recording that replays after the rewind re-produces it (the
+holder itself, the continuation its terminal spawn was handed to, a member of its chain, or a
+recording flying the same vessel - a unique spawn pid by pid, an adoption-stamped pid only when the
+launch guids do not differ). Everything else is committed history: it stays in the save and in the
+quicksave whitelist, so the OnLoad strip keeps it as `pre-existing`, and `ResetAllPlaybackState`
+keeps those holders' spawn state (the guid-aware post-strip reconcile still resets one whose vessel
+is gone), which is how a revert already treats an earlier tree's vessels. A latched in-scope
+recording is still stripped and re-spawned as before. Unit tests `RewindHistorySpawnScopeTests` (the
+EVA-6-shaped repro fails with the old strip set; mirror cases: latched holder, replaying chain tip,
+replaying continuation, replaying flier of a unique spawn pid, same-craft relaunch with a different
+guid kept, NaN UT). Live proof pending: EVA-6 re-flown should log `Rewind strip scope: ...
+keptHistoryPids=1`, `Keeping vessel '#autoLOC_501232' (pid=2708531065 ...) - pre-existing in
+launch/rewind quicksave`, no `Stripping orphaned spawned vessel '#autoLOC_501232'`, and the
+produced save should hold the capsule.
+
+**Open, not fixed here.** The pre-load strip's NAME half (`BuildRewindStripNames`: the rewind
+owner's vessel name) is still name-only: rewinding a relaunch of the same craft also strips an
+earlier flight's same-named vessel from the quicksave, and the OnLoad passes then remove it. It
+needs an identity-aware owner strip (the quicksave VESSEL `pid` guid against the owner's
+`RecordedVesselGuid`), with care for the owner vessel itself; filed here rather than widened into
+this fix.
 
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 
@@ -980,8 +1024,8 @@ pairing rule):
   `MissionControl.OnClickCancel` and two debug-toolbar buttons (player actions, refused)
   plus `ContractSystem.RebuildContracts()` (the debug toolbar's regenerate, which clears
   and rebuilds the whole list right after), let through by
-  `ContractSystemRebuildContractsScopePatch`. The unconditional double penalty itself is
-  the ledger bug below and stays open.
+  `ContractSystemRebuildContractsScopePatch`. The unconditional double penalty itself was
+  the ledger bug below, since fixed in the walk (branch `fix-reservation-ledger`).
   Open: the in-game cell `MissionControlActiveRowLabelAndCancelBlockedWithReason` needs a
   career host with an Active contract (it never accepts one: SPACECENTER batches restore
   `persistent.sfs` on disk only); H45's `career-earned-ksc` has none, so it skips there.
@@ -1044,9 +1088,49 @@ pairing rule):
   `RecordingStore.RewindUTAdjustmentPending`. It runs before `PatchPurchasedParts`, so a committed
   purchase on the node lands in the same pass. Pinned by `CommittedTechUnlockPatchTests`
   (drives the cursor's own decisions into the real orchestrator path). Not proven in game.
-- Contract fail / cancel penalties are charged unconditionally, so an already-resolved
-  contract is charged again (C4 X2/X3, C6, and a world-driven failure).
-- F3: a facility repair row charges even when nothing is destroyed.
+- ~~Contract fail / cancel penalties are charged unconditionally, so an already-resolved
+  contract is charged again (C4 X2/X3, C6, and a world-driven failure).~~ Fixed (branch
+  `fix-reservation-ledger`). **Fix:** `ContractsModule.ProcessFail` / `ProcessCancel` mark the
+  row `Effective=false` when the contract's current lifecycle already ended earlier in the
+  walk (pure `ResolvePriorContractResolution`: an effective completion, or a charged fail /
+  cancel; an Accept clears it). A deadline expiry found by `CheckDeadlines` is not a charged
+  resolution, so the recorded or synthetic fail that carries its penalty still charges, and a
+  fail of a contract the walk never saw accepted (pre-ledger) still charges: only positive
+  knowledge skips. `FundsModule.ProcessContractPenalty`, `ReputationModule.ProcessContractPenaltyRep`,
+  `FundsModule.TryGetProjectionDelta` (so the committed future no longer reserves it), the
+  post-walk reconciler and the commit-window emitted deltas all gate on `Effective`, like a
+  duplicate completion. `FundsModule.ComputeTotalSpendings` runs in PrePass, before Effective
+  is known, so the skip branch takes the penalty back out of `totalCommittedSpendings`
+  (`UncountPrePassSpending`): the no-projection `GetAvailableFunds` is what `PatchFunds`
+  writes on every cutoff-less recalc (OnLoad, commit, the no-future fallback), and without it
+  the double charge returned once the clock passed the row. Reputation patches its running
+  value and has no PrePass total. An ineffective row leaves the terminal maps alone, so the FIRST
+  resolution stays the contract's terminal outcome (the state stock holds, which
+  `KspStatePatcher`'s terminal-contract survival reads); the audit cell that pinned
+  last-wins is flipped (`TerminalContractMaps_SecondTerminalActionWithNoReAccept_KeepsTheFirst`).
+  Pinned by `ChargeOnceLedgerTests` (X3, C6, world-driven fail then committed fail / cancel,
+  the X1 path unchanged, the mirror cells) and the flipped section 12 cell
+  `X2X3_CancelNowPlusCommittedFailOrCancel_ChargesOnlyTheFirstPenalty_Fixed`.
+- ~~F3: a facility repair row charges even when nothing is destroyed.~~ Fixed (branch
+  `fix-reservation-ledger`), alongside the Repair control block. **Fix:** the facilities tier
+  dispatches after the funds tier, so `FundsModule` keeps its own per-building state from the
+  walk's FacilityDestruction / FacilityRepair rows; a repair of a building whose last row was
+  a repair is `Effective=false`, charges nothing and logs `FacilityRepair not charged`
+  (projection and commit-window deltas gate on it too, and the skip takes the cost back out
+  of the PrePass `totalCommittedSpendings`, as for the penalties). A repair of a building with no row in
+  the walk still charges (pure `FundsModule.ShouldChargeFacilityRepair`): the repair row
+  proves stock found it destroyed, and a pre-ledger collapse leaves no row, the same "never
+  infer intact from an absent row" rule `FacilityStatePatcher.PatchLiveDestructionState`
+  follows. Known cost: a repair whose collapse row left the effective ledger (a Re-Fly that
+  supersedes the flight that knocked the building down) still charges. Pinned by
+  `ChargeOnceLedgerTests` (one destruction one charge, two repairs of one destruction one
+  charge, no-row repair charges, repair after repair free, per building, cutoff projection;
+  every cutoff-less cell also asserts `GetAvailableFunds`).
+- Open, display only: `CommittedFutureIndex` and the Timeline / Career rows still list an
+  `Effective=false` fail / cancel / repair row with its amount (the Timeline demotes it to
+  T2; the Career window already skips it). The index is built from the effective ledger on
+  its own cache cycle, not from the walk, so reading the walk's `Effective` there is not a
+  trivially safe change; left for the overlay program.
 - K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.
 
 **Defects in the existing PR #721 layer:**
@@ -13518,7 +13602,7 @@ goes INTO the 1.25 m section of the stack (it is a structural section, not a
 nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
 is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
 
-## CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. PRODUCT GAP, OPEN]
+## ~~CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move~~ [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. FIXED 2026-09-27, branch `fix-cargobay-deploy-limit`; unit-proven, no stock-Mallard flight yet]
 
 THE MEASUREMENT. The stock `Mallard` ships its three Mk3 bays with `ModuleAnimateGeneric`
 `allowDeployLimit = true` and `deployPercent = 44 / 45 / 51`. BAY-1's first reading run flew
@@ -13541,6 +13625,28 @@ the closed end and stopped moving" as open. The ghost side then needs the matchi
 a recorder AND applier change. BAY-1 sidesteps it: its fixture copy of the Mallard sets all three
 bays to `deployPercent = 100`, so the lane gates a full door cycle and this gap stays visible
 here rather than being flown away.
+
+Fix: the recorder classifies a deploy-limited bay open when its animation is settled at the
+limit stop. `FlightRecorder.ResolveCargoBayDeployLimitStop` transcribes stock's clamp
+(`deployPercent * 0.01`, snapped to 1 above 0.995, mirrored under `revClampPercent`; null when
+`allowDeployLimit` is false, the stop is the ordinary open end, or it sits within 0.02 of the
+closed end), and `ClassifyCargoBayState` gained a stop argument: closed at the closed end, open
+at the open end or within 0.01 of the stop, otherwise mid-travel (skipped). This rule rather
+than "left the closed end and stopped moving" because it is stateless (a pure function of the
+module's persisted limit, no per-part frame memory or debounce) and a bay interrupted mid-travel
+never reads as open. All five classifier sites read the stop through the one resolver: the
+active recorder, the background recorder, the state seeder, the adoption tokens and the ghost's
+snapshot baseline. Ghost side: no new recorded field. `deployPercent` persists in the snapshot
+MODULE node and `allowDeployLimit` / `revClampPercent` come from the prefab, so the ghost build
+samples the bay's "deployed" pose AT the limit stop
+(`GhostVisualBuilder.TryResolveCargoBaySampleTimes`, cache key carries the stop), and
+`ApplyDeployableStateWithOutcome`'s stowed-to-deployed interpolation now ends where the real
+doors stopped. The snapshot baseline reads the same node through the same resolver, so a bay
+recorded open at its limit spawns open at that pose. Limitation: the pose follows the
+snapshot's limit; a player who drags the slider mid-flight changes the real stop, and the
+ghost keeps the snapshot's (no event records the slider, by design: it is not a door edge).
+Tests: `CargoBayDeployLimitTests`. BAY-1 is unchanged (still the `deployPercent = 100`
+fixture); proving the stock Mallard needs a re-flight with the stock limits restored.
 
 ## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. The route-driven ruling is OPERATOR-CONFIRMED 2026-09-26]
 

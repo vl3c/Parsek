@@ -1206,6 +1206,33 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Deploy-limited cargo bays now open on the replay.** A cargo bay set to open only part of the
+  way (the stock Mallard's Mk3 bays ship at 44, 45 and 51 percent) recorded nothing when opened
+  or shut, so its ghost's doors never moved. Parsek now counts a bay as open once its doors stop
+  at the limit, and the ghost opens its doors to that same limit rather than all the way.
+
+- **A contract penalty or a facility repair is no longer charged twice across a rewind.**
+  After a rewind, the timeline can hold two endings for one contract: something you did in
+  the present (a cancel, a completion, or a failure caused by losing a vessel) and the fail or
+  cancel your committed flights recorded later. Parsek charged the later penalty as well, so
+  the contract cost you twice. It now charges a fail or cancel penalty only if the contract is
+  still open at that point, as stock does, and the first ending stays the contract's state. A
+  repair of a building the timeline already has repaired (a second repair of one collapse) now
+  costs nothing and is logged. A repair of a building Parsek has no collapse record for still
+  charges, because stock only repairs destroyed buildings. A single fail, cancel or repair
+  still costs exactly what it did.
+
+- **Rewinding a later flight no longer deletes a vessel an earlier flight left behind.** A
+  plain rewind removed every vessel Parsek had spawned or adopted for any committed recording,
+  expecting each recording to spawn its vessel again. A recording that ended before the rewind
+  point is history, though: it does not replay after the rewind, so its vessel never came back.
+  For example, land a capsule, commit it through the Switch-To dialog, launch another flight
+  and rewind that one: the capsule was gone. A rewind now keeps a
+  spawned vessel when no recording that replays after the rewind will spawn it again, and the
+  kept vessel stays linked to its recording, the same way a revert keeps an earlier flight's
+  vessels. Vessels of the rewound flight, and of any recording that replays, are removed and
+  spawned again as before.
+
 - **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
   Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
   "recovered" ending from committed recordings that Parsek had marked as handled, which hit
