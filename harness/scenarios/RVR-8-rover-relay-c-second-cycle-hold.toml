@@ -262,7 +262,14 @@ forbidden = [
 ]
 
 [expectations.recordings.structure]
-# REPORT-ONLY (no `gating` key), and copied verbatim from RVR-7, whose two flights read
+gating = true
+# ARMED 2026-09-27 off the green re-fly `2026-09-27_1310` (automation DLL `d5b0f410`, the
+# endpoint-store fix), whose produced save read every window as declared: trees 3,
+# committedTrees 3, recordings 10, terminalStates Landed 5 / Docked 2, branchPoints Dock 2 /
+# Undock 2. Each of the 12 bounds was inverted offline against that save and red on
+# exactly its own window. It waited because this lane's first current-code reading,
+# `2026-09-27_1147`, was PARSEK-FAIL (todo RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE).
+# AUTHORING RECORD: the windows were copied verbatim from RVR-7, whose two flights read
 # these values off the PRODUCED save. None of these facets is touched by anything this
 # lane does - they all read the ParsekScenario node, and the only writes here are the
 # route's own `ROUTES` node plus the FLIGHTSTATE the dispatch debits.
