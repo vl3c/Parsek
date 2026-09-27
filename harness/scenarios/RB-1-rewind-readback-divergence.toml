@@ -1,0 +1,158 @@
+schema = 1
+id = "RB-1-rewind-readback-divergence"
+# =====================================================================================
+# THE REWIND READ-BACK GUARD'S FIRST LIVE FLAG (todo
+# REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE).
+#
+# THE GUARD, DERIVED FROM SOURCE (not from its comments).
+#   RewindInvoker.RunStripActivateMarker arms it (RewindReadbackGuard.Arm) with two
+#   witnesses immediately before the Step-5 RecalculateAndPatch(double.MaxValue):
+#     eBefore = the live career economy captured BEFORE the rewind LoadGame
+#               (RewindInvokeContext.ReadbackPreRewind);
+#     eRp     = the live economy right after the load (the loaded RP quicksave's pools).
+#   KspStatePatcher.PatchAll -> RunRewindReadbackGuard judges, per resource, the SAME
+#   running value the matching Patch* writes (funds: FundsModule.GetRunningBalance())
+#   against floor = min(eBefore, eRp) and WARNs `FLAGGED DIVERGENCE` when
+#   target < floor - tolerance (funds 1.0). Warn-and-proceed: nothing is aborted.
+#
+# WHEN IT MUST FIRE. Before the rewind the ledger target equals the live pool (every
+# recalc patches it), so the target can only drop below eBefore through something the
+# rewind itself retires. The one designed retirement is Step 3b,
+# RetireResurrectedVesselRecoveryRows: a vessel that is IN the RP quicksave, whose
+# committed recording ended Recovered with its recovery funds row AFTER the retire cutoff
+# (the post-load live UT), is back in the world, so its recovery bundle is tombstoned
+# (ResurrectionRetirementEligibility.Classify, positive guid match only). With R the
+# retired recovery credit, S the post-RP spending and E the other post-RP earnings:
+#     eBefore = eRp + E + R - S,   target = eRp + E - S,
+#     FLAG  <=>  R > 1  AND  S - E > 1.
+# A recovered SLOT cannot be re-flown by a player (UnfinishedFlightClassifier admits no
+# Recovered terminal, stashed or not), so the resurrected vessel must be UNRELATED to the
+# RP's slots - which the pre-load scrub preserves (ClassifySlotAffinity: Unrelated).
+#
+# THE SEQUENCE (the player story: the Flea sat rolled out on the pad while an earlier
+# flight split elsewhere; the player then flew and recovered the Flea, hired a kerbal,
+# and re-flew the earlier flight's crashed stage):
+#   1. `rewind-readback` preset: tree A (crewless, both slots Destroyed, slot 1 an open
+#      Unfinished Flight) split at UT 4.06, before career-science-pad's clock (9.06); its
+#      RP quicksave parks the slot clones in orbit and re-admits the host's REAL Jumping
+#      Flea verbatim (pid 2905720181, guid f77e4207...). The live save also gets a
+#      crewless parked `RB Relay` so the lane can re-enter FLIGHT after the recovery.
+#   2. The L3 flight (science_bench_recover): launch, science, chute, land, recover. The
+#      recording, its Recovered terminal, the recovery row (+4558) and the milestone
+#      credits (E) are all product-produced.
+#   3. KscAction hire-kerbal (S = 62113, the fixture-pinned hire cost L1 measured).
+#   4. SaveGame + LoadGame: the Space Center save focuses index 0 (now the relay), FLIGHT.
+#   5. InvokeRewind rp_rb_root slot 1. The Flea is resurrected on the pad, Step 3b retires
+#      its recovery bundle, and the funds target sits below both witnesses.
+# Predicted off L3's measured economy (E = 32000, R = 4558, no build cost, seed 500000):
+#   eBefore = 474445, eRp = 500000, floor = 474445, target = 469887, delta = -4558.
+# RB-2 is this exact flight WITHOUT step 3: the same retirement, target 532000 above the
+# floor 500000, so the guard must read within-expected-range there.
+# -------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------
+# READING RUN 2026-09-27_1249 (automation DLL sha256 4862ebb5...): PARSEK-FAIL attempt 1,
+# every driver step OK, three expectation mismatches - and they are a PRODUCT FINDING, not
+# a guard defect (todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED):
+#   * `Resurrected-recovery retirement: none (survivors=2 cutoffUT=9.1)`. The Flea WAS
+#     resurrected (`Re-Fly save scrub preserved 1 unrelated vessel(s) [#autoLOC_501224]`,
+#     `Strip leaveAlone: unrelated v=2905720181`) and its recovery row
+#     (`fundsAwarded = 4558`, recording f68473da) stayed banked with zero tombstones.
+#   * Why: the Flea's committed recording is stamped `terminalState = 1` (Landed), never
+#     Recovered. `TerminalState.Recovered` is written ONLY by
+#     ParsekScenario.UpdateRecordingsForTerminalEvent, and only on a PENDING tree; with the
+#     shipping autoMerge=true (clamped in ParsekScenario.OnLoad) the scene-exit auto-commit
+#     lands BEFORE onVesselRecovered, so ResurrectionRetirementEligibility.Classify (which
+#     requires Recovered) can never match an ordinary recovered flight.
+#   * So the guard read `within-expected-range resource=funds eBefore=625645 eRp=548000
+#     floor=548000 target=673645 delta=125645`. Those pools also carried a FIXTURE
+#     confound, fixed after this run: the relay and slot clones were parked in orbit, and a
+#     focused orbiting vessel earns stock progress (`Orbit` +12000, altitude / speed /
+#     distance records). They now stand on the runway. The confound does not change the
+#     verdict: with nothing retired the target equals the pre-rewind pool.
+# The lane is an EXPECTED-FAIL witness of that defect with the three mismatches as its
+# exact signature; a fix that stamps the recovery onto the committed recording turns it
+# XPASS. Not loosened (operator instruction 2026-09-27).
+# -------------------------------------------------------------------------------------
+tier = "operator"
+description = "Rewind read-back guard, first live flag: fly and recover career-science-pad's Flea after an injected RP, hire a kerbal, re-fly the RP's crashed slot; Step 3b retires the resurrected Flea's recovery and the funds target drops below min(pre-rewind, RP) -> FLAGGED DIVERGENCE resource=funds."
+instanceProfile = "stock-minimal"
+tags = ["RB-1", "rewind", "refly", "read-back-guard", "career", "ledger", "flown", "expected-fail"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-science-pad"
+injectedRecordings = "rewind-readback"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 1320 },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "KscAction",    args = { action = "hire-kerbal", kerbal = "Verhat Kerman" }, expect = "OK", budget = 60 },
+  { cmd = "SaveGame",     args = { name = "rb-post-recovery" },                    expect = "OK", budget = 120 },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "rb-post-recovery" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "InvokeRewind", args = { rp = "rp_rb_root", slot = "1" },                expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+collectMinExperiments = 1
+collectTimeoutSeconds = 120
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+recoverMinFundsGain = 1.0
+recoverTimeoutSeconds = 180
+
+[dimensionsCovered]
+# D9 `read-back-guard` is NOT claimed: this lane is an expected-fail witness whose guard
+# assertion reds today (R7a / CL-3 hold the cell). Claim it here when the lane XPASSes.
+D9  = ["rewind-to-separation"]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  "VesselRecovery funds patched: vessel='Jumping Flea' amount=4558",
+  "kscaction action=hire-kerbal .* applied=true",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
+  "Resurrected-recovery retirement: rec=\\S+ pid=2905720181 anchorUT=[0-9.]+ fallbackAnchor=False actions=[1-9]",
+  "armed rewind read-back guard: eBeforeFunds=[0-9.]+ eRpFunds=[0-9.]+ ",
+  "FLAGGED DIVERGENCE resource=funds eBefore=[0-9.]+ eRp=[0-9.]+ floor=[0-9.]+ target=[0-9.]+ delta=-[0-9.]+ tolerance=1 ",
+  "Invocation complete",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "within-expected-range resource=funds",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = "REFLY-RESURRECTED-RECOVERY-STAYS-BANKED"
+subkind = "expectation"
+mismatches = [
+  "logContracts.required not matched: Resurrected-recovery retirement: rec=\\S+ pid=2905720181 anchorUT=[0-9.]+ fallbackAnchor=False actions=[1-9]",
+  "logContracts.required not matched: FLAGGED DIVERGENCE resource=funds eBefore=[0-9.]+ eRp=[0-9.]+ floor=[0-9.]+ target=[0-9.]+ delta=-[0-9.]+ tolerance=1 ",
+  "logContracts.forbidden matched: within-expected-range resource=funds",
+]
