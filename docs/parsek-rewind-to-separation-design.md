@@ -1789,11 +1789,10 @@ Per §6.22 migration concern + §7.72: legacy star-shaped supersede portions in 
 
 ### 10.1 ERS-exempt consumers (index-keyed state)
 
-The ERS-audit allowlist (`scripts/ers-els-audit-allowlist.txt`) now carries many more files than the original thirteen; the map/TS render rewrite and ledger-trace subsystems added exemptions, each with an inline `[ERS-exempt]` comment and a `TODO(phase 6+)` marker. The thirteen enumerated below are the index-keyed subset holding raw state keyed by positions in `RecordingStore.CommittedRecordings`:
+The ERS-audit allowlist (`scripts/ers-els-audit-allowlist.txt`) now carries many more files than the original thirteen; the map/TS render rewrite and ledger-trace subsystems added exemptions, each with an inline `[ERS-exempt]` comment and a `TODO(phase 6+)` marker. The twelve enumerated below (`ChainSegmentManager.cs` was the thirteenth until its removal on 2026-09-27) are the index-keyed subset holding raw state keyed by positions in `RecordingStore.CommittedRecordings`:
 
 - `Source/Parsek/GhostMapPresence.cs`
 - `Source/Parsek/WatchModeController.cs`
-- `Source/Parsek/ChainSegmentManager.cs`
 - `Source/Parsek/ParsekFlight.cs`
 - `Source/Parsek/ParsekPlaybackPolicy.cs`
 - `Source/Parsek/ParsekTrackingStation.cs`
