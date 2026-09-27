@@ -15,6 +15,67 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-SESSION-EVA-CANNOT-SUPERSEDE: a Re-Fly session in which the player went EVA from the re-flown vessel merged with 0 supersede rows~~ [FOUND 2026-09-27 by the PR #1907 review (pre-existing, made likely by REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA); FIXED 2026-09-27, branch `refly-session-eva-merge`]
+
+**Symptom.** Re-fly a separation slot, step a kerbal out of the re-flown vessel (and back in, or not),
+merge: `[Supersede] AppendRelations outcome=refused-unflown-provisional ... reason=null TerminalState`,
+0 rows. The old stretch stayed visible next to the new one, and the section 4.9 rule "an EVA during a
+Re-Fly auto-seals" could not take effect (the slot tip stayed the old, open recording).
+
+**Root cause.** `SupersedeCommit.AppendRelations` validated the RAW provisional
+(`ValidateSupersedeTarget(provisional)`). The marker's `ActiveReFlyRecordingId` names the fork the
+recorder started on at the rewind point and is written only at `RewindInvoker.AtomicMarkerWrite` and the
+optimizer-survivor re-point in `MergeDialog.TryCommitReFlySupersede`; an EVA split ENDS that fork at the
+EVA branch point with no terminal and the vessel flies on as a continuation. Two more defects sat behind
+the refusal and surfaced as soon as rows were written: (1) the session's own continuations carry the
+re-flown vessel's pid and start after the rewind point, so `EnqueuePidPeerSiblings` pulled them into the
+supersede closure and the merge would have superseded the new flight with its own head; (2) the merge
+flipped only the fork's `MergeState`, while open/closed is read on the slot's WALKED tip (a continuation
+born `Immutable`), so a crashed re-fly would have read sealed.
+
+**Fix.** The walked tip is resolved at merge time; the marker is NOT re-pointed. `MarkerValidator`
+requires the marker's recording to be the NotCommitted provisional, and a continuation is ordinary
+`Immutable` data, so a re-pointed marker would be discarded by the next load's `LoadTimeSweep` (F5 / F9
+mid-session) and the fork, the head of the new flight, would then be swept as a zombie. The rows keep
+`NewRecordingId` = the fork; the slot tip is reached from it through the same `WalkSlotVessel`.
+- `SupersedeCommit.ValidateReFlySessionSupersedeSource`: payload on the fork or a walked vessel segment,
+  terminal on the walked tip; exactly `ValidateSupersedeTarget` when the walk takes no hop. Used by
+  `AppendRelations`, `ConcludeRetiredProvisional`, `MergeDialog.ConcludeMissingProvisional` and the
+  prune's alive-and-validating proof. New grep token
+  `AppendRelations outcome=validated-through-vessel-walk ... terminalRec= terminal= evaHops= boardHops=
+  switchHops= walkStop=`; the refusal line now carries the same walk fields.
+- `EffectiveState.CollectActiveSessionOwnedRecordingIds`: the fork's forward descendants (every branch
+  point naming a member as a parent, chain segments of a descendant, anchored debris) are removed from
+  the closure's candidate index, so no expansion admits them (`fenced live session's own recordings`).
+  The fork keeps its existing NotCommitted guards; the root and the slot origin are never fenced.
+- `SupersedeCommit.ApplyMergeStateToSessionVesselTip` (from `FlipMergeStateAndClearTransient`): the
+  merge verdict is written on the walked tip too (`session vessel tip rec=... mergeState a->b`). The
+  v0.9 fallback classification reads the walked terminal as well.
+- Journal recovery needs nothing new: every step re-derives the same walk from the same fork.
+
+**Rule chosen for a kerbal who boards a FOREIGN vessel during the session** (owner ruling 2026-09-27
+rule 2 makes the slot non-re-flyable): the merge still supersedes the old stretch (the player keeps the
+flight they flew) and the slot seals on `evaCrewJoinedForeignVessel`, even when the vessel crashed.
+
+**Tests.** `ReFlySessionEvaMergeTests` (end-to-end `MergeJournalOrchestrator.RunMerge` over
+`ReFlyThroughEvaFixture.AddReFlySession`; crash recovery from TreeMerge / Split / Supersede / Finalize;
+mid-session marker validation + `LoadTimeSweep`; mirror cells for no-branch / Dock / Stage / switch /
+Undock). Mutation-tested: reverting any of the three changes reds cells. Live lane
+`RF-19-refly-session-eva-reboard-merges`. Design: `docs/parsek-rewind-to-separation-design.md` section 6.12.
+
+## REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE: a Re-Fly session that UNDOCKS the re-flown vessel merges with 0 supersede rows [FILED 2026-09-27 from the mirror check of REFLY-SESSION-EVA-CANNOT-SUPERSEDE. OPEN]
+
+**Shape.** An undock ends the parent recording at the Undock branch point with its terminal untouched
+(`docs/dev/dock-undock-recording-structure.md` section 4), and an undock is a separation, so the slot
+walk stops there by design. The fork therefore still reads `null TerminalState` and the merge logs
+`outcome=refused-unflown-provisional ... walkStop=notSwitchBranchPoint`, keeping the old stretch next to
+the new one. Dock (closed `Docked`) and staging (tree-branching: the fork keeps its id and its own
+terminal) are unaffected. Pinned by `ReFlySessionEvaMergeTests.Mirror_Undock_WalkStopsAtTheUndock_StillRefused_KnownGap`.
+
+**Proposed fix.** Accept a fork whose walk stopped at a branch point the SESSION authored (not in
+`marker.PreSessionBranchPointIds`) as concluded: rows written, and Site B-1 already seals the slot
+(`structuralMutation` / `downstreamBp`, design section 4.9 rules 2 and 4). Needs its own lane.
+
 ## ~~REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA: a separation slot whose vessel put a crew member out on EVA was refused `downstreamBp`~~ [FOUND 2026-09-27 behind REFLY-SEPARATIONS-ONLY; OWNER DECISIONS 2026-09-27 (interview); IMPLEMENTED 2026-09-27, branch `refly-through-eva`]
 
 **The gap.** A separation slot's tip walk (`EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations`,

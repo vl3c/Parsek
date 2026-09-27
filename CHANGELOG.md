@@ -1217,6 +1217,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A Re-Fly in which a crew member goes EVA now replaces the old flight when you merge.**
+  Stepping out of the re-flown vessel (for an EVA report, a flag, a part) and climbing back in,
+  or leaving the kerbal outside, used to make the merge keep the old flight: the log read
+  `refused-unflown-provisional` and the old stretch stayed on the timeline next to the new one.
+  The merge now reads the vessel's ending past its own EVA and re-board, the same way the
+  Unfinished Flights list does, writes the supersede rows, and closes the slot as the Re-Fly
+  rules say (a stable ending or an EVA during the Re-Fly seals it; a crash keeps it open for
+  another try; a kerbal who left for a different vessel seals it). The kerbal's own EVA and the
+  vessel after the re-board are part of the new flight and are never hidden by the merge. The
+  same fix covers a stock Switch-To away and back during a Re-Fly. An undock during a Re-Fly
+  still keeps the old flight (filed, REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE).
+
 - **Looping one phase of a split flight is now visual only.** A long flight that Parsek
   splits into phases (launch, coast, landing) is a chain. Ticking Loop on any one phase used to
   change the whole flight's outcome: its final vessel never spawned, its crew stayed reserved

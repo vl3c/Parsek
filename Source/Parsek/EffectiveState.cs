@@ -2305,6 +2305,25 @@ namespace Parsek
                         recById[r.RecordingId] = r;
                 }
 
+                // The live session's OWN recordings are never supersede sources
+                // (design section 1.5 / 6.3). The fork itself is fenced by the
+                // NotCommitted guards below, but what the recorder created from it
+                // during the session - the vessel continuation after an EVA or a
+                // switch, the EVA kerbal, the re-boarded vessel - is ordinary
+                // Immutable data carrying the re-flown vessel's pid and starting
+                // after the rewind point, so the pid-peer expansion would admit it
+                // and the merge would supersede the new flight with its own head.
+                // Every walk below reads candidates through recById, so removing
+                // them here fences every expansion at once.
+                HashSet<string> sessionOwned = CollectActiveSessionOwnedRecordingIds(
+                    marker, rootOverride, recById);
+                int sessionOwnedExcluded = 0;
+                if (sessionOwned != null)
+                {
+                    foreach (string ownedId in sessionOwned)
+                        if (recById.Remove(ownedId)) sessionOwnedExcluded++;
+                }
+
                 // BranchPoint lookup via RewindPoint-persisted branch points is not
                 // available directly; BranchPoints are referenced from Recording.
                 // The closure walks committed recordings and inspects each's
@@ -2443,6 +2462,11 @@ namespace Parsek
                         string childId = bp.ChildRecordingIds[ci];
                         if (string.IsNullOrEmpty(childId)) continue;
                         if (result.Contains(childId)) continue;
+                        // A child fenced out as the live session's own recording (see
+                        // CollectActiveSessionOwnedRecordingIds) is absent from recById
+                        // but still named here; never admit it.
+                        if (sessionOwned != null && sessionOwned.Contains(childId))
+                            continue;
 
                         // Any BranchPoint with a parent outside the suppressed set halts the walk
                         // (dock/board merges are the common case but this is type-agnostic per design §3.3).
@@ -2535,7 +2559,8 @@ namespace Parsek
                     $"debrisAdded={debrisAdded} debrisAnchorOnlySkips={debrisAnchorOnlySkips} " +
                     $"mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips} " +
                     $"stretchSeeds={stretchSeedsAdded} evaKerbalsAdded={evaKerbalsAdded} " +
-                    $"sameVesselBoards={sameVesselBoardsAdded} placedPartsAdded={placedPartsAdded})");
+                    $"sameVesselBoards={sameVesselBoardsAdded} placedPartsAdded={placedPartsAdded} " +
+                    $"sessionOwnedExcluded={sessionOwnedExcluded})");
 
                 return suppressionCache;
             }
@@ -2941,6 +2966,114 @@ namespace Parsek
                 debrisAdded++;
                 queue.Enqueue(cand.RecordingId);
             }
+        }
+
+        /// <summary>
+        /// The recordings the live Re-Fly session created FROM its fork (the marker's
+        /// active provisional): forward along every branch point that names a member
+        /// as a parent (EVA, Board, switch continuation, Undock, Breakup,
+        /// GroundPartPlaced, ...), across chain segments of a descendant, and to
+        /// breakup debris anchored on a member. All of it is the new flight, so none of
+        /// it may enter the supersede closure (design section 1.5 / 6.3). The fork
+        /// itself is NOT in the set: the closure's NotCommitted guards already fence it
+        /// (with their own grep-stable skip lines), and its chain identity may be
+        /// shared with the origin after chain promotion, so no chain hop is taken from
+        /// the fork. Fail-safe: the closure root and the slot origin are never fenced.
+        /// <para>
+        /// Returns null (nothing fenced) when there is no distinct active provisional:
+        /// no marker, an empty id, or the legacy in-place shape whose marker names the
+        /// origin / closure root itself. Pure over <paramref name="recById"/> plus the
+        /// owning tree's branch points.
+        /// </para>
+        /// </summary>
+        internal static HashSet<string> CollectActiveSessionOwnedRecordingIds(
+            ReFlySessionMarker marker,
+            string rootOverride,
+            Dictionary<string, Recording> recById)
+        {
+            if (marker == null || recById == null) return null;
+            string activeId = marker.ActiveReFlyRecordingId;
+            if (string.IsNullOrEmpty(activeId)) return null;
+            if (string.Equals(activeId, rootOverride, StringComparison.Ordinal)
+                || string.Equals(activeId, marker.OriginChildRecordingId, StringComparison.Ordinal))
+                return null;
+            Recording active;
+            if (!recById.TryGetValue(activeId, out active) || active == null) return null;
+
+            RecordingTree tree = ResolveOwningTree(active, null);
+            var visited = new HashSet<string>(StringComparer.Ordinal) { activeId };
+            var owned = new HashSet<string>(StringComparer.Ordinal);
+            var queue = new Queue<Recording>();
+            queue.Enqueue(active);
+            while (queue.Count > 0)
+            {
+                Recording rec = queue.Dequeue();
+                bool isFork = ReferenceEquals(rec, active);
+
+                if (!isFork
+                    && !string.IsNullOrEmpty(rec.ChainId) && !string.IsNullOrEmpty(rec.TreeId))
+                {
+                    foreach (var cand in recById.Values)
+                    {
+                        if (cand == null || string.IsNullOrEmpty(cand.RecordingId)) continue;
+                        if (!string.Equals(cand.TreeId, rec.TreeId, StringComparison.Ordinal)) continue;
+                        if (!string.Equals(cand.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                        if (cand.ChainBranch != rec.ChainBranch) continue;
+                        if (visited.Add(cand.RecordingId)) { owned.Add(cand.RecordingId); queue.Enqueue(cand); }
+                    }
+                }
+
+                foreach (var cand in recById.Values)
+                {
+                    if (cand == null || string.IsNullOrEmpty(cand.RecordingId)) continue;
+                    if (!cand.IsDebris) continue;
+                    if (!string.Equals(cand.ParentAnchorRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                        continue;
+                    if (visited.Add(cand.RecordingId)) { owned.Add(cand.RecordingId); queue.Enqueue(cand); }
+                }
+
+                if (tree?.BranchPoints == null) continue;
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    BranchPoint bp = tree.BranchPoints[b];
+                    if (bp?.ParentRecordingIds == null || bp.ChildRecordingIds == null) continue;
+                    bool fromMember = bp.ParentRecordingIds.Contains(rec.RecordingId)
+                        || string.Equals(bp.Id, rec.ChildBranchPointId, StringComparison.Ordinal);
+                    if (!fromMember) continue;
+                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                    {
+                        string childId = bp.ChildRecordingIds[c];
+                        if (string.IsNullOrEmpty(childId)) continue;
+                        Recording child;
+                        if (!recById.TryGetValue(childId, out child) || child == null) continue;
+                        if (visited.Add(childId)) { owned.Add(childId); queue.Enqueue(child); }
+                    }
+                }
+            }
+
+            // Fail-safe: the history being superseded is never fenced, whatever odd
+            // topology put it downstream of the fork.
+            bool droppedRoot = !string.IsNullOrEmpty(rootOverride) && owned.Remove(rootOverride);
+            bool droppedOrigin = !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                && owned.Remove(marker.OriginChildRecordingId);
+            if (droppedRoot || droppedOrigin)
+            {
+                ParsekLog.Warn("ReFlySession",
+                    $"SessionSuppressedSubtree: session-owned walk from provisional={activeId} " +
+                    $"reached root={rootOverride ?? "<none>"} (dropped={droppedRoot}) / " +
+                    $"origin={marker.OriginChildRecordingId ?? "<none>"} (dropped={droppedOrigin}); " +
+                    "kept them in the closure - investigate the tree topology");
+            }
+
+            if (owned.Count > 0)
+            {
+                ParsekLog.Verbose("ReFlySession",
+                    $"SessionSuppressedSubtree: fenced live session's own recordings " +
+                    $"sess={marker.SessionId ?? "<no-id>"} provisional={activeId} " +
+                    $"count={owned.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"[{string.Join(",", owned)}] (never supersede sources)");
+            }
+            return owned;
         }
 
         /// <summary>
