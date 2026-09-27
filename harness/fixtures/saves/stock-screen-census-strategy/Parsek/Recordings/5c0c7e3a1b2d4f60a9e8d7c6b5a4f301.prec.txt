@@ -1,0 +1,95 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = 5c0c7e3a1b2d4f60a9e8d7c6b5a4f301
+sidecarEpoch = 0
+sectionAuthoritative = False
+POINT
+{
+	ut = 130000
+	lat = -0.097207
+	lon = -74.557671
+	alt = 68.5
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}
+POINT
+{
+	ut = 130020
+	lat = -0.097207
+	lon = -74.557671
+	alt = 900
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}
+POINT
+{
+	ut = 130060
+	lat = -0.098207
+	lon = -74.555671
+	alt = 1600
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}
+POINT
+{
+	ut = 130100
+	lat = -0.099207
+	lon = -74.553671
+	alt = 400
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}
+POINT
+{
+	ut = 130120
+	lat = -0.099707
+	lon = -74.552671
+	alt = 66
+	rotX = 0
+	rotY = 0
+	rotZ = 0
+	rotW = 1
+	body = Kerbin
+	velX = 0
+	velY = 0
+	velZ = 0
+	funds = 0
+	science = 0
+	rep = 0
+}

@@ -1,0 +1,127 @@
+schema = 1
+id = "KB-5-strategy-activate-block-after-rewind"
+# =====================================================================================
+# THE STRATEGY ACTIVATION CLICK-BLOCK AFTER A REWIND, LIVE: both of its refusals.
+#
+# WHY THIS LANE EXISTS. The Administration Accept refusal (section 4 S1 of
+# docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md) had unit and in-game
+# decision cells only. KB-4 presses the strategy Cancel on the census; it cannot press the
+# Accept there, because the census keeps its one level-1 Administration slot filled
+# (AppreciationCampaignCfg active), so stock's own CanBeActivated refuses every
+# activation and Parsek's reason stands aside (the stock-first precedence ruling, F7).
+#
+# THE HOST. `stock-screen-census-strategy` is the census WITHOUT its active strategy
+# (Source/Parsek.Tests/StockScreenStrategyFixture.cs: no STRATEGY node, the base funds, the
+# census's two AppreciationCampaignCfg ledger rows dropped; 24 rows). The slot is free, so
+# stock would allow an activation now, and the committed timeline still activates
+# OutsourcedResearchCfg at UT 160000. Two Parsek refusals follow from it
+# (StrategyReservationPredicates.EvaluateActivation):
+#   OutsourcedResearchCfg    the committed timeline activates it later (FutureActivation);
+#   AppreciationCampaignCfg  activated now it stays active through UT 160000 and takes the
+#                            slot the committed activation needs (SlotNeeded). Its group
+#                            tags (Basic,A) and Outsourced R&D's (Basic,C) share one tag,
+#                            which stock's conflict rule does not count as a conflict.
+# A lane at 1x never reaches the committed row.
+#
+# FOR EACH PRESS, KB-3's facets: (a) the Administration row selected through `StockScreen`,
+# the capture writing the decision (`record ... kind=StrategyActivation blocked=true
+# why="..."`, from StrategyReservationGate.TryRefuseActivation, the gate the
+# CanBeActivated postfix and the click backstop read) and the Accept button's stock state;
+# (b) `KscAction press-strategy-accept` calls the Accept button's own handler,
+# Administration.BtnInputAccept("accept"), on the selection; the AdministrationButton
+# backstop refuses it (`blocking activation click`) before stock opens its confirmation,
+# the strategy stays inactive and the three pools unchanged (`not applied:` line), refusal
+# `blocked-committed`; (c) the dialog body ends in exactly the record's why (`\1`); (d) the
+# ledger loads and saves 24 rows, no row added, no game-state event.
+#
+# DRIVER NOTE. A press Parsek let through would open stock's confirmation, which the seam
+# takes down and reports OK (`reached stock confirmation`, forbidden below).
+#
+# READING RUN AND ARMING: see the status block the arming commit writes here.
+tier = "nightly"
+description = "Rewound career with a free Administration slot whose committed timeline activates Outsourced R&D after the clock: pressing Accept on Outsourced R&D (activated later) and on Appreciation Campaign (would take the slot the committed activation needs) is refused through the Administration button's own handler, each with the blocked dialog carrying the row's explanation, changing no strategy, funds, science, reputation or ledger row."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "stock-ui", "action-blocking", "career", "KB-5"]
+
+[fixture]
+saveTemplate = "fixtures/saves/stock-screen-census-strategy"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb5-ksc" }, expect = "OK" },
+
+  { cmd = "StockScreen", args = { screen = "administration", act = "open" }, expect = "OK" },
+  # ---- the future activation ----
+  { cmd = "StockScreen", args = { screen = "administration", act = "select", item = "OutsourcedResearchCfg" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb5-admin-future" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "press-strategy-accept", strategy = "OutsourcedResearchCfg" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb5-future-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  # ---- the slot the committed activation needs ----
+  { cmd = "StockScreen", args = { screen = "administration", act = "select", item = "AppreciationCampaignCfg" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb5-admin-slot" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "press-strategy-accept", strategy = "AppreciationCampaignCfg" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb5-slot-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "administration", act = "close" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["action-blocking"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ---- the future activation ----
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb5-admin-future screen=Administration name=btnAcceptCancel:OutsourcedResearchCfg state=accept interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[StrategyReservation\\] blocking activation click for strategy=OutsourcedResearchCfg",
+  "kscaction press-strategy-accept not applied: target=OutsourcedResearchCfg stateBefore=Inactive stateAfter=Inactive fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0 reputationBefore=(\\S+) reputationAfter=\\3 reputationDelta=0",
+  "kscaction refused action=press-strategy-accept reason=blocked-committed target=OutsourcedResearchCfg",
+  "record label=kb5-admin-future screen=Administration tab=Strategies item=OutsourcedResearchCfg kind=StrategyActivation marked=true blocked=true why=\"(Activated on [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot activate \"[^\"]+\" - \\1\\r?\\n",
+
+  # ---- the slot the committed activation needs ----
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb5-admin-slot screen=Administration name=btnAcceptCancel:AppreciationCampaignCfg state=accept interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[StrategyReservation\\] blocking activation click for strategy=AppreciationCampaignCfg",
+  "kscaction press-strategy-accept not applied: target=AppreciationCampaignCfg stateBefore=Inactive stateAfter=Inactive fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0 reputationBefore=(\\S+) reputationAfter=\\3 reputationDelta=0",
+  "kscaction refused action=press-strategy-accept reason=blocked-committed target=AppreciationCampaignCfg",
+  "record label=kb5-admin-slot screen=Administration tab=Strategies item=AppreciationCampaignCfg kind=StrategyActivation marked=true blocked=true why=\"(A committed activation of [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot activate \"[^\"]+\" - \\1\\r?\\n",
+
+  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){2}",
+
+  # ---- the ledger: loaded with 24 rows, saved with 24 after the last refusal ----
+  "\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Loaded ledger from '[^']*': version=0, actions=24, parseErrors=0",
+  "refused action=press-strategy-accept reason=blocked-committed target=AppreciationCampaignCfg[\\s\\S]*\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=24\\r?\\n",
+]
+forbidden = [
+  "\\[Ledger\\] Added action:",
+  "\\[Ledger\\] AddActions batch: added=[1-9]",
+  "\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=(?!24\\r?\\n)",
+  "KSC spending recorded",
+  "Game state: (?!Facility cache seeded)",
+  "reached stock confirmation",
+  "kscaction action=press-strategy-accept .*applied=true",
+]
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

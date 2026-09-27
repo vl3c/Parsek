@@ -23770,6 +23770,28 @@ class KscActionRefusalSourceSyncTests(unittest.TestCase):
                 self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
                 self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
 
+    def test_the_refused_click_refusals_classify_as_designed(self):
+        """KB-4 / KB-5's sub-actions: each token must be EMITTED by the C# (a row for a
+        token nothing emits is a stale mirror) and classify as designed."""
+        tokens = self._emitted_tokens()
+        for msg, expected in (
+                ("contract-not-active", "driver-career"),
+                ("unknown-part", "driver-arg"),
+                ("tech-not-researched", "driver-career"),
+                ("part-already-purchased", "driver-career"),
+                ("administration-not-open", "driver-gate"),
+                ("strategy-not-selected", "driver-arg"),
+                ("kerbal-already-seated", "driver-career"),
+                ("kerbal-not-listed", "driver-career"),
+                ("crew-dialog-not-open", "driver-gate"),
+                ("no-seat", "driver-gate"),
+                ("kerbal-not-dismissable", "driver-career"),
+                ("strategy-cannot-deactivate%20(none)", "driver-career")):
+            with self.subTest(msg=msg):
+                self.assertIn(msg.split("%20")[0], tokens)
+                self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
+                self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
+
 
 class ListHandlesSourceSyncTests(unittest.TestCase):
     """Reads OUTSIDE harness/: `Source/Parsek/TestCommands/TestCommandListHandles.cs`.

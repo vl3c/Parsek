@@ -498,5 +498,135 @@ namespace Parsek.Tests
                 System.Threading.Thread.CurrentThread.CurrentCulture = saved;
             }
         }
+
+        // ----- the refused-click sub-actions (KB-4 / KB-5) -----
+
+        [Theory]
+        [InlineData("decline-contract", "DeclineContract", "contract-decline")]
+        [InlineData("cancel-contract", "CancelContract", "contract-cancel")]
+        [InlineData("sack-kerbal", "SackKerbal", "kerbal-dismiss")]
+        [InlineData("purchase-part", "PurchasePart", "part-purchase")]
+        [InlineData("press-strategy-accept", "PressStrategyAccept", "strategy-activate")]
+        [InlineData("press-strategy-cancel", "PressStrategyCancel", "strategy-deactivate")]
+        [InlineData("seat-crew", "SeatCrew", "crew-assign")]
+        public void ParseKind_And_ManifestKind_RefusedClickSubActions(string action, string kindName, string manifest)
+        {
+            var kind = (KscActionKind)System.Enum.Parse(typeof(KscActionKind), kindName);
+            Assert.Equal(kind, TestCommandKscAction.ParseKind(action));
+            Assert.Equal(manifest, TestCommandKscAction.ManifestKindFor(kind));
+            Assert.Equal(KscActionKind.Unknown, TestCommandKscAction.ParseKind(action.ToUpperInvariant()));
+        }
+
+        [Theory]
+        [InlineData("decline-contract", "unknown-contract", "contract-not-offered")]
+        [InlineData("cancel-contract", "unknown-contract", "contract-not-active")]
+        [InlineData("press-strategy-accept", "unknown-strategy", "strategy-already-active")]
+        [InlineData("press-strategy-cancel", "unknown-strategy", "strategy-not-active")]
+        [InlineData("seat-crew", "unknown-kerbal", "kerbal-already-seated")]
+        public void Decide_StateSubActions_UnknownThenWrongStateThenAccept(string action, string unknown, string wrongState)
+        {
+            Assert.Equal("missing-arg", TestCommandKscAction.Decide(action, null,
+                new KscActionInputs { ArgPresent = false }).RejectReason);
+            // The unknown target is named before its state, so a typo never reads as state.
+            Assert.Equal(unknown, TestCommandKscAction.Decide(action, "t",
+                new KscActionInputs { ArgPresent = true, TargetResolves = false, AlreadyApplied = true }).RejectReason);
+            Assert.Equal(wrongState, TestCommandKscAction.Decide(action, "t",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, AlreadyApplied = true }).RejectReason);
+            var d = TestCommandKscAction.Decide(action, "t",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true });
+            Assert.True(d.Accepted);
+            Assert.Null(d.RejectReason);
+        }
+
+        /// <summary>sack-kerbal must reach stock's call for a Parsek-managed kerbal: that
+        /// refusal is the one the sub-action presses (dismiss-kerbal pre-refuses it).</summary>
+        [Fact]
+        public void Decide_SackKerbal_IgnoresParsekManaged_RefusesOnlyANonAvailableKerbal()
+        {
+            Assert.Equal("unknown-kerbal", TestCommandKscAction.Decide("sack-kerbal", "k",
+                new KscActionInputs { ArgPresent = true, TargetResolves = false }).RejectReason);
+            Assert.Equal("kerbal-not-dismissable", TestCommandKscAction.Decide("sack-kerbal", "k",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, IsDismissable = false }).RejectReason);
+            Assert.True(TestCommandKscAction.Decide("sack-kerbal", "Debwig Kerman",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, IsDismissable = true, IsParsekManaged = true }).Accepted);
+            // The sibling dismiss-kerbal keeps its managed pre-check.
+            Assert.Equal("kerbal-parsek-managed", TestCommandKscAction.Decide("dismiss-kerbal", "Debwig Kerman",
+                new KscActionInputs { ArgPresent = true, TargetResolves = true, IsDismissable = true, IsParsekManaged = true }).RejectReason);
+        }
+
+        [Fact]
+        public void Decide_PurchasePart_RefusalsInOrder_ThenAccepts()
+        {
+            var ok = new KscActionInputs
+            {
+                ArgPresent = true, TargetResolves = true, TechResearched = true,
+                CostAmount = 1400, AvailableAmount = 236416.75, CostIsFunds = true,
+            };
+            Assert.Equal("unknown-part", TestCommandKscAction.Decide("purchase-part", "nope",
+                new KscActionInputs { ArgPresent = true, TargetResolves = false }).RejectReason);
+            var notResearched = ok; notResearched.TechResearched = false; notResearched.AlreadyApplied = true;
+            Assert.Equal("tech-not-researched", TestCommandKscAction.Decide("purchase-part", "p", notResearched).RejectReason);
+            var owned = ok; owned.AlreadyApplied = true; owned.CostAmount = 1e9;
+            Assert.Equal("part-already-purchased", TestCommandKscAction.Decide("purchase-part", "p", owned).RejectReason);
+            var poor = ok; poor.AvailableAmount = 1399;
+            Assert.Equal("insufficient-funds", TestCommandKscAction.Decide("purchase-part", "p", poor).RejectReason);
+            var d = TestCommandKscAction.Decide("purchase-part", "probeCoreSphere.v2", ok);
+            Assert.True(d.Accepted);
+            Assert.Equal("part-purchase", d.ManifestKind);
+        }
+
+        [Theory]
+        [InlineData(false, false, false, "refused")]
+        [InlineData(true, true, false, "refused")]
+        [InlineData(false, false, true, "confirmation")]
+        [InlineData(true, true, true, "confirmation")]
+        [InlineData(false, true, false, "applied")]
+        [InlineData(true, false, true, "applied")]
+        public void ClassifyStrategyPress_StateMoveThenConfirmationThenRefused(
+            bool before, bool after, bool confirmation, string expected)
+        {
+            Assert.Equal(expected, TestCommandKscAction.ClassifyStrategyPress(before, after, confirmation));
+        }
+
+        [Fact]
+        public void ChooseSeatPath_ClickIntoTheFirstEmptySeat_ElseDragOntoTheFirstSeat()
+        {
+            int seat;
+            // border, occupied seat, empty seat -> the button seats into the empty one.
+            Assert.Equal("click", TestCommandKscAction.ChooseSeatPath(
+                new[] { false, true, true }, new[] { false, false, true }, out seat));
+            Assert.Equal(2, seat);
+            // border, one occupied seat (the census's Mk1 pod with its stand-in) -> drag.
+            Assert.Equal("drag", TestCommandKscAction.ChooseSeatPath(
+                new[] { false, true }, new[] { false, false }, out seat));
+            Assert.Equal(1, seat);
+            Assert.Equal("none", TestCommandKscAction.ChooseSeatPath(new[] { false }, new[] { false }, out seat));
+            Assert.Equal(-1, seat);
+            Assert.Equal("none", TestCommandKscAction.ChooseSeatPath(null, null, out seat));
+        }
+
+        [Fact]
+        public void FormatNotAppliedLineWithReputation_AppendsTheReputationPool_CultureInvariant()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+                Assert.Equal(
+                    "kscaction cancel-contract not applied: target=07c8e34d stateBefore=Active stateAfter=Active "
+                    + "fundsBefore=236416.75 fundsAfter=236416.75 fundsDelta=0 "
+                    + "scienceBefore=106.6 scienceAfter=106.6 scienceDelta=0 "
+                    + "reputationBefore=12.5 reputationAfter=12.5 reputationDelta=0",
+                    TestCommandKscAction.FormatNotAppliedLineWithReputation("cancel-contract", "07c8e34d", "state",
+                        "Active", "Active", 236416.75, 236416.75, 106.6, 106.6, 12.5, 12.5));
+                Assert.EndsWith(" reputationDelta=-12",
+                    TestCommandKscAction.FormatNotAppliedLineWithReputation("cancel-contract", "g", "state",
+                        "Active", "Cancelled", 0, 0, 0, 0, 12.5, 0.5));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
     }
 }

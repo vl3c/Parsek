@@ -2438,6 +2438,13 @@ what IS pressable), and `ERROR dialog-not-dismissed` (the popup is still standin
 settle). `AnswerMergeDialog` gains
 `REJECTED dialog-arg-invalid` (message carries the valid set).
 
+> Update (2026-09-27, `op=dismiss` is hostless). `op=dismiss` reads and takes down the live
+> `PopupDialog` set, which is uGUI drawn outside every Parsek host, so its execute path and
+> its settle skip the `ui-host-unavailable` gate every other op keeps: it runs in any scene
+> with a loaded game, the editor included, where a refused VAB/SPH crew-dialog seat raises
+> the Action Blocked dialog (`KB-4-more-click-blocks-after-rewind`). Every other op, `raise`
+> included, still needs the host.
+
 **REVIEW FOLLOW-UPS (2026-09-11).** Five defects and two residues, found reviewing the six
 ops above.
 

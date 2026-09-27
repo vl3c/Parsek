@@ -632,9 +632,14 @@ namespace Parsek.TestCommands
                     bool needsSpaceCenter = action == "upgrade-facility"
                         || action == "demolish-building" || action == "repair-facility"
                         || action == "activate-strategy" || action == "deactivate-strategy"
-                        || action == "accept-contract";
+                        || action == "accept-contract" || action == "decline-contract"
+                        || action == "cancel-contract" || action == "purchase-part"
+                        || action == "press-strategy-accept" || action == "press-strategy-cancel";
                     if (needsSpaceCenter && !state.AtSpaceCenter)
                         return DispatchResult.Defer("not-at-space-center");
+                    // The VAB/SPH crew dialog exists only in the editor scene.
+                    if (action == "seat-crew" && state.Scene != TestCommandScene.Editor)
+                        return DispatchResult.Defer("not-in-editor");
                     // The Administration building's screen owns the slot count stock checks.
                     if (action == "activate-strategy" && !state.StrategyAdministrationReady)
                         return DispatchResult.Defer(AdministrationNotReadyDeferReason);

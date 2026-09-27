@@ -9493,6 +9493,24 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     # Offered is career state. A committed-timeline refusal is `blocked-committed`, above.
     "unknown-contract": "driver-arg",
     "contract-not-offered": "driver-career",
+    # The refused-click sub-actions (KB-4 / KB-5): decline-contract / cancel-contract /
+    # sack-kerbal / purchase-part / press-strategy-accept / press-strategy-cancel /
+    # seat-crew. A part name PartLoader does not know and a press on a strategy the spec
+    # never selected are the SPEC's fault; a contract no longer Active, a node not yet
+    # researched, a part already bought, a kerbal already seated or not in the crew
+    # dialog's list are career state; an Administration screen or crew dialog that is not
+    # open and a craft with no seat are gates the lane asked for and did not get. The
+    # committed-timeline refusal of each is `blocked-committed`, above.
+    "contract-not-active": "driver-career",
+    "unknown-part": "driver-arg",
+    "tech-not-researched": "driver-career",
+    "part-already-purchased": "driver-career",
+    "administration-not-open": "driver-gate",
+    "strategy-not-selected": "driver-arg",
+    "kerbal-already-seated": "driver-career",
+    "kerbal-not-listed": "driver-career",
+    "crew-dialog-not-open": "driver-gate",
+    "no-seat": "driver-gate",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these

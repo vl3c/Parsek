@@ -132,12 +132,13 @@ namespace Parsek.TestCommands
             string strategy = ArgOrNull(cmd, "strategy");
             string factor = ArgOrNull(cmd, "factor");
             string contract = ArgOrNull(cmd, "contract");
+            string part = ArgOrNull(cmd, "part");
 
             TestCommandKscAction.KscActionExecOutcome outcome;
             try
             {
                 outcome = TestCommandKscAction.Execute(
-                    action, node, facility, kerbal, building, strategy, factor, contract);
+                    action, node, facility, kerbal, building, strategy, factor, contract, part);
             }
             finally
             {

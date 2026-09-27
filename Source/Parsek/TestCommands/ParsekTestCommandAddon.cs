@@ -2941,6 +2941,8 @@ namespace Parsek.TestCommands
                     return ResearchAndDevelopment.Instance != null;
                 case "hire-kerbal":
                 case "dismiss-kerbal":
+                case "sack-kerbal":
+                case "seat-crew":
                     return game.CrewRoster != null;
                 case "upgrade-facility":
                 case "repair-facility":
@@ -2948,8 +2950,19 @@ namespace Parsek.TestCommands
                 case "demolish-building":
                     return true;
                 case "accept-contract":
-                    // Accept pays the contract's advance into Funding.
+                case "decline-contract":
+                case "cancel-contract":
+                    // Accept pays the contract's advance into Funding; Cancel charges its
+                    // penalty from it.
                     return Funding.Instance != null && Contracts.ContractSystem.Instance != null;
+                case "purchase-part":
+                    // Stock charges the entry cost into Funding from OnPartPurchased.
+                    return Funding.Instance != null && ResearchAndDevelopment.Instance != null;
+                case "press-strategy-accept":
+                case "press-strategy-cancel":
+                    return Funding.Instance != null && Reputation.Instance != null
+                        && ResearchAndDevelopment.Instance != null
+                        && Strategies.StrategySystem.Instance != null;
                 case "activate-strategy":
                 case "deactivate-strategy":
                     // Activate debits whichever of the three pools the strategy's setup

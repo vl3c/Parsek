@@ -255,7 +255,26 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            // (2) The host. A PRE-CALL gate, so REJECTED (the map-view-unavailable class):
+            // (2) `dismiss` takes down a stock PopupDialog, which is uGUI drawn outside every
+            // Parsek host, so it runs in every scene with a loaded game, the editor included:
+            // a refused VAB/SPH crew-dialog seat raises the Action Blocked dialog there
+            // (KB-4), and the editor hosts no Parsek UI.
+            if (op == UiActionOp.Dismiss)
+            {
+                try
+                {
+                    UiActionDismissOp(cmd);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(Tag, $"uiaction op={TestCommandUiAction.OpToken(op)} threw "
+                        + $"{ex.GetType().Name}: {ex.Message}");
+                    SetExecResult("ERROR", null, TestCommandUiAction.ThrewReason);
+                }
+                return;
+            }
+
+            // (3) The host. A PRE-CALL gate, so REJECTED (the map-view-unavailable class):
             // the Tracking Station and the editor host no Parsek UI at all, and the
             // dispatcher has already waited for a loaded game, so waiting longer could not
             // turn this into a success.
@@ -721,6 +740,13 @@ namespace Parsek.TestCommands
                 EmitExecutedTerminal(id, seq, verb, "ERROR", null,
                     $"{TestCommandUiAction.NotSettledReason} window={window}",
                     dequeueHead: true);
+                return;
+            }
+
+            // Hostless, like its execute path: it reads the live PopupDialog set only.
+            if (op == UiActionOp.Dismiss)
+            {
+                CompleteUiActionDismiss(id, seq, verb, pending);
                 return;
             }
 

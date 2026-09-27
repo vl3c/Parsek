@@ -908,6 +908,41 @@ accounted whatever DID happen.
 > lane can read that a refused click changed nothing. First flown on
 > `KB-3-ksc-click-blocks-after-rewind`.
 
+> Update (2026-09-27, the refused-click sub-actions). Seven more sub-actions, each making exactly
+> the stock call behind one control the committed timeline greys, so a lane can press it:
+>
+> | `action=` | stock call (the control) | target arg | pre-checks after `missing-arg` / unknown target | dispatch |
+> |---|---|---|---|---|
+> | `decline-contract` | `Contract.Decline()` (Mission Control's Decline) | `contract=` | `unknown-contract`, `contract-not-offered` | CAREER + SPACECENTER |
+> | `cancel-contract` | `Contract.Cancel()` (Mission Control's Cancel) | `contract=` | `unknown-contract`, `contract-not-active` | CAREER + SPACECENTER |
+> | `sack-kerbal` | `KerbalRoster.SackAvailable` (the Astronaut Complex dismiss button) | `kerbal=` | `unknown-kerbal`, `kerbal-not-dismissable` (not an Available crew member) | CAREER |
+> | `purchase-part` | `RDTech.PurchasePart` on a hosted RDTech of the part's node (the R&D tooltip Purchase) | `part=` | `unknown-part`, `tech-not-researched`, `part-already-purchased`, `insufficient-funds` | CAREER + SPACECENTER |
+> | `press-strategy-accept` | `Administration.BtnInputAccept("accept")` on the selection | `strategy=` | `unknown-strategy`, `strategy-already-active`, then `administration-not-open` / `strategy-not-selected` | CAREER + SPACECENTER |
+> | `press-strategy-cancel` | `Administration.BtnInputAccept("cancel")` on the selection | `strategy=` | `unknown-strategy`, `strategy-not-active`, then `administration-not-open` / `strategy-not-selected` / `strategy-cannot-deactivate <stock reason>` | CAREER + SPACECENTER |
+> | `seat-crew` | the crew dialog's `ListItemButtonClick(V)` when the craft has an empty seat, else `DropOnCrewList` onto the first seat | `kerbal=` | `unknown-kerbal`, `kerbal-already-seated`, then `crew-dialog-not-open` / `kerbal-not-listed` / `no-seat` | CAREER + EDITOR (defers `not-in-editor`) |
+>
+> `sack-kerbal` deliberately has NO Parsek-managed pre-check (`dismiss-kerbal` refuses
+> `kerbal-parsek-managed` before stock): the managed kerbal's refusal is the thing it presses.
+> The two press sub-actions act on the Administration screen the spec opened and selected
+> through `StockScreen` (they never host the hidden screen `activate-strategy` uses), and ask
+> stock's own `CanBeDeactivated` before a Cancel press, since stock's handler returns silently
+> when it refuses. A press Parsek does not refuse opens stock's confirmation: the seam takes it
+> down through its own dismiss and reports `OK applied=false confirmation=dismissed` with the
+> Info line `kscaction <action> reached stock confirmation target=<t>`
+> (`ClassifyStrategyPress`). `purchase-part` builds its RDTech the way `RDTech.Start` does
+> (Warmup, then the host's saved node for `techState`, `state` and `partsPurchased`), so an
+> allowed purchase writes the real node back whole. `seat-crew` logs
+> `kscaction seat-crew pressing target=<t> path=click|drag seatIndex=<n>` (`ChooseSeatPath`) and
+> confirms the effect by the row reaching the crew list, synchronously on both paths (the
+> drop's manifest refresh is a coroutine). Every refusal by the committed-timeline backstop is
+> `blocked-committed`, after a `not applied:` line that also carries the reputation pool:
+> `... scienceDelta= reputationBefore= reputationAfter= reputationDelta=`
+> (`FormatNotAppliedLineWithReputation`; state keys `state` for the contract, part and strategy
+> sub-actions, `type` for the sack, `seat` for the crew seat). Manifest kinds:
+> `contract-decline`, `contract-cancel`, `kerbal-dismiss`, `part-purchase`, `strategy-activate`,
+> `strategy-deactivate`, `crew-assign`. First flown on `KB-4-more-click-blocks-after-rewind`
+> and `KB-5-strategy-activate-block-after-rewind`.
+
 **Payload.** `OK action=<action> target=<target> applied=true` plus an observed-after
 field for logging only (`scienceAfter` / `fundsAfter` / `level` / `crewCount`). The
 observed-after values are for the KSP.log / debugging; they are NEVER the oracle's

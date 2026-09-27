@@ -424,8 +424,40 @@ Mission Control and Administration stay at level 1 (two contract slots, one stra
 so the one Active contract plus the committed accept fill both slots at UT 50000 and
 every other Offered row carries the C2 slot block. The earliest committed row is
 30000 s after the clock, so a Space Center lane at 1x cannot reach it. Hosts
-`GUI-28-census-stock-screens` and `KB-3-ksc-click-blocks-after-rewind` (which presses the
-tech, upgrade, hire and accept controls its four reservations block).
+`GUI-28-census-stock-screens`, `KB-3-ksc-click-blocks-after-rewind` (which presses the
+tech, upgrade, hire and accept controls its four reservations block) and
+`KB-4-more-click-blocks-after-rewind` (the strategy Cancel, Decline, the slot-blocked
+Accept, contract Cancel, two dismissals, the R&D part Purchase and the VAB crew-dialog
+seat). The strategy ACTIVATION block cannot be pressed here: with the one level-1
+Administration slot filled, stock itself refuses every activation and Parsek's reason stands
+aside (stock-first precedence), which is why `stock-screen-census-strategy` below exists.
+
+## stock-screen-census-strategy (GAME Mode = CAREER, 0 VESSELS, 3 recordings)
+
+`stock-screen-census` (a fresh build of it, in memory) WITHOUT its active strategy, so the one
+level-1 Administration slot is free and stock itself would allow an activation now, while the
+committed timeline still activates `OutsourcedResearchCfg` at UT 160000. That leaves Parsek's
+own activation refusals as the only ones on the Administration Accept button. Built by
+construction, never hand-edited: `Source/Parsek.Tests/StockScreenStrategyFixture.cs` (write it
+with `PARSEK_WRITE_STOCK_SCREEN_FIXTURE=1 dotnet test --filter WriteStrategyFixture`, and
+rewrite it whenever the census fixture is rewritten); `StockScreenStrategyFixtureTests`
+re-builds it, compares it with the committed tree, and reads it through
+`CommittedFutureIndex` to prove both refusals (the future activation of
+`OutsourcedResearchCfg`, and the slot that activation needs if `AppreciationCampaignCfg` were
+activated now). What the builder changes, and nothing else:
+
+- The census's two `AppreciationCampaignCfg` ledger rows are not written: the past activation
+  (UT 390, setup 70750) and the committed deactivation (UT 150000). The ledger holds the census's
+  other rows in the same order with the same action ids and sequence numbers (24 rows; the
+  sequence gaps where the two dropped rows were are left visible).
+- Stock state to match: the `STRATEGIES` list back to the base career's empty one (the census's
+  `STRATEGY` node removed), and the funds pool back to the base's 536558, since no setup cost was
+  charged.
+- The save title `stock-screen-census-strategy (CAREER)`. The recordings are the census's three.
+
+In career terms this is the census career in which the player never activated Appreciation
+Campaign; everything the census's other screens show is unchanged. Hosts
+`KB-5-strategy-activate-block-after-rewind`.
 
 ## stock-screen-census-repair (GAME Mode = CAREER, 0 VESSELS, 3 recordings)
 

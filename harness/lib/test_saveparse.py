@@ -2111,6 +2111,22 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "5c0c7e3a1b2d4f60a9e8d7c6b5a4f301"],
             "schemaGeneration": 4,
         },
+        # stock-screen-census-strategy is stock-screen-census WITHOUT its active strategy
+        # (no STRATEGY node, the base funds, the census's two AppreciationCampaignCfg
+        # ledger rows dropped), built by Source/Parsek.Tests/StockScreenStrategyFixture.cs
+        # for KB-5. No recording changes, so the census pins verbatim.
+        "stock-screen-census-strategy": {
+            "trees": 2, "committedTrees": 2, "recordings": 3,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1, "Recovered": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 10,
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
+                             "5436a7e8840b4c5885afcbaedc9dc037",
+                             "5c0c7e3a1b2d4f60a9e8d7c6b5a4f301"],
+            "schemaGeneration": 4,
+        },
         # --- THE FIRST SURFACE-ENDPOINT SUBJECT (ATMOSPHERIC) ------------
         # PROVENANCE: kerbin-splashdown-recorded <- B4-reentry-splashdown, run
         # 2026-08-24_1431, PASS attempt 1 (wall 1,065 s, mission wall 989.2 s,
