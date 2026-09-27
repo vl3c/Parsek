@@ -19,8 +19,12 @@ tier = "nightly"
 # split on `eva2-lko-crewed` (reading `2026-09-25_2051`, armed `_2053`). The owner ruling of
 # 2026-09-27 (Re-Fly is for vessel separations only; an EVA never gets a Rewind Point) removed
 # that RP, so the lane moved to the decoupler road GS-2 has flown green since 2026-08-05. The
-# Storage batch and its tally are unchanged; the save-side pins (vessels, recordings) were
-# re-measured on the re-hosted reading run named in docs/dev/autotest-status.md.
+# Storage batch and its tally are unchanged. READING RUN `2026-09-27_1127` (automation DLL sha256
+# `ecad1a0e...`, PASS attempt 1, MISSION-OK) re-measured the save-side pins: one RP
+# (`slots=2 controllablePids=2 focusSlot=0`, `bytes=290141`, which varies per flight and stays a
+# regex), `vessels=7` (the fixture's six VESSEL nodes plus the released "Kerbal X Probe"), and TWO
+# recordings (the pod stack keeps its recording across the tree-branching split, plus the probe's).
+# The tightened pins below were checked offline against that run's log and save, not re-flown.
 #
 # WHY A SECOND LANE. ST-1's host (`career-earned-pad`) cannot author an RP: its pad pod
 # has no decoupler, and stock spawnEVA refuses the Parsek stand-in sitting in it (ST-1
@@ -76,7 +80,7 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 2, max = 4 }
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required = [
@@ -84,7 +88,7 @@ required = [
   "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
   "\\[RewindSave\\] Wrote rp=rp_[0-9a-f]{32} path=Parsek/RewindPoints[\\\\/]rp_[0-9a-f]{32}\\.sfs bytes=[1-9][0-9]*",
   "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=Storage scene=FLIGHT",
-  "rewind point quicksaves: checked=1 vessels=[1-9][0-9]* bytes=[1-9][0-9]*",
+  "rewind point quicksaves: checked=1 vessels=7 bytes=[1-9][0-9]*",
   "path validation on live save: rejected=47 invalidCharIds=39 acceptedRecordings=0 resolvedOnDisk=0 acceptedRewindPoints=1",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
