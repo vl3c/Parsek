@@ -1357,10 +1357,29 @@ namespace Parsek
         /// 2, which makes the slot non-re-flyable.
         /// </para>
         /// <para>
-        /// DELIBERATELY SUPERSEDE-BLIND. This walker follows tree topology only; the
-        /// composite chain+supersede walk slots need lives in
+        /// A dangling or ambiguous hop (no resolvable child, or more than one claimant)
+        /// stops the walk and returns the last resolved tip, so callers see the
+        /// un-walked shape and take their existing path. Cycle-safe via a visited set
+        /// plus <see cref="MaxSwitchContinuationHops"/>.
+        /// </para>
+        /// <para>
+        /// <paramref name="treeContext"/> plumbing matters exactly as it does for
+        /// <see cref="ResolveChainTerminalRecording"/>: merge dialogs and the CommitTree
+        /// promotion pass run pre-commit, so the pending tree must be passed in rather
+        /// than looked up in <see cref="RecordingStore.CommittedTrees"/>.
+        /// </para>
+        /// <para>
+        /// DELIBERATELY SUPERSEDE-BLIND. This walker follows tree topology only, so a
+        /// hop can land on a recording a later re-fly has superseded. That is the same
+        /// one-level staleness the chain hop inside
+        /// <see cref="ResolveChainTerminalRecording"/> has, and it is safe for the same
+        /// reason: visibility / ERS filtering happens ABOVE this call (see
+        /// <see cref="IsVisible"/>, <see cref="ComputeERS"/> and the slot-anchor dedupe in
+        /// <c>TryResolveUnfinishedFlight</c>), and the composite chain+supersede walk
+        /// slots need lives in
         /// <see cref="EffectiveTipRecordingId(string, IReadOnlyList{RecordingSupersedeRelation})"/>.
-        /// Cycle-safe via a visited set plus <see cref="MaxSwitchContinuationHops"/>.
+        /// Do not fold supersede hops in here without re-reading why the two walkers are
+        /// separate.
         /// </para>
         /// </summary>
         internal static SlotVesselWalk WalkSlotVessel(
