@@ -258,11 +258,16 @@ namespace Parsek
             // walked history, not the raw provisional. An EVA (or a stock Switch-To)
             // during the session ends the provisional at that branch point with no
             // terminal; the vessel's ending is on the continuation the slot walk
-            // reaches. See ValidateReFlySessionSupersedeSource.
+            // reaches. REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE: an undock the session
+            // performed ends the fork at a separation the walk does not cross; the
+            // marker lets the validation accept that as the slot's end. See
+            // ValidateReFlySessionSupersedeSource.
             string invariantReason;
             SlotVesselWalk sessionWalk;
+            BranchPoint sessionSeparation;
             if (!ValidateReFlySessionSupersedeSource(
-                    provisional, null, out invariantReason, out sessionWalk))
+                    provisional, null, marker, out invariantReason, out sessionWalk,
+                    out sessionSeparation))
             {
                 ParsekLog.Warn(Tag,
                     $"AppendRelations outcome=refused-unflown-provisional " +
@@ -276,7 +281,19 @@ namespace Parsek
                     $"rows and completing the merge (origin stays effective)");
                 return new List<string>();
             }
-            if (sessionWalk?.Tip != null && !ReferenceEquals(sessionWalk.Tip, provisional))
+            if (sessionSeparation != null)
+            {
+                ParsekLog.Info(Tag,
+                    $"AppendRelations outcome=validated-at-session-separation " +
+                    $"provisional={provisional.RecordingId ?? "<no-id>"} " +
+                    $"sess={marker.SessionId ?? "<no-id>"} " +
+                    $"bp={sessionSeparation.Id ?? "<no-id>"} type={sessionSeparation.Type} " +
+                    $"bpUT={sessionSeparation.UT.ToString("R", ic)} " +
+                    $"{DescribeSessionWalk(sessionWalk)} -- the re-flown vessel's flight for this " +
+                    $"slot ended at a separation this session authored (no terminal on the " +
+                    $"parent by recorder contract); it replaces the old stretch");
+            }
+            else if (sessionWalk?.Tip != null && !ReferenceEquals(sessionWalk.Tip, provisional))
             {
                 ParsekLog.Info(Tag,
                     $"AppendRelations outcome=validated-through-vessel-walk " +
@@ -2953,19 +2970,37 @@ namespace Parsek
         /// on the provisional (same reasons), so a placeholder, an unflown provisional,
         /// a docked fork (closed <c>Docked</c>) and a staging fork (keeps its id through a
         /// tree-branching split) decide as before. A walk that STOPS at a real separation
-        /// (Undock / JointBreak / Breakup / a foreign Board) leaves the tip on the fork, so
-        /// that shape is unchanged too.
+        /// (Undock / JointBreak / Breakup / a foreign Board) leaves the tip on the fork;
+        /// the marker overload below decides whether that stop concludes the slot.
         /// <para>
         /// Rows still name the provisional as <c>NewRecordingId</c>: it is the HEAD of
         /// the new flight, and the slot tip is reached from it through the same walk
         /// (<c>EffectiveState.EffectiveTipRecordingId</c>).
         /// </para>
+        /// <para>
+        /// The marker overload adds one more way to conclude
+        /// (REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE): a walked tip with no terminal whose
+        /// walk STOPPED at a separation THIS session authored
+        /// (<see cref="IsSessionSeparationStop"/>). An undock ends the parent recording
+        /// at the Undock split with its terminal untouched, and the slot walk stops at a
+        /// separation by design (section 1.6), so the vessel's flight for this slot ends
+        /// there. Without a marker (or with a legacy marker carrying no pre-session
+        /// baseline) the rule cannot prove the separation belongs to the session and
+        /// the refusal stands.
+        /// </para>
         /// </summary>
         internal static bool ValidateReFlySessionSupersedeSource(
             Recording provisional, RecordingTree treeContext,
             out string reason, out SlotVesselWalk walk)
+            => ValidateReFlySessionSupersedeSource(
+                provisional, treeContext, null, out reason, out walk, out _);
+
+        internal static bool ValidateReFlySessionSupersedeSource(
+            Recording provisional, RecordingTree treeContext, ReFlySessionMarker marker,
+            out string reason, out SlotVesselWalk walk, out BranchPoint sessionSeparation)
         {
             walk = null;
+            sessionSeparation = null;
             if (provisional == null)
             {
                 reason = "null recording";
@@ -2976,7 +3011,19 @@ namespace Parsek
                 provisional, treeContext, followOwnEvaBoard: true, collectDetail: true);
             Recording tip = walk?.Tip;
             if (tip == null || ReferenceEquals(tip, provisional))
-                return ValidateSupersedeTarget(provisional, out reason);
+            {
+                if (ValidateSupersedeTarget(provisional, out reason))
+                    return true;
+                // Only the missing-terminal refusal can be answered by a session
+                // separation; a payload refusal (placeholder / unflown) always stands.
+                if (string.Equals(reason, "null TerminalState", StringComparison.Ordinal)
+                    && IsSessionSeparationStop(walk, marker, treeContext, out sessionSeparation))
+                {
+                    reason = null;
+                    return true;
+                }
+                return false;
+            }
 
             if (!HasPlayableSupersedePayload(provisional)
                 && !HasPlayableSupersedePayload(tip)
@@ -2985,12 +3032,48 @@ namespace Parsek
                 reason = provisional.Points == null ? "null Points" : "empty Points";
                 return false;
             }
-            if (!tip.TerminalStateValue.HasValue)
+            if (!tip.TerminalStateValue.HasValue
+                && !IsSessionSeparationStop(walk, marker, treeContext, out sessionSeparation))
             {
                 reason = "null TerminalState";
                 return false;
             }
             reason = null;
+            return true;
+        }
+
+        /// <summary>
+        /// True when <paramref name="walk"/> stopped, on its tip, at a vessel SEPARATION
+        /// (<see cref="BranchPointType.Undock"/>, <see cref="BranchPointType.JointBreak"/>,
+        /// <see cref="BranchPointType.Breakup"/>) that the live Re-Fly session authored:
+        /// the branch point is not in <see cref="ReFlySessionMarker.PreSessionBranchPointIds"/>
+        /// and names the tip as a parent. Those are exactly the section 4.9 rule 2
+        /// structural mutations, so a merge that concludes here also seals the slot.
+        /// False for a null walk / marker, a legacy marker with no baseline, a walk that
+        /// stopped at no branch point, a Dock / Board / EVA stop, or an unresolved point.
+        /// </summary>
+        internal static bool IsSessionSeparationStop(
+            SlotVesselWalk walk, ReFlySessionMarker marker, RecordingTree treeContext,
+            out BranchPoint separation)
+        {
+            separation = null;
+            if (walk?.Tip == null || marker == null) return false;
+            if (marker.PreSessionBranchPointIds == null) return false;
+            string bpId = walk.StopBranchPointId;
+            if (string.IsNullOrEmpty(bpId)) return false;
+            if (marker.PreSessionBranchPointIds.Contains(bpId)) return false;
+
+            RecordingTree tree = EffectiveState.ResolveOwningTree(walk.Tip, treeContext);
+            BranchPoint bp = EffectiveState.FindBranchPointByIdInTree(tree, bpId);
+            if (bp == null) return false;
+            if (bp.Type != BranchPointType.Undock
+                && bp.Type != BranchPointType.JointBreak
+                && bp.Type != BranchPointType.Breakup)
+                return false;
+            if (bp.ParentRecordingIds == null
+                || !bp.ParentRecordingIds.Contains(walk.Tip.RecordingId))
+                return false;
+            separation = bp;
             return true;
         }
 
@@ -3158,7 +3241,8 @@ namespace Parsek
             // a row" holds by construction (a retired provisional has left its tree, so
             // the walk takes no hop and this is the raw check).
             string validationReason;
-            if (ValidateReFlySessionSupersedeSource(retired, null, out validationReason, out _))
+            if (ValidateReFlySessionSupersedeSource(
+                    retired, null, marker, out validationReason, out _, out _))
             {
                 ParsekLog.Warn(Tag,
                     $"ConcludeRetiredProvisional: refusing the no-op route — provisional " +

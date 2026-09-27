@@ -337,7 +337,7 @@ namespace Parsek
             string ignoredValidationReason;
             bool retiredValidates = haveRetired
                 && SupersedeCommit.ValidateReFlySessionSupersedeSource(
-                    retired, null, out ignoredValidationReason, out _);
+                    retired, null, marker, out ignoredValidationReason, out _, out _);
 
             var decision = ReFlyConclusionRoute.Classify(
                 marker, provisionalId, haveRetired ? retired : null, retiredValidates);

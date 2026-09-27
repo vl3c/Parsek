@@ -63,18 +63,38 @@ mid-session marker validation + `LoadTimeSweep`; mirror cells for no-branch / Do
 Undock). Mutation-tested: reverting any of the three changes reds cells. Live lane
 `RF-19-refly-session-eva-reboard-merges`. Design: `docs/parsek-rewind-to-separation-design.md` section 6.12.
 
-## REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE: a Re-Fly session that UNDOCKS the re-flown vessel merges with 0 supersede rows [FILED 2026-09-27 from the mirror check of REFLY-SESSION-EVA-CANNOT-SUPERSEDE. OPEN]
+## ~~REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE: a Re-Fly session that UNDOCKS the re-flown vessel merges with 0 supersede rows~~ [FILED 2026-09-27 from the mirror check of REFLY-SESSION-EVA-CANNOT-SUPERSEDE; OWNER-APPROVED FIX 2026-09-27; FIXED 2026-09-27, branch `refly-session-undock-merge`]
 
 **Shape.** An undock ends the parent recording at the Undock branch point with its terminal untouched
 (`docs/dev/dock-undock-recording-structure.md` section 4), and an undock is a separation, so the slot
 walk stops there by design. The fork therefore still reads `null TerminalState` and the merge logs
 `outcome=refused-unflown-provisional ... walkStop=notSwitchBranchPoint`, keeping the old stretch next to
 the new one. Dock (closed `Docked`) and staging (tree-branching: the fork keeps its id and its own
-terminal) are unaffected. Pinned by `ReFlySessionEvaMergeTests.Mirror_Undock_WalkStopsAtTheUndock_StillRefused_KnownGap`.
+terminal) are unaffected.
 
-**Proposed fix.** Accept a fork whose walk stopped at a branch point the SESSION authored (not in
-`marker.PreSessionBranchPointIds`) as concluded: rows written, and Site B-1 already seals the slot
-(`structuralMutation` / `downstreamBp`, design section 4.9 rules 2 and 4). Needs its own lane.
+**Fix (as proposed, owner-approved 2026-09-27).** `SupersedeCommit.ValidateReFlySessionSupersedeSource`
+gains a marker overload: a walked tip with no terminal is concluded when the walk STOPPED at a
+separation the session authored (`IsSessionSeparationStop`: `Undock` / `JointBreak` / `Breakup`, the tip
+among its parents, not in `marker.PreSessionBranchPointIds`). Only the missing-terminal refusal can be
+answered that way (payload refusals stand); a pre-session separation or a legacy marker with no baseline
+keeps the refusal. `AppendRelations` passes the marker and logs
+`outcome=validated-at-session-separation ... bp=... type=Undock`; the three conclusion-side callers pass it
+too, so they keep agreeing with it. Reuses #1909 unchanged: the one slot walk, the session-owned closure
+fence (both halves are the fork's descendants) and the walked-tip MergeState write (the tip is the fork
+itself). The slot seals through Site B-1's existing `classifierClosed:downstreamBp` (section 4.9 rule 4),
+which closes before the rule 2 structural gate is reached.
+
+**Tests.** `ReFlySessionEvaMergeTests`: the old known-gap pin is now
+`Merge_Undock_SupersedesAndSealsOnTheSessionSeparation` (survivor Landed and Destroyed), plus crash
+recovery through `MergeJournalOrchestrator.RunFinisher`, mid-session `MarkerValidator` + `LoadTimeSweep`,
+a pre-session undock and a legacy marker (both still refused), and the pure `IsSessionSeparationStop` gates.
+Mutation: passing a null marker to `AppendRelations` reds exactly the three undock-merge cells.
+
+**No live lane.** No committed fixture can host it: the only Undock Rewind Point
+(`bdock-recorded` / `bdock-second-dock-recorded`, bp `857e997a`) splits a two-vessel docked pair into two
+single vessels, so re-flying either half can undock only after docking again, and a session-time dock
+closes the fork `Docked` (already validated). A host needs a Rewind Point whose slot vessel is itself a
+docked assembly at the rewind point (a three-body stack), which is a new harvest flight plus mission work.
 
 ## ~~REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA: a separation slot whose vessel put a crew member out on EVA was refused `downstreamBp`~~ [FOUND 2026-09-27 behind REFLY-SEPARATIONS-ONLY; OWNER DECISIONS 2026-09-27 (interview); IMPLEMENTED 2026-09-27, branch `refly-through-eva`]
 
