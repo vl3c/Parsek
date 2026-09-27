@@ -60,9 +60,21 @@ id = "EVA-6-placed-part-spawn-after-rewind"
 # adopting`, correct) tripped the adoption guard, which now reads only after the rewind.
 # Measured there: the kerbal recording ran UT 1279.4 -> 1282.0, the rewind landed at
 # 1264.4, and both spawns fired at UT ~1282 (MissionMark cadence 0.25 s, so the 240-mark
-# wait reaches ~1328). SEPARATE FINDING, not this lane's claim: the rewind also stripped
-# the fixture's own Kerbal X capsule (the boot had resumed its committed recording) and
-# nothing re-spawned it (todo REWIND-STRIPS-RESUMED-COMMITTED-TIP).
+# wait reaches ~1328). SEPARATE FINDING there: the rewind also stripped the fixture's own
+# Kerbal X capsule (the boot had resumed its committed recording) and nothing re-spawned it
+# (todo REWIND-STRIPS-RESUMED-COMMITTED-TIP).
+#
+# THE CAPSULE STAYS (PR #1891, the fix for that finding). The pre-load strip is scoped at
+# the rewind's adjusted UT, so the capsule (no recording that replays after the rewind
+# re-produces it) is committed history: `Rewind strip scope: ... keptHistoryPids=1`, the
+# `keep spawned pid=<capsule> of 'Kerbal X' ... as committed history` line, and the OnLoad
+# `Keeping vessel '#autoLOC_501232' (pid=<capsule> ...) ... pre-existing in launch/rewind
+# quicksave`, tied by the pid. Both strip forms for it are forbidden. First flown
+# `2026-09-27_1026` PASS attempt 1 (produced save holds the capsule, LANDED); these tokens
+# were added off that log. Offline through hlib.evaluate_expectations: that log green; the
+# pre-fix `2026-09-26_2106` log red on the two required tokens and the OnLoad strip line
+# (it predates the scope log, so the scope strip form is proven by a seeded line instead,
+# red on exactly that token).
 
 tier = "nightly"
 description = "A ground part an EVA kerbal places and leaves comes back as a real vessel after a rewind: on kerbin-splashdown-recorded Jeb steps out of his landed capsule 1,690 km from the pad, a recording started on the kerbal places a Breaking Ground seismometer and leaves it (its own GroundPartPlaced tree member, ending Landed), commit, Rewind-to-Launch to before the placement, and 1x Space Center time spawns the member through the ordinary KSC spawn-at-end, never retired; Jeb, left out on EVA, spawns beside it."
@@ -369,10 +381,11 @@ allowedAnomalies = []
 [expectations.recordings]
 count = { min = 11, max = 11 }
 
-# REPORT-ONLY: the produced save holds the two spawned vessels, once each.
+# REPORT-ONLY: the produced save holds the two spawned vessels, once each, and the
+# fixture's capsule (`#autoLOC_501232`, kept as committed history since PR #1891).
 [expectations.recordings.structure]
 gating      = false
-vesselNames = { "Grand Slam Passive Seismometer" = 1, "Jebediah Kerman" = 1 }
+vesselNames = { "Grand Slam Passive Seismometer" = 1, "Jebediah Kerman" = 1, "#autoLOC_501232" = 1 }
 
 [expectations.logContracts]
 required = [
@@ -391,9 +404,15 @@ required = [
   "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=[0-9]+ rec=([0-9a-f]+) parentRec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*MISSIONMARK label=eva6-rewound-count-11-[^\\r\\n]*-\\2-false-0(?:-|\\s)",
   "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva6-rewound-count-11-[^\\r\\n]*-\\1-false-0(?:-|\\s)[\\s\\S]*same-recording spawn suppression lifted for standalone rewind target rec=\\1 [\\s\\S]*\\[KSCSpawn\\] Attempting spawn for #([0-9]+) \\\"Jebediah Kerman\\\" \\(id=\\1\\)[\\s\\S]*\\[KSCSpawn\\] Vessel spawned for #\\2 \\\"Jebediah Kerman\\\" pid=([0-9]+) sit=LANDED [\\s\\S]*MISSIONMARK label=eva6-kscspawn-count-11-[^\\r\\n]*-\\1-true-\\3(?:-|\\s)",
   "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=[0-9]+ rec=([0-9a-f]+) parentRec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva6-rewound-count[\\s\\S]*\\[KSCSpawn\\] Attempting spawn for #([0-9]+) \\\"[^\\\"\\r\\n]*\\\" \\(id=\\2\\)[\\s\\S]*\\[KSCSpawn\\] Vessel spawned for #\\4 \\\"[^\\\"\\r\\n]*\\\" pid=([0-9]+) sit=LANDED [\\s\\S]*MISSIONMARK label=eva6-kscspawn-count-11-[^\\r\\n]*-\\2-true-\\5(?:-|\\s)",
+  # The fixture's capsule is committed history and survives the rewind (PR #1891).
+  "\\[Parsek\\]\\[INFO\\]\\[Rewind\\] Rewind strip scope: adjustedUT=[0-9.]+ stripPids=[0-9]+ keptHistoryPids=1 keptHolders=[0-9]+",
+  "Rewind strip scope: keep spawned pid=([0-9]+) of 'Kerbal X' \\(id=[0-9a-f]{32}\\) as committed history[\\s\\S]*Keeping vessel '#autoLOC_501232' \\(pid=\\1, guid=[0-9a-f]{32}, situation=LANDED\\)[^\\r\\n]*pre-existing in launch/rewind quicksave",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
+  # The capsule stripped, by either pass (PR #1891).
+  "Rewind strip scope: strip spawned pid=[0-9]+ of 'Kerbal X'",
+  "Stripping orphaned spawned vessel '#autoLOC_501232'",
   "evagroundscience failed",
   "evagroundscience refused",
   "Ground part placement not recorded",

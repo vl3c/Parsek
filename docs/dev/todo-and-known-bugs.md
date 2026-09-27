@@ -483,7 +483,7 @@ kerbal's own KSC spawn (`Attempting spawn for #9 "Jebediah Kerman" (id=<kerbal r
 ... sit=LANDED`, after the #573 standalone lift) and forbids the safety-net answer; green on
 `2026-09-26_2058` and `_2106`.
 
-## ~~REWIND-STRIPS-RESUMED-COMMITTED-TIP: a rewind of a later tree strips an earlier tree's spawned vessel and nothing re-spawns it~~ [FILED 2026-09-27 from EVA-6's reading run, branch `eva-placed-spawn-lane`; FIXED 2026-09-27, branch `fix-rewind-strips-tip`]
+## ~~REWIND-STRIPS-RESUMED-COMMITTED-TIP: a rewind of a later tree strips an earlier tree's spawned vessel and nothing re-spawns it~~ [FILED 2026-09-27 from EVA-6's reading run, branch `eva-placed-spawn-lane`; FIXED 2026-09-27, branch `fix-rewind-strips-tip`; LIVE-PROVEN 2026-09-27, EVA-6 `2026-09-27_1026`]
 
 **Evidence** (`2026-09-26_2058` and `_2106`, `kerbin-splashdown-recorded`). The boot lands in FLIGHT on
 the fixture's committed tip, the Kerbal X capsule (pid 2708531065), and restores its tree
@@ -532,10 +532,13 @@ is gone), which is how a revert already treats an earlier tree's vessels. A latc
 recording is still stripped and re-spawned as before. Unit tests `RewindHistorySpawnScopeTests` (the
 EVA-6-shaped repro fails with the old strip set; mirror cases: latched holder, replaying chain tip,
 replaying continuation, replaying flier of a unique spawn pid, same-craft relaunch with a different
-guid kept, NaN UT). Live proof pending: EVA-6 re-flown should log `Rewind strip scope: ...
-keptHistoryPids=1`, `Keeping vessel '#autoLOC_501232' (pid=2708531065 ...) - pre-existing in
-launch/rewind quicksave`, no `Stripping orphaned spawned vessel '#autoLOC_501232'`, and the
-produced save should hold the capsule.
+guid kept, NaN UT). LIVE-PROVEN 2026-09-27: EVA-6 re-flown `2026-09-27_1026`, PASS attempt 1, logs
+`Rewind strip scope: adjustedUT=1264.2 stripPids=2 keptHistoryPids=1 keptHolders=1`, `keep spawned
+pid=2708531065 of 'Kerbal X' ... as committed history`, `Keeping vessel '#autoLOC_501232'
+(pid=2708531065 ...) ... pre-existing in launch/rewind quicksave`, no strip line for the capsule,
+and the produced save holds it LANDED. EVA-6 now requires those tokens (the pid tied by
+backreference) and forbids both strip forms; offline it is green on `_1026` and red on the
+pre-fix `2026-09-26_2106` log.
 
 **Open, not fixed here.** The pre-load strip's NAME half (`BuildRewindStripNames`: the rewind
 owner's vessel name) is still name-only: rewinding a relaunch of the same craft also strips an
@@ -640,7 +643,9 @@ enable`. Cells: `MissionStoreTests.Clone_OfLoopingMission_LeavesExactlyOneLoopOn
 `Clone_CopiesSelection_IntoAnIndependentMission`. `MS-1-mission-leg-trim-clone` drops the copy's
 `MissionLoopUnit` token (it only existed because of this defect), pins `loop=false` plus the new
 store line, and forbids `already owned by another looping unit`; those tokens are re-cut from
-source and not yet re-read on a flight. The Clone tooltip now also says a looping mission's copy
+source and first flew `2026-09-27_0916`, PASS attempt 1 (automation DLL sha256 `aaab4f0a...`:
+`Clone: copy 'Kerbal X copy' ... created with loop OFF`, payload `loop=false`, the forbidden line
+absent). The Clone tooltip now also says a looping mission's copy
 starts with Loop off (operator request with the confirmation; the Loop toggle's own tooltip
 already names the one-loop-per-tree clear). Operator context: mission looping is mostly a
 debugging surface today and its player-facing controls may be removed in a later version, once
@@ -2959,7 +2964,7 @@ repair, the repair is a future row; if the player repaired again before its date
 charged both repairs (stock charged only the new one live). Repairs now get the same block
 as facility upgrades. See KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE.
 
-## ~~KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE: re-repairing a building before a committed future repair charges both~~ [FILED 2026-09-23 on branch `ksc-facility-ledger`; FIXED 2026-09-26 on branch `fix-ksc-repair-block`]
+## ~~KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE: re-repairing a building before a committed future repair charges both~~ [FILED 2026-09-23 on branch `ksc-facility-ledger`; FIXED 2026-09-26 on branch `fix-ksc-repair-block`; LIVE-PROVEN 2026-09-27, KB-2 `2026-09-27_1024`]
 
 A KSC repair is an untagged spending row (`FacilityRepair`, cost in `FacilityCost`). A Parsek
 rewind to a UT between a building's destruction and that repair keeps the repair as a future
@@ -2991,8 +2996,8 @@ annotation; stock has no tooltip on Repair, so the controller is added with a co
 prefab, the Upgrade button's mechanism, and falls back to the description text with no
 prefab). New `StockUiDecorationKind.FacilityRepair` (tab `Repair`), logged as the facility
 menu pass's item line so the GUI mirror pairs it. Pinned by `FacilityRepairBlockTests` and a
-`test_gui_mirror` parse cell. Not proven in game yet. **Live-proof lane (authored 2026-09-27,
-branch `lane-ksc-repair-block`, NOT FLOWN):** `KB-2-ksc-repair-block-after-rewind` on the new
+`test_gui_mirror` parse cell. **Live-proof lane (authored 2026-09-27, branch
+`lane-ksc-repair-block`; LIVE-PROVEN AND ARMED 2026-09-27):** `KB-2-ksc-repair-block-after-rewind` on the new
 committed fixture `stock-screen-census-repair` (`stock-screen-census` with the Tracking Station
 `OuterDish` destroyed, its `FacilityDestruction` row at UT 400 before the clock and a committed
 `FacilityRepair` row at UT 80000 after it; `Source/Parsek.Tests/StockScreenRepairFixture.cs`).
@@ -3000,8 +3005,13 @@ It gates on the Repair decoration line, the `control ... name=Repair:SpaceCenter
 ... interactable=false` readback, the `Blocking facility repair` refusal of the menu's own
 `RepairFacility(true)` (driven by `KscAction repair-facility`), the blocked dialog, and
 `kscaction repair-facility not applied: ... fundsBefore=X fundsAfter=X fundsDelta=0`, with any
-StructureRepair funds change, `BuildingRepaired` or second `FacilityRepair` row forbidden. The
-live proof is its reading flight (then a negative control).
+StructureRepair funds change, `BuildingRepaired` or second `FacilityRepair` row forbidden. Reading
+run `2026-09-27_1024` PASS attempt 1 (automation DLL sha256 `5822aaec...`): every token matched
+as written, Repair `interactable=false` before and after the refusal, `fundsBefore=232416.75
+fundsAfter=232416.75 fundsDelta=0`, no forbidden line. Offline negative controls through
+`hlib.evaluate_expectations` over that log: green as recorded, red on exactly the two gated
+readback tokens with the readback flipped to `interactable=true`, and on exactly the refusal token
+with that line removed. Armed with no token change.
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 
@@ -13602,7 +13612,7 @@ goes INTO the 1.25 m section of the stack (it is a structural section, not a
 nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
 is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
 
-## ~~CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move~~ [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. FIXED 2026-09-27, branch `fix-cargobay-deploy-limit`; unit-proven, no stock-Mallard flight yet]
+## ~~CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move~~ [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. FIXED 2026-09-27, branch `fix-cargobay-deploy-limit`; LIVE-PROVEN on the stock Mallard 2026-09-27, BAY-1 `2026-09-27_1029`]
 
 THE MEASUREMENT. The stock `Mallard` ships its three Mk3 bays with `ModuleAnimateGeneric`
 `allowDeployLimit = true` and `deployPercent = 44 / 45 / 51`. BAY-1's first reading run flew
@@ -13645,8 +13655,11 @@ doors stopped. The snapshot baseline reads the same node through the same resolv
 recorded open at its limit spawns open at that pose. Limitation: the pose follows the
 snapshot's limit; a player who drags the slider mid-flight changes the real stop, and the
 ghost keeps the snapshot's (no event records the slider, by design: it is not a door edge).
-Tests: `CargoBayDeployLimitTests`. BAY-1 is unchanged (still the `deployPercent = 100`
-fixture); proving the stock Mallard needs a re-flight with the stock limits restored.
+Tests: `CargoBayDeployLimitTests`. Live: BAY-1's fixture craft is back to the stock 44/45/51% limits
+and its reading run `2026-09-27_1029` read PASS attempt 1: census `limitStop=0.56` / `0.55` /
+`0.49`, three `CargoBayOpened` and three `CargoBayClosed` edges, the ghost pose sampled at
+`animTime=0.560` / `0.550` / `0.490`, and the applier `applied=1 skipped=0` for all six. The D7
+`bays` claim now rests on the stock bays.
 
 ## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. The route-driven ruling is OPERATOR-CONFIRMED 2026-09-26]
 
