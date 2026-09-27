@@ -1969,6 +1969,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Re-Fly is for vessel separations only: EVA kerbals no longer appear in Unfinished Flights and
+  cannot be re-flown.** Rewind Points are made when a vessel stages, decouples or undocks into two
+  or more controllable pieces, so a booster or lander can be flown again from the moment it
+  separated. Going EVA is not a separation: it no longer makes a Rewind Point, and an EVA kerbal
+  (stranded, crashed or killed) is never listed in Unfinished Flights. If something goes wrong on
+  an EVA, use F9 (quickload) or Discard the flight. Rewind Points an earlier version made at an
+  EVA are removed when the save loads (their quicksave file is deleted and the slots they held
+  open are closed), except one a Re-Fly in progress is using, which is removed after that Re-Fly
+  ends. Nothing else about EVAs changes: they are still recorded and replayed as before.
 - **Recordings tab: a presentation round.** How the table shows recordings changes; the one
   data effect is that a mission folder's Loop box now also sets the launched vessel's loop
   range, as that vessel's own chain row did before (see the last bullet).
