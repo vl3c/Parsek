@@ -275,7 +275,20 @@ namespace Parsek
                 ActiveStandInOwner = name => LedgerOrchestrator.Kerbals?.FindActiveStandInOwner(name),
                 SeatSharedOwner = StandInSeatCount.LiveSeatSharedOwner,
                 IsLoopingRecording = IsRecordingInLoopingChain,
+                LossReFlyReachable = BuildLazyLossReFlyReachable(),
                 LiveCrewOrTourist = liveCrewOrTourist
+            };
+        }
+
+        /// <summary>The open-Re-Fly reach set is computed on the first Lost explanation
+        /// the context builds, not per context: most screens show no Lost kerbal.</summary>
+        private static Func<string, bool> BuildLazyLossReFlyReachable()
+        {
+            Func<string, bool> inner = null;
+            return id =>
+            {
+                if (inner == null) inner = EffectiveState.BuildLossReFlyReachablePredicate();
+                return inner(id);
             };
         }
 

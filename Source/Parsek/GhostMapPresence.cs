@@ -5059,7 +5059,12 @@ namespace Parsek
             {
                 IReadOnlyList<RecordingSupersedeRelation> supersedes =
                     ParsekScenario.Instance?.RecordingSupersedes;
-                tipId = EffectiveState.EffectiveTipRecordingId(rec.RecordingId, supersedes);
+                // A rendering read, not a slot question: borrow the tip's orbit
+                // segments across chain / switch hops only, never across the vessel's
+                // own EVA / Board branch points the slot walk follows.
+                tipId = EffectiveState.EffectiveTipRecordingId(
+                    rec.RecordingId, supersedes, recById: null, treeContext: null,
+                    followOwnEvaBoard: false);
                 chainTipSegmentsCache[rec.RecordingId] = tipId ?? string.Empty;
             }
 

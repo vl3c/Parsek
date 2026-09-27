@@ -105,6 +105,11 @@ namespace Parsek
         /// only then does the stand-in's tooltip say it does not count against the limit.</summary>
         internal Func<string, string> SeatSharedOwner;
         internal Func<string, bool> IsLoopingRecording;
+        /// <summary>True when an open Re-Fly would rewrite the given (death) recording, so
+        /// a Lost explanation may name the Re-Fly way back
+        /// (<see cref="KerbalsPresentation.ShouldOfferLostReFlyRemedy"/>); null offers it
+        /// never.</summary>
+        internal Func<string, bool> LossReFlyReachable;
         /// <summary>Names already in the live Crew or Tourist lists: a committed future
         /// hire of one of them is moot, so it is not marked.</summary>
         internal ISet<string> LiveCrewOrTourist;
@@ -340,7 +345,8 @@ namespace Parsek
             KerbalsModule.KerbalReservation reservation,
             string slotOwner,
             Func<string, bool> isLoopingRecording,
-            Func<double, string> formatDate)
+            Func<double, string> formatDate,
+            Func<string, bool> lossReFlyReachable = null)
         {
             if (KerbalsModule.IsLossHold(reservation))
             {
@@ -357,7 +363,9 @@ namespace Parsek
                 return ReservationExplanation.KerbalLost(
                     death?.RecordingName,
                     reservation.IsPermanent ? double.NaN : reservation.ReservedUntilUT,
-                    formatDate);
+                    formatDate,
+                    offerReFlyRemedy: KerbalsPresentation.ShouldOfferLostReFlyRemedy(
+                        death?.RecordingId, lossReFlyReachable));
             }
 
             double release = reservation != null ? reservation.ReservedUntilUT : double.PositiveInfinity;
@@ -579,7 +587,8 @@ namespace Parsek
                     var reservation = context.Reservation != null ? context.Reservation(name) : null;
                     string owner = context.SlotOwner != null ? context.SlotOwner(name) : null;
                     var text = StockUiReservationPredicates.ExplainKerbalReservation(
-                        index, name, reservation, owner, context.IsLoopingRecording, formatDate);
+                        index, name, reservation, owner, context.IsLoopingRecording, formatDate,
+                        context.LossReFlyReachable);
                     Mark(ref d,
                         KerbalsModule.IsLossHold(reservation)
                             ? StockUiDecorationKind.KerbalLost

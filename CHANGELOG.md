@@ -1926,6 +1926,19 @@ _(unreleased — entries accumulate here per commit)_
   EVA are removed when the save loads (their quicksave file is deleted and the slots they held
   open are closed), except one a Re-Fly in progress is using, which is removed after that Re-Fly
   ends. Nothing else about EVAs changes: they are still recorded and replayed as before.
+- **A separated vessel stays re-flyable after a crew member's EVA.** A stage or lander that
+  separated at a Rewind Point is now followed through its own crew's EVAs: if a kerbal steps
+  out (for an EVA report, a surface sample, a flag) and climbs back in, and the vessel later
+  crashes or is left in orbit, it is offered in Unfinished Flights exactly as it would be
+  without the EVA. Before, the EVA ended the vessel's flight and the Re-Fly was refused.
+  Re-flying the vessel from its separation replays the EVA as well: the kerbal is aboard at the
+  separation, his old EVA and anything he placed (ground experiments, flags) stop replaying,
+  and if he died on that EVA the death is undone. The usual limits still apply across the EVA:
+  science the kerbal earned on it (EVA Report, Surface Sample and the like) closes the Re-Fly the
+  same as science earned aboard, and if the kerbal boarded a different vessel instead of coming
+  back, the vessel can no longer be re-flown. A kerbal left standing on EVA, or who died on it,
+  does not block it. The Kerbals window's Lost hover now says "re-flying it can undo the loss"
+  only when an open Unfinished Flight would actually undo that kerbal's death.
 - **Recordings tab: a presentation round.** How the table shows recordings changes; the one
   data effect is that a mission folder's Loop box now also sets the launched vessel's loop
   range, as that vessel's own chain row did before (see the last bullet).

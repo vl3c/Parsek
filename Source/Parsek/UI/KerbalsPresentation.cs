@@ -587,7 +587,8 @@ namespace Parsek
             IReadOnlyList<string> retired,
             IReadOnlyList<FlightGroup> flights,
             KerbalsWindowUI.ActiveChainIndexFunc activeChainIndexOf,
-            Func<double, string> formatDate)
+            Func<double, string> formatDate,
+            Func<string, bool> lossReFlyReachable = null)
         {
             var set = new RosterRowSet
             {
@@ -726,7 +727,8 @@ namespace Parsek
                 GroupOf = groupOf,
                 LastFlightOf = lastFlightOf,
                 DeathFlightOf = deathFlightOf,
-                FormatDate = formatDate
+                FormatDate = formatDate,
+                LossReFlyReachable = lossReFlyReachable
             };
 
             // Top level: every name that is not listed under an owner. Each owner is
@@ -764,6 +766,7 @@ namespace Parsek
             public Dictionary<string, FlightRow> LastFlightOf;
             public Dictionary<string, FlightRow> DeathFlightOf;
             public Func<double, string> FormatDate;
+            public Func<string, bool> LossReFlyReachable;
         }
 
         private static void EmitRowWithMembers(
@@ -862,7 +865,11 @@ namespace Parsek
                 StatusText = FormatStatus(status, name, slotOwner, hold,
                     assignedVessel, eva, releaseDateText),
                 StatusTooltipText = FormatStatusTooltip(status, name, slotOwner, hold,
-                    death, assignedVessel, eva, releaseDateText),
+                    death, assignedVessel, eva, releaseDateText,
+                    offerReFlyRemedy: status == RosterStatus.Lost
+                        && ShouldOfferLostReFlyRemedy(
+                            death.HasValue ? death.Value.RecordingId : null,
+                            ctx.LossReFlyReachable)),
                 LastFlightText = FormatLastFlight(name, ctx.LastFlightOf),
                 LastFlightRecordingId = hasFlights && !string.IsNullOrEmpty(lastRow.RecordingId)
                     ? lastRow.RecordingId
@@ -1145,6 +1152,23 @@ namespace Parsek
         internal const string LostReFlyRemedy =
             "If that mission has a rewind point, re-flying it can undo the loss.";
 
+        /// <summary>
+        /// Whether the Lost hover may offer <see cref="LostReFlyRemedy"/> (owner ruling
+        /// 2026-09-27): only when an open Unfinished Flight exists whose Re-Fly would
+        /// actually reach this kerbal's loss - he died aboard that slot's vessel, or on
+        /// an EVA from it, inside the stretch the re-fly rewrites.
+        /// <paramref name="reFlyReachable"/> answers that for a recording id
+        /// (<c>EffectiveState.BuildLossReFlyReachablePredicate</c> in play); a death with
+        /// no recording, or no predicate, never offers it.
+        /// </summary>
+        internal static bool ShouldOfferLostReFlyRemedy(
+            string deathRecordingId, Func<string, bool> reFlyReachable)
+        {
+            return !string.IsNullOrEmpty(deathRecordingId)
+                && reFlyReachable != null
+                && reFlyReachable(deathRecordingId);
+        }
+
         /// <summary>The release rule a Lost hover carries when the death's stock crew
         /// respawn is pending (owner ruling S8): the respawn policy in force at the death
         /// brings the kerbal back on that date.</summary>
@@ -1176,7 +1200,8 @@ namespace Parsek
             FlightRow? death,
             string assignedVesselName,
             bool assignedVesselIsEva,
-            string releaseDateText = null)
+            string releaseDateText = null,
+            bool offerReFlyRemedy = false)
         {
             string rule = string.IsNullOrEmpty(releaseDateText)
                 ? ReservationHoldRule
@@ -1185,13 +1210,17 @@ namespace Parsek
             {
                 case RosterStatus.Lost:
                 {
-                    string respawn = string.IsNullOrEmpty(releaseDateText)
-                        ? ""
-                        : FormatLostRespawnRule(releaseDateText) + " ";
-                    if (!death.HasValue)
-                        return "Lost on a committed flight. " + respawn + LostReFlyRemedy;
-                    return "Lost on " + death.Value.MissionText + " (launched "
-                           + death.Value.DateText + "). " + respawn + LostReFlyRemedy;
+                    string lost = death.HasValue
+                        ? "Lost on " + death.Value.MissionText + " (launched "
+                          + death.Value.DateText + ")."
+                        : "Lost on a committed flight.";
+                    if (!string.IsNullOrEmpty(releaseDateText))
+                        lost += " " + FormatLostRespawnRule(releaseDateText);
+                    // The way back is offered only when an open Re-Fly would reach this
+                    // loss (ShouldOfferLostReFlyRemedy); otherwise it is not a way back.
+                    if (offerReFlyRemedy)
+                        lost += " " + LostReFlyRemedy;
+                    return lost;
                 }
 
                 case RosterStatus.Reserved:

@@ -1634,6 +1634,12 @@ namespace Parsek
             if (string.Equals(closeReason.Detail, "downstreamBp",
                     StringComparison.Ordinal))
                 return true;
+            // Owner ruling 2026-09-27 rule 2: an own-EVA crew member joined a foreign
+            // vessel, the same kind of downstream world interaction as downstreamBp.
+            if (string.Equals(closeReason.Detail,
+                    UnfinishedFlightClassifier.EvaCrewJoinedForeignVesselReason,
+                    StringComparison.Ordinal))
+                return true;
             if (string.Equals(closeReason.Detail, "stableTerminal",
                     StringComparison.Ordinal))
                 return IsHardSafetyTerminal(rec);
@@ -1865,10 +1871,49 @@ namespace Parsek
                 if (tree?.Recordings == null) continue;
                 AddMatchingChainRecordingIds(ids, rec, tree.Recordings.Values);
             }
+
+            // Owner ruling 2026-09-27: the slot follows its vessel through its own
+            // EVA / same-vessel Board (and switch-continuation) branch points, and the
+            // sealing rules apply across that walked history. Credited science a crew
+            // member earned on his EVA (EVA Report, Surface Sample, ...) or aboard a
+            // later vessel segment is a retry-blocking recording-linked action for the
+            // slot, exactly like science earned aboard the origin segment. The ground
+            // parts the crew placed are part of the same history.
+            int walkedAdded = AddSlotVesselWalkRecordingIds(ids, rec);
             AddSupersedeLineageRecordingIds(
                 ids, ParsekScenario.Instance?.RecordingSupersedes);
 
+            if (walkedAdded > 0)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    $"safety-gate-walk|{rec?.RecordingId}",
+                    $"CollectRecordingIdsForSafetyGate: rec={rec?.RecordingId ?? "<no-id>"} " +
+                    $"walkedRecordings={walkedAdded.ToString(CultureInfo.InvariantCulture)} " +
+                    $"total={ids.Count.ToString(CultureInfo.InvariantCulture)}");
+            }
             return ids;
+        }
+
+        /// <summary>
+        /// Adds every recording the slot-vessel walk from <paramref name="rec"/>
+        /// crossed (vessel segments, own EVA crew, their placed parts) to
+        /// <paramref name="ids"/>. Returns how many were new.
+        /// </summary>
+        private static int AddSlotVesselWalkRecordingIds(HashSet<string> ids, Recording rec)
+        {
+            if (ids == null || rec == null) return 0;
+            if (string.IsNullOrEmpty(rec.ChildBranchPointId) && string.IsNullOrEmpty(rec.ChainId))
+                return 0;
+            SlotVesselWalk walk = EffectiveState.WalkSlotVessel(
+                rec, null, followOwnEvaBoard: true, collectDetail: true);
+            if (walk == null) return 0;
+            int added = 0;
+            foreach (var id in walk.CollectStretchRecordingIds())
+            {
+                if (!string.IsNullOrEmpty(id) && ids.Add(id))
+                    added++;
+            }
+            return added;
         }
 
         private static void AddRecordingId(HashSet<string> ids, Recording rec)
