@@ -4792,48 +4792,11 @@ namespace Parsek
             return (committedRecordings.Count, committedTrees.Count);
         }
 
-        /// <summary>
-        /// Rolls back continuation data appended after commit (bug #95).
-        /// If a continuation boundary is set, truncates Points back to the boundary,
-        /// restores pre-continuation snapshots, and marks file dirty. Called from all
-        /// revert/rewind paths (ResetRecordingPlaybackFields,
-        /// tree recording reset loop).
-        /// </summary>
-        internal static void RollbackContinuationData(Recording rec)
-        {
-            if (rec.ContinuationBoundaryIndex >= 0)
-            {
-                // Truncate continuation points (if any were added)
-                if (rec.ContinuationBoundaryIndex < rec.Points.Count)
-                {
-                    int removeCount = rec.Points.Count - rec.ContinuationBoundaryIndex;
-                    rec.Points.RemoveRange(rec.ContinuationBoundaryIndex, removeCount);
-                    rec.FilesDirty = true;
-                    if (!SuppressLogging)
-                        ParsekLog.Verbose("Rewind",
-                            $"Rolled back {removeCount} continuation point(s) for '{rec.VesselName}' " +
-                            $"(boundary={rec.ContinuationBoundaryIndex}, id={rec.RecordingId})");
-                }
-
-                // Restore pre-continuation snapshots (may have been overwritten
-                // by RefreshContinuationSnapshotCore even without new points)
-                if (rec.PreContinuationVesselSnapshot != null)
-                    rec.VesselSnapshot = rec.PreContinuationVesselSnapshot;
-                if (rec.PreContinuationGhostSnapshot != null)
-                    rec.GhostVisualSnapshot = rec.PreContinuationGhostSnapshot;
-            }
-            rec.ContinuationBoundaryIndex = -1;
-            rec.PreContinuationVesselSnapshot = null;
-            rec.PreContinuationGhostSnapshot = null;
-        }
-
         private static void ResetRecordingPlaybackFields(
             Recording rec,
             HashSet<string> keepSpawnStateRecordingIds = null,
             HashSet<string> keptLogged = null)
         {
-            RollbackContinuationData(rec);
-
             // The terminal verdict is NOT touched: a committed recording's
             // TerminalStateValue is recorded content (real-vessel terminal events stamp
             // only the pending tree), and Destroyed / Recovered are never spawnable, so

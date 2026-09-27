@@ -15,7 +15,7 @@ namespace Parsek
     /// </summary>
     // [ERS-exempt — Phase 3] ParsekFlight is the top-level playback host: its
     // ghostStates dictionary is keyed by committed recording index, and it hands
-    // off the raw list to WatchModeController / ChainSegmentManager / policy
+    // off the raw list to WatchModeController / policy
     // events that share the same index space. Routing through
     // EffectiveState.ComputeERS() file-wide would require simultaneous
     // refactors across GhostPlaybackEngine, ghostStates, and every ParsekFlight
@@ -635,9 +635,6 @@ namespace Parsek
         private bool pendingAutoRecord = false;
         private PostSwitchAutoRecordState postSwitchAutoRecord;
 
-        // Chain segment management (T26 extraction)
-        private ChainSegmentManager chainManager;
-
         // Boarding confirmation via onCrewBoardVessel
         private uint pendingBoardingTargetPid; // vessel PID from onCrewBoardVessel, 0 = none
         private int boardingConfirmFrames;     // frames since boarding event (auto-clear after 10)
@@ -678,7 +675,6 @@ namespace Parsek
                 null, // standalone pending removed (T56)
                 pendingSplitRecorder,
                 pendingSplitInProgress,
-                chainManager,
                 Planetarium.GetUniversalTime(),
                 HighLogic.LoadedScene);
 
@@ -1122,7 +1118,6 @@ namespace Parsek
                 return cachedTimelineGhosts;
             }
         }
-        public bool HasActiveChain => chainManager?.HasActiveChain ?? false;
         public bool HasActiveTree => activeTree != null;
 
         // M-C2 EVA seam-verb read-only accessors (design-autotest-eva-missions.md, Data Model
@@ -1342,9 +1337,6 @@ namespace Parsek
 
             ui = new ParsekUI(this);
 
-            // Chain segment management (T26 extraction)
-            chainManager = new ChainSegmentManager();
-
             // Camera follow (watch mode)
             watchMode = new WatchModeController(this);
 
@@ -1364,8 +1356,8 @@ namespace Parsek
             mapViewScene.SetPresenceDriver(policy);
 
             // The committed list is restructured mid-session (optimizer merges / splits on a
-            // tree or chain-segment commit, the Re-Fly origin splitter, deletes); every
-            // index-keyed slot here must shift with it.
+            // tree commit, the Re-Fly origin splitter, deletes); every index-keyed slot here
+            // must shift with it.
             RecordingStore.CommittedRecordingRemoving += OnCommittedRecordingRemoving;
             RecordingStore.CommittedRecordingRemoved += OnCommittedRecordingRemoved;
             RecordingStore.CommittedRecordingInserted += OnCommittedRecordingInserted;
@@ -1446,9 +1438,7 @@ namespace Parsek
             {
                 if (ParsekLog.IsVerboseEnabled)
                     ParsekLog.VerboseRateLimited("Flight", "update_split_suppressed", "Update suppressed: pendingSplitInProgress");
-                // Still run playback, input, and continuation sampling
-                chainManager.UpdateContinuationSampling();
-                chainManager.UpdateUndockContinuationSampling();
+                // Still run playback and input
                 HandleInput();
                 if (isPlaying) UpdatePlayback();
                 UpdateTimelinePlaybackViaEngine();
@@ -1456,9 +1446,6 @@ namespace Parsek
             }
 
             HandleDeferredAutoRecordEva();
-
-            chainManager.UpdateContinuationSampling();
-            chainManager.UpdateUndockContinuationSampling();
 
             HandleInput();
 
@@ -2342,9 +2329,6 @@ namespace Parsek
             // logical atlas). See MapMarkerRenderer.ResetForSceneChange.
             MapMarkerRenderer.ResetForSceneChange();
 
-            // Finalize continuation sampling before anything else
-            chainManager.StopAllContinuations("scene change");
-
             // Clean up Gloops recorder on scene change (discard in-progress)
             CleanupGloopsRecorder();
 
@@ -2400,15 +2384,12 @@ namespace Parsek
         ///
         /// <para>Mirrors the recorder-state prep that
         /// <see cref="OnSceneChangeRequested"/> runs immediately before
-        /// <see cref="FinalizeTreeOnSceneChange"/>: stop continuations
-        /// so chain-segment data is baked, clean up the Gloops recorder,
-        /// clear scene-change transient state. Without this prep,
-        /// <c>MergeCommit</c> and the optimization pass run against
-        /// continuation recordings that haven't completed sampling.</para>
+        /// <see cref="FinalizeTreeOnSceneChange"/>: clean up the Gloops
+        /// recorder and clear scene-change transient state before
+        /// <c>MergeCommit</c> and the optimization pass run.</para>
         /// </summary>
         internal void FinalizeTreeOnSceneChangeForCallback(GameScenes scene)
         {
-            chainManager.StopAllContinuations("scene-exit dialog pre-finalize");
             CleanupGloopsRecorder();
             ClearSceneChangeTransientState();
             FinalizeTreeOnSceneChangeCore(
@@ -2520,12 +2501,10 @@ namespace Parsek
         /// <see cref="Patches.PhysicsFramePatch.ActiveRecorder"/> and
         /// <see cref="Patches.PhysicsFramePatch.BackgroundRecorderInstance"/>
         /// references, then null the fields. Also runs the same prep as
-        /// <see cref="OnSceneChangeRequested"/> (continuations, gloops,
-        /// transient state) since the prefix returns true after this and
+        /// <see cref="OnSceneChangeRequested"/> (gloops, transient state)
+        /// since the prefix returns true after this and
         /// <see cref="OnSceneChangeRequested"/> only re-runs that prep
-        /// once it sees <c>activeTree == null</c> - by which point any
-        /// in-flight continuation data would have already been dropped
-        /// without baking.
+        /// once it sees <c>activeTree == null</c>.
         ///
         /// <para>After this returns, the prefix's blocked
         /// <c>HighLogic.LoadScene</c> proceeds and
@@ -2540,7 +2519,6 @@ namespace Parsek
                 reason: reason,
                 screenMessage: "Recording discarded - idle on pad",
                 ledgerRecalcReason: "suppressed-scene-exit-discard",
-                chainStopReason: "idle-on-pad auto-discard",
                 reapSidecars: true);
         }
 
@@ -2577,7 +2555,6 @@ namespace Parsek
                 reason: reason,
                 screenMessage: screenMessage,
                 ledgerRecalcReason: ledgerRecalcReason,
-                chainStopReason: reason,
                 reapSidecars: reapSidecars);
         }
 
@@ -2670,7 +2647,6 @@ namespace Parsek
                 reason: reason,
                 screenMessage: "Recording discarded - vessel unchanged after switch",
                 ledgerRecalcReason: "noop-switch-segment-discard",
-                chainStopReason: reason,
                 reapSidecars: true);
         }
 
@@ -2916,7 +2892,6 @@ namespace Parsek
             string reason,
             string screenMessage,
             string ledgerRecalcReason,
-            string chainStopReason,
             bool reapSidecars)
         {
             ParsekLog.Info("Flight",
@@ -2995,13 +2970,8 @@ namespace Parsek
                     $"AutoDiscardActiveTreeCore: {reason}");
 
             // Mirror OnSceneChangeRequested's pre-finalize prep so any
-            // active continuation / gloops / transient state is cleaned
-            // up before we drop the recorder. The idle-on-pad call site
-            // historically passed the literal "idle-on-pad auto-discard"
-            // here regardless of the caller's reason; the
-            // reason-aware overload forwards its own reason so the
-            // chain-continuation log line carries the same context.
-            chainManager.StopAllContinuations(chainStopReason);
+            // gloops / transient state is cleaned up before we drop the
+            // recorder.
             CleanupGloopsRecorder();
             ClearSceneChangeTransientState();
 
@@ -3319,60 +3289,6 @@ namespace Parsek
                     StartCoroutine(ShowPostDestructionTreeMergeDialog());
                     break;
             }
-
-            // If the continuation vessel is destroyed, mark the recording and stop tracking
-            if (chainManager.IsTrackingContinuation && v.persistentId == chainManager.ContinuationVesselPid)
-            {
-                if (chainManager.TryGetContinuationRecording(out var contRec))
-                {
-                    MarkContinuationVesselDestroyed(contRec);
-                    Log(FormatContinuationVesselDestroyedMessage(
-                        chainManager.ContinuationVesselPid, contRec));
-                }
-                chainManager.StopContinuation("vessel destroyed");
-            }
-
-            // If the undock continuation vessel is destroyed, stop tracking
-            if (chainManager.IsTrackingUndockContinuation && v.persistentId == chainManager.UndockContinuationPid)
-            {
-                if (chainManager.TryGetUndockContinuationRecording(out var undockRec))
-                {
-                    MarkContinuationVesselDestroyed(undockRec);
-                    Log($"Undock continuation vessel destroyed (pid={chainManager.UndockContinuationPid})");
-                }
-                chainManager.StopUndockContinuation("vessel destroyed");
-            }
-        }
-
-        /// <summary>
-        /// Pure write the destroy handler applies to a committed continuation recording
-        /// whose tracked vessel just died. Both mirrored branches of OnVesselWillDestroy
-        /// (chain continuation and undock continuation) route through it, so the preserve
-        /// below is one contract rather than one contract plus one inline write.
-        /// <para>
-        /// Bug #95: Do NOT null VesselSnapshot on committed recordings. VesselDestroyed
-        /// already gates spawn via ShouldSpawnAtRecordingEnd, and after a revert the flag
-        /// is reset while the snapshot is what re-spawn needs; nulling it permanently
-        /// prevents that re-spawn. Extracted so the preserve is a callable contract
-        /// instead of a comment inside a handler no unit test can reach.
-        /// </para>
-        /// </summary>
-        internal static void MarkContinuationVesselDestroyed(Recording contRec)
-        {
-            if (contRec == null) return;
-            contRec.VesselDestroyed = true;
-        }
-
-        /// <summary>
-        /// The line OnVesselWillDestroy logs after marking a destroyed chain continuation.
-        /// It reports whether the committed VesselSnapshot survived the mark (bug #95), so
-        /// a re-null shows up in KSP.log as <c>preserved=False</c>.
-        /// </summary>
-        internal static string FormatContinuationVesselDestroyedMessage(
-            uint continuationPid, Recording contRec)
-        {
-            return $"Continuation vessel destroyed (pid={continuationPid}), " +
-                $"VesselDestroyed=true, VesselSnapshot preserved={contRec.VesselSnapshot != null}";
         }
 
         /// <summary>
@@ -4208,11 +4124,6 @@ namespace Parsek
             // Create a new recorder and start recording with isPromotion
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
-            if (chainManager.PendingBoundaryAnchor.HasValue)
-            {
-                recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
-                chainManager.PendingBoundaryAnchor = null;
-            }
             recorder.StartRecording(isPromotion: true);
 
             if (!recorder.IsRecording)
@@ -4285,7 +4196,6 @@ namespace Parsek
                 return false;
 
             activeTree = committedTree;
-            chainManager.ActiveTreeId = activeTree.Id;
             EnsureBackgroundRecorderAttached("TryRestoreCommittedTreeForSpawnedActiveVessel");
 
             bool restored = false;
@@ -4338,11 +4248,6 @@ namespace Parsek
 
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
-            if (chainManager.PendingBoundaryAnchor.HasValue)
-            {
-                recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
-                chainManager.PendingBoundaryAnchor = null;
-            }
             recorder.StartRecording(isPromotion: true);
             if (!recorder.IsRecording)
             {
@@ -5909,21 +5814,6 @@ namespace Parsek
                     initialTrajectoryPoint: backgroundInitialTrajectoryPoint);
             }
 
-            // Stop any existing undock continuation and vessel continuation (tree handles them)
-            // Bug #95: bake before stop — continuation data is canonical (tree takes over)
-            if (chainManager.IsTrackingUndockContinuation)
-            {
-                if (chainManager.TryGetUndockContinuationRecording(out var undockRec))
-                    ChainSegmentManager.BakeContinuationData(undockRec);
-                chainManager.StopUndockContinuation("tree branch");
-            }
-            if (chainManager.IsTrackingContinuation)
-            {
-                if (chainManager.TryGetContinuationRecording(out var contRec))
-                    ChainSegmentManager.BakeContinuationData(contRec);
-                chainManager.StopContinuation("tree branch");
-            }
-
             // Create new FlightRecorder for active child
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
@@ -6157,7 +6047,6 @@ namespace Parsek
                 sourceVesselPid,
                 activeVessel.persistentId,
                 backgroundVessel.persistentId);
-            TrajectoryPoint? previousPendingBoundaryAnchor = chainManager.PendingBoundaryAnchor;
 
             parentRecording.ChildBranchPointId = bp.Id;
             activeTree.BranchPoints.Add(bp);
@@ -6189,11 +6078,6 @@ namespace Parsek
 
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
-            if (chainManager.PendingBoundaryAnchor.HasValue)
-            {
-                recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
-                chainManager.PendingBoundaryAnchor = null;
-            }
             recorder.StartRecording(isPromotion: true);
 
             if (!recorder.IsRecording)
@@ -6211,7 +6095,6 @@ namespace Parsek
                     activeChild,
                     bgChild,
                     previousBackgroundMapEntries);
-                chainManager.PendingBoundaryAnchor = previousPendingBoundaryAnchor;
                 return;
             }
 
@@ -6231,7 +6114,6 @@ namespace Parsek
                     activeChild,
                     bgChild,
                     previousBackgroundMapEntries);
-                chainManager.PendingBoundaryAnchor = previousPendingBoundaryAnchor;
                 return;
             }
 
@@ -6241,19 +6123,6 @@ namespace Parsek
                 backgroundRecorder?.OnVesselBackgrounded(
                     backgroundVessel.persistentId,
                     initialEnvironmentOverride: initialBackgroundEnvOverride);
-            }
-
-            if (chainManager.IsTrackingUndockContinuation)
-            {
-                if (chainManager.TryGetUndockContinuationRecording(out var undockRec))
-                    ChainSegmentManager.BakeContinuationData(undockRec);
-                chainManager.StopUndockContinuation("tree branch");
-            }
-            if (chainManager.IsTrackingContinuation)
-            {
-                if (chainManager.TryGetContinuationRecording(out var contRec))
-                    ChainSegmentManager.BakeContinuationData(contRec);
-                chainManager.StopContinuation("tree branch");
             }
 
             ClearPendingEvaAutoRecordState();
@@ -6938,9 +6807,6 @@ namespace Parsek
             // Copy snapshot/vessel state and location context to the recording.
             ApplyCapturedSplitStateToStandaloneRecording(rec, captured);
 
-            // Preserve chain membership if this segment was part of a chain
-            chainManager.ApplyChainMetadataTo(rec);
-
             // Tag segment phase if untagged
             TagSegmentPhaseIfMissing(rec, FlightGlobals.ActiveVessel);
 
@@ -7000,10 +6866,7 @@ namespace Parsek
             // #390: prune consumed events after milestone creation + ledger conversion
             GameStateStore.PruneProcessedEvents();
 
-            string chainInfo = chainManager.ActiveChainId != null
-                ? $" (chain={chainManager.ActiveChainId}, idx={chainManager.ActiveChainNextIndex})"
-                : "";
-            ParsekLog.Info("Flight", $"FallbackCommitSplitRecorder: recording committed{chainInfo}");
+            ParsekLog.Info("Flight", "FallbackCommitSplitRecorder: recording committed");
         }
 
         /// <summary>
@@ -8450,9 +8313,9 @@ namespace Parsek
         void OnCrewBoardVessel(GameEvents.FromToAction<Part, Part> data)
         {
             RecorderStateLog.RecState("OnCrewBoardVessel:entry", CaptureRecorderState());
-            if (chainManager.ActiveChainId == null && activeTree == null)
+            if (activeTree == null)
             {
-                ParsekLog.Verbose("Flight", "OnCrewBoardVessel: no active chain or tree — ignoring");
+                ParsekLog.Verbose("Flight", "OnCrewBoardVessel: no active tree — ignoring");
                 return;
             }
             if (pendingSplitInProgress)
@@ -8656,8 +8519,6 @@ namespace Parsek
         private void ClearPendingEvaAutoRecordState()
         {
             pendingAutoRecord = false;
-            chainManager.PendingContinuation = false;
-            chainManager.PendingEvaName = null;
         }
 
         void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
@@ -9935,8 +9796,6 @@ namespace Parsek
                     TreeName = Recording.ResolveLocalizedName(newVessel.vesselName) ?? "Standalone",
                     BranchPoints = new List<BranchPoint>(),
                 };
-                if (chainManager != null)
-                    chainManager.ActiveTreeId = activeTree.Id;
                 EnsureBackgroundRecorderAttached("StartStandaloneContinuationSegment");
                 createdFreshTree = true;
             }
@@ -10182,11 +10041,6 @@ namespace Parsek
             {
                 recorder = new FlightRecorder();
                 recorder.ActiveTree = activeTree;
-                if (chainManager != null && chainManager.PendingBoundaryAnchor.HasValue)
-                {
-                    recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
-                    chainManager.PendingBoundaryAnchor = null;
-                }
                 recorder.StartRecording(isPromotion: true);
             }
             catch (System.Exception ex)
@@ -12107,7 +11961,7 @@ namespace Parsek
 
             // Reset scene-scoped state from the previous flight BEFORE the restore
             // coroutine runs. ResetFlightReadyState clears activeTree, backgroundRecorder,
-            // chainManager, pendingSplitRecorder, etc. — all scene-scoped state that must
+            // pendingSplitRecorder, etc. — all scene-scoped state that must
             // be zeroed before the restore can rebuild its own.
             //
             // Ordering is load-bearing: RestoreActiveTreeFromPending runs SYNCHRONOUSLY
@@ -12316,8 +12170,6 @@ namespace Parsek
             pendingSplitRecorder = null;
             preBreakVesselPids = null;
 
-            // Clear chain state on flight ready (revert resets everything)
-            chainManager.ClearAll();
             pendingBoardingTargetPid = 0;
 
             // Clear dock/undock state
@@ -12740,7 +12592,6 @@ namespace Parsek
             pendingBoardingTargetPid = 0;
             boardingConfirmFrames = 0;
             pendingBoardingTargetInTree = false;
-            chainManager.ActiveChainCrewName = null;
 
             Log("Tree board merge completed");
         }
@@ -13280,40 +13131,16 @@ namespace Parsek
 
         #region Recording
 
-        // Pass suppressStartScreenMessage=true for fresh, non-continuation starts where
-        // the caller posts its own custom screen message.
+        // Pass suppressStartScreenMessage=true for fresh starts where the caller posts
+        // its own custom screen message.
         public void StartRecording(bool suppressStartScreenMessage = false,
             bool fromPrelaunchTransition = false)
         {
-            // Always-tree mode makes a chain continuation without a live tree impossible.
-            // If we reach StartRecording with orphaned chain/transient state, treat it as
-            // stale session residue and start a fresh tree-backed recording instead of
-            // silently creating a live recorder with no ActiveRecordingId.
-            if (activeTree == null
-                && (chainManager.ActiveTreeId != null
-                    || chainManager.ActiveChainId != null
-                    || chainManager.PendingContinuation
-                    || chainManager.PendingBoundaryAnchor.HasValue))
-            {
-                ParsekLog.Warn("Flight",
-                    $"StartRecording: clearing stale chain state without active tree " +
-                    $"(treeId={chainManager.ActiveTreeId ?? "null"}, " +
-                    $"chainId={chainManager.ActiveChainId ?? "null"}, " +
-                    $"pendingContinuation={chainManager.PendingContinuation}, " +
-                    $"hasBoundaryAnchor={chainManager.PendingBoundaryAnchor.HasValue})");
-                chainManager.ClearAll();
-            }
-
-            // A chain continuation is not a new launch and must not capture a fresh rewind
-            // save. No producer sets chainManager.ActiveChainId in always-tree mode, so this
-            // is false on every start; the check goes with the chain-identity fields.
-            bool isContinuation = chainManager.ActiveChainId != null;
-
             // Commit orphaned CaptureAtStop from a previous recorder that was stopped
             // by vessel switch but never committed (e.g., auto-record started on new
             // vessel before scene change). Without this, the old recording data is lost.
             if (recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null
-                && chainManager.ActiveChainId == null && activeTree == null)
+                && activeTree == null)
             {
                 FallbackCommitSplitRecorder(recorder);
                 ParsekLog.Info("Flight", "Committed orphaned recording before starting new one");
@@ -13337,17 +13164,12 @@ namespace Parsek
             }
 
             recorder = new FlightRecorder();
-            if (chainManager.PendingBoundaryAnchor.HasValue)
-            {
-                recorder.BoundaryAnchor = chainManager.PendingBoundaryAnchor;
-                chainManager.PendingBoundaryAnchor = null;
-            }
 
-            // Bug #271: always-tree mode. When no tree exists and this is not a
-            // chain continuation, wrap the new recording in a single-node tree.
-            // This eliminates the standalone/tree dual-path architecture — every
-            // recording is a tree recording, even single-vessel flights.
-            if (activeTree == null && !isContinuation)
+            // Bug #271: always-tree mode. When no tree exists, wrap the new recording
+            // in a single-node tree. This eliminates the standalone/tree dual-path
+            // architecture — every recording is a tree recording, even single-vessel
+            // flights.
+            if (activeTree == null)
             {
                 string treeId = Guid.NewGuid().ToString("N");
                 string rootRecId = Guid.NewGuid().ToString("N");
@@ -13406,13 +13228,10 @@ namespace Parsek
 
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
             if (activeTree != null)
-            {
                 recorder.ActiveTree = activeTree;
-                chainManager.ActiveTreeId = activeTree.Id;
-            }
             recorder.StartedFromPrelaunchTransition = fromPrelaunchTransition;
             recorder.StartRecording(
-                isPromotion: isContinuation,
+                isPromotion: false,
                 suppressStartScreenMessage: suppressStartScreenMessage);
             if (!recorder.IsRecording)
             {
@@ -13433,7 +13252,7 @@ namespace Parsek
             PrepareSessionStateForRecorderStart("StartRecording");
 
             uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
-            ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={chainManager.ActiveChainId != null}, tree={activeTree != null}");
+            ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, tree={activeTree != null}");
             RecorderStateLog.RecState("StartRecording:post", CaptureRecorderState());
         }
 
@@ -13526,10 +13345,6 @@ namespace Parsek
             pendingSplitTriggerUT = double.NaN;
             recorder?.StopRecording();
 
-            // Tag the final segment with chain metadata if in a chain
-            if (recorder?.CaptureAtStop != null)
-                chainManager.ApplyChainMetadataTo(recorder.CaptureAtStop);
-
             // Tag final segment phase if untagged
             if (recorder?.CaptureAtStop != null
                 && string.IsNullOrEmpty(recorder.CaptureAtStop.SegmentPhase)
@@ -13567,9 +13382,6 @@ namespace Parsek
 
             double commitUT = Planetarium.GetUniversalTime();
             ParsekLog.Info("Flight", $"CommitTreeFlight: starting tree commit at UT={commitUT:F1}");
-
-            // Stop continuations
-            chainManager.StopAllContinuations("tree commit");
 
             // Finalize all recordings (active + background)
             FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: false);
@@ -14253,7 +14065,6 @@ namespace Parsek
             // Construct a fresh FlightRecorder pointed at the restored tree.
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
-            chainManager.ActiveTreeId = activeTree.Id;
 
             // Restore recorder state persisted in the PARSEK_ACTIVE_TREE node
             if (!string.IsNullOrEmpty(ParsekScenario.pendingActiveTreeResumeRewindSave))
@@ -14263,11 +14074,6 @@ namespace Parsek
                     "quickload-resume from PARSEK_ACTIVE_TREE");
                 ParsekScenario.pendingActiveTreeResumeRewindSave = null;
             }
-            // BoundaryAnchor is NOT restored — only the UT could round-trip through the
-            // save node, and reconstructing a TrajectoryPoint from a bare UT is not
-            // possible (needs lat/lon/alt/rotation/velocity). Leaving BoundaryAnchor
-            // unset produces one extra boundary point on the next chain continuation,
-            // which is benign. See SaveActiveTreeIfAny for the write-side comment.
 
             // Bug fix: clear any stale Destroyed terminal verdict on the
             // recording we're about to resume. A transient NullSolver event
@@ -14751,8 +14557,6 @@ namespace Parsek
             // tree from the same save can now move back unless another path filled it.
             RecordingStore.PromoteSavedPendingTreeAfterActiveRestore(
                 "RestoreActiveTreeFromPendingForVesselSwitch");
-
-            chainManager.ActiveTreeId = activeTree.Id;
 
             // Re-attach the BackgroundRecorder for the tree (the previous instance was
             // shut down in FinalizeTreeOnSceneChange before the scene reload).
@@ -18907,7 +18711,6 @@ namespace Parsek
                 var rec = committed[i];
                 bool hasData = GhostPlaybackEngine.HasRenderableGhostData(rec);
 
-                bool isActiveChain = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
                 bool chainLooping = rec.IsChainRecording &&
                     RecordingStore.IsChainLooping(rec.ChainId);
 
@@ -19001,7 +18804,7 @@ namespace Parsek
                 bool liveSameLaunchVesselPresent =
                     GhostPlaybackLogic.ResolveRewindSuppressionLiveLaunchPresence(rec);
                 var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    rec, isActiveChain, chainLooping, treeContext: null,
+                    rec, isActiveChainMember: false, chainLooping, treeContext: null,
                     liveSameLaunchVesselPresent);
 
                 var chainSuppressed = activeGhostChains != null
@@ -19098,7 +18901,7 @@ namespace Parsek
                     isMidChain = isMidChain,
                     chainEndUT = chainEndUT,
                     needsSpawn = finalNeedsSpawn,
-                    isActiveChainMember = isActiveChain,
+                    isActiveChainMember = false,
                     isChainLooping = chainLooping,
                     isChainSeamSuccessor = IsChainSeamSuccessorAtFrame(rec, currentUT),
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
@@ -20162,7 +19965,7 @@ namespace Parsek
         /// <summary>
         /// A committed recording left the list: every index above <paramref name="index"/>
         /// shifted down, so every index-keyed slot (engine dicts, held ghosts, map presence,
-        /// watch-mode index, continuation indices, orbit and map-marker caches) shifts with
+        /// watch-mode index, orbit and map-marker caches) shifts with
         /// it. <paramref name="absorbedInto"/> is the optimizer merge target that now carries
         /// the removed trajectory, null for a plain delete.
         /// </summary>
@@ -20172,7 +19975,6 @@ namespace Parsek
             engine.ReindexAfterDelete(index);
             policy.ReindexHeldGhostsAfterDelete(index);
             GhostMapPresence.ReindexPresenceAfterDelete(index);
-            chainManager.OnCommittedRecordingRemoved(index, removed, absorbedInto);
             // Orbit cache keys are index-derived (i * 10000 + segIdx); the map marker
             // waypoint cache and the diagnostic guards are index-keyed too.
             ClearOrbitPlaybackCaches();
@@ -20184,7 +19986,7 @@ namespace Parsek
             ParsekLog.Verbose("Flight",
                 $"Committed recording #{index} removed" +
                 (absorbedInto != null ? $" (merged into id={absorbedInto.RecordingId})" : "") +
-                $" - reindexed engine, held, map, watch and chain state " +
+                $" - reindexed engine, held, map and watch state " +
                 $"(ghostStates={engine.ghostStates.Count}, committed={RecordingStore.CommittedRecordings.Count})");
         }
 
@@ -20201,13 +20003,12 @@ namespace Parsek
             policy.ReindexHeldGhostsAfterInsert(index);
             GhostMapPresence.ReindexPresenceAfterInsert(index);
             watchMode.OnRecordingInserted(index);
-            chainManager.OnCommittedRecordingInserted(index);
             ClearOrbitPlaybackCaches();
             ui?.ClearMapMarkerCache();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             ParsekLog.Verbose("Flight",
-                $"Committed recording inserted at #{index} - reindexed engine, held, map, watch and chain state " +
+                $"Committed recording inserted at #{index} - reindexed engine, held, map and watch state " +
                 $"(ghostStates={engine.ghostStates.Count}, committed={RecordingStore.CommittedRecordings.Count})");
         }
 
@@ -27561,12 +27362,11 @@ namespace Parsek
                     continue;
 
                 // Check spawn eligibility
-                bool isActiveChainMember = chainManager.ActiveChainId != null && rec.ChainId == chainManager.ActiveChainId;
                 bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId) &&
                     RecordingStore.IsChainLooping(rec.ChainId);
 
                 var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    rec, isActiveChainMember, isChainLooping);
+                    rec, isActiveChainMember: false, isChainLooping);
                 if (!needsSpawn)
                     continue;
 

@@ -1685,6 +1685,26 @@ namespace Parsek
             if (snapshot == null)
                 return 0;
 
+            string ResolveOriginal(string name)
+            {
+                string found = null;
+                if (replacements != null)
+                {
+                    foreach (var kvp in replacements)
+                    {
+                        if (string.Equals(kvp.Value, name, System.StringComparison.Ordinal))
+                        {
+                            found = kvp.Key;
+                            break;
+                        }
+                    }
+                }
+
+                if (found == null)
+                    found = TryReverseMapCrewNameFromSlots(name);
+                return found;
+            }
+
             int rewritten = 0;
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
             {
@@ -1705,21 +1725,7 @@ namespace Parsek
                         continue;
                     }
 
-                    string original = null;
-                    if (replacements != null)
-                    {
-                        foreach (var kvp in replacements)
-                        {
-                            if (string.Equals(kvp.Value, name, System.StringComparison.Ordinal))
-                            {
-                                original = kvp.Key;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (original == null)
-                        original = TryReverseMapCrewNameFromSlots(name);
+                    string original = ResolveOriginal(name);
 
                     if (original != null && !string.Equals(original, name, System.StringComparison.Ordinal))
                     {
@@ -1741,7 +1747,12 @@ namespace Parsek
                 }
             }
 
-            if (rewritten > 0)
+            // The captured crew inventories are keyed by the seat's name, so they follow
+            // the same reverse map: the seat (and what its occupant carried) belongs to
+            // the original kerbal. Not counted in the return value (crew entries only).
+            int inventoryKeysRenamed = CrewInventorySnapshot.RenameKerbals(snapshot, ResolveOriginal);
+
+            if (rewritten > 0 || inventoryKeysRenamed > 0)
             {
                 // VerboseRateLimited (not Info): TryBackupSnapshot fires often (the
                 // recorder's periodic snapshot refresh drives it ~1100+ times across a
@@ -1750,7 +1761,8 @@ namespace Parsek
                 // must not log unconditionally. The zero-rewrite case stays silent.
                 ParsekLog.VerboseRateLimited(Tag, "reverse-map-crew",
                     () => $"ReverseMapCrewNamesInSnapshot: rewrote {rewritten} stand-in crew name(s) " +
-                    $"back to originals in snapshot ({contextForLog ?? "no-context"})");
+                    $"back to originals in snapshot, {inventoryKeysRenamed} crew inventory key(s) " +
+                    $"({contextForLog ?? "no-context"})");
             }
 
             return rewritten;

@@ -12449,7 +12449,7 @@ namespace Parsek.InGameTests
             }
 
             // Build a leaf recording wired to the active vessel's pid with terminal=Splashed
-            // (the user's case: vessel splashed down, ChainSegmentManager set terminal earlier,
+            // (the user's case: vessel splashed down, terminal state already set earlier,
             // FinalizeIndividualRecording's "if (!HasValue)" gate would skip the original
             // re-snapshot block — the new #289 path runs OUTSIDE that gate).
             var staleSnapshot = new ConfigNode("VESSEL");

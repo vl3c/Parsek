@@ -427,10 +427,8 @@ namespace Parsek
         /// recorder-state-preserving mode so transient flags
         /// <see cref="Recording.FilesDirty"/>,
         /// <see cref="Recording.SidecarLoadFailed"/>,
-        /// <see cref="Recording.SidecarLoadFailureReason"/>,
-        /// <see cref="Recording.ContinuationBoundaryIndex"/>,
-        /// <see cref="Recording.PreContinuationVesselSnapshot"/>, and
-        /// <see cref="Recording.PreContinuationGhostSnapshot"/> are NOT clobbered.
+        /// <see cref="Recording.SidecarLoadFailureReason"/>, and the
+        /// <c>PreReFlyAnchor*</c> snapshots are NOT clobbered.
         /// The committed tree never carries those transient flags (DeepClone +
         /// the [NonSerialized] attribute strip them on copy), so non-active
         /// recordings cannot lose live state by being refreshed; the
@@ -538,9 +536,7 @@ namespace Parsek
                     // preserving mode for the small set of [NonSerialized]
                     // flags that load-time mitigation paths may have already
                     // set on the active recording (FilesDirty / SidecarLoadFailed /
-                    // SidecarLoadFailureReason / ContinuationBoundaryIndex /
-                    // PreContinuationVesselSnapshot / PreContinuationGhostSnapshot /
-                    // PreReFlyAnchor* snapshots).
+                    // SidecarLoadFailureReason / PreReFlyAnchor* snapshots).
                     bool isActive = !string.IsNullOrEmpty(activeRecordingId)
                         && string.Equals(recId, activeRecordingId, StringComparison.Ordinal);
 
@@ -670,10 +666,8 @@ namespace Parsek
         /// full load-order rationale) the refresh additionally preserves the
         /// set of <c>[NonSerialized]</c> flags any load-time mitigation may
         /// have already set on the loaded copy: <c>FilesDirty</c>,
-        /// <c>SidecarLoadFailed</c>, <c>SidecarLoadFailureReason</c>,
-        /// <c>ContinuationBoundaryIndex</c>, <c>PreContinuationVesselSnapshot</c>,
-        /// <c>PreContinuationGhostSnapshot</c>, and <c>PreReFlyAnchor*</c>
-        /// snapshots. The preserve-mode exists because
+        /// <c>SidecarLoadFailed</c>, <c>SidecarLoadFailureReason</c>, and
+        /// <c>PreReFlyAnchor*</c> snapshots. The preserve-mode exists because
         /// the structural overwrite happens to land on the same recording the
         /// recorder will later rebind to, and downstream save paths look at
         /// <c>FilesDirty</c> / <c>SidecarLoadFailed</c> to decide whether to
@@ -761,16 +755,12 @@ namespace Parsek
             // cleared / defaulted; preserve-mode reapplies the snapshot.
             // Audit anchor: the [NonSerialized] flag set in Recording.cs is
             // {FilesDirty, SidecarEpochAdvancePending, SidecarLoadFailed, SidecarLoadFailureReason,
-            // ContinuationBoundaryIndex, PreContinuationVesselSnapshot,
-            // PreContinuationGhostSnapshot, PreReFlyAnchor*}. Add to this
+            // PreReFlyAnchor*}. Add to this
             // preserve-list when any new [NonSerialized] flag tracking
             // per-session live state is added to Recording.
             bool savedFilesDirty = loadedRec.FilesDirty;
             bool savedSidecarLoadFailed = loadedRec.SidecarLoadFailed;
             string savedSidecarLoadFailureReason = loadedRec.SidecarLoadFailureReason;
-            int savedContinuationBoundaryIndex = loadedRec.ContinuationBoundaryIndex;
-            ConfigNode savedPreContinuationVesselSnapshot = loadedRec.PreContinuationVesselSnapshot;
-            ConfigNode savedPreContinuationGhostSnapshot = loadedRec.PreContinuationGhostSnapshot;
             string savedPreReFlyAnchorSessionId = loadedRec.PreReFlyAnchorSessionId;
             List<TrajectoryPoint> savedPreReFlyAnchorPoints = loadedRec.PreReFlyAnchorPoints;
             List<OrbitSegment> savedPreReFlyAnchorOrbitSegments = loadedRec.PreReFlyAnchorOrbitSegments;
@@ -821,9 +811,6 @@ namespace Parsek
                 loadedRec.FilesDirty = savedFilesDirty || loadedRec.FilesDirty;
                 loadedRec.SidecarLoadFailed = savedSidecarLoadFailed;
                 loadedRec.SidecarLoadFailureReason = savedSidecarLoadFailureReason;
-                loadedRec.ContinuationBoundaryIndex = savedContinuationBoundaryIndex;
-                loadedRec.PreContinuationVesselSnapshot = savedPreContinuationVesselSnapshot;
-                loadedRec.PreContinuationGhostSnapshot = savedPreContinuationGhostSnapshot;
                 loadedRec.PreReFlyAnchorSessionId = savedPreReFlyAnchorSessionId;
                 loadedRec.PreReFlyAnchorPoints = savedPreReFlyAnchorPoints;
                 loadedRec.PreReFlyAnchorOrbitSegments = savedPreReFlyAnchorOrbitSegments;

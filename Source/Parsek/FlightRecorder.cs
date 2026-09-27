@@ -1232,10 +1232,6 @@ namespace Parsek
         private double lastSnapshotRefreshUT = double.MinValue;
         private double lastFinalizationCacheRefreshUT = double.MinValue;
 
-        // Boundary anchor: if set, inserted as the first point when recording starts.
-        // Used for chain continuation to seamlessly stitch segments.
-        public TrajectoryPoint? BoundaryAnchor { get; set; }
-
         // On-rails state
         private bool isOnRails;
         private bool hasPersistentRotation;
@@ -6524,7 +6520,7 @@ namespace Parsek
             InitializeRecordingFlags(v);
             CaptureStartLocation(v, isPromotion);
             var initialEnv = InitializeEnvironmentAndAnchorTracking(v);
-            InsertBoundaryAnchorAndSnapshot(v);
+            CaptureStartSnapshots(v);
             // M2 harvest capture (plan D5 part i): converters already running at
             // recording start open a window AT start. Runs on every start flavor
             // (windows are independent witnesses; a BG-voided manifest just
@@ -6625,14 +6621,12 @@ namespace Parsek
             StartBodyName = v.mainBody?.name;
             StartSituation = v.isEVA ? "EVA" : VesselSpawner.HumanizeSituation(v.situation);
             StartBiome = VesselSpawner.TryResolveBiome(v.mainBody?.name, v.latitude, v.longitude);
-            // Chain continuations (BoundaryAnchor set) inherit a stale FlightDriver value — skip
-            bool isChainContinuation = BoundaryAnchor.HasValue;
             uint freshRolloutPid = RecordingStore.SceneEntryFreshRolloutVesselPid;
             string landedAtSite = ResolveLandedAtLaunchSite(v.situation, v.landedAt);
             string launchSiteGate;
             bool captureSite = ShouldCaptureLaunchSite(
                 v.isEVA,
-                isPromotion || isChainContinuation,
+                isPromotion,
                 v.situation,
                 StartedFromPrelaunchTransition,
                 freshRolloutPid != 0u && v.persistentId == freshRolloutPid,
@@ -6644,7 +6638,7 @@ namespace Parsek
                 ? null
                 : landedAtSite != null
                     ? HumanizeLaunchSiteName(landedAtSite)
-                    : ResolveLaunchSiteName(v, isPromotion || isChainContinuation);
+                    : ResolveLaunchSiteName(v, isPromotion);
             ParsekLog.Verbose("Recorder",
                 $"Start location captured: body={StartBodyName ?? "(null)"}, biome={StartBiome ?? "(null)"}, " +
                 $"situation={StartSituation ?? "(null)"}, launchSite={LaunchSiteName ?? "(null)"}, " +
@@ -6834,7 +6828,7 @@ namespace Parsek
             pendingRouteOriginProof = null;
             pendingRouteOriginProofStartPartPids = null;
             // Same leak guard for the M2 run manifest: re-populated (captured or
-            // adopted) in InsertBoundaryAnchorAndSnapshot.
+            // adopted) in CaptureStartSnapshots.
             pendingRouteRunManifest = null;
             // M2 harvest-window state: windows belong to one recorded leg.
             recorderHarvestWindows.Clear();
@@ -7074,36 +7068,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Inserts the boundary anchor point from the previous chain segment (if present),
-        /// captures the initial backup snapshot, and stores the ghost visual snapshot.
-        /// Must be called AFTER InitializeRecordingFlags (depends on lastRecordedUT reset).
+        /// Captures the initial backup snapshot, the start manifests and the ghost
+        /// visual snapshot. Must be called AFTER InitializeRecordingFlags.
         /// </summary>
-        private void InsertBoundaryAnchorAndSnapshot(Vessel v)
+        private void CaptureStartSnapshots(Vessel v)
         {
-            // Insert boundary anchor from previous chain segment if present.
-            // Must come AFTER the lastRecordedUT reset above so the anchor's
-            // UT is preserved (prevents duplicate-UT with the first live sample).
-            if (BoundaryAnchor.HasValue)
-            {
-                var anchor = BoundaryAnchor.Value;
-                // Nudge UT backward by a tiny epsilon to maintain strict monotonicity
-                // if the anchor UT would equal the first live sample's UT
-                double anchorUT = anchor.ut - 0.001;
-                anchor.ut = anchorUT;
-                // Safe before the Re-Fly settle gate arms: BoundaryAnchor is the prior
-                // chain segment's already-recorded endpoint, not post-load live state.
-                Recording.Add(anchor);
-                lastRecordedUT = anchorUT;
-                lastRecordedVelocity = anchor.velocity;
-                // Mirror lastRecordedVelocity: the anchor is a full TrajectoryPoint with
-                // an altitude field, and HandleSoiAutoSplit's "approach vs exo" decision
-                // reads LastRecordedAltitude. Without this, a chain continuation that
-                // hits an SOI split before the first live sample would misclassify the
-                // fromPhase as "exo" (because the cached altitude is still NaN).
-                LastRecordedAltitude = anchor.altitude;
-                BoundaryAnchor = null;
-                ParsekLog.Verbose("Recorder", $"Boundary anchor inserted at UT {anchorUT:F3}");
-            }
             RefreshBackupSnapshot(v, "record_start", force: true);
             RefreshFinalizationCache(v, "record_start", force: true);
             pendingStartResources = VesselSnapshotOps.ExtractResourceManifest(lastGoodVesselSnapshot);
