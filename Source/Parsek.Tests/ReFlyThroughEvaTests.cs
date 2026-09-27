@@ -779,6 +779,117 @@ namespace Parsek.Tests
                 ReFlyThroughEvaFixture.KerbalId, EffectiveState.BuildLossReFlyReachablePredicate()));
         }
 
+        // ------------------------------------------------------------------
+        // Stash (the StashSlot seam verb's production path): RF-18/RF-20's shape - the
+        // pod stack is the tree-branching parent, the FOCUS slot, and ends Orbiting after
+        // its own EVA and re-board, so it is a stable leaf the default predicate excludes
+        // until the player stashes it.
+        // ------------------------------------------------------------------
+
+        private RecordingTree InstallOrbitingFocusReboard(out RewindPoint rp)
+        {
+            var tree = Install(ReFlyThroughEvaVariant.Reboard, treeBranchingParent: true);
+            tree.Recordings[ReFlyThroughEvaFixture.UpperAfterBoardId].TerminalStateValue =
+                TerminalState.Orbiting;
+            rp = ReFlyThroughEvaFixture.BuildRewindPoint(upperIsTreeBranchingParent: true);
+            InstallScenario(rp);
+            return tree;
+        }
+
+        [Fact]
+        public void Stash_FocusSlotThroughOwnEvaAndBoard_OpensTheWalkedTip()
+        {
+            RecordingTree tree = InstallOrbitingFocusReboard(out RewindPoint rp);
+            Recording root = tree.Recordings[ReFlyThroughEvaFixture.RootId];
+            Recording tip = tree.Recordings[ReFlyThroughEvaFixture.UpperAfterBoardId];
+            UnfinishedFlightStashHandler.UtcNowForTesting =
+                () => new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            try
+            {
+                // Before: the focus verdict read through the walk, not an Unfinished Flight.
+                Assert.Equal(ReFlyThroughEvaFixture.UpperAfterBoardId,
+                    UpperSlot(rp).EffectiveRecordingId(NoSupersedes));
+                Assert.False(UnfinishedFlightClassifier.IsVisibleUnfinishedFlight(tip, out _));
+                Assert.Contains(logLines, l => l.Contains("[UnfinishedFlights]")
+                    && l.Contains("reason=stableTerminalFocusSlot")
+                    && l.Contains("walkedEva=1 walkedBoard=1"));
+
+                // The slot's origin row and its walked-tip row both offer Stash on the SAME
+                // slot (the rows ResolveRewindPointSlotIndexForRecording matches, as for a
+                // plain chain's head and tip).
+                foreach (string id in new[] { ReFlyThroughEvaFixture.RootId,
+                                              ReFlyThroughEvaFixture.UpperAfterBoardId })
+                {
+                    Assert.True(UnfinishedFlightClassifier.TryResolveStashableRewindPointForRecording(
+                        tree.Recordings[id], out RewindPoint resolvedRp, out int slotIdx,
+                        out string why), id + ": " + why);
+                    Assert.Same(rp, resolvedRp);
+                    Assert.Equal(ReFlyThroughEvaFixture.UpperSlotIndex, slotIdx);
+                }
+                // The kerbal's row never does (an EVA kerbal is never re-flyable).
+                Assert.False(UnfinishedFlightClassifier.TryResolveStashableRewindPointForRecording(
+                    tree.Recordings[ReFlyThroughEvaFixture.KerbalId], out _, out _, out _));
+
+                // What the seam verb hands the handler: the slot's effective tip.
+                Assert.True(UnfinishedFlightStashHandler.TryStash(tip, out string reason), reason);
+
+                Assert.True(UpperSlot(rp).Stashed);
+                Assert.Equal("2000-01-01T00:00:00.0000000Z", UpperSlot(rp).StashedRealTime);
+                Assert.False(BoosterSlot(rp).Stashed);
+                Assert.Equal(MergeState.CommittedProvisional, tip.MergeState);
+                Assert.Equal(MergeState.Immutable, root.MergeState);
+                Assert.True(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(UpperSlot(rp)));
+                Assert.False(RewindPointReaper.IsReapEligible(rp, NoSupersedes));
+
+                // After: the slot's ORIGIN row reads as an Unfinished Flight (the Fly
+                // button's predicate), qualified through the stashed branch on the walked
+                // tip. The tip row is a peer of the same slot and is deduped onto the
+                // origin anchor (EffectiveState.TryResolveUnfinishedFlight), so it does
+                // not draw a second Fly row.
+                Assert.True(UnfinishedFlightClassifier.IsVisibleUnfinishedFlight(root, out string ufWhy), ufWhy);
+                Assert.False(UnfinishedFlightClassifier.IsVisibleUnfinishedFlight(tip, out _));
+                Assert.True(UnfinishedFlightClassifier.TryQualify(
+                    root, UpperSlot(rp), rp, out string rootReason), rootReason);
+                Assert.Equal("stashedStableLeaf", rootReason);
+                Assert.Contains(logLines, l => l.Contains("[UnfinishedFlights]")
+                    && l.Contains("Stashed slot=" + ReFlyThroughEvaFixture.UpperSlotIndex)
+                    && l.Contains("rec=" + ReFlyThroughEvaFixture.UpperAfterBoardId)
+                    && l.Contains("tip=" + ReFlyThroughEvaFixture.UpperAfterBoardId)
+                    && l.Contains("tipMergeState=CommittedProvisional tipDemoted=True")
+                    && l.Contains("terminal=Orbiting reaperBlocked=True"));
+                Assert.Contains(logLines, l => l.Contains("IsUnfinishedFlight=true")
+                    && l.Contains("reason=stashedStableLeaf")
+                    && l.Contains("walkedEva=1 walkedBoard=1"));
+
+                // A second press is refused by the same resolver that hides the button.
+                Assert.False(UnfinishedFlightStashHandler.TryStash(tip, out string again));
+                Assert.Equal("alreadyStashed", again);
+            }
+            finally
+            {
+                UnfinishedFlightStashHandler.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void Stash_KerbalLeftForForeignVessel_IsRefusedAndWritesNothing()
+        {
+            // Decision 2 caps the stash too: the slot is not re-flyable even on request.
+            var tree = Install(ReFlyThroughEvaVariant.KerbalBoardsForeignVessel);
+            Recording tip = tree.Recordings[ReFlyThroughEvaFixture.UpperAfterEvaId];
+            tip.TerminalStateValue = TerminalState.Orbiting;
+            var rp = ReFlyThroughEvaFixture.BuildRewindPoint();
+            InstallScenario(rp);
+
+            Assert.False(UnfinishedFlightStashHandler.TryStash(tip, out string reason));
+            Assert.Equal(UnfinishedFlightClassifier.EvaCrewJoinedForeignVesselReason, reason);
+            Assert.False(UpperSlot(rp).Stashed);
+            Assert.Equal(MergeState.Immutable, tip.MergeState);
+            Assert.Contains(logLines, l => l.Contains("[UnfinishedFlights]")
+                && l.Contains("Stash unavailable rec=" + ReFlyThroughEvaFixture.UpperAfterEvaId)
+                && l.Contains("reason=evaCrewJoinedForeignVessel"));
+        }
+
         [Fact]
         public void Pure_ShouldOfferLostReFlyRemedy()
         {

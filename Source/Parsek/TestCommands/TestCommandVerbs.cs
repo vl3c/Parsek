@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel): 43 verbs (DeleteRecording removed 2026-09-26). The NUMBER is prose and
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + ListHandles + WarpToUT + the GUI-census pair + DumpGuiTree + the Gloops pair + StockScreen + the editor scene route + EvaGroundScience + SafeWriteCrash + SpinVessel + StashSlot): 44 verbs (DeleteRecording removed 2026-09-26). The NUMBER is prose and
         // the SET below is the authority - test_hlib's
         // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
         // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
@@ -296,25 +296,33 @@ namespace Parsek.TestCommands
             // roll axis (SAS off first) so a lane can put a rotating vessel on rails; contract
             // on TestCommandSpinVessel. Single-phase on the default budget.
             "SpinVessel",
+            // StashSlot. The SEVENTH strict promotion out of the reserved list below (43 ->
+            // 44 implemented, 5 -> 4 reserved): the wire token is byte-identical, only the
+            // response changes. It is the Recordings table's per-row Stash button
+            // (UnfinishedFlightStashHandler.TryStash), which opens a stable separation leaf
+            // the default Unfinished Flights predicate excluded so it can be re-flown. Its
+            // consumer is the live re-fly of a focus slot whose original flight went EVA
+            // and re-boarded (RF-20): that slot ends Orbiting, so it is never an Unfinished
+            // Flight until the player stashes it. Single-phase on the default budget.
+            "StashSlot",
         };
 
-        // Reserved (recognized, not implemented in v1): 5 verbs.
+        // Reserved (recognized, not implemented in v1): 4 verbs.
         // SimulateStockSwitchClick left this set in R12; MissionConfig left it for the
         // arrival-validation lane; StartLoopPlayback and EnterWatchMode left it for the
         // player-workflow lane; SealSlot and RouteCommand left it for the logistics lane
         // (every one of the six a strict promotion: wire token byte-identical, only the
         // response changes -- REJECTED not-implemented-v1 -> a real terminal).
+        // StashSlot left it for the live EVA re-fly lane (RF-20), the seventh promotion.
         // StopPlayback deliberately STAYS reserved: teardown is FlushAndQuit's job, so a
-        // stop verb would be a second, weaker owner of it. StashSlot and FlySlot stay
-        // reserved beside their promoted sibling SealSlot on purpose: FlySlot's mechanism
-        // is already driveable under a DIFFERENT name (InvokeRewind, the re-fly), so a
+        // stop verb would be a second, weaker owner of it. FlySlot stays reserved beside
+        // its promoted siblings SealSlot and StashSlot on purpose: its mechanism is
+        // already driveable under a DIFFERENT name (InvokeRewind, the re-fly), so a
         // second spelling would make the wire token ambiguous about which half of the
-        // timeline machinery a spec exercised, and StashSlot has no consumer - nothing in
-        // the suite needs to OPEN a slot, only to close one.
+        // timeline machinery a spec exercised.
         private static readonly HashSet<string> ReservedVerbs = new HashSet<string>
         {
             "StopPlayback",
-            "StashSlot",
             "FlySlot",
             "CrashAfterJournalPhase",
             "RunInvariantReport",

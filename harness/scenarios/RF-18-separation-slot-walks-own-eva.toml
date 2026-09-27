@@ -39,8 +39,8 @@ id = "RF-18-separation-slot-walks-own-eva"
 # WHAT IT DOES NOT PROVE, and where that is proven instead. The pod stack is the FOCUS
 # slot ending Orbiting, so it is not itself an Unfinished Flight (stock physics cannot
 # crash a vessel parked in a stable orbit inside the seam's verbs, and no verb opens a
-# stable focus leaf: StashSlot is reserved, unimplemented). So the Re-Fly of the pod
-# stack, the closure admitting the EVA kerbal, the EVA death tombstone and the
+# stable focus leaf here). The live Re-Fly of this shape is RF-20-stashed-eva-slot-refly
+# (StashSlot, promoted 2026-09-27, opens the slot); the EVA death tombstone and the
 # foreign-vessel block are proven headlessly in `ReFlyThroughEvaTests` over the
 # `ReFlyThroughEvaFixture` generator, including an end-to-end CommitSupersede and the
 # splitter cutting the spanning tree-branching parent.

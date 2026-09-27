@@ -69,11 +69,10 @@ namespace Parsek.Tests
         [Fact]
         public void ReservedVerb_Rejects_NotImplementedV1()
         {
-            // StashSlot stays reserved after the logistics lane, which promoted its
-            // sibling SealSlot (this cell used to name SealSlot). It is the right
-            // remaining stand-in: same D9 slot family, and nothing in the suite needs
-            // the slot-OPEN direction it drives.
-            var r = TestCommandDispatcher.DecideDispatch(Cmd("StashSlot"), Flight());
+            // FlySlot stays reserved: its mechanism is driveable as InvokeRewind. This
+            // cell named SealSlot, then StashSlot, until each was promoted; FlySlot is
+            // the last member of that D9 slot family still reserved.
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("FlySlot"), Flight());
             Assert.Equal(DispatchDecision.Reject, r.Decision);
             Assert.Equal("not-implemented-v1", r.Reason);
         }

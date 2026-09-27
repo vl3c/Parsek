@@ -56,6 +56,7 @@ namespace Parsek.Tests
         [InlineData("EvaGroundScience")]
         [InlineData("SafeWriteCrash")]
         [InlineData("SpinVessel")]
+        [InlineData("StashSlot")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -63,7 +64,6 @@ namespace Parsek.Tests
 
         [Theory]
         [InlineData("StopPlayback")]
-        [InlineData("StashSlot")]
         [InlineData("FlySlot")]
         [InlineData("CrashAfterJournalPhase")]
         [InlineData("RunInvariantReport")]
@@ -123,9 +123,9 @@ namespace Parsek.Tests
             // verb moves one number, a promotion moves two, and a half-done promotion
             // (added to Implemented, left in Reserved) moves the first without the
             // second and is caught here as well as by the disjointness cell below.
-            // StashSlot and FlySlot deliberately stay behind: FlySlot's mechanism is
-            // already driveable as InvokeRewind, and nothing needs StashSlot's slot-OPEN
-            // direction.
+            // FlySlot deliberately stays behind: its mechanism is already driveable as
+            // InvokeRewind. (StashSlot stayed behind too until RF-20 gave it a consumer;
+            // see the last paragraph.)
             // DeleteRecording was ADDITIVE (30 -> 31; reserved unchanged at 5): the
             // reserved envelope never carried a recording-deletion verb. It was REMOVED
             // 2026-09-26 (44 -> 43) with the Recordings table's delete button, by the
@@ -171,8 +171,12 @@ namespace Parsek.Tests
             // SpinVessel is ADDITIVE (43 -> 44; reserved unchanged at 5): the D17
             // persistent-rotation host; the reserved envelope never carried a physics verb.
             // DeleteRecording's removal (see above) takes it back to 43.
-            Assert.Equal(43, TestCommandVerbs.ImplementedVerbNames.Count);
-            Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
+            // StashSlot is the SEVENTH PROMOTION (43 -> 44 implemented, 5 -> 4 reserved),
+            // so both numbers move in opposite directions again: the Recordings table's
+            // Stash button, whose consumer is the live re-fly of a stable focus slot that
+            // went EVA and re-boarded (RF-20).
+            Assert.Equal(44, TestCommandVerbs.ImplementedVerbNames.Count);
+            Assert.Equal(4, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
         [Fact]

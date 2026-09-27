@@ -525,6 +525,19 @@ journal, verdicts) is designed once and the later commands slot in without a for
 >
 > Full contracts below (`#### SealSlot` and `#### RouteCommand`).
 
+> Update (StashSlot, 2026-09-27): the SEVENTH strict PROMOTION out of the reserved list
+> (wire token byte-identical, only the response changes), taking the table to **44
+> implemented / 4 reserved**. The paragraph above kept it reserved because "nothing in the
+> suite needs to OPEN a slot"; that stopped being true with the owner ruling of 2026-09-27
+> that a separation slot follows its vessel through the crew's own EVA and re-board
+> (`docs/parsek-rewind-to-separation-design.md` section 1.6). RF-18 proves the walk live,
+> but its pod stack is the FOCUS slot ending Orbiting - a stable leaf the default
+> Unfinished Flights predicate excludes - so it has no Fly button until the player presses
+> the per-row Stash, and no driven run could press it. `StashSlot rp= slot=` is that button
+> (`UnfinishedFlightStashHandler.TryStash`); its first consumer is
+> `RF-20-stashed-eva-slot-refly`. `FlySlot` stays reserved for the reason above. Full
+> contract below (`#### StashSlot`).
+
 > Update (DeleteRecording, 2026-09-02): one further ADDITIVE verb, `DeleteRecording
 > index=<n>` - the SaveGame / EVA / ExportRenderManifest shape, never in the reserved
 > envelope (which carried no recording-deletion verb). It takes the table to **31
@@ -1262,6 +1275,96 @@ action=... " or `Warn` "routecommand rejected reason=..." / "routecommand refuse
 route= statusBefore= status=". The shared funnel emits its own `[Route]`
 "CreatePausedFromCandidate created tree= route= name= status= interval= transit= cadence=
 manualLoopsCleared=" line, which is what a spec pins for the creation itself.
+
+#### StashSlot (the seventh promoted reserved verb)
+
+**Contract.** `SealSlot`'s dispatch row verbatim: precondition `RequiresGameLoaded` (the
+verb reads and mutates SAVE-scoped state only - `ParsekScenario.RewindPoints` and one
+committed recording's `MergeState` - and the Recordings table it reproduces is open in
+FLIGHT and at the KSC alike), the two dispatch rejects `load-in-flight` and
+`merge-journal-in-flight` (a merge journal mid-finalize walks and rewrites the same
+supersede list and tip `MergeState`), and NO `recording-active` reject (a player can press
+Stash with a recorder running). SINGLE-PHASE on the 60 s default budget: `TryStash` is
+synchronous, so the read-back is a final answer.
+
+**It drives the production path.** The stash goes through
+`UnfinishedFlightStashHandler.TryStash`, which is what the Recordings table's per-row Stash
+button calls (`RecordingsTableUI.HandleStashUnfinishedFlightClick`). The handler re-runs the
+stash resolver the table used to decide the button exists
+(`UnfinishedFlightClassifier.TryResolveStashableRewindPointForRecording`: visibility, slot
+resolution, the not-yet-stashed guard, a default verdict that must be a stash override -
+`stableTerminal`, `stableTerminalFocusSlot` or `noFocusSignalOrbiting` - a terminal in
+{Landed, Splashed, Orbiting, SubOrbital} and no retry-blocking recording action), then sets
+the monotonic `ChildSlot.Stashed` bit and `StashedRealTime`, demotes the slot's effective
+chain+supersede tip `Immutable -> CommittedProvisional` with its sidecars dirty, and bumps
+`ParsekScenario.BumpSupersedeStateVersionLive()`. Every resolver refusal precedes the first
+write. Like the button, the verb persists NOTHING: a lane that reloads from disk after it
+must take an explicit `SaveGame` step, as a player would have to save.
+
+**Arguments - one spelling.**
+
+| arg | values | meaning |
+|---|---|---|
+| `rp` | `RewindPointId` | the rewind point (a `${h.rp0}` capture from `ListHandles kind=rewindpoints`) |
+| `slot` | slot index (int >= 0) | `ChildSlot.SlotIndex` under `rp=` |
+
+`SealSlot`'s slot-mode vocabulary verbatim, including that an ABSENT `slot=` is just an
+unresolvable target. There is no `tree=` mode: stashing is a per-slot player intent, and a
+tree-wide stash would open slots nobody asked for. The recording handed to the handler is
+the slot's EFFECTIVE tip (`ChildSlot.EffectiveRecordingId` over `RecordingSupersedes` - the
+slot-vessel walk, so on RF-20 it is the pod stack re-boarded after its own EVA), the same
+recording the handler demotes and `SealSlot`'s slot mode hands `TrySeal`; it is always
+visible, so it is a row a player could click.
+
+**The read-back.** After a successful `TryStash` the verb checks (1) that the ADDRESSED slot
+now carries the Stashed bit (the handler resolves its slot from the recording, so a tip that
+also belongs to another rewind point's slot could land the stash elsewhere) and (2) that the
+slot's row reads as an Unfinished Flight through the predicate the table's Fly button reads,
+`UnfinishedFlightClassifier.IsVisibleUnfinishedFlight` - on the slot's origin recording
+first, then on the tip, because the Unfinished Flights list draws ONE row per slot on that
+anchor (`EffectiveState.TryResolveUnfinishedFlight`'s dedupe: the tip row of a slot whose
+origin is visible is a suppressed peer). An OK therefore means "the player would now see
+Fly on this slot's row", and `unfinishedRow=` names the row.
+
+**NOT idempotent, unlike `SealSlot`.** A second press is refused by the same resolver that
+hides the button (`alreadyStashed`), because `ChildSlot.Stashed` is monotonic and the
+handler refuses it; a spec that re-stashes must `expect = "ERROR"`.
+
+**Payload.** `rp`, `slot`, `tip`, `stashed` (the addressed slot's bit after the call),
+`tipMergeStateBefore`, `tipMergeState`, `unfinishedFlight`, `unfinishedRow` (empty unless
+the read-back found the row).
+
+**Typed-error taxonomy.**
+
+| verdict | `msg` | when |
+|---|---|---|
+| REJECTED | `target-arg-missing` | no `rp=` |
+| REJECTED | `unknown-slot` | `slot=` absent / unparseable / negative / unmatched under `rp=` |
+| REJECTED | `unknown-rp` | no rewind point carries that id |
+| ERROR | `no-scenario` | no `ParsekScenario.Instance` |
+| ERROR | `stash-refused <handlerReason>` | the production handler declined (`alreadyStashed`, `alreadyUnfinishedFlight`, `downstreamBp`, `evaCrewJoinedForeignVessel`, `unsafeTerminal:<t>`, `recordingAction:<summary>`, `recording is superseded`, ...) or the seam found no tip (`tip-unresolvable`) |
+| ERROR | `stash-resolved-other-slot` | the handler stashed, but not the addressed slot |
+| ERROR | `stash-not-unfinished <reason>` | the handler stashed, but neither the origin nor the tip row reads as an Unfinished Flight |
+
+`stash-refused` is ERROR for `SealSlot`'s `seal-refused` reason: the verb reached the
+production handler and something that is not the seam declined. The last two are post-act
+product inconsistencies. **No new `_SEAM_REFUSAL_SUBKINDS` rows**: every REJECTED token is
+already mapped for `SealSlot` / `InvokeRewind`, and the ERRORs stay unmapped on purpose.
+
+**Harness roles.** `world-mutating` on the tail axis (a monotonic bit plus a tip demotion
+that keeps the rewind point alive and puts a new Unfinished Flight on the table) and
+`recording` on the post-mission gating axis (the OK is a read-back of Parsek's own merge
+state, never a claim about a kerbal).
+
+**Diagnostic logging:** `Info` "stashslot start rp= slot=", then `Info` "stashslot complete
+rp= slot= tip= tipMergeState=<before>-><after> stashed=true unfinishedFlight=true
+unfinishedRow=<id>", or `Warn` "stashslot refused rp= slot= tip= msg=stash-refused <reason>"
+(the refusal changed nothing and is the outcome the player gets as a screen message), or
+`Error` "stashslot readback-failed rp= slot= tip= msg=<...>" / "stashslot tip-unresolvable
+...". The handler's own `[UnfinishedFlights]` line "Stashed slot= rec= bp= rp= tip=
+tipMergeState= tipDemoted= terminal= reaperBlocked=" (or "Stash unavailable rec= reason=")
+still fires, so a lane pins THAT for the state change and this verb's line for the command
+outcome.
 
 #### DeleteRecording (REMOVED 2026-09-26)
 

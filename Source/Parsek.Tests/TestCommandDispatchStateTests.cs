@@ -61,6 +61,7 @@ namespace Parsek.Tests
             public void EvaGroundScience(ParsedCommand cmd) => Calls.Add("EvaGroundScience");
             public void SafeWriteCrash(ParsedCommand cmd) => Calls.Add("SafeWriteCrash");
             public void SpinVessel(ParsedCommand cmd) => Calls.Add("SpinVessel");
+            public void StashSlot(ParsedCommand cmd) => Calls.Add("StashSlot");
         }
 
         [Fact]
@@ -170,6 +171,8 @@ namespace Parsek.Tests
         [InlineData("LaunchFromEditor", "RequiresGameLoaded")]
         [InlineData("SafeWriteCrash", "RequiresGameLoaded")]
         [InlineData("SpinVessel", "RequiresFlight")]
+        // StashSlot: SealSlot's row - save-scoped stores only, table open at the KSC too.
+        [InlineData("StashSlot", "RequiresGameLoaded")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -223,6 +226,7 @@ namespace Parsek.Tests
             fake.EvaGroundScience(cmd);
             fake.SafeWriteCrash(cmd);
             fake.SpinVessel(cmd);
+            fake.StashSlot(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();
