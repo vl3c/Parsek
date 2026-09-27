@@ -196,23 +196,6 @@ namespace Parsek
               .Append('/')
               .Append(BoolStr(snap.pendingSplitInProgress));
 
-            sb.Append(" chain=");
-            if (snap.chainActiveChainId != null)
-                sb.Append(TruncateId(snap.chainActiveChainId))
-                  .Append("|idx=")
-                  .Append(snap.chainNextIndex.ToString(inv));
-            else
-                sb.Append('-');
-
-            // Auxiliary chain fields when continuations are active - only emitted
-            // when non-zero so the line stays compact in the common case.
-            if (snap.chainContinuationPid != 0)
-                sb.Append(" chain.cont=").Append(snap.chainContinuationPid.ToString(inv));
-            if (snap.chainUndockContinuationPid != 0)
-                sb.Append(" chain.undock=").Append(snap.chainUndockContinuationPid.ToString(inv));
-            if (snap.chainBoundaryAnchorPending)
-                sb.Append(" chain.anchor=1");
-
             sb.Append(" ut=").Append(snap.currentUT.ToString("F1", inv));
             sb.Append(" scene=").Append(snap.loadedScene.ToString());
 

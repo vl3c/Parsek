@@ -1,12 +1,12 @@
 schema = 1
 id = "LT-1-long-tail-flight"
 tier = "nightly"
-# THE LONG TAIL, ONE BOOT. Thirty-one in-game categories that were never driven
+# THE LONG TAIL, ONE BOOT. Thirty in-game categories that were never driven
 # because each is too small to justify its own KSP boot (the inventory's bucket B5,
 # the roadmap's "Cause E: one category per spec") - run as ONE multi-category
 # batch through the seam's comma-list RunTests selector. The runner batches each
 # constituent in turn and prints its own BATCH_COMPLETE line, then the
-# category=multi:31 aggregate; the contract that makes that honest is per
+# category=multi:30 aggregate; the contract that makes that honest is per
 # constituent, not per aggregate: every category below pins its own whole line,
 # so a constituent that executes nothing reds by name (hlib's
 # SINGLE_BATCH_SELECTOR_RULE as amended 2026-09-07).
@@ -38,7 +38,13 @@ tier = "nightly"
 # re-flown after the hover cell bound its cursor placement to the game's own process
 # window: run `2026-09-08_1114`, PASS attempt 1. Both: every per-constituent line above
 # matched verbatim and every verifier PASS or REPORT.
-description = "Run the 31 long-tail in-game categories as one multi-category batch at FLIGHT over the injected synthetic corpus, every constituent pinned whole."
+# 2026-09-27: the ContinuationIntegrity constituent (2 cells) was deleted with the
+# chain-continuation state it checked (todo CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-
+# COMMIT-REMOVAL). Every other per-constituent line is unchanged; the aggregate is
+# the flown one minus that constituent's 2/2/0/0 line (58/51/0/7 -> 56/49/0/7,
+# multi:31 -> multi:30, and the runtests start line's multi=31 -> multi=30). Not
+# re-flown for the removal alone.
+description = "Run the 30 long-tail in-game categories as one multi-category batch at FLIGHT over the injected synthetic corpus, every constituent pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "LT-1"]
 
@@ -59,18 +65,18 @@ kind = "seam"
 # on an idle recorder. Budget: the 540 s RunTests cap is the M-A5 deferred-step cap;
 # the census measured about 8 s of per-category batch overhead (baseline capture,
 # crash marker, results export) on top of cells that all finish in under 0.3 s, so
-# 31 constituents sit near 280 s (measured 242 s of batch time on the 33-constituent
+# 30 constituents sit near 280 s (measured 242 s of batch time on the 33-constituent
 # pinned flight `2026-09-07_1511`, a 2.2x margin under the 540 s cap - thinner than
-# any single-category lane, and the reason a 32nd constituent should go to another lane). See runtime.budgetSeconds.
+# any single-category lane, and the reason a further constituent should go to another lane). See runtime.budgetSeconds.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "RunTests",   args = { category = "BackgroundSeeder,Bug289,ContinuationIntegrity,DisabledHoverEcho,FinalizeLimbo,Flight,ForwardRender,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,SwitchIntentPatch,TerminalOrbit,TestRunner,TestRunnerIsolation,Unity,Watch" }, expect = "OK", budget = 540 },
+  { cmd = "RunTests",   args = { category = "BackgroundSeeder,Bug289,DisabledHoverEcho,FinalizeLimbo,Flight,ForwardRender,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,SwitchIntentPatch,TerminalOrbit,TestRunner,TestRunnerIsolation,Unity,Watch" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                     expect = "OK" },
 ]
 
 [dimensionsCovered]
-# Only the environment axes. The 31 constituents touch a dozen dimensions between
+# Only the environment axes. The 30 constituents touch a dozen dimensions between
 # them, but a dimension cell is claimed by a lane that asserts the product
 # behaviour the cell names, and a whole-tally pin over a category asserts that its
 # cells RAN, not what they proved. The per-category rows in the inventory say what
@@ -89,10 +95,9 @@ count = { min = 274, max = 274 }
 # measured census line (PartEventTiming from its post-fix control flight), plus the
 # aggregate whose counts are the sums. `failed=0` on every line is the assertion.
 required  = [
-  "runtests start category=BackgroundSeeder,Bug289,ContinuationIntegrity,DisabledHoverEcho,FinalizeLimbo,Flight,ForwardRender,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,SwitchIntentPatch,TerminalOrbit,TestRunner,TestRunnerIsolation,Unity,Watch isolated=false strict=false multi=31",
+  "runtests start category=BackgroundSeeder,Bug289,DisabledHoverEcho,FinalizeLimbo,Flight,ForwardRender,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,SwitchIntentPatch,TerminalOrbit,TestRunner,TestRunnerIsolation,Unity,Watch isolated=false strict=false multi=30",
   "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=BackgroundSeeder scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Bug289 scene=FLIGHT",
-  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=ContinuationIntegrity scene=FLIGHT",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=DisabledHoverEcho scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=FinalizeLimbo scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Flight scene=FLIGHT",
@@ -121,7 +126,7 @@ required  = [
   "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=TestRunnerIsolation scene=FLIGHT",
   "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Unity scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Watch scene=FLIGHT",
-  "BATCH_COMPLETE v1 total=58 passed=51 failed=0 skipped=7 category=multi:31 scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=56 passed=49 failed=0 skipped=7 category=multi:30 scene=FLIGHT",
   # THE WATCH CONSTITUENT'S OWN CELL-LEVEL LINES (claim pass 2026-09-08). Both are
   # written AFTER the cell's assertions (`WatchAutoFollowFollowsSupersedeForkRuntimeTest.cs`,
   # `WatchCoverageRetiredEligibilityRuntimeTest.cs`), so neither can print on a

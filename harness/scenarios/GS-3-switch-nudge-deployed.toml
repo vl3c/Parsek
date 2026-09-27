@@ -316,7 +316,7 @@ D1 = ["switch-segment", "commit-scene-exit", "auto-merge"]
 #   value as a ChainId link; the D5 dimension is "tree / chain topology" and this value
 #   names the topology a switch leaves behind - a continuation branch attached UNDER
 #   the live-tree member the switch landed on. The ChainId chain
-#   (ChainSegmentManager's EVA-board / boundary-split segments) is a different
+#   (the retired chain commit's EVA-board / boundary-split segments) is a different
 #   topology and is not what this token proves. CI-1-eva-switch-bg-member claims the
 #   same value from the same tokens on an EVA split, so the two lanes cover the two
 #   in-run splits that put a vessel into BackgroundMap.

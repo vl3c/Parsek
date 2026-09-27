@@ -254,6 +254,7 @@ namespace Parsek
                 GroupHierarchyStore.PruneUnusedHierarchyEntriesFromCommittedRecordings("load-time-sweep");
             }
             int missingQuicksaveRps = SweepMissingRewindPointQuicksaves(scenario);
+            LegacyEvaRewindPointSweepResult legacyEvaRps = SweepLegacyEvaRewindPoints(scenario);
 
             // ----------------------------------------------------------------
             // Step 8.6 (#688 follow-up): defensive backstop for orphan
@@ -284,6 +285,7 @@ namespace Parsek
                 $"strayFields={strayFields.ToString(CultureInfo.InvariantCulture)} " +
                 $"discardedRps={removedRps.ToString(CultureInfo.InvariantCulture)} " +
                 $"missingQuicksaveRps={missingQuicksaveRps.ToString(CultureInfo.InvariantCulture)} " +
+                $"legacyEvaRpsReaped={legacyEvaRps.Reaped.ToString(CultureInfo.InvariantCulture)} " +
                 $"orphanReFlyAnchors={orphanSnapshotsCleared.ToString(CultureInfo.InvariantCulture)}");
 
             // ----------------------------------------------------------------
@@ -406,6 +408,203 @@ namespace Parsek
             }
 
             return cleaned;
+        }
+
+        /// <summary>What the load-time sweep does with one Rewind Point under the EVA ruling.</summary>
+        internal enum LegacyEvaRewindPointVerdict
+        {
+            /// <summary>Authored at a vessel separation: untouched.</summary>
+            NotEva,
+            /// <summary>Its branch point is in no loaded tree: left for the ordinary reaper.</summary>
+            BranchPointUnresolved,
+            /// <summary>An EVA RP the live Re-Fly session is using: reaped after the session concludes.</summary>
+            KeepLiveSession,
+            /// <summary>An EVA RP whose tree or session has not merged yet: reaped on a later load.</summary>
+            KeepSessionProvisional,
+            /// <summary>An EVA RP nothing uses: its slots are concluded and it is reaped.</summary>
+            Reap,
+        }
+
+        /// <summary>
+        /// Pure decision for a Rewind Point under the owner ruling of
+        /// 2026-09-27 (Re-Fly is for vessel separations only; an EVA never gets
+        /// a Re-Fly). Rewind Points authored at an EVA split by older builds are
+        /// reaped, except one a live <see cref="ReFlySessionMarker"/> references
+        /// (never break an in-progress session) or one still session-provisional
+        /// (its owning tree or session has not merged; the reaper would keep it
+        /// anyway, and a later load reaps it).
+        /// </summary>
+        internal static LegacyEvaRewindPointVerdict ClassifyLegacyEvaRewindPoint(
+            RewindPoint rp,
+            BranchPointType? branchPointType,
+            string markerRewindPointId)
+        {
+            if (rp == null) return LegacyEvaRewindPointVerdict.NotEva;
+            if (!branchPointType.HasValue) return LegacyEvaRewindPointVerdict.BranchPointUnresolved;
+            if (RewindPointAuthor.IsReFlySplitType(branchPointType.Value))
+                return LegacyEvaRewindPointVerdict.NotEva;
+            if (!string.IsNullOrEmpty(markerRewindPointId)
+                && string.Equals(rp.RewindPointId, markerRewindPointId, StringComparison.Ordinal))
+                return LegacyEvaRewindPointVerdict.KeepLiveSession;
+            if (rp.SessionProvisional)
+                return LegacyEvaRewindPointVerdict.KeepSessionProvisional;
+            return LegacyEvaRewindPointVerdict.Reap;
+        }
+
+        internal struct LegacyEvaRewindPointSweepResult
+        {
+            public int Found;
+            public int Reaped;
+            public int TipsConcluded;
+            public int KeptLiveSession;
+            public int KeptSessionProvisional;
+            public int KeptOpen;
+        }
+
+        /// <summary>
+        /// Reaps Rewind Points that older builds authored at an EVA split.
+        /// Each reapable RP's CommittedProvisional slot tips are concluded
+        /// (flipped to Immutable, the same close the Seal action and the
+        /// missing-quicksave sweep perform), then the ordinary
+        /// <see cref="RewindPointReaper.ReapOrphanedRPs"/> deletes the quicksave,
+        /// the scenario entry, the branch-point back-reference and the RP's
+        /// contract snapshots. A tip still NotCommitted keeps its RP (the
+        /// reaper refuses an open slot); it is counted as keptOpen. Logs one
+        /// summary line with the counts when any EVA RP was found.
+        /// </summary>
+        internal static LegacyEvaRewindPointSweepResult SweepLegacyEvaRewindPoints(ParsekScenario scenario)
+        {
+            var result = new LegacyEvaRewindPointSweepResult();
+            if (object.ReferenceEquals(null, scenario)
+                || scenario.RewindPoints == null
+                || scenario.RewindPoints.Count == 0)
+                return result;
+
+            string markerRewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                scenario.RecordingSupersedes
+                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
+            var reapIds = new HashSet<string>(StringComparer.Ordinal);
+
+            for (int i = 0; i < scenario.RewindPoints.Count; i++)
+            {
+                var rp = scenario.RewindPoints[i];
+                if (rp == null) continue;
+                var verdict = ClassifyLegacyEvaRewindPoint(
+                    rp, FindBranchPointTypeInStores(rp.BranchPointId), markerRewindPointId);
+                switch (verdict)
+                {
+                    case LegacyEvaRewindPointVerdict.KeepLiveSession:
+                        result.Found++;
+                        result.KeptLiveSession++;
+                        ParsekLog.Info(SweepTag,
+                            $"Legacy EVA Rewind Point kept for the live Re-Fly session rp={rp.RewindPointId} " +
+                            $"bp={rp.BranchPointId ?? "<no-bp>"} " +
+                            $"sess={scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-sess>"} " +
+                            "(reaped after the session concludes)");
+                        break;
+                    case LegacyEvaRewindPointVerdict.KeepSessionProvisional:
+                        result.Found++;
+                        result.KeptSessionProvisional++;
+                        ParsekLog.Verbose(SweepTag,
+                            $"Legacy EVA Rewind Point kept while session-provisional rp={rp.RewindPointId} " +
+                            $"bp={rp.BranchPointId ?? "<no-bp>"} (reaped on a later load)");
+                        break;
+                    case LegacyEvaRewindPointVerdict.Reap:
+                        result.Found++;
+                        if (!string.IsNullOrEmpty(rp.RewindPointId))
+                            reapIds.Add(rp.RewindPointId);
+                        result.TipsConcluded += ConcludeProvisionalSlotTips(rp, supersedes);
+                        break;
+                }
+            }
+
+            if (reapIds.Count > 0)
+            {
+                RewindPointReaper.ReapOrphanedRPs();
+                for (int i = 0; i < scenario.RewindPoints.Count; i++)
+                {
+                    var rp = scenario.RewindPoints[i];
+                    if (rp != null && !string.IsNullOrEmpty(rp.RewindPointId)
+                        && reapIds.Remove(rp.RewindPointId))
+                    {
+                        result.KeptOpen++;
+                        ParsekLog.Info(SweepTag,
+                            $"Legacy EVA Rewind Point not reaped: a slot is still open rp={rp.RewindPointId} " +
+                            $"bp={rp.BranchPointId ?? "<no-bp>"}");
+                    }
+                }
+                result.Reaped = reapIds.Count;
+            }
+
+            if (result.Found > 0)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Info(SweepTag,
+                    "Legacy EVA Rewind Points (Re-Fly is for vessel separations only): " +
+                    $"found={result.Found.ToString(ic)} reaped={result.Reaped.ToString(ic)} " +
+                    $"tipsConcluded={result.TipsConcluded.ToString(ic)} " +
+                    $"keptLiveSession={result.KeptLiveSession.ToString(ic)} " +
+                    $"keptSessionProvisional={result.KeptSessionProvisional.ToString(ic)} " +
+                    $"keptOpen={result.KeptOpen.ToString(ic)}");
+            }
+            return result;
+        }
+
+        private static int ConcludeProvisionalSlotTips(
+            RewindPoint rp, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (rp?.ChildSlots == null) return 0;
+            int concluded = 0;
+            for (int s = 0; s < rp.ChildSlots.Count; s++)
+            {
+                var slot = rp.ChildSlots[s];
+                if (slot == null) continue;
+                string tipId = slot.EffectiveRecordingId(supersedes);
+                Recording tip = EffectiveState.FindCommittedRecordingByIdRaw(tipId);
+                if (tip == null || tip.MergeState != MergeState.CommittedProvisional)
+                    continue;
+                tip.MergeState = MergeState.Immutable;
+                tip.FilesDirty = true;
+                concluded++;
+                ParsekLog.Verbose(SweepTag,
+                    $"Legacy EVA Rewind Point concluded slot={s.ToString(CultureInfo.InvariantCulture)} " +
+                    $"rp={rp.RewindPointId} tip={tipId} -> Immutable");
+            }
+            return concluded;
+        }
+
+        /// <summary>
+        /// Type of the branch point with this id, searched in the committed trees
+        /// and the pending tree (the stores <see cref="RewindPointReaper.ClearBranchPointBackref"/>
+        /// walks). Null when no loaded tree carries it.
+        /// </summary>
+        private static BranchPointType? FindBranchPointTypeInStores(string branchPointId)
+        {
+            if (string.IsNullOrEmpty(branchPointId)) return null;
+            var trees = RecordingStore.CommittedTrees;
+            if (trees != null)
+            {
+                for (int t = 0; t < trees.Count; t++)
+                {
+                    BranchPointType? found = FindBranchPointTypeInTree(trees[t], branchPointId);
+                    if (found.HasValue) return found;
+                }
+            }
+            return FindBranchPointTypeInTree(RecordingStore.PendingTree, branchPointId);
+        }
+
+        private static BranchPointType? FindBranchPointTypeInTree(RecordingTree tree, string branchPointId)
+        {
+            var bps = tree?.BranchPoints;
+            if (bps == null) return null;
+            for (int b = 0; b < bps.Count; b++)
+            {
+                var bp = bps[b];
+                if (bp != null && string.Equals(bp.Id, branchPointId, StringComparison.Ordinal))
+                    return bp.Type;
+            }
+            return null;
         }
 
         private sealed class MissingRewindPointQuicksave
