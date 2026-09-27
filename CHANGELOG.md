@@ -1235,6 +1235,29 @@ _(unreleased — entries accumulate here per commit)_
   game seated him anyway without hiring him, announced a hire that cost nothing, and with two
   seats short put him in both. Auto-hire now passes over applicants a committed flight hires
   later and takes the next one (or a new applicant when none is left).
+- **Recording through the Alt+F12 cheats and from alternate launch sites.** Four follow-ups
+  from the stock-settings audit:
+  - A Set Orbit, Rendezvous or Set Position teleport during a recording is now recorded as a
+    jump. A same-planet jump is not itself a split point (the recording still splits where the
+    flight phase really changes, such as surface to orbit), and a jump from the surface
+    or the atmosphere to another planet or moon now splits the recording at the new body the
+    way an SOI change does (before, one piece of the recording spanned both bodies). In orbit
+    the ghost follows the new orbit from the moment of the jump instead of the old orbit for a
+    few frames. Every teleport is logged.
+  - A recording that did not start with a launch no longer carries a launch site. Starting a
+    recording on a vessel taken off from a remote landing, switched to, or picked in the
+    Tracking Station tagged it with the site of your last launch, and a supply route built from
+    it was treated and priced as a KSC launch. A launch from the pad or runway, a vessel still
+    on a launch site, and a fresh rollout keep their site, and a vessel standing on a site now
+    names that site rather than the last one you launched from.
+  - A flight that ends parked on any stock launch site (the Making History Desert pad and
+    airfield, the Woomerang pad and the Island airfield, as well as the KSC pad and runway) is
+    retired: no vessel is spawned there, its crew is freed and no funds are paid. KSC behaves
+    exactly as before.
+  - Recording while Hack Gravity is on now writes one warning to KSP.log: orbits recorded under
+    changed gravity replay at the wrong rate once gravity is back to normal. Nothing else
+    changes.
+
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:

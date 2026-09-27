@@ -535,6 +535,58 @@ recorded crew inventories.
 
 ---
 
+## KSP-SETTINGS-FOLLOWUPS-RECORDING-2026-09-27: cheat teleports, stale launch-site tags, alternate-site retirement and Hack Gravity [FILED 2026-09-27 from the KSP-SETTINGS-AUDIT-2026-09-26 trace list, branch `kss2-recording`. FIXED on that branch]
+
+Owner rulings (2026-09-27): a flight that ends parked on ANY stock launch site is retired like the
+KSC pad / runway ending; Hack Gravity gets one Warn and no behavior change; no warning for
+infinite-propellant routes (billing prices the launch load and delivery is the witnessed
+transfer, so both are already correct).
+
+- ~~1. Alt+F12 teleports inside a live recording.~~ FIXED. Stock Set Orbit, Rendezvous and Set
+  Position all end in the protected `FlightGlobals.PostOrbitSet(CelestialBody oldBody)`
+  (decompiled 1.12.5; the middle-click cheat only fills Set Position's fields and teleports
+  through the same button), so `Patches/CheatTeleportPatch.cs` postfixes that one method (S9
+  gated) and forwards to `FlightRecorder.OnCheatTeleport` (`FlightRecorder.CheatTeleport.cs`,
+  pure `CheatTeleportDecision`). Every teleport logs `Cheat teleport detected ... action=`. On
+  rails with a coastable new orbit: the pre-teleport segment closes (dropped when zero-length)
+  and the new orbit is re-captured; cross-body on rails is already handled by the SOI handler
+  stock fires inside `PostOrbitSet`. Off rails (the pad / atmosphere case, where the rails
+  handler skipped the segment on the stale situation), or on rails onto a non-coast (inside an
+  atmosphere, airless sub-surface arc): a same-body jump writes a zero-duration one-frame
+  `isBoundarySeam` section at the next go-off-rails (the producer-C shape; the postfix cannot
+  sample, `v.latitude` is still pre-teleport), so the jump is not a split point; a cross-body
+  jump splits the section by body at once and sets `SoiChangePending`, and deliberately carries
+  NO seam flag, because the seam short-circuit would suppress the #251 body split. Residue: the
+  flat points still lerp over the ~10-frame unpack hold (about 0.2 s); a teleport during warp
+  followed by an SOI change in the same warp keeps the on-rails seam semantics (none needed).
+  Tests `CheatTeleportRecorderTests`.
+- ~~2. Stale launch-site tag.~~ CONFIRMED and FIXED. `FlightDriver.LaunchSiteName` is static and
+  only `StartWithNewLaunch` writes it; `ResolveLaunchSiteName` read it for every fresh non-EVA
+  non-promotion start, including `OnVesselSituationChange` from settled LANDED (take-off from a
+  remote landing) and the post-switch fresh start, and `RouteAnalysisEngine.IsKscOriginRecording`
+  needs only a non-empty site plus `StartBodyName == Kerbin`, so such a route was billed as a KSC
+  launch. `FlightRecorder.ShouldCaptureLaunchSite` now captures the site only for a launch start:
+  PRELAUNCH now, the PRELAUNCH auto-record transition (`ParsekFlight.StartRecording(...,
+  fromPrelaunchTransition)`), this scene's fresh rollout, or a vessel at rest whose live
+  `landedAt` names a stock site (a wheeled runway rover is LANDED, never PRELAUNCH); the last
+  also supplies the site name itself. The start log carries `launchSiteGate=`. Re-fly
+  recordings still copy the origin's site. Tests `LaunchSiteFollowupTests`.
+- ~~3. Alternate launch sites vs end-of-flight retirement.~~ FIXED per the ruling.
+  `LaunchSiteExclusionZones` reads the stock sites at runtime (`PSystemSetup.Instance.LaunchSites`
+  filtered by `IsStockLaunchSite`, home world, each `LaunchSite.SpawnPoint`; SPH facility =
+  runway) with a static fallback table (Desert pad measured from the MC-4 save; Desert airfield,
+  Woomerang and Island airfield are published coordinates, unverified in game).
+  `SpawnCollisionDetector.DecideLaunchSiteEndOfFlightRetirement` checks the unchanged KSC circles
+  first; `VesselSpawner.EvaluateKscEndOfFlightRetirement` (spawn and crew side) uses it, so the
+  KSC log line is byte-identical and another site logs `launch-site exclusion zone (<Site>
+  pad|runway)`. Tests `LaunchSiteFollowupTests`. No lane flies an alternate-site ending yet.
+- ~~4. Hack Gravity.~~ FIXED per the ruling. Stock keeps the cheat on the debug-screen widget
+  (`HackGravity.gravityFactor`, 1.0 when off); `GravityHackDetector` reads it at record start and
+  `Patches/HackGravityPatch.cs` postfixes `HackGravity.SetGravityFactor`, and the recorder writes
+  one `Gravity hack active while recording` Warn per recording. Tests `GravityHackDetectorTests`.
+
+---
+
 ## ~~RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL: a recovery stamps the non-leaf earlier segment of the recovered vessel too~~ [FILED 2026-09-26 from the MatchesVessel trace. FIXED 2026-09-27, branch `kss2-career`; the Re-Fly sibling edge below stays OPEN]
 
 Segments of one vessel share pid, launch guid and name: a breakup parent (its
