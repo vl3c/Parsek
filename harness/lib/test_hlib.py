@@ -10026,6 +10026,13 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "then EvaExit + EvaBoard from the pod stack. Reading 2026-09-27_1334 PASS, "
             "re-flight 2026-09-27_1439 PASS. Discharged: arming the report-only blocks "
             "and cadence promotion are the steps left, a human call",
+        "RF-19-refly-session-eva-reboard-merges.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-27 as the live lane "
+            "of REFLY-SESSION-EVA-CANNOT-SUPERSEDE (PR #1907 review): RF-13's re-fly to "
+            "orbit, then EvaExit + EvaBoard inside the live session and a merge that must "
+            "supersede and seal. Reading 2026-09-27_1532 PASS, offline negative control "
+            "red on the pre-fix shape. Discharged: arming the report-only blocks and "
+            "cadence promotion are the steps left, a human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
