@@ -9984,6 +9984,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "defect in the first build (fixed); re-flight 2026-09-24_1811 PASS, rewind "
             "block armed off it. Discharged: cadence promotion is the only step left, a "
             "human call",
+        "RF-16-separation-slot-walks-own-eva.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-27 as the live lane "
+            "of REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA (owner ruling: a separation slot "
+            "follows its vessel through the crew's own EVA and re-board): GS-2's split, "
+            "then EvaExit + EvaBoard from the pod stack. Owes its reading flight and the "
+            "rewind arming, not a human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
