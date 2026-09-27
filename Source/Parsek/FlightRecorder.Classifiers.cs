@@ -171,27 +171,113 @@ namespace Parsek
             isRetracted = stateString == "Retracted";
         }
 
+        /// <summary>Tolerance, in normalized animation time, for "at an end" and "at the deploy-limit stop".</summary>
+        internal const float CargoBayAnimEndTolerance = 0.01f;
+
+        /// <summary>
+        /// A deploy-limit stop closer than this to the closed end cannot be told apart from
+        /// "shut" at the classifier's tolerance, so it is not an open state.
+        /// </summary>
+        internal const float CargoBayMinStopDistanceFromClosed = 0.02f;
+
+        /// <summary>
+        /// The normalized animation time a deploy-limited bay settles at when opened, or null
+        /// when the bay has no usable limit (the ordinary open end then applies).
+        ///
+        /// Transcribes stock <c>ModuleAnimateGeneric</c> (KSP 1.12.5, decompiled): the clamp
+        /// stop is <c>deployPercent * 0.01</c>, snapped to 1 above 0.995, then mirrored to
+        /// <c>1 - stop</c> when <c>revClampPercent</c> is set. Every stock Mk2 / Mk3 bay has
+        /// <c>closedPosition = 1</c> and <c>revClampPercent = true</c>, so the Mallard's 45%
+        /// medium bay stops at 0.55. The stop comes from stock's formula rather than from
+        /// <paramref name="closedPosition"/>, so a modded bay whose two settings disagree
+        /// still resolves to where its animation actually stops.
+        ///
+        /// Null when: <paramref name="allowDeployLimit"/> is false (stock hides the slider;
+        /// behavior unchanged); <paramref name="closedPosition"/> is non-standard; the stop is
+        /// the ordinary open end (a 100% limit); or the stop is within
+        /// <see cref="CargoBayMinStopDistanceFromClosed"/> of the closed end (a 0% limit: the
+        /// bay cannot open).
+        /// </summary>
+        internal static float? ResolveCargoBayDeployLimitStop(
+            bool allowDeployLimit, float deployPercent, bool revClampPercent, float closedPosition)
+        {
+            if (!allowDeployLimit)
+                return null;
+            if (float.IsNaN(deployPercent) || float.IsInfinity(deployPercent))
+                return null;
+
+            float closedEnd;
+            if (closedPosition > 0.9f) closedEnd = 1f;
+            else if (closedPosition < 0.1f) closedEnd = 0f;
+            else return null;
+            float openEnd = 1f - closedEnd;
+
+            float stop = Mathf.Clamp01(deployPercent * 0.01f);
+            if (stop > 0.995f)
+                stop = 1f;
+            if (revClampPercent)
+                stop = 1f - stop;
+
+            if (Mathf.Abs(stop - openEnd) <= CargoBayAnimEndTolerance)
+                return null;
+            if (Mathf.Abs(stop - closedEnd) < CargoBayMinStopDistanceFromClosed)
+                return null;
+            return stop;
+        }
+
+        /// <summary>
+        /// Live-module form of <see cref="ResolveCargoBayDeployLimitStop(bool, float, bool, float)"/>.
+        /// Every live classifier call site (active recorder, background recorder, seeder,
+        /// adoption tokens) reads the limit through this one method so they cannot drift.
+        /// </summary>
+        internal static float? ResolveCargoBayDeployLimitStop(
+            ModuleAnimateGeneric animModule, float closedPosition)
+        {
+            if (animModule == null)
+                return null;
+            return ResolveCargoBayDeployLimitStop(
+                animModule.allowDeployLimit, animModule.deployPercent,
+                animModule.revClampPercent, closedPosition);
+        }
+
+        /// <summary>No-deploy-limit form: the bay is open only at the far end of its animation.</summary>
         internal static void ClassifyCargoBayState(
             float animTime, float closedPosition, out bool isOpen, out bool isClosed)
+            => ClassifyCargoBayState(animTime, closedPosition, null, out isOpen, out isClosed);
+
+        /// <summary>
+        /// Two-state cargo-bay classifier. Closed at the closed end; open at the open end OR,
+        /// for a deploy-limited bay, settled at its limit stop (<paramref name="deployLimitStop"/>,
+        /// from <see cref="ResolveCargoBayDeployLimitStop(bool, float, bool, float)"/>). Anything
+        /// else is mid-travel and reads as neither, so the caller skips the poll and no event
+        /// fires until the doors settle. Stateless on purpose: the stop is a pure function of
+        /// the module's persisted limit, so no per-part "stopped moving" memory is needed and a
+        /// bay paused mid-travel never reads as open.
+        /// </summary>
+        internal static void ClassifyCargoBayState(
+            float animTime, float closedPosition, float? deployLimitStop,
+            out bool isOpen, out bool isClosed)
         {
-            bool atStart = animTime <= 0.01f;
-            bool atEnd = animTime >= 0.99f;
+            bool atStart = animTime <= CargoBayAnimEndTolerance;
+            bool atEnd = animTime >= 1f - CargoBayAnimEndTolerance;
+            bool atLimitStop = deployLimitStop.HasValue
+                && Mathf.Abs(animTime - deployLimitStop.Value) <= CargoBayAnimEndTolerance;
 
             if (closedPosition > 0.9f)
             {
-                // closedPosition near 1 → closed at animTime≈1, open at animTime≈0
+                // closedPosition near 1: closed at animTime ~1, open at animTime ~0 or the limit stop
                 isClosed = atEnd;
-                isOpen = atStart;
+                isOpen = !isClosed && (atStart || atLimitStop);
             }
             else if (closedPosition < 0.1f)
             {
-                // closedPosition near 0 → closed at animTime≈0, open at animTime≈1
+                // closedPosition near 0: closed at animTime ~0, open at animTime ~1 or the limit stop
                 isClosed = atStart;
-                isOpen = atEnd;
+                isOpen = !isClosed && (atEnd || atLimitStop);
             }
             else
             {
-                // Non-standard closedPosition (modded part) — skip
+                // Non-standard closedPosition (modded part) - skip
                 isClosed = false;
                 isOpen = false;
             }

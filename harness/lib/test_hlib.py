@@ -4293,6 +4293,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # `passed=4 failed=0 skipped=5`, and both specs took the line WHOLE. Like GUI-1 they are
     # not H-series ids, so this class's own cells never read them;
     # CommittedBatchTallySourceSyncTests gates their `total=`.
+    #
+    # CN-2-ghost-commnet-live-probe and CN-3-ghost-commnet-timeline-warp ENTERED on
+    # 2026-09-26 (the new GhostCommNetLive / GhostCommNetTimeline categories, 3 FLIGHT
+    # cells each, `total=3` literal with the split regexed, predicted 3 / 0 each) and LEFT
+    # the same day: their reading runs 2026-09-26_2030 (CN-2) and 2026-09-26_2053 (CN-3),
+    # both PASS attempt 1, measured the prediction, `passed=3 failed=0 skipped=0`, and both
+    # specs took the line WHOLE. Like CN-1 they are not H-series ids, so this class's own
+    # cells never read them; CommittedBatchTallySourceSyncTests gates their `total=`.
     INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -10097,7 +10105,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Priority register C4 (2026-09-23, `d5-debris`): the two D5 debris lanes on
         # the kx machine's close-cut opt-in.
         "GS-10-kerbalx-debris-ttl.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-ttl: GS-7's crash lane with round 1's close cut, the kx machine's impactCutAtLastBoosterDrop opt-in); operator tier is GS-7's cadence (a 12-minute crash + rewind + watch flight), and the discipline is recorded in its status row, not a debt",
-        "BAY-1-runway-cargo-bays.toml": "calibration-discipline - AUTHORED 2026-09-26 (coverage wave 7, D7 `bays`: the stock Mallard staged in place on the Runway, its three Mk3 cargo bays cycled, committed, Rewound-to-Launch and replayed as a Space Center ghost); operator tier is the calibration discipline for a new lane (reading 1 `2026-09-25_2214` red on the filed deploy-limit gap, reading 2 `_2218` PASS, armed `_2230` PASS, negative controls offline), and its status row records what has flown, not a debt",
+        "BAY-1-runway-cargo-bays.toml": "calibration-discipline - AUTHORED 2026-09-26 (coverage wave 7, D7 `bays`: the stock Mallard staged in place on the Runway, its three Mk3 cargo bays cycled, committed, Rewound-to-Launch and replayed as a Space Center ghost); operator tier is the calibration discipline for a new lane (reading 1 `2026-09-25_2214` red on the filed deploy-limit gap, reading 2 `_2218` PASS, armed `_2230` PASS, negative controls offline; the stock 44/45/51 deploy limits restored 2026-09-27 with the fix, per-bay limit tokens read PASS on `2026-09-27_1029`), and its status row records what has flown, not a debt",
         "GS-12-kerbalx-loop-cycles.toml": "calibration-discipline - AUTHORED 2026-09-24 (ghost-replay Tier C item 12: GS-4's flight, then the committed mission looped in three stages through the kx machine's loopStages opt-in); operator tier is GS-4's cadence plus the warped loop block, and its status row records what has flown, not a debt",
         "GS-11-kerbalx-debris-promotion.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-promotion: GS-10's close cut plus the promoteDebrisVesselName switch to a just-dropped booster inside its TTL); operator tier is GS-7's cadence; its status row records what has flown, not a debt",
         # Ghost-replay Tier B item 8 (2026-09-10, `ghost-replay-tier-b`): GS-4's

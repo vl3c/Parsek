@@ -476,7 +476,10 @@ existing unknown-type fallback). The branch point has `ParentRecordingIds = [the
 and `ChildRecordingIds = [the placed part's recording]`. The kerbal's recording does NOT end and its
 `ChildBranchPointId` is NOT set: placing a part does not change the kerbal, the single-slot pointer stays
 free for the kerbal's own later split or merge (the board), and the kerbal stays an ordinary leaf instead
-of relying on the breakup-continuous "effective leaf" rule. The child is reached through its own
+of relying on the breakup-continuous "effective leaf" rule. The spawn decision's #114 safety net
+(`GhostPlaybackLogic.IsNonLeafInTree`, which reads "parent of any branch point" as "branched into a
+continuation") skips `GroundPartPlaced` branch points for the same reason, so a kerbal left standing on
+EVA after placing a part still spawns at the end of his flight (after a rewind, at the Space Center). The child is reached through its own
 `ParentBranchPointId`, the way foreground debris children are once their parent splits again; a walk
 that must own the placing recording's products finds it by parent id (the switch-segment subtree
 behind scoped Discard and the no-op auto-discard, `RecordingStore.CollectSwitchSegmentSubtreeRecordingIds`,
@@ -1605,6 +1608,8 @@ Ghosts represent vessels that exist in the world pending chain resolution. They 
 - **Mods that replace CommNet types** (RealAntennas, CommNetManager-derived networks): ghost nodes register only when the network and range-model types are stock ones; otherwise a one-time log line records the skip.
 
 **Ghost map ProtoVessels** keep their `CommNetVessel` suppressed (`GhostCommNetVesselPatch`). The marker is a single barometer part and must not become a second, zero-power node for the same ghost.
+
+**Live proof by lane (2026-09-26).** Flown and armed: `CN-1-ghost-commnet-relay` / `CN-1T-ghost-commnet-relay-ts` (FLIGHT / Tracking Station) prove scenarios 6 (an uncrewed RC-L01 relays without control), 11 (a looped recording whose real run is over has no node) and 12 (a playback-disabled recording relays), and that a registered ghost node is the only way home for a free endpoint (the relay half of 1, and the control-source half of 3). Also flown and armed: `CN-2-ghost-commnet-live-probe` proves 1, 3 and 8 on a real live probe's own `ControlPath` (the DD1 probe behind Duna; reading run `2026-09-26_2030`); `CN-3-ghost-commnet-timeline-warp` proves 9, 10 and the spawn hand-off of 1 across one rails warp (reading run `2026-09-26_2053`: an orbital end spawns in the same frame at its EndUT even during warp, so no node is ever held there). Scenarios 2, 4, 5, 7, 13, 14, 15 and 16 (the held-node position) are unit-tested only.
 
 ### 15.7 Passive Resource Generation During Ghost Windows
 

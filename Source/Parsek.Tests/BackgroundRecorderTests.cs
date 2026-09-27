@@ -1074,6 +1074,281 @@ namespace Parsek.Tests
             Assert.Equal(200.0, rec.ExplicitEndUT);
         }
 
+        // KSP-SETTINGS-AUDIT S5: a background member stock dropped from the save (vessel
+        // budget / KSC declutter) has no vessel when the recorder is rebuilt from the
+        // restored tree. The load check names it once and does not seal it.
+        [Fact]
+        public void FindMissingBackgroundMembers_SelectsOnlyLiveRecordingsWithoutAVessel()
+        {
+            var tree = MakeTree((300, "rec_c"), (100, "rec_a"), (200, "rec_b"), (400, "rec_d"));
+            tree.Recordings["rec_a"].IsDebris = true;
+            tree.Recordings["rec_d"].VesselDestroyed = true;
+            tree.BackgroundMap[500] = "rec_absent"; // map drift, owned by the drift check
+            var live = new HashSet<uint> { 200 };
+
+            var missing = BackgroundRecorder.FindMissingBackgroundMembers(tree, live.Contains);
+
+            Assert.Equal(new uint[] { 100, 300 }, missing.Select(m => m.VesselPid).ToArray());
+            Assert.True(missing[0].IsDebris);
+            Assert.Equal("rec_a", missing[0].RecordingId);
+            Assert.False(missing[1].IsDebris);
+        }
+
+        private static Recording OrbitalDebris(string recId, uint pid)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                VesselName = "Orbital Debris",
+                VesselPersistentId = pid,
+                IsDebris = true,
+                ExplicitEndUT = 1300.0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 1000.0, altitude = 90000.0, bodyName = "Kerbin" });
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1010.0,
+                endUT = 1290.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.01,
+                inclination = 1.0
+            });
+            return rec;
+        }
+
+        private static Recording LandedDebris(string recId, uint pid, SurfaceSituation situation)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                VesselName = "Landed Debris",
+                VesselPersistentId = pid,
+                IsDebris = true,
+                ExplicitEndUT = 1250.0
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 1100.0, altitude = 2000.0, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 1200.0, altitude = 1500.0, bodyName = "Kerbin" });
+            rec.SurfacePos = new SurfacePosition
+            {
+                body = "Kerbin",
+                latitude = -0.1,
+                longitude = -74.5,
+                altitude = 1500.0,
+                situation = situation
+            };
+            return rec;
+        }
+
+        [Fact]
+        public void DecideMissingMemberClose_OrbitalDebris_OrbitingAtLastKnownUT()
+        {
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting =
+                name => name == "Kerbin" ? 600000.0 : (double?)null;
+            try
+            {
+                var plan = BackgroundRecorder.DecideMissingMemberClose(OrbitalDebris("rec_o", 100));
+
+                Assert.Equal(BackgroundRecorder.MissingMemberCloseOutcome.ClosedAtLastKnownUT, plan.Outcome);
+                Assert.Equal(TerminalState.Orbiting, plan.Terminal);
+                Assert.Equal(1300.0, plan.EndUT);
+                Assert.Equal("last-orbit-segment", plan.Evidence);
+            }
+            finally
+            {
+                ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void DecideMissingMemberClose_OrbitOnlyNoPoints_StillOrbiting()
+        {
+            // The scene-exit inference returns SubOrbital for an empty Points list before it
+            // looks at orbit segments; a restored on-rails debris is often orbit-only.
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting =
+                name => name == "Kerbin" ? 600000.0 : (double?)null;
+            try
+            {
+                var rec = OrbitalDebris("rec_o", 100);
+                rec.Points.Clear();
+
+                var plan = BackgroundRecorder.DecideMissingMemberClose(rec);
+
+                Assert.Equal(TerminalState.Orbiting, plan.Terminal);
+            }
+            finally
+            {
+                ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void DecideMissingMemberClose_UnstableLastOrbit_SubOrbitalNeverDestroyed()
+        {
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting =
+                name => name == "Kerbin" ? 600000.0 : (double?)null;
+            try
+            {
+                var rec = OrbitalDebris("rec_o", 100);
+                var seg = rec.OrbitSegments[0];
+                seg.semiMajorAxis = 400000.0; // periapsis inside the body
+                rec.OrbitSegments[0] = seg;
+
+                var plan = BackgroundRecorder.DecideMissingMemberClose(rec);
+
+                Assert.Equal(TerminalState.SubOrbital, plan.Terminal);
+                Assert.Equal("last-orbit-segment-unstable", plan.Evidence);
+            }
+            finally
+            {
+                ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting = null;
+            }
+        }
+
+        [Theory]
+        [InlineData(SurfaceSituation.Landed, TerminalState.Landed)]
+        [InlineData(SurfaceSituation.Splashed, TerminalState.Splashed)]
+        public void DecideMissingMemberClose_SurfaceDebris_TakesTheSurfaceSituation(
+            SurfaceSituation situation, TerminalState expected)
+        {
+            // Last point is 1500 m ASL (a highland landing), which the altitude rule alone
+            // reads as in flight; the on-rails surface capture settles it.
+            var plan = BackgroundRecorder.DecideMissingMemberClose(
+                LandedDebris("rec_l", 200, situation));
+
+            Assert.Equal(BackgroundRecorder.MissingMemberCloseOutcome.ClosedAtLastKnownUT, plan.Outcome);
+            Assert.Equal(expected, plan.Terminal);
+            Assert.Equal(1250.0, plan.EndUT);
+        }
+
+        [Fact]
+        public void DecideMissingMemberClose_AlreadyRecovered_LeftToTheRecoveryPath()
+        {
+            // A KSC declutter autoclean fires onVesselRecovered, and the pending-tree terminal
+            // update stamps Recovered and the recovery UT; the load check must not re-stamp it.
+            var rec = LandedDebris("rec_r", 300, SurfaceSituation.Landed);
+            rec.TerminalStateValue = TerminalState.Recovered;
+            rec.ExplicitEndUT = 1400.0;
+
+            var plan = BackgroundRecorder.DecideMissingMemberClose(rec);
+
+            Assert.Equal(BackgroundRecorder.MissingMemberCloseOutcome.LeftToTerminalEvent, plan.Outcome);
+            Assert.Equal(TerminalState.Recovered, plan.Terminal);
+            Assert.Equal(1400.0, plan.EndUT);
+        }
+
+        [Fact]
+        public void FindMissingBackgroundMembers_SpawnedPidAlive_NotMissing()
+        {
+            var tree = MakeTree((100, "rec_a"));
+            tree.Recordings["rec_a"].SpawnedVesselPersistentId = 9001;
+            var live = new HashSet<uint> { 9001 };
+
+            Assert.Empty(BackgroundRecorder.FindMissingBackgroundMembers(tree, live.Contains));
+        }
+
+        [Fact]
+        public void CloseMissingBackgroundMembersAtLoad_ClosesEachAndLogsOneSummary()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting =
+                name => name == "Kerbin" ? 600000.0 : (double?)null;
+            try
+            {
+                var tree = MakeTree((200, "rec_b"));
+                tree.Recordings["rec_o"] = OrbitalDebris("rec_o", 100);
+                tree.BackgroundMap[100] = "rec_o";
+                tree.Recordings["rec_l"] = LandedDebris("rec_l", 300, SurfaceSituation.Landed);
+                tree.BackgroundMap[300] = "rec_l";
+                var recovered = LandedDebris("rec_r", 400, SurfaceSituation.Landed);
+                recovered.TerminalStateValue = TerminalState.Recovered;
+                recovered.ExplicitEndUT = 1400.0;
+                tree.Recordings["rec_r"] = recovered;
+                tree.BackgroundMap[400] = "rec_r";
+                var bgRecorder = new BackgroundRecorder(tree);
+                Assert.Equal(4, bgRecorder.OnRailsStateCount);
+                var live = new HashSet<uint> { 200 };
+
+                int count = bgRecorder.CloseMissingBackgroundMembersAtLoad(
+                    live.Contains, "RestoreActiveTreeFromPending");
+
+                Assert.Equal(3, count);
+                Recording orbital = tree.Recordings["rec_o"];
+                Assert.Equal(TerminalState.Orbiting, orbital.TerminalStateValue);
+                Assert.False(orbital.VesselDestroyed);
+                Assert.Equal(1300.0, orbital.ExplicitEndUT);
+                Assert.Equal("Kerbin", orbital.TerminalOrbitBody);
+                Recording landed = tree.Recordings["rec_l"];
+                Assert.Equal(TerminalState.Landed, landed.TerminalStateValue);
+                Assert.True(landed.TerminalPosition.HasValue);
+                Assert.Equal(1500.0, landed.TerminalPosition.Value.altitude);
+                Assert.Equal(1250.0, landed.ExplicitEndUT);
+                Assert.Equal(TerminalState.Recovered, recovered.TerminalStateValue);
+                Assert.Equal(1400.0, recovered.ExplicitEndUT);
+                // Only the member with a vessel stays tracked.
+                Assert.Equal(new uint[] { 200 }, tree.BackgroundMap.Keys.ToArray());
+                Assert.Equal(1, bgRecorder.OnRailsStateCount);
+
+                var summaries = logLines.Where(l => l.Contains("Load check:")).ToList();
+                Assert.Single(summaries);
+                Assert.Contains("[Parsek][INFO][BgRecorder]", summaries[0]);
+                Assert.Contains("3 of 4 background member(s)", summaries[0]);
+                Assert.Contains("debris=3", summaries[0]);
+                Assert.Contains("reason=RestoreActiveTreeFromPending", summaries[0]);
+                Assert.Contains("pids=[100,300,400]", summaries[0]);
+                Assert.Contains("recIds=[rec_o,rec_l,rec_r]", summaries[0]);
+                Assert.Contains("closed=2", summaries[0]);
+                Assert.Contains("keptTerminal=1", summaries[0]);
+                Assert.Contains("100:Orbiting@1300.0(last-orbit-segment)", summaries[0]);
+                Assert.Contains("300:Landed@1250.0(last-point+surface-position)", summaries[0]);
+                Assert.Contains("400:kept-Recovered@1400.0", summaries[0]);
+                Assert.DoesNotContain(logLines, l => l.Contains("Destroyed@") || l.Contains("Debris recording ended"));
+            }
+            finally
+            {
+                ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void CloseMissingBackgroundMembersAtLoad_UpdateOnRailsNoLongerExtendsTheClosedMember()
+        {
+            var tree = MakeTree((100, "rec_gone"), (200, "rec_live"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            var live = new HashSet<uint> { 200 };
+
+            bgRecorder.CloseMissingBackgroundMembersAtLoad(live.Contains, "unit");
+            bgRecorder.UpdateOnRails(5000.0);
+            bgRecorder.FinalizeAllForCommit(6000.0);
+
+            // The closed member keeps its last known end; the live one keeps advancing.
+            Assert.Equal(200.0, tree.Recordings["rec_gone"].ExplicitEndUT);
+            Assert.True(tree.Recordings["rec_gone"].TerminalStateValue.HasValue);
+            Assert.Equal(6000.0, tree.Recordings["rec_live"].ExplicitEndUT);
+            Assert.False(tree.BackgroundMap.ContainsKey(100));
+        }
+
+        [Fact]
+        public void CloseMissingBackgroundMembersAtLoad_AllPresent_NoInfoLine()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            var tree = MakeTree((100, "rec_a"));
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            int count = bgRecorder.CloseMissingBackgroundMembersAtLoad(pid => true, "unit");
+
+            Assert.Equal(0, count);
+            Assert.DoesNotContain(logLines, l => l.Contains("[INFO]") && l.Contains("Load check:"));
+            Assert.Contains(logLines, l => l.Contains("Load check: all 1 background member(s)"));
+            Assert.True(tree.BackgroundMap.ContainsKey(100));
+            Assert.False(tree.Recordings["rec_a"].TerminalStateValue.HasValue);
+        }
+
         [Fact]
         public void CheckDebrisTTL_MissingVessel_AppliesCacheBeforeDestroyedFallback()
         {

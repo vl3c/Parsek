@@ -18,7 +18,9 @@ namespace Parsek.Logistics
         /// nearest whole multiple of <paramref name="span"/> (the route's natural run
         /// duration, <see cref="Route.TransitDuration"/>). The text may carry an
         /// optional trailing unit (<c>s</c>, <c>m</c>/<c>min</c>, <c>h</c>, <c>d</c> =
-        /// Kerbin day = 21600 s); a plain number is read as seconds. So "30m", "2 h",
+        /// one day of the player's calendar, <see cref="ParsekTimeFormat.SecsPerDay"/>:
+        /// 21600 s on the Kerbin calendar, 86400 s on the Earth calendar); a plain
+        /// number is read as seconds. So "30m", "2 h",
         /// "1d", "90s", and "1800" are all accepted:
         /// <c>N = ceil(target / span)</c>, floored at 1 via
         /// <see cref="Route.ClampCadenceMultiplier"/>. CEIL (not round) is the
@@ -67,9 +69,10 @@ namespace Parsek.Logistics
 
             // Accept an optional trailing unit so the friendly displayed form (e.g.
             // "14.0m", "1.6d") round-trips and the player can type "30m", "2 h", "1d",
-            // "90s", or a plain number (= seconds, backward compatible). "d" is a Kerbin
-            // day (21600 s = 6 h), matching the window's FormatDuration. Check "min"
-            // before the single-letter units so "20 min" is not mis-stripped.
+            // "90s", or a plain number (= seconds, backward compatible). "d" is one day of
+            // the player's calendar (ParsekTimeFormat.SecsPerDay: 6 h Kerbin, 24 h Earth),
+            // matching the window's FormatDuration. Check "min" before the single-letter
+            // units so "20 min" is not mis-stripped.
             string raw = text.Trim();
             string lower = raw.ToLowerInvariant();
             double unitFactor = 1.0; // seconds
@@ -77,7 +80,7 @@ namespace Parsek.Logistics
             else if (lower.EndsWith("s")) { unitFactor = 1.0; raw = raw.Substring(0, raw.Length - 1); }
             else if (lower.EndsWith("m")) { unitFactor = 60.0; raw = raw.Substring(0, raw.Length - 1); }
             else if (lower.EndsWith("h")) { unitFactor = 3600.0; raw = raw.Substring(0, raw.Length - 1); }
-            else if (lower.EndsWith("d")) { unitFactor = 21600.0; raw = raw.Substring(0, raw.Length - 1); }
+            else if (lower.EndsWith("d")) { unitFactor = ParsekTimeFormat.SecsPerDay; raw = raw.Substring(0, raw.Length - 1); }
 
             double number;
             bool parsed = double.TryParse(

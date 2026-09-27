@@ -465,13 +465,21 @@ namespace Parsek
                 return 0;
 
             int count = 0;
+            var resolvedHolds = LedgerOrchestrator.Kerbals?.Reservations;
             foreach (var kvp in rec.CrewEndStates)
             {
                 if (kvp.Value != KerbalEndState.Dead)
                     continue;
 
                 var deathType = TimelineEntryType.CrewDeath;
-                string deathText = TimelineEntryDisplay.GetCrewDeathText(kvp.Key, rec.VesselName);
+                // The respawn delay comes from the policy stamped at the death, never the
+                // live difficulty (owner ruling S8), and only while the walk's resolved hold
+                // still respawns him (a looping chain or an overlapping open-ended co-row
+                // makes the death permanent).
+                double respawnSeconds = KerbalsModule.ResolveTimelineRespawnSeconds(
+                    rec, kvp.Key, resolvedHolds);
+                string deathText = TimelineEntryDisplay.GetCrewDeathText(
+                    kvp.Key, rec.VesselName, respawnSeconds);
                 entries.Add(new TimelineEntry
                 {
                     UT = rec.EndUT,

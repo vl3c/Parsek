@@ -3319,7 +3319,7 @@ editor), and the GuiTree recorder cannot see them. This verb is the census route
 | `astronaut` | open, close, hover | hover `item=<kerbal>` | `AstronautComplexFacility.EnterBuilding` at the KSC; in the VAB the crew panel's own `CrewAssignmentDialog.ButtonAstronautComplex` |
 | `missioncontrol` | open, close, select | open `[pane=]`; select `item=<contract guid> [pane=]` | `MissionControlBuilding.EnterBuilding`; `SetDisplayMode*`; the row's own radio button |
 | `administration` | open, close, select | select `item=<strategy config name>` | `AdministrationFacility.EnterBuilding`; the strategy row's own radio button |
-| `facilitymenu` | open, close, hover | open `item=<facility id>`; hover = the Upgrade button | the building's own `OnRightClick`; close `KSCFacilityContextMenu.Dismiss(None)` |
+| `facilitymenu` | open, close, hover | open `item=<facility id>`; hover = the Upgrade button, or `item=repair` the Repair button (shown only while a building of the facility is down; refused `stockscreen-item-not-found control=Repair (not shown)` otherwise) | the building's own `OnRightClick`; close `KSCFacilityContextMenu.Dismiss(None)` |
 | `launchsite` | open, close, select, hover | select `item=<craft name>`; hover `item=<kerbal>` | the VAB launch site's `EnterBuilding` (the craft picker); select runs `VesselSpawnDialog.SelectVesselDataItem`; close is the dialog's own Close button |
 | `editor` | open, close, hover | open `item=<craft name>` (the save's `Ships/VAB`); hover `part=<name>` | open saves `persistent` then `EditorDriver.StartAndLoadVessel` (the VAB building's own sequence); close runs `EditorLogic.onExitConfirm` |
 | `crewdialog` | open, hover | hover `item=<kerbal>` | `EditorLogic.SelectPanelCrew` |

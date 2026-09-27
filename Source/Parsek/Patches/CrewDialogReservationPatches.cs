@@ -41,6 +41,7 @@ namespace Parsek.Patches
 
         static void Postfix(BaseCrewAssignmentDialog __instance, ProtoCrewMember crew, ref CrewListItem item)
         {
+            if (ParsekGameModeGate.CheckInert("CrewDialogAvailItemPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiCrewDialogDecoration.DecorateAddedRow(__instance, item, crew);
@@ -81,6 +82,7 @@ namespace Parsek.Patches
 
         static void Postfix(BaseCrewAssignmentDialog __instance)
         {
+            if (ParsekGameModeGate.CheckInert("CrewDialogAvailListPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiCrewDialogDecoration.DecorateAvailList(__instance, "build");
@@ -119,6 +121,7 @@ namespace Parsek.Patches
 
         static bool Prefix(UIListItem itemToMove)
         {
+            if (ParsekGameModeGate.CheckInert("CrewDialogMoveToSeatPatch.Prefix")) return true; // S9 game-mode gate
             try
             {
                 return StockUiCrewDialogDecoration.ShouldAllowAssignment(
@@ -161,6 +164,7 @@ namespace Parsek.Patches
 
         static bool Prefix(BaseCrewAssignmentDialog __instance, UIList fromList, UIListItem insertItem)
         {
+            if (ParsekGameModeGate.CheckInert("CrewDialogDropOnCrewListPatch.Prefix")) return true; // S9 game-mode gate
             try
             {
                 if (__instance == null || fromList == null || fromList != __instance.scrollListAvail)
@@ -203,6 +207,7 @@ namespace Parsek.Patches
 
         static bool Prefix(BaseCrewAssignmentDialog __instance)
         {
+            if (ParsekGameModeGate.CheckInert("CrewDialogFillPatch.Prefix")) return true; // S9 game-mode gate
             try
             {
                 return StockUiCrewDialogDecoration.FillSkippingRefused(__instance);

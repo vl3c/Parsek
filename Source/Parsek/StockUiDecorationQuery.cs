@@ -330,8 +330,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The explanation for a kerbal a committed flight holds: <c>Lost</c> for a
-        /// permanent (death) reservation, else the on-flight text naming the holding flight.
+        /// The explanation for a kerbal a committed flight holds: <c>Lost</c> for a death
+        /// hold (permanent, or waiting for its stock respawn - then with the respawn date),
+        /// else the on-flight text naming the holding flight.
         /// </summary>
         internal static ReservationText ExplainKerbalReservation(
             CommittedFutureIndex index,
@@ -341,7 +342,7 @@ namespace Parsek
             Func<string, bool> isLoopingRecording,
             Func<double, string> formatDate)
         {
-            if (reservation != null && reservation.IsPermanent)
+            if (KerbalsModule.IsLossHold(reservation))
             {
                 CommittedKerbalAssignment death = null;
                 if (index != null)
@@ -353,7 +354,10 @@ namespace Parsek
                         if (death == null || EndKey(list[i]) > EndKey(death)) death = list[i];
                     }
                 }
-                return ReservationExplanation.KerbalLost(death?.RecordingName);
+                return ReservationExplanation.KerbalLost(
+                    death?.RecordingName,
+                    reservation.IsPermanent ? double.NaN : reservation.ReservedUntilUT,
+                    formatDate);
             }
 
             double release = reservation != null ? reservation.ReservedUntilUT : double.PositiveInfinity;
@@ -577,7 +581,7 @@ namespace Parsek
                     var text = StockUiReservationPredicates.ExplainKerbalReservation(
                         index, name, reservation, owner, context.IsLoopingRecording, formatDate);
                     Mark(ref d,
-                        reservation != null && reservation.IsPermanent
+                        KerbalsModule.IsLossHold(reservation)
                             ? StockUiDecorationKind.KerbalLost
                             : StockUiDecorationKind.KerbalOnFlight,
                         text, double.NaN);

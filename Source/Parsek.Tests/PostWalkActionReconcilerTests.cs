@@ -565,10 +565,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyPostWalk_ContractFail_HasNoEffectiveGate()
+        public void ClassifyPostWalk_ContractFail_Ineffective_IsSkipped()
         {
-            // Penalties fire unconditionally in the modules, so Effective=false must
-            // still reconcile (unlike ContractComplete).
+            // ContractsModule marks a fail / cancel of a contract already resolved
+            // earlier in the walk Effective=false and the modules charge nothing, so
+            // post-walk skips it exactly like a duplicate ContractComplete.
             var action = new GameAction
             {
                 UT = 200,
@@ -581,8 +582,9 @@ namespace Parsek.Tests
 
             var exp = PostWalkActionReconciler.ClassifyPostWalk(action);
 
-            Assert.True(exp.Reconcile);
-            AssertLeg(exp.Funds, -5000.0, "ContractPenalty", GameStateEventType.FundsChanged);
+            Assert.False(exp.Reconcile);
+            AssertNoLeg(exp.Funds);
+            AssertNoLeg(exp.Rep);
         }
 
         // ==================================================================

@@ -159,9 +159,12 @@ namespace Parsek
 
                 case GameActionType.ContractFail:
                 case GameActionType.ContractCancel:
-                    // Penalties fire unconditionally (no Effective gate in the modules).
+                    // A fail / cancel of a contract already resolved earlier in the walk is
+                    // Effective=false (ContractsModule) and the modules charge nothing, so
+                    // post-walk skips it like a duplicate completion.
                     // Funds leg: FundsModule deducts FundsPenalty directly (no transform
                     // today). Rep leg: EffectiveRep from the curve (negative).
+                    if (!action.Effective) return exp;
                     exp.Reconcile = true;
                     exp.Funds = new PostWalkLeg
                     {

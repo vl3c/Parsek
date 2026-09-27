@@ -119,6 +119,7 @@ namespace Parsek.Patches
         static bool Prefix(object __instance, out Guid __state)
         {
             __state = default(Guid);
+            if (ParsekGameModeGate.CheckInert("MapFocusObjectOnSelectPatch.Prefix")) return true; // S9 game-mode gate
 
             if (__instance == null)
                 return true;

@@ -531,9 +531,12 @@ namespace Parsek
                             ResolvePrefabCargoBayPairing(
                                 ap.partPrefab,
                                 out float? cargoClosedPosition,
-                                out int cargoDeployModuleIndex);
+                                out int cargoDeployModuleIndex,
+                                out bool cargoAllowDeployLimit,
+                                out bool cargoRevClampPercent);
                             SnapshotPartBaseline baseline = TryParseSnapshotPartBaseline(
-                                partNode, cargoClosedPosition, cargoDeployModuleIndex);
+                                partNode, cargoClosedPosition, cargoDeployModuleIndex,
+                                cargoAllowDeployLimit, cargoRevClampPercent);
                             if (baseline != null)
                                 build.snapshotBaselines[persistentId] = baseline;
                         }
@@ -630,13 +633,18 @@ namespace Parsek
         /// index carries that animation (<c>DeployModuleIndex</c>). Both are prefab
         /// config, not snapshot data, which is why the pure parser takes them as inputs.
         /// No cargo bay → no closedPosition, which is also the signal that routes the
-        /// part's ModuleAnimateGeneric to the standalone family.
+        /// part's ModuleAnimateGeneric to the standalone family. The paired animation's
+        /// config-only deploy-limit flags ride along (see
+        /// <see cref="ResolvePrefabCargoAnimateGeneric"/>).
         /// </summary>
         private static void ResolvePrefabCargoBayPairing(
-            Part prefab, out float? closedPosition, out int deployModuleIndex)
+            Part prefab, out float? closedPosition, out int deployModuleIndex,
+            out bool allowDeployLimit, out bool revClampPercent)
         {
             closedPosition = null;
             deployModuleIndex = -1;
+            allowDeployLimit = false;
+            revClampPercent = false;
             if (prefab == null)
                 return;
 
@@ -647,6 +655,12 @@ namespace Parsek
                     return;
                 closedPosition = cargo.closedPosition;
                 deployModuleIndex = cargo.DeployModuleIndex;
+                ModuleAnimateGeneric anim = ResolvePrefabCargoAnimateGeneric(prefab, cargo);
+                if (anim != null)
+                {
+                    allowDeployLimit = anim.allowDeployLimit;
+                    revClampPercent = anim.revClampPercent;
+                }
             }
             catch (System.Exception ex)
             {
@@ -656,7 +670,27 @@ namespace Parsek
                     $"cargo-bay baseline skipped for this part", 30.0);
                 closedPosition = null;
                 deployModuleIndex = -1;
+                allowDeployLimit = false;
+                revClampPercent = false;
             }
+        }
+
+        /// <summary>
+        /// The prefab's cargo-bay animation module: the one at <c>DeployModuleIndex</c>, or,
+        /// when that index does not resolve (KSP inserting internal modules shifts indices),
+        /// the first <c>ModuleAnimateGeneric</c> on the part. One resolver for the baseline
+        /// pairing and the ghost's pose sampling.
+        /// </summary>
+        private static ModuleAnimateGeneric ResolvePrefabCargoAnimateGeneric(
+            Part prefab, ModuleCargoBay cargoBay)
+        {
+            if (prefab == null || cargoBay == null)
+                return null;
+            int deployIdx = cargoBay.DeployModuleIndex;
+            ModuleAnimateGeneric animModule = (deployIdx >= 0 && deployIdx < prefab.Modules.Count)
+                ? prefab.Modules[deployIdx] as ModuleAnimateGeneric
+                : null;
+            return animModule ?? prefab.FindModuleImplementing<ModuleAnimateGeneric>();
         }
 
         internal static void DestroyPendingTimelineGhostBuild(PendingGhostVisualBuild build)
@@ -2384,36 +2418,40 @@ namespace Parsek
 
         private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
             Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleCargoBayStates(
-            Part prefab, string animationName, float closedPosition)
+            Part prefab, string animationName, float closedPosition, float? deployLimitStop)
         {
-            string key = prefab.partInfo?.name ?? prefab.name;
+            string partKey = prefab.partInfo?.name ?? prefab.name;
+            // A deploy-limited instance samples a different open pose from the same part at
+            // full deploy, so its cache key carries the stop. '#' never appears in a part
+            // name, and the ladder's compound keys use '|', so no collision either way.
+            string key = deployLimitStop.HasValue
+                ? partKey + "#cargoStop=" + deployLimitStop.Value.ToString("R", CultureInfo.InvariantCulture)
+                : partKey;
             if (animationSampleCache.TryGetValue(key, out var cached))
                 return cached;
 
             if (string.IsNullOrEmpty(animationName))
             {
-                ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': no animationName — skipping animation sampling");
+                ParsekLog.Verbose("GhostVisual", $"  CargoBay '{partKey}': no animationName - skipping animation sampling");
                 animationSampleCache[key] = null;
                 return null;
             }
 
-            // Determine animation endpoints based on closedPosition
-            float closedTime, openTime;
-            if (closedPosition > 0.9f)
+            // Animation endpoints from closedPosition; a deploy-limited bay's open pose is
+            // sampled at its limit stop, where the real doors stopped.
+            if (!TryResolveCargoBaySampleTimes(closedPosition, deployLimitStop,
+                    out float closedTime, out float openTime))
             {
-                closedTime = 1f;
-                openTime = 0f;
-            }
-            else if (closedPosition < 0.1f)
-            {
-                closedTime = 0f;
-                openTime = 1f;
-            }
-            else
-            {
-                ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': non-standard closedPosition={closedPosition} — skipping");
+                ParsekLog.Verbose("GhostVisual", $"  CargoBay '{partKey}': non-standard closedPosition={closedPosition} - skipping");
                 animationSampleCache[key] = null;
                 return null;
+            }
+            if (deployLimitStop.HasValue)
+            {
+                ParsekLog.Verbose("GhostVisual",
+                    $"  CargoBay '{partKey}': deploy-limited open pose sampled at animTime=" +
+                    openTime.ToString("F3", CultureInfo.InvariantCulture) +
+                    " closedTime=" + closedTime.ToString("F0", CultureInfo.InvariantCulture));
             }
 
             var result = SampleAnimationStates(prefab, animationName, "CargoBay",
@@ -4811,7 +4849,7 @@ namespace Parsek
         /// DeployableGhostInfo, or null if none matched.
         /// </summary>
         private static DeployableGhostInfo TryBuildDeployableInfo(
-            Part prefab, uint persistentId, string partName,
+            Part prefab, ConfigNode partNode, uint persistentId, string partName,
             Transform modelRoot, Transform modelNodeTransform,
             Dictionary<Transform, Transform> cloneMap,
             bool hasRetractableLadder, string ladderAnimName, string ladderAnimRootName,
@@ -4945,23 +4983,21 @@ namespace Parsek
                 ModuleCargoBay cargoBay = prefab.FindModuleImplementing<ModuleCargoBay>();
                 if (cargoBay != null)
                 {
-                    int deployIdx = cargoBay.DeployModuleIndex;
-                    ModuleAnimateGeneric animModule = (deployIdx >= 0 && deployIdx < prefab.Modules.Count)
-                        ? prefab.Modules[deployIdx] as ModuleAnimateGeneric
-                        : null;
-
-                    // Fallback: if DeployModuleIndex didn't resolve to ModuleAnimateGeneric
-                    // (common when KSP inserts internal modules that shift indices), search
-                    // for any ModuleAnimateGeneric on the part.
-                    if (animModule == null)
-                    {
-                        animModule = prefab.FindModuleImplementing<ModuleAnimateGeneric>();
-                    }
+                    // Falls back to any ModuleAnimateGeneric when DeployModuleIndex does not
+                    // resolve (KSP inserting internal modules shifts indices).
+                    ModuleAnimateGeneric animModule = ResolvePrefabCargoAnimateGeneric(prefab, cargoBay);
 
                     if (animModule != null && !string.IsNullOrEmpty(animModule.animationName))
                     {
+                        // The limit comes from THIS vessel's snapshot (deployPercent persists)
+                        // through the same node pick and resolver the snapshot baseline uses,
+                        // so the spawn pose and every later CargoBayOpened agree.
+                        float? deployLimitStop = ResolveSnapshotCargoBayDeployLimitStop(
+                            FindSnapshotCargoAnimateGenericNode(partNode, cargoBay.DeployModuleIndex),
+                            animModule.allowDeployLimit, animModule.revClampPercent,
+                            cargoBay.closedPosition);
                         var sampledStates = SampleCargoBayStates(
-                            prefab, animModule.animationName, cargoBay.closedPosition);
+                            prefab, animModule.animationName, cargoBay.closedPosition, deployLimitStop);
                         deployableInfo = ResolveSampledStatesToDeployableInfo(
                             sampledStates, modelNodeTransform, persistentId, partName, "CargoBay", logUnresolved: true);
 
@@ -6101,7 +6137,7 @@ namespace Parsek
                 prefab, persistentId, partName, modelRoot, modelNode.transform, cloneMap);
 
             // Detect deployable parts via animation cascade (solar panels, gear, ladders, etc.)
-            deployableInfo = TryBuildDeployableInfo(prefab, persistentId, partName,
+            deployableInfo = TryBuildDeployableInfo(prefab, partNode, persistentId, partName,
                 modelRoot, modelNode.transform, cloneMap,
                 hasRetractableLadder, ladderAnimName, ladderAnimRootName,
                 hasAnimationGroupDeploy, animationGroupDeployAnimName,

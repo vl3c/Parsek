@@ -42,6 +42,7 @@ namespace Parsek.Patches
             ProgressNode __instance,
             float funds, float science, float reputation)
         {
+            if (ParsekGameModeGate.CheckInert("ProgressRewardPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 // Route to the testable helper with a live UT from Planetarium. Production
