@@ -288,6 +288,98 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RealPolicy_RefusedSpawnOnDelivery_EndsTheGhostAtEndUT()
+        {
+            // Operator ruling 2026-09-27: a spawn refused as CannotSpawnSafely on completion is
+            // not a blocked spawn to retry. The ghost is not held; it ends with the recording.
+            var rec = MakeRecording("rec-refused-delivery");
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            int index = -1;
+            for (int k = 0; k < RecordingStore.CommittedRecordings.Count; k++)
+                if (ReferenceEquals(RecordingStore.CommittedRecordings[k], rec)) index = k;
+            Assert.True(index >= 0);
+
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            typeof(ParsekFlight).GetField("watchMode",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(host, new WatchModeController(host));
+            var engine = MakeEngine();
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                IsWarpActiveOverrideForTesting = () => false,
+                CurrentRealTimeOverrideForTesting = () => 30f,
+                SpawnVesselOrChainTipOverrideForTesting = (recording, i) =>
+                {
+                    recording.TerminalSpawnCannotSpawnSafely = true;
+                    recording.TerminalSpawnSafetyReasonCode =
+                        TerminalOrbitSpawnSafety.ReasonTerminalOrbitResolutionFailed;
+                },
+            };
+            engine.ghostStates[index] = new GhostPlaybackState { vesselName = rec.VesselName };
+
+            engine.RunPastEndFrameTailForTesting(index, rec, MakeFlags(rec), 101.0, queueCompletion: true);
+
+            Assert.False(policy.heldGhosts.ContainsKey(index));
+            Assert.False(engine.HasGhost(index));
+            Assert.Contains(logLines, l => l.Contains("[Policy]")
+                && l.Contains("Ghost not held")
+                && l.Contains("reason=" + TerminalOrbitSpawnSafety.ReasonTerminalOrbitResolutionFailed));
+            Assert.DoesNotContain(logLines, l => l.Contains("Ghost held pending spawn retry"));
+        }
+
+        [Fact]
+        public void RealPolicyHold_RetryResolvesCannotSpawnSafely_ReleasesTheGhost()
+        {
+            // A held ghost (warp-deferred or blocked) whose retry resolves as a permanent refusal
+            // is released on the next tick instead of staying for the rest of the scene.
+            var rec = MakeRecording("rec-held-refused");
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            int index = -1;
+            for (int k = 0; k < RecordingStore.CommittedRecordings.Count; k++)
+                if (ReferenceEquals(RecordingStore.CommittedRecordings[k], rec)) index = k;
+            Assert.True(index >= 0);
+
+            float now = 10f;
+            var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
+            var engine = MakeEngine();
+            var policy = new ParsekPlaybackPolicy(engine, host)
+            {
+                CurrentRealTimeOverrideForTesting = () => now,
+                CurrentUTOverrideForTesting = () => 971.24,
+                TimelineInactiveIdsOverrideForTesting = committed =>
+                    new Dictionary<string, TimelineInactiveReason>(),
+                SpawnVesselOrChainTipOverrideForTesting = (recording, i) =>
+                {
+                    recording.TerminalSpawnCannotSpawnSafely = true;
+                    recording.TerminalSpawnSafetyReasonCode =
+                        TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude;
+                },
+            };
+            engine.ghostStates[index] = new GhostPlaybackState { vesselName = rec.VesselName };
+            policy.heldGhosts[index] = new HeldGhostInfo
+            {
+                holdStartTime = now,
+                recordingId = rec.RecordingId,
+                vesselName = rec.VesselName,
+            };
+
+            now = 11.5f; // first retry: the spawn attempt resolves as a refusal
+            policy.RetryHeldGhostSpawns();
+            Assert.True(rec.TerminalSpawnCannotSpawnSafely);
+
+            now = 11.6f; // next tick, well inside the timeout
+            policy.RetryHeldGhostSpawns();
+
+            Assert.False(policy.heldGhosts.ContainsKey(index));
+            Assert.False(engine.HasGhost(index));
+            Assert.Contains(logLines, l => l.Contains("[Policy]")
+                && l.Contains("Held ghost released (cannot spawn safely)")
+                && l.Contains("reason=" + TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude));
+            Assert.Contains(logLines, l => l.Contains("destroyed (held-cannot-spawn-safely)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Held ghost timed out"));
+        }
+
+        [Fact]
         public void FrameTail_GhostDestroyedBeforeCompletionQueued_PostPassLeavesTheSlotAlone()
         {
             // Parent-anchored debris shape: the ghost is destroyed before its completion is

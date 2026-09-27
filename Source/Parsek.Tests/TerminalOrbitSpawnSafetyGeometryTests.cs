@@ -139,13 +139,14 @@ namespace Parsek.Tests
             TerminalOrbitSpawnSafety.MarkCannotSpawnSafely(rec, deathDecision, 2000.0, double.NaN);
 
             Assert.True(rec.TerminalSpawnCannotSpawnSafely);
-            Assert.Equal(TerminalOrbitDeferredSpawnState.Hold,
+            Assert.Equal(TerminalOrbitDeferredSpawnState.Refused,
                 TerminalOrbitSpawnSafety.GetDeferredSpawnState(rec, 9.9e9, out string reason));
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied, reason);
             Assert.True(TerminalOrbitSpawnSafety.HasActiveHold(rec));
 
-            // The hold is unconditional in UT: no later time releases a hard abandon.
-            Assert.Equal(TerminalOrbitDeferredSpawnState.Hold,
+            // The refusal is unconditional in UT: no later time turns a hard abandon back into
+            // a spawn (the held ghost is released instead, operator ruling 2026-09-27).
+            Assert.Equal(TerminalOrbitDeferredSpawnState.Refused,
                 TerminalOrbitSpawnSafety.GetDeferredSpawnState(rec, double.MaxValue, out _));
 
             // And the two layers really are orthogonal - the same geometry still reads safe.
@@ -208,8 +209,8 @@ namespace Parsek.Tests
         [Fact]
         public void SubSurfaceAltitudeWithNonFiniteApoapsis_IsRejectedNotDeferred()
         {
-            // Debris that clipped through terrain: below the safe altitude with no apoapsis to
-            // wait for. There is no future safe UT, so this must abandon rather than defer.
+            // Debris that clipped through terrain: the periapsis is under the floor, so this is
+            // refused on the periapsis line before any deferral is considered.
             var decision = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
                 bodyHasAtmosphere: true,
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
@@ -218,7 +219,7 @@ namespace Parsek.Tests
                 apoapsisAltitude: double.NaN);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
-            Assert.Equal(TerminalOrbitSpawnSafety.ReasonOrbitNeverClearsSafeAltitude,
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude,
                 decision.ReasonCode);
         }
 
@@ -243,33 +244,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void KerbinOrbitWithPeriapsisWellBelowSafeAltitude_IsRejected()
+        public void KerbinOrbitWithPeriapsisInsideAtmosphere_IsRejected()
         {
-            double safeAltitude = KerbinSafeAltitude;
             var decision = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
                 bodyHasAtmosphere: true,
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
-                currentAltitude: safeAltitude + 50000.0,
-                periapsisAltitude: safeAltitude - 20000.0,
-                apoapsisAltitude: safeAltitude + 120000.0);
+                currentAltitude: KerbinSafeAltitude + 50000.0,
+                periapsisAltitude: KerbinAtmosphereDepth - 15000.0,
+                apoapsisAltitude: KerbinSafeAltitude + 120000.0);
 
-            // Currently outside the atmosphere but the orbit dips back in: the spawn is barred
-            // outright rather than deferred, because there is no altitude to wait for.
+            // Currently outside the atmosphere but the orbit dips back in: commit calls this
+            // SubOrbital, and spawn safety refuses it on the same periapsis line.
             Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude,
                 decision.ReasonCode);
+            Assert.Equal(KerbinAtmosphereDepth, decision.PeriapsisFloorAltitude);
         }
 
         [Fact]
-        public void KerbinOrbitCurrentlyInsideAtmosphereWithApoapsisAbove_Defers()
+        public void KerbinOrbitLowInTheMarginBandWithApoapsisAbove_Defers()
         {
-            double safeAltitude = KerbinSafeAltitude;
+            // 71 x 135 km: the periapsis clears the atmosphere top, the vessel is at 72 km right
+            // now (inside the 5 km margin band), and the orbit climbs above the margin later.
             var decision = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
                 bodyHasAtmosphere: true,
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
-                currentAltitude: safeAltitude - 40000.0,
-                periapsisAltitude: safeAltitude - 50000.0,
-                apoapsisAltitude: safeAltitude + 60000.0);
+                currentAltitude: KerbinAtmosphereDepth + 2000.0,
+                periapsisAltitude: KerbinAtmosphereDepth + 1000.0,
+                apoapsisAltitude: KerbinSafeAltitude + 60000.0);
 
             Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude,
@@ -277,10 +279,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AirlessLowCoast_IsAdmittedWhereTheSameAltitudeWouldBeRejectedAtKerbin()
+        public void AirlessLowCoast_IsAdmittedWhereTheSameAltitudeIsRefusedAtKerbin()
         {
             // Boundary semantics, stated as a contract rather than against the constant: the
-            // SAME altitudes flip verdict purely on whether the body has an atmosphere.
+            // SAME altitudes flip verdict purely on whether the body has an atmosphere (and no
+            // terrain height is known for the airless body here).
             const double lowAltitude = 3000.0;
             const double lowPeriapsis = 2500.0;
             const double lowApoapsis = 12000.0;
@@ -293,7 +296,7 @@ namespace Parsek.Tests
                     periapsisAltitude: lowPeriapsis,
                     apoapsisAltitude: lowApoapsis).Action);
 
-            Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe,
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
                 VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
                     bodyHasAtmosphere: true,
                     bodyAtmosphereDepth: KerbinAtmosphereDepth,
@@ -304,28 +307,29 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region deferral downgrade
+        #region deferral with no future safe UT
 
         [Fact]
-        public void DowngradeDeferral_TurnsASoftHoldIntoAHardAbandon()
+        public void DeferralWithNoFutureSafeUT_SpawnsNowInsteadOfAbandoning()
         {
             double safeAltitude = KerbinSafeAltitude;
             var decision = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
                 bodyHasAtmosphere: true,
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
-                currentAltitude: safeAltitude - 40000.0,
-                periapsisAltitude: safeAltitude - 50000.0,
+                currentAltitude: KerbinAtmosphereDepth + 2000.0,
+                periapsisAltitude: KerbinAtmosphereDepth + 1000.0,
                 apoapsisAltitude: safeAltitude + 60000.0);
             Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe, decision.Action);
 
-            // The orbit search found no future UT clearing the safe altitude.
-            VesselSpawner.DowngradeTerminalOrbitDeferralToNoFutureSafeUT(
-                ref decision, safeAltitude - 40000.0);
+            // The orbit scan found no future UT clearing the margin. The periapsis already
+            // clears the atmosphere, so the orbit is Orbiting and must spawn.
+            VesselSpawner.ResolveTerminalOrbitDeferralWithNoFutureSafeUT(
+                ref decision, KerbinAtmosphereDepth + 2000.0);
 
-            Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, decision.Action);
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT, decision.ReasonCode);
             Assert.Contains("no future safe UT was found", decision.Reason);
-            // The measured geometry is preserved for the log line / persisted reason.
+            // The measured geometry is preserved for the log line.
             Assert.Equal(safeAltitude, decision.SafeAltitude);
         }
 
@@ -338,8 +342,8 @@ namespace Parsek.Tests
             var decision = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
                 bodyHasAtmosphere: true,
                 bodyAtmosphereDepth: KerbinAtmosphereDepth,
-                currentAltitude: safeAltitude - 40000.0,
-                periapsisAltitude: safeAltitude - 50000.0,
+                currentAltitude: KerbinAtmosphereDepth + 2000.0,
+                periapsisAltitude: KerbinAtmosphereDepth + 1000.0,
                 apoapsisAltitude: safeAltitude + 60000.0);
             TerminalOrbitSpawnSafety.MarkDeferred(rec, decision, 1000.0, 1600.0, 0.5);
 
@@ -348,16 +352,21 @@ namespace Parsek.Tests
             Assert.Equal(TerminalOrbitDeferredSpawnState.Ready,
                 TerminalOrbitSpawnSafety.GetDeferredSpawnState(rec, 1700.0, out _));
 
-            VesselSpawner.DowngradeTerminalOrbitDeferralToNoFutureSafeUT(
-                ref decision, safeAltitude - 40000.0);
-            TerminalOrbitSpawnSafety.MarkCannotSpawnSafely(rec, decision, 1000.0, 0.5);
+            // A later attempt resolves the orbit as unspawnable (here a non-finite periapsis).
+            var refusal = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
+                bodyHasAtmosphere: true,
+                bodyAtmosphereDepth: KerbinAtmosphereDepth,
+                currentAltitude: KerbinAtmosphereDepth + 2000.0,
+                periapsisAltitude: double.NaN,
+                apoapsisAltitude: safeAltitude + 60000.0);
+            TerminalOrbitSpawnSafety.MarkCannotSpawnSafely(rec, refusal, 1000.0, 0.5);
 
-            // A hard abandon must not leave a retry UT behind that could release the hold.
+            // A hard abandon must not leave a retry UT behind that could re-arm a spawn.
             Assert.False(rec.TerminalSpawnSafetyDeferred);
             Assert.True(double.IsNaN(rec.TerminalSpawnNextAttemptUT));
-            Assert.Equal(TerminalOrbitDeferredSpawnState.Hold,
+            Assert.Equal(TerminalOrbitDeferredSpawnState.Refused,
                 TerminalOrbitSpawnSafety.GetDeferredSpawnState(rec, 1700.0, out string reason));
-            Assert.Equal(TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT, reason);
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonNonFinitePeriapsis, reason);
         }
 
         #endregion

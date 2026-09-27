@@ -760,7 +760,11 @@ namespace Parsek
             result.extrapolatedSegmentCount = extrapolated.segments != null
                 ? extrapolated.segments.Count
                 : 0;
-            result.terminalState = extrapolated.terminalState;
+            result.terminalState = ApplyPeriapsisFloorToExtrapolatedTerminal(
+                extrapolated.terminalState,
+                appendedSegments,
+                bodies,
+                recordingId);
             result.terminalUT = extrapolated.terminalUT;
             result.extrapolationFailureReason = extrapolated.failureReason;
             if (IsDestroyedVesselStartFingerprint(extrapolated.failureReason))
@@ -842,7 +846,11 @@ namespace Parsek
                             result.extrapolatedSegmentCount = recovered.segments != null
                                 ? recovered.segments.Count
                                 : 0;
-                            result.terminalState = recovered.terminalState;
+                            result.terminalState = ApplyPeriapsisFloorToExtrapolatedTerminal(
+                                recovered.terminalState,
+                                appendedSegments,
+                                bodies,
+                                recordingId);
                             result.terminalUT = recovered.terminalUT;
                             result.extrapolationFailureReason = recovered.failureReason;
                             // Recovery replaces the sub-surface-Destroyed verdict
@@ -856,7 +864,7 @@ namespace Parsek
                             result.terrainHeightAtEnd = null;
                             result.terminalOrbit = null;
 
-                            if (recovered.terminalState == TerminalState.Orbiting
+                            if (result.terminalState == TerminalState.Orbiting
                                 && appendedSegments.Count > 0)
                             {
                                 result.terminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(
@@ -946,7 +954,7 @@ namespace Parsek
                 }
             }
 
-            if (extrapolated.terminalState == TerminalState.Orbiting && appendedSegments.Count > 0)
+            if (result.terminalState == TerminalState.Orbiting && appendedSegments.Count > 0)
                 result.terminalOrbit =
                     RecordingFinalizationTerminalOrbit.FromSegment(appendedSegments[appendedSegments.Count - 1]);
 
@@ -2033,6 +2041,7 @@ namespace Parsek
                     GravitationalParameter = body.gravParameter,
                     Radius = body.Radius,
                     AtmosphereDepth = body.atmosphereDepth,
+                    MaxTerrainAltitude = OrbitClearance.ResolveMaxTerrainAltitude(body),
                     SphereOfInfluence = body.sphereOfInfluence,
                     SurfaceCoordinates = (double ut, Vector3d position, out double latitude, out double longitude) =>
                         ResolveBodyFixedSurfaceCoordinates(body, referenceUT, ut, position, out latitude, out longitude),
@@ -2584,6 +2593,62 @@ namespace Parsek
                 failureReason = ex.GetType().Name;
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Pure: an extrapolated Orbiting verdict whose last appended segment's periapsis does
+        /// not clear the body's periapsis floor (<see cref="OrbitClearance"/>) is a decaying
+        /// flight, so it becomes SubOrbital. The extrapolator can end Orbiting at its horizon or
+        /// SOI cap on an airless-body orbit whose periapsis sits under the highest terrain but
+        /// whose sampled ground track missed it; commit classification and spawn safety read the
+        /// same floor, so every Orbiting verdict produced here spawns.
+        /// </summary>
+        internal static TerminalState ApplyPeriapsisFloorToExtrapolatedTerminal(
+            TerminalState terminalState,
+            List<OrbitSegment> appendedSegments,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            string recordingId)
+        {
+            if (terminalState != TerminalState.Orbiting
+                || appendedSegments == null
+                || appendedSegments.Count == 0
+                || bodies == null)
+            {
+                return terminalState;
+            }
+
+            OrbitSegment last = appendedSegments[appendedSegments.Count - 1];
+            if (string.IsNullOrEmpty(last.bodyName)
+                || !bodies.TryGetValue(last.bodyName, out ExtrapolationBody body)
+                || body == null)
+            {
+                return terminalState;
+            }
+
+            double periapsisFloor = OrbitClearance.ComputePeriapsisFloorAltitude(
+                body.HasAtmosphere,
+                body.AtmosphereDepth,
+                body.MaxTerrainAltitude);
+            double periapsisRadius = last.semiMajorAxis * (1.0 - last.eccentricity);
+            if (OrbitClearance.IsBoundOrbitClear(
+                    last.eccentricity,
+                    periapsisRadius,
+                    body.Radius,
+                    periapsisFloor))
+            {
+                return terminalState;
+            }
+
+            ParsekLog.Info("Extrapolator", string.Format(
+                CultureInfo.InvariantCulture,
+                "TryFinalizeRecording: extrapolated Orbiting for '{0}' downgraded to SubOrbital - " +
+                "periapsis {1:F0}m on {2} is not above the periapsis floor {3:F0}m (ecc={4:F4})",
+                recordingId ?? "(null)",
+                periapsisRadius - body.Radius,
+                body.Name ?? "(null)",
+                periapsisFloor,
+                last.eccentricity));
+            return TerminalState.SubOrbital;
         }
 
         private static double GetBallisticCutoffAltitude(CelestialBody body)

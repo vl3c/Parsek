@@ -252,7 +252,7 @@ Background recorders do not have the same solver access as the active vessel. Th
 
 - Loaded background vessels in the physics bubble can refresh from live vessel/orbit state.
 - On-rails background vessels can refresh from `vessel.orbit` and existing on-rails checkpoints.
-- Stable vacuum orbits cache `Orbiting` plus terminal orbit metadata.
+- Stable vacuum orbits cache `Orbiting` plus terminal orbit metadata. "Stable" means a bound orbit whose periapsis clears the body's periapsis floor (`OrbitClearance`: the atmosphere top, or the highest terrain on an airless body), the same line the terminal-orbit spawn check reads (operator ruling 2026-09-27, flight-recorder design 13.5). An extrapolated `Orbiting` whose last segment's periapsis is under the floor (the extrapolator ran out its horizon on an airless-body orbit whose sampled ground track missed the peaks) is downgraded to `SubOrbital`.
 - Atmospheric or suborbital cases cache `Destroyed` at the predicted KSP deletion/destruction endpoint. If KSP deletes the vessel before the extrapolator's endpoint, the deletion event wins the terminal state but the cached tail still explains the end.
 
 This does not create a cross-scene background recorder. The cache only protects the in-flight session that is already recording.
