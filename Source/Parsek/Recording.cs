@@ -163,12 +163,6 @@ namespace Parsek
             SegmentBodyDisplayLabelCacheLastPointBodyName = null;
         }
 
-        // Continuation rollback (bug #95): transient boundary for rolling back continuation
-        // data on revert. Set when continuation starts, cleared on normal stop (bake) or
-        // revert (rollback). -1 = no active continuation.
-        [NonSerialized] internal int ContinuationBoundaryIndex = -1;
-        [NonSerialized] internal ConfigNode PreContinuationVesselSnapshot;
-        [NonSerialized] internal ConfigNode PreContinuationGhostSnapshot;
         [NonSerialized] internal string PreReFlyAnchorSessionId;
         [NonSerialized] internal List<TrajectoryPoint> PreReFlyAnchorPoints;
         [NonSerialized] internal List<OrbitSegment> PreReFlyAnchorOrbitSegments;
@@ -1097,13 +1091,6 @@ namespace Parsek
             clone.CachedStats = source.CachedStats;
             clone.CachedStatsPointCount = source.CachedStatsPointCount;
             clone.LastAppliedResourceIndex = source.LastAppliedResourceIndex;
-            clone.ContinuationBoundaryIndex = source.ContinuationBoundaryIndex;
-            clone.PreContinuationVesselSnapshot = source.PreContinuationVesselSnapshot != null
-                ? source.PreContinuationVesselSnapshot.CreateCopy()
-                : null;
-            clone.PreContinuationGhostSnapshot = source.PreContinuationGhostSnapshot != null
-                ? source.PreContinuationGhostSnapshot.CreateCopy()
-                : null;
             clone.VesselSpawned = source.VesselSpawned;
             clone.SpawnedVesselPersistentId = source.SpawnedVesselPersistentId;
             clone.TerminalSpawnSupersededByRecordingId = source.TerminalSpawnSupersededByRecordingId;

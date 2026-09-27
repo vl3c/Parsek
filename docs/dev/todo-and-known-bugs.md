@@ -535,7 +535,7 @@ fix needs that read first.
 
 ---
 
-## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
+## ~~CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more~~ [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. RULED REMOVE 2026-09-27 (operator) and REMOVED, branch `remove-chain-state`]
 
 The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
 `StartUndockContinuation` and their `ParsekFlight` / `FlightRecorder` gates) was removed as
@@ -565,6 +565,27 @@ The `Recording` revert-rollback fields `ContinuationBoundaryIndex` and the
 `RecordingStore` rollback that reads them and the hydration-repair copy go with this
 cleanup. Recording-side chain DATA (`ChainId`, `ChainIndex`, `ChainBranch`,
 `ParentRecordingId`, `EvaCrewName`) is serialized and read by playback and must stay.
+
+Fix: removed as ruled. Dead-ness was re-derived from the full caller set, not from the
+comments: every write of the chain identity fields and `PendingBoundaryAnchor` assigned
+`null` / `false` / `0` or restored a saved copy of the same field, so every reader saw an
+empty chain. Gone: `ChainSegmentManager.cs` whole (its only remaining field, `ActiveTreeId`,
+was read solely by `StartRecording`'s stale-chain guard, whose only effect with the chain
+fields gone was a Warn line and clearing itself), the recorder's `BoundaryAnchor` (its only
+setter copied `PendingBoundaryAnchor`), the `ParsekFlight` bake-and-stop and destroy blocks
+with their `MarkContinuationVesselDestroyed` / `FormatContinuationVesselDestroyedMessage`
+helpers, `AutoDiscardActiveTreeCore`'s `chainStopReason`, `StartRecording`'s `isContinuation`,
+the `Recording` rollback fields (`[NonSerialized]`, never in a save or sidecar key, so no
+schema question) with `RecordingStore.RollbackContinuationData` and the hydration-repair
+preserve, the `chain=` / `chain.*` `RecState` tokens (no harness spec, harness Python or
+xUnit log capture pinned them; `RecorderStateObservabilityTests` now asserts their
+absence) and the in-game `ContinuationIntegrity` category (LT-1 re-pinned mechanically to
+30 constituents, `total=56 passed=49 skipped=7`). The committed-list contract's subscriber
+list (CLAUDE.md, `RecordingStore.CommittedListNotifications.cs`) drops the chain
+continuation indices. Left: `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`'s
+`isActiveChainMember` parameter and `TrajectoryPlaybackFlags.isActiveChainMember`, now
+`false` at every caller; removing them reaches the playback-decision API and its tests,
+outside this ruling.
 
 ---
 

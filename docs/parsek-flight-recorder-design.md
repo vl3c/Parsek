@@ -764,7 +764,7 @@ Detected by `FlightRecorder.OnSoiChange()` when a vessel transitions between cel
 
 #### D. EVA Exit (Vessel → EVA)
 
-When a Kerbal goes EVA, the vessel recording commits. The vessel continues being tracked via **adaptive continuation sampling** (`ChainSegmentManager.SampleContinuationVessel()`) — samples are taken on whichever triggers first: time interval (3.0s default), velocity direction change (2.0°), or speed change (5%). A new Recording starts on the EVA Kerbal.
+When a Kerbal goes EVA, the recording tree branches at an EVA branch point: the Kerbal becomes the active child recording and the vessel keeps recording as a background child of the same tree.
 
 #### E. EVA Boarding (EVA → Vessel)
 
