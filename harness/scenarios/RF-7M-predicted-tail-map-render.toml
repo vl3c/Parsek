@@ -330,15 +330,18 @@ forbidden = [
   "line-blink",
 ]
 
-# REPORT-ONLY, and pinned to the fixture's own committed bytes: this lane must not change
+# ARMED 2026-09-27 (both blocks) off `2026-09-27_1227` (PASS attempt 1, every window met),
+# and pinned to the fixture's own committed bytes: this lane must not change
 # them. One supersede row (the probe's re-fly, the corpus's only one), no RewindPoint (the
 # continuation defect reaped it before the save was collected), no tombstones.
 [expectations.rewind]
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { min = 1, max = 1 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
+gating = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 10, max = 10 }

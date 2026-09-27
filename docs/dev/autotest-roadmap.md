@@ -6305,8 +6305,14 @@ Remaining fail-open surfaces, ranked:
    and rewind points off the produced save on every driver-valid run. It becomes a
    GATE per scenario when that scenario arms `gating = true` after its report-only
    readings are confirmed live. S4.1-rewind-merge is armed (runs `2026-07-31_1628`
-   read-only / `_1635` armed / `_1637` negative control); every other spec is still
-   report-only, so for them this remains ADDRESSED-REPORT-ONLY.
+   read-only / `_1635` armed / `_1637` negative control). STATE 2026-09-27 (branch
+   `arm-save-checks`, the operator's arming pass): 158 of the 189 declared blocks are armed
+   across 99 specs, the last 37 off matching readings (24 of them read by flights of current code that
+   day) with an offline one-window-at-a-time inversion against each produced save (172 of
+   172 red). What stays ADDRESSED-REPORT-ONLY is 31 blocks on 25 specs, listed in todo
+   SAVE-BLOCKS-AWAITING-READINGS: mostly long harvest missions (B17, B23-B30, V3C / V3F /
+   V3R), the GS / RF autopilot lanes whose last readings predate the 2026-09-23 rewind
+   fixes, and RVR-8, whose own reading was red.
 3. **Three expectation verifier families were declared and inert** (`route`,
    `rewind`, `loop`). PARTIALLY CLOSED by R9 2026-07-31: `rewind` is now evaluated
    AND ARMED on its one declarer - S4.1's asserts stopped being comments and became

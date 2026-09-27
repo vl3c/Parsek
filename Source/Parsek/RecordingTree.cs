@@ -835,37 +835,29 @@ namespace Parsek
 
         /// <summary>
         /// Pure decision: is the orbit a stable bound orbit whose periapsis clears
-        /// the body's atmosphere (or surface, if the body has no atmosphere)?
-        /// Atmospheric grazers — orbits whose periapsis radius lies inside
-        /// <paramref name="atmosphereDepth"/> — are excluded because they decay
-        /// to destruction within a few orbits via drag. Strict inequality at the
-        /// atmosphere top mirrors KSP's drag boundary.
+        /// the body's periapsis floor (<see cref="OrbitClearance"/>): the atmosphere
+        /// top, or the maximum terrain height on an airless body? Atmospheric grazers
+        /// decay to destruction via drag, and a periapsis under the highest terrain can
+        /// strike the surface, so both are a decaying flight (SubOrbital), never Orbiting.
+        /// The terminal-orbit spawn-safety check reads the same floor, so every Orbiting
+        /// verdict produced here spawns.
         /// </summary>
         internal static bool IsBoundOrbitAboveAtmosphere(
             double eccentricity,
             double periapsisRadius,
             double bodyRadius,
             bool bodyHasAtmosphere,
-            double atmosphereDepth)
+            double atmosphereDepth,
+            double maxTerrainAltitude = 0.0)
         {
-            if (!IsFinite(eccentricity)
-                || !IsFinite(periapsisRadius)
-                || !IsFinite(bodyRadius)
-                || bodyRadius <= 0.0)
-            {
-                return false;
-            }
-
-            if (eccentricity >= 1.0)
-                return false;
-
-            double effectiveAtmosphereDepth = bodyHasAtmosphere
-                && IsFinite(atmosphereDepth)
-                && atmosphereDepth > 0.0
-                    ? atmosphereDepth
-                    : 0.0;
-            double minSafePeR = bodyRadius + effectiveAtmosphereDepth;
-            return periapsisRadius > minSafePeR;
+            return OrbitClearance.IsBoundOrbitClear(
+                eccentricity,
+                periapsisRadius,
+                bodyRadius,
+                OrbitClearance.ComputePeriapsisFloorAltitude(
+                    bodyHasAtmosphere,
+                    atmosphereDepth,
+                    maxTerrainAltitude));
         }
 
         /// <summary>
@@ -883,13 +875,17 @@ namespace Parsek
             var body = vessel.orbit.referenceBody;
             bool bodyHasAtmosphere = body.atmosphere;
             double atmosphereDepth = bodyHasAtmosphere ? body.atmosphereDepth : 0.0;
+            double maxTerrainAltitude = OrbitClearance.ResolveMaxTerrainAltitude(body);
+            double periapsisFloor = OrbitClearance.ComputePeriapsisFloorAltitude(
+                bodyHasAtmosphere, atmosphereDepth, maxTerrainAltitude);
             TerminalState resolved = DetermineTerminalStateFromOrbitEvidence(
                 situation,
                 vessel.orbit.eccentricity,
                 vessel.orbit.PeR,
                 body.Radius,
                 bodyHasAtmosphere,
-                atmosphereDepth);
+                atmosphereDepth,
+                maxTerrainAltitude);
 
             if (baseState == TerminalState.SubOrbital && resolved == TerminalState.Orbiting)
             {
@@ -897,6 +893,7 @@ namespace Parsek
                     $"DetermineTerminalState: overriding SUB_ORBITAL to Orbiting - vessel has bound orbit " +
                     $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
                     $"bodyR={body.Radius:F0}, atmoTop={atmosphereDepth:F0}, " +
+                    $"maxTerrain={maxTerrainAltitude:F0}, periapsisFloor={periapsisFloor:F0}, " +
                     $"bodyHasAtmosphere={bodyHasAtmosphere})");
             }
             else if (baseState == TerminalState.Orbiting && resolved == TerminalState.SubOrbital)
@@ -905,11 +902,14 @@ namespace Parsek
                     ? "orbit evidence is unbound"
                     : vessel.orbit.PeR <= body.Radius
                         ? "periapsis is below surface"
-                        : "periapsis is inside atmosphere";
+                        : bodyHasAtmosphere && vessel.orbit.PeR <= body.Radius + atmosphereDepth
+                            ? "periapsis is inside atmosphere"
+                            : "periapsis is below the highest terrain";
                 ParsekLog.Info("RecordingTree",
                     $"DetermineTerminalState: overriding ORBITING to SubOrbital - {reason} " +
                     $"(ecc={vessel.orbit.eccentricity:F4}, PeR={vessel.orbit.PeR:F0}, " +
                     $"bodyR={body.Radius:F0}, atmoTop={atmosphereDepth:F0}, " +
+                    $"maxTerrain={maxTerrainAltitude:F0}, periapsisFloor={periapsisFloor:F0}, " +
                     $"bodyHasAtmosphere={bodyHasAtmosphere})");
             }
 
@@ -922,7 +922,8 @@ namespace Parsek
             double periapsisRadius,
             double bodyRadius,
             bool bodyHasAtmosphere = false,
-            double atmosphereDepth = 0.0)
+            double atmosphereDepth = 0.0,
+            double maxTerrainAltitude = 0.0)
         {
             TerminalState baseState = DetermineTerminalState(situation);
             if (!IsFinite(eccentricity)
@@ -940,7 +941,8 @@ namespace Parsek
                     periapsisRadius,
                     bodyRadius,
                     bodyHasAtmosphere,
-                    atmosphereDepth))
+                    atmosphereDepth,
+                    maxTerrainAltitude))
             {
                 return TerminalState.Orbiting;
             }
@@ -952,7 +954,8 @@ namespace Parsek
                     periapsisRadius,
                     bodyRadius,
                     bodyHasAtmosphere,
-                    atmosphereDepth))
+                    atmosphereDepth,
+                    maxTerrainAltitude))
             {
                 return TerminalState.SubOrbital;
             }

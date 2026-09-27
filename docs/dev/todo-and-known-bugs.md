@@ -15,6 +15,77 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE: RVR-8's second cycle dispatches and delivers instead of holding on an origin that lacks cargo [FILED 2026-09-27 from the arming-pass reading flight. OPEN, PARSEK-FAIL, regression since 2026-09-10]
+
+`RVR-8-rover-relay-c-second-cycle-hold` flew `2026-09-27_1147` PARSEK-FAIL(expectation)
+attempt 1 on an automation DLL built from origin/main `6437750ba` (branch `arm-save-checks`),
+after green runs on 2026-09-03 and 2026-09-10 (`2026-09-10_1731`, `_2133`). saveParse
+read `routes.completedCycles 2 > max 1` and `routes.skippedCycles 0 < min 1`, and six
+cycle-1 hold tokens were missing (`PickupSourcesHaveCargo ... all-or-nothing FAIL`,
+`Route ... hold recorded kind=OriginLacksCargo`, `ArmedPause ... cycle=cycle-1 BLOCKED`,
+`reason=blocked-then-paused`).
+
+What the logs show. Green `2026-09-10_2133`: cycle 0 delivers, cycle 1 runs
+`PickupSourcesHaveCargo` and finds B short (`raw=45.6`, shortfall 108.8 LiquidFuel), BLOCKS
+`OriginLacksCargo`, and that blocked cycle consumes the send-once armed pause. Red
+`2026-09-27_1147`: cycle 0 delivers and itself consumes the armed pause
+(`ArmedPause: ... cycle=cycle-0 COMPLETED ... Active->Paused reason=delivered-then-paused`);
+after the lane's second send-once, cycle 1 dispatches at ut=2400 with NO
+`PickupSourcesHaveCargo` line and picks up from B with `short=0`. Two open questions:
+why the pause is consumed on cycle 0 now, and why cycle 1 skips the eligibility check (or
+why B is no longer short after cycle 0). Collected log:
+`Parsek-arm-save-checks/harness/results/2026-09-27_1147_RVR-8-rover-relay-c-second-cycle-hold_shots/KSP.log`.
+Its `recordings.structure` block matched on that run but stays report-only until the lane is green.
+
+## ~~H45-MISSION-CONTROL-TAB-SWITCH-ASSERTED-SAME-FRAME: an in-game cell asserted a row absent in the frame stock destroyed it~~ [FILED AND FIXED 2026-09-27, branch `arm-save-checks`, test-only]
+
+H45's first flight of its twelve-cell shape (`2026-09-27_1140`) red on
+`MissionControlAvailableRowLabelSurvivesTabSwitchAndRebuild`: "the Offered contract should
+not be listed on the Active tab". The cell called `MissionControl.SetDisplayModeActive()`
+and asserted in the same frame; stock's rebuild Destroy()s the old rows, Unity destroys them
+at the end of the frame, and `GetComponentsInChildren<MCListItem>(true)` returns them until
+then. Fix: the cell yields one frame before the assertion (and the finder skips
+Unity-destroyed rows); the Active-row Cancel cell had the same same-frame assertion and gets
+the same frame. A row the Active rebuild itself lists for the contract is alive on the next
+frame, so the assertion still catches the product defect it exists for. Re-fly
+`2026-09-27_1235` PASS 10 / 0 / 2.
+
+## H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE: two StockUiOverlay cells never run on `career-earned-ksc` [FILED 2026-09-27. OPEN, fixture gap, not a defect]
+
+On H45's host both skip at run time (`RUNTIME_SKIPS` 2, run `2026-09-27_1235`):
+`MissionControlActiveRowLabelAndCancelBlockedWithReason` ("needs a career host with an
+Active contract ... contracts=9 offered=9 active=0") and
+`RnDResearchButtonDisabledShowsItsReason` ("No unresearched RESEARCHABLE R&D node
+(unresearched=145); the Research button is hidden on FADED nodes"). So the greyed
+Research button with its reason, and the Active-row label with the Cancel block, have never
+executed. Fixture that would exercise both: a career save that boots to the Space Center
+with at least one Active contract with a non-empty title and at least one unresearched node
+whose parents are all researched (state RESEARCHABLE), for example `career-earned-ksc`
+with one Offered contract accepted and one tier-1 node left unresearched after its parent
+(`start`) - or `stock-screen-census`, if it carries both (not checked). Not fixed now:
+a new or re-harvested fixture moves H45's host and every lane pinned to it.
+
+## SAVE-BLOCKS-AWAITING-READINGS: 31 report-only save-structure blocks on 25 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
+
+The operator's 2026-09-27 arming pass armed every report-only `rewind` /
+`recordings.structure` / `recordings.points` block that had a matching reading on current
+enough code (37 blocks; `autotest-status.md` header). These remain report-only, and each
+needs a reading flight on current code (or a decision) before it can be armed:
+
+- No reading on file anywhere: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`;
+  CL-3, GS-1, GS-2, GS-3 `structure`; GS-7, GS-8, V3C, V3F, V3R both blocks; RF-2, RF-3,
+  RF-12L `rewind`.
+- Readings only before the 2026-09-23 rewind fixes (#1788 and after): GS-9 both
+  (`2026-09-11_0109`), RF-1 and RF-9 `structure` (`2026-09-15_1542` / `_1546`).
+- A reading that contradicts the window: RF-4 `rewind` read rewindPoints 1 against
+  `max = 0` (`2026-09-15_1553`, before #1788); the window needs a decision under the
+  rewind-point-survives ruling, not just a flight.
+- A red reading: RVR-8 `structure` (see RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE).
+
+Cheapest next flights (proposed 2026-09-27, deferred by the supervisor): GS-9, GS-8 (nightly,
+about 6-8 min each), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,
+V3F, V3R. The long harvest missions (B17, V3C, B23-B30, RF-2, RF-3, RF-12L) are not proposed.
+
 ## ~~REFLY-SEPARATIONS-ONLY: an EVA authored a Rewind Point and a stranded or dead EVA kerbal surfaced as a Re-Fly~~ [OWNER RULING 2026-09-27; IMPLEMENTED 2026-09-27, branch `refly-separations-only`]
 
 **Ruling (Vlad, 2026-09-27).** "Re-Fly is for vessel separations only (staging, decoupling,
@@ -1289,7 +1360,10 @@ a fixed orbit. It fires only when the propagated altitude is under the safe alti
 periapsis is under it too, and the re-evaluation at the next safe UT then refuses on the
 periapsis. The deferral delays the `CannotSpawnSafely` verdict (and keeps the ghost visible
 meanwhile); `Terminal spawn succeeded after defer` is reachable only if the re-evaluated orbit
-differs from the first one.
+differs from the first one. SUPERSEDED 2026-09-27 by the operator ruling in
+SS1-REFUSED-TERMINAL-ORBIT-GHOST-HELD-FOR-THE-SCENE: the periapsis line is now the atmosphere top
+and the 5 km margin only defers, so a deferral ends in a spawn and SS-1's subject is a 71 x 90 km
+orbit that does.
 
 ## SS1-WARPTOUT-WARP-LOCKED-AFTER-LOAD: `WarpToUT` refused `warp-locked` for at least 19 s after a load that other runs warped from at the same moment [FILED 2026-09-26 from SS-1. OPEN, harness flake; the holder diagnostic LANDED 2026-09-26, the cause waits for the next occurrence]
 
@@ -1327,7 +1401,7 @@ completion after the stale cleanup destroyed the slot (the completed-state bookk
 slot whose ghost was never live), and a headless engine test that crosses EndUT once in warp and
 asserts one delivery.
 
-## SS1-REFUSED-TERMINAL-ORBIT-GHOST-HELD-FOR-THE-SCENE: a terminal-orbit spawn refused as CannotSpawnSafely keeps its held ghost until the scene ends [FILED 2026-09-26 from SS-1. OPEN, question for the operator]
+## ~~SS1-REFUSED-TERMINAL-ORBIT-GHOST-HELD-FOR-THE-SCENE: a terminal-orbit spawn refused as CannotSpawnSafely keeps its held ghost until the scene ends~~ [FILED 2026-09-26 from SS-1. RULED AND FIXED 2026-09-27, branch `spawn-safety-orbit-ruling`]
 
 After the refusal at UT 971.24, `Low Perigee Probe`'s ghost (held since the warp-deferred
 completion) is never released: `DecideHeldGhostAction` returns `Hold` whenever
@@ -1337,6 +1411,42 @@ release applies. The ghost stays visible past EndUT for the rest of the scene. T
 intent (a visible stand-in for a vessel that can never materialize), but no comment or design
 doc says so. Decide: keep (and say so at `DecideHeldGhostAction`), or release the ghost once the
 verdict is CannotSpawnSafely.
+
+**Ruling (operator, 2026-09-27).** "Any orbit Parsek calls Orbiting will spawn. A periapsis
+inside the atmosphere is a decaying flight and ends SubOrbital or Destroyed, never as a refused
+orbit. If a spawn is still refused for a reason that can never clear, the ghost finishes its
+replay and disappears at the end of the recording; it is not held."
+
+**What the investigation found.** The refusal was reachable from real play, not only from the
+injected preset: (1) commit classification (`RecordingTree.IsBoundOrbitAboveAtmosphere`) used the
+plain atmosphere top while spawn safety refused any periapsis under atmosphere + 5 km, so a
+72 x 100 km Kerbin orbit (and the same 5 km band on Duna, Eve, Laythe and Jool) committed
+Orbiting and was refused at spawn; (2) the unloaded-vessel inference
+(`ParsekFlight.HasStableOrbitEvidenceForTerminalInference`, also used by `BackgroundRecorder`)
+accepted any periapsis above sea level; (3) airless bodies had no terrain line at all, so a 2 km
+Mun periapsis committed Orbiting and spawned into a mountain; (4) the permanent refusal held the
+ghost.
+
+**Fix.** One periapsis floor, `OrbitClearance` (the atmosphere top, or the stock PQS maximum
+terrain height `radiusMax - radius` on an airless body, the value stock time warp uses there), read
+by commit classification (`RecordingTree.DetermineTerminalState` and the Re-Fly auto-seal
+preview), the unloaded-vessel inference, the scene-exit finalizer (an extrapolated Orbiting under
+the floor downgrades to SubOrbital, `ApplyPeriapsisFloorToExtrapolatedTerminal`) and
+`TerminalOrbitSpawnSafety.Evaluate`, which now refuses only a periapsis not above the floor. The
+5 km margin is kept only for the deferral (propagated altitude under atmosphere + 5 km while the
+orbit climbs above it); an orbit that never reaches the margin, or a deferral whose orbit scan
+finds no next safe UT, spawns now. A permanent `CannotSpawnSafely` verdict (periapsis refusal,
+failed orbit resolution, a spawned vessel that died, non-finite values) is the new
+`TerminalOrbitDeferredSpawnState.Refused`: `DecideHeldGhostAction` releases the ghost
+(`ReleaseCannotSpawnSafely`, logged `Held ghost released (cannot spawn safely)`), the completion
+path does not hold it (`Ghost not held ... cannot spawn safely`), and the terminal map presence is
+not retained for it. A deferral with no finite next attempt UT is re-evaluated rather than held
+forever. On load only the spawn-death abandon (`spawned-terminal-orbit-vessel-died`, BUG-C) is restored (`TerminalOrbitSpawnSafety.IsDurableRefusal`, both the codec and the in-session OnLoad reconcile); any other saved refusal is dropped and re-evaluated from the recorded orbit, so a save refused under the old 5 km band spawns under the new rule. Tests: `OrbitClearanceRulingTests` (the Kerbin / Duna / Eve / Laythe / Jool bands, a
+commit-inference-spawn agreement sweep across each boundary, the Mun terrain case, the finalizer
+downgrade, every refusal reason releasing the hold), two real-policy cells in
+`StalePastEndCleanupDeferralTests`, the finalizer recovery mirror in
+`SceneExitFinalizationIntegrationTests`, and the updated `TerminalOrbitSpawnSafetyGeometryTests`.
+SS-1's injected subject was re-scoped to a 71 x 90 km orbit (see its spec and autotest-status).
 ## ~~TIMELINE-KERBAL-EXPERIENCE-RAW-ROW: a kerbal's career-log (XP) ledger row rendered in the Timeline as the raw word "KerbalExperience" and warned on every rebuild~~ [FILED and FIXED 2026-09-25, coverage wave 4, branch `cov-ingame`]
 
 **Symptom.** `KerbalExperience` (type 31, written by a crewed recovery's career-log correlation) had no
@@ -19714,6 +19824,13 @@ Open items, highest leverage first:
   claims v1 never un-completes a contract, but `PatchContracts` can remove a
   tombstoned finished row.
 ## MOON-LOOP-FINDINGS: two product observations from the V6/V7 moon quartet [FOUND 2026-08-08, both report-only. ~~neither fixed~~ **FINDING (2) IS FIXED 2026-08-29** (branch `release-hygiene`, PR #1568, R5 item 2): the Parsek half of the watch-mode teardown NRE - `GetActiveVesselSafe` now catches the `NullReferenceException` arm too, through `ReadActiveVesselGuarded`, which also un-shadows ~20 lines of `ParsekFlight.OnDestroy` teardown that had never executed in the end-inside-watch shape. The stock/MechJeb cascade in the same census is NOT ours and stays unarmed. **FINDING (1) - the deterministic 131.22 deg `icon-off-orbit` raise - REMAINS OPEN AND REPORT-ONLY**, with its discriminating experiment named but unflown. Header reconciled 2026-09-01: the 2026-08-29 hygiene trim carried the pre-fix bracket forward while the body already recorded the fix]
+
+**2026-09-27: NO LONGER REPRODUCES.** `V7T-minmus-ts-arrival` flew PASS attempt 1 as
+`2026-09-27_1230` (branch `arm-save-checks`, automation DLL built from origin/main
+`6437750ba`) with `mapRenderTracing` armed and the TS tracer writing (61 MapRender lines),
+zero `icon-off-orbit` raises and an empty anomaly sweep; its save blocks were armed off
+that run. Which change removed the raise is not established, so the finding stays open as
+a question (a bisect over the map/TS render commits since 2026-08-08 would answer it).
 
 **(1) `icon-off-orbit`, deterministic, 131.22 deg.** `V7T-minmus-ts-arrival` reds
 `PARSEK-FAIL(anomaly)` on both of its flights (`2026-08-08_1614`, `_1616`) with
