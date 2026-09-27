@@ -10,6 +10,8 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
+
 - **Dev: two lanes for the crew inventory restore at spawn.** `H72-kerbal-inventory-spawn` (flown green 2026-09-27) runs the in-game `KerbalInventorySpawn` category over the pad craft's seated Jeb, whose roster carries a two-part inventory, and checks the capture, the roster applier and the rollback lines. `EVA-7-crew-inventory-spawn-after-rewind` (flown green 2026-09-27) replays EVA-6's chain: Jeb carries a parachute and a seismometer, places the seismometer on EVA, the recording commits, Rewind-to-Launch, and the Space Center spawns him. It checks that his spawn restores the recorded one-part inventory rather than the two-part one the rewind put back on the roster, and that the restore runs exactly once.
 - **Dev: a lane for auto-hire after a rewound hire.** `AH-1-auto-hire-reserved-applicant` (flown green 2026-09-27) runs a new in-game test, `AutoHireReservation`, on a fresh career: it gives the first applicant a committed hire later in the timeline (the state a rewind to before that hire leaves), turns on the Auto-Hire Crews difficulty option and runs stock's own crew fill on a three-seat pod two kerbals short. It checks that auto-hire passes over the reserved applicant for each short seat, never reaches the hire refusal, hires and seats other kerbals and seats nobody twice, then puts the roster, funds, ledger and difficulty option back.
 - **Dev: lanes for the per-recording loop cap and the rewind read-back check.** `OC-1-overlap-cap-per-recording` loops one injected recording on its own toggle faster than its length / 20 and checks that playback slows the relaunches to keep at most 20 copies (`auto-adjusted (cap reached)`) and that old copies disappear; flown and armed. The ghost lifecycle check gains a `peakLive` count (the most copies of one recording alive at once). `RB-1-rewind-readback-divergence` and its control `RB-2-rewind-readback-within-range` fly a recovery and then a Re-Fly that brings the recovered vessel back; RB-1's first flight found that the recovery money is not taken back (todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED), so both stand as expected-fail lanes until that is fixed.
@@ -1362,6 +1364,16 @@ _(unreleased — entries accumulate here per commit)_
   kept vessel stays linked to its recording, the same way a revert keeps an earlier flight's
   vessels. Vessels of the rewound flight, and of any recording that replays, are removed and
   spawned again as before.
+
+- **Rewinding a relaunch of a craft no longer deletes the earlier launch of that craft.** A
+  rewind removes the rewound flight's own vessel from the save it goes back to, and it found
+  that vessel by name. Launching a craft again gives the new vessel the same name, so rewinding
+  the second flight also removed the first one (for example the first Kerbal X, still landed
+  where you left it), and nothing brought it back. The rewind now also checks the vessel's
+  launch identity: a vessel with the craft's name from a different launch stays where it was.
+  When a recording has no launch identity, or the save does not hold the rewound flight's own
+  vessel, the name decides as before. A flight renamed in the recordings table after it was
+  flown now also has its own vessel removed on its rewind.
 
 - **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
   Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
