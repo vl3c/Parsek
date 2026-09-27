@@ -42,14 +42,14 @@ tier = "operator"
 # the produced save carrying `launchSiteName = Desert Launch Site` once (the root; later
 # segments are promotions, which ResolveLaunchSiteName deliberately leaves null). Ghost
 # lifecycle 8 spawned / 8 destroyed, balanced - GS-4's population exactly, so the count is
-# pinned at GS-4's 8. The saveParse blocks stay report-only (a new spec may not arm a
-# block ARMED_ALLOWLIST does not name, and the claim does not rest on them).
+# pinned at GS-4's 8. The saveParse blocks landed report-only and were armed
+# 2026-09-27 off the two readings named at each block (the claim does not rest on them).
 description = "D17 making-history, the registry definition: a GS-4 clone (kx_rewind_watch) with launchSite=Desert_Launch_Site - the staged Kerbal X rolls out from the Making History Desert pad, the recorder captures the humanized site name, the tree commits, Rewind-to-Launch puts a Jumping Flea on the same Desert pad, and the replayed ghost spawns and is watched there."
 instanceProfile = "stock-minimal"
 tags = ["MC4", "making-history", "alt-launch-site", "rewind-to-launch", "watch-mode", "GS4-clone"]
 
 # Every block below is GS-4-kerbalx-rewind-watch's; see that spec for the reasoning behind
-# each token. Only the launch site, the floors and the report-only switches differ.
+# each token. Only the launch site and the floors differ.
 [fixture]
 saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
 injectedRecordings = "none"
@@ -111,13 +111,16 @@ required  = ["Start location captured: body=Kerbin, [^\\r\\n]*launchSite=Desert 
              "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
+# ARMED 2026-09-27 (both blocks) off `2026-09-25_2132` and `_2146`, both PASS attempt 1:
+# rewindPoints 1, supersedeRows 0, tombstones 0, trees / committedTrees 1, recordings 8.
 [expectations.rewind]
-gating        = false
+gating        = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
+gating = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8 }
