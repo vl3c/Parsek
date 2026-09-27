@@ -5,31 +5,42 @@ id = "SS-1-spawn-safety-corrections"
 # end-of-recording spawn guards driven through the real flight-scene spawn path by an
 # injected preset, on one host. Todo D13-SPAWN-SAFETY-CORRECTIONS-HOST.
 #
-# READING 2026-09-26 `2026-09-25_2102` PASS attempt 1 on automation DLL sha256
-# `b60d27ff...` (origin/main 7c90492bd build, no C# change): every pre-registered token.
-# The Landed completion was delivered in WARP 1 at UT ~521, flushed at the first 1x frame
-# (UT 702.5): "Corrected unsafe snapshot situation: FLYING -> LANDED (terminal=Landed)",
-# the PQS clamp 66.0 -> 66.8 m, "Vessel spawn for #0 (Situation Hopper) ... sit=LANDED".
-# The Orbiting completion (ghost live, held) was retried by the held-ghost path INSIDE the
-# warp at UT 541.61 (alt 68025.7 m): DeferUntilSafe, nextSafeUT=971.14 (the xUnit Kepler
-# solve predicts 971.14); the flush then printed the hold line every 5 s from UT 702.5 to
-# 727.5. In WARP 2 the held-ghost retry at UT 971.24 (alt 75011.1 m) refused it on the
-# periapsis and the flush settled it ("Deferred spawn cannot execute safely").
-# `structure` / `points` ARMED off it (trees / committedTrees / recordings 2, Landed 1 /
-# Orbiting 1, spawnedVessels 1, Situation Hopper 1 / Low Perigee Probe 0, points 4 / 3).
-# ARMED RE-FLIGHT `2026-09-25_2107_a2` PASS (gating saveParse PASS, every token); its
-# attempt 1 `_2106` was INVALID on a driver refusal, `warptout refused reason=warp-locked`
-# 3.2 s after the unpack and again 19 s later (stock TIMEWARP input lock, no Parsek lock
-# and no stock line naming it; todo SS1-WARPTOUT-WARP-LOCKED-AFTER-LOAD). NEGATIVE
-# CONTROLS OFFLINE (`run.load_toml` + `hlib.evaluate_expectations`): over `_2102` and
-# `_2107_a2` with the correction line removed, red on exactly its two tokens; with the
-# hold line removed, red on exactly its two tokens; this spec over EX-2's same-host log
-# `2026-09-24_1454` reds on every SS-1 token.
-# REPORT-ONLY FINDINGS (todo): the Landed completion was delivered twice in the same warp
-# frame pair (harmless, the pending queue is a set); the refused Orbiting ghost stays held
-# until the scene ends (the Hold state covers CannotSpawnSafely).
+# RE-SCOPED 2026-09-27 (operator ruling: "Any orbit Parsek calls Orbiting will spawn. A
+# periapsis inside the atmosphere is a decaying flight and ends SubOrbital or Destroyed,
+# never as a refused orbit."). The first subject, `Low Perigee Probe` Orbiting on a
+# 60 x 150 km orbit, is a state real play no longer produces: commit classification reads
+# the same `OrbitClearance` periapsis floor (the atmosphere top, 70 km at Kerbin) as the
+# spawn gate and calls a 60 km periapsis SubOrbital. The preset now puts the probe on a
+# REAL Orbiting orbit inside the old 70-75 km band (periapsis 71 km, apoapsis 90 km), so
+# the lane proves the deferral AND the ruling: the deferred Orbiting spawn materializes.
+# PRIOR SUBJECT (history): reading `2026-09-25_2102` and armed re-flight `_2107_a2` PASS
+# on automation DLL `b60d27ff...` (deferred at 68 km, nextSafeUT 971.14, refused on the
+# periapsis in WARP 2).
 #
-# THE TWO GUARDS (source, 2026-09-25):
+# READING 2026-09-27 on automation DLL sha256 `b80a3c39...` (branch
+# `spawn-safety-orbit-ruling` build, `structure` report-only): `2026-09-27_1300_a2` PASS
+# attempt 2 (attempt 1 `_1258` INVALID: WARP 2 `warptout refused reason=warp-locked
+# holders=flightDriver_ApplicationFocus`, the KSP window lost focus; the deferral lines
+# up to WARP 2 matched). The Orbiting completion was delivered in WARP 1 at UT 541.51
+# (alt 72710.8 m): DeferUntilSafe, `nextSafeUT=1002.58` (the xUnit Kepler scan predicts
+# 1002.58), periapsis 71000.0; the flush printed the hold line every 5 s from UT 702.55
+# (`nextUT=1002.5755...`). In WARP 2 the held-ghost retry at UT 1002.81 (alt 75006.0 m)
+# was SpawnNow: "Orbital vessel spawn for #1 (Low Perigee Probe) ... terminal=Orbiting",
+# "Terminal spawn succeeded after defer", "Held ghost spawn succeeded on retry ...
+# held=44.9s"; the flush then dropped the queued entry ("already spawned"). Facets
+# matched every declared window (trees / committedTrees / recordings 2, Landed 1 /
+# Orbiting 1, spawnedVessels 2, Situation Hopper 1 / Low Perigee Probe 1, points 4 / 3),
+# so `structure` stays ARMED. ARMED RE-FLIGHT `2026-09-27_1304` PASS attempt 1 (wall
+# 153 s, gating saveParse PASS, the same facets; deferred at UT 541.92 / 72703.2 m,
+# spawned at UT 1002.83 / 75006.8 m).
+# NEGATIVE CONTROLS OFFLINE (`run.load_toml` + `hlib.evaluate_expectations`): this spec
+# over the prior subject's `2026-09-25_2102` and `_2107_a2` logs reds on 7 tokens each
+# (the deferred and hold lines' new numeric windows, the two success lines, the in-order
+# token, and the two refusal forbiddens); over `_1304` with the success line removed it
+# reds on exactly that token and the in-order token; with the Orbital spawn line removed,
+# on exactly that token.
+#
+# THE TWO GUARDS (source, 2026-09-27):
 # - `VesselSpawner.PrepareSnapshotForSpawn` runs `CorrectUnsafeSnapshotSituation` on
 #   every spawn that gets past adoption, the KSC retirement and the attempt cap: a
 #   snapshot whose `sit` is FLYING / SUB_ORBITAL is rewritten to the terminal's stable
@@ -38,23 +49,24 @@ id = "SS-1-spawn-safety-corrections"
 #   LANDED (terminal=Landed)" (bug #169: KSP's on-rails pressure check destroys a
 #   FLYING vessel spawned outside physics range).
 # - An Orbiting terminal with a recorded terminal orbit spawns from that orbit propagated
-#   to the current UT, through `TryPassTerminalOrbitSpawnSafety`: safe altitude =
-#   atmosphere depth + 5 km (75 km at Kerbin). Propagated altitude under it with the
-#   apoapsis over it is `DeferUntilSafe` (`MarkDeferred`, next safe UT from an orbit
-#   scan); altitude over it but periapsis under it is `CannotSpawnSafely`
-#   (periapsis-below-safe-altitude). The policy line "Deferred spawn held for terminal
+#   to the current UT, through `TryPassTerminalOrbitSpawnSafety`
+#   (`TerminalOrbitSpawnSafety.Evaluate`). A periapsis not above the `OrbitClearance`
+#   floor (70 km at Kerbin) is `CannotSpawnSafely`; commit classification reads the same
+#   floor, so that branch is unreachable from real play. Otherwise a propagated altitude
+#   under the safe altitude (atmosphere top + 5 km margin, 75 km at Kerbin) with the
+#   apoapsis over it is `DeferUntilSafe` (`MarkDeferred`, next safe UT from an orbit scan)
+#   and anything else is SpawnNow. The policy line "Deferred spawn held for terminal
 #   orbit safety: #N" is printed ONLY by `ParsekPlaybackPolicy.FlushDeferredSpawns`
 #   (VerboseRateLimited), whose queue is filled ONLY by a completion delivered during
 #   warp ("Deferred spawn during warp"), and only while the deferral is in force. So the
 #   recording must end INSIDE a warp, with its orbit under 75 km from then until the warp
 #   comes down.
-# - WHAT HAPPENS NEXT: a periapsis under the safe altitude can never pass. At the next
-#   safe UT the hold turns Ready, the spawn re-runs, clears the altitude check and is
-#   refused on the periapsis ("Cannot spawn terminal orbit safely ...
-#   reason=periapsis-below-safe-altitude"). DeferUntilSafe is a delayed
-#   CannotSpawnSafely for every orbit that dips under the safe altitude (the altitude
-#   check fails only when the periapsis is under it too); `Terminal spawn succeeded after
-#   defer` is reachable only if the re-evaluated orbit differs. WARP 2 flies that step.
+# - WHAT HAPPENS NEXT: a periapsis between the atmosphere top and the 5 km margin defers,
+#   then spawns. At the next safe UT (about 1002.6) the hold turns Ready, the spawn re-runs,
+#   clears the altitude check and the periapsis floor, and spawns through the Orbital path:
+#   "Orbital vessel spawn for #N (Low Perigee Probe)" then "Terminal spawn succeeded after
+#   defer: rec=terminal-orbit-safety-rec" (`VesselSpawner` prints the second only for a
+#   deferred recorded-terminal-orbit spawn). WARP 2 flies that step.
 #
 # THE ROAD. `eva2-lko-crewed` (focused Kerbal X plus the Kerbal X Probe in LKO; EX-2's
 # host) plus the `spawn-safety` preset (`SyntheticRecordingTests`
@@ -67,14 +79,16 @@ id = "SS-1-spawn-safety-corrections"
 #   retirement cannot intercept it; thousands of km from the focused vessel, so it spawns
 #   on rails, the exact #169 situation.
 # - `Low Perigee Probe` (terminal-orbit-safety-rec): one point plus a 120 s orbit tail,
-#   terminal Orbiting on a 60 x 150 km orbit, periapsis at 721.19 (under 75 km from
-#   about 471 to about 971), on the far side of Kerbin from Kerbal X.
+#   terminal Orbiting on a 71 x 90 km orbit (sma 680500, ecc 19000/1361000), periapsis at
+#   UT 721.19, under 75 km from about UT 440 to about UT 1002.6 (EndUT 541.19 at about
+#   72.7 km; WARP 1's flush at about 702.5 at about 71.0 km), on the far side of Kerbin
+#   from Kerbal X.
 # Both snapshots carry the recording's own pid (FNV-1a of the id) and launch guid
 # (`ScenarioWriter.DeriveVesselLaunchGuid`), matching the tree record's
 # `recordedVesselGuid`; neither matches a live vessel, so no adoption.
 # -------------------------------------------------------------------------------------
 tier = "nightly"
-description = "D13 situation-correction + terminal-orbit-safety: the spawn-safety injected preset puts two recordings on eva2-lko-crewed that end inside a real rails warp. The Landed one (snapshot still sit=FLYING, KSC grass outside the exclusion circles) spawns after the warp with its snapshot corrected FLYING -> LANDED. The Orbiting one (60 x 150 km terminal orbit, under the 75 km safe altitude at the warp's end) is deferred by the terminal-orbit spawn safety gate and held while UT is before its next safe UT; a second warp past that UT shows the re-evaluation refusing it on the periapsis (a periapsis under the safe altitude never spawns)."
+description = "D13 situation-correction + terminal-orbit-safety: the spawn-safety injected preset puts two recordings on eva2-lko-crewed that end inside a real rails warp. The Landed one (snapshot still sit=FLYING, KSC grass outside the exclusion circles) spawns after the warp with its snapshot corrected FLYING -> LANDED. The Orbiting one (71 x 90 km terminal orbit: periapsis above Kerbin's 70 km atmosphere top, so a real Orbiting state, but under the 75 km safe altitude at the warp's end) is deferred by the terminal-orbit spawn safety gate and held while UT is before its next safe UT; a second warp past that UT shows the re-evaluation spawning it through the Orbital path (operator ruling 2026-09-27: any orbit Parsek calls Orbiting will spawn; a periapsis between the atmosphere top and the 5 km margin defers, then spawns)."
 instanceProfile = "stock-minimal"
 tags = ["SS-1", "D13", "spawn-safety", "situation-correction", "terminal-orbit-safety",
         "injected-recordings", "warp", "R10", "runtime-handles"]
@@ -111,7 +125,7 @@ steps = [
   # terminal orbit under 75 km. Must match SyntheticRecordingTests.SpawnSafetyFirstWarpUT.
   { cmd = "WarpToUT", args = { ut = "715", maxRate = "50" }, expect = "OK", budget = 300 },
   # 1x dwell: the deferred queue flushes (the Landed spawn, corrected; the Orbiting
-  # spawn, deferred) and the hold line prints while UT < nextSafeUT (about 971).
+  # spawn, deferred) and the hold line prints while UT < nextSafeUT (about 1002.6).
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
@@ -174,9 +188,9 @@ steps = [
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
   { cmd = "MissionMark", args = { label = "ss1-after-hold-${c1.rec0}-${c1.rec0spawned}-${c1.rec1}-${c1.rec1spawned}" }, expect = "OK" },
-  # WARP 2 crosses the orbit's next safe UT; the deferred spawn re-evaluates there.
-  # Must match SyntheticRecordingTests.SpawnSafetySecondWarpUT.
-  { cmd = "WarpToUT", args = { ut = "1040", maxRate = "50" }, expect = "OK", budget = 300 },
+  # WARP 2 crosses the orbit's next safe UT (about 1002.6); the deferred spawn
+  # re-evaluates there and spawns. Must match SyntheticRecordingTests.SpawnSafetySecondWarpUT.
+  { cmd = "WarpToUT", args = { ut = "1100", maxRate = "50" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
@@ -202,7 +216,7 @@ steps = [
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
-  { cmd = "MissionMark", args = { label = "ss1-after-refusal-${c2.rec0}-${c2.rec0spawned}-${c2.rec1}-${c2.rec1spawned}" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "ss1-after-spawn-${c2.rec0}-${c2.rec0spawned}-${c2.rec1}-${c2.rec1spawned}" }, expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -216,17 +230,18 @@ allowedAnomalies = []
 [expectations.recordings]
 count = { min = 2, max = 2 }
 
-# ARMED 2026-09-26 off the reading `2026-09-25_2102` (facets identical to these windows):
-# the injected shape survives the load and the save, the Landed spawn left exactly one real
-# vessel, and the refused Orbiting spawn left none.
+# Re-scoped 2026-09-27: the injected shape survives the load and the save, and BOTH spawns
+# leave exactly one real vessel each (the Landed one corrected, the Orbiting one after its
+# deferral). First armed 2026-09-26 off `2026-09-25_2102` for the prior subject
+# (spawnedVessels 1, Low Perigee Probe 0).
 [expectations.recordings.structure]
 gating         = true
 trees          = { min = 2, max = 2 }
 committedTrees = { min = 2, max = 2 }
 recordings     = { min = 2, max = 2 }
 terminalStates = { Landed = { min = 1, max = 1 }, Orbiting = { min = 1, max = 1 } }
-spawnedVessels = { min = 1, max = 1 }
-vesselNames    = { "Situation Hopper" = { min = 1, max = 1 }, "Low Perigee Probe" = { min = 0, max = 0 } }
+spawnedVessels = { min = 2, max = 2 }
+vesselNames    = { "Situation Hopper" = { min = 1, max = 1 }, "Low Perigee Probe" = { min = 1, max = 1 } }
 
 [expectations.recordings.points]
 gating  = true
@@ -244,28 +259,30 @@ required  = [
   "\\[Spawner\\] Corrected unsafe snapshot situation: FLYING -> LANDED \\(terminal=Landed\\)",
   "Corrected unsafe snapshot situation: FLYING -> LANDED \\(terminal=Landed\\)[\\s\\S]*?Vessel spawn for #[0-9]+ \\(Situation Hopper\\) pid=[1-9][0-9]* sit=LANDED ",
   # terminal-orbit-safety: the Orbiting spawn propagates the recorded orbit, is under
-  # the 75 km safe altitude with the 60 km periapsis, and is deferred...
+  # the 75 km safe altitude with the 71 km periapsis (above the 70 km atmosphere top),
+  # and is deferred...
   "Spawn #[0-9]+ \\(Low Perigee Probe\\): using recorded terminal orbit propagated to current UT",
-  "Terminal orbit spawn deferred: rec=terminal-orbit-safety-rec idx=[0-9]+ vessel=\"Low Perigee Probe\" reason=current-altitude-below-safe-altitude currentUT=[0-9.]+ nextSafeUT=9[0-9][0-9]\\.[0-9]+ propagatedAlt=[67][0-9]{4}\\.[0-9] safeAlt=75000\\.0 atmosphereDepth=70000\\.0 periapsis=(59999|60000)\\.[0-9]",
+  "Terminal orbit spawn deferred: rec=terminal-orbit-safety-rec idx=[0-9]+ vessel=\"Low Perigee Probe\" reason=current-altitude-below-safe-altitude currentUT=[0-9.]+ nextSafeUT=(99[0-9]|100[0-9])\\.[0-9]+ propagatedAlt=7[0-4][0-9]{3}\\.[0-9] safeAlt=75000\\.0 atmosphereDepth=70000\\.0 periapsis=(70999|71000)\\.[0-9]",
   # ...and the deferred queue holds it (the claim token).
-  "Deferred spawn held for terminal orbit safety: #[0-9]+ \"Low Perigee Probe\" id=terminal-orbit-safety-rec reason=current-altitude-below-safe-altitude; nextUT=9[0-9][0-9]\\.[0-9]+ currentUT=7[0-9][0-9]\\.[0-9]+",
-  # What happens next: past the next safe UT the re-evaluation refuses on the periapsis.
-  "Cannot spawn terminal orbit safely: rec=terminal-orbit-safety-rec idx=[0-9]+ vessel=\"Low Perigee Probe\" [^\\r\\n]*decision=CannotSpawnSafely reason=periapsis-below-safe-altitude",
-  "Deferred spawn (cannot execute safely|resolved as cannot-spawn-safely): #[0-9]+ \"Low Perigee Probe\" id=terminal-orbit-safety-rec reason=periapsis-below-safe-altitude",
-  # In order: deferred, held, refused.
-  "Terminal orbit spawn deferred: rec=terminal-orbit-safety-rec[\\s\\S]*?Deferred spawn held for terminal orbit safety: #[0-9]+ \"Low Perigee Probe\"[\\s\\S]*?Cannot spawn terminal orbit safely: rec=terminal-orbit-safety-rec[^\\r\\n]*reason=periapsis-below-safe-altitude",
+  "Deferred spawn held for terminal orbit safety: #[0-9]+ \"Low Perigee Probe\" id=terminal-orbit-safety-rec reason=current-altitude-below-safe-altitude; nextUT=(99[0-9]|100[0-9])\\.[0-9]+ currentUT=7[0-9][0-9]\\.[0-9]+",
+  # What happens next (the 2026-09-27 ruling): past the next safe UT the re-evaluation
+  # spawns it from the recorded orbit, through the Orbital path.
+  "Orbital vessel spawn for #[0-9]+ \\(Low Perigee Probe\\)",
+  "Terminal spawn succeeded after defer: rec=terminal-orbit-safety-rec",
+  # In order: deferred, held, spawned.
+  "Terminal orbit spawn deferred: rec=terminal-orbit-safety-rec[\\s\\S]*?Deferred spawn held for terminal orbit safety: #[0-9]+ \"Low Perigee Probe\"[\\s\\S]*?Terminal spawn succeeded after defer: rec=terminal-orbit-safety-rec",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "Spawn RETIRED for #[0-9]+ \\((Situation Hopper|Low Perigee Probe)\\)",
-  "Terminal spawn succeeded after defer",
+  # A real Orbiting orbit is never refused (the ruling) and never left held to time out.
+  "Cannot spawn terminal orbit safely: rec=terminal-orbit-safety-rec",
+  "Deferred spawn (cannot execute safely|resolved as cannot-spawn-safely): #[0-9]+ \"Low Perigee Probe\"",
+  "Held ghost timed out: #[0-9]+ \"Low Perigee Probe\"",
+  # The Orbiting spawn takes the Orbital path, never the snapshot-respawn fallback.
   "Vessel spawn for #[0-9]+ \\(Low Perigee Probe\\)",
-  "Orbital vessel spawn for #[0-9]+ \\(Low Perigee Probe\\)",
   # The Orbiting snapshot is already ORBITING: it must not be corrected.
   "Corrected unsafe snapshot situation: [A-Z_]+ -> ORBITING",
-  # The first verdict must be the deferral, never an immediate refusal.
-  "Cannot spawn terminal orbit safely: rec=terminal-orbit-safety-rec[\\s\\S]*?Terminal orbit spawn deferred: rec=terminal-orbit-safety-rec",
-  "Cannot spawn terminal orbit safely: rec=terminal-orbit-safety-rec[^\\r\\n]*reason=(orbit-never-clears-safe-altitude|no-future-safe-ut|terminal-orbit-resolution-failed|non-finite)",
 ]
 
 [runtime]

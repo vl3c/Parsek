@@ -172,10 +172,13 @@ forbidden = [
   "ReapOrphanedRPs: reaped=[23]",
 ]
 
-# REPORT-ONLY. Two of three points survive a single seal; nothing is superseded because no
+# ARMED 2026-09-27 off `2026-09-15_1552` and `2026-09-27_1226` (both PASS attempt 1, both
+# rewindPoints 2 / supersedeRows 0 / tombstones 0).
+# Two of three points survive a single seal; nothing is superseded because no
 # rewind is invoked at all, which is what makes this lane's `supersedeRows = { max = 0 }`
 # the cleanest statement in the program that SEALING IS NOT MERGING.
 [expectations.rewind]
+gating = true
 rewindPoints  = { min = 2, max = 2 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }

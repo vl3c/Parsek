@@ -247,7 +247,7 @@ namespace Parsek.Tests
                         rec.RecordingId, ut, activationStartUT),
                     forSpawn: true);
                 var gate = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    rec, isActiveChainMember: false, isChainLooping: false,
+                    rec, isActiveChainMember: false,
                     treeContext: null, liveSameLaunchVesselPresent: false);
                 bool eligible = gate.needsSpawn && !spawnHistorical;
 

@@ -181,7 +181,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.True(needsSpawn);
         }
@@ -200,7 +200,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.False(needsSpawn);
             Assert.Equal("no vessel snapshot", reason);
@@ -220,7 +220,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.False(needsSpawn);
             Assert.Equal("no vessel snapshot", reason);

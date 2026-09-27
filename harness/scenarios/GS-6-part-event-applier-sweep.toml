@@ -469,9 +469,12 @@ gating = true
 spawned = { min = 8 }
 requireBalanced = true
 
-# REPORT-ONLY: no Re-Fly machinery may have run. Rewind-to-Launch builds neither
+# No Re-Fly machinery may have run. Rewind-to-Launch builds neither
 # supersede rows nor tombstones ("this is NOT a Re-Fly").
+# ARMED 2026-09-27 off `2026-09-25_2205` and `_2221` (both PASS attempt 1, supersedeRows 0,
+# tombstones 0; rewindPoints 1 both times, the RP-survives ruling, left unpinned here).
 [expectations.rewind]
+gating = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 

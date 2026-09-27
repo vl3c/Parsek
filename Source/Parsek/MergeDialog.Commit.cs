@@ -572,7 +572,6 @@ namespace Parsek
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLooping: false,
                 treeContext: treeContext);
             return needsSpawn;
         }

@@ -245,7 +245,7 @@ Smaller corrections:
 **Genuine way-outs that do exist, all for kerbals:**
 - An Aboard or Unknown hold ends when the kerbal is recovered from a real vessel continuing that flight (`KerbalsModule.cs:814-825`, `ResolveRecoveryClosureUT`).
 - A Recovered hold ends at the flight's recovery UT.
-- A hold made open-ended by a looping chain ends only if the loop stops, because a chain with a looping segment keeps `+inf` (`KerbalsModule.cs:808-812`). The loop toggle is an Advanced-only control (`design-ui-basic-advanced.md` section 4.5). Verified 2026-09-25:
+- (Superseded 2026-09-27: the loop is visual only, so a looping chain no longer makes any hold open-ended; the bullets below record the behaviour verified on 2026-09-25.) A hold made open-ended by a looping chain ended only if the loop stopped, because a chain with a looping segment kept `+inf` (`KerbalsModule.cs:808-812`). The loop toggle is an Advanced-only control (`design-ui-basic-advanced.md` section 4.5). Verified 2026-09-25:
   - Turning the loop off releases a **Recovered** hold, which drops to the flight's EndUT (`LoopHold_TurningLoopOff_ReleasesARecoveredHoldOnTheNextWalk`).
   - An **Aboard** or Unknown hold stays open-ended until a recovery closure (`LoopHold_TurningLoopOff_LeavesAnAboardHoldOpenEnded`).
   - The toggle writes `Recording.LoopPlayback` (`RecordingsTableUI.cs:2354`) and runs no recalc itself. `KerbalsModule.PrePass` re-reads the flag on the next ledger walk.
@@ -262,7 +262,7 @@ The honest third part is therefore **when it frees up**, plus the kerbal-specifi
 | Strategy | `Activated on Y2 D114 on your committed timeline.` + rule + `It becomes active on that date.` |
 | Facility upgrade | `Upgraded to level 2 on Y2 D114 on your committed timeline.` + rule + `The upgrade happens on that date.` |
 | Kerbal hire | `Hired on Y2 D114 on your committed timeline.` + rule + `They join the roster on that date.` |
-| Kerbal on a flight | `Flies 'Mun Lander 3' on your committed timeline.` `A kerbal on a committed flight cannot be used or risked before it ends.` `Free after Y2 D130.` / `Free once 'Mun Lander 3' is recovered.` / `Held while 'Mun Lander 3' loops. Stopping its loop frees them after Y2 D130.` (a Recovered end, where stopping the loop frees the kerbal) / `Held while 'Mun Lander 3' loops, and then until it is recovered.` (an Aboard or Unknown end in a looping chain) |
+| Kerbal on a flight | `Flies 'Mun Lander 3' on your committed timeline.` `A kerbal on a committed flight cannot be used or risked before it ends.` `Free after Y2 D130.` / `Free once 'Mun Lander 3' is recovered.` (the two looping-chain "Held while ... loops" variants were removed 2026-09-27: the loop is visual only) |
 | Part purchase | `Purchased on Y2 D114 on your committed timeline.` + rule + `It is purchased on that date.` |
 | Kerbal lost | `Lost on the committed flight 'Mun Lander 3'.` `That flight is fixed history.` + the Kerbals window's `If that mission has a rewind point, re-flying it can undo the loss.` A Re-Fly merge tombstones the recording-scoped death row, so by the rule below this is a genuine way out (corrected in PR 1; this row first read "no way out") |
 | Kerbal dismissal (informational) | `Dismissed on Y2 D114 on your committed timeline.` + rule + `They leave the roster on that date.` Worded "Dismissed" because the Kerbals window's `Retired` is a stand-in whose seat went back to its owner (added in PR 1) |

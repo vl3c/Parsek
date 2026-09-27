@@ -182,14 +182,17 @@ forbidden = [
   "line-blink",
 ]
 
-# REPORT-ONLY and pinned to the fixture's committed bytes, exactly as RF-7M: this lane
+# ARMED 2026-09-27 (both blocks) off `2026-09-27_1229` (PASS attempt 1, every window met),
+# and pinned to the fixture's committed bytes, exactly as RF-7M: this lane
 # reads, it does not write.
 [expectations.rewind]
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { min = 1, max = 1 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
+gating = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 10, max = 10 }

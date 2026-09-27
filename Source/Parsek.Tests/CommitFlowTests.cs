@@ -501,7 +501,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, false, false);
+                rec, false);
 
             Assert.True(needsSpawn);
             Assert.Equal("", reason);
@@ -523,7 +523,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, false, false);
+                rec, false);
 
             Assert.True(needsSpawn);
             Assert.Equal("", reason);

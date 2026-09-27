@@ -279,7 +279,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("snapshot situation unsafe", reason);
@@ -298,7 +298,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("snapshot situation unsafe", reason);
@@ -317,7 +317,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.True(needsSpawn);
         }
@@ -352,7 +352,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("unfinalized recording, snapshot situation maps to", reason);
@@ -378,7 +378,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.True(needsSpawn);
         }
@@ -409,7 +409,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.True(needsSpawn);
         }
@@ -452,7 +452,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.True(needsSpawn);
         }
@@ -470,7 +470,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.True(needsSpawn);
         }
@@ -488,7 +488,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.True(needsSpawn);
         }
@@ -506,7 +506,7 @@ namespace Parsek.Tests
             };
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("terminal state Destroyed", reason);
@@ -550,7 +550,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedTrees.Add(tree);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rootRec, isActiveChainMember: false, isChainLooping: false);
+                rootRec, isActiveChainMember: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("non-leaf in tree", reason);
@@ -591,7 +591,7 @@ namespace Parsek.Tests
             RecordingStore.CommittedTrees.Add(tree);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rootRec, isActiveChainMember: false, isChainLooping: false);
+                rootRec, isActiveChainMember: false);
 
             Assert.False(needsSpawn);
             Assert.Contains("non-leaf in tree", reason);
@@ -630,7 +630,7 @@ namespace Parsek.Tests
             tree.BranchPoints.Add(bp);
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rootRec, isActiveChainMember: false, isChainLooping: false, tree);
+                rootRec, isActiveChainMember: false, tree);
 
             Assert.False(needsSpawn);
             Assert.Contains("non-leaf in tree", reason);
@@ -1543,8 +1543,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TerminalOrbitSpawnSafety_CurrentInsideAtmosphere_Defers()
+        public void TerminalOrbitSpawnSafety_CurrentInMarginBand_Defers()
         {
+            var decision = TerminalOrbitSpawnSafety.Evaluate(
+                currentAltitude: 72500.0,
+                atmosphereDepth: 70000.0,
+                safetyMargin: TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                periapsisAltitude: 71000.0,
+                apoapsisAltitude: 125000.0);
+
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe, decision.Action);
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude, decision.ReasonCode);
+        }
+
+        [Fact]
+        public void TerminalOrbitSpawnSafety_CurrentInsideAtmosphereWithPeriapsisInside_Refuses()
+        {
+            // The pre-ruling shape (vessel at 16.9 km, periapsis 16 km) used to defer. A periapsis
+            // inside the atmosphere is a decaying flight: commit calls it SubOrbital and the spawn
+            // check refuses it on the same periapsis line rather than waiting for it to climb.
             var decision = TerminalOrbitSpawnSafety.Evaluate(
                 currentAltitude: 16909.4,
                 atmosphereDepth: 70000.0,
@@ -1552,8 +1569,8 @@ namespace Parsek.Tests
                 periapsisAltitude: 16000.0,
                 apoapsisAltitude: 125000.0);
 
-            Assert.Equal(TerminalOrbitSpawnSafetyAction.DeferUntilSafe, decision.Action);
-            Assert.Equal(TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude, decision.ReasonCode);
+            Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, decision.Action);
+            Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude, decision.ReasonCode);
         }
 
         [Fact]

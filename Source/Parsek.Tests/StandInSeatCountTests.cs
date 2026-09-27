@@ -329,8 +329,7 @@ namespace Parsek.Tests
                 ActiveStandInOwner = n => n == "Leoly Kerman" || n == "Kirrim Kerman" ? "Bill Kerman" : null,
                 // Leoly's pair is subtracted; Kirrim is an active stand-in whose owner stock
                 // does not count, so his tooltip stays as it was.
-                SeatSharedOwner = n => n == "Leoly Kerman" ? "Bill Kerman" : null,
-                IsLoopingRecording = id => false
+                SeatSharedOwner = n => n == "Leoly Kerman" ? "Bill Kerman" : null
             };
             var d = StockUiDecorationQuery.ForAstronautComplex(CommittedFutureIndex.Empty, 100, rows, context,
                 ut => "D1");
@@ -363,8 +362,7 @@ namespace Parsek.Tests
                 SlotOwner = _ => "Bill Kerman",
                 DismissalRefusal = _ => "refused",
                 ActiveStandInOwner = _ => "Bill Kerman",
-                SeatSharedOwner = _ => "Bill Kerman",
-                IsLoopingRecording = id => false
+                SeatSharedOwner = _ => "Bill Kerman"
             };
             var d = StockUiDecorationQuery.ForAstronautComplex(CommittedFutureIndex.Empty, 100,
                 new[] { new StockUiItem("Leoly Kerman", "Available") }, context, ut => "D1").Single();

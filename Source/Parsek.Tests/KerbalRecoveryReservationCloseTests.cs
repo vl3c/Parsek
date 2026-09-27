@@ -287,11 +287,11 @@ namespace Parsek.Tests
             Assert.True(Kerbals.IsReservedNow(Jeb));
         }
 
-        // catches: the writer disagreeing with the walk on a chain with a looping segment:
-        // the walk keeps that hold +inf, so a row (and its "closed by recovery" line) would
-        // change nothing.
+        // catches: a looped segment elsewhere in the chain exempting the tip's open-ended
+        // hold from a recovery. The loop is visual only (design 12.7, operator ruling
+        // 2026-09-27); only the looped segment's own rows are exempt, like any loop's.
         [Fact]
-        public void BuildClosureRows_SkipsAHoldInAChainWithALoopingSegment()
+        public void BuildClosureRows_ClosesAHoldInAChainWithALoopingSegment()
         {
             var tip = MakeRecording("tip", "t", 100, 200);
             tip.ChainId = "chain-1";
@@ -301,18 +301,14 @@ namespace Parsek.Tests
             var actions = new List<GameAction>
             {
                 Assignment("tip", Jeb, 100, 200, KerbalEndState.Aboard, 1),
+                Assignment("loop-seg", Jeb, 0, 100, KerbalEndState.Aboard, 1),
             };
 
             var rows = CrewRecoveryReservationClose.BuildClosureRows(
                 new List<Recording> { tip }, new List<string> { Jeb }, actions,
                 new List<Recording> { tip, loopSegment }, 250.0);
-            Assert.Empty(rows);
-
-            // Control: the same hold without the looping segment is closed.
-            rows = CrewRecoveryReservationClose.BuildClosureRows(
-                new List<Recording> { tip }, new List<string> { Jeb }, actions,
-                new List<Recording> { tip }, 250.0);
             Assert.Single(rows);
+            Assert.Equal(1, rows[0].ClosedHolds);
         }
 
         // catches: the craft-baked pid alone identifying the vessel. A fresh launch of the
