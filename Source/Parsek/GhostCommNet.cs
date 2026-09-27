@@ -1210,6 +1210,21 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The held-node position line (<c>GhostCommNetManager.NoteHeldPosition</c>): the node's
+        /// distance from the held body's centre and the angle swept along a terminal orbit since
+        /// EndUT (0 for surface and end-sample holds).
+        /// </summary>
+        internal static string FormatHeldPosition(
+            string key, string vesselName, string scene, GhostCommNetHeldPositionSource source,
+            double ut, double endUT, double radius, double sweptDeg)
+        {
+            return string.Format(IC,
+                "Held ghost node position: key={0} vessel=\"{1}\" scene={2} source={3} ut={4:F1} " +
+                "sinceEnd={5:F1} radius={6:F0} sweptDeg={7:F2}",
+                key, vesselName ?? "", scene, source, ut, ut - endUT, radius, sweptDeg);
+        }
+
+        /// <summary>
         /// Once per change of a recording's continuation hold (design 15.6 scenario 15): the
         /// recording's terminal spawn is owned by a later continuation, and until when its node
         /// stands for the vessel on rails at its end state.

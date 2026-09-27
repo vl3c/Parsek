@@ -287,6 +287,7 @@ namespace Parsek
             public Orbit ChainOrbit;
             public bool ChainOrbitTried;
             public int LastLoggedStateIndex = -1;
+            public float NextHeldPositionLogRealtime;
             public bool Dark;
             public string Reason;
 
@@ -396,6 +397,23 @@ namespace Parsek
             if (key == null || !entries.TryGetValue(key, out Entry e))
                 return false;
             return TryResolveHeldPositionCore(e, now, out pos);
+        }
+
+        /// <summary>
+        /// The registered node's derived timeline state at an arbitrary UT, before
+        /// rangeModifier, and the number of timeline states (in-game tests of recorded
+        /// transitions such as a deploy event).
+        /// </summary>
+        internal bool TrySampleRegisteredTimeline(
+            string key, double ut, out GhostCommNetState state, out int stateCount)
+        {
+            state = default(GhostCommNetState);
+            stateCount = 0;
+            if (key == null || !entries.TryGetValue(key, out Entry e) || e.Timeline == null)
+                return false;
+            state = e.Timeline.Sample(ut);
+            stateCount = e.Timeline.Count;
+            return true;
         }
 
         internal static DoubleCurve DefaultRangeCurve
@@ -857,6 +875,8 @@ namespace Parsek
                     return;
                 }
                 node.precisePosition = pos;
+                if (sample.Held)
+                    NoteHeldPosition(e, now, pos);
                 GhostCommNetState state = e.Timeline.Sample(sample.StateUT);
                 double m = rangeModifier;
                 node.antennaRelay.power = state.Powers.RelayPower * m;
@@ -898,6 +918,30 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited(Tag, e.DarkLogKey ?? ("dark-" + scene + "-" + e.Key), string.Format(IC,
                     "Ghost node dark this rebuild: key={0} vessel=\"{1}\" reason={2} ut={3:F1}",
                     e.Key, e.VesselName, why, ut));
+        }
+
+        /// <summary>
+        /// Where a held node sits, at most once per 5 s of real time per node while verbose
+        /// logging is on (the per-rebuild position is otherwise silent): its distance from the
+        /// held body's centre and, for a terminal-orbit hold, the angle it has swept along that
+        /// orbit since EndUT, so a log shows the node riding the orbit rather than parked at the
+        /// stale end point.
+        /// </summary>
+        private void NoteHeldPosition(Entry e, double now, Vector3d pos)
+        {
+            if (!ParsekLog.IsVerboseEnabled || e.HeldBody == null)
+                return;
+            float realtime = Time.realtimeSinceStartup;
+            if (realtime < e.NextHeldPositionLogRealtime)
+                return;
+            e.NextHeldPositionLogRealtime = realtime + 5f;
+            Vector3d center = e.HeldBody.position;
+            double radius = (pos - center).magnitude;
+            double swept = 0.0;
+            if (e.HeldSource == GhostCommNetHeldPositionSource.TerminalOrbit && e.HeldOrbit != null)
+                swept = Vector3d.Angle(pos - center, e.HeldOrbit.getPositionAtUT(e.EndUT) - center);
+            ParsekLog.Verbose(Tag, GhostCommNetMath.FormatHeldPosition(
+                e.Key, e.VesselName, scene, e.HeldSource, now, e.EndUT, radius, swept));
         }
 
         /// <summary>
