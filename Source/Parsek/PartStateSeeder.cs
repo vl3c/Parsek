@@ -323,7 +323,9 @@ namespace Parsek
                 var anim = p.Modules[deployIdx] as ModuleAnimateGeneric;
                 if (anim != null)
                 {
-                    FlightRecorder.ClassifyCargoBayState(anim.animTime, cargo.closedPosition, out bool isOpen, out bool isClosed);
+                    FlightRecorder.ClassifyCargoBayState(anim.animTime, cargo.closedPosition,
+                        FlightRecorder.ResolveCargoBayDeployLimitStop(anim, cargo.closedPosition),
+                        out bool isOpen, out bool isClosed);
                     if (isOpen)
                     {
                         sets.openCargoBays.Add(p.persistentId);

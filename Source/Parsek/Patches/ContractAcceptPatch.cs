@@ -36,6 +36,7 @@ namespace Parsek.Patches
 
         static bool Prefix(Contracts.Contract __instance)
         {
+            if (ParsekGameModeGate.CheckInert("ContractAcceptPatch.Prefix")) return true; // S9 game-mode gate
             if (__instance == null) return true;
 
             string keyString = __instance.ContractGuid.ToString();
@@ -160,6 +161,7 @@ namespace Parsek.Patches
 
         static bool Prefix(MissionControl __instance)
         {
+            if (ParsekGameModeGate.CheckInert("MissionControlAcceptPatch.Prefix")) return true; // S9 game-mode gate
             Contracts.Contract contract;
             if (!TryGetSelectedContract(__instance, out contract))
                 return true;

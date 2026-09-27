@@ -1062,7 +1062,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # BOTH numbers in opposite directions - the arithmetic signature that tells a
         # promotion from an addition, and that catches a half-done one (a name added to
         # IMPLEMENTED and left in RESERVED moves the first number without the second).
-        # 31 / 5 after DeleteRecording, an ADDITION (the first number moves alone).
+        # 31 / 5 after DeleteRecording, an ADDITION (the first number moves alone); it was
+        # REMOVED again 2026-09-26 (recordings are never player-deletable), which is why
+        # the final count below is one lower than the additions sum to.
         # 32 / 5 after R10's ListHandles, an ADDITION for the same reason: the reserved
         # envelope never carried an enumeration verb, so only the first number moves.
         # 33 / 5 after WarpToUT, an ADDITION again (the first number moves alone):
@@ -1093,7 +1095,8 @@ class SpecValidationRejectTests(unittest.TestCase):
         # merge-journal phase, not a file write, and stays reserved.
         # 44 / 5 after SpinVessel, an ADDITION by one: the reserved envelope never
         # carried a physics verb.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 44)
+        # 43 / 5 after DeleteRecording's removal (2026-09-26), a REMOVAL by one.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 43)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -1460,33 +1463,26 @@ class SpecValidationRejectTests(unittest.TestCase):
                     any(verb in e for e in v.errors),
                     "%s wrongly flagged: %s" % (verb, list(v.errors)))
 
-    def test_delete_recording_verb_is_implemented_additively(self):
-        # ADDITIVE, never a promotion: implemented, not reserved, and the reserved
-        # set is untouched by it (the two counts above pin the arithmetic).
-        self.assertIn("DeleteRecording", hlib.IMPLEMENTED_SEAM_VERBS)
+    def test_delete_recording_verb_is_retired(self):
+        # REMOVED 2026-09-26 with the Recordings table's delete button: recordings are
+        # never player-deletable (a deletion breaks the timeline and the ledger). Not
+        # implemented, not reserved, and neither role table answers for it, so a spec
+        # that names it fails pre-launch instead of after a KSP boot.
+        self.assertNotIn("DeleteRecording", hlib.IMPLEMENTED_SEAM_VERBS)
         self.assertNotIn("DeleteRecording", hlib.RESERVED_SEAM_VERBS)
-        # Single-phase: rides the 60 s default, never the 540 s deferred cap.
-        self.assertNotIn("DeleteRecording", hlib.DEFERRED_SEAM_VERBS)
-        self.assertNotIn("DeleteRecording", hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS)
-        # Both role tables answer for it explicitly (the totality cells enforce the
-        # rows exist; this pins WHICH answer, since a delete is the least reversible
-        # verb after the two rewinds and the seal).
-        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
-                         hlib.SEAM_VERB_TAIL_ROLE["DeleteRecording"])
-        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
-                         hlib.SEAM_VERB_POST_MISSION_ROLE["DeleteRecording"])
+        self.assertNotIn("DeleteRecording", hlib.SEAM_VERB_TAIL_ROLE)
+        self.assertNotIn("DeleteRecording", hlib.SEAM_VERB_POST_MISSION_ROLE)
 
-    def test_delete_recording_step_is_not_rejected(self):
-        # The behavioural half: a spec naming the verb validates. The S0.11 lane is the
-        # first consumer (a KSC-scene delete under living KSC ghosts).
+    def test_delete_recording_step_is_rejected(self):
+        # The behavioural half: a spec naming the retired verb is refused.
         def m(s):
             s.get("expectations", {}).pop("ledger", None)
             s["driver"]["steps"].insert(
                 1, {"cmd": "DeleteRecording", "args": {"index": "1"}, "expect": "OK"})
         v = self._reject(m)
-        self.assertFalse(
+        self.assertTrue(
             any("DeleteRecording" in e for e in v.errors),
-            "DeleteRecording wrongly flagged: %s" % (list(v.errors),))
+            "DeleteRecording was not refused: %s" % (list(v.errors),))
 
     def test_list_handles_verb_is_implemented_additively(self):
         # R10. ADDITIVE, never a promotion: implemented, not reserved, and the reserved
@@ -4297,6 +4293,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # `passed=4 failed=0 skipped=5`, and both specs took the line WHOLE. Like GUI-1 they are
     # not H-series ids, so this class's own cells never read them;
     # CommittedBatchTallySourceSyncTests gates their `total=`.
+    #
+    # CN-2-ghost-commnet-live-probe and CN-3-ghost-commnet-timeline-warp ENTERED on
+    # 2026-09-26 (the new GhostCommNetLive / GhostCommNetTimeline categories, 3 FLIGHT
+    # cells each, `total=3` literal with the split regexed, predicted 3 / 0 each) and LEFT
+    # the same day: their reading runs 2026-09-26_2030 (CN-2) and 2026-09-26_2053 (CN-3),
+    # both PASS attempt 1, measured the prediction, `passed=3 failed=0 skipped=0`, and both
+    # specs took the line WHOLE. Like CN-1 they are not H-series ids, so this class's own
+    # cells never read them; CommittedBatchTallySourceSyncTests gates their `total=`.
     INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -9684,7 +9688,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # S0.12-switch-noop-discard LEFT 2026-09-11: promoted to daily after its negative
         # control (`2026-09-11_0044`, RULINGS A4-c1 / R2-4); a daily lane that never writes
         # the token is in neither population.
-        "S0.11-ksc-table-delete.toml":               "tier=operator as a reading run, NOT debt: the first consumer of the DeleteRecording seam verb (AUTOMATION-GAP-KSC-TABLE-DELETE's lane) - V22K's SPACECENTER boot with the loop member's KSC ghost placed, then DeleteRecording index=1 under it, pinning the ParsekKSC host's reindex line, which prints only when a KSC ghost was alive at the delete. Nothing armed; the first flight decides whether the dwell length puts the delete under a placed ghost",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
         # windows are derived rather than measured and the first run is a
@@ -10102,7 +10105,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Priority register C4 (2026-09-23, `d5-debris`): the two D5 debris lanes on
         # the kx machine's close-cut opt-in.
         "GS-10-kerbalx-debris-ttl.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-ttl: GS-7's crash lane with round 1's close cut, the kx machine's impactCutAtLastBoosterDrop opt-in); operator tier is GS-7's cadence (a 12-minute crash + rewind + watch flight), and the discipline is recorded in its status row, not a debt",
-        "BAY-1-runway-cargo-bays.toml": "calibration-discipline - AUTHORED 2026-09-26 (coverage wave 7, D7 `bays`: the stock Mallard staged in place on the Runway, its three Mk3 cargo bays cycled, committed, Rewound-to-Launch and replayed as a Space Center ghost); operator tier is the calibration discipline for a new lane (reading 1 `2026-09-25_2214` red on the filed deploy-limit gap, reading 2 `_2218` PASS, armed `_2230` PASS, negative controls offline), and its status row records what has flown, not a debt",
+        "BAY-1-runway-cargo-bays.toml": "calibration-discipline - AUTHORED 2026-09-26 (coverage wave 7, D7 `bays`: the stock Mallard staged in place on the Runway, its three Mk3 cargo bays cycled, committed, Rewound-to-Launch and replayed as a Space Center ghost); operator tier is the calibration discipline for a new lane (reading 1 `2026-09-25_2214` red on the filed deploy-limit gap, reading 2 `_2218` PASS, armed `_2230` PASS, negative controls offline; the stock 44/45/51 deploy limits restored 2026-09-27 with the fix, per-bay limit tokens read PASS on `2026-09-27_1029`), and its status row records what has flown, not a debt",
         "GS-12-kerbalx-loop-cycles.toml": "calibration-discipline - AUTHORED 2026-09-24 (ghost-replay Tier C item 12: GS-4's flight, then the committed mission looped in three stages through the kx machine's loopStages opt-in); operator tier is GS-4's cadence plus the warped loop block, and its status row records what has flown, not a debt",
         "GS-11-kerbalx-debris-promotion.toml": "calibration-discipline - AUTHORED 2026-09-23 (D5 staging-debris-promotion: GS-10's close cut plus the promoteDebrisVesselName switch to a just-dropped booster inside its TTL); operator tier is GS-7's cadence; its status row records what has flown, not a debt",
         # Ghost-replay Tier B item 8 (2026-09-10, `ghost-replay-tier-b`): GS-4's

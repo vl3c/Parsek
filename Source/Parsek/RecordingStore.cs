@@ -3918,8 +3918,9 @@ namespace Parsek
         /// ghost teardown and the index reindex. Crew unreservation stays with the caller.
         /// </summary>
         /// <param name="pruneFromCommittedTrees">
-        /// When true (the single-delete default: the recordings-table delete via
-        /// <see cref="DeleteRecordingFull"/> / <see cref="ParsekFlight"/>), also prune the
+        /// When true (the single-row default: the merge-journal rollback via
+        /// <see cref="DeleteRecordingFull"/> and the Gloops discard via
+        /// <see cref="ParsekFlight"/>), also prune the
         /// removed row from the committed tree that owns it, so
         /// <c>SaveTreeRecordings</c> does not re-materialize its sidecars on the next OnSave
         /// and resurrect it (DELETE-LEAVES-TREE-MEMBERSHIP). The bulk session sweep
@@ -4260,11 +4261,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Deletes a recording from the committed list, cleans up sidecar files, and
-        /// unreserves crew. Use when there are no active ghosts (e.g. KSC scene).
-        /// In flight scene, use ParsekFlight.DeleteRecording instead (handles ghost cleanup).
+        /// INTERNAL ROLLBACK ONLY: removes a recording from the committed list, cleans up its
+        /// sidecar files and unreserves its crew. Its one caller is the merge-journal
+        /// rollback's legacy by-id sweep of a session-provisional Re-Fly recording
+        /// (<c>MergeJournalOrchestrator.RemoveCommittedRecordingById</c>). No player path
+        /// reaches it: recordings are never player-deletable (a deletion breaks the timeline
+        /// and the ledger). Ghost teardown and index shifts ride on the store's
+        /// Removing / Removed notifications.
         /// </summary>
-        public static void DeleteRecordingFull(int index)
+        internal static void DeleteRecordingFull(int index)
         {
             if (index < 0 || index >= committedRecordings.Count)
             {
@@ -4822,23 +4827,32 @@ namespace Parsek
         /// <summary>
         /// Resets all playback state on committed recordings.
         /// Called during rewind to prepare all recordings for fresh replay.
+        /// <paramref name="keepSpawnStateRecordingIds"/> names recordings whose spawned vessel
+        /// the rewind kept as committed history (<see cref="ResolveRewindSpawnStripScope"/>):
+        /// their spawn state (VesselSpawned / SpawnedVesselPersistentId and the spawn
+        /// bookkeeping) is preserved so the kept vessel stays linked to its recording, the
+        /// same way a revert restores an earlier tree's spawn state from the revert target.
+        /// The post-strip reconcile still resets any of them whose vessel did not survive.
         /// </summary>
-        internal static (int recordingCount, int treeCount) ResetAllPlaybackState()
+        internal static (int recordingCount, int treeCount) ResetAllPlaybackState(
+            HashSet<string> keepSpawnStateRecordingIds = null)
         {
             MarkSupersededTerminalSpawnsForCommittedContinuations("ResetAllPlaybackState");
 
+            var keptLogged = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < committedRecordings.Count; i++)
-                ResetRecordingPlaybackFields(committedRecordings[i]);
+                ResetRecordingPlaybackFields(committedRecordings[i], keepSpawnStateRecordingIds, keptLogged);
 
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 foreach (var rec in committedTrees[i].Recordings.Values)
-                    ResetRecordingPlaybackFields(rec);
+                    ResetRecordingPlaybackFields(rec, keepSpawnStateRecordingIds, keptLogged);
             }
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
-                    $"Playback state reset: {committedRecordings.Count} recording(s), {committedTrees.Count} tree(s)");
+                    $"Playback state reset: {committedRecordings.Count} recording(s), {committedTrees.Count} tree(s), " +
+                    $"keptHistorySpawnState={keptLogged.Count}");
 
             return (committedRecordings.Count, committedTrees.Count);
         }
@@ -4878,35 +4892,44 @@ namespace Parsek
             rec.PreContinuationGhostSnapshot = null;
         }
 
-        private static void ResetRecordingPlaybackFields(Recording rec)
+        private static void ResetRecordingPlaybackFields(
+            Recording rec,
+            HashSet<string> keepSpawnStateRecordingIds = null,
+            HashSet<string> keptLogged = null)
         {
             RollbackContinuationData(rec);
 
-            // If the vessel had spawned, any terminal state change (Recovered/Destroyed)
-            // was on the spawned real vessel, not the recording. Clear it so the recording
-            // can spawn again after revert/rewind.
-            //
-            // This used to inline a byte-identical copy of the predicate that
-            // ParsekScenario.ClearPostSpawnTerminalState applies. Two copies of one
-            // retraction rule is one copy too many — the TS-FLUSHED-SAVE-DROPS-DEBRIS-
-            // TERMINALSTATE work added a restore leg beside the OTHER copy, and a
-            // divergence here would be invisible. Route through the shared seam so this
-            // path inherits any future change to what counts as a post-spawn verdict.
-            // (Unlike the OnLoad copy, this rewind/revert path has NO restore leg — see
-            // REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL.)
-            ParsekScenario.ClearPostSpawnTerminalState(
-                rec, $"rewind reset '{rec.VesselName}' (id={rec.RecordingId})");
+            // The terminal verdict is NOT touched: a committed recording's
+            // TerminalStateValue is recorded content (real-vessel terminal events stamp
+            // only the pending tree), and Destroyed / Recovered are never spawnable, so
+            // the spawn fields below are all a re-spawn needs. Same rule as the OnLoad
+            // tree-mutable-state reset (ParsekScenario.ResetTreeRecordingMutableStateForLoad).
 
-            rec.VesselSpawned = false;
-            rec.VesselDestroyed = false;
-            rec.SpawnAttempts = 0;
-            rec.SpawnDeathCount = 0;
-            rec.SpawnedVesselPersistentId = 0;
-            rec.CollisionBlockCount = 0;
-            rec.SpawnAbandoned = false;
-            rec.WalkbackExhausted = false;
-            rec.DuplicateBlockerRecovered = false;
-            TerminalOrbitSpawnSafety.Clear(rec);
+            bool keepSpawnState = keepSpawnStateRecordingIds != null
+                && !string.IsNullOrEmpty(rec.RecordingId)
+                && keepSpawnStateRecordingIds.Contains(rec.RecordingId);
+            if (keepSpawnState)
+            {
+                // Committed history the rewind kept: its vessel exists at the rewind target
+                // and nothing that replays spawns it again, so its spawn link is kept too.
+                if (keptLogged != null && keptLogged.Add(rec.RecordingId) && !SuppressLogging)
+                    ParsekLog.Verbose("Rewind",
+                        $"Playback reset kept spawn state for committed history \"{rec.VesselName}\" " +
+                        $"id={rec.RecordingId} spawnedPid={rec.SpawnedVesselPersistentId} vesselSpawned={rec.VesselSpawned}");
+            }
+            else
+            {
+                rec.VesselSpawned = false;
+                rec.VesselDestroyed = false;
+                rec.SpawnAttempts = 0;
+                rec.SpawnDeathCount = 0;
+                rec.SpawnedVesselPersistentId = 0;
+                rec.CollisionBlockCount = 0;
+                rec.SpawnAbandoned = false;
+                rec.WalkbackExhausted = false;
+                rec.DuplicateBlockerRecovered = false;
+                TerminalOrbitSpawnSafety.Clear(rec);
+            }
             rec.LastAppliedResourceIndex = -1;
             // SpawnSuppressedByRewind is cleared here so a subsequent rewind starts
             // from a clean slate. ParsekScenario.HandleRewindOnLoad re-marks the
@@ -5508,8 +5531,13 @@ namespace Parsek
                     var stripNames = BuildRewindStripNames(preProcessOwner);
                     // Collect spawned vessel PIDs for PID-based stripping (belt-and-suspenders
                     // alongside name matching, catches renamed vessels or debris)
-                    var (stripPids, _) = CollectSpawnedVesselInfo();
-                    PreProcessRewindSave(tempPath, stripNames, stripPids, RewindToLaunchLeadTimeSeconds);
+                    // The PID set is scoped to vessels a replaying recording will re-produce:
+                    // committed history the rewind keeps (an earlier tree's spawned vessel)
+                    // stays in the save and therefore in the quicksave whitelist.
+                    RewindContext.SetHistoricalSpawnKeepRecordingIds(null);
+                    PreProcessRewindSave(
+                        tempPath, stripNames, ResolveRewindStripSpawnedPids,
+                        RewindToLaunchLeadTimeSeconds);
                 }
 
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
@@ -6574,7 +6602,7 @@ namespace Parsek
 
         internal static void PreProcessRewindSave(string sfsPath, HashSet<string> vesselNames, double leadTime)
         {
-            PreProcessRewindSave(sfsPath, vesselNames, null, leadTime);
+            PreProcessRewindSave(sfsPath, vesselNames, (HashSet<uint>)null, leadTime);
         }
 
         /// <summary>
@@ -6584,6 +6612,21 @@ namespace Parsek
         /// </summary>
         internal static void PreProcessRewindSave(
             string sfsPath, HashSet<string> vesselNames, HashSet<uint> vesselPids, double leadTime)
+        {
+            PreProcessRewindSave(sfsPath, vesselNames, _ => vesselPids, leadTime);
+        }
+
+        /// <summary>
+        /// Resolver overload: the PID strip set is resolved from the ADJUSTED (wound-back) UT,
+        /// which is only known once the save's own UT is parsed. The plain rewind passes
+        /// <see cref="ResolveRewindStripSpawnedPids"/> so a spawned vessel of committed history
+        /// that no replaying recording will re-produce stays in the save (and so in the
+        /// quicksave whitelist). The resolver receives NaN when the save's UT is missing or
+        /// unparseable.
+        /// </summary>
+        internal static void PreProcessRewindSave(
+            string sfsPath, HashSet<string> vesselNames,
+            Func<double, HashSet<uint>> resolveVesselPids, double leadTime)
         {
             ConfigNode root = ConfigNode.Load(sfsPath);
             if (root == null)
@@ -6603,10 +6646,12 @@ namespace Parsek
             // Wind back UT
             string utStr = flightState.GetValue("UT");
             double ut;
+            double adjustedUT = double.NaN;
             if (!string.IsNullOrEmpty(utStr) &&
                 double.TryParse(utStr, NumberStyles.Any, CultureInfo.InvariantCulture, out ut))
             {
                 double newUT = Math.Max(0, ut - leadTime);
+                adjustedUT = newUT;
                 flightState.SetValue("UT", newUT.ToString("R", CultureInfo.InvariantCulture));
                 if (!SuppressLogging)
                     ParsekLog.Info("Rewind",
@@ -6619,6 +6664,9 @@ namespace Parsek
             }
 
             // Remove vessels matching name OR persistentId
+            HashSet<uint> vesselPids = resolveVesselPids != null
+                ? resolveVesselPids(adjustedUT)
+                : null;
             bool hasPids = vesselPids != null && vesselPids.Count > 0;
             int removedByName = 0;
             int removedByPid = 0;

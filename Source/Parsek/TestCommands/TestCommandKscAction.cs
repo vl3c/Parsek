@@ -681,7 +681,12 @@ namespace Parsek.TestCommands
 
             int destroyedAfter = CountDestroyed(building);
             if (destroyedAfter >= destroyedBefore)
+            {
+                double fundsNow = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
+                ParsekLog.Info(Tag, FormatRepairNotAppliedLine(facility, destroyedBefore, destroyedAfter,
+                    fundsBefore, fundsNow));
                 return Refuse(action, facility, "repair-not-applied");
+            }
 
             double fundsAfter = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
             string observed = string.Format(CultureInfo.InvariantCulture,
@@ -696,6 +701,23 @@ namespace Parsek.TestCommands
             var payload = OkPayload(action, facility, "repairCost", cost.ToString("R", CultureInfo.InvariantCulture));
             payload.Add(new KeyValuePair<string, string>("fundsAfter", fundsAfter.ToString("R", CultureInfo.InvariantCulture)));
             return KscActionExecOutcome.Ok(payload);
+        }
+
+        /// <summary>
+        /// The line a repair that left every building down writes before its refusal: the
+        /// destroyed counts and the funds pool on both sides of stock's call, so a lane can
+        /// read that a refused repair (the committed-repair block) charged nothing.
+        /// </summary>
+        internal static string FormatRepairNotAppliedLine(
+            string facility, int destroyedBefore, int destroyedAfter, double fundsBefore, double fundsAfter)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return "kscaction repair-facility not applied: target=" + (facility ?? string.Empty)
+                + " destroyedBefore=" + destroyedBefore.ToString(ic)
+                + " destroyedAfter=" + destroyedAfter.ToString(ic)
+                + " fundsBefore=" + fundsBefore.ToString("R", ic)
+                + " fundsAfter=" + fundsAfter.ToString("R", ic)
+                + " fundsDelta=" + (fundsAfter - fundsBefore).ToString("R", ic);
         }
 
         private static int CountDestroyed(SpaceCenterBuilding building)

@@ -20,10 +20,15 @@ namespace Parsek
 
         // Stock CurrencyExchanger reason keys (TransactionReasons.ToString()). The
         // recorder stores ReputationChanged / FundsChanged events keyed by reason; these
-        // two are the only resource-change reasons converted into ledger actions (the
-        // Bail-Out Grant exchange). See fix-bailout-grant-currency-exchange-capture.md.
+        // two plus ContractDecline below are the only resource-change reasons converted
+        // into ledger actions. See fix-bailout-grant-currency-exchange-capture.md.
         internal const string StrategyInputReasonKey = "StrategyInput";
         internal const string StrategyOutputReasonKey = "StrategyOutput";
+
+        // Stock Contract.Decline subtracts Career.RepLossDeclined under this reason and no
+        // other channel carries it (the ContractDeclined event fires BEFORE the
+        // subtraction, from SetState, and carries no amount).
+        internal const string ContractDeclineReasonKey = "ContractDecline";
 
         /// <summary>
         /// Converts a list of GameStateEvents into GameActions, filtering to the given UT range
@@ -234,7 +239,8 @@ namespace Parsek
         /// (CrewStatusChanged, CrewRemoved, ContractOffered, ContractDeclined,
         /// FacilityDowngraded). FundsChanged / ReputationChanged / ScienceChanged
         /// return null for every reason EXCEPT their one strategy currency-exchange
-        /// carve-out each - see the comment block on those three cases below.
+        /// carve-out each, plus the ReputationChanged(ContractDecline) penalty - see the
+        /// comment block on those three cases below.
         /// </summary>
         internal static GameAction ConvertEvent(GameStateEvent evt, string recordingId)
         {
@@ -298,10 +304,16 @@ namespace Parsek
                 // Every other reason on all three still returns null. See
                 // docs/dev/plans/fix-bailout-grant-currency-exchange-capture.md and the
                 // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+                //
+                // ReputationChanged has ONE more carve-out that is not a strategy leg:
+                // ContractDecline (stock Contract.Decline's Career.RepLossDeclined), which
+                // no other channel carries - see ConvertContractDeclineReputation.
                 case GameStateEventType.FundsChanged:
                     return ConvertStrategyExchangeFunds(evt, recordingId);
 
                 case GameStateEventType.ReputationChanged:
+                    if (string.Equals(evt.key, ContractDeclineReasonKey, StringComparison.Ordinal))
+                        return ConvertContractDeclineReputation(evt, recordingId);
                     return ConvertStrategyExchangeReputation(evt, recordingId);
 
                 case GameStateEventType.ScienceChanged:
@@ -418,6 +430,8 @@ namespace Parsek
                     ScienceAwarded = subj.science,
                     Method = ResolveScienceMethod(subj.reasonKey),
                     SubjectMaxValue = subj.subjectMaxValue,
+                    ScienceGainMultiplier =
+                        GameAction.NormalizeScienceGainMultiplier(subj.scienceGainMultiplier),
                     StartUT = (float)resolvedStartUt,
                     EndUT = (float)endUT,
                     Sequence = sequence++
@@ -1144,6 +1158,48 @@ namespace Parsek
                 RecordingId = recordingId,
                 NominalPenalty = (float)(-delta), // positive magnitude (already post-curve)
                 RepPenaltySource = ReputationPenaltySource.Strategy
+            };
+        }
+
+        /// <summary>
+        /// Converts stock's declined-contract reputation loss into a
+        /// <see cref="GameActionType.ReputationPenalty"/> with
+        /// <see cref="ReputationPenaltySource.ContractDecline"/>. Stock
+        /// <c>Contract.Decline</c> calls
+        /// <c>Reputation.AddReputation(-Career.RepLossDeclined, ContractDecline)</c> when
+        /// the setting is above zero; <c>AddReputation</c> runs the value through the
+        /// granular reputation curve, so the recorded delta is the ACTUAL post-curve loss
+        /// (Hard's 3 at a high pool subtracts more than 3). <c>NominalPenalty</c> carries
+        /// that magnitude and <see cref="ReputationModule"/> applies it without re-curving,
+        /// exactly like the other two captured-from-the-event sources (Strategy,
+        /// KerbalDeath). A zero setting makes stock skip the call, so no event and no row.
+        /// Internal static for testability.
+        /// </summary>
+        internal static GameAction ConvertContractDeclineReputation(GameStateEvent evt, string recordingId)
+        {
+            if (!string.Equals(evt.key, ContractDeclineReasonKey, StringComparison.Ordinal))
+                return null;
+
+            double delta = evt.valueAfter - evt.valueBefore;
+            if (delta >= 0.0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ConvertContractDeclineReputation: non-negative ContractDecline delta=" +
+                    $"{delta.ToString("R", IC)} at UT={evt.ut.ToString("F1", IC)} - skipping");
+                return null;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ConvertContractDeclineReputation: penalty={(-delta).ToString("R", IC)} " +
+                $"(post-curve) at UT={evt.ut.ToString("F1", IC)} recordingId={recordingId ?? "(none)"}");
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = recordingId,
+                NominalPenalty = (float)(-delta), // positive magnitude (already post-curve)
+                RepPenaltySource = ReputationPenaltySource.ContractDecline
             };
         }
 

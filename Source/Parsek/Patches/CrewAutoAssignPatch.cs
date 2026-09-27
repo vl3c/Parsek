@@ -157,6 +157,7 @@ namespace Parsek.Patches
         /// </summary>
         static void Prefix(VesselCrewManifest crewManifest)
         {
+            if (ParsekGameModeGate.CheckInert("CrewAutoAssignPatch.Prefix")) return; // S9 game-mode gate
             // The dialog answers against the LIVE clock when it opens: if game time has
             // reached a Recovered flight's end since the last walk, re-walk first so the
             // returning owner is offered (and not swapped out) and his stand-in's

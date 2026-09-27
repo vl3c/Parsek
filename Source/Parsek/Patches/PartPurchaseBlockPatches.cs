@@ -33,6 +33,7 @@ namespace Parsek.Patches
 
         static void Postfix(PartListTooltip __instance, AvailablePart availablePart)
         {
+            if (ParsekGameModeGate.CheckInert("PartListTooltipSetupPartPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiPartPurchase.ApplyTooltipButtons(__instance, availablePart);
@@ -75,6 +76,7 @@ namespace Parsek.Patches
 
         static void Postfix(PartListTooltip __instance)
         {
+            if (ParsekGameModeGate.CheckInert("PartListTooltipSetupUpgradePatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiPartPurchase.RestoreTooltipButtons(__instance);
@@ -114,6 +116,7 @@ namespace Parsek.Patches
 
         static void Postfix(PartListTooltip tooltip, EditorPartIcon partIcon)
         {
+            if (ParsekGameModeGate.CheckInert("PartListTooltipReasonPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiPartPurchase.ApplyTooltipReason(tooltip, partIcon);
@@ -155,6 +158,7 @@ namespace Parsek.Patches
 
         static bool Prefix(AvailablePart ___partInfo)
         {
+            if (ParsekGameModeGate.CheckInert("PartListTooltipPurchasePatch.Prefix")) return true; // S9 game-mode gate
             return !StockUiPartPurchase.TryBlockPurchase(___partInfo, "tooltip purchase", showDialog: true);
         }
     }
@@ -187,6 +191,7 @@ namespace Parsek.Patches
         static void Prefix(RDController __instance, string state, out bool __state)
         {
             __state = state == "purchase";
+            if (__state && ParsekGameModeGate.CheckInert("RnDPurchaseAllPatch.Prefix")) { __state = false; return; } // S9 game-mode gate
             if (!__state) return;
             try
             {
@@ -231,6 +236,7 @@ namespace Parsek.Patches
 
         static bool Prefix(AvailablePart ap)
         {
+            if (ParsekGameModeGate.CheckInert("RDTechPurchasePartPatch.Prefix")) return true; // S9 game-mode gate
             bool inBatch = StockUiPartPurchase.InPurchaseAll;
             return !StockUiPartPurchase.TryBlockPurchase(ap,
                 inBatch ? "R&D purchase all" : "RDTech.PurchasePart", showDialog: !inBatch);

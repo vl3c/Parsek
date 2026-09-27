@@ -149,6 +149,10 @@ RP_SIDECAR_BY_PRESET = {
     "background-claim": None,
     # CN-1 / CN-1T's three relay copies: three committed single-recording trees, no RP.
     "ghost-commnet-relay": None,
+    # CN-2's three recordings on the Duna probe's orbit: three committed trees, no RP.
+    "ghost-commnet-live": None,
+    # CN-3's deploy / destroyed / held relays: three committed trees, no RP.
+    "ghost-commnet-timeline": None,
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

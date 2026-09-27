@@ -1194,6 +1194,10 @@ namespace Parsek
         {
             if (Planetarium.fetch == null)
                 return;
+            // S9 game-mode gate: no route dispatch in an inert game (the static RouteStore
+            // may still hold the previously loaded career's routes).
+            if (ParsekGameModeGate.IsInertForCurrentGame)
+                return;
 
             double currentUT;
             try
@@ -1238,6 +1242,15 @@ namespace Parsek
 
         public override void OnSave(ConfigNode node)
         {
+            // S9 game-mode gate: an inert game writes back exactly what it loaded (no
+            // recordings, sidecars, ledger or settings writes), so a mission or scenario
+            // save round-trips any Parsek node it carries unchanged.
+            if (ParsekGameModeGate.CheckInert("ParsekScenario.OnSave"))
+            {
+                WriteInertGameModeNode(node);
+                return;
+            }
+
             var sw = Stopwatch.StartNew();
             int recordingCount = 0;
             int dirtyCount = 0;
@@ -3426,6 +3439,65 @@ namespace Parsek
         // Used to detect OnSave firing after HighLogic.SaveFolder has changed.
         private string scenarioSaveFolder;
 
+        // The node an inert-game-mode OnLoad received (ParsekGameModeGate). KSP builds a
+        // FRESH node for every OnSave, so an inert OnSave that wrote nothing would erase
+        // whatever Parsek data the save carried; it writes this copy back instead.
+        private ConfigNode inertGameModePassthroughNode;
+
+        /// <summary>Inert-game-mode OnLoad body (kept out of OnLoad so it is testable headless).</summary>
+        internal void StashInertGameModeNode(ConfigNode node)
+        {
+            inertGameModePassthroughNode = node != null ? node.CreateCopy() : null;
+            ParsekLog.Info("Scenario",
+                "OnLoad: inert game mode - Parsek node kept verbatim for save pass-through ("
+                + (inertGameModePassthroughNode != null
+                    ? inertGameModePassthroughNode.values.Count + " value(s), "
+                      + inertGameModePassthroughNode.nodes.Count + " node(s)"
+                    : "no node")
+                + "); nothing loaded");
+        }
+
+        /// <summary>Inert-game-mode OnSave body.</summary>
+        internal void WriteInertGameModeNode(ConfigNode node)
+        {
+            int copied = CopyInertPassthroughNode(inertGameModePassthroughNode, node);
+            ParsekLog.Info("Scenario",
+                "OnSave: inert game mode - wrote the loaded Parsek node back verbatim ("
+                + copied.ToString(CultureInfo.InvariantCulture)
+                + (copied == 1 ? " entry" : " entries") + "); no Parsek state saved");
+        }
+
+        /// <summary>
+        /// Copies <paramref name="loaded"/> into
+        /// <paramref name="target"/> verbatim, minus the stock <c>name</c> / <c>scene</c>
+        /// values <c>ScenarioModule.Save</c> already wrote. Returns the number of values plus
+        /// child nodes copied; 0 when nothing was loaded (then nothing is written, and there
+        /// was nothing to erase).
+        /// </summary>
+        internal static int CopyInertPassthroughNode(ConfigNode loaded, ConfigNode target)
+        {
+            if (loaded == null || target == null)
+                return 0;
+            int copied = 0;
+            for (int i = 0; i < loaded.values.Count; i++)
+            {
+                var v = loaded.values[i];
+                if (v == null || v.name == "name" || v.name == "scene")
+                    continue;
+                target.AddValue(v.name, v.value);
+                copied++;
+            }
+            for (int i = 0; i < loaded.nodes.Count; i++)
+            {
+                var child = loaded.nodes[i];
+                if (child == null)
+                    continue;
+                target.AddNode(child.CreateCopy());
+                copied++;
+            }
+            return copied;
+        }
+
         private static void ReconcileReadableSidecarMirrorsOnLoadIfDisabled()
         {
             var settings = ParsekSettings.Current;
@@ -3440,6 +3512,17 @@ namespace Parsek
 
         public override void OnLoad(ConfigNode node)
         {
+            // S9 game-mode gate (ParsekGameModeGate): stock never adds this scenario to a
+            // mission / scenario game, but a save that already carries the node still loads
+            // it. Keep the node verbatim for the inert OnSave and touch nothing else: no
+            // settings, no stores, no subscriptions, no sidecar reads.
+            if (ParsekGameModeGate.CheckInert("ParsekScenario.OnLoad"))
+            {
+                StashInertGameModeNode(node);
+                return;
+            }
+            inertGameModePassthroughNode = null;
+
             DiagnosticsState.ResetSessionCounters();
             IncompleteBallisticSceneExitFinalizer.ResetLifecycleDiagnostics();
             var sw = Stopwatch.StartNew();
@@ -3845,42 +3928,17 @@ namespace Parsek
                     }
 
                     // Restore tree recording mutable state from RECORDING_TREE nodes.
-                    // First, reset ALL tree recordings to defaults. On revert, the launch
-                    // quicksave has no tree nodes so this reset is the only thing that runs,
-                    // ensuring VesselSpawned/SpawnedPid/etc. don't carry over from the
-                    // committed flight (whose vessels were undone by the revert).
-                    // On scene change, the reset is overwritten by the saved values below.
-                    //
-                    // TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE: the reset's
-                    // ClearPostSpawnTerminalState leg is NOT self-repairing the way the
-                    // plain-field legs are. `terminalState` lives in the STRUCTURAL half of
-                    // the codec (RecordingTreeRecordCodec.SaveRecordingInto), and this
-                    // in-session branch reconciles the already-in-memory committed store
-                    // rather than rebuilding it through the codec — so nothing below used to
-                    // put the verdict back, and the next OnSave wrote the recording with no
-                    // `terminalState` key at all. Record which recordings the clear actually
-                    // fired on and re-restore them from the saved node below (same shape as
-                    // the BUG-C terminal-abandon restore). Recordings that stay in the set
-                    // are the revert case (restore gated off), where the clear is correct.
+                    // First, reset ALL tree recordings' spawn-tracking fields to defaults, so
+                    // VesselSpawned/SpawnedPid/etc. never carry over from a flight whose
+                    // vessels a revert undid; the tree-state-restore loop below then puts
+                    // back what the saved RECORDING_TREE nodes say. Those nodes are present
+                    // on revert too: the launch/prelaunch GameBackup the revert loads was
+                    // written through OnSave, so it carries every tree committed before the
+                    // launch. Terminal verdicts are NOT reset here: a committed recording's
+                    // terminalState is recorded content (see
+                    // ResetTreeRecordingMutableStateForLoad).
                     loadPhase = "tree-mutable-state";
-                    var clearedPostSpawnTerminalIds = new HashSet<string>();
-                    for (int i = 0; i < recordings.Count; i++)
-                    {
-                        if (!recordings[i].IsTreeRecording) continue;
-
-                        RecordingStore.RollbackContinuationData(recordings[i]);
-                        if (ClearPostSpawnTerminalState(recordings[i], "tree recording")
-                            && !string.IsNullOrEmpty(recordings[i].RecordingId))
-                            clearedPostSpawnTerminalIds.Add(recordings[i].RecordingId);
-
-                        recordings[i].VesselSpawned = false;
-                        recordings[i].SpawnAttempts = 0;
-                        recordings[i].SpawnDeathCount = 0;
-                        recordings[i].SpawnedVesselPersistentId = 0;
-                        TerminalOrbitSpawnSafety.Clear(recordings[i]);
-
-                        recordings[i].LastAppliedResourceIndex = -1;
-                    }
+                    ResetTreeRecordingMutableStateForLoad(recordings);
 
                     // Strip orphaned spawned vessels from flightState on revert.
                     // These vessels were spawned by Parsek in a previous flight but their
@@ -3919,7 +3977,8 @@ namespace Parsek
                         CrewReservationManager.RescueOrphanedCrew(
                             HighLogic.CurrentGame.flightState.protoVessels);
 
-                    // Then restore from saved tree nodes (present on scene change, absent on revert)
+                    // Then restore from saved tree nodes (present on scene change and on revert:
+                    // the revert target was written through OnSave at launch).
                     loadPhase = "tree-state-restore";
                     ConfigNode[] savedTreeNodes = node.GetNodes("RECORDING_TREE");
                     if (savedTreeNodes.Length > 0)
@@ -3969,44 +4028,12 @@ namespace Parsek
                                         // terminal-orbit vessel re-spawns after every scene change.
                                         RestorePersistedTerminalAbandon(recordings[i], savedTreeRecNode);
 
-                                        // TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE: put back
-                                        // the terminal verdict the tree-mutable-state reset
-                                        // cleared above, from the same authoritative saved node
-                                        // every other field on this line is restored from.
-                                        //
-                                        // Scoped OFF the revert branch on purpose. On revert the
-                                        // retraction is the INTENDED outcome (the spawn is undone,
-                                        // so a verdict earned by the spawned vessel is stale), and
-                                        // the measured defect is a non-revert one. Whether a revert
-                                        // ALSO over-clears a genuine pre-flight verdict that its
-                                        // target save still carries is a separate, unmeasured
-                                        // question — see REVERT-BLANKET-CLEARS-PRE-FLIGHT-TERMINAL
-                                        // in docs/dev/todo-and-known-bugs.md. Keeping the gate here
-                                        // makes this fix provably zero-delta for revert.
-                                        if (!isRevert)
-                                            RestoreClearedPostSpawnTerminalState(
-                                                recordings[i], savedTreeRecNode,
-                                                clearedPostSpawnTerminalIds, "tree recording");
-
                                         break;
                                     }
                                 }
                             }
                         }
                     }
-
-                    // Batch summary for the terminal-verdict reset/restore pair. A non-empty
-                    // residue is EXPECTED on revert (the restore is gated off that branch —
-                    // the clear is the intended outcome there) and is a data-loss signal on
-                    // any other path, so the line names the branch that produced it.
-                    if (clearedPostSpawnTerminalIds.Count > 0)
-                        ParsekLog.Info("Scenario",
-                            $"OnLoad: {clearedPostSpawnTerminalIds.Count} post-spawn terminal verdict(s) " +
-                            $"cleared and NOT restored (isRevert={isRevert} " +
-                            $"savedTreeNodes={savedTreeNodes.Length}) — " +
-                            (isRevert
-                                ? "expected on revert (spawn undone, verdict stale)"
-                                : "unexpected outside revert; recordings will persist with no terminalState key"));
 
                     // Reconcile spawn state after all restore + strip operations (#168).
                     // If a recording's SpawnedVesselPersistentId points to a vessel that was
@@ -4746,8 +4773,11 @@ namespace Parsek
                 $"OnLoad: rewind cleanup data set — " +
                 $"{rewindSpawnedPids.Count} pid(s), {allRecordingNames.Count} name(s)");
 
-            // Reset ALL playback state (recordings + trees)
-            var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState();
+            // Reset ALL playback state (recordings + trees), except the spawn state of
+            // committed history whose vessel the pre-load strip kept (an earlier tree's
+            // spawned vessel that no replaying recording re-produces).
+            var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState(
+                RewindContext.RewindHistoricalSpawnKeepRecordingIds);
             ParsekLog.Info("Rewind",
                 $"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees");
 
@@ -6401,16 +6431,19 @@ namespace Parsek
 
             // Phase 1: wait for the currency singletons to exist (non-null).
             //
-            // Waits for ALL of them, not just any one: seeding funds from a frame where R&D
-            // has not appeared yet is what dropped the science seed. Career carries all three;
-            // sandbox carries none and science-mode carries a subset, so this is a bounded
-            // wait that falls through on timeout and seeds whatever is actually present.
+            // Waits for ALL of the ones this game mode creates, not just any one: seeding
+            // funds from a frame where R&D has not appeared yet is what dropped the science
+            // seed. Career carries all three, Science only R&D, Sandbox none
+            // (CurrencyScenarioReadiness.ExpectedFor), so Science and Sandbox no longer pay
+            // the full 120-frame timeout for singletons stock never builds. Still bounded:
+            // an unknown mode keeps the legacy all-three wait and falls through on timeout.
+            var expectedSingletons = CurrencyScenarioReadiness.ExpectedForCurrentGame();
             int maxWait = CurrencySingletonWaitMaxFrames;
-            while (maxWait-- > 0 && !AllCurrencySingletonsPresent())
+            while (maxWait-- > 0 && !CurrencyScenarioReadiness.AllExpectedPresent())
                 yield return null;
 
             int singletonFramesWaited = (CurrencySingletonWaitMaxFrames - 1) - maxWait;
-            bool allSingletonsPresent = AllCurrencySingletonsPresent();
+            bool allSingletonsPresent = CurrencyScenarioReadiness.AllExpectedPresent();
 
             if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
                 && Reputation.Instance == null)
@@ -6420,18 +6453,20 @@ namespace Parsek
                 yield break;
             }
 
-            // Phase 2: wait for singletons to have NON-ZERO values.
-            // KSP creates singletons immediately but populates their data from the
-            // save file on a separate schedule (can be many seconds on heavy saves).
-            // Spin until at least one singleton reports a non-zero value, or timeout.
+            // Phase 2: wait for every present singleton to have LOADED its save value.
+            //
+            // The readiness signal is positive, not a non-zero value: a singleton is loaded
+            // once the game's ProtoScenarioModule for it holds it as moduleRef, which stock
+            // assigns only after the module's OnLoad returned
+            // (CurrencyScenarioReadiness.IsScenarioModuleLoaded). The old gate spun until
+            // SOME pool read non-zero, so a StartingFunds = 0 career or a Science game at 0
+            // science paid the full 600 frames on every load (KSP-SETTINGS-AUDIT S4). A
+            // career with non-zero pools exits on the first check either way.
             int maxValueWait = 600; // ~10 seconds at 60fps
-            while (maxValueWait-- > 0
-                   && (Funding.Instance == null || Funding.Instance.Funds == 0.0)
-                   && (ResearchAndDevelopment.Instance == null || ResearchAndDevelopment.Instance.Science == 0f)
-                   && (Reputation.Instance == null || Math.Abs(Reputation.Instance.reputation) < 0.01f))
+            while (maxValueWait-- > 0 && !CurrencyScenarioReadiness.AllPresentLoaded())
                 yield return null;
 
-            int framesWaited = 599 - maxValueWait; // post-decrement: 600→599 on first check
+            int framesWaited = 599 - maxValueWait; // post-decrement: 600->599 on first check
 
             // Phase 3 (BUG-F): wait for the universe clock to be initialized before deciding
             // whether to apply a current-UT ledger cutoff. On a cold load
@@ -6460,8 +6495,9 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Verbose("Scenario",
-                $"DeferredSeed: singletons all present={allSingletonsPresent} after " +
-                $"{singletonFramesWaited} frames, values ready after {framesWaited} frames, " +
+                $"DeferredSeed: expected singletons={CurrencyScenarioReadiness.Format(expectedSingletons)} " +
+                $"present={allSingletonsPresent} after " +
+                $"{singletonFramesWaited} frames, loaded after {framesWaited} frames, " +
                 $"clock ready={clockReady} after {utFramesWaited} frames (currentUT={currentUT.ToString("R", ic)}) — " +
                 $"Funding={(Funding.Instance != null ? Funding.Instance.Funds.ToString("F0", ic) : "null")}, " +
                 $"Science={(ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science.ToString("F0", ic) : "null")}, " +
@@ -6543,26 +6579,6 @@ namespace Parsek
         private const int CurrencySingletonWaitMaxFrames = 120;
 
         /// <summary>
-        /// True when all three of KSP's currency singletons exist.
-        ///
-        /// <para>
-        /// The readiness signal is PRESENCE, not a non-zero value: KSP's
-        /// <c>ScenarioRunner.AddModule(ConfigNode)</c> constructs a module and calls its
-        /// <c>Load(node)</c> in one synchronous call, so from a per-frame coroutine's vantage
-        /// a singleton can never be observed existing-but-unloaded. A pool that genuinely sits
-        /// at zero (a fresh career's science, a career that started at reputation 0) is
-        /// therefore indistinguishable from an unloaded one by value, which is exactly why
-        /// presence is the right gate and a non-zero-value gate is not.
-        /// </para>
-        /// </summary>
-        private static bool AllCurrencySingletonsPresent()
-        {
-            return Funding.Instance != null
-                   && ResearchAndDevelopment.Instance != null
-                   && Reputation.Instance != null;
-        }
-
-        /// <summary>
         /// Reads the universe clock for the deferred-seed readiness wait, returning true only
         /// when the clock is initialized to a real positive UT. Wrapped in try/catch because
         /// <see cref="Planetarium.GetUniversalTime"/> can throw during very early load / scene
@@ -6603,17 +6619,17 @@ namespace Parsek
         /// </summary>
         private IEnumerator ApplyBudgetDeductionWhenReady()
         {
-            // Wait until ALL resource singletons are available (may take a few frames
-            // after scene load). Use || so we wait while ANY singleton is still null.
-            int maxWait = 120; // ~2 seconds at 60fps
-            while (maxWait-- > 0
-                   && (Funding.Instance == null
-                       || ResearchAndDevelopment.Instance == null
-                       || Reputation.Instance == null))
+            // Wait until every resource singleton THIS GAME MODE creates is available (may
+            // take a few frames after scene load). Science and Sandbox never build Funding /
+            // Reputation, so keying on all three made them pay the full 120 frames.
+            var expectedSingletons = CurrencyScenarioReadiness.ExpectedForCurrentGame();
+            int maxWait = CurrencySingletonWaitMaxFrames; // ~2 seconds at 60fps
+            while (maxWait-- > 0 && !CurrencyScenarioReadiness.AllExpectedPresent())
                 yield return null;
 
             ParsekLog.Verbose("Scenario",
-                $"ApplyBudgetDeduction: singletons ready after {120 - maxWait} frames. " +
+                $"ApplyBudgetDeduction: singletons ready after {CurrencySingletonWaitMaxFrames - maxWait} frames " +
+                $"(expected={CurrencyScenarioReadiness.Format(expectedSingletons)}). " +
                 $"Funding={Funding.Instance != null}, R&D={ResearchAndDevelopment.Instance != null}, Rep={Reputation.Instance != null}");
 
             if (budgetDeductionApplied)
@@ -6669,13 +6685,10 @@ namespace Parsek
                     $"(post-set check: {Planetarium.GetUniversalTime().ToString("F1", ic)})");
             }
 
-            // Wait for resource singletons (career mode only).
-            // In sandbox/science mode these are permanently null — skip gracefully.
-            int maxWait = 120; // ~2 seconds at 60fps
-            while (maxWait-- > 0
-                   && (Funding.Instance == null
-                       || ResearchAndDevelopment.Instance == null
-                       || Reputation.Instance == null))
+            // Wait for the resource singletons this game mode creates (all three in career,
+            // R&D only in Science, none in Sandbox - the rest are permanently null there).
+            int maxWait = CurrencySingletonWaitMaxFrames; // ~2 seconds at 60fps
+            while (maxWait-- > 0 && !CurrencyScenarioReadiness.AllExpectedPresent())
                 yield return null;
 
             // Pass the adjusted UT captured BEFORE `yield return null` above.
@@ -6712,98 +6725,52 @@ namespace Parsek
         #region Recording Serialization
 
         /// <summary>
-        /// Clears terminal state (Recovered/Destroyed) that was set after a vessel was spawned.
-        /// On revert, the spawn is undone so the terminal state from the previous flight is stale.
+        /// The OnLoad <c>tree-mutable-state</c> reset (in-session branch: revert, scene
+        /// change, quickload). Rolls back uncommitted continuation data and zeroes the
+        /// spawn-tracking fields of every committed tree recording; the
+        /// <c>tree-state-restore</c> loop that follows puts back what the saved
+        /// <c>RECORDING_TREE</c> nodes say.
         ///
-        /// <para>Returns true when a verdict was actually retracted. The OnLoad
-        /// tree-mutable-state reset uses that to build the id set
-        /// <see cref="RestoreClearedPostSpawnTerminalState"/> consumes: outside revert the
-        /// retraction must be undone from the saved node, because unlike every other field
-        /// that reset touches, <c>terminalState</c> is not re-read on the in-session
-        /// scene-change / quickload branch (it lives in the structural half of
-        /// <c>RecordingTreeRecordCodec</c>, which that branch never runs).</para>
+        /// <para>Terminal verdicts are deliberately left alone. A committed recording's
+        /// <c>TerminalStateValue</c> is recorded content: real-vessel terminal events only
+        /// stamp the pending tree (<c>UpdateRecordingsForTerminalEvent</c>), so nothing a
+        /// spawned vessel does after commit can reach it, and a Destroyed / Recovered
+        /// verdict is never spawnable anyway. Retracting it on reset erased genuine
+        /// endings (overwhelmingly debris, whose <c>VesselSpawned</c> is only the
+        /// crew-auto-unreserve marker) and made the trajectory's end read as a live,
+        /// spawnable vessel. The rewind path
+        /// (<c>RecordingStore.ResetRecordingPlaybackFields</c>) follows the same rule.</para>
+        ///
+        /// Returns the number of tree recordings reset.
         /// </summary>
-        internal static bool ClearPostSpawnTerminalState(Recording rec, string context = "recording")
+        internal static int ResetTreeRecordingMutableStateForLoad(IReadOnlyList<Recording> recordings)
         {
-            if (rec.VesselSpawned && rec.TerminalStateValue.HasValue)
+            if (recordings == null) return 0;
+            int reset = 0;
+            int keptTerminal = 0;
+            for (int i = 0; i < recordings.Count; i++)
             {
-                var ts = rec.TerminalStateValue.Value;
-                if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
-                {
-                    ParsekLog.Verbose("Scenario",
-                        $"Clearing post-spawn terminal state {ts} for {context} '{rec.VesselName}'");
-                    // Retraction: crew end states from the original flight are kept
-                    // (see KerbalsModule.InvalidateCrewEndStatesForTerminalStamp).
-                    rec.StampTerminalState(null, "ClearPostSpawnTerminalState");
-                    return true;
-                }
+                var rec = recordings[i];
+                if (rec == null || !rec.IsTreeRecording) continue;
+
+                RecordingStore.RollbackContinuationData(rec);
+
+                rec.VesselSpawned = false;
+                rec.SpawnAttempts = 0;
+                rec.SpawnDeathCount = 0;
+                rec.SpawnedVesselPersistentId = 0;
+                TerminalOrbitSpawnSafety.Clear(rec);
+
+                rec.LastAppliedResourceIndex = -1;
+                reset++;
+                if (rec.TerminalStateValue.HasValue) keptTerminal++;
             }
-            return false;
-        }
-
-        /// <summary>
-        /// TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE. Undoes a
-        /// <see cref="ClearPostSpawnTerminalState"/> retraction from the authoritative saved
-        /// <c>RECORDING</c> node, on the OnLoad in-session branch (scene change / quickload)
-        /// that reconciles the already-in-memory committed store instead of rebuilding it
-        /// through <c>RecordingTreeRecordCodec</c>. Same shape and the same saved node as the
-        /// BUG-C <see cref="RestorePersistedTerminalAbandon"/> restore that sits beside it.
-        ///
-        /// <para>Deliberately scoped to <paramref name="clearedIds"/> — the ids the reset
-        /// ACTUALLY retracted this pass — rather than to "the node has a verdict": a
-        /// recording whose verdict was retracted on purpose elsewhere (the
-        /// <c>RecordingOptimizer.SplitAtUT</c> HEAD carve-out, whose terminal is nulled while
-        /// its crew end states stay) must never be re-stamped from a node that predates the
-        /// retraction. The id is consumed on a successful restore so the caller's residue is
-        /// exactly the set that stays cleared (the revert case, which the caller gates off
-        /// entirely because there the clear is the intended outcome).</para>
-        ///
-        /// <para>A saved node with no <c>terminalState</c> key leaves the recording cleared and
-        /// consumes the id: that is the quickload-to-before-the-stamp case, where null IS the
-        /// save-point truth. An unparseable / out-of-range value is left cleared, NOT consumed,
-        /// and warns — a corrupt key must surface in the caller's residue line, not read as a
-        /// legitimate null.</para>
-        ///
-        /// Returns true when a verdict was restored.
-        /// </summary>
-        internal static bool RestoreClearedPostSpawnTerminalState(
-            Recording rec, ConfigNode savedTreeRecNode,
-            HashSet<string> clearedIds, string context)
-        {
-            if (rec == null || savedTreeRecNode == null || clearedIds == null)
-                return false;
-            if (string.IsNullOrEmpty(rec.RecordingId) || !clearedIds.Contains(rec.RecordingId))
-                return false;
-
-            string savedTerminal = savedTreeRecNode.GetValue("terminalState");
-            if (savedTerminal == null)
-            {
-                // Save point predates the verdict — cleared IS the restored state.
-                clearedIds.Remove(rec.RecordingId);
-                ParsekLog.Verbose("Scenario",
-                    $"Post-spawn terminal state stays cleared for {context} '{rec.VesselName}' " +
-                    $"(id={rec.RecordingId}) — saved node carries no terminalState key");
-                return false;
-            }
-
-            int terminalInt;
-            if (!int.TryParse(savedTerminal, NumberStyles.Integer, CultureInfo.InvariantCulture, out terminalInt)
-                || !Enum.IsDefined(typeof(TerminalState), terminalInt))
-            {
-                ParsekLog.Warn("Scenario",
-                    $"Cannot restore post-spawn terminal state for {context} '{rec.VesselName}' " +
-                    $"(id={rec.RecordingId}) — saved terminalState='{savedTerminal}' is not a valid " +
-                    "TerminalState; leaving the recording unclassified");
-                return false;
-            }
-
-            var restored = (TerminalState)terminalInt;
-            clearedIds.Remove(rec.RecordingId);
-            rec.StampTerminalState(restored, "RestoreClearedPostSpawnTerminalState");
             ParsekLog.Verbose("Scenario",
-                $"Restored post-spawn terminal state {restored} for {context} '{rec.VesselName}' " +
-                $"(id={rec.RecordingId}) from saved tree node");
-            return true;
+                "OnLoad tree-mutable-state: reset spawn tracking on " +
+                reset.ToString(CultureInfo.InvariantCulture) + " tree recording(s); " +
+                keptTerminal.ToString(CultureInfo.InvariantCulture) +
+                " recorded terminal verdict(s) kept");
+            return reset;
         }
 
         /// <summary>
@@ -7886,8 +7853,9 @@ namespace Parsek
             // LedgerOrchestrator.PickRecoveryRecordingId, including through the DEFERRED
             // recovery-funds queue (which stores this struct verbatim), so a recovery paired
             // against a later FundsChanged(VesselRecovery) event still filters by launch. The
-            // guid is NOT part of any name-matching predicate, so context lookup and terminal
-            // state below are unchanged.
+            // payout-context lookup below still pairs by name; the pending-tree terminal
+            // update and the pending-owner check additionally gate on pid + this guid
+            // (MatchesVessel), degrading to name-only when either side is unknown.
             RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
                 pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv));
             if (!identity.HasName) return;
@@ -7899,7 +7867,8 @@ namespace Parsek
                 now,
                 out RecoveryPayoutContext payoutContext);
 
-            bool updated = UpdateRecordingsForTerminalEvent(identity, TerminalState.Recovered, now);
+            bool updated = UpdateRecordingsForTerminalEvent(
+                identity, TerminalState.Recovered, now, pv.persistentId);
             if (updated)
                 ParsekLog.Info("Scenario", $"Vessel '{identity.DisplayName}' recovered — recording(s) updated with Recovered terminal state");
 
@@ -7915,7 +7884,7 @@ namespace Parsek
             // recording end UT. Only patch immediately when no pending-tree recording
             // still owns this vessel; otherwise the commit-time path should emit the
             // recovery action exactly once.
-            if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, identity))
+            if (ShouldPatchRecoveryFundsOutsideFlight(HighLogic.LoadedScene, identity, pv.persistentId))
                 LedgerOrchestrator.OnVesselRecoveryFunds(
                     now,
                     identity,
@@ -7978,20 +7947,28 @@ namespace Parsek
             if (pv == null) return;
             if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) return;
             if (RewindContext.IsRewinding) return;
-            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(pv.vesselName);
+            RecoveredVesselIdentity identity = RecoveredVesselIdentity.FromRawName(
+                pv.vesselName, VesselLaunchIdentity.ReadLaunchGuid(pv));
             if (!identity.HasName) return;
 
             double now = Planetarium.GetUniversalTime();
             // onVesselTerminated also fires after onVesselRecovered for the same vessel.
             // The guard in UpdateRecordingsForTerminalEvent prevents overwriting Recovered with Destroyed.
-            bool updated = UpdateRecordingsForTerminalEvent(identity, TerminalState.Destroyed, now);
+            bool updated = UpdateRecordingsForTerminalEvent(
+                identity, TerminalState.Destroyed, now, pv.persistentId);
             if (updated)
                 ParsekLog.Info("Scenario", $"Vessel '{identity.DisplayName}' terminated — recording(s) updated with Destroyed terminal state");
         }
 
         /// <summary>
-        /// Finds recordings matching the given vessel name and updates their terminal state.
-        /// Checks pending tree recordings.
+        /// Finds pending-tree recordings of the given vessel and updates their terminal state.
+        /// A recording matches by name AND, when both sides know it, by launch identity: the
+        /// recovered vessel's <paramref name="vesselPid"/> must equal the recording's
+        /// <c>VesselPersistentId</c> and the launch Guids must not conclusively differ (see
+        /// <see cref="MatchesVessel(Recording, RecoveredVesselIdentity, uint)"/>). Without
+        /// the identity gate a stock KSC-declutter autoclean of an unrelated
+        /// "&lt;Craft&gt; Debris" stamped every same-named pending debris recording Recovered
+        /// and dropped its snapshot.
         /// Recovered/Destroyed can overwrite situation-based terminal states (Orbiting, Landed, etc.)
         /// that were set by OnSceneChangeRequested. Only prevents Destroyed from overwriting Recovered
         /// (onVesselTerminated fires after onVesselRecovered for the same vessel).
@@ -8007,7 +7984,8 @@ namespace Parsek
         internal static bool UpdateRecordingsForTerminalEvent(
             RecoveredVesselIdentity identity,
             TerminalState state,
-            double ut)
+            double ut,
+            uint vesselPid = 0)
         {
             bool anyUpdated = false;
 
@@ -8016,7 +7994,7 @@ namespace Parsek
             {
                 foreach (var rec in RecordingStore.PendingTree.Recordings.Values)
                 {
-                    if (MatchesVessel(rec, identity) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
+                    if (MatchesVessel(rec, identity, vesselPid) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
                     {
                         rec.ExplicitEndUT = ut;
                         CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
@@ -8058,10 +8036,11 @@ namespace Parsek
 
         internal static bool ShouldPatchRecoveryFundsOutsideFlight(
             GameScenes scene,
-            RecoveredVesselIdentity identity)
+            RecoveredVesselIdentity identity,
+            uint vesselPid = 0)
         {
             return scene != GameScenes.FLIGHT &&
-                   !HasPendingLedgerRecordingForVessel(identity);
+                   !HasPendingLedgerRecordingForVessel(identity, vesselPid);
         }
 
         /// <summary>
@@ -8075,7 +8054,8 @@ namespace Parsek
         }
 
         internal static bool HasPendingLedgerRecordingForVessel(
-            RecoveredVesselIdentity identity)
+            RecoveredVesselIdentity identity,
+            uint vesselPid = 0)
         {
             if (!identity.HasName || !RecordingStore.HasPendingTree)
                 return false;
@@ -8084,7 +8064,7 @@ namespace Parsek
             {
                 if (rec == null || rec.IsGhostOnly)
                     continue;
-                if (MatchesVessel(rec, identity))
+                if (MatchesVessel(rec, identity, vesselPid))
                     return true;
             }
 
@@ -8120,20 +8100,30 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks if a recording matches the given vessel name.
-        /// Uses name-based matching (ProtoVessel doesn't expose vessel persistentId directly).
+        /// Checks if a recording is the recovered / terminated vessel. The name must match, and
+        /// the launch identity narrows it (the persistentId is craft-baked and names repeat
+        /// across launches and debris): when the recovered vessel's pid and the recording's
+        /// <c>VesselPersistentId</c> are both known (non-zero) they must be equal, and a known
+        /// launch Guid on both sides must not differ. An unknown pid or Guid on either side
+        /// falls back to the name alone, so the gate only ever removes matches.
         /// </summary>
-        private static bool MatchesVessel(Recording rec, string vesselName)
+        internal static bool MatchesVessel(
+            Recording rec,
+            RecoveredVesselIdentity identity,
+            uint vesselPid = 0)
         {
-            return MatchesVessel(rec, RecoveredVesselIdentity.FromRawName(vesselName));
-        }
+            if (rec == null ||
+                !identity.HasName ||
+                string.IsNullOrEmpty(rec.VesselName) ||
+                !identity.MatchesName(rec.VesselName))
+                return false;
 
-        private static bool MatchesVessel(Recording rec, RecoveredVesselIdentity identity)
-        {
-            return rec != null &&
-                   identity.HasName &&
-                   !string.IsNullOrEmpty(rec.VesselName) &&
-                   identity.MatchesName(rec.VesselName);
+            if (vesselPid != 0 && rec.VesselPersistentId != 0
+                && rec.VesselPersistentId != vesselPid)
+                return false;
+
+            return !VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                rec.RecordedVesselGuid, identity.LaunchGuid);
         }
 
         #endregion

@@ -48,7 +48,6 @@ namespace Parsek.Tests
             public void InvokeRewindToLaunch(ParsedCommand cmd) => Calls.Add("InvokeRewindToLaunch");
             public void SealSlot(ParsedCommand cmd) => Calls.Add("SealSlot");
             public void RouteCommand(ParsedCommand cmd) => Calls.Add("RouteCommand");
-            public void DeleteRecording(ParsedCommand cmd) => Calls.Add("DeleteRecording");
             public void ListHandles(ParsedCommand cmd) => Calls.Add("ListHandles");
             public void WarpToUT(ParsedCommand cmd) => Calls.Add("WarpToUT");
             public void CaptureScreenshot(ParsedCommand cmd) => Calls.Add("CaptureScreenshot");
@@ -131,10 +130,6 @@ namespace Parsek.Tests
         // "make it FLIGHT-only like the rest".
         [InlineData("SealSlot", "RequiresGameLoaded")]
         [InlineData("RouteCommand", "RequiresGameLoaded")]
-        // DeleteRecording: RequiresGameLoaded for the logistics pair's reason. It mutates
-        // a save-scoped store only, and the lane it exists for deletes AT THE KSC with
-        // KSC ghosts alive - a RequiresFlight row would defer there to its budget.
-        [InlineData("DeleteRecording", "RequiresGameLoaded")]
         // ListHandles: RequiresGameLoaded, deliberately NOT AnyScene like its read-only
         // siblings RecordingState / ExportRenderManifest. Two of its three families walk
         // save-scoped state, so at the main menu an AnyScene row would answer an
@@ -215,7 +210,6 @@ namespace Parsek.Tests
             fake.InvokeRewindToLaunch(cmd);
             fake.SealSlot(cmd);
             fake.RouteCommand(cmd);
-            fake.DeleteRecording(cmd);
             fake.ListHandles(cmd);
             fake.WarpToUT(cmd);
             fake.CaptureScreenshot(cmd);

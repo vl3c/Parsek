@@ -64,3 +64,10 @@ AMBIENCE_VOLUME = "0"
 MUSIC_VOLUME = "0"
 UI_VOLUME = "0"
 VOICE_VOLUME = "0"
+# Stock vessel budget and KSC declutter at PLAYER defaults (owner ruling S6 / Q4,
+# 2026-09-26, KSP-SETTINGS-AUDIT-2026-09-26). The dev settings.cfg these deltas
+# overwrite carries 10000 / False, so without these two keys every lane ran with
+# no save-time debris prune and no KSC autoclean, and the ghost-map-vessel budget
+# defect (S5) was invisible to the harness.
+MAX_VESSELS_BUDGET = "250"
+DECLUTTER_KSC = "True"

@@ -600,6 +600,25 @@ namespace Parsek.Tests
                 && l.Contains("body=Duna"));
         }
 
+        [Fact]
+        public void FormatHeldPosition_ReportsRadiusAndSweptAngleInvariantly()
+        {
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                // A comma-decimal culture proves the line is invariant (the harness regexes it).
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                string line = GhostCommNetMath.FormatHeldPosition("rec7", "Held Relay", "FLIGHT",
+                    GhostCommNetHeldPositionSource.TerminalOrbit, 471.26, 371.16, 3463334.49, 1.6708);
+                Assert.Equal("Held ghost node position: key=rec7 vessel=\"Held Relay\" scene=FLIGHT "
+                    + "source=TerminalOrbit ut=471.3 sinceEnd=100.1 radius=3463334 sweptDeg=1.67", line);
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
+
         // ---------------------------------------------------------------- stock plumbing
 
         [Theory]

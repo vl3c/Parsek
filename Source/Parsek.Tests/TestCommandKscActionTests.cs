@@ -401,5 +401,28 @@ namespace Parsek.Tests
         {
             Assert.Equal(expected, TestCommandKscAction.SanitizeStockReason(raw));
         }
+
+        /// <summary>KB-2 reads funds unchanged across a refused repair from this line
+        /// (a backreference over fundsBefore / fundsAfter), so its shape is pinned, and it
+        /// must print invariantly whatever the host culture.</summary>
+        [Fact]
+        public void FormatRepairNotAppliedLine_PinnedShape_CultureInvariant()
+        {
+            var saved = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+                Assert.Equal(
+                    "kscaction repair-facility not applied: target=SpaceCenter/TrackingStation "
+                    + "destroyedBefore=1 destroyedAfter=1 fundsBefore=465808.5 fundsAfter=465808.5 fundsDelta=0",
+                    TestCommandKscAction.FormatRepairNotAppliedLine("SpaceCenter/TrackingStation", 1, 1,
+                        465808.5, 465808.5));
+                Assert.Contains("target= ", TestCommandKscAction.FormatRepairNotAppliedLine(null, 0, 0, 0, 0));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = saved;
+            }
+        }
     }
 }

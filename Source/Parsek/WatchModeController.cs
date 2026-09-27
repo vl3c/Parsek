@@ -3640,8 +3640,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Handles watch mode state update when a recording is deleted.
-        /// Called from ParsekFlight.DeleteRecording.
+        /// Handles watch mode state update when a committed recording leaves the list.
+        /// Called from ParsekFlight.OnCommittedRecordingRemoved.
         /// </summary>
         internal void OnRecordingDeleted(int index)
         {

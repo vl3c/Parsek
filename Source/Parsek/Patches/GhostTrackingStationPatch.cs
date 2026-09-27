@@ -609,6 +609,7 @@ namespace Parsek.Patches
     {
         static void Prefix()
         {
+            if (ParsekGameModeGate.CheckInert("GhostTrackingStationInitPatch.Prefix")) return; // S9 game-mode gate
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
             if (created > 0)
                 ParsekLog.Info("GhostMap",
@@ -675,6 +676,7 @@ namespace Parsek.Patches
     {
         static void Prefix(Vessel v)
         {
+            if (ParsekGameModeGate.CheckInert("SwitchIntentTrackingStationFlyPatch.Prefix")) return; // S9 game-mode gate
             // Ghost-block guard mirror: if the sibling GhostTrackingFlyPatch
             // would have returned false (cancelling the body), we must NOT arm
             // an intent because the scene transition will not happen. Load-

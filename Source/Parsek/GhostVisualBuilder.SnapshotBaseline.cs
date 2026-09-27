@@ -109,11 +109,20 @@ namespace Parsek
         /// animTime→open/closed mapping is per-part config, not snapshot data. Passing no
         /// closedPosition means "this part has no cargo bay", which is also what routes
         /// its ModuleAnimateGeneric to the standalone family.
+        ///
+        /// <paramref name="cargoAllowDeployLimit"/> / <paramref name="cargoRevClampPercent"/>
+        /// are the prefab's paired <c>ModuleAnimateGeneric</c> config flags (not persisted);
+        /// with the snapshot's own <c>deployPercent</c> they give a deploy-limited bay's open
+        /// stop, the same stop the ghost's open pose is sampled at
+        /// (<see cref="ResolveSnapshotCargoBayDeployLimitStop"/>), so a bay recorded open at
+        /// its limit spawns open and posed at that limit.
         /// </summary>
         internal static SnapshotPartBaseline TryParseSnapshotPartBaseline(
             ConfigNode partNode,
             float? cargoBayClosedPosition = null,
-            int cargoDeployModuleIndex = -1)
+            int cargoDeployModuleIndex = -1,
+            bool cargoAllowDeployLimit = false,
+            bool cargoRevClampPercent = false)
         {
             if (partNode == null)
                 return null;
@@ -270,8 +279,11 @@ namespace Parsek
                 if (cargoAnim != null
                     && TryParseSnapshotFloat(cargoAnim.GetValue("animTime"), out float cargoAnimTime))
                 {
+                    float? limitStop = ResolveSnapshotCargoBayDeployLimitStop(
+                        cargoAnim, cargoAllowDeployLimit, cargoRevClampPercent,
+                        cargoBayClosedPosition.Value);
                     FlightRecorder.ClassifyCargoBayState(
-                        cargoAnimTime, cargoBayClosedPosition.Value,
+                        cargoAnimTime, cargoBayClosedPosition.Value, limitStop,
                         out bool isOpen, out bool isClosed);
                     if (isOpen || isClosed)
                         baseline.cargoBayOpen = isOpen;
@@ -292,6 +304,87 @@ namespace Parsek
                 baseline.colorChangerOn = null;
 
             return baseline.HasAnyBaseline ? baseline : null;
+        }
+
+        /// <summary>
+        /// The snapshot MODULE node holding a cargo bay's paired animation: the node at the
+        /// prefab's <c>DeployModuleIndex</c> when it is a <c>ModuleAnimateGeneric</c>, else the
+        /// first <c>ModuleAnimateGeneric</c> on the part. The same pick
+        /// <see cref="TryParseSnapshotPartBaseline"/> makes, so the baseline's open/closed read
+        /// and the ghost's open-pose sample read one node. Pure.
+        /// </summary>
+        internal static ConfigNode FindSnapshotCargoAnimateGenericNode(
+            ConfigNode partNode, int deployModuleIndex)
+        {
+            if (partNode == null)
+                return null;
+            ConfigNode[] modules = partNode.GetNodes("MODULE");
+            if (modules == null)
+                return null;
+            ConfigNode first = null;
+            for (int i = 0; i < modules.Length; i++)
+            {
+                ConfigNode module = modules[i];
+                if (module == null) continue;
+                if (!string.Equals(module.GetValue("name"), "ModuleAnimateGeneric",
+                        System.StringComparison.Ordinal))
+                    continue;
+                if (i == deployModuleIndex)
+                    return module;
+                if (first == null)
+                    first = module;
+            }
+            return first;
+        }
+
+        /// <summary>
+        /// A deploy-limited bay's open stop from its snapshot MODULE node: the persisted
+        /// <c>deployPercent</c> (stock default 100 when absent) with the prefab's config-only
+        /// <c>allowDeployLimit</c> / <c>revClampPercent</c>, through the same
+        /// <see cref="FlightRecorder.ResolveCargoBayDeployLimitStop(bool, float, bool, float)"/>
+        /// the recorder classifies with. Null means "no limit: the ordinary open end". Pure.
+        /// </summary>
+        internal static float? ResolveSnapshotCargoBayDeployLimitStop(
+            ConfigNode cargoAnimNode, bool allowDeployLimit, bool revClampPercent,
+            float closedPosition)
+        {
+            if (cargoAnimNode == null || !allowDeployLimit)
+                return null;
+            if (!TryParseSnapshotFloat(cargoAnimNode.GetValue("deployPercent"), out float deployPercent))
+                return null;
+            return FlightRecorder.ResolveCargoBayDeployLimitStop(
+                allowDeployLimit, deployPercent, revClampPercent, closedPosition);
+        }
+
+        /// <summary>
+        /// The two animation times a cargo bay's ghost poses are sampled at: stowed at the
+        /// closed end, deployed at the open end - or, for a deploy-limited bay, at its limit
+        /// stop, so the ghost's "open" pose is where the real doors stopped. False for a
+        /// non-standard <paramref name="closedPosition"/> (modded part: no sample). Pure.
+        /// </summary>
+        internal static bool TryResolveCargoBaySampleTimes(
+            float closedPosition, float? deployLimitStop,
+            out float closedTime, out float openTime)
+        {
+            if (closedPosition > 0.9f)
+            {
+                closedTime = 1f;
+                openTime = 0f;
+            }
+            else if (closedPosition < 0.1f)
+            {
+                closedTime = 0f;
+                openTime = 1f;
+            }
+            else
+            {
+                closedTime = 0f;
+                openTime = 0f;
+                return false;
+            }
+            if (deployLimitStop.HasValue)
+                openTime = deployLimitStop.Value;
+            return true;
         }
 
         /// <summary>

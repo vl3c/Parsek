@@ -417,6 +417,16 @@ namespace Parsek
             if (rec.CrewEndStatesResolved)
                 recNode.AddValue("crewEndStatesResolved", rec.CrewEndStatesResolved.ToString());
             RecordingStore.SerializeCrewEndStates(recNode, rec);
+
+            // Crew death respawn stamp (sparse: only a recording whose end states recorded
+            // a death carries it, so every other recording stays byte-identical).
+            if (rec.CrewDeathRespawns.HasValue)
+            {
+                recNode.AddValue("crewDeathRespawn", rec.CrewDeathRespawns.Value.ToString());
+                if (!double.IsNaN(rec.CrewDeathRespawnSeconds))
+                    recNode.AddValue("crewDeathRespawnSec",
+                        rec.CrewDeathRespawnSeconds.ToString("R", CultureInfo.InvariantCulture));
+            }
         }
 
         private static void SaveInventoryManifests(ConfigNode recNode, Recording rec)
@@ -859,6 +869,12 @@ namespace Parsek
             RecordingStore.DeserializeCrewEndStates(recNode, rec);
             if (rec.CrewEndStates != null)
                 rec.CrewEndStatesResolved = true;
+            string crewDeathRespawnStr = recNode.GetValue("crewDeathRespawn");
+            if (crewDeathRespawnStr != null && bool.TryParse(crewDeathRespawnStr, out bool crewDeathRespawns))
+            {
+                rec.CrewDeathRespawns = crewDeathRespawns;
+                rec.CrewDeathRespawnSeconds = ParseDoubleOr(recNode, "crewDeathRespawnSec", double.NaN);
+            }
 
             // Resource manifests (Phase 11)
             RecordingStore.DeserializeResourceManifest(recNode, rec);

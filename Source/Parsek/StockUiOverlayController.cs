@@ -31,8 +31,19 @@ namespace Parsek
         private bool astronautOpen;
         private bool missionOpen;
 
+        private bool inertForGameMode;
+
         private void Awake()
         {
+            // S9 game-mode gate: no stock-screen marks in a mission / scenario game.
+            if (ParsekGameModeGate.CheckInert("StockUiOverlayController.Awake"))
+            {
+                inertForGameMode = true;
+                enabled = false;
+                Destroy(this);
+                return;
+            }
+
             RDController.OnRDTreeSpawn.Add(OnRdTreeSpawn);
             RDController.OnRDTreeDespawn.Add(OnRdTreeDespawn);
             GameEvents.onGUIAstronautComplexSpawn.Add(OnAstronautComplexSpawn);
@@ -49,6 +60,8 @@ namespace Parsek
 
         private void OnDestroy()
         {
+            if (inertForGameMode)
+                return;
             RDController.OnRDTreeSpawn.Remove(OnRdTreeSpawn);
             RDController.OnRDTreeDespawn.Remove(OnRdTreeDespawn);
             GameEvents.onGUIAstronautComplexSpawn.Remove(OnAstronautComplexSpawn);
