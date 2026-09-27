@@ -446,6 +446,11 @@ namespace Parsek
                 ConfigNode node = new ConfigNode("VESSEL");
                 pv.Save(node);
                 NormalizeBackedUpSnapshotFromLiveVessel(node, vessel);
+                // Crew inventories live on the roster, not in PART nodes: capture them with
+                // the snapshot so a spawn from it restores what the crew carried at this
+                // moment (CrewInventorySnapshot). Keyed by live names; the reverse map below
+                // renames the keys together with the PART crew values.
+                CrewInventorySnapshot.CaptureFromLiveVessel(vessel, node);
                 // Live PART/crew= reflects whichever kerbal is physically seated, which
                 // after a SwapReservedCrewInFlight pass is a stand-in. Persisting the
                 // stand-in name would cause EnsureCrewExistInRoster to fabricate a new
@@ -720,6 +725,12 @@ namespace Parsek
                 }
 
                 StripDeliberatePositionOverrideStamp(spawnNode, "RespawnVessel");
+
+                // Give each kerbal still seated in the final spawn node the inventory he
+                // carried when the snapshot was taken, replacing his current roster
+                // inventory, before the ProtoVessel reads the roster (no duplicated or
+                // lost cargo). No capture on the snapshot keeps the roster inventory.
+                CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "RespawnVessel");
 
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
@@ -1215,6 +1226,12 @@ namespace Parsek
                 }
 
                 StripDeliberatePositionOverrideStamp(spawnNode, "SpawnAtPosition");
+
+                // Give each kerbal still seated in the final spawn node the inventory he
+                // carried when the snapshot was taken, replacing his current roster
+                // inventory, before the ProtoVessel reads the roster (no duplicated or
+                // lost cargo). No capture on the snapshot keeps the roster inventory.
+                CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "SpawnAtPosition");
 
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
