@@ -11581,7 +11581,24 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "H59-surface-route-map-lines.toml",
                        "B32-interbody-route-scope.toml",
                        "V26M-interbody-route-map-lines.toml",
-                       "V26T-interbody-route-ts-arrival.toml"}
+                       "V26T-interbody-route-ts-arrival.toml",
+                       # THE 2026-09-27 ARMING PASS (operator decision: arm the report-only
+                       # blocks whose latest reading matches). Each spec below was armed off
+                       # its own result JSON, re-evaluated against the committed windows, on
+                       # a DLL at or after 2026-09-23 (#1788 RP-survives-rewind); the run ids
+                       # sit at each block. B33 / B34 / B35 `rewind` (all 0): `2026-09-25_2246`
+                       # / `_2346` / `_2357`. GS-10 both blocks: `2026-09-23_1941` / `_1947` /
+                       # `_1959`. GS-11 both blocks: `2026-09-23_1953` / `_2004`. GS-6
+                       # `rewind`: `2026-09-25_2205` / `_2221`. MC-4 both blocks:
+                       # `2026-09-25_2132` / `_2146`. GS-4 `structure` (its `rewind` above):
+                       # `2026-09-23_2012` / `2026-09-25_2028`. EVA-6 `structure`:
+                       # `2026-09-27_1026`, the first reading on a DLL carrying #1891.
+                       "B33-tylo-orbit.toml", "B34-bop-orbit.toml", "B35-pol-orbit.toml",
+                       "GS-10-kerbalx-debris-ttl.toml",
+                       "GS-11-kerbalx-debris-promotion.toml",
+                       "GS-6-part-event-applier-sweep.toml",
+                       "MC-4-making-history-desert.toml",
+                       "EVA-6-placed-part-spawn-after-rewind.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
