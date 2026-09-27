@@ -20577,6 +20577,11 @@ namespace Parsek.InGameTests
                 MissionControl mc = MissionControl.Instance ?? Object.FindObjectOfType<MissionControl>();
                 InGameAssert.IsNotNull(mc, "MissionControl should still be open before the tab switch");
                 mc.SetDisplayModeActive();
+                // Unity destroys the rebuilt-away Available rows at the end of this frame, and
+                // GetComponentsInChildren still returns them until then, so assert on the next
+                // frame. A row the Active rebuild itself lists for this contract is still alive
+                // then and still fails the assertion.
+                yield return null;
                 InGameAssert.IsNull(FindMissionControlRowByContractKey(mc, contractPick.ContractKey),
                     "the Offered contract should not be listed on the Active tab");
                 mc.SetDisplayModeAvailable();
@@ -20988,6 +20993,8 @@ namespace Parsek.InGameTests
 
                 // Tab switch: stock RebuildContractList destroys every row and AddItem rebuilds them.
                 mc.SetDisplayModeAvailable();
+                // Same end-of-frame destroy as the Available-row cell: assert on the next frame.
+                yield return null;
                 InGameAssert.IsNull(FindMissionControlRowByContractKey(mc, key),
                     "the Active contract should not be listed on the Available tab");
                 mc.SetDisplayModeActive();
@@ -21963,7 +21970,10 @@ namespace Parsek.InGameTests
             for (int i = 0; i < rows.Length; i++)
             {
                 MCListItem row = rows[i];
-                if (row == null)
+                // Unity's null: a row whose GameObject has been destroyed is skipped. A row
+                // Destroy()ed this frame reads non-null until the frame ends; callers that
+                // just rebuilt the list yield a frame first.
+                if (row == null || row.gameObject == null)
                     continue;
 
                 if (string.Equals(ExtractMissionControlRowContractKeyForTest(row), contractKey, System.StringComparison.Ordinal))
