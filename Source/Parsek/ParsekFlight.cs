@@ -6234,7 +6234,9 @@ namespace Parsek
         /// list from the freshly-created child recordings and hands it to
         /// <see cref="RewindPointAuthor.Begin"/>. Called from both the Undock/EVA
         /// side of <see cref="CreateSplitBranch"/> and from the structural
-        /// <c>ProcessBreakupEvent</c> path.
+        /// <c>ProcessBreakupEvent</c> path. An EVA split reaches Begin and is
+        /// refused there (<see cref="RewindPointAuthor.IsReFlySplitType"/>): Re-Fly
+        /// is for vessel separations only.
         ///
         /// <para>
         /// The resolver returned here looks up the child PID by recording id in
