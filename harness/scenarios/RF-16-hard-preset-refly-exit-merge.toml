@@ -41,7 +41,11 @@ id = "RF-16-hard-preset-refly-exit-merge"
 # UI construction (decompiled PauseMenu), not a Parsek decision, and no seam verb opens
 # the pause menu; the gate line is Parsek's statement that it read the flag.
 #
-# NEVER FLOWN (authored 2026-09-27, branch `lane-hard-refly-exit`). Every token below
+# LIVE-PROVEN 2026-09-27: reading run 2026-09-27_1341 (PASS attempt 1, wall 65 s) matched every
+# token below as written, and the report-only rewind block read inside its windows
+# (rewindPoints=1 supersedeRows=0 tombstones=0, 4 recordings); arming it is an
+# operator decision not taken here. Authored 2026-09-27 on branch
+# `lane-hard-refly-exit`: every token below
 # is S4.1's flown set (lifetime green) or derived from the source: the gate literal from
 # ReFlyRevertButtonGate.Apply, the scene-exit literals from SceneExitInterceptor and
 # ParsekTestCommandAddon.DriveReFlyConclusion, the revert literals from

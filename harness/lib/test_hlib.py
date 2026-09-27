@@ -4022,7 +4022,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H53-scene-and-patch":       ("SceneAndPatch", 7, "FLIGHT"),
         "H54-missions":              ("Missions", 13, "FLIGHT"),
         # KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN's live half (2026-09-27): two FLIGHT
-        # cells over b1-pad-craft's seated Jeb. Never flown, so its split is INTERIM.
+        # cells over b1-pad-craft's seated Jeb. LIVE-PROVEN on its reading run
+        # 2026-09-27_1339 (`passed=2 skipped=0`); the pin is whole.
         "H72-kerbal-inventory-spawn": ("KerbalInventorySpawn", 2, "FLIGHT"),
     }
 
@@ -4307,16 +4308,17 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #
     # H72-kerbal-inventory-spawn ENTERED on 2026-09-27 (the KerbalInventorySpawn category, 2
     # FLIGHT cells, `total=2` literal with the split regexed, predicted passed=2 skipped=0 and
-    # already required cell by cell through the runner's PASSED lines). It leaves when its
-    # reading run measures the split and the spec takes the line WHOLE.
+    # already required cell by cell through the runner's PASSED lines) and LEFT the same day:
+    # its reading run 2026-09-27_1339 (PASS attempt 1) measured the prediction, `passed=2
+    # failed=0 skipped=0`, and the spec took the line WHOLE.
     #
     # AH-1-auto-hire-reserved-applicant ENTERED on 2026-09-27 (the new AutoHireReservation
     # category, 1 SPACECENTER cell, `total=1` literal with the split regexed, predicted
     # 1 / 0). Like CN-1 it is not an H-series id, so this class's own cells never read it;
-    # CommittedBatchTallySourceSyncTests gates its `total=`. It leaves when a reading run
-    # measures the split and the spec pins the line whole.
-    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay", "H72-kerbal-inventory-spawn",
-                            "AH-1-auto-hire-reserved-applicant"}
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT the same day: its
+    # reading run 2026-09-27_1341 (PASS attempt 1) measured the prediction, `passed=1
+    # failed=0 skipped=0`, and the spec pinned the line whole.
+    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against

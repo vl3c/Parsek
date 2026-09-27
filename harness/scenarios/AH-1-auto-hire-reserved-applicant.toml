@@ -2,7 +2,8 @@ schema = 1
 id = "AH-1-auto-hire-reserved-applicant"
 tier = "nightly"
 # THE LIVE CHECK FOR THE AUTO-HIRE FIX (todo KSP-SETTINGS-FOLLOWUPS-2026-09-27 item 4,
-# `Source/Parsek/Patches/KerbalAutoHireApplicantPatch.cs`). NOT YET FLOWN.
+# `Source/Parsek/Patches/KerbalAutoHireApplicantPatch.cs`). LIVE-PROVEN 2026-09-27 (reading
+# run 2026-09-27_1341, PASS attempt 1, wall 54 s).
 #
 # THE DEFECT. With `Difficulty.AutoHireCrews` on, stock `KerbalRoster.DefaultCrewForVessel`
 # fills each seat the Available crew cannot with `GetNextApplicant()` (the first Applicant in
@@ -36,9 +37,11 @@ tier = "nightly"
 # `(none - stock generates a new applicant)` both times, so stock hires two freshly
 # generated applicants; the teardown removes both and restores the three flipped statuses.
 #
-# THE PIN IS INTERIM until the reading run (`INTERIM_PIN_IDS`): `total=1` is attribute-exact,
-# the split is regexed. The cell's own summary and teardown lines are pinned exactly as the
-# host predicts them.
+# THE PIN IS WHOLE: the reading run 2026-09-27_1341 measured `total=1 passed=1 failed=0
+# skipped=0` and the id has left `INTERIM_PIN_IDS`. The cell's own summary and teardown lines
+# were predicted from the host and measured exactly as predicted (`pickLines=2 hired=2
+# seated=3 refusals=0`, `kept=Jebediah Kerman`, teardown `reverted=3 removed=2`), and the
+# pick line printed twice.
 description = "Stock auto-hire on a career host with a committed future hire for the first applicant (the rewound state, seeded in-process): DefaultCrewForVessel on a Mk1-3 pod two seats short skips that applicant, hires and seats two others, seats nobody twice and never reaches the KerbalHirePatch refusal."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "kerbals", "action-blocking", "career", "AH-1"]
@@ -71,8 +74,8 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
-  # total=1 is attribute-exact (one SPACECENTER declaration); the split is interim.
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=AutoHireReservation scene=SPACECENTER",
+  # total=1 is attribute-exact (one SPACECENTER declaration); the split is the measured one.
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoHireReservation scene=SPACECENTER",
   # The prefix skipped the reserved applicant, twice (one per short seat).
   "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[KerbalHirePatch\\] auto-hire applicant pick: skipped=1 applicant\\(s\\) a committed future hires; picked=\\(none - stock generates a new applicant\\)){2}",
   "\\[Parsek\\]\\[INFO\\]\\[AutoHireReservation\\] auto-hire live check passed: reserved='Verhat Kerman' pod=mk1-3pod capacity=3 kept=[^ ]+ Kerman shortfall=2 pickLines=2 hired=2 seated=3 refusals=0",

@@ -18,10 +18,12 @@ tier = "nightly"
 #      drops any live KerbalInventoryScenario instance, and the spawn-failure rollback
 #      writer (`WriteRosterPrior`) puts the prior back, null included.
 #
-# NEVER FLOWN. The batch line pins total= literally and regexes the split
-# (IngameBatchWiringGroupTests.INTERIM_PIN_IDS). The per-cell and CrewInventory
-# tokens below are the PREDICTION, derived from the source and this fixture; the
-# reading run either measures them or reds naming which one moved.
+# LIVE-PROVEN 2026-09-27: reading run 2026-09-27_1339 (PASS attempt 1, wall 65 s)
+# measured `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0`, so the batch line is
+# pinned WHOLE and the id has left IngameBatchWiringGroupTests.INTERIM_PIN_IDS. Every
+# CrewInventory token below was a prediction from the source and this fixture, and the
+# run measured each as predicted (ApplyToRosterKerbal storedParts=0
+# droppedLiveInstance=True, WriteRosterPrior null=False storedParts=2).
 description = "Run the in-game KerbalInventorySpawn category unattended over a crewed pad craft: a real TryBackupSnapshot captures the seated kerbal's stored inventory without mutating the roster, and the spawn restore's roster applier replaces that kerbal's roster inventory, drops the live instance, and rolls back to the prior."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "crew-inventory", "H72"]
@@ -69,9 +71,9 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # ANTI-VACUITY: total=2 is ATTRIBUTE-EXACT (two FLIGHT declarations, neither
 # batch-disabled; hlib.derive_batch_tally reads total=2 executable=2 at FLIGHT), kept
-# in sync by CommittedBatchTallySourceSyncTests. The split is regexed until the
-# reading run measures it; the prediction is passed=2 skipped=0, and the two PASSED
-# witnesses below already require it.
+# in sync by CommittedBatchTallySourceSyncTests. The split is the one the reading run
+# 2026-09-27_1339 measured (passed=2 skipped=0), pinned whole; the two PASSED witnesses
+# below require it cell by cell.
 #
 # Per-cell witnesses: InGameTestRunner writes `PASSED: {Type}.{Method} (<ms>ms)` at
 # Verbose. A Skip of either cell is the lane failing its own premise, so both SKIPPED
@@ -87,7 +89,7 @@ count = { min = 0, max = 0 }
 #  - WriteRosterPrior: the finally-block rollback restores Jeb's fixture inventory,
 #    null=False storedParts=2 (evaChute + evaJetpack).
 required = [
-  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=KerbalInventorySpawn scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=KerbalInventorySpawn scene=FLIGHT",
   "PASSED: KerbalInventorySpawnInGameTest\\.SnapshotCapturesEverySeatedKerbalsInventory \\(",
   "PASSED: KerbalInventorySpawnInGameTest\\.RosterApplyReplacesTheRosterInventory \\(",
   "\\[CrewInventory\\] CaptureFromLiveVessel: captured 1 crew inventory\\(ies\\) \\([0-9]+ from live module\\) for pid=[0-9]+ vessel='",

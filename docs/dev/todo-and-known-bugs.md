@@ -15,6 +15,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE: the `EvaGroundScience place` seam step can time out with the placement preview held off-terrain against a collider [FILED 2026-09-27 from EVA-7's first flight. OPEN, harness flake, not a Parsek defect]
+
+Run `2026-09-27_1344_EVA-7-crew-inventory-spawn-after-rewind` classified INVALID
+driver-unresolved-handle: the step `EvaGroundScience place DeployedSeismicSensor` logged
+`evagroundscience failed reason=placement-timeout part=DeployedSeismicSensor elapsed=120.0s
+built=true onTerrain=false insideCap=false collisions=1 presses=1 hit=COL/layer0`. The stock
+placement preview was built but stayed off-terrain against a collider for the seam's whole
+120 s budget, so the confirm never landed and no Parsek code ran past the placement. An EVA-6
+control on the same build (`2026-09-27_1347`) and the EVA-7 re-fly (`2026-09-27_1349`) both
+passed; EVA-5, EVA-6 and EVA-7 share the step. Next: read the seam's placement loop
+(`Source/Parsek/TestCommands/ParsekTestCommandAddon.EvaGroundScience.cs`) for a re-aim or a nudge of the kerbal when the ray
+hits a collider rather than terrain, or a retry of the press; until then a re-fly clears it.
+
+---
+
 ## ~~REFLY-SEPARATIONS-ONLY: an EVA authored a Rewind Point and a stranded or dead EVA kerbal surfaced as a Re-Fly~~ [OWNER RULING 2026-09-27; IMPLEMENTED 2026-09-27, branch `refly-separations-only`]
 
 **Ruling (Vlad, 2026-09-27).** "Re-Fly is for vessel separations only (staging, decoupling,
@@ -423,12 +438,14 @@ Owner rulings (2026-09-26):
   flight (`SceneExitInterceptor` -> Re-Fly merge dialog; Esc "Space Center" / "Tracking
   Station" are not CanRestart-gated). `ReFlyRevertButtonGate.Apply` logs one Info line per
   evaluation while a re-fly is live on such a game (`Flight.CanRestart=False ... re-fly Retry
-  not offered`). Live check automated 2026-09-27, branch `lane-hard-refly-exit`, NOT YET
-  FLOWN: `RF-16-hard-preset-refly-exit-merge` / `RF-17-hard-preset-refly-exit-discard` re-fly
+  not offered`). Live check automated 2026-09-27, branch `lane-hard-refly-exit`, and FLOWN
+  GREEN 2026-09-27 (RF-16 `2026-09-27_1341`, RF-17 `2026-09-27_1343`, both PASS attempt 1 on
+  `lanes-ksp-settings-checks`): `RF-16-hard-preset-refly-exit-merge` /
+  `RF-17-hard-preset-refly-exit-discard` re-fly
   on the derived fixture `gloops-airshow-hard` (`gloops-airshow` with `preset = Hard` and the
   three Hard FLIGHT flags off), require the gate line, the scene-exit drive to the Space
   Center and the `labels=ReFlyAttempt` merge dialog, answer Merge / Discard, and forbid every
-  revert road. Owed: their reading runs.
+  revert road. Both reading runs matched every token as written; nothing owed.
 - ~~S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
   kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.~~
   FIXED 2026-09-26, branch `kss-respawn`: `KerbalsModule.PopulateCrewEndStates` stamps the
@@ -578,7 +595,10 @@ KSP-SETTINGS-AUDIT-2026-09-26 above (investigations in the session scratchpad, n
   applicant; with nothing to skip stock runs unchanged. S9-gated (listed in
   `ParsekGameModeGateTests`); one `[KerbalHirePatch] auto-hire applicant pick:` Info line per
   pick that skipped. `KerbalHirePatch` stays the Astronaut Complex backstop. Cells:
-  `KerbalHirePatchTests.AutoHireApplicant*`. LIVE CHECK OWED, now automated but NOT YET FLOWN:
+  `KerbalHirePatchTests.AutoHireApplicant*`. LIVE CHECK DONE 2026-09-27: run
+  `2026-09-27_1341_AH-1-auto-hire-reserved-applicant` PASS attempt 1 (`total=1 passed=1
+  failed=0 skipped=0`, `pickLines=2 hired=2 seated=3 refusals=0`, teardown `reverted=3
+  removed=2`, all as predicted).
   `harness/scenarios/AH-1-auto-hire-reserved-applicant.toml` runs the in-game cell
   `FlightIntegrationTests.AutoHireSkipsCommittedFutureHireApplicant` (category
   `AutoHireReservation`, `InGameTests/AutoHireReservationInGameTest.cs`) on `fresh-career`: a
@@ -651,7 +671,7 @@ transfer, so both are already correct).
 
 ---
 
-## ~~KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN: a vessel spawned at a recording's end gave each kerbal his current roster inventory, not what he carried~~ [FILED AND FIXED 2026-09-27 from KSP-SETTINGS-AUDIT-2026-09-26's `persistKerbalInventories` trace, branch `kss2-inventory`. Live check owed]
+## ~~KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN: a vessel spawned at a recording's end gave each kerbal his current roster inventory, not what he carried~~ [FILED AND FIXED 2026-09-27 from KSP-SETTINGS-AUDIT-2026-09-26's `persistKerbalInventories` trace, branch `kss2-inventory`. Lanes H72 + EVA-7 flown green 2026-09-27; the pod-cargo manual check is still owed]
 
 Problem: a crewed kerbal's inventory lives on his roster entry (`ProtoCrewMember.InventoryNode`,
 the roster CREW node's `INVENTORY`) or, while its UI is live, on a `KerbalInventoryScenario`
@@ -714,12 +734,15 @@ KSC swap) and the builder's `VesselSnapshotBuilder.WithCrewInventory`. In-game: 
 `KerbalInventorySpawn` (two self-skipping FLIGHT cells: the live capture, and the roster applier
 replacing and restoring an active crew member's inventory), driven by `H72-kerbal-inventory-spawn`.
 
-Live check owed: fly a crewed craft whose kerbal carries a cargo part from the VAB (persist
+Manual check still owed (the lanes below cover the EVA direction only): fly a crewed craft whose kerbal carries a cargo part from the VAB (persist
 inventories on), stow it in the pod, revert and commit, and confirm the spawned vessel holds the
 part exactly once; then the reverse (take a part from the pod, keep it on the kerbal) and confirm
 it survives the spawn.
 
-Lanes (2026-09-27, branch `lane-inventory-spawn`, both NOT YET FLOWN): `H72-kerbal-inventory-spawn`
+Lanes (2026-09-27, branch `lane-inventory-spawn`, both FLOWN GREEN 2026-09-27: H72
+`2026-09-27_1339` measured `total=2 passed=2 failed=0 skipped=0`; EVA-7 `2026-09-27_1349` measured
+`storedParts=1` and `seated=1 restored=1 noEntry=0 applyFailed=0 unseated=0` once, on the
+stand-in Mitcal Kerman who took Jeb's seat, the inventory following the seat): `H72-kerbal-inventory-spawn`
 runs the in-game category over `b1-pad-craft`'s seated Jeb; `EVA-7-crew-inventory-spawn-after-rewind`
 replays EVA-6's chain (Jeb carries evaChute + a seismometer, places it on EVA, commit,
 Rewind-to-Launch, 1x Space Center spawn) and requires the restore inside Jeb's own KSC spawn to

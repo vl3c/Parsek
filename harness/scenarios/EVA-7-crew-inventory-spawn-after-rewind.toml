@@ -46,10 +46,20 @@ id = "EVA-7-crew-inventory-spawn-after-rewind"
 #  - forbidden: any CrewInventory WARN, a spawn-failure rollback, and the pre-capture
 #    fallback line on Jeb's spawn.
 #
-# NEVER FLOWN. Everything EVA-6 measured is reused; the CrewInventory tokens are the
-# prediction, derived from the source. A red on storedParts= reads as the end snapshot
-# not carrying the post-placement inventory; a red on noEntry= / unseated= as the stand-in
-# rename not moving the captured key.
+# LIVE-PROVEN 2026-09-27: run 2026-09-27_1349 (PASS attempt 1, wall 123 s). The
+# CrewInventory tokens were a prediction from the source and the run measured each as
+# predicted: `captured 1 crew inventory(ies) (1 from live module)` for the EVA kerbal,
+# `storedParts=1`, and `seated=1 restored=1 noEntry=0 applyFailed=0 unseated=0
+# (RespawnVessel)` exactly once. The spawned seat went to a STAND-IN by design: the
+# ordinary D12 swap (`Snapshot swap: 'Jebediah Kerman' -> 'Mitcal Kerman'`) put Mitcal in
+# the seat, and the recorded inventory followed the seat (`ApplyToRosterKerbal: 'Mitcal
+# Kerman' ... storedParts=1`), which is why the seated and vessel names stay regexed. A red
+# on storedParts= reads as the end snapshot not carrying the post-placement inventory; a
+# red on noEntry= / unseated= as the stand-in rename not moving the captured key.
+# The FIRST flight, 2026-09-27_1344, was INVALID driver-unresolved-handle before any
+# Parsek verdict: the `EvaGroundScience place` step timed out (`placement-timeout ...
+# onTerrain=false collisions=1`), a seam placement flake EVA-6 shares (todo
+# EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE).
 
 tier = "nightly"
 description = "A kerbal's carried inventory comes back with him at spawn-at-end, exactly once: on kerbin-splashdown-recorded Jeb (evaChute + seismometer) steps out of his landed capsule, a recording started on the kerbal places the seismometer and leaves it, commit, Rewind-to-Launch, and 1x Space Center time spawns him through the ordinary KSC spawn-at-end with the recorded ONE-part inventory restored onto the seated kerbal's roster entry, not the two-part one the rewind put back."
