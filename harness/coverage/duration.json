@@ -2165,6 +2165,16 @@
         "2026-09-09T00:25:55Z": 64.0
       }
     },
+    "RF-20-stashed-eva-slot-refly": {
+      "last": 123.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 123.0,
+      "p95": 123.0,
+      "samples": {
+        "2026-09-27T18:40:15Z": 123.0
+      }
+    },
     "RF-3-refly-discard-then-commit": {
       "last": 72.0,
       "lastVsP50": 1.0,

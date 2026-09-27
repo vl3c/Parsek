@@ -32,7 +32,11 @@ id = "RF-20-stashed-eva-slot-refly"
 #      and the merge split the spanning tree-branching parent (the pod stack root) rather
 #      than the non-spanning walked tip (`SplitOriginAtRewindUT: closure root ... does not
 #      span ...; splitting own-vessel stretch ancestor`);
-#   4. supersede rows were written (`Added N supersede relations`, N >= 1);
+#   4. supersede rows were written (`Added N supersede relations`, N >= 1). MEASURED 4 on
+#      `2026-09-27_1832`: the pod stack's post-rewind TIP, its continuation after the EVA,
+#      the re-boarded vessel, and Valentina's EVA recording - the kerbal row read in the
+#      produced save (`oldRecordingId` = the recording whose `vesselName` is Valentina
+#      Kerman, terminal Boarded), since a per-line regex cannot correlate the two ids;
 #   5. the slot's final seal state is section 4.9 rule 1: the player-chosen slot reached
 #      a stable terminal, so the merge seals it (`Auto-sealed re-fly slot=0 ...
 #      reason=classifierClosed:stableTerminalFocusSlot`) even though it was stashed -
@@ -45,9 +49,30 @@ id = "RF-20-stashed-eva-slot-refly"
 # predicate) rather than by a refused rewind. Which supersede row names the kerbal is not
 # a saveParse facet (only counts are); the closure admission line is the witness.
 #
-# NEVER FLOWN at authoring. The regexes below are DERIVED from the emitting sites, not
-# measured; the rewind / structure blocks are REPORT-ONLY and the recording count window
-# is deliberately wide until the reading run.
+# FLOWN.
+#   Run 1 `2026-09-27_1827` PARSEK-FAIL (a SPEC defect, not a product one): the tree
+#   commits on ARRIVAL at the Space Center, after the scene exit's own save, so the
+#   LoadGame read a pre-commit persistent.sfs, quickload-resumed the ACTIVE tree
+#   (`TryRestoreActiveTreeNode: removed committed tree`) and StashSlot found no committed
+#   tip (`stashslot tip-unresolvable`, which is the verb correctly refusing). Fixed with a
+#   `SaveGame persistent` after ExitToSpaceCenter (RF-13H's order).
+#   Reading run `2026-09-27_1832` (automation DLL sha256 `d135e561...`): every step met,
+#   saveParse report-only supersedeRows 4 / tombstones 5 / rewindPoints 1, EVA 1 / Board 1,
+#   recordings 7. ONE derived token missed and was WRONG, not the product: the re-boarded
+#   vessel enters the closure as a same-pid peer (`pidPeersAdded=2 ... sameVesselBoards=0`),
+#   so `admitted same-vessel board` never prints; it is dropped, and the vessel's row is
+#   witnessed by `Added 4 supersede relations` plus the save. The 5 tombstones are the
+#   broad-tombstone retirement of the superseded recordings' own career rows (4
+#   KerbalAssignment rows on the TIP / continuation / kerbal / re-boarded vessel, 1
+#   MilestoneAchievement on the TIP), not a death; the authoring-time `max = 0` was a
+#   wrong derivation. Windows below are pinned to this run and stay REPORT-ONLY (arming
+#   is the operator's call).
+#   Confirmation `2026-09-27_1838` PASS attempt 1 (123 s, same DLL) on the tightened spec:
+#   expectations PASS, saveParse report-only mismatches 0 (supersedeRows 4, tombstones 5,
+#   rewindPoints 1), and the produced save's four supersede rows include the recording
+#   named Valentina Kerman. Negative control OFFLINE over `_1838`'s own log (RF-14 /
+#   RF-19 precedent): stripping the stash lines reds 5 required tokens, stripping the EVA
+#   closure admission reds 2, stripping the seal line reds 1; the unedited log PASSes.
 # =====================================================================================
 tier = "operator"
 description = "RF-18's in-orbit staging split plus an EVA and re-board from the crewed pod stack, committed; then StashSlot opens the pod stack's stable focus slot (qualified through its own EVA and Board, walkedEva=1 walkedBoard=1), InvokeRewind re-flies it from the separation and the merge supersedes the old stretch including the EVA kerbal and seals the slot on its Orbiting ending while the probe slot keeps the RewindPoint alive."
@@ -77,7 +102,14 @@ steps = [
   { cmd = "EvaExit",           args = { kerbal = "Valentina Kerman", settleSeconds = "10" }, expect = "OK", budget = 120 },
   { cmd = "EvaBoard",                                                                   expect = "OK", budget = 120 },
   { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
-  # ---- back to flight on the committed save (RF-4's order) ----
+  # LOAD-BEARING (measured on run 1, `2026-09-27_1827`): the tree commits on ARRIVAL at
+  # the Space Center, AFTER the scene exit's own save, so persistent.sfs still carries
+  # the pre-commit ACTIVE tree. Without this save the LoadGame below quickload-resumes
+  # that tree (`TryRestoreActiveTreeNode: removed committed tree`, then
+  # `RestoreActiveTreeFromPending: resumed recording tree`) and nothing is committed
+  # for StashSlot to find (`stashslot tip-unresolvable`). RF-13H's order.
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK" },
+  # ---- back to flight on the committed save ----
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   # InvokeRewind REJECTs `recording-active`.
@@ -126,9 +158,9 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# WIDE until the reading run: RF-18's 5 plus the merge's HEAD/TIP split and the re-fly
-# fork, and whatever the session recorder adds.
-count = { min = 6, max = 20 }
+# MEASURED 7 on `2026-09-27_1832`: RF-18's 5, plus the TIP the merge split off the pod
+# stack root and the re-fly's own recording. Exact, the one numeric guard on the shape.
+count = { min = 7, max = 7 }
 
 [expectations.logContracts]
 required = [
@@ -164,7 +196,6 @@ required = [
   # The closure admits the OLD flight's EVA kerbal and the re-boarded vessel (PR #1907,
   # EffectiveState.ComputeSessionSuppressedSubtree, Verbose).
   "SessionSuppressedSubtree: admitted own-EVA kerbal child=\\S+ crew=Valentina Kerman",
-  "SessionSuppressedSubtree: admitted same-vessel board child=\\S+",
   "evaKerbalsAdded=1",
   # GROUP 6 - THE MERGE: split the spanning stretch ancestor, write the rows, seal the
   # stashed slot on its stable ending (section 4.9 rule 1, override before stashed).
@@ -186,25 +217,25 @@ forbidden = [
 ]
 
 [expectations.rewind]
-# REPORT-ONLY until the reading run. Derived: the RewindPoint survives (probe slot open),
-# at least the split TIP of the pod stack is superseded (expected: TIP, the continuation
-# after the EVA, the kerbal and the re-boarded vessel), and no crew died.
+# REPORT-ONLY, pinned to `2026-09-27_1832`: the RewindPoint survives (probe slot open),
+# 4 supersede rows (TIP, continuation, re-boarded vessel, the EVA kerbal), 5 tombstones
+# (the superseded recordings' own KerbalAssignment x4 + MilestoneAchievement x1).
 rewindPoints  = { min = 1, max = 1 }
-supersedeRows = { min = 1 }
-tombstones    = { max = 0 }
+supersedeRows = { min = 4, max = 4 }
+tombstones    = { min = 5, max = 5 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY until the reading run: the original flight's one EVA and one Board survive
-# in the tree (superseded, not deleted); the re-fly authors none.
+# REPORT-ONLY, matched on `2026-09-27_1832`: the original flight's one EVA and one Board
+# survive in the tree (superseded, not deleted); the re-fly authors none.
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 branchPoints   = { EVA = { min = 1, max = 1 }, Board = { min = 1, max = 1 } }
 
 [runtime]
 # RF-18's 1340 (its chain up to ExitToSpaceCenter plus FlushAndQuit) plus
-# LoadGame 660 + SetSetting 120 + StopRecording 120 + ListHandles x2 240
+# SaveGame 120 + LoadGame 660 + SetSetting 120 + StopRecording 120 + ListHandles x2 240
 #   + StashSlot x2 240 + InvokeRewind 660 + AnswerMergeDialog 540 + RecordingState 120
-#   = 4040. 4500 clears it.
+#   = 4160. 4500 clears it.
 budgetSeconds = 4500
 
 [retry]

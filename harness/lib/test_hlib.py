@@ -10078,8 +10078,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "operator by the reading-run discipline; AUTHORED 2026-09-27 with the "
             "StashSlot promotion: RF-18's split + EVA + re-board, then StashSlot opens "
             "the pod stack's stable focus slot and InvokeRewind + merge re-fly it. "
-            "rewind + structure REPORT-ONLY until the reading run. Owes a flight, then "
-            "an arming call",
+            "Reading 2026-09-27_1832, confirmation 2026-09-27_1838 PASS, offline "
+            "negative control red. Discharged: arming the report-only rewind + "
+            "structure blocks is the step left, a human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
