@@ -574,8 +574,14 @@ KSP-SETTINGS-AUDIT-2026-09-26 above (investigations in the session scratchpad, n
   applicant; with nothing to skip stock runs unchanged. S9-gated (listed in
   `ParsekGameModeGateTests`); one `[KerbalHirePatch] auto-hire applicant pick:` Info line per
   pick that skipped. `KerbalHirePatch` stays the Astronaut Complex backstop. Cells:
-  `KerbalHirePatchTests.AutoHireApplicant*`. NEEDS A LIVE CHECK (not flown): auto-hire on, a
-  rewound future hire, a craft one seat short.
+  `KerbalHirePatchTests.AutoHireApplicant*`. LIVE CHECK OWED, now automated but NOT YET FLOWN:
+  `harness/scenarios/AH-1-auto-hire-reserved-applicant.toml` runs the in-game cell
+  `FlightIntegrationTests.AutoHireSkipsCommittedFutureHireApplicant` (category
+  `AutoHireReservation`, `InGameTests/AutoHireReservationInGameTest.cs`) on `fresh-career`: a
+  committed future CrewHired row for the first applicant (the rewound state, seeded in-process),
+  auto-hire on, the real stock `DefaultCrewForVessel` on a Mk1-3 pod two seats short; it asserts
+  the skip once per short seat, no `KerbalHirePatch` refusal, nobody seated twice, and reverts
+  every roster / funds / ledger change.
 
 Handled on other branches (not here): Set Orbit / Set Position teleports inside a live
 recording (teleport seam), the launch-site tag on recordings, retirement of flights ending at

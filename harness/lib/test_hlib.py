@@ -4301,7 +4301,13 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # both PASS attempt 1, measured the prediction, `passed=3 failed=0 skipped=0`, and both
     # specs took the line WHOLE. Like CN-1 they are not H-series ids, so this class's own
     # cells never read them; CommittedBatchTallySourceSyncTests gates their `total=`.
-    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
+    #
+    # AH-1-auto-hire-reserved-applicant ENTERED on 2026-09-27 (the new AutoHireReservation
+    # category, 1 SPACECENTER cell, `total=1` literal with the split regexed, predicted
+    # 1 / 0). Like CN-1 it is not an H-series id, so this class's own cells never read it;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It leaves when a reading run
+    # measures the split and the spec pins the line whole.
+    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay", "AH-1-auto-hire-reserved-applicant"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
