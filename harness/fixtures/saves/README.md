@@ -426,6 +426,30 @@ every other Offered row carries the C2 slot block. The earliest committed row is
 30000 s after the clock, so a Space Center lane at 1x cannot reach it. Hosts
 `GUI-28-census-stock-screens`.
 
+## stock-screen-census-repair (GAME Mode = CAREER, 0 VESSELS, 3 recordings)
+
+`stock-screen-census` (a fresh build of it, in memory) plus the state
+KSC-REPAIR-AFTER-REWIND-DOUBLE-CHARGE is about: a building destroyed NOW whose repair is a
+committed FUTURE row, what a Parsek rewind between a collapse and its repair leaves behind.
+Built by construction, never hand-edited: `Source/Parsek.Tests/StockScreenRepairFixture.cs`
+(write it with `PARSEK_WRITE_STOCK_SCREEN_FIXTURE=1 dotnet test --filter WriteRepairFixture`,
+and rewrite it whenever the census fixture is rewritten); `StockScreenRepairFixtureTests`
+re-builds it, compares it with the committed tree, and reads it through
+`CommittedFutureIndex` to prove the Tracking Station repair is blocked (and that the census
+sibling never blocks). What the builder adds to the census:
+
+- `SpaceCenter/TrackingStation/Facility/OuterDish` `intact = False` in `ScenarioDestructibles`
+  (the shape `DestructibleBuilding.Save` writes for a collapsed building; the intact sibling
+  `.../Facility/building` stays up). The dish is KB-1's target.
+- Two KSC-origin ledger rows: the dish's `FacilityDestruction` at UT 400 (after the census's
+  past strategy activation, before the clock) and its `FacilityRepair` at UT 80000, cost 4000
+  (the level-0 cost KB-1's flights measured), BEFORE the census's Tracking Station upgrade at
+  UT 90000, whose structure reset would otherwise have repaired it first.
+- The save title `stock-screen-census-repair (CAREER)`. Nothing else differs; the
+  recordings are the census's three.
+
+Hosts `KB-2-ksc-repair-block-after-rewind`.
+
 ## career-same-name-pad (GAME Mode = CAREER, 1 VESSEL, 2 recordings)
 
 The recovery correlator's repro subject: a career that has already flown its pad craft

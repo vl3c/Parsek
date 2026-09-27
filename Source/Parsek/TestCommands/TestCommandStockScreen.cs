@@ -179,9 +179,10 @@ namespace Parsek.TestCommands
 
         /// <summary>
         /// True when the call needs <c>item=</c>: every select; every hover except a part
-        /// hover (which names its part through <c>part=</c>) and the facility menu (which has
-        /// one hover target, Upgrade); opening a facility menu (which building) and the editor
-        /// (which craft).
+        /// hover (which names its part through <c>part=</c>) and the facility menu (whose
+        /// hover targets Upgrade unless <c>item=</c> names another of its controls, see
+        /// <see cref="ResolveFacilityMenuHoverControl"/>); opening a facility menu (which
+        /// building) and the editor (which craft).
         /// </summary>
         internal static bool NeedsItem(StockScreenKind screen, StockScreenAct act, bool hasPart)
         {
@@ -191,6 +192,24 @@ namespace Parsek.TestCommands
             if (act == StockScreenAct.Open)
                 return screen == StockScreenKind.FacilityMenu || screen == StockScreenKind.Editor;
             return false;
+        }
+
+        /// <summary>The facility menu's hover targets, as <c>item=</c> names them.</summary>
+        internal const string FacilityMenuUpgradeControl = "upgrade";
+        internal const string FacilityMenuRepairControl = "repair";
+
+        /// <summary>
+        /// Which facility menu control a hover targets: absent <c>item=</c> keeps the
+        /// original single target, Upgrade; <c>upgrade</c> / <c>repair</c> (any case) name
+        /// the control. Null for anything else, which the applier refuses
+        /// <see cref="ItemNotFoundReason"/>.
+        /// </summary>
+        internal static string ResolveFacilityMenuHoverControl(string item)
+        {
+            if (string.IsNullOrEmpty(item)) return FacilityMenuUpgradeControl;
+            string lower = item.ToLowerInvariant();
+            if (lower == FacilityMenuUpgradeControl || lower == FacilityMenuRepairControl) return lower;
+            return null;
         }
 
         /// <summary><c>part=</c> is read only by a hover on R&amp;D (its node panel's part list)

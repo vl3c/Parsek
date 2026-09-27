@@ -2907,9 +2907,17 @@ annotation; stock has no tooltip on Repair, so the controller is added with a co
 prefab, the Upgrade button's mechanism, and falls back to the description text with no
 prefab). New `StockUiDecorationKind.FacilityRepair` (tab `Repair`), logged as the facility
 menu pass's item line so the GUI mirror pairs it. Pinned by `FacilityRepairBlockTests` and a
-`test_gui_mirror` parse cell. Not proven in game: the live proof needs a GUI-28-style
-stock-screen census flight over a fixture rewound between a destruction and its committed
-repair (not flown).
+`test_gui_mirror` parse cell. Not proven in game yet. **Live-proof lane (authored 2026-09-27,
+branch `lane-ksc-repair-block`, NOT FLOWN):** `KB-2-ksc-repair-block-after-rewind` on the new
+committed fixture `stock-screen-census-repair` (`stock-screen-census` with the Tracking Station
+`OuterDish` destroyed, its `FacilityDestruction` row at UT 400 before the clock and a committed
+`FacilityRepair` row at UT 80000 after it; `Source/Parsek.Tests/StockScreenRepairFixture.cs`).
+It gates on the Repair decoration line, the `control ... name=Repair:SpaceCenter/TrackingStation
+... interactable=false` readback, the `Blocking facility repair` refusal of the menu's own
+`RepairFacility(true)` (driven by `KscAction repair-facility`), the blocked dialog, and
+`kscaction repair-facility not applied: ... fundsBefore=X fundsAfter=X fundsDelta=0`, with any
+StructureRepair funds change, `BuildingRepaired` or second `FacilityRepair` row forbidden. The
+live proof is its reading flight (then a negative control).
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 
