@@ -111,22 +111,14 @@ tier = "nightly"
 #       holds EVERY vessel in the FLIGHTSTATE. It tests neither `vessel.loaded` nor
 #       `packed`, and applies no guid gate.
 #     * The window's `transferTargetPid` is 2123618197. Live, that is `rover fuel 0`,
-#       5.4 km south of the focused rover and therefore OUTSIDE physics range - so the
-#       branch selector in `RouteOrchestrator.ApplyDelivery`,
-#       `bool destinationIsLoaded = destVessel.loaded && !destVessel.packed`, is FALSE and
-#       the run takes `path=unloaded`.
-#     * `path=unloaded` IS A DELIVERING PATH. `LiveDeliveryWriters.WriteResourceUnloaded`
-#       walks `protoVessel.protoPartSnapshots` and adds to `ProtoPartResourceSnapshot.
-#       amount` ("the next time the vessel loads, the live PartResource values initialize
-#       from the proto snapshots so the delivered amounts become visible");
-#       `WriteInventoryUnloaded` appends a `STOREDPART` ConfigNode to the module's
-#       persisted `STOREDPARTS`. The in-game cell
-#       `MultiStop_UnloadedEndpoint_DeliversAtBothDocks` already proves both live, inside
-#       H38's pinned tally.
-#   SO CYCLE 1 CAN DELIVER. The manual flight the fixture was harvested from delivered
-#   `path=loaded` because both rovers were in physics range at the dock; a DRIVEN run over
-#   these bytes will not be, and pinning `path=loaded` here would red on a correct run.
-#   The token below pins `path=unloaded` for exactly that reason.
+#       about 566 m from the focused rover (the older "5.4 km" reading was wrong): inside
+#       physics range, so LOADED, and PACKED under the seam TimeJump. Since 2026-09-27
+#       `RouteOrchestrator.EndpointStoreIsLiveParts` sends any loaded endpoint to the live
+#       parts, so the run takes `path=loaded`. Before that the gate was
+#       `loaded && !packed`, the run took `path=unloaded`, and the proto-snapshot write
+#       was discarded by the next `BackupVessel` (todo
+#       RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE).
+#   SO CYCLE 1 CAN DELIVER, and the token below pins `path=loaded`.
 #   ONE ASYMMETRY WORTH KNOWING and deliberately not pinned: the unloaded inventory writer
 #   returns its unit count UNCONDITIONALLY (no read-back), where the loaded writer reads
 #   `storedPart.quantity` back. So an `Inventory store: ... units=N/N` on the unloaded path
@@ -265,7 +257,7 @@ kind = "seam"
 #                                     `initialStatus: Paused`).
 #   8  RouteCommand send-once      -> OK. ARMS; does not dispatch.
 #   9  TimeJump ut=1600            -> ~4.9 loop periods forward from UT 979.48. Cycle 1
-#                                     fires at a crossing: delivers 97.6 LF path=unloaded,
+#                                     fires at a crossing: delivers 97.6 LF path=unloaded (pre-2026-09-27 gate),
 #                                     then `delivered-then-paused`.
 #  10  RouteCommand send-once      -> OK. Re-arms over the now-Paused route.
 #  11  TimeJump ut=2200            -> Cycle 2 fires at a crossing, finds 4.8 of headroom
@@ -383,17 +375,13 @@ count = { min = 5, max = 5 }
 #          second one happened; tokens 8 and 9 do that.
 #
 # TOKEN 6  THE DELIVERY WRITE (link 3), from `LiveDeliveryWriters`'s per-resource Info
-#          line. `path=unloaded` is pinned DELIBERATELY and is the single most falsifiable
-#          claim in the file: it says the endpoint resolved by pid to a vessel outside
-#          physics range and the proto-snapshot writer ran. A run that somehow loaded the
-#          endpoint would print `path=loaded` and red HERE, which is the correct outcome -
-#          it would mean the fixture's 5.4 km separation stopped holding and the lane is
-#          measuring a different thing.
+#          line. `path=loaded` says the endpoint resolved by pid to a loaded vessel
+#          (566 m, packed under the TimeJump) and the live-parts writer ran - the only
+#          write that survives the next save.
 #
 # TOKEN 7  THE INVENTORY STORE (link 3's other half). Pinned as the bare prefix plus
-#          `path=unloaded` only. The unit count is NOT pinned because the unloaded writer
-#          returns it without a read-back, so a number there would assert the writer's
-#          optimism rather than the store.
+#          `path=loaded` only; the unit count stays unpinned (the loaded writer reads
+#          `storedPart.quantity` back, but this lane never measured the number).
 #
 # TOKEN 8  THE BLOCK (link 4), from `ProcessLoopRoute`'s Info line. `BLOCKED
 #          kind=DestinationFull` is the rendered pair; `kind=` and the enum name are
@@ -437,7 +425,7 @@ count = { min = 5, max = 5 }
 # `reason=delivered-then-paused` armed-pause line. Both should appear, and the operator's
 # own hand-flown cycle 0 printed the first verbatim - but neither has been measured in a
 # DRIVEN run, and flight 1's single red is the standing lesson about pinning a required
-# token derived rather than measured. The two `path=unloaded` delivery tokens already
+# token derived rather than measured. The two `path=loaded` delivery tokens already
 # carry the cycle-1 claim; these are added, if at all, in the commit that measures them.
 #
 # WHAT IS NOT PINNED, AND WHY: no `status=DestinationFull` reading anywhere. On the loop

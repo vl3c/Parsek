@@ -3458,7 +3458,7 @@ namespace Parsek
         /// (the requested amounts) and, for each resource, the LIVE free capacity on the
         /// resolved destination <paramref name="destVessel"/> via a
         /// <see cref="LiveDeliveryCapacityProbe"/> constructed with the same
-        /// <c>loaded &amp;&amp; !packed</c> gate the orchestrator uses (so the reported
+        /// <see cref="RouteOrchestrator.EndpointStoreIsLiveParts(Vessel)"/> gate the orchestrator uses (so the reported
         /// number matches what a real delivery would fill). When the vessel could not be
         /// resolved or the manifest is empty, the entry list is empty and the pure
         /// <see cref="LogisticsDeliveryPresentation.FormatCapacityContext"/> renders a
@@ -3477,7 +3477,7 @@ namespace Parsek
 
             if (destVessel != null && manifest != null && manifest.Count > 0)
             {
-                bool destinationIsLoaded = destVessel.loaded && !destVessel.packed;
+                bool destinationIsLoaded = RouteOrchestrator.EndpointStoreIsLiveParts(destVessel);
                 var probe = new LiveDeliveryCapacityProbe(destVessel, destinationIsLoaded);
                 foreach (KeyValuePair<string, double> kv in manifest)
                 {

@@ -42,8 +42,9 @@ cycle 1, and wiped both writes. For a player this means a route between vessels 
 one, run during time warp, moved nothing durable.
 
 **Fix.** `RouteOrchestrator.EndpointStoreIsLiveParts` (live parts iff `vessel.loaded`, packed or
-not) is the one gate at all seven capture sites (origin debit, pickup debit, inventory pickup,
-delivery, origin-cargo gate, pickup-source gate, multi-stop capacity probe). The writer lines for
+not) is the one gate at all eight capture sites (origin debit, pickup debit, inventory pickup,
+delivery, origin-cargo gate, pickup-source gate, multi-stop capacity probe, and the Logistics
+window's DestinationFull capacity line). The writer lines for
 these in-range endpoints now read `path=loaded`; RVR-2, RVR-4, RVR-7, RVR-8, RVR-15, RVR-16,
 RVR-20 and GUI-20 are re-pinned from `path=unloaded`. Unit tests: `EndpointStoreGateTests`.
 
