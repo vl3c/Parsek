@@ -34,6 +34,35 @@ namespace Parsek
     /// </summary>
     internal static class GroupPickerPresentation
     {
+        /// <summary>The separator a nested group name carries between its parent's name
+        /// and its own: the auto-generated <c>" / Debris"</c> and <c>" / Crew"</c> subgroups
+        /// use it, and so does a player folder named "A / B".</summary>
+        internal const string GroupPathSeparator = " / ";
+
+        /// <summary>
+        /// The label a group draws under its tree parent: the part after the parent's name
+        /// when the stored name is exactly <c>parent + " / " + suffix</c>, else the stored name
+        /// unchanged. "R.1-S.1 / Debris" drawn under "R.1-S.1" reads "Debris" - the parent row
+        /// right above it already says whose debris it is. Display only: the stored name, the
+        /// rename field, every store call and the census seam keep the full name.
+        /// <para>A name that merely starts with the parent's text without the separator
+        /// ("R.1-S.10" under "R.1-S.1"), an empty suffix, and a group drawn at the root
+        /// (<paramref name="parentName"/> null) all keep the full name.</para>
+        /// </summary>
+        internal static string DisplayLabelUnderParent(string groupName, string parentName)
+        {
+            if (string.IsNullOrEmpty(groupName)) return groupName ?? string.Empty;
+            if (string.IsNullOrEmpty(parentName)) return groupName;
+            string prefix = parentName + GroupPathSeparator;
+            if (groupName.Length > prefix.Length
+                && groupName.StartsWith(prefix, System.StringComparison.Ordinal))
+            {
+                string suffix = groupName.Substring(prefix.Length);
+                if (suffix.Trim().Length > 0) return suffix;
+            }
+            return groupName;
+        }
+
         internal static List<int> NormalizeRecordingSelection(
             IReadOnlyList<int> recordingIndices,
             int committedCount)

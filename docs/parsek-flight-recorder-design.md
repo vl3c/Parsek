@@ -366,6 +366,8 @@ Only physical destruction or removal of ALL controller parts ends the segment.
 
 When a vessel physically separates into independent assemblies (staging, undocking, EVA), the parent segment ends and two or more child segments begin. Each child inherits whatever controller parts end up on its side. Children without any controller are tagged as debris and receive minimal recording (position only until destruction/despawn).
 
+An EVA is a split in the recording DAG like the others, but it is NOT a rewind split: Re-Fly is for vessel separations only (staging, decoupling, undocking; owner ruling 2026-09-27), so an EVA BranchPoint never carries a Rewind Point and an EVA kerbal is never an Unfinished Flight. See `parsek-rewind-to-separation-design.md` section 1.5.
+
 ### 4.7 Breakup Events (Crash Coalescing)
 
 Crashes, overheating, and structural failures can produce many fragments across multiple physics frames. Rather than recording 20 individual SPLIT events in rapid succession, Parsek coalesces all separation events within a short time window (default 0.5 seconds) into a single BREAKUP tree event.
@@ -518,11 +520,13 @@ picked-up member ends `Disassembled` and is never spawned.
 placement UT (the Placed event), hidden at the pick-up (the Removed event), and gone when the recording
 ends at the vessel's `Die()` about 4.7 s later.
 
-**Re-Fly.** The member's pid differs from the kerbal's, so the Re-Fly supersede closure treats it as a
-side-off branch, exactly like a controlled-decoupled child: re-flying the kerbal does not supersede a
-part it placed in the re-flown interval. That is the existing closure policy
-(`EffectiveState.EnqueueDebrisChildren` admits debris only, by explicit design); widening it is a
-separate decision, filed as todo REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS.
+**Re-Fly.** A kerbal on EVA is never re-flown (Re-Fly is for vessel separations only, owner ruling
+2026-09-27), so no Re-Fly session has the placing kerbal as its root. Re-flying the vessel the kerbal
+came from does not reach the member either: the supersede closure
+(`EffectiveState.ComputeSubtreeClosureInternal`) skips the kerbal's own recording as a side-off
+branch (different pid) at the EVA branch point, so the kerbal and every part it placed keep their
+recordings, and `EffectiveState.EnqueueDebrisChildren` admits debris only. Todo
+REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS closed as moot on that evidence.
 
 ---
 
@@ -760,7 +764,7 @@ Detected by `FlightRecorder.OnSoiChange()` when a vessel transitions between cel
 
 #### D. EVA Exit (Vessel → EVA)
 
-When a Kerbal goes EVA, the vessel recording commits. The vessel continues being tracked via **adaptive continuation sampling** (`ChainSegmentManager.SampleContinuationVessel()`) — samples are taken on whichever triggers first: time interval (3.0s default), velocity direction change (2.0°), or speed change (5%). A new Recording starts on the EVA Kerbal.
+When a Kerbal goes EVA, the recording tree branches at an EVA branch point: the Kerbal becomes the active child recording and the vessel keeps recording as a background child of the same tree.
 
 #### E. EVA Boarding (EVA → Vessel)
 

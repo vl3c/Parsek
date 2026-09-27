@@ -5,7 +5,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for group aggregate methods: GetGroupEarliestStartUT, GetGroupTotalDuration,
+    /// Tests for group aggregate methods: GetGroupEarliestStartUT, GetGroupSpanDuration,
     /// GetGroupStatus, GetGroupSortKey, GetRecordingSortKey, GetChainSortKey.
     /// </summary>
     [Collection("Sequential")]
@@ -84,20 +84,22 @@ namespace Parsek.Tests
             Assert.Equal(100, result);
         }
 
-        // ── GetGroupTotalDuration ──
+        // ── GetGroupSpanDuration ──
 
         [Fact]
-        public void TotalDuration_EmptyDescendants_ReturnsZero()
+        public void SpanDuration_EmptyDescendants_ReturnsZero()
         {
             var descendants = new HashSet<int>();
             var committed = new List<Recording>();
-            double result = ParsekUI.GetGroupTotalDuration(descendants, committed);
+            double result = ParsekUI.GetGroupSpanDuration(descendants, committed);
             Assert.Equal(0, result);
         }
 
         [Fact]
-        public void TotalDuration_SumsDurations()
+        public void SpanDuration_IsLatestEndMinusEarliestStart_NotASum()
         {
+            // catches: a folder reading the SUM of its members' durations (140 s here)
+            // instead of the time the folder's flights actually covered.
             var committed = new List<Recording>
             {
                 MakeRec(100, 150),  // 50s
@@ -105,29 +107,52 @@ namespace Parsek.Tests
                 MakeRec(300, 310)   // 10s
             };
             var descendants = new HashSet<int> { 0, 1, 2 };
-            double result = ParsekUI.GetGroupTotalDuration(descendants, committed);
-            Assert.Equal(140, result);
+            double result = ParsekUI.GetGroupSpanDuration(descendants, committed);
+            Assert.Equal(210, result);
         }
 
         [Fact]
-        public void TotalDuration_SkipsNonPositiveDurations()
+        public void SpanDuration_ParallelBranchesDoNotAddUp()
+        {
+            // A mission (100..400) whose booster (150..250) and debris (160..180) fly at the
+            // same time as it: the folder lasted 300 s, not 300 + 100 + 20.
+            var committed = new List<Recording>
+            {
+                MakeRec(100, 400),
+                MakeRec(150, 250),
+                MakeRec(160, 180)
+            };
+            double result = ParsekUI.GetGroupSpanDuration(new HashSet<int> { 0, 1, 2 }, committed);
+            Assert.Equal(300, result);
+        }
+
+        [Fact]
+        public void SpanDuration_SkipsDatalessRecordings()
         {
             // A recording with no trajectory data and only ExplicitStartUT set reads
-            // StartUT = 500 and EndUT = 0 (Recording's no-data fallback), a NEGATIVE
-            // duration; the dur > 0 guard must drop it rather than subtract 500 s.
-            // The single-point recording (duration exactly 0) rides along for the
-            // zero case, which sums the same either way.
+            // StartUT = 500 and EndUT = 0 (Recording's no-data fallback). It must neither
+            // stretch the span to 500 nor move its start: it is skipped. The single-point
+            // recording (duration exactly 0 at 100) is a real point and does count.
             var dataless = new Recording { VesselName = "Dataless", ExplicitStartUT = 500 };
             Assert.Equal(-500, dataless.EndUT - dataless.StartUT);
             var committed = new List<Recording>
             {
-                MakeRec(100, 50),   // 0s (single point)
-                dataless,           // -500s, skipped
-                MakeRec(200, 300)   // 100s
+                MakeRec(100, 50),   // single point at 100
+                dataless,           // skipped
+                MakeRec(200, 300)
             };
             var descendants = new HashSet<int> { 0, 1, 2 };
-            double result = ParsekUI.GetGroupTotalDuration(descendants, committed);
-            Assert.Equal(100, result);
+            double result = ParsekUI.GetGroupSpanDuration(descendants, committed);
+            Assert.Equal(200, result);
+        }
+
+        [Fact]
+        public void SpanDuration_OutOfRangeAndNullEntriesAreSkipped()
+        {
+            var committed = new List<Recording> { MakeRec(100, 160), null };
+            double result = ParsekUI.GetGroupSpanDuration(new HashSet<int> { 0, 1, 7, -1 }, committed);
+            Assert.Equal(60, result);
+            Assert.Equal(0, ParsekUI.GetGroupSpanDuration(null, committed));
         }
 
         // ── GetGroupStatus ──
@@ -328,7 +353,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ChainSortKey_Duration_ReturnsTotalDuration()
+        public void ChainSortKey_Duration_ReturnsTheSpanTheChainRowShows()
         {
             var committed = new List<Recording>
             {
@@ -338,7 +363,7 @@ namespace Parsek.Tests
             var members = new List<int> { 0, 1 };
             double key = ParsekUI.GetChainSortKey(members, committed,
                 ParsekUI.SortColumn.Duration, 0);
-            Assert.Equal(150, key);
+            Assert.Equal(200, key); // 300 - 100, the chain row's own Duration cell
         }
 
         [Fact]
@@ -382,7 +407,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GroupSortKey_Duration_ReturnsTotalDuration()
+        public void GroupSortKey_Duration_ReturnsTheSpanTheFolderRowShows()
         {
             var committed = new List<Recording>
             {
@@ -392,7 +417,7 @@ namespace Parsek.Tests
             var descendants = new HashSet<int> { 0, 1 };
             double key = ParsekUI.GetGroupSortKey(descendants, committed,
                 ParsekUI.SortColumn.Duration, 0);
-            Assert.Equal(200, key); // 50 + 150
+            Assert.Equal(250, key); // 350 - 100, never the 50 + 150 sum
         }
 
         [Fact]

@@ -92,7 +92,7 @@ id = "GS-2-orbital-probe-deploy"
 # EITHER spelling and PINS `reason=stableLeafUnconcluded`, which is the exact reason
 # string `TerminalOutcomeQualifiesInternal` returns at UnfinishedFlightClassifier.cs:334
 # for a NON-FOCUS Orbiting leaf. Pinning the reason is what makes the token
-# non-vacuous: a promotion for `crashed` or `strandedEva` would be a different
+# non-vacuous: a promotion for `crashed` (or the retired `strandedEva`) would be a different
 # scenario wearing this one's clothes.
 #
 # THE NON-REAP IS THE STRONGER HALF, AND IT IS ONLY AVAILABLE AT VERBOSE.
@@ -439,7 +439,7 @@ count = { min = 2, max = 4 }
 #       accepts either the head or the chain-tip spelling (which one fires depends on
 #       whether the child recording has a chain, and it should not); `reason=` is
 #       pinned to the exact string UnfinishedFlightClassifier.cs:334 returns for a
-#       non-focus Orbiting leaf, so a promotion for `crashed` or `strandedEva` cannot
+#       non-focus Orbiting leaf, so a promotion for `crashed` (or the retired `strandedEva`) cannot
 #       satisfy it.
 #   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed="
 #                                             TestCommandExitToSpaceCenter (Info) [MEASURED - CL-2]

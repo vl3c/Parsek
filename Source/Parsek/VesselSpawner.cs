@@ -446,6 +446,11 @@ namespace Parsek
                 ConfigNode node = new ConfigNode("VESSEL");
                 pv.Save(node);
                 NormalizeBackedUpSnapshotFromLiveVessel(node, vessel);
+                // Crew inventories live on the roster, not in PART nodes: capture them with
+                // the snapshot so a spawn from it restores what the crew carried at this
+                // moment (CrewInventorySnapshot). Keyed by live names; the reverse map below
+                // renames the keys together with the PART crew values.
+                CrewInventorySnapshot.CaptureFromLiveVessel(vessel, node);
                 // Live PART/crew= reflects whichever kerbal is physically seated, which
                 // after a SwapReservedCrewInFlight pass is a stand-in. Persisting the
                 // stand-in name would cause EnsureCrewExistInRoster to fabricate a new
@@ -657,6 +662,7 @@ namespace Parsek
         public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null, bool preserveIdentity = false)
         {
             ProtoVessel pv = null;
+            CrewInventoryRestoreResult crewInventoryRestore = default(CrewInventoryRestoreResult);
             try
             {
                 if (!TryValidateSnapshotHasParts(vesselNode, out string partRejectionReason)
@@ -721,6 +727,12 @@ namespace Parsek
 
                 StripDeliberatePositionOverrideStamp(spawnNode, "RespawnVessel");
 
+                // Give each kerbal still seated in the final spawn node the inventory he
+                // carried when the snapshot was taken, replacing his current roster
+                // inventory, before the ProtoVessel reads the roster (no duplicated or
+                // lost cargo). No capture on the snapshot keeps the roster inventory.
+                crewInventoryRestore = CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "RespawnVessel");
+
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
@@ -729,6 +741,7 @@ namespace Parsek
                 {
                     ParsekLog.Error("Spawner", "CRITICAL: ProtoVessel.Load() produced null vesselRef — vessel will not appear");
                     CleanupFailedSpawnedProtoVessel(pv, "Spawner", "RespawnVessel cleanup");
+                    CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "RespawnVessel null vesselRef");
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
@@ -774,6 +787,7 @@ namespace Parsek
             {
                 ParsekLog.Error("Spawner", $"Failed to respawn vessel: {ex.Message}");
                 CleanupFailedSpawnedProtoVessel(pv, "Spawner", "RespawnVessel cleanup");
+                CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "RespawnVessel exception");
                 return 0;
             }
         }
@@ -1094,6 +1108,7 @@ namespace Parsek
             Orbit orbitOverride = null)
         {
             ProtoVessel pv = null;
+            CrewInventoryRestoreResult crewInventoryRestore = default(CrewInventoryRestoreResult);
             try
             {
                 ConfigNode spawnNode = vesselNode.CreateCopy();
@@ -1216,6 +1231,12 @@ namespace Parsek
 
                 StripDeliberatePositionOverrideStamp(spawnNode, "SpawnAtPosition");
 
+                // Give each kerbal still seated in the final spawn node the inventory he
+                // carried when the snapshot was taken, replacing his current roster
+                // inventory, before the ProtoVessel reads the roster (no duplicated or
+                // lost cargo). No capture on the snapshot keeps the roster inventory.
+                crewInventoryRestore = CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "SpawnAtPosition");
+
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
@@ -1224,6 +1245,7 @@ namespace Parsek
                 {
                     ParsekLog.Error("Spawner", "CRITICAL: SpawnAtPosition — ProtoVessel.Load() produced null vesselRef");
                     CleanupFailedSpawnedProtoVessel(pv, "Spawner", "SpawnAtPosition cleanup");
+                    CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "SpawnAtPosition null vesselRef");
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
@@ -1270,6 +1292,7 @@ namespace Parsek
             {
                 ParsekLog.Error("Spawner", $"SpawnAtPosition failed: {ex.Message}");
                 CleanupFailedSpawnedProtoVessel(pv, "Spawner", "SpawnAtPosition cleanup");
+                CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "SpawnAtPosition exception");
                 return 0;
             }
         }
@@ -2222,6 +2245,9 @@ namespace Parsek
         internal struct KscRetirementDecision
         {
             public KscExclusionZone Zone;
+            /// <summary>Stock site name of the circle hit ("KSC" for the KSC pair).</summary>
+            public string SiteName;
+            public bool IsKsc;
             public double Latitude;
             public double Longitude;
             public string BodyName;
@@ -2306,12 +2332,13 @@ namespace Parsek
                 if (!body.isHomeWorld)
                     return decision;
 
-                // A known endpoint outside both circles settles it: whatever the snapshot
-                // says, the flight did not END on KSC infrastructure.
+                // A known endpoint outside every launch-site circle settles it: whatever the
+                // snapshot says, the flight did not END on launch-site infrastructure.
+                IList<LaunchSiteCircle> altCircles = LaunchSiteExclusionZones.GetAltSiteCircles();
                 if (haveEndpoint
-                    && SpawnCollisionDetector.ClassifyKscExclusionZone(
+                    && !LaunchSiteExclusionZones.Classify(
                         endpointLat, endpointLon, body.Radius,
-                        SpawnCollisionDetector.DefaultKscExclusionRadiusMeters) == KscExclusionZone.None)
+                        SpawnCollisionDetector.DefaultKscExclusionRadiusMeters, altCircles).IsHit)
                     return decision;
 
                 // The spawn gate re-hydrates a dropped snapshot before it spawns; do the same
@@ -2330,11 +2357,14 @@ namespace Parsek
                 decision.Latitude = lat;
                 decision.Longitude = lon;
                 decision.BodyName = bodyName;
-                decision.Zone = SpawnCollisionDetector.DecideKscEndOfFlightRetirement(
-                    terminal, isEva, body.isHomeWorld, lat, lon, body.Radius,
+                LaunchSiteZoneHit hit = SpawnCollisionDetector.DecideLaunchSiteEndOfFlightRetirement(
+                    terminal, isEva, body.isHomeWorld, lat, lon, body.Radius, altCircles,
                     positionIsSnapshot: source == SpawnCoordinateSource.Snapshot,
                     endpointLatitude: haveEndpoint ? endpointLat : double.NaN,
                     endpointLongitude: haveEndpoint ? endpointLon : double.NaN);
+                decision.Zone = hit.Kind;
+                decision.SiteName = hit.SiteName;
+                decision.IsKsc = hit.IsKsc;
                 return decision;
             }
             catch (Exception ex)
@@ -2365,6 +2395,20 @@ namespace Parsek
         /// the adoption check (the warp-deferred completion): they retire only when no
         /// real counterpart exists, and otherwise leave the recording to the normal path.
         /// </summary>
+        /// <summary>
+        /// Zone phrase of the retirement log line. The KSC wording is unchanged
+        /// ("KSC exclusion zone (pad)", pinned by EX-1); another stock site reads
+        /// "launch-site exclusion zone (Desert Launch Site pad)".
+        /// </summary>
+        internal static string FormatRetirementZone(KscRetirementDecision decision)
+        {
+            string kind = SpawnCollisionDetector.DescribeKscExclusionZone(decision.Zone);
+            if (decision.IsKsc || string.IsNullOrEmpty(decision.SiteName))
+                return "KSC exclusion zone (" + kind + ")";
+            return "launch-site exclusion zone ("
+                + LaunchSiteExclusionZones.DescribeSite(decision.SiteName) + " " + kind + ")";
+        }
+
         internal static bool TryRetireEndedFlightAtKsc(
             Recording rec,
             int index,
@@ -2384,11 +2428,11 @@ namespace Parsek
             rec.SpawnAbandoned = true;
             rec.CollisionBlockCount = 0;
             ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
-                "Spawn RETIRED for #{0} ({1}): flight ended within KSC exclusion zone ({2}) - no vessel " +
+                "Spawn RETIRED for #{0} ({1}): flight ended within {2} - no vessel " +
                 "lat={3:F4} lon={4:F4} body={5} terminal={6} rec={7}",
                 index,
                 rec.VesselName,
-                SpawnCollisionDetector.DescribeKscExclusionZone(decision.Zone),
+                FormatRetirementZone(decision),
                 decision.Latitude,
                 decision.Longitude,
                 decision.BodyName ?? "(null)",
