@@ -172,13 +172,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void KerbalLost_UsesTheKerbalsWindowRemedy()
+        public void KerbalLost_UsesTheKerbalsWindowRemedy_OnlyWhenAReFlyReachesTheLoss()
         {
-            var named = ReservationExplanation.KerbalLost("Mun Lander 3");
+            // Owner ruling 2026-09-27: the Re-Fly way back is named only when an open
+            // Re-Fly would actually reach this loss.
+            var named = ReservationExplanation.KerbalLost(
+                "Mun Lander 3", offerReFlyRemedy: true);
             Assert.Equal("Lost", named.Title);
             Assert.Equal("Lost on the committed flight 'Mun Lander 3'. That flight is fixed history. "
                 + KerbalsPresentation.LostReFlyRemedy, named.Body);
             Assert.StartsWith("Lost on a committed flight.", ReservationExplanation.KerbalLost(null).Body);
+
+            var unreachable = ReservationExplanation.KerbalLost("Mun Lander 3");
+            Assert.Equal("Lost on the committed flight 'Mun Lander 3'. That flight is fixed history.",
+                unreachable.Body);
+            Assert.DoesNotContain("rewind point", unreachable.Body);
+        }
+
+        [Fact]
+        public void ExplainKerbalReservation_OffersTheRemedyOnlyForAReachableDeathRecording()
+        {
+            var index = CommittedFutureIndex.Build(
+                new List<GameAction>
+                {
+                    new GameAction
+                    {
+                        Type = GameActionType.KerbalAssignment, KerbalName = "Jeb",
+                        RecordingId = "rec-dead", UT = 100.0, StartUT = 100f, EndUT = 500f,
+                        KerbalEndStateField = KerbalEndState.Dead,
+                    },
+                },
+                id => true, id => "Mun Lander 3", null);
+            var hold = new KerbalsModule.KerbalReservation
+            {
+                KerbalName = "Jeb", ReservedUntilUT = double.PositiveInfinity, IsPermanent = true,
+            };
+
+            var reachable = StockUiReservationPredicates.ExplainKerbalReservation(
+                index, "Jeb", hold, null, Fmt, id => id == "rec-dead");
+            Assert.EndsWith(KerbalsPresentation.LostReFlyRemedy, reachable.Body);
+
+            var other = StockUiReservationPredicates.ExplainKerbalReservation(
+                index, "Jeb", hold, null, Fmt, id => id == "rec-other");
+            Assert.DoesNotContain(KerbalsPresentation.LostReFlyRemedy, other.Body);
+
+            var none = StockUiReservationPredicates.ExplainKerbalReservation(
+                index, "Jeb", hold, null, Fmt);
+            Assert.DoesNotContain(KerbalsPresentation.LostReFlyRemedy, none.Body);
         }
 
         [Fact]

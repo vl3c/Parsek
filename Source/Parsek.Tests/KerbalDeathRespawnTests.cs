@@ -1265,9 +1265,13 @@ namespace Parsek.Tests
                 KerbalsPresentation.FormatStatus(KerbalsPresentation.RosterStatus.Lost,
                     Jeb, null, null, null, false, date));
             string tip = KerbalsPresentation.FormatStatusTooltip(KerbalsPresentation.RosterStatus.Lost,
-                Jeb, null, null, null, null, false, date);
+                Jeb, null, null, null, null, false, date, offerReFlyRemedy: true);
             Assert.Contains("Stock respawn returns this kerbal on " + date + ".", tip);
             Assert.EndsWith(KerbalsPresentation.LostReFlyRemedy, tip);
+            // No open Re-Fly reaches the loss: the respawn rule ends the hover.
+            string noRemedy = KerbalsPresentation.FormatStatusTooltip(KerbalsPresentation.RosterStatus.Lost,
+                Jeb, null, null, null, null, false, date);
+            Assert.EndsWith("Stock respawn returns this kerbal on " + date + ".", noRemedy);
 
             // A permanent death keeps the plain wording.
             Assert.Equal("Lost", KerbalsPresentation.FormatStatus(KerbalsPresentation.RosterStatus.Lost,

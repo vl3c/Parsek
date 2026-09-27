@@ -533,7 +533,8 @@ namespace Parsek
         /// death).
         /// </summary>
         internal static ReservationText KerbalLost(
-            string flightName, double respawnUT = double.NaN, Func<double, string> formatDate = null)
+            string flightName, double respawnUT = double.NaN, Func<double, string> formatDate = null,
+            bool offerReFlyRemedy = false)
         {
             bool respawns = !double.IsNaN(respawnUT) && !double.IsInfinity(respawnUT);
             string respawnDate = respawns ? FormatDate(respawnUT, formatDate) : null;
@@ -546,7 +547,9 @@ namespace Parsek
                 Rule = respawns
                     ? LostRule + " " + KerbalsPresentation.FormatLostRespawnRule(respawnDate)
                     : LostRule,
-                WayOut = KerbalsPresentation.LostReFlyRemedy
+                // Owner ruling 2026-09-27: the Re-Fly way back is named only when an
+                // open Re-Fly would actually reach this loss.
+                WayOut = offerReFlyRemedy ? KerbalsPresentation.LostReFlyRemedy : null
             };
         }
     }

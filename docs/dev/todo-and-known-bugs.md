@@ -15,6 +15,129 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-SESSION-EVA-CANNOT-SUPERSEDE: a Re-Fly session in which the player went EVA from the re-flown vessel merged with 0 supersede rows~~ [FOUND 2026-09-27 by the PR #1907 review (pre-existing, made likely by REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA); FIXED 2026-09-27, branch `refly-session-eva-merge`]
+
+**Symptom.** Re-fly a separation slot, step a kerbal out of the re-flown vessel (and back in, or not),
+merge: `[Supersede] AppendRelations outcome=refused-unflown-provisional ... reason=null TerminalState`,
+0 rows. The old stretch stayed visible next to the new one, and the section 4.9 rule "an EVA during a
+Re-Fly auto-seals" could not take effect (the slot tip stayed the old, open recording).
+
+**Root cause.** `SupersedeCommit.AppendRelations` validated the RAW provisional
+(`ValidateSupersedeTarget(provisional)`). The marker's `ActiveReFlyRecordingId` names the fork the
+recorder started on at the rewind point and is written only at `RewindInvoker.AtomicMarkerWrite` and the
+optimizer-survivor re-point in `MergeDialog.TryCommitReFlySupersede`; an EVA split ENDS that fork at the
+EVA branch point with no terminal and the vessel flies on as a continuation. Two more defects sat behind
+the refusal and surfaced as soon as rows were written: (1) the session's own continuations carry the
+re-flown vessel's pid and start after the rewind point, so `EnqueuePidPeerSiblings` pulled them into the
+supersede closure and the merge would have superseded the new flight with its own head; (2) the merge
+flipped only the fork's `MergeState`, while open/closed is read on the slot's WALKED tip (a continuation
+born `Immutable`), so a crashed re-fly would have read sealed.
+
+**Fix.** The walked tip is resolved at merge time; the marker is NOT re-pointed. `MarkerValidator`
+requires the marker's recording to be the NotCommitted provisional, and a continuation is ordinary
+`Immutable` data, so a re-pointed marker would be discarded by the next load's `LoadTimeSweep` (F5 / F9
+mid-session) and the fork, the head of the new flight, would then be swept as a zombie. The rows keep
+`NewRecordingId` = the fork; the slot tip is reached from it through the same `WalkSlotVessel`.
+- `SupersedeCommit.ValidateReFlySessionSupersedeSource`: payload on the fork or a walked vessel segment,
+  terminal on the walked tip; exactly `ValidateSupersedeTarget` when the walk takes no hop. Used by
+  `AppendRelations`, `ConcludeRetiredProvisional`, `MergeDialog.ConcludeMissingProvisional` and the
+  prune's alive-and-validating proof. New grep token
+  `AppendRelations outcome=validated-through-vessel-walk ... terminalRec= terminal= evaHops= boardHops=
+  switchHops= walkStop=`; the refusal line now carries the same walk fields.
+- `EffectiveState.CollectActiveSessionOwnedRecordingIds`: the fork's forward descendants (every branch
+  point naming a member as a parent, chain segments of a descendant, anchored debris) are removed from
+  the closure's candidate index, so no expansion admits them (`fenced live session's own recordings`).
+  The fork keeps its existing NotCommitted guards; the root and the slot origin are never fenced.
+- `SupersedeCommit.ApplyMergeStateToSessionVesselTip` (from `FlipMergeStateAndClearTransient`): the
+  merge verdict is written on the walked tip too (`session vessel tip rec=... mergeState a->b`). The
+  v0.9 fallback classification reads the walked terminal as well.
+- Journal recovery needs nothing new: every step re-derives the same walk from the same fork.
+
+**Rule chosen for a kerbal who boards a FOREIGN vessel during the session** (owner ruling 2026-09-27
+rule 2 makes the slot non-re-flyable): the merge still supersedes the old stretch (the player keeps the
+flight they flew) and the slot seals on `evaCrewJoinedForeignVessel`, even when the vessel crashed.
+
+**Tests.** `ReFlySessionEvaMergeTests` (end-to-end `MergeJournalOrchestrator.RunMerge` over
+`ReFlyThroughEvaFixture.AddReFlySession`; crash recovery from TreeMerge / Split / Supersede / Finalize;
+mid-session marker validation + `LoadTimeSweep`; mirror cells for no-branch / Dock / Stage / switch /
+Undock). Mutation-tested: reverting any of the three changes reds cells. Live lane
+`RF-19-refly-session-eva-reboard-merges`. Design: `docs/parsek-rewind-to-separation-design.md` section 6.12.
+
+## REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE: a Re-Fly session that UNDOCKS the re-flown vessel merges with 0 supersede rows [FILED 2026-09-27 from the mirror check of REFLY-SESSION-EVA-CANNOT-SUPERSEDE. OPEN]
+
+**Shape.** An undock ends the parent recording at the Undock branch point with its terminal untouched
+(`docs/dev/dock-undock-recording-structure.md` section 4), and an undock is a separation, so the slot
+walk stops there by design. The fork therefore still reads `null TerminalState` and the merge logs
+`outcome=refused-unflown-provisional ... walkStop=notSwitchBranchPoint`, keeping the old stretch next to
+the new one. Dock (closed `Docked`) and staging (tree-branching: the fork keeps its id and its own
+terminal) are unaffected. Pinned by `ReFlySessionEvaMergeTests.Mirror_Undock_WalkStopsAtTheUndock_StillRefused_KnownGap`.
+
+**Proposed fix.** Accept a fork whose walk stopped at a branch point the SESSION authored (not in
+`marker.PreSessionBranchPointIds`) as concluded: rows written, and Site B-1 already seals the slot
+(`structuralMutation` / `downstreamBp`, design section 4.9 rules 2 and 4). Needs its own lane.
+
+## ~~REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA: a separation slot whose vessel put a crew member out on EVA was refused `downstreamBp`~~ [FOUND 2026-09-27 behind REFLY-SEPARATIONS-ONLY; OWNER DECISIONS 2026-09-27 (interview); IMPLEMENTED 2026-09-27, branch `refly-through-eva`]
+
+**The gap.** A separation slot's tip walk (`EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations`,
+consumed by `UnfinishedFlightClassifier.TryQualify`) followed only chain hops and
+`VesselSwitchContinuation` branch points. A vessel whose crew member went EVA ended its segment at the
+EVA branch point, and a non-Destroyed segment there was refused `downstreamBp`: Kerbal X stages (a
+staging RP), Jeb EVAs from the upper stage for a report and re-boards, the upper stage later crashes -
+no Re-Fly from the staging point, while the same crash with no EVA was offered. Before
+REFLY-SEPARATIONS-ONLY the EVA's own Rewind Point had covered this.
+
+**Owner decisions (2026-09-27).** Goal: "re-fly is available from the point of separation,
+respecting the sealing rules defined in the design docs."
+1. The slot follows its own vessel through the vessel's EVA branch points (the same-pid vessel
+   continuation) and through the Board where the kerbal re-boards the SAME vessel. Any other branch
+   point stops the walk as before.
+2. A kerbal who went EVA from the vessel after the separation and joined a DIFFERENT vessel makes the
+   slot non-re-flyable (new reason `evaCrewJoinedForeignVessel`). Left standing or dead on EVA does not
+   block.
+3. Re-flying the vessel rewrites the kerbal's EVA: the closure and supersede write-set include the EVA
+   crew recordings, their placed parts and flags; an EVA death is tombstoned like a crash death.
+4. Sealing rules apply across the walked history: EVA science is retry-blocking; automatic
+   consequence rows are not; an EVA during a Re-Fly still auto-seals; hard-safety terminals are read on
+   the vessel's real tip.
+5. The Kerbals window's Lost hover offers the Re-Fly way back only when an open Unfinished Flight
+   would reach that kerbal's loss.
+
+**What changed.**
+- `EffectiveState.WalkSlotVessel` (new; `SlotVesselWalk` result) behind
+  `ResolveTerminalRecordingAcrossSwitchContinuations` and so behind `EffectiveTipRecordingId` /
+  `ChildSlot.EffectiveRecordingId` and every slot consumer (reaper, Seal, Stash,
+  `IsVisibleUnfinishedFlight`, CommitTree promotion, Site B-1 / B-2, RP slot resolution,
+  `LoadTimeSweep`). Hops log `[Supersede] SwitchContinuationWalk: hop ... kind=switch|eva|board`.
+  A Board by a kerbal from another vessel stops it (`boardForeignParent`, a foreign merge). A walk
+  that starts mid-stretch first registers the crew of every own EVA behind its start
+  (`PreRegisterOwnEvaCrewBehind`; RF-18's reading run (flown as RF-16 before a lane-id collision renamed it) caught a mid-stretch walk reading the Board as
+  foreign). The map presence chain-tip segment borrow keeps the switch-only walk
+  (`followOwnEvaBoard: false`).
+- `UnfinishedFlightClassifier`: the walk starts at the slot stretch head
+  (`ResolveSlotStretchHead`, so every stretch member reaches the origin's verdict), rule 2 rejects with
+  `evaCrewJoinedForeignVessel`, verdict lines carry `walkedEva=N walkedBoard=M`, and the retry-blocking
+  scan reads the stretch head. `SupersedeCommit.CollectRecordingIdsForSafetyGate` adds the walked
+  stretch; Site B-1 auto-seals on the new reason like `downstreamBp`.
+- `EffectiveState.ComputeSubtreeClosureInternal`: own-EVA crew admission
+  (`IsOwnEvaKerbalClosureChild`), same-vessel Board admission, `GroundPartPlaced` children of a kerbal
+  in the closure, and backward stretch seeding from a merge-time root
+  (`CollectOwnVesselStretchBackward`, stopping at the slot origin, at a re-fly fork and before a
+  recording that starts before the rewind UT). `RecordingTreeSplitter.SplitOriginAtRewindUT` splits the
+  spanning stretch ancestor when the walked tip does not span the rewind point
+  (`FindSpanningOwnVesselStretchAncestor`).
+- Lost hover: `KerbalsPresentation.ShouldOfferLostReFlyRemedy` over
+  `EffectiveState.ComputeOpenSlotReFlyReachRecordingIds`, also on the stock-screen Lost explanation.
+
+**Cases decided from the rules** (reported to the supervisor): a Board by a kerbal from another vessel
+onto the slot vessel stops the walk (`downstreamBp`); a kerbal who re-boards after the vessel docked is
+unreachable (the walk already stopped at the Dock); with several EVAs, one kerbal joining a foreign
+vessel blocks the slot; a kerbal-free probe slot is untouched.
+
+**Tests.** `ReFlyThroughEvaTests` over the new generator `ReFlyThroughEvaFixture` (+ `ScenarioWriter`
+`EvaBranch` / `BoardBranch` / `SeparationBranch`); the graph fuzzer's continuation-free agreement cell;
+the Lost-hover cells in `KerbalsWindowUITests`, `KerbalDeathRespawnTests`, `ReservationExplanationTests`.
+Design: `docs/parsek-rewind-to-separation-design.md` section 1.6.
+
 ## EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE: the `EvaGroundScience place` seam step can time out with the placement preview held off-terrain against a collider [FILED 2026-09-27 from EVA-7's first flight. OPEN, harness flake, not a Parsek defect]
 
 Run `2026-09-27_1344_EVA-7-crew-inventory-spawn-after-rewind` classified INVALID
@@ -211,7 +334,65 @@ segment and may be similarly off. A fix would skip, or clamp at the surface, a s
 periapsis lies below the body's radius; verify against the fixture's sidecar first.
 
 ---
-## ~~SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: every repeat submission of a science subject re-credited the earlier ones~~ [FILED AND FIXED 2026-09-26, branch `fix-deployed-science-ledger`]
+## ~~REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL: rewinding a relaunch of a craft strips the earlier launch of that craft from the rewind save~~ [FILED AND FIXED 2026-09-27, branch `fix-rewind-name-strip`; the open half of REWIND-STRIPS-RESUMED-COMMITTED-TIP. Headless-proven; NOT yet live-proven]
+
+**What the name strip is for.** The plain rewind's pre-load strip (`RecordingStore.ExecuteRewindSaveLoad`
+-> `PreProcessRewindSave`) removes the rewind OWNER's own vessel from the `parsek_rw_` quicksave: the
+owner is the recording that captured that quicksave (`GetRewindRecording`: the recording itself or its
+tree root), and `FlightRecorder.CaptureRewindSave` takes it at the owner's recording start, so the
+quicksave holds the owner's vessel as it was then. The rewind replays that flight as a ghost and spawns
+its vessel at the end, so the quicksave copy must go (the strip dates from `937bf9c5b`, "Strip only the
+recorded vessel on rewind"). It matched by NAME because that was the only key used then; the
+persistentId is craft-baked, so a pid would not have been safer. EVA-6's `1 by name [Jebediah Kerman]`
+is this strip removing the owner itself (the kerbal's own recording captured the save).
+
+**Defect.** A relaunch of a craft carries the craft's name. Land Kerbal X, commit it (the in-flight commit
+adopts the live vessel), relaunch Kerbal X, commit, and rewind the second flight: the quicksave taken at
+the second launch holds BOTH vessels, and the name strip removed both. The first one is committed
+history (its recording ends before the rewind point and never replays), so nothing re-spawns it; it also
+missed the quicksave whitelist, and the guid-aware post-strip reconcile then reset its recording's spawn
+state. Ordinary play, no harness step. Mutation check: making the classifier name-only again reds
+`SameCraftRelaunch_RewindOfSecondFlight_KeepsFirstLandedVessel` and `Classify_Table`.
+
+**The OnLoad passes do not share the flaw.** `StripOrphanedSpawnedVessels` (`same-launch recording
+match`, `matchSource: true` on rewind) is launch-identity-aware (BUG-H) and never strips a pid in the
+rewind-quicksave whitelist; `StripFuturePrelaunchVessels` keeps whatever the quicksave held; the
+`PendingCleanupNames` set is only a trigger now (`CleanupOrphanedSpawnedVessels` decides by identity).
+All three removed an earlier vessel only because the pre-load strip had already dropped it from the
+quicksave, and so from the whitelist. Note that without the whitelist the rewind's `matchSource` strip
+WOULD match an earlier launch's adopted vessel (its spawn pid and guid are that recording's own), so the
+whitelist is load-bearing there.
+
+**Fix.** `RecordingStore.BuildRewindOwnerStrip` + `ClassifyRewindOwnerStripVessel`
+(`RecordingStore.RewindOwnerStrip.cs`), wired into a new `PreProcessRewindSave(RewindOwnerStrip, ...)`
+overload; the old name-set overloads delegate to it as name-only. Per quicksave VESSEL: an EVA child name
+of the owner's chain is stripped by name (kerbal names are roster-unique, and a chain EVA kerbal standing
+outside at the save boards later and re-exits under a new guid, so a guid gate would leave a duplicate
+kerbal); the owner's name is stripped UNLESS some vessel in the save carries the owner's
+`RecordedVesselGuid` (the owner is anchored) and this vessel's `pid` guid conclusively differs
+(`VesselLaunchIdentity.GuidsConclusivelyDiffer`), in which case it is another launch and kept
+(`Rewind owner strip: keeping vessel ... different launch`); a vessel under another name carrying the
+owner's guid is the owner's own vessel after a recordings-table rename and is stripped by guid. An
+unknown guid on either side, or an unanchored owner, falls back to the name. The strip summary line
+keeps its `N by name [...]` prefix and adds `by owner guid` and `kept N other launch(es)` counts.
+Re-Fly (`RewindInvoker`), revert and warp-to-game-start (no pre-process) are untouched.
+
+**Tests.** `RewindOwnerStripTests` (9): the repro through the whole plain-rewind chain (pre-load strip,
+whitelist, OnLoad identity strip, future-prelaunch pass, playback reset, post-strip reconcile); owner
+guid unknown, owner not anchored, save vessel without a guid (all name-decided); renamed owner stripped
+by guid; EVA-6 shape (Jeb stripped, `1 by name [Jebediah Kerman], 0 by owner guid`, capsule kept); chain
+EVA child name-only; the decision table; the anchor predicate.
+
+**Live proof (not flown).** EVA-6 keeps its tokens in logic (its owner is Jeb's own recording, stripped
+by name exactly as before, and the capsule's name is not the owner's). A cheap new lane would re-launch
+the same craft on a host with a committed landed vessel of that craft, commit, rewind `tree=latest`, and
+require the `Rewind owner strip: keeping vessel` line plus the earlier vessel in the produced save.
+Authored as `RR-1-relaunch-rewind-keeps-earlier-launch` (nightly, never flown, branch
+`lane-relaunch-rewind`): on `kerbin-splashdown-recorded` it relaunches the stock Kerbal X from the SPH
+onto the Runway, commits, rewinds `tree=latest`, and gates on the keep line naming the fixture capsule
+(pid 2708531065), the summary `1 by name [Kerbal X], 0 by owner guid, ... kept 1 other launch(es)`, the
+OnLoad keep of `#autoLOC_501232` and the committed store still holding the capsule's spawn pid. The live
+proof is owed by that lane's reading flight.
 
 ---
 
@@ -1146,6 +1327,11 @@ belongs to the kerbal, and the kerbal is not re-flown. The one residual path is 
 player started on a legacy EVA Rewind Point before upgrading and has not concluded; it ends under the
 old side-off policy, and its RP is reaped on the next load.
 
+**Superseded 2026-09-27 by REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA.** The owner then ruled that a
+separation slot's Re-Fly rewrites its vessel's own EVAs: the closure now admits the vessel's own EVA
+crew recordings and, by parent id, the ground parts they placed (option 1 above, reached through the
+vessel rather than a kerbal root). The paragraph above describes the state between the two rulings.
+
 ## ~~EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind~~ [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. CLOSED 2026-09-27, branch `eva-placed-spawn-lane`]
 
 EVA-5 picks its part up (Disassembled, never spawned), and every EVA fixture places on the launch pad,
@@ -1254,7 +1440,8 @@ owner's vessel name) is still name-only: rewinding a relaunch of the same craft 
 earlier flight's same-named vessel from the quicksave, and the OnLoad passes then remove it. It
 needs an identity-aware owner strip (the quicksave VESSEL `pid` guid against the owner's
 `RecordedVesselGuid`), with care for the owner vessel itself; filed here rather than widened into
-this fix.
+this fix. Now filed and fixed as REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL (branch
+`fix-rewind-name-strip`).
 
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 

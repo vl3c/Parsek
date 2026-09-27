@@ -10,6 +10,8 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
+
 - **Dev: two lanes for the crew inventory restore at spawn.** `H72-kerbal-inventory-spawn` (flown green 2026-09-27) runs the in-game `KerbalInventorySpawn` category over the pad craft's seated Jeb, whose roster carries a two-part inventory, and checks the capture, the roster applier and the rollback lines. `EVA-7-crew-inventory-spawn-after-rewind` (flown green 2026-09-27) replays EVA-6's chain: Jeb carries a parachute and a seismometer, places the seismometer on EVA, the recording commits, Rewind-to-Launch, and the Space Center spawns him. It checks that his spawn restores the recorded one-part inventory rather than the two-part one the rewind put back on the roster, and that the restore runs exactly once.
 - **Dev: a lane for auto-hire after a rewound hire.** `AH-1-auto-hire-reserved-applicant` (flown green 2026-09-27) runs a new in-game test, `AutoHireReservation`, on a fresh career: it gives the first applicant a committed hire later in the timeline (the state a rewind to before that hire leaves), turns on the Auto-Hire Crews difficulty option and runs stock's own crew fill on a three-seat pod two kerbals short. It checks that auto-hire passes over the reserved applicant for each short seat, never reaches the hire refusal, hires and seats other kerbals and seats nobody twice, then puts the roster, funds, ledger and difficulty option back.
 - **Dev: lanes for the per-recording loop cap and the rewind read-back check.** `OC-1-overlap-cap-per-recording` loops one injected recording on its own toggle faster than its length / 20 and checks that playback slows the relaunches to keep at most 20 copies (`auto-adjusted (cap reached)`) and that old copies disappear; flown and armed. The ghost lifecycle check gains a `peakLive` count (the most copies of one recording alive at once). `RB-1-rewind-readback-divergence` and its control `RB-2-rewind-readback-within-range` fly a recovery and then a Re-Fly that brings the recovered vessel back; RB-1's first flight found that the recovery money is not taken back (todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED). With that fixed, RB-1 now shows the first live flag of the rewind read-back check (the recovery value comes off after a post-rewind-point hire) and RB-2 shows the same retirement staying within range without the hire. Both lanes are flown.
@@ -1228,6 +1230,18 @@ _(unreleased — entries accumulate here per commit)_
   recovery from what Parsek records at the moment of the recovery: the recovery payout, or
   the crew being returned to the roster. The vessel must still be positively the same launch,
   and a recovery from before the rewind point is left alone.
+- **A Re-Fly in which a crew member goes EVA now replaces the old flight when you merge.**
+  Stepping out of the re-flown vessel (for an EVA report, a flag, a part) and climbing back in,
+  or leaving the kerbal outside, used to make the merge keep the old flight: the log read
+  `refused-unflown-provisional` and the old stretch stayed on the timeline next to the new one.
+  The merge now reads the vessel's ending past its own EVA and re-board, the same way the
+  Unfinished Flights list does, writes the supersede rows, and closes the slot as the Re-Fly
+  rules say (a stable ending or an EVA during the Re-Fly seals it; a crash keeps it open for
+  another try; a kerbal who left for a different vessel seals it). The kerbal's own EVA and the
+  vessel after the re-board are part of the new flight and are never hidden by the merge. The
+  same fix covers a stock Switch-To away and back during a Re-Fly. An undock during a Re-Fly
+  still keeps the old flight (filed, REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE).
+
 - **Looping one phase of a split flight is now visual only.** A long flight that Parsek
   splits into phases (launch, coast, landing) is a chain. Ticking Loop on any one phase used to
   change the whole flight's outcome: its final vessel never spawned, its crew stayed reserved
@@ -1361,6 +1375,16 @@ _(unreleased — entries accumulate here per commit)_
   kept vessel stays linked to its recording, the same way a revert keeps an earlier flight's
   vessels. Vessels of the rewound flight, and of any recording that replays, are removed and
   spawned again as before.
+
+- **Rewinding a relaunch of a craft no longer deletes the earlier launch of that craft.** A
+  rewind removes the rewound flight's own vessel from the save it goes back to, and it found
+  that vessel by name. Launching a craft again gives the new vessel the same name, so rewinding
+  the second flight also removed the first one (for example the first Kerbal X, still landed
+  where you left it), and nothing brought it back. The rewind now also checks the vessel's
+  launch identity: a vessel with the craft's name from a different launch stays where it was.
+  When a recording has no launch identity, or the save does not hold the rewound flight's own
+  vessel, the name decides as before. A flight renamed in the recordings table after it was
+  flown now also has its own vessel removed on its rewind.
 
 - **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
   Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
@@ -2037,6 +2061,19 @@ _(unreleased — entries accumulate here per commit)_
   EVA are removed when the save loads (their quicksave file is deleted and the slots they held
   open are closed), except one a Re-Fly in progress is using, which is removed after that Re-Fly
   ends. Nothing else about EVAs changes: they are still recorded and replayed as before.
+- **A separated vessel stays re-flyable after a crew member's EVA.** A stage or lander that
+  separated at a Rewind Point is now followed through its own crew's EVAs: if a kerbal steps
+  out (for an EVA report, a surface sample, a flag) and climbs back in, and the vessel later
+  crashes or is left in orbit, it is offered in Unfinished Flights exactly as it would be
+  without the EVA. Before, the EVA ended the vessel's flight and the Re-Fly was refused.
+  Re-flying the vessel from its separation replays the EVA as well: the kerbal is aboard at the
+  separation, his old EVA and anything he placed (ground experiments, flags) stop replaying,
+  and if he died on that EVA the death is undone. The usual limits still apply across the EVA:
+  science the kerbal earned on it (EVA Report, Surface Sample and the like) closes the Re-Fly the
+  same as science earned aboard, and if the kerbal boarded a different vessel instead of coming
+  back, the vessel can no longer be re-flown. A kerbal left standing on EVA, or who died on it,
+  does not block it. The Kerbals window's Lost hover now says "re-flying it can undo the loss"
+  only when an open Unfinished Flight would actually undo that kerbal's death.
 - **Recordings tab: a presentation round.** How the table shows recordings changes; the one
   data effect is that a mission folder's Loop box now also sets the launched vessel's loop
   range, as that vessel's own chain row did before (see the last bullet).

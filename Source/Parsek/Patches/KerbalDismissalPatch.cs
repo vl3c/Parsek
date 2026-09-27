@@ -107,7 +107,8 @@ namespace Parsek.Patches
                 kerbalName,
                 context.Reservation(kerbalName),
                 context.SlotOwner(kerbalName),
-                ReservationExplanation.DefaultDateFormatter);
+                ReservationExplanation.DefaultDateFormatter,
+                context.LossReFlyReachable);
             return text.Body;
         }
 

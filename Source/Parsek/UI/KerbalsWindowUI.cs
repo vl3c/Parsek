@@ -1021,7 +1021,8 @@ namespace Parsek
                 rawCrew,
                 CrewReservationManager.CrewReplacements,
                 activeChainIndexOf,
-                FormatRowDate);
+                FormatRowDate,
+                EffectiveState.BuildLossReFlyReachablePredicate());
         }
 
         /// <summary>
@@ -1182,7 +1183,8 @@ namespace Parsek
             IReadOnlyDictionary<string, IReadOnlyCollection<string>> rawCrewByRecordingId,
             IReadOnlyDictionary<string, string> replacements,
             ActiveChainIndexFunc activeChainIndexOf,
-            Func<double, string> formatDate)
+            Func<double, string> formatDate,
+            Func<string, bool> lossReFlyReachable = null)
         {
             List<CrewEndStateEntry> endStates = BuildEndStates(committedRecordings);
             List<KerbalsPresentation.FlightGroup> flights = KerbalsPresentation.BuildFlightRows(
@@ -1194,7 +1196,8 @@ namespace Parsek
                 BuildTraitMap(roster, slots),
                 formatDate);
             KerbalsPresentation.RosterRowSet rosterRows = KerbalsPresentation.BuildRosterRows(
-                roster, slots, reservations, retired, flights, activeChainIndexOf, formatDate);
+                roster, slots, reservations, retired, flights, activeChainIndexOf, formatDate,
+                lossReFlyReachable);
 
             ParsekLog.Verbose("UI",
                 $"KerbalsWindow: built VM - roster={rosterRows.Involved.Count}+{rosterRows.Plain.Count} "
