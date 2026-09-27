@@ -1,0 +1,142 @@
+schema = 1
+id = "GUI-29-census-wide-windows-1280"
+tier = "operator"
+# THE WIDE WINDOWS ON A 1280x720 SCREEN. Two Parsek windows are laid out wider than a
+# 1280 px game window: the Missions window (both tabs, 1355 px natural width) and
+# Logistics (1410 px). Until the wide-window change nothing capped a window to the
+# screen, so on 1280x720 their right-hand columns were drawn off-screen and could not be
+# reached. Now a resizable window that cannot fit the screen is capped to the screen width
+# and moved onto it (`ParsekUI.FitWindowToScreen`; a window that fits is never touched),
+# and a window capped below its natural width scrolls its
+# content horizontally (`WideWindowScroll`): the Missions window wraps its pinned column
+# header AND its body in one horizontal scroll view so the two stay aligned, and
+# Logistics keeps its natural content width inside its existing scroll view.
+#
+# WHY THIS LANE AND NOT A GUI-1 OVERRIDE. Every other census lane declares
+# `screenResolution = "1920x1080"`, at which both windows fit and the change is
+# deliberately a no-op, and `screenResolution` is a per-SPEC key with no per-run
+# override. So the narrow screen needs its own lane. GUI-1 at 1920x1080 stays the
+# unchanged-layout witness.
+#
+# WHAT IT PHOTOGRAPHS (Advanced, the host's group folder `R3-B2-U1-S7` open on the
+# Recordings tab, as GUI-1's chain capture opens it):
+#   - `hs-missions-recordings-left` / `-right`: the Recordings tab at scroll 0 and at the
+#     far right (`op=state key=scrollX value=100000`, which the scroll view clamps to
+#     its own overflow and the settle reports as `after=`);
+#   - `hs-missions-missions-left` / `-right`: the Missions tab, same pair;
+#   - `hs-logistics`: Logistics capped to 1280, its own scroll view's horizontal bar
+#     showing (there is no seam key for that window's offset; the left-hand picture is
+#     the claim).
+# The windows are COMMANDED at their natural widths (1355 / 1410) and the seam's rect op
+# takes the same screen fit the window takes before it draws, so each `uiaction rect`
+# line reads `applied=0,8,1280,...` with `clamped=true` - which is the claim that the
+# cap happened, not a rect the spec picked.
+#
+# HOST: the operator-local `fixtures/local-saves/c1-gui`, for GUI-1's reason (a table
+# with no rows photographs as an empty box). Stage it as GUI-1's header says. The
+# analyzer row is report-only for GUI-1's measured reason (the host's 25 pre-existing
+# `INV2-NO-DOUBLE-COVER` findings), pinned by `ANALYZER_REPORT_ONLY_ALLOWLIST`.
+description = "GUI census at 1280x720: the Missions window (both tabs) and Logistics, capped to the screen, with their content scrolled horizontally; one capture scrolled left and one scrolled right per Missions tab."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "operator-local-fixture", "GUI-29"]
+
+[fixture]
+saveTemplate = "fixtures/local-saves/c1-gui"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+
+  # --- Missions window, commanded at its natural width, capped to the 1280 screen ---
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "none" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "group:R3-B2-U1-S7" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "missions", key = "scrollX", value = "0" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "hs-missions-recordings-left" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "hs-missions-recordings-left" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "missions", key = "scrollX", value = "100000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "hs-missions-recordings-right" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "hs-missions-recordings-right" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "missions", key = "scrollX", value = "0" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "hs-missions-missions-left" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "hs-missions-missions-left" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "state", window = "missions", key = "scrollX", value = "100000" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "hs-missions-missions-right" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "hs-missions-missions-right" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  # --- Logistics, commanded at its own 1410 minimum, capped to 1280 ---
+  { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "hs-logistics" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "hs-logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  # THE IN-GAME FIT, which is the product claim: each window opens at its first-open
+  # default beside the 250 px main window (x=268, Missions 1355 wide, Logistics 1556) and
+  # `ParsekUI.FitWindowToScreen` caps and moves it BEFORE any op=rect step touches it. The
+  # op=rect lines below apply the same fit on the seam side, so they alone would stay
+  # green with the in-game fit removed; these two would not.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] Missions window fitted to screen 1280x720: x=268->0 y=8->8 w=1355->1280",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] Logistics window fitted to screen 1280x720: x=268->0 y=8->8 w=1556->1280",
+  # The seam's cap: both windows commanded at their natural width land at the screen width.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction rect initiated window=missions want=0,8,1355,700 applied=0,8,1280,700 clamped=true",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction rect initiated window=logistics want=0,8,1410,700 applied=0,8,1280,700 clamped=true",
+  # The scroll decision, logged on its transition only.
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] Missions window horizontal scroll ON: window w=1280 < natural w=1355",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[UI\\] Logistics window horizontal scroll ON: window w=1280 < natural w=1410",
+  # The folder really opened, so the Recordings pictures carry a mission group's rows.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=group:R3-B2-U1-S7 state=true changed=1 expanded=1 total=[0-9]+",
+  # Scrolled right really scrolled: the settled offset is the positive overflow the scroll
+  # view clamped 100000 to, on BOTH tabs.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=missions key=scrollX want=100000 after=[1-9][0-9]*(\\.[0-9]+)? changed=true",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=hs-missions-recordings-left .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=hs-missions-recordings-right .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=hs-missions-missions-left .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=hs-missions-missions-right .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=hs-logistics .*patched=17/17",
+]
+# EMPTY for GUI-1's host reason: the career's cold OnLoad ERROR surface is not this
+# lane's subject.
+forbidden = []
+
+[expectations.analyzer]
+# Report-only for GUI-1's measured host reason (25 pre-existing INV2-NO-DOUBLE-COVER
+# findings on the operator's career; U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER).
+gating = false
+
+[runtime]
+# Ten captures and dumps, a 300 s cold load of a 42 MB career and about twenty UI ops.
+# GUI-1 measured 96 s for 27 captures; 900 s is head-room, not a measurement.
+budgetSeconds = 900
+# THE POINT OF THE LANE: the provisioned 1280x720 frame, declared rather than inherited
+# so a change to the profile default cannot silently turn this into a wide-screen run.
+screenResolution = "1280x720"
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

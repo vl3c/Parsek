@@ -694,6 +694,55 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// On a screen narrower than the Missions window's natural width (1355 px), its two
+        /// tabs scroll horizontally, and the pinned column header must scroll WITH the body
+        /// or every column is misaligned by the scroll offset. The shared
+        /// <c>WideWindowScroll</c> wrapper does that by holding the header AND the body
+        /// scroll view inside one horizontal scroll view, so both tabs must open it before
+        /// the header, draw the body scroll view inside it, and close it after the body.
+        /// Logistics already keeps its headers inside its one scroll view, so it takes the
+        /// content floor INSIDE that scroll view instead.
+        /// </summary>
+        [Fact]
+        public void WideWindowScrollWrapsTheHeaderAndTheBodyTogether()
+        {
+            foreach (var site in new[]
+                     {
+                         Tuple.Create(Path.Combine("UI", "RecordingsTableUI.cs"),
+                             "DrawRecordingsWindow", "DrawRecordingsTableHeader("),
+                         Tuple.Create(Path.Combine("UI", "MissionsWindowUI.cs"),
+                             "DrawMissionsTabContent", "DrawColumnHeader("),
+                     })
+            {
+                string body = MethodBody(ReadPreparedSource(site.Item1), site.Item2, site.Item1);
+                string where = site.Item1 + " / " + site.Item2;
+                int begin = body.IndexOf("BeginPinnedHeaderArea(", StringComparison.Ordinal);
+                int head = body.IndexOf(site.Item3, StringComparison.Ordinal);
+                int scroll = body.IndexOf("BeginScrollView(", head < 0 ? 0 : head, StringComparison.Ordinal);
+                int endScroll = body.IndexOf("GUILayout.EndScrollView()", scroll < 0 ? 0 : scroll,
+                    StringComparison.Ordinal);
+                int end = body.IndexOf("EndPinnedHeaderArea()", StringComparison.Ordinal);
+                Assert.True(begin >= 0, where + ": does not open the horizontal-scroll wrapper.");
+                Assert.True(head > begin, where + ": the header is not inside the wrapper.");
+                Assert.True(scroll > head, where + ": the body scroll view does not follow the header.");
+                Assert.True(endScroll > scroll && end > endScroll,
+                    where + ": the wrapper does not close after the body scroll view.");
+            }
+
+            string logistics = Path.Combine("UI", "LogisticsWindowUI.cs");
+            string draw = MethodBody(ReadPreparedSource(logistics), "DrawWindow", logistics);
+            int lScroll = draw.IndexOf("GUILayout.BeginScrollView(", StringComparison.Ordinal);
+            int floor = draw.IndexOf("BeginContentFloor(", StringComparison.Ordinal);
+            int section = draw.IndexOf("DrawRouteSectionBubble(", StringComparison.Ordinal);
+            int endFloor = draw.IndexOf("EndContentFloor()", StringComparison.Ordinal);
+            int lEnd = draw.IndexOf("GUILayout.EndScrollView()", StringComparison.Ordinal);
+            Assert.True(lScroll >= 0 && floor > lScroll && section > floor
+                        && endFloor > section && lEnd > endFloor,
+                "LogisticsWindowUI.DrawWindow: the content floor must open inside the scroll "
+                + "view before the first section and close before the scroll view does.");
+        }
+
+        /// <summary>
         /// The Recordings tab draws FOUR kinds of row under one header - the recording leaf
         /// (<c>DrawRecordingRow</c>), the folder (<c>DrawGroupTree</c>), the chain / grouped
         /// block (<c>DrawRecordingBlock</c>) and the STASH virtual group

@@ -14,6 +14,8 @@ _(unreleased — entries accumulate here per commit)_
 - **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
 
 - **Dev: two lanes for the crew inventory restore at spawn.** `H72-kerbal-inventory-spawn` (flown green 2026-09-27) runs the in-game `KerbalInventorySpawn` category over the pad craft's seated Jeb, whose roster carries a two-part inventory, and checks the capture, the roster applier and the rollback lines. `EVA-7-crew-inventory-spawn-after-rewind` (flown green 2026-09-27) replays EVA-6's chain: Jeb carries a parachute and a seismometer, places the seismometer on EVA, the recording commits, Rewind-to-Launch, and the Space Center spawns him. It checks that his spawn restores the recorded one-part inventory rather than the two-part one the rewind put back on the roster, and that the restore runs exactly once.
+- **Dev: two lanes for the Re-Fly exit on the Hard preset.** `RF-16-hard-preset-refly-exit-merge` and `RF-17-hard-preset-refly-exit-discard` (both flown green 2026-09-27) run a re-fly on `gloops-airshow-hard`, a copy of `gloops-airshow` with the Hard flags (no revert, no quickload) built by `harness/tools/build_gloops_airshow_hard.py` and pinned byte for byte. Each requires the "Retry not offered" log line, leaves the flight through the scene-exit merge dialog and commits (RF-16) or discards (RF-17) the attempt, and forbids any revert.
+- **Dev: H22 no longer fails on a save landing inside the mission-reveal test.** The in-game `MissionRevealInGameTests` built trajectory points with no body name; a stock save that landed while the test held its synthetic trees made the binary sidecar writer throw and log four errors. The points now carry a body name and the test removes any sidecars that save wrote. Test-only; no player-visible change.
 - **Dev: a lane for auto-hire after a rewound hire.** `AH-1-auto-hire-reserved-applicant` (flown green 2026-09-27) runs a new in-game test, `AutoHireReservation`, on a fresh career: it gives the first applicant a committed hire later in the timeline (the state a rewind to before that hire leaves), turns on the Auto-Hire Crews difficulty option and runs stock's own crew fill on a three-seat pod two kerbals short. It checks that auto-hire passes over the reserved applicant for each short seat, never reaches the hire refusal, hires and seats other kerbals and seats nobody twice, then puts the roster, funds, ledger and difficulty option back.
 - **Dev: lanes for the per-recording loop cap and the rewind read-back check.** `OC-1-overlap-cap-per-recording` loops one injected recording on its own toggle faster than its length / 20 and checks that playback slows the relaunches to keep at most 20 copies (`auto-adjusted (cap reached)`) and that old copies disappear; flown and armed. The ghost lifecycle check gains a `peakLive` count (the most copies of one recording alive at once). `RB-1-rewind-readback-divergence` and its control `RB-2-rewind-readback-within-range` fly a recovery and then a Re-Fly that brings the recovered vessel back; RB-1's first flight found that the recovery money is not taken back (todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED). With that fixed, RB-1 now shows the first live flag of the rewind read-back check (the recovery value comes off after a post-rewind-point hire) and RB-2 shows the same retirement staying within range without the hire. Both lanes are flown.
 - **Dev: the automated tests now gate on 38 more save-structure checks.** Report-only checks
@@ -1287,6 +1289,16 @@ _(unreleased — entries accumulate here per commit)_
   finishes its replay and disappears at the recording's end, along with its map-view orbit.
   A refusal saved in an existing game is checked again under the new rule when the game loads,
   except a vessel that already died when it spawned, which stays refused. Ruling 2026-09-27.
+- **Every column of the Missions and Logistics windows can be reached on a 1280 px screen.**
+  Both windows are laid out wider than 1280 px (Missions 1355, Logistics 1410), and nothing
+  kept a window on the screen, so on a 1280x720 game window their right-hand columns were
+  drawn off the edge and could not be reached. A Parsek window that cannot fit the screen at
+  its own width is now made as wide as the screen and moved onto it, and its table scrolls
+  sideways: in the Missions window the column headers scroll together with the rows, so every
+  column stays under its header, and the Close button and the help line stay in place. Such
+  a window cannot be dragged wider than the screen, and it returns to its normal width when
+  the screen is large enough again. On a screen the window already fits, nothing changes: it
+  stays where you put it, even partly off-screen.
 - **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
   its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
   merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier
@@ -1339,7 +1351,6 @@ _(unreleased — entries accumulate here per commit)_
   - Recording while Hack Gravity is on now writes one warning to KSP.log: orbits recorded under
     changed gravity replay at the wrong rate once gravity is back to normal. Nothing else
     changes.
-
 - **Kerbals keep the inventory they carried when their vessel reappears.** A vessel that
   appears at the end of a recording used to give each kerbal the inventory he has on the roster
   now, not what he carried at the end of the flight, because a kerbal's own inventory is stored
@@ -4957,6 +4968,14 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **Automated testing: the wide windows at 1280x720.** New automation-only `UiAction op=state
+  window=missions key=scrollX value=<px>` drives the Missions window's horizontal scroll
+  (read back as the settled, clamped offset; 0 while the window fits), mirrored in hlib. The
+  `op=rect` op now applies the same screen fit a window takes before it draws, so a rect
+  commanded wider than the screen reads back at the screen width with `clamped=true`. New
+  operator-tier census lane `GUI-29-census-wide-windows-1280` photographs the Missions
+  window (both tabs, scrolled left and right) and Logistics on the 1280x720 frame.
 
 - **Removed the unused per-recording and per-milestone resource-cost helpers.**
   `ResourceBudget`'s `CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,

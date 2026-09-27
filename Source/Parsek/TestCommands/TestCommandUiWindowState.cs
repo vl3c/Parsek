@@ -25,7 +25,7 @@ namespace Parsek.TestCommands
     /// <summary>
     /// Pure decision / payload half of <c>UiAction op=state</c>: the automation-only op that
     /// drives a window's SCALAR view state - the filter toggles, the archive filters, the
-    /// time-range preset and the scroll offset. (The Recordings tab's `expandedStats` key
+    /// time-range preset and the scroll offsets. (The Recordings tab's `expandedStats` key
     /// went with its Info toggle, removed 2026-09-26.)
     ///
     /// <para><b>WHY A SEPARATE OP FROM <c>op=expand</c>.</b> <c>expand</c> drives SETS of
@@ -77,7 +77,7 @@ namespace Parsek.TestCommands
 
         /// <summary>The open-valued half of the grammar, for the keys that are not bools.
         /// SPELLED <c>value</c> and deliberately NOT a closed-vocabulary row on the harness
-        /// side: the two value keys take different shapes (a preset NAME, a scroll OFFSET),
+        /// side: the value keys take different shapes (a preset NAME, a scroll OFFSET),
         /// so the check is per key and lives beside the key table.</summary>
         internal const string ValueArg = "value";
 
@@ -90,6 +90,7 @@ namespace Parsek.TestCommands
         internal const string CustomRangeKey = "customRange";
         internal const string PresetKey = "preset";
         internal const string ScrollYKey = "scrollY";
+        internal const string ScrollXKey = "scrollX";
         internal const string ArchivedMissionsKey = "archivedMissions";
 
         // ----- the time-range presets -----
@@ -161,6 +162,12 @@ namespace Parsek.TestCommands
 
             // The Missions tab's own archive filter, in MissionStore's HIDE sense.
             NewKey(ArchivedMissionsKey, UiStateKeyKind.Bool),
+
+            // The window's HORIZONTAL scroll offset in pixels (both tabs share it). It only
+            // exists while a narrow screen caps the window below its natural width
+            // (WideWindowScroll); on a screen the window fits, the read-back is 0. A census
+            // needs it to photograph the right-hand columns of a capped window.
+            NewKey(ScrollXKey, UiStateKeyKind.Value),
         };
 
         private static UiStateKeySpec NewKey(string key, UiStateKeyKind kind)
@@ -331,7 +338,7 @@ namespace Parsek.TestCommands
                 out want, out rejectReason);
         }
 
-        /// <summary>Parses <c>key=scrollY</c>'s <c>value=</c>: a finite, non-negative,
+        /// <summary>Parses <c>key=scrollY</c>'s and <c>key=scrollX</c>'s <c>value=</c>: a finite, non-negative,
         /// invariant-culture number within <see cref="MaxScrollOffset"/>.</summary>
         internal static bool TryParseScrollOffset(string raw, out float offset,
                                                   out string rejectReason)
