@@ -90,11 +90,38 @@ recovery through `MergeJournalOrchestrator.RunFinisher`, mid-session `MarkerVali
 a pre-session undock and a legacy marker (both still refused), and the pure `IsSessionSeparationStop` gates.
 Mutation: passing a null marker to `AppendRelations` reds exactly the three undock-merge cells.
 
-**No live lane.** No committed fixture can host it: the only Undock Rewind Point
-(`bdock-recorded` / `bdock-second-dock-recorded`, bp `857e997a`) splits a two-vessel docked pair into two
-single vessels, so re-flying either half can undock only after docking again, and a session-time dock
-closes the fork `Docked` (already validated). A host needs a Rewind Point whose slot vessel is itself a
-docked assembly at the rewind point (a three-body stack), which is a new harvest flight plus mission work.
+**No live lane (feasibility checked 2026-09-27, deferred on cost).** A host needs a Rewind Point whose
+slot vessel is itself a docked assembly, so the re-flown fork can undock without docking first (a
+session-time dock closes the fork `Docked`, a path that already validates). What the committed
+fixtures hold:
+- **No such Rewind Point exists.** All ten RP quicksaves (`bdock-recorded` 3, `bdock-second-dock-recorded`
+  4, `refly-autopilot-recorded`, `refly-split-crewed-recorded`, `refly-split-crewed-merged`; none under
+  `Source/Parsek.Tests/Fixtures/`) carry docking ports only in `Ready` / `Disengage`. The only Undock RP
+  (bp `857e997a`) splits a docked pair into two single vessels.
+- **No in-run producer exists either.** The only docked vessel in any fixture is
+  `bdock-second-dock-recorded`'s Station + third Kerbal X (pid 3620499050). Its two `dockingPort2` join the
+  two `mk1-3pod` noses, so undocking yields two single vessels, and its only decouplers (the two
+  `Decoupler.2` under the pods, both `istg 0`) cut away command-less service modules, which is not the
+  multi-controllable split an RP needs (`SegmentBoundaryLogic.IsMultiControllableSplit`). No vessel in
+  any fixture carries two docking ports, so no three-body chain can be formed without a new craft.
+
+Options and cost (the cap was 3 flights in total):
+- **(b) Synthetic injected preset.** `ScenarioWriter.BuildRewindPointQuicksave` clones the donor save's
+  first vessel for every slot and restamps only the vessel identity and the root part pid, so a donor of
+  `bdock-second-dock-recorded` would give a genuinely docked slot vessel. Needed: a per-slot donor (one
+  donor for both slots stacks two identical Station clones on one spot), a synthetic origin tree whose
+  Undock branch point never happened, an undock-only mode for `d5_redock` (it re-docks today, which
+  closes the fork `Docked`), and the spec. Nominally 2 flights, realistically 3-4: a cloned docked
+  vessel has never been loaded through a Re-Fly, and synthetic RP origins have caused a fixture-shaped
+  divergence before (the `BuildRewindPointQuicksave` R1 note). It also proves only the session half
+  live, not an RP authored over a docked slot.
+- **(c) Harvest flight.** A new craft with two docking ports (or a docking that keeps a probe-cored
+  lower stage attached so a later staging leaves a controllable docked slot), a launch, rendezvous and
+  dock mission of BDOCK-2's shape (which took 4 flights), a harvest, then the lane's reading and arming
+  runs: about 4-6 flights.
+
+Neither fits the cap. The fix stands on the unit and mutation evidence above. Revisit when a two-port
+craft or a docked-assembly harvest lands for another reason, since (c) then costs only the lane.
 
 ## ~~REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA: a separation slot whose vessel put a crew member out on EVA was refused `downstreamBp`~~ [FOUND 2026-09-27 behind REFLY-SEPARATIONS-ONLY; OWNER DECISIONS 2026-09-27 (interview); IMPLEMENTED 2026-09-27, branch `refly-through-eva`]
 
