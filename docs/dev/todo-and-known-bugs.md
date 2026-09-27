@@ -499,6 +499,19 @@ KSP-SETTINGS-AUDIT-2026-09-26 above (investigations in the session scratchpad, n
   hold: '<name>' lost until the respawn although a later flight extends the hold`. Cells:
   `KerbalDeathRespawnTests.G6_*`, `IsLossHoldAt_Cases`,
   `ComputeNextReleaseUT_IncludesARespawnInsideAnExtendedHold`.
+- ~~3. `AdvancedParams.AllowNegativeCurrency` (Moderate / Hard): reserved funds and science
+  were already protected (every voluntary stock spend is gated on the patched live pool), but
+  with the pool legitimately negative after an involuntary debit (a contract failure
+  penalty) `PatchFunds` floored its target at 0, so the uplift guard logged a false "GUARDED
+  UPLIFT ... missing spending channel" WARN on every recalc plus a once-per-session toast,
+  and an authoritative recalc (rewind, re-fly) lifted the deficit to 0.~~ FIXED 2026-09-27:
+  with the flag on (`KspStatePatcher.ReadAllowNegativeCurrency`, null-guarded, test seam
+  `AllowNegativeCurrencyProviderForTesting`) the funds and science patch targets are the
+  unfloored projected minimum (`ResolveNegativeCurrencyPatchTarget` over
+  `GetProjectionMinBalance`) whenever the 0 floor is what hides it; flag off unchanged. One
+  rate-limited Verbose line when the unfloored target is used. Accepted consequence (judgement
+  call, not an owner ruling): on Moderate / Hard a committed future that overdraws shows a
+  negative live pool after a rewind, as stock would. Cells: `AllowNegativeCurrencyPatchTests`.
 
 Handled on other branches (not here): Set Orbit / Set Position teleports inside a live
 recording (teleport seam), the launch-site tag on recordings, retirement of flights ending at

@@ -1223,6 +1223,12 @@ _(unreleased — entries accumulate here per commit)_
   no stand-in, exactly as with the death alone; from the respawn on the later flight holds him
   as usual and a stand-in covers his seat, which now appears at the respawn without waiting for
   a scene change.
+- **No false "Held your funds at the spent value" message on Moderate or Hard when your
+  funds go negative.** Those presets let stock take funds (or science) below zero, for
+  example with a failed contract's penalty. Parsek treated the negative balance as a spend it
+  had missed: it showed the message, wrote a warning to the log on every recalculation, and a
+  rewind reset the balance to zero. It now keeps the negative balance stock would show; on the
+  presets that keep currency at zero nothing changes.
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:
