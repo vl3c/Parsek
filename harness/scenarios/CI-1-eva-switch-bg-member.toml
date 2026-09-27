@@ -147,7 +147,7 @@ steps = [
 #       member the switch landed on (parentRecId = that member's recording id; the
 #       standalone route reads `<standalone>` and writes no branch point). GS-3
 #       declined the same claim because the segment writes no ChainId; the ChainId
-#       chain is the EVA-board / boundary-split segment chain (ChainSegmentManager), a
+#       chain is the EVA-board / boundary-split segment chain (the retired chain commit), a
 #       different topology, and this lane names the distinction rather than
 #       inheriting the refusal. GS-3 now claims it on the same tokens.
 #   D5  `eva-branch`            <- `Tree branch created: type=EVA`, as EVA-1/3/4 claim it.

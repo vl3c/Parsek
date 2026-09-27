@@ -7044,7 +7044,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     per-category BATCH_COMPLETE line plus the `category=multi:<n>` aggregate.
 
     WHY THE FAMILY EXISTS. Roughly eighteen in-game categories hold one or two
-    tests each (`Bug289`, `ContinuationIntegrity`, `ForwardRender`,
+    tests each (`Bug289`, `ForwardRender`,
     `PartEventTiming`, the small `Pipeline-*` four, `RecordingStore`,
     `ResourceManifest`, `StockWarpLimits`, `TestRunner`, `Watch`, `Unity`, ...).
     Under the pre-2026-09-07 rule each would have cost its own KSP boot, which is
@@ -7082,7 +7082,6 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
         "LT-1-long-tail-flight": ("FLIGHT", {
             "BackgroundSeeder": 2,
             "Bug289": 2,
-            "ContinuationIntegrity": 2,
             "DisabledHoverEcho": 1,
             "FinalizeLimbo": 2,
             "Flight": 2,
@@ -16854,7 +16853,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                 "state": "false"})
         self.assertEqual([], ok)
         errors = hlib.validate_ui_action_step(
-            0, {"op": "state", "window": "timeline", "key": "expandedStats",
+            0, {"op": "state", "window": "timeline", "key": "archivedMissions",
                 "state": "true"})
         self.assertTrue(any("is not a state key of window" in e for e in errors), errors)
         # A window with no scalar state names the two that have it.
@@ -17132,7 +17131,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
 
     def test_the_state_key_table_mirrors_the_c_sharp_one_PER_WINDOW(self):
         """Reads OUTSIDE harness/. The union cell above cannot see a key MOVING between
-        windows - `expandedStats` migrating from missions to timeline keeps the union
+        windows - `archivedMissions` migrating from missions to timeline keeps the union
         identical - and a key on the wrong window is a typed REJECTED after a whole KSP
         boot. So this cell parses the two per-window ARRAYS out of the C# and compares each
         one ordered.

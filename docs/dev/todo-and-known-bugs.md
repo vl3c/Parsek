@@ -15,6 +15,120 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-SEPARATIONS-ONLY: an EVA authored a Rewind Point and a stranded or dead EVA kerbal surfaced as a Re-Fly~~ [OWNER RULING 2026-09-27; IMPLEMENTED 2026-09-27, branch `refly-separations-only`]
+
+**Ruling (Vlad, 2026-09-27).** "Re-Fly is for vessel separations only (staging, decoupling,
+undocking). An EVA is not a separation event and never gets a Re-Fly. We are not responsible for
+every player mistake: they can F9 or Discard if something happens. The point of Re-Fly was to be
+able to return-land boosters etc., not to prevent mistakes."
+
+**What changed.**
+- `RewindPointAuthor.Begin` refuses an EVA BranchPoint before writing anything
+  (`RewindPointAuthor.IsReFlySplitType`; every authoring path funnels through `Begin`) and logs
+  `[Rewind] Split type=EVA: no Rewind Point (Re-Fly is for vessel separations only) bp=<id>`.
+  Undock / JointBreak / Breakup authoring is unchanged. An EVA stays a split in the recording DAG.
+- `UnfinishedFlightClassifier` never qualifies an EVA kerbal (chain tip or subject carrying
+  `EvaCrewName`), whatever its terminal, `Destroyed` included: the `strandedEva` reason is gone and
+  the verdict is the non-qualifying `evaNotSeparation`. The candidate-shape and stash-shape helpers
+  refuse the same recordings, and a slot of a legacy RP authored at an EVA BranchPoint is refused
+  with the same reason on the vessel side too. The commit-time stable-EVA auto-seal path
+  (`RecordingStore.ShouldAutoSealStableEvaCommitSlot`) and the EVA branches of
+  `SupersedeCommit.IsTerminalFailureReFlyOutcome` / `RequiresSlotAwareMergeClassification` were
+  dead after that and are removed.
+- `LoadTimeSweep.SweepLegacyEvaRewindPoints` reaps RPs an older build authored at an EVA split:
+  their `CommittedProvisional` slot tips are concluded to `Immutable`, then the ordinary
+  `RewindPointReaper` deletes the quicksave, the scenario entry, the BranchPoint back-reference and
+  the contract snapshots. The RP a live `ReFlySessionMarker` names and a still session-provisional
+  RP are kept (reaped on a later load). One summary line:
+  `[LoadSweep] Legacy EVA Rewind Points (Re-Fly is for vessel separations only): found=... reaped=...`.
+  The operator's c1 career (`Source/Parsek.Tests/Fixtures/C1Career`) carries one such RP
+  (`rp_3bfc1cfd...`, EVA BranchPoint `bdc98328...`); no committed harness fixture does.
+- Unchanged by design: an EVA taken DURING a Re-Fly of a vessel is still a structural mutation that
+  auto-seals the slot on merge (`ReFlyAutoSealPreview`, `SupersedeCommit.HasReFlySessionStructuralMutation`).
+
+**Harness.** `ST-2-rewind-point-quicksave` authored its rewind point through an EVA split; it is
+re-hosted on GS-2's in-orbit decoupler road (`gs2-orbital-stack` + mission
+`gs2_orbital_probe_deploy`). `EVA-3-multi-kerbal` now requires the no-RP line and forbids an EVA
+RewindPoint begin line.
+
+**Tests.** `ReFlySeparationsOnlyTests` (authoring gate, reap decision, sweep), rewritten EVA cells in
+`TreeCommitTests` and `UnfinishedFlightsMembershipTests`, in-game `StableLeafUnfinishedFlightsRuntimeTest`
+updated. Design: `docs/parsek-rewind-to-separation-design.md` section 1.5.
+
+## ~~RECORDINGS-TAB-ROUND-2026-09-26: an approved set of Recordings-tab presentation changes~~ [FILED AND FIXED 2026-09-26, branch `recordings-tab-round`]
+
+A reviewed list of presentation changes to the Recordings tab (no recording data, schema or
+store behaviour changes): folder Duration summed its members' durations (every booster, debris
+piece and EVA flying at the same time counted again); a mission's auto subfolders repeated the
+mission name under the mission row; the Period cell drew a greyed value + unit while Loop was
+off; and the Rewind column repeated one launch's `R` on the mission folder, its flight block
+and the flight's first row.
+
+Fix (commit 1 of the round): folder Duration and the folder and chain Duration sort keys are
+the covered span (`RecordingsTableUI.GetGroupSpanDuration`, dataless members skipped); the
+STASH row's Duration is blank. `GroupPickerPresentation.DisplayLabelUnderParent` drops a
+`parent + " / "` prefix from a subgroup's LABEL under that parent, in the table and in the
+group picker tree. The Period cell draws blank while Loop is off with
+`LoopPeriodBlankCellTooltip` as its hover. Rewind / FF is shown once: every folder and block
+row hands the R / FF target it actually DREW to its children
+(`ResolveChildEnclosingTimeTargets`), and a child whose own button would target the same
+committed index draws a blank cell (`IsTimeTargetShownByEnclosingRow`), logged on transitions
+only; STASH resets the inherited targets so its mirror rows keep their buttons.
+
+Fix (commit 2, revised by the owner's follow-up the same day): the Info toggle is REMOVED,
+with everything that existed only for it - the second (expanded) window width and its resize,
+the sort reset on collapse, the `op=state key=expandedStats` seam key (C# table, applier, hlib
+`UIACTION_STATE_KEYS`) and the short-lived `sort-column-hidden` refusal. Phase and Site are
+always-shown columns again; Pts, Dist, Start, End, MaxAlt and MaxSpd are gone from the table.
+The Status hover leads with `BuildStatusPlaceTooltip` (an EVA's `EVA from X` and
+`Ends: <FormatEndPosition>`) and `BuildStatusStatsTooltip` (`Max altitude 70.0km, max speed
+2.2km/s`); a leaf's Status shows its terminal word for debris too
+(`ResolveRecordingStatusText`) while `GetGroupStatus` keeps ignoring debris. The window keeps
+its 1355 px width (`DefaultWindowWidth`: the Missions tab and the one-line help strip budgeted
+at 189 characters are held by it); Phase is 120 px so a two-body label stays on one line, and
+the room comes from Name plus Site 90 -> 80 and Duration 80 -> 70. GUI-25's Info capture became
+a Phase-column sort capture (`ib-missions-recordings-sortphaseasc-advanced`).
+
+Fix (commit 3): a mission folder (a tree's auto-generated root group) absorbs its tree-root
+vessel's display block - key `group::treevessel:{TreeId}:{rootPid}`, or the `chain:` fallback
+identity (`ResolveRootVesselBlockKey`, `FindRootVesselBlockIndex`) - and draws its segments as
+its own rows (`FlattenAbsorbedBlock`); other vessels' blocks stay. The mission row keeps what
+that block header offered: its Loop toggle writes the absorbed members WITH the auto loop range
+and the other loopable descendants WITHOUT (`SplitAbsorbedLoopWrite`, both counts logged), and
+its Group cell becomes `G` + `S`, where `S` is the block's "every segment to folders" picker
+(`OpenForRecordings`). The block's aggregate R/FF duplicated the folder's and is dropped.
+
+Fix (commit 4): the Recordings tab (not the Missions tab, GUI-MISSIONS-WINDOW-MERGED-FIRST-
+HEADER-CELL) is on the house table styles: the pinned header opens with
+`GetTableHeaderRowStyle()` (the scrollbar gutter as its right padding, replacing the trailing
+`GUILayout.Space`), all four row kinds with `GetTableRowStyle()`, the list area with
+`GetTableBodyBoxStyle()`, and every body label style is built on `GetTableCellStyle()` (vertical
+padding kept at 0, the table's row pitch). The header's merged toggle + `#` container width is
+`HeaderMergedEnableIndexWidth`. `TableRowInsetAlignmentTests` carries a `TableSite` for the tab
+(column helpers counted through `CallWidths`) and
+`RecordingsTabEveryRowKindDrawsTheHeaderColumnSequence`, which holds the leaf, folder, block and
+STASH rows to the header's column sequence including the Info and flight-only guards
+(mutation-checked: an unguarded Watch cell in the block row reds it).
+
+## RECORDINGS-STATS-DEBRIS-MAXSPD-IMPLAUSIBLE: a debris row's MaxSpd reads 318.4 km/s over a 1.9 km flight [FILED 2026-09-26 from the recordings-tab round (census run `2026-09-21_2316_GUI-25-census-missions-state-sort-edit`, capture `ib-missions-recordings-expandedstats-advanced`). OPEN, not fixed]
+
+The Info columns of recording #27 `Kerbal X Debris` on the `interbody-route-recorded` host
+read MaxAlt `5.8km`, MaxSpd `318.4km/s`, Dist `1.9km`, 54 points, 48 s, `Destroyed, Kerbin`.
+A 48 s debris fall cannot reach 318 km/s; the point velocities of such a flight are a few
+hundred m/s.
+
+Likely cause (unverified, read off the source only): `TrajectoryMath.AccumulateOrbitSegmentStats`
+takes the vis-viva PERIAPSIS speed of every orbit segment as a max-speed candidate. A
+sub-orbital debris segment's periapsis sits deep inside Kerbin (radius near zero), so
+`sqrt(gm * (2 / periRadius - 1 / sma))` runs away. The mean-speed distance term uses the same
+segment and may be similarly off. A fix would skip, or clamp at the surface, a segment whose
+periapsis lies below the body's radius; verify against the fixture's sidecar first.
+
+---
+## ~~SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: every repeat submission of a science subject re-credited the earlier ones~~ [FILED AND FIXED 2026-09-26, branch `fix-deployed-science-ledger`]
+
+---
+
 ## ~~H22-MISSION-REVEAL-FIXTURE-POINTS-HAVE-NO-BODY: H22 red on a `[Parsek][ERROR]` from a save that landed inside the mission-reveal in-game test~~ [FILED AND FIXED 2026-09-26, branch `fix-h22-reveal-fixture`; PARSEK-FAIL on the daily tier of 2026-09-26 (run `2026-09-26_1946`), reproduced on origin/main `26293f0ae` (run `2026-09-26_2024`)]
 
 `H22-ui-complexity-mode` classified PARSEK-FAIL (`logContracts.forbidden matched: \[Parsek\]\[ERROR\]`)
@@ -173,6 +287,8 @@ reference-local vector to world and then into the vessel frame. Both have unit t
 `2026-09-26_1849`, armed re-flight `_1853`, both PASS attempt 1. The capture stored
 `|angVel|=0.8000` and the replay took spin-forward, so the ghost turned at the recorded
 rate. D17 `persistent-rotation` is claimed.
+
+---
 
 ## ~~GHOST-COMMNET-RELAYS-UNDER-REMOTETECH: ghost CommNet relays under RemoteTech~~ [FILED 2026-09-26 by the operator rulings of that day, branch `operator-rulings-0926`. NOT PLANNED]
 
@@ -422,7 +538,7 @@ fix needs that read first.
 
 ---
 
-## CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. OPEN, cleanup; needs a ruling because it touches the committed-list index contract]
+## ~~CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL: chain identity and continuation-sampling state that no producer sets any more~~ [FILED 2026-09-26 by the chain-commit removal, branch `remove-chain-commit`. RULED REMOVE 2026-09-27 (operator) and REMOVED, branch `remove-chain-state`]
 
 The chain-segment commit path (`ChainSegmentManager.CommitSegmentCore`, its four wrappers,
 `StartUndockContinuation` and their `ParsekFlight` / `FlightRecorder` gates) was removed as
@@ -452,6 +568,27 @@ The `Recording` revert-rollback fields `ContinuationBoundaryIndex` and the
 `RecordingStore` rollback that reads them and the hydration-repair copy go with this
 cleanup. Recording-side chain DATA (`ChainId`, `ChainIndex`, `ChainBranch`,
 `ParentRecordingId`, `EvaCrewName`) is serialized and read by playback and must stay.
+
+Fix: removed as ruled. Dead-ness was re-derived from the full caller set, not from the
+comments: every write of the chain identity fields and `PendingBoundaryAnchor` assigned
+`null` / `false` / `0` or restored a saved copy of the same field, so every reader saw an
+empty chain. Gone: `ChainSegmentManager.cs` whole (its only remaining field, `ActiveTreeId`,
+was read solely by `StartRecording`'s stale-chain guard, whose only effect with the chain
+fields gone was a Warn line and clearing itself), the recorder's `BoundaryAnchor` (its only
+setter copied `PendingBoundaryAnchor`), the `ParsekFlight` bake-and-stop and destroy blocks
+with their `MarkContinuationVesselDestroyed` / `FormatContinuationVesselDestroyedMessage`
+helpers, `AutoDiscardActiveTreeCore`'s `chainStopReason`, `StartRecording`'s `isContinuation`,
+the `Recording` rollback fields (`[NonSerialized]`, never in a save or sidecar key, so no
+schema question) with `RecordingStore.RollbackContinuationData` and the hydration-repair
+preserve, the `chain=` / `chain.*` `RecState` tokens (no harness spec, harness Python or
+xUnit log capture pinned them; `RecorderStateObservabilityTests` now asserts their
+absence) and the in-game `ContinuationIntegrity` category (LT-1 re-pinned mechanically to
+30 constituents, `total=56 passed=49 skipped=7`). The committed-list contract's subscriber
+list (CLAUDE.md, `RecordingStore.CommittedListNotifications.cs`) drops the chain
+continuation indices. Left: `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`'s
+`isActiveChainMember` parameter and `TrajectoryPlaybackFlags.isActiveChainMember`, now
+`false` at every caller; removing them reaches the playback-decision API and its tests,
+outside this ruling.
 
 ---
 
@@ -578,7 +715,7 @@ Pure helpers `GroundPartPlacement` + `ParsekFlight.GroundPartPlacement.cs`; cell
 `GroundPartPlacementTests`; generators `RecordingBuilder.AsPlacedGroundPart` and
 `ScenarioWriter.GroundPartPlacedBranch` / `MaterializeTree(..., branchPoints)`. EVA-5 is re-armed (no
 `[expectedFail]`) and claims D7 `inventory-place-remove`. Follow-ups filed:
-REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS, EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE.
+REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS (closed as moot 2026-09-27), EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE.
 
 
 **Fingerprint.** The offline analyzer's `INV4-PARTEVENT-PID` rule, `unresolved-pid`:
@@ -640,7 +777,7 @@ which starts count as a placement. Also measured on `2026-09-25_2341`: one pick-
 `onGroundSciencePartRemoved` TWICE (`ModuleGroundPart.RetrievePart`, then `OnRetractCompleted` about 4.7 s
 later), so the recording carries two `InventoryPartRemoved` events per pick-up.
 
-## REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS: re-flying an EVA kerbal does not supersede a ground part it placed in the re-flown interval [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. DESIGN DECISION, open]
+## ~~REFLY-CLOSURE-OMITS-PLACED-GROUND-PARTS: re-flying an EVA kerbal does not supersede a ground part it placed in the re-flown interval~~ [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. CLOSED AS MOOT 2026-09-27 by REFLY-SEPARATIONS-ONLY, branch `refly-separations-only`]
 
 A placed ground part's member recording has its own pid, so the Re-Fly supersede closure
 (`EffectiveState.ComputeSubtreeClosureInternal`) treats it as a side-off branch: the same-pid gate skips
@@ -651,6 +788,20 @@ kept today. Options: (1) admit GroundPartPlaced children whose branch point's pa
 dequeued recording and whose start is after the rewind UT (the placement is the kerbal's action, not a
 separate vessel's flight), or (2) keep the side-off policy. The switch-segment scoped Discard already
 owns the member (it walks GroundPartPlaced children by parent id).
+
+**Closed as moot (2026-09-27).** With no EVA Re-Fly the placing kerbal can never be a Re-Fly root:
+an EVA authors no Rewind Point and an EVA kerbal never qualifies as an Unfinished Flight
+(REFLY-SEPARATIONS-ONLY). No other Re-Fly reaches the member either. A Re-Fly root is now always a
+vessel slot of a separation RP; `EffectiveState.ComputeSubtreeClosureInternal` walks that vessel's
+branch points and at the EVA BranchPoint skips the kerbal's recording as a side-off child (both pids
+known and different, `sideOffSkips`), so the kerbal's recording is never dequeued and its
+`GroundPartPlaced` child is never visited. `EnqueuePidPeerSiblings` needs the same pid,
+`EnqueueChainSiblings` the same chain, and `EnqueueDebrisChildren` admits only `IsDebris` children
+with a `ParentAnchorRecordingId` (a placed-part member is neither). So re-flying the vessel keeps the
+kerbal's EVA recording and every part it placed, which is the consistent answer: the placement
+belongs to the kerbal, and the kerbal is not re-flown. The one residual path is a Re-Fly session a
+player started on a legacy EVA Rewind Point before upgrading and has not concluded; it ends under the
+old side-off policy, and its RP is reaped on the next load.
 
 ## ~~EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind~~ [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. CLOSED 2026-09-27, branch `eva-placed-spawn-lane`]
 

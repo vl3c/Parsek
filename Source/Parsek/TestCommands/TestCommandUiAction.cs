@@ -85,8 +85,7 @@ namespace Parsek.TestCommands
 
         /// <summary><c>op=state window=&lt;name&gt; key=&lt;name&gt; state=|value=</c>: drive one
         /// of a window's SCALAR view states - a filter toggle, an archive filter, the
-        /// Recordings tab's expanded-stats columns, the Timeline's time-range preset or its
-        /// scroll offset. The sibling of <c>expand</c> for the states that are single fields
+        /// Timeline's time-range preset or its scroll offset. The sibling of <c>expand</c> for the states that are single fields
         /// rather than sets of keys; the key table lives in
         /// <see cref="TestCommandUiWindowState"/>.</summary>
         State = 17,

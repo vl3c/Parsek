@@ -1930,6 +1930,50 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Re-Fly is for vessel separations only: EVA kerbals no longer appear in Unfinished Flights and
+  cannot be re-flown.** Rewind Points are made when a vessel stages, decouples or undocks into two
+  or more controllable pieces, so a booster or lander can be flown again from the moment it
+  separated. Going EVA is not a separation: it no longer makes a Rewind Point, and an EVA kerbal
+  (stranded, crashed or killed) is never listed in Unfinished Flights. If something goes wrong on
+  an EVA, use F9 (quickload) or Discard the flight. Rewind Points an earlier version made at an
+  EVA are removed when the save loads (their quicksave file is deleted and the slots they held
+  open are closed), except one a Re-Fly in progress is using, which is removed after that Re-Fly
+  ends. Nothing else about EVAs changes: they are still recorded and replayed as before.
+- **Recordings tab: a presentation round.** How the table shows recordings changes; the one
+  data effect is that a mission folder's Loop box now also sets the launched vessel's loop
+  range, as that vessel's own chain row did before (see the last bullet).
+  - A folder's Duration is now the time its flights cover (the latest end minus the earliest
+    start), the figure a chain row already showed, instead of a sum that counted every booster,
+    debris piece and EVA flying at the same time again. Sorting by Duration uses the same
+    figure for folders and chains. The STASH row leaves Duration blank: it lists re-flyable
+    separations, not a flight.
+  - A subfolder drawn under its mission drops the repeated mission name: `R.1-S.1 / Debris`
+    reads `Debris` under `R.1-S.1` (the same in the Manage Groups / Set Parent Group tree).
+    The stored name, renaming and the census seam keep the full name.
+  - The Period cell is blank while a row's Loop is off, instead of a greyed value and unit;
+    hovering it still says `Turn Loop on for this flight to set its period`.
+  - Rewind / FF is shown once: a row drawn under a folder or flight row that already offers
+    the same R (or FF) target leaves its cell blank. A row whose button goes somewhere else
+    keeps it, and the rows inside STASH keep theirs (STASH draws no R of its own).
+  - The Info button and its extra columns (MaxAlt, MaxSpd, Dist, Pts, Start, End) are gone. A
+    row's Status hover now says where the flight ended (`Ends: Shores, Kerbin`, `Ends: Orbiting
+    Kerbin`), the vessel an EVA started from (`EVA from Kerbal X`) and how high and fast it
+    went (`Max altitude 70.0km, max speed 2.2km/s`). The Phase column is wider (120 px), so
+    two-body labels such as `Kerbin -> Mun exo` fit on one line; the window keeps its 1355 px
+    width (the Missions tab and its one-line help strip need it), and the room comes out of
+    the Name column and slightly narrower Site (80) and Duration (70) columns.
+  - Debris rows show how they ended (`Destroyed`, `Landed`, ...) in Status instead of `past`.
+    A folder's Status still ignores its debris, so a mission does not read `Destroyed`
+    because its booster fell.
+  - A mission folder no longer repeats its launched vessel as a flight row of its own: that
+    vessel's segments are listed directly under the mission (other vessels' flight rows stay).
+    The mission row takes over what the removed row offered: its Loop box loops the launched
+    vessel's segments the way that row did (trimming each loop to the interesting part) and
+    the rest of the mission the way the folder always did, and its Group cell gains an `S`
+    button that picks folders for every segment of the launched vessel at once.
+  - The table now uses the same row, header, list-area and cell styles as the Career, Kerbals,
+    Real Spawn Control and Structure tables, so every cell's text starts exactly under its
+    heading (it sat one pixel to the right).
 - **Removed a dead debris-persistence override.** At recording start Parsek looked for a
   `GameSettings` debris-count field to raise to 10. KSP 1.12 has no such field, so the code
   only ever logged `No debris persistence field found`; it and its tests are gone.
@@ -4826,6 +4870,27 @@ _(unreleased — entries accumulate here per commit)_
   CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL). Comments in the test-command seam, `hlib.py`,
   the GL-2 spec and the coverage registry that called the dock chain path a live producer of
   the sub-2-point drop are corrected.
+
+- **Removed the chain identity and continuation-sampling state the chain-commit removal left
+  behind.** Nothing has set it since the chain-segment commit path went, so every read of it
+  saw an empty chain and every continuation block was skipped. Removed: `ChainSegmentManager`
+  (chain identity, pending transition and boundary-anchor fields, continuation and undock
+  continuation sampling, and its committed-list subscriber that rebound continuation indices
+  after optimizer merges, splits and deletes), the recorder's `BoundaryAnchor`, the bake-and-stop
+  blocks in `ParsekFlight` on scene change, commit, discard, tree branch and vessel destroy,
+  `StartRecording`'s always-false continuation flag, and the `Recording` revert-rollback
+  fields `ContinuationBoundaryIndex` / `PreContinuationVesselSnapshot` /
+  `PreContinuationGhostSnapshot` with the `RecordingStore` rollback and the hydration-repair
+  copy that read them. Those three fields were `[NonSerialized]` and never written to a save,
+  so no save format changes; the chain data saved on recordings (`ChainId`, `ChainIndex`,
+  `ChainBranch`, `ParentRecordingId`, `EvaCrewName`) is kept and still played back. The
+  committed-list index contract keeps its other subscribers (engine, held ghosts, map
+  presence, watch mode, KSC and Tracking Station). Diagnostics: the `RecState` line no longer
+  carries its `chain=` / `chain.*` fields, `StartRecording` no longer logs a
+  `clearing stale chain state` warning, and `FallbackCommitSplitRecorder` no longer appends
+  a chain suffix. The in-game `ContinuationIntegrity` category (2 cells over the removed
+  fields) is deleted, so the LT-1 long-tail lane runs 30 categories (aggregate
+  `total=56 passed=49 skipped=7 category=multi:30`). No gameplay change.
 
 - **Dev tooling: the fixture harvest clears rewind-save names inside rewind-point
   quicksaves too.** `harness/tools/harvest_bdock_station.py` drops the saves that

@@ -423,7 +423,7 @@ which returns 2 in Advanced and **0** in Basic - deliberately zero, not one, bec
 one-entry toolbar is noise and the title already carries the identity (`:174-186`). Three
 consumers: `ClampTabIndexForMode` (`:202`), the tab-bar draw guard (`:1549`), and a content
 dispatch pin (`:1562`). So Basic hides the Recordings tab button and with it the whole table,
-the Info / New Group footer buttons, and every route to the group picker - which is why
+the New Group footer button (the Info button was removed 2026-09-26), and every route to the group picker - which is why
 `CloseGroupPickerForModeChange` (`:231`) exists.
 
 **Missions tab.** Row model: one row per physical vessel or EVA kerbal, built by
@@ -477,13 +477,23 @@ cell, Fly/Seal, chapter headers, partner rows.
 
 **Recordings tab.** A fixed 21-cell header (`:1196`) outside the scroll view, then a body of
 four row kinds. Columns, left to right, with the shared header/body width constants: merged
-[toggle + `#`] 58 (`ColW_Enable` 20 + `ColW_Index` 30 + 8), `Name` expand, `Phase` 90,
-`Site` 90, `Launch` 110, `Duration` 80, then the Info-only block `MaxAlt` 65 / `MaxSpd` 65 /
-`Dist` 65 / `Pts` 35 / `Start` 120 / `End` 120 (drawn only when `showExpandedStats`, `:1262`),
-`Status` 120, `Group` 60, `Loop` 60, `Period` 90, `Watch` 50 (flight only, `:1346`),
-`Rewind` 60, `Re-Fly` 90, `Archive` 80, plus a scrollbar-width spacer (`:1384`). Every header
-cell is forced to `ColHeaderHeight = 32` (`:73`). Six headers are sortable (`#`, Name, Phase,
-Site, Launch, Duration, Status); `SortColumn.LaunchTime` ascending is the default (`:135`).
+[toggle + `#`] 58 (`ColW_Enable` 20 + `ColW_Index` 30 + 8), `Name` expand, `Phase` 120,
+`Site` 80, `Launch` 110, `Duration` 70, `Status` 120, `Group` 60, `Loop` 60,
+`Period` 90, `Watch` 50 (flight only, `:1346`), `Rewind` 60, `Re-Fly` 90, `Archive` 80. Since
+2026-09-26 the table is on the house table styles: the pinned header row opens with
+`GetTableHeaderRowStyle()` (the scrollbar gutter is its right padding; it was a trailing
+spacer), the four row kinds with `GetTableRowStyle()`, the list area with
+`GetTableBodyBoxStyle()`, and the body labels are built on `GetTableCellStyle()`
+(`TableRowInsetAlignmentTests`, including a four-row-kind column-sequence gate). Every header cell is forced to `ColHeaderHeight = 32`
+(`:73`). Seven headers are sortable (`#`, Name, Phase, Site, Launch, Duration, Status);
+`SortColumn.LaunchTime` ascending is the default. The Info toggle and its columns (`MaxAlt` /
+`MaxSpd` / `Dist` / `Pts` / `Start` / `End`) were REMOVED 2026-09-26 with its second window
+width and its `op=state key=expandedStats` seam key; the window stays 1355 px
+(`DefaultWindowWidth`), and the 120 px Phase column (one line for `Kerbin -> Mun exo`) came
+out of Name, Site (90 -> 80) and Duration (80 -> 70). The Status cell's hover leads with where
+the flight ended (`Ends: ...`), an EVA's `EVA from <vessel>` (`BuildStatusPlaceTooltip`) and
+`Max altitude <a>, max speed <v>` (`BuildStatusStatsTooltip`); a leaf's Status shows its
+terminal word for debris too, while a folder's (`GetGroupStatus`) still ignores debris.
 
 Row kinds and what each blanks: GROUP HEADER (`DrawGroupTree` `:2399`, Period and Re-Fly always
 blank), CHAIN BLOCK and GROUPED BLOCK (`:4038` / `:4048` into `DrawRecordingBlock` `:4057`;
@@ -492,6 +502,20 @@ Watch, Rewind, Re-Fly blank), and the RECORDING leaf (`:1820`, all columns). The
 separate detail row: expansion is a caret that renders CHILD rows of the same kinds, with
 box-drawing connectors (`:2283`) and per-level indents.
 
+Aggregate cells (2026-09-26 round): a folder's `Duration` is the SPAN its descendants cover
+(`GetGroupSpanDuration`: latest EndUT - earliest StartUT, dataless members skipped), the same
+figure a chain block shows, and the folder / chain Duration sort keys use it; the STASH row's
+Duration is blank. A subfolder's LABEL drops its parent's `parent + " / "` prefix when drawn
+under that parent (`GroupPickerPresentation.DisplayLabelUnderParent`; the group picker tree
+does the same), so a mission's auto subfolders read `Debris` / `Crew`. A leaf's `Period` cell is
+BLANK while its Loop is off, with the loop-off reason as the blank cell's hover
+(`LoopPeriodBlankCellTooltip`). A MISSION folder (a tree's auto-generated root group) draws
+no block row for its tree-root vessel: that vessel's segments are its own direct child rows
+(`FindRootVesselBlockIndex` / `FlattenAbsorbedBlock`), while every other vessel keeps its
+block. The mission row then writes Loop to those absorbed segments WITH the auto loop range
+and to its other loopable descendants WITHOUT (`SplitAbsorbedLoopWrite`), and its Group cell
+is `G` (folder parent) + `S` (every segment of the launched vessel, `OpenForRecordings`).
+
 Notable control semantics in the body:
 
 | control | backend | gate |
@@ -499,18 +523,17 @@ Notable control semantics in the body:
 | per-row Enable toggle | `rec.PlaybackEnabled` | never disabled. See finding P1 |
 | header select-all Enable | writes every committed recording (`:1225`) | never; ignores the filters, and the tooltip says so |
 | Loop toggle (row) | `rec.LoopPlayback` + `ApplyAutoLoopRange` (`:2057`) | blank when `ShouldSuppressRowLoopUi` (`:5544`); greyed and write-blocked when route-bound (`:2049`) |
-| Loop toggle (header / folder) | `BulkSetLoopPlayback(..., applyAutoRange: false)` (`:1336`, `:2643`) | same route gate; deliberately does NOT re-narrow the window (`:5616-5630`) |
+| Loop toggle (header / folder) | `BulkSetLoopPlayback(..., applyAutoRange: false)` (`:1336`, `:2643`); a mission folder that absorbed its launched vessel's block writes those segments with `applyAutoRange: true` (`SplitAbsorbedLoopWrite`) | same route gate (over descendants plus absorbed segments); deliberately does NOT re-narrow the window for the rest (`:5616-5630`) |
 | Loop toggle (chain / block) | `BulkSetLoopPlayback(..., applyAutoRange: TRUE)` (`:4207`) | same glyph, different semantics, by design |
 | `Archive` header toggle | `GroupHierarchyStore.HideActive` (`:1377`) | the one header toggle that writes NOTHING to a recording; it is a view filter |
 | per-row Archive toggle | `rec.Hidden` + `NotifyTimelineOfArchiveChange` | REFUSED with a Warn + ScreenMessage when the row is an Unfinished Flight (`:2158-2167`) |
 | folder Archive toggle | writes every descendant `Hidden` (`:2860`) | never. See finding P17 |
-| `G` | `groupPicker.OpenForRecording / ForChain / ForRecordings / ForGroup` | never disabled; adds later rejected by `CanAddToUserGroup` (`UI/GroupPickerUI.cs:24`) |
+| `G` (+ `S` on a mission folder that absorbed its launched vessel's block) | `groupPicker.OpenForRecording / ForChain / ForRecordings / ForGroup`; `S` is `OpenForRecordings` over the absorbed segments | never disabled; adds later rejected by `CanAddToUserGroup` (`UI/GroupPickerUI.cs:24`) |
 | `X` on a row | REMOVED 2026-09-26 (recordings are never player-deletable); was `DeleteGhostOnlyRecording` (`:4570`), NO confirmation | was only when `rec.IsGhostOnly && Mode != TrackingStation` (`:1982`, `:4611`) |
 | `X` on a folder | `ShowDisbandGroupConfirmation` (`:4399`) | only for a non-permanent group |
 | `W` / `W*` | `flight.EnterWatchMode(ri)` | `IsWatchButtonEnabled` (`:947`); column hidden outside flight |
-| `FF` / `R` | `ShowFastForwardConfirmation` (`:4496`) / `ShowRewindConfirmation` (`:4450`) | `RecordingStore.CanFastForward` / `CanRewind`, refusal as tooltip; `R` is suppressed entirely on an unfinished-flight row (`:3754`) |
+| `FF` / `R` | `ShowFastForwardConfirmation` (`:4496`) / `ShowRewindConfirmation` (`:4450`) | `RecordingStore.CanFastForward` / `CanRewind`, refusal as tooltip; `R` is suppressed entirely on an unfinished-flight row (`:3754`). SHOWN ONCE (2026-09-26): a row under a folder / block that DREW the same target (same committed index) draws a blank cell (`IsTimeTargetShownByEnclosingRow`, `ResolveChildEnclosingTimeTargets`); STASH resets the inherited targets, so its rows keep theirs |
 | `Fly` + `Seal` / `Stash` + `Seal` | `RewindInvoker.ShowDialog` / `UnfinishedFlightSealHandler.ShowConfirmation` / `UnfinishedFlightStashHandler.TryStash` | `ResolveReFlyColumnAction` (`:3416`, `:3420`) |
-| footer `Info >` / `Info <` | flips `showExpandedStats`; forces the window to 1813 px on expand and back to 1355 on collapse (`:1418-1423`) | only when the list is non-empty |
 
 Pictures: `ksc-missions-recordings-advanced` (415 nodes, 16 collapsed group rows, `Status`
 values `past` / `Destroyed` / `Splashed` / `Landed` / `Orbiting`, all 16 folder `R` buttons
@@ -520,7 +543,7 @@ picture), `ksc-missions-recordings-chain-advanced` (453 - ONE group folder open 
 block expanded inside it, the other fifteen folders shut) and
 `ksc-missions-recordings-expanded-advanced` (1915 - every folder, chain block and leaf row at
 once). No picture: STASH, the
-Info-expanded columns, the Watch column, route-bound greyed Loop toggles, any inline rename,
+the Watch column, route-bound greyed Loop toggles, any inline rename,
 the time-range filter strip.
 
 **Group picker** (window 14, `UI/GroupPickerUI.cs:193-307`): title `Set Parent Group` in
@@ -1314,7 +1337,7 @@ appendix 3 lists all of it with per-site citations; the load-bearing groups are:
 | filter-vs-write distinctions | the `Archive` header toggle is a FILTER and archives nothing (`:1366`) | it sits where a select-all would |
 | numeric constants | the 300 km watch range (`:1348`), the launch-to-launch period definition and its overlap consequence (`:1342`), the interval grammar `30m / 2h / 1d` (`Logistics/LogisticsIntervalPresentation.cs:24`) | no label carries any of them |
 | status-word definitions | `static` and `stationary` (`UI/RecordingsTableUI.cs:4738`, `:4740`), the STASH group's entire meaning (`UI/UnfinishedFlightsGroup.cs:42`), `(pending)` / `(closing)` (`UI/CareerStateWindowUI.cs`; the Career window has two tables since 2026-09-24) | the word alone is not self-describing |
-| cross-window side effects | clearing the time filter also resets the Timeline sliders (`UI/RecordingsTableUI.cs:1510`); `Info >` widens the window (`:1415`) | the click changes something off-screen |
+| cross-window side effects | clearing the time filter also resets the Timeline sliders (`UI/RecordingsTableUI.cs:1510`); (the Recordings tab's `Info >` widened the window until it was removed 2026-09-26) | the click changes something off-screen |
 | full values the cell truncates | the untruncated hold clause (`UI/LogisticsWindowUI.cs:1074`), the full crew roster and span dates (`UI/MissionsWindowUI.cs:2700`), endpoint coordinates (`:1003`) | the cell shows a capped form |
 | the Gloops tooltips | `Record a ghost-only flight that your career ignores.` (`ParsekUI.cs:945`) | reaches nobody: the launcher is retired |
 
@@ -1677,7 +1700,7 @@ wave-6 lane plan, the grammar and refusals in
 | `op=state key=archived` | the Archived toggle ON plus the `[archived]` row marker (zero hits program-wide today); the same flag from the Recordings tab's Archive checkbox | Timeline + Missions |
 | `op=state key=customRange` + `key=preset` | the Custom range (the window's only two sliders; between 2026-09-24 PR #1792 and the preset-row revert the key opened a Time fold), the `From:` / `To:` labels (zero hits), the four ranged presets and the active-range readout (that readout was removed 2026-09-25) | Timeline |
 | `op=state key=scrollY` | the window's first scrolled PNG. Note the dump already carried below-fold content with full rects, so this buys the PICTURE, not the data | Timeline |
-| `op=state key=expandedStats` | the Info toggle's six extra columns (`MaxAlt` / `MaxSpd` / `Dist` / `Pts` / `Start` / `End`, in zero dumps) at +458 px - the largest single layout change in the window | Missions (Recordings tab) |
+| `op=state key=expandedStats` | (REMOVED 2026-09-26 with the Recordings tab's Info toggle; the key no longer exists) | - |
 | `op=state key=archivedMissions` | whole missions dropping out; the only way to exercise `DisplayBlockRendersAnything` and the corner-connector precedence table | Missions (Missions tab) |
 | `op=sort` | 20 Missions sort states, 16 Logistics, 8 Spawn Control - all zero captured, and each is materially different (the arrow moves AND the row order does, including group-vs-recording interleaving) | Missions, Logistics, Spawn Control |
 | `op=select key=vessel:` | the greyed include-OFF row and the `" (partial)"` suffix, which test the non-cascading `ExcludedIntervalKeys` contract | Missions |
@@ -1710,7 +1733,8 @@ lane's final verdict PASS on attempt 1 at 55-88 s: `GUI-24-census-timeline-filte
 (`fixtures/local-saves/c1-gui`, SPACECENTER - every Timeline row of the table above, and
 NOT the Career `pending:` row, whose two steps that lane dropped - see below),
 `GUI-25-census-missions-state-sort-edit` (`interbody-route-recorded`,
-SPACECENTER - `expandedStats`, both archive keys, three `op=sort` states, all three
+SPACECENTER - both archive keys, four `op=sort` states (the `expandedStats` step became the
+Phase sort when the Info toggle was removed 2026-09-26), all three
 `op=edit` editors, the Logistics sort, `popup=deleteroute` and the link + cadence pair),
 `GUI-26-census-createroute-and-running-batch` (`rover-route-recorded`, SPACECENTER -
 `popup=createroute` and `op=run await=false`) and `GUI-27-census-missions-include`
@@ -1964,7 +1988,6 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 |---|---|---|---|---|---|
 | main | none | 250 x content (flight `ParsekFlight.cs:962`, KSC `ParsekKSC.cs:23`) | NO handle | yes | yes |
 | Missions | **1355** x 150 (`UI/RecordingsTableUI.cs:48`, `:49`, `:63`) | 1355 x main height (KSC 2x) | yes | **NO** - 75 px too wide at its own minimum | yes |
-| Missions, Info expanded | same min; the footer forces width to **1813** (`:64`, `:1420`) | 1813 | yes | NO | yes, 107 px to spare |
 | Timeline | 520 x 150 (`UI/TimelineWindowUI.cs:67`, `:68`) | 820 x max(600, main height) | yes | yes | yes |
 | Kerbals | 280 x 150 (`UI/KerbalsWindowUI.cs:42-43`) | 410 x 400 (half of Career's 820, so the two sit side by side, `:44-46`) | yes | yes | yes |
 | Career State | 520 x 200 (`UI/CareerStateWindowUI.cs:74-75`) | 820 x 400 | yes | yes | yes |
@@ -1979,7 +2002,7 @@ instance and a 1920x1080 player screen. "First-open" rects are seeded only when
 | Logistics link picker | 240 x 180 (`UI/LogisticsWindowUI.cs:329-330`) | 340 x 380, clamped at the arming mouse position | yes | yes | yes |
 
 Two windows therefore cannot be drawn at their own minimum on the 1280-wide census instance:
-Logistics (1410) and Missions (1355, or 1813 with Info expanded). `op=rect` writes the field
+Logistics (1410) and Missions (1355; its Info-expanded 1813 / 1493 form was removed 2026-09-26). `op=rect` writes the field
 directly and only a resize DRAG clamps, so a commanded rect below the minimum is accepted
 silently - that is what produced the shipped Logistics capture. Any future populated capture of
 either window must size to at least the minimum first, which on a 1280 screen means the
@@ -1990,7 +2013,7 @@ class of defect the Milestones `Rewards` overflow belongs to:
 
 | window | pins |
 |---|---|
-| Recordings tab | `ColW_*` 20 / 30 / 90 / 90 / 110 / 80 / 65 / 65 / 65 / 35 / 120 / 120 / 120 / 60 / 60 / 90 / 50 / 60 / 90 / 80 (`UI/RecordingsTableUI.cs:52-75`, `:319-331`); `ColHeaderHeight` 32 (`:73`); body row height 29 measured |
+| Recordings tab | `ColW_*` 20 / 30 / expand / 120 / 80 / 110 / 70 / 120 / 60 / 60 / 90 / 50 / 60 / 90 / 80 (header order, since 2026-09-26; `UI/RecordingsTableUI.cs`); `ColHeaderHeight` 32 (`:73`); body row height 29 measured |
 | Missions tab | 20 / 30 / expand / 105 / 120 / 110 / 85 / 120 / 90 / 80 (`UI/MissionsWindowUI.cs:302-355`); `ColW_HeaderButton` 70 (`:314`); `CompositionRowMinHeight` 22 (`:351`) |
 | Timeline | `TimeColumnWidth` 160, row action 40, `GoTo` 48, warp button 186, warp fields 36; the six filter/preset columns are responsive at `Max(93, (width - 50) / 6)` - 158 at the census width (`UI/TimelineWindowUI.cs:70-78`, `:417-424`, `:155`, `:564`) |
 | Career State | (since 2026-09-24 only the Contracts and Strategies tables remain; the widths below predate that) Contracts 240/90/90/70, Strategies 220/90/140/**70**, Facilities 200/120/180, Milestones 90/200/**180**/70 (`UI/CareerStateWindowUI.cs:83-98`). `ColW_PendingTag` (70) is shared by three tabs; `ColW_Rewards` (180) demonstrably overflows |
