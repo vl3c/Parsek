@@ -478,7 +478,7 @@ namespace Parsek.Tests
             string context)
         {
             int startIdx = methodBody.IndexOf(
-                "StartRecording(suppressStartScreenMessage: true",
+                "StartRecording(suppressStartScreenMessage: true);",
                 StringComparison.Ordinal);
             int toastIdx = methodBody.IndexOf(customToastCall, StringComparison.Ordinal);
 

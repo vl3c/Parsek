@@ -309,7 +309,7 @@ namespace Parsek.Tests
         // the active recording too, but in recorder-state-preserving
         // mode that keeps the [NonSerialized] mitigation flags
         // (FilesDirty, SidecarLoadFailed, SidecarLoadFailureReason,
-        // Pre-ReFly anchor snapshots) that
+        // ContinuationBoundaryIndex, Pre-Continuation snapshots) that
         // load-time code paths may have set on the loaded copy. The
         // load-order analysis: at splice time the recorder has not
         // yet rebound to the active recording (rebind fires on the
@@ -699,7 +699,8 @@ namespace Parsek.Tests
             //
             // Field set audit anchor (see Recording.cs):
             //   FilesDirty, SidecarLoadFailed, SidecarLoadFailureReason,
-            //   PreReFlyAnchor*.
+            //   ContinuationBoundaryIndex, PreContinuationVesselSnapshot,
+            //   PreContinuationGhostSnapshot.
             var committed = MakeBaseTree("tree_owned_flags");
             AddRecording(committed, "rec_R", "Vessel R", utStart: 0, utEnd: 100, points: 50);
             committed.Recordings["rec_R"].ChildBranchPointId = "bp_split_new";
@@ -716,8 +717,9 @@ namespace Parsek.Tests
             loadedR.FilesDirty = true;
             loadedR.SidecarLoadFailed = true;
             loadedR.SidecarLoadFailureReason = "snapshot-hydration-failed";
-            loadedR.PreReFlyAnchorSessionId = "session-before";
-            loadedR.PreReFlyAnchorPoints = new List<TrajectoryPoint> { new TrajectoryPoint { ut = 7 } };
+            loadedR.ContinuationBoundaryIndex = 73;
+            loadedR.PreContinuationVesselSnapshot = new ConfigNode("VESSEL_BEFORE");
+            loadedR.PreContinuationGhostSnapshot = new ConfigNode("GHOST_BEFORE");
 
             ParsekScenario.SpliceMissingCommittedRecordingsIntoLoadedTree(
                 loaded, activeRecordingId: "rec_R");
@@ -731,10 +733,11 @@ namespace Parsek.Tests
             Assert.True(loadedR.FilesDirty);
             Assert.True(loadedR.SidecarLoadFailed);
             Assert.Equal("snapshot-hydration-failed", loadedR.SidecarLoadFailureReason);
-            Assert.Equal("session-before", loadedR.PreReFlyAnchorSessionId);
-            Assert.NotNull(loadedR.PreReFlyAnchorPoints);
-            Assert.Single(loadedR.PreReFlyAnchorPoints);
-            Assert.Equal(7, loadedR.PreReFlyAnchorPoints[0].ut);
+            Assert.Equal(73, loadedR.ContinuationBoundaryIndex);
+            Assert.NotNull(loadedR.PreContinuationVesselSnapshot);
+            Assert.Equal("VESSEL_BEFORE", loadedR.PreContinuationVesselSnapshot.name);
+            Assert.NotNull(loadedR.PreContinuationGhostSnapshot);
+            Assert.Equal("GHOST_BEFORE", loadedR.PreContinuationGhostSnapshot.name);
         }
 
         [Fact]

@@ -84,20 +84,10 @@ count = { min = 7, max = 7 }
 # "[Pipeline-Smoothing]" (regex-escaped). Info: the rest. The "dropping recorder data"
 # forbidden token is lifted from the EvaTwiceFromSameCapsule assertion (no recorder data
 # dropped across repeated branch setup).
-#
-# RE-FLY IS FOR VESSEL SEPARATIONS ONLY (owner ruling 2026-09-27). Both splits here are EVAs from a
-# pod that stays crewed, so each one is multi-controllable and, before the ruling, authored a
-# Rewind Point (measured on `logs/2026-07-24_2022_EVA-3-multi-kerbal`: two `RewindPoint begin: ...
-# slots=2 controllablePids=2` lines and two `[RewindSave] Wrote rp=` lines). The required token is
-# RewindPointAuthor.Begin's refusal (Info, [Rewind]); it prints only when Begin was REACHED with two
-# slots, so it also proves the split still read as multi-controllable. The two forbidden tokens are
-# the authoring lines themselves: this lane has no separation, so ANY Rewind Point is an EVA one.
 required  = ["Tree branch created: type=EVA", "\\[Pipeline-Smoothing\\]",
              "detected boarding from EVA", "Tree board merge completed",
-             "committree committed=true",
-             "\\[Rewind\\] Split type=EVA: no Rewind Point \\(Re-Fly is for vessel separations only\\) bp=[0-9a-f]{32}"]
-forbidden = ["\\[Parsek\\]\\[ERROR\\]", "dropping recorder data",
-             "RewindPoint begin: rp=", "\\[RewindSave\\] Wrote rp="]
+             "committree committed=true"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]", "dropping recorder data"]
 
 [runtime]
 # 960 >= 300 LoadGame + 4 x 120 EVA verbs + fast verbs + 60 margin (S0.6 pattern).

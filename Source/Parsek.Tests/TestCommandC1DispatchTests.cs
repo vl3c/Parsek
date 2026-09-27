@@ -326,22 +326,6 @@ namespace Parsek.Tests
             Assert.Equal(DispatchDecision.Execute, r.Decision);
         }
 
-        [Fact]
-        public void KscAction_AcceptContract_NeedsCareerAndSpaceCenter()
-        {
-            var cmd = Cmd("id=1 cmd=KscAction action=accept-contract contract=90e4faaf-2029-4c6b-8bc1-40226bb0fc27");
-            AssertDefer(TestCommandDispatcher.DecideDispatch(cmd,
-                    new DispatchState { Scene = TestCommandScene.SpaceCenter, AtSpaceCenter = true }),
-                "career-not-ready");
-            AssertDefer(TestCommandDispatcher.DecideDispatch(cmd,
-                    new DispatchState { Scene = TestCommandScene.TrackingStation, CareerPresent = true, AtSpaceCenter = false }),
-                "not-at-space-center");
-            // It reads neither the Administration screen nor the building animations.
-            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(cmd,
-                new DispatchState { Scene = TestCommandScene.SpaceCenter, CareerPresent = true, AtSpaceCenter = true,
-                    KscStructuresSettling = true, StrategyAdministrationReady = false }).Decision);
-        }
-
         [Theory]
         [InlineData("activate-strategy strategy=OutsourcedResearchCfg")]
         [InlineData("deactivate-strategy strategy=OutsourcedResearchCfg")]

@@ -1194,9 +1194,11 @@ namespace Parsek
             // lives on the switch-continuation segment.
             Recording terminalRec = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, null) ?? rec;
             TerminalState? terminal = terminalRec?.TerminalStateValue;
-            // An EVA kerbal is never re-flyable (Re-Fly is for vessel
-            // separations only), so only a crash is a terminal failure.
-            return terminal.HasValue && terminal.Value == TerminalState.Destroyed;
+            if (!terminal.HasValue) return false;
+            if (terminal.Value == TerminalState.Destroyed)
+                return true;
+            return !string.IsNullOrEmpty(terminalRec.EvaCrewName)
+                && terminal.Value != TerminalState.Boarded;
         }
 
         private static bool ShouldKeepReFlySlotOpenAfterMerge(
@@ -1242,8 +1244,8 @@ namespace Parsek
             // a Stashed slot). Player intent, by playtest contract: any
             // shape change to the Re-Fly target during the session means
             // they want to keep the run, not retry — close the slot here.
-            // Crashed outcomes return earlier above so the existing
-            // terminal-failure retry path is preserved.
+            // Crashed / stranded-EVA outcomes return earlier above so the
+            // existing terminal-failure retry path is preserved.
             string structuralDetail;
             if (HasReFlySessionStructuralMutation(rec, marker, out structuralDetail))
             {
@@ -2260,7 +2262,10 @@ namespace Parsek
             // and SubOrbital now falls back through the v0.9 classifier
             // (InFlight kind, no seal) cleanly when slot lookup fails, so it
             // no longer requires the precondition.
-            return terminal.Value == TerminalState.Orbiting;
+            if (terminal.Value == TerminalState.Orbiting)
+                return true;
+            return !string.IsNullOrEmpty(terminalRec.EvaCrewName)
+                && terminal.Value != TerminalState.Boarded;
         }
 
         private static bool IsInPlaceContinuation(ReFlySessionMarker marker, Recording provisional)

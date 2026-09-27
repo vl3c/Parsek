@@ -19,7 +19,7 @@ namespace Parsek.Tests
     {
         private readonly List<string> allLogLines = new List<string>();
 
-        // RecState-only filtered view: FlightRecorder constructors
+        // RecState-only filtered view: ChainSegmentManager and FlightRecorder constructors
         // emit unrelated INFO lines into the sink, so the assertions need a focused subset.
         private List<string> logLines =>
             allLogLines.FindAll(l => l.Contains("[RecState]"));
@@ -51,6 +51,7 @@ namespace Parsek.Tests
                 pendingStandalone: null,
                 pendingSplitRecorder: null,
                 pendingSplitInProgress: false,
+                chain: null,
                 currentUT: 0,
                 loadedScene: GameScenes.MAINMENU);
 
@@ -78,6 +79,7 @@ namespace Parsek.Tests
                 pendingStandalone: null,
                 pendingSplitRecorder: null,
                 pendingSplitInProgress: false,
+                chain: null,
                 currentUT: 100.0,
                 loadedScene: GameScenes.FLIGHT);
 
@@ -115,6 +117,7 @@ namespace Parsek.Tests
                 pendingStandalone: null,
                 pendingSplitRecorder: null,
                 pendingSplitInProgress: false,
+                chain: null,
                 currentUT: 200.0,
                 loadedScene: GameScenes.FLIGHT);
 
@@ -149,6 +152,7 @@ namespace Parsek.Tests
                 pendingStandalone: pendingStandalone,
                 pendingSplitRecorder: null,
                 pendingSplitInProgress: false,
+                chain: null,
                 currentUT: 300.0,
                 loadedScene: GameScenes.FLIGHT);
 
@@ -157,6 +161,33 @@ namespace Parsek.Tests
             Assert.Equal("ptreeXYZ", snap.pendingTreeId);
             Assert.True(snap.pendingStandalonePresent);
             Assert.Equal("psaABCD1234", snap.pendingStandaloneRecId);
+        }
+
+        [Fact]
+        public void CaptureFromParts_ChainManagerState_Captured()
+        {
+            var chain = new ChainSegmentManager();
+            chain.ActiveChainId = "chainABCDEFG";
+            chain.ActiveChainNextIndex = 3;
+            chain.ContinuationVesselPid = 1111;
+            chain.UndockContinuationPid = 2222;
+
+            var snap = RecorderStateSnapshot.CaptureFromParts(
+                activeTree: null,
+                recorder: null,
+                pendingTree: null,
+                pendingTreeState: PendingTreeState.Finalized,
+                pendingStandalone: null,
+                pendingSplitRecorder: null,
+                pendingSplitInProgress: false,
+                chain: chain,
+                currentUT: 400.0,
+                loadedScene: GameScenes.FLIGHT);
+
+            Assert.Equal("chainABCDEFG", snap.chainActiveChainId);
+            Assert.Equal(3, snap.chainNextIndex);
+            Assert.Equal((uint)1111, snap.chainContinuationPid);
+            Assert.Equal((uint)2222, snap.chainUndockContinuationPid);
         }
 
         // ----- Recording.DebugName format -----
@@ -245,7 +276,7 @@ namespace Parsek.Tests
         {
             var snap = RecorderStateSnapshot.CaptureFromParts(
                 null, null, null, PendingTreeState.Finalized, null,
-                null, false,
+                null, false, null,
                 17000.5, GameScenes.SPACECENTER);
 
             RecorderStateLog.RecState("OnFlightReady", snap);
@@ -266,7 +297,7 @@ namespace Parsek.Tests
             Assert.Contains("pend.tree=-", line);
             Assert.Contains("pend.sa=-", line);
             Assert.Contains("pend.split=F/F", line);
-            Assert.DoesNotContain(" chain=", line);
+            Assert.Contains("chain=-", line);
             Assert.Contains("ut=17000.5", line);
             Assert.Contains("scene=SPACECENTER", line);
         }
@@ -291,7 +322,7 @@ namespace Parsek.Tests
 
             var snap = RecorderStateSnapshot.CaptureFromParts(
                 tree, null, null, PendingTreeState.Finalized, null,
-                null, false,
+                null, false, null,
                 17050.0, GameScenes.FLIGHT);
 
             RecorderStateLog.RecState("OnSave:pre", snap);
@@ -319,7 +350,7 @@ namespace Parsek.Tests
 
             var snap = RecorderStateSnapshot.CaptureFromParts(
                 null, null, pendingTree, PendingTreeState.Limbo, pendingStandalone,
-                null, false,
+                null, false, null,
                 17100.0, GameScenes.FLIGHT);
 
             RecorderStateLog.RecState("OnLoad:limbo-dispatched", snap);
@@ -335,13 +366,37 @@ namespace Parsek.Tests
             var split = new FlightRecorder();
             var snap = RecorderStateSnapshot.CaptureFromParts(
                 null, null, null, PendingTreeState.Finalized, null,
-                split, true,
+                split, true, null,
                 17200.0, GameScenes.FLIGHT);
 
             RecorderStateLog.RecState("CreateSplitBranch:entry", snap);
 
             string line = logLines[0];
             Assert.Contains("pend.split=T/T", line);
+        }
+
+        [Fact]
+        public void RecState_ChainAuxFields_EmittedWhenNonzero()
+        {
+            var chain = new ChainSegmentManager
+            {
+                ActiveChainId = "chainXYZ",
+                ActiveChainNextIndex = 5,
+                ContinuationVesselPid = 1234,
+                UndockContinuationPid = 5678,
+            };
+
+            var snap = RecorderStateSnapshot.CaptureFromParts(
+                null, null, null, PendingTreeState.Finalized, null,
+                null, false, chain,
+                17300.0, GameScenes.FLIGHT);
+
+            RecorderStateLog.RecState("OnVesselSwitchComplete:entry", snap);
+
+            string line = logLines[0];
+            Assert.Contains("chain=chainXYZ|idx=5", line);
+            Assert.Contains("chain.cont=1234", line);
+            Assert.Contains("chain.undock=5678", line);
         }
 
         [Fact]
@@ -365,7 +420,7 @@ namespace Parsek.Tests
 
             var snap = RecorderStateSnapshot.CaptureFromParts(
                 tree, null, null, PendingTreeState.Finalized, null,
-                null, false,
+                null, false, null,
                 17400.0, GameScenes.FLIGHT);
 
             RecorderStateLog.RecState("LongName", snap);
@@ -390,7 +445,7 @@ namespace Parsek.Tests
 
                 var snap = RecorderStateSnapshot.CaptureFromParts(
                     null, null, null, PendingTreeState.Finalized, null,
-                    null, false,
+                    null, false, null,
                     17000.5, GameScenes.FLIGHT);
 
                 RecorderStateLog.RecState("LocaleTest", snap);
@@ -413,7 +468,7 @@ namespace Parsek.Tests
         {
             var snap = RecorderStateSnapshot.CaptureFromParts(
                 null, null, null, PendingTreeState.Finalized, null,
-                null, false,
+                null, false, null,
                 0, GameScenes.FLIGHT);
 
             const int N = 100;
@@ -471,7 +526,7 @@ namespace Parsek.Tests
             };
             return RecorderStateSnapshot.CaptureFromParts(
                 tree, null, null, PendingTreeState.Finalized, null,
-                null, false,
+                null, false, null,
                 17000.0, GameScenes.FLIGHT);
         }
 
@@ -496,6 +551,7 @@ namespace Parsek.Tests
             var snap1 = RecorderStateSnapshot.CaptureFromParts(
                 tree, new FlightRecorder { ActiveTree = tree },
                 null, PendingTreeState.Finalized, null, null, false,
+                new ChainSegmentManager(),
                 17000.0, GameScenes.FLIGHT);
             RecorderStateLog.RecState("start-tree", snap1);
 
@@ -505,12 +561,13 @@ namespace Parsek.Tests
             // Phase 3: scene change -> StashTreeLimbo
             var snap2 = RecorderStateSnapshot.CaptureFromParts(
                 tree, null, null, PendingTreeState.Finalized, null, null, false,
+                new ChainSegmentManager(),
                 17051.0, GameScenes.FLIGHT);
             RecorderStateLog.RecState("StashTreeLimbo:pre", snap2);
 
             // Phase 4: F9 quickload -> OnLoad sees tree restored to pending-Limbo
             var snap3 = RecorderStateSnapshot.CaptureFromParts(
-                null, null, tree, PendingTreeState.Limbo, null, null, false,
+                null, null, tree, PendingTreeState.Limbo, null, null, false, null,
                 17050.0, GameScenes.FLIGHT);
             RecorderStateLog.RecState("TryRestoreActiveTreeNode:stashed", snap3);
             RecorderStateLog.RecState("OnLoad:limbo-dispatched", snap3);
@@ -522,7 +579,7 @@ namespace Parsek.Tests
             // Phase 6: post-restore -- back to live tree mode
             var snap4 = RecorderStateSnapshot.CaptureFromParts(
                 tree, new FlightRecorder { ActiveTree = tree }, null, PendingTreeState.Finalized,
-                null, null, false,
+                null, null, false, new ChainSegmentManager(),
                 17050.5, GameScenes.FLIGHT);
             RecorderStateLog.RecState("Restore:after-start", snap4);
 

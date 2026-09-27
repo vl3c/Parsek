@@ -10,7 +10,7 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
-- **Dev: a lane for the tech, upgrade, hire and contract-accept blocks after a rewind.** `KB-3-ksc-click-blocks-after-rewind` runs on the stock-screen census career, whose committed timeline researches a tech, upgrades the Tracking Station, hires an applicant and accepts a contract after the save clock. For each of the four it checks that the stock control is greyed with the committed-timeline explanation, that the stock call behind the control is refused with the blocked dialog, that the dialog shows exactly the explanation the hover showed, and that no state, funds, science or ledger row changes. The `KscAction` test verb gains `action=accept-contract contract=<guid>` (Mission Control's own `Contract.Accept()` call), and a refused research, upgrade, hire or accept now logs the target's state and the funds and science pools before and after stock's call.
+- **Dev: lanes for the per-recording loop cap and the rewind read-back check.** `OC-1-overlap-cap-per-recording` loops one injected recording on its own toggle faster than its length / 20 and checks that playback slows the relaunches to keep at most 20 copies (`auto-adjusted (cap reached)`) and that old copies disappear; flown and armed. The ghost lifecycle check gains a `peakLive` count (the most copies of one recording alive at once). `RB-1-rewind-readback-divergence` and its control `RB-2-rewind-readback-within-range` fly a recovery and then a Re-Fly that brings the recovered vessel back; RB-1's first flight found that the recovery money is not taken back (todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED), so both stand as expected-fail lanes until that is fixed.
 - **Dev: a lane for the facility repair block after a rewind.** `KB-2-ksc-repair-block-after-rewind` (never flown) runs on a new committed fixture, `stock-screen-census-repair`: the stock-screen census career with the Tracking Station dish destroyed before the save clock and its repair committed after it, built by `Source/Parsek.Tests/StockScreenRepairFixture.cs`. It checks that the Tracking Station menu greys Repair and shows the explanation on its tooltip, and that a repair made through the menu's own call is refused with the blocked dialog, repairs nothing and leaves funds unchanged. The `StockScreen` test verb can now hover the facility menu's Repair button (`item=repair`), and a refused `KscAction repair-facility` logs the destroyed-building count and the funds before and after stock's call.
 - **Automated testing: the coverage-wave rulings are confirmed, and the RemoteTech cell is retired.**
   The rulings the coverage waves applied pending the operator (three retired cells, the atmosphere,
@@ -1207,68 +1207,6 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
-- **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
-  its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
-  merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier
-  recorded leg of the same vessel as recovered too: the leg before a staging, undock or EVA,
-  the leg before a dock, and each earlier part of a background recording. Those legs then
-  claimed to last until the recovery, lost their saved vessel, and on merge each one booked
-  the recovery payout again. Only the leg the vessel was actually flying at the recovery is
-  marked now, so the payout is booked once; a flight that shed only debris is still marked as
-  before.
-- **A kerbal who died and respawns reads Lost until his respawn even when he flies again
-  later.** With crew respawn on, a kerbal killed on a recorded flight who was then flown again
-  on a flight ending after his respawn read as reserved for that later flight over the whole
-  time, including while stock still had him dead or missing, and a free stand-in took his seat
-  there (also before the death after a rewind). He now reads Lost until the respawn date, with
-  no stand-in, exactly as with the death alone; from the respawn on the later flight holds him
-  as usual and a stand-in covers his seat, which now appears at the respawn without waiting for
-  a scene change.
-- **No false "Held your funds at the spent value" message on Moderate or Hard when your
-  funds go negative.** Those presets let stock take funds (or science) below zero, for
-  example with a failed contract's penalty. Parsek treated the negative balance as a spend it
-  had missed: it showed the message, wrote a warning to the log on every recalculation, and a
-  rewind reset the balance to zero. It now keeps a negative balance that already exists, as
-  stock shows it; money a committed future flight will spend later still never takes the
-  balance below zero early. On the presets that keep currency at zero nothing changes.
-- **Auto-hire no longer seats a kerbal your committed future hires.** With the difficulty
-  option that hires crew automatically for empty seats, after a rewind to before a kerbal's
-  recorded hire, auto-hire could pick that same applicant: Parsek refused the hire, but the
-  game seated him anyway without hiring him, announced a hire that cost nothing, and with two
-  seats short put him in both. Auto-hire now passes over applicants a committed flight hires
-  later and takes the next one (or a new applicant when none is left).
-- **Recording through the Alt+F12 cheats and from alternate launch sites.** Four follow-ups
-  from the stock-settings audit:
-  - A Set Orbit, Rendezvous or Set Position teleport during a recording is now recorded as a
-    jump. A same-planet jump is not itself a split point (the recording still splits where the
-    flight phase really changes, such as surface to orbit), and a jump from the surface
-    or the atmosphere to another planet or moon now splits the recording at the new body the
-    way an SOI change does (before, one piece of the recording spanned both bodies). In orbit
-    the ghost follows the new orbit from the moment of the jump instead of the old orbit for a
-    few frames. Every teleport is logged.
-  - A recording that did not start with a launch no longer carries a launch site. Starting a
-    recording on a vessel taken off from a remote landing, switched to, or picked in the
-    Tracking Station tagged it with the site of your last launch, and a supply route built from
-    it was treated and priced as a KSC launch. A launch from the pad or runway, a vessel still
-    on a launch site, and a fresh rollout keep their site, and a vessel standing on a site now
-    names that site rather than the last one you launched from.
-  - A flight that ends parked on any stock launch site (the Making History Desert pad and
-    airfield, the Woomerang pad and the Island airfield when Making History is installed, as
-    well as the KSC pad and runway) is retired: no vessel is spawned there, its crew is freed
-    and no funds are paid. KSC behaves exactly as before.
-  - Recording while Hack Gravity is on now writes one warning to KSP.log: orbits recorded under
-    changed gravity replay at the wrong rate once gravity is back to normal. Nothing else
-    changes.
-
-- **Kerbals keep the inventory they carried when their vessel reappears.** A vessel that
-  appears at the end of a recording used to give each kerbal the inventory he has on the roster
-  now, not what he carried at the end of the flight, because a kerbal's own inventory is stored
-  with him rather than with the vessel. A part could exist twice (brought from the VAB, stowed
-  in the pod or placed during the flight, then revert and commit) or disappear (taken out of the
-  pod and kept by the kerbal). Parsek now records each crew member's inventory with the vessel
-  and gives it back to him when the vessel appears, EVA kerbals included; a stand-in who takes a
-  reserved kerbal's seat gets that seat's recorded inventory. Recordings made before this
-  version keep the old behaviour.
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:
@@ -1980,15 +1918,6 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
-- **Re-Fly is for vessel separations only: EVA kerbals no longer appear in Unfinished Flights and
-  cannot be re-flown.** Rewind Points are made when a vessel stages, decouples or undocks into two
-  or more controllable pieces, so a booster or lander can be flown again from the moment it
-  separated. Going EVA is not a separation: it no longer makes a Rewind Point, and an EVA kerbal
-  (stranded, crashed or killed) is never listed in Unfinished Flights. If something goes wrong on
-  an EVA, use F9 (quickload) or Discard the flight. Rewind Points an earlier version made at an
-  EVA are removed when the save loads (their quicksave file is deleted and the slots they held
-  open are closed), except one a Re-Fly in progress is using, which is removed after that Re-Fly
-  ends. Nothing else about EVAs changes: they are still recorded and replayed as before.
 - **Recordings tab: a presentation round.** How the table shows recordings changes; the one
   data effect is that a mission folder's Loop box now also sets the launched vessel's loop
   range, as that vessel's own chain row did before (see the last bullet).
@@ -4920,27 +4849,6 @@ _(unreleased — entries accumulate here per commit)_
   CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-COMMIT-REMOVAL). Comments in the test-command seam, `hlib.py`,
   the GL-2 spec and the coverage registry that called the dock chain path a live producer of
   the sub-2-point drop are corrected.
-
-- **Removed the chain identity and continuation-sampling state the chain-commit removal left
-  behind.** Nothing has set it since the chain-segment commit path went, so every read of it
-  saw an empty chain and every continuation block was skipped. Removed: `ChainSegmentManager`
-  (chain identity, pending transition and boundary-anchor fields, continuation and undock
-  continuation sampling, and its committed-list subscriber that rebound continuation indices
-  after optimizer merges, splits and deletes), the recorder's `BoundaryAnchor`, the bake-and-stop
-  blocks in `ParsekFlight` on scene change, commit, discard, tree branch and vessel destroy,
-  `StartRecording`'s always-false continuation flag, and the `Recording` revert-rollback
-  fields `ContinuationBoundaryIndex` / `PreContinuationVesselSnapshot` /
-  `PreContinuationGhostSnapshot` with the `RecordingStore` rollback and the hydration-repair
-  copy that read them. Those three fields were `[NonSerialized]` and never written to a save,
-  so no save format changes; the chain data saved on recordings (`ChainId`, `ChainIndex`,
-  `ChainBranch`, `ParentRecordingId`, `EvaCrewName`) is kept and still played back. The
-  committed-list index contract keeps its other subscribers (engine, held ghosts, map
-  presence, watch mode, KSC and Tracking Station). Diagnostics: the `RecState` line no longer
-  carries its `chain=` / `chain.*` fields, `StartRecording` no longer logs a
-  `clearing stale chain state` warning, and `FallbackCommitSplitRecorder` no longer appends
-  a chain suffix. The in-game `ContinuationIntegrity` category (2 cells over the removed
-  fields) is deleted, so the LT-1 long-tail lane runs 30 categories (aggregate
-  `total=56 passed=49 skipped=7 category=multi:30`). No gameplay change.
 
 - **Dev tooling: the fixture harvest clears rewind-save names inside rewind-point
   quicksaves too.** `harness/tools/harvest_bdock_station.py` drops the saves that

@@ -62,6 +62,13 @@ namespace Parsek
         public bool pendingSplitPresent;
         public bool pendingSplitInProgress;
 
+        // --- Chain manager state (chain boundaries are part of the diagnosis surface) ---
+        public string chainActiveChainId;
+        public int chainNextIndex;
+        public bool chainBoundaryAnchorPending;
+        public uint chainContinuationPid;
+        public uint chainUndockContinuationPid;
+
         // --- Context ---
         public double currentUT;
         public GameScenes loadedScene;
@@ -80,6 +87,7 @@ namespace Parsek
             Recording pendingStandalone,
             FlightRecorder pendingSplitRecorder,
             bool pendingSplitInProgress,
+            ChainSegmentManager chain,
             double currentUT,
             GameScenes loadedScene)
         {
@@ -156,6 +164,16 @@ namespace Parsek
             // Pending split recorder
             snap.pendingSplitPresent = pendingSplitRecorder != null;
             snap.pendingSplitInProgress = pendingSplitInProgress;
+
+            // Chain manager
+            if (chain != null)
+            {
+                snap.chainActiveChainId = chain.ActiveChainId;
+                snap.chainNextIndex = chain.ActiveChainNextIndex;
+                snap.chainBoundaryAnchorPending = chain.PendingBoundaryAnchor.HasValue;
+                snap.chainContinuationPid = chain.ContinuationVesselPid;
+                snap.chainUndockContinuationPid = chain.UndockContinuationPid;
+            }
 
             // Context
             snap.currentUT = currentUT;

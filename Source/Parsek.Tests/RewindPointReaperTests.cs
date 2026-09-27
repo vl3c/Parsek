@@ -353,7 +353,7 @@ namespace Parsek.Tests
         //
         // After collapse-seal-into-mergestate, open/closed is read SOLELY from
         // the slot's effective tip MergeState. An open Unfinished Flight tip
-        // (crashed terminal, non-focused stable leaf) is
+        // (crashed terminal, stranded EVA, non-focused stable leaf) is
         // CommittedProvisional after promotion (ApplyRewindProvisionalMergeStates
         // demotes its first-commit tip to CP), so the reaper keeps its RP alive
         // because the tip is CP, not because the classifier re-qualifies it.
@@ -502,13 +502,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_OpenCommittedProvisionalEvaTip_OrdinaryReaperKeepsRpAlive()
+        public void Reap_OpenStrandedEvaSlot_KeepsRpAlive()
         {
-            // Legacy data: an older build promoted a stranded EVA kerbal to
-            // CommittedProvisional. The ordinary reaper reads only the tip
-            // MergeState, so the open slot keeps the RP alive here; the
-            // load-time LoadTimeSweep.SweepLegacyEvaRewindPoints is what retires
-            // EVA Rewind Points (ReFlySeparationsOnlyTests).
+            // A stranded-EVA tip promoted to CommittedProvisional is open. The
+            // companion focus slot's tip is Immutable (concluded), so only the
+            // open EVA slot keeps the RP alive.
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
                 new List<Recording>

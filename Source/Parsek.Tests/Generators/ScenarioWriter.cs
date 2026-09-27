@@ -1277,6 +1277,14 @@ namespace Parsek.Tests.Generators
         public RewindPoint RewindPoint { get; }
 
         /// <summary>
+        /// The <c>FLIGHTSTATE</c> being written. When the author runs it holds exactly
+        /// the per-slot VESSEL nodes, so an author may re-situate or de-crew a slot clone
+        /// (the <c>rewind-readback</c> preset parks its clones in orbit); anything it
+        /// ADDS must go through the append helpers so the focus ordinal stays put.
+        /// </summary>
+        public ConfigNode FlightState => flightState;
+
+        /// <summary>
         /// Copies of the donor save's own <c>VESSEL</c> nodes, in save order, as
         /// they stood before the slot rewrite removed them.
         /// </summary>

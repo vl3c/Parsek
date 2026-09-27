@@ -83,6 +83,87 @@ namespace Parsek.Tests
         #endregion
 
         // ────────────────────────────────────────────────────────────
+        //  Item 1: Continuation vessel destroyed preserves snapshot
+        // ────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ContinuationVesselDestroyed_PreservesVesselSnapshot()
+        {
+            // Setup: committed recording with a valid snapshot
+            var rec = MakeCommittedRecording();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+
+            // Drive the write the destroy handler applies. OnVesselWillDestroy itself needs a
+            // live Vessel, but the whole post-destroy write it makes to the committed
+            // continuation recording is this call, so a bug #95 re-null lands here.
+            ParsekFlight.MarkContinuationVesselDestroyed(rec);
+
+            // Verify snapshot is preserved
+            Assert.NotNull(rec.VesselSnapshot);
+            Assert.NotNull(rec.GhostVisualSnapshot);
+            Assert.True(rec.VesselDestroyed);
+        }
+
+        /// <summary>
+        /// The cell above drives the helper, so it pins the preserve for whichever branches
+        /// call it - it cannot see a branch that skipped the helper and wrote the flag inline.
+        /// OnVesselWillDestroy has TWO mirrored continuation-destroy branches (chain
+        /// continuation, undock continuation); both must route through the helper, or bug #95
+        /// can come back through the branch the helper does not own. Read out of the IL
+        /// because the handler itself needs a live Vessel.
+        /// </summary>
+        [Fact]
+        public void ContinuationVesselDestroyed_BothDestroyBranchesRouteThroughTheHelper()
+        {
+            var handler = ILCallSet.Method(typeof(ParsekFlight), "OnVesselWillDestroy");
+
+            Assert.Equal(
+                2,
+                ILCallSet.CallCount(
+                    handler, typeof(ParsekFlight), "MarkContinuationVesselDestroyed"));
+            Assert.False(
+                ILCallSet.WritesField(handler, typeof(Recording), "VesselDestroyed"),
+                "OnVesselWillDestroy writes Recording.VesselDestroyed inline instead of " +
+                "routing through MarkContinuationVesselDestroyed. An inline write is where a " +
+                "bug #95 VesselSnapshot null comes back unpinned.");
+        }
+
+        // ────────────────────────────────────────────────────────────
+        //  Item 2: continuation fields leave the committed snapshot
+        // ────────────────────────────────────────────────────────────
+
+        // NAME SCOPE (audit F-recording-tree-050-08): this cell runs no boarding
+        // path (always-tree mode has no chain boarding commit), so the asserted
+        // [Chain] line is the ChainSegmentManager CONSTRUCTOR log. What it owns is:
+        // building a manager with continuation fields set neither clears the
+        // committed snapshot nor skips the ctor log.
+        [Fact]
+        public void ChainSegmentManagerWithContinuationFields_LogsCreation_AndLeavesCommittedSnapshot()
+        {
+            var rec = MakeCommittedRecording();
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            int recIdx = RecordingStore.CommittedRecordings.Count - 1;
+
+            // Create a ChainSegmentManager with continuation active
+            var mgr = new ChainSegmentManager();
+            mgr.ActiveChainId = Guid.NewGuid().ToString("N");
+            mgr.ActiveChainNextIndex = 1;
+            mgr.ContinuationVesselPid = rec.VesselPersistentId;
+            mgr.ContinuationRecordingIdx = recIdx;
+
+            // The key invariant: after any chain operation, committed snapshot is preserved
+            Assert.NotNull(RecordingStore.CommittedRecordings[recIdx].VesselSnapshot);
+
+            // The asserted line is the CONSTRUCTOR log, and the fields the
+            // ctor was handed are pinned alongside it so the cell cannot pass
+            // on a manager that dropped them.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Chain]") && l.Contains("ChainSegmentManager created"));
+            Assert.Equal(recIdx, mgr.ContinuationRecordingIdx);
+            Assert.Equal(rec.VesselPersistentId, mgr.ContinuationVesselPid);
+        }
+
+        // ────────────────────────────────────────────────────────────
         //  Item 6: UpdateRecordingsForTerminalEvent skips committed
         // ────────────────────────────────────────────────────────────
 
@@ -157,5 +238,40 @@ namespace Parsek.Tests
             Assert.True(needsSpawn, $"Should be spawn-eligible after reset, but got: {reason}");
             Assert.NotNull(rec.VesselSnapshot);
         }
+
+        // ────────────────────────────────────────────────────────────
+        //  Logging assertions
+        // ────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// The destroy handler's diagnostic line reports whether the committed snapshot
+        /// survived the mark. The handler needs a live Vessel, so the line is built by
+        /// ParsekFlight.FormatContinuationVesselDestroyedMessage, driven here after the real
+        /// mark, and the handler's call to it is read out of the IL.
+        /// </summary>
+        [Fact]
+        public void ContinuationVesselDestroyed_HandlerLogsSnapshotPreservedThroughFormatter()
+        {
+            var rec = MakeCommittedRecording("TestRocket", 55555);
+            ParsekFlight.MarkContinuationVesselDestroyed(rec);
+
+            string line = ParsekFlight.FormatContinuationVesselDestroyedMessage(55555u, rec);
+            Assert.Contains("Continuation vessel destroyed (pid=55555)", line);
+            Assert.Contains("VesselSnapshot preserved=True", line);
+
+            // Mirror: a recording whose snapshot is gone reports it, so a bug #95
+            // re-null is visible in KSP.log.
+            var nulled = MakeCommittedRecording("TestRocket", 55555);
+            nulled.VesselSnapshot = null;
+            Assert.Contains("VesselSnapshot preserved=False",
+                ParsekFlight.FormatContinuationVesselDestroyedMessage(55555u, nulled));
+
+            var handler = ILCallSet.Method(typeof(ParsekFlight), "OnVesselWillDestroy");
+            Assert.Equal(
+                1,
+                ILCallSet.CallCount(
+                    handler, typeof(ParsekFlight), "FormatContinuationVesselDestroyedMessage"));
+        }
+
     }
 }

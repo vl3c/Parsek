@@ -31,10 +31,6 @@ namespace Parsek.Tests.Generators
         // Parts
         private readonly ConfigNode partsContainer = new ConfigNode("_parts");
 
-        // Crew inventories captured with the snapshot (CrewInventorySnapshot). Null keeps
-        // the pre-capture shape (no PARSEK_CREW_INVENTORY node), so existing callers are unchanged.
-        private System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, ConfigNode>> crewInventories;
-
         public VesselSnapshotBuilder() { }
 
         public static VesselSnapshotBuilder CrewedShip(string name, string crewMember, uint pid = 1000000)
@@ -469,40 +465,6 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
-        /// <summary>
-        /// Records a crew member's inventory in the production capture shape
-        /// (<c>PARSEK_CREW_INVENTORY { KERBAL { name  INVENTORY { STOREDPARTS { STOREDPART } } } }</c>),
-        /// one stored part per slot in call order. No part names = an empty inventory,
-        /// which is still a capture (the kerbal carried nothing).
-        /// </summary>
-        public VesselSnapshotBuilder WithCrewInventory(string kerbalName, params string[] storedPartNames)
-        {
-            if (string.IsNullOrEmpty(kerbalName))
-                throw new ArgumentException("kerbalName is required", nameof(kerbalName));
-
-            var inventory = new ConfigNode(CrewInventorySnapshot.InventoryNodeName);
-            inventory.AddValue("name", "ModuleInventoryPart");
-            inventory.AddValue("isEnabled", "True");
-            inventory.AddValue("InventorySlots", "3");
-            if (storedPartNames != null && storedPartNames.Length > 0)
-            {
-                ConfigNode storedParts = inventory.AddNode("STOREDPARTS");
-                for (int i = 0; i < storedPartNames.Length; i++)
-                {
-                    ConfigNode storedPart = storedParts.AddNode("STOREDPART");
-                    storedPart.AddValue("slotIndex", i.ToString(IC));
-                    storedPart.AddValue("partName", storedPartNames[i]);
-                    storedPart.AddValue("quantity", "1");
-                    storedPart.AddValue("stackCapacity", "1");
-                }
-            }
-
-            if (crewInventories == null)
-                crewInventories = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, ConfigNode>>();
-            crewInventories.Add(new System.Collections.Generic.KeyValuePair<string, ConfigNode>(kerbalName, inventory));
-            return this;
-        }
-
         private static ConfigNode FindInventoryModule(ConfigNode partNode)
         {
             ConfigNode[] modules = partNode.GetNodes("MODULE");
@@ -588,9 +550,6 @@ namespace Parsek.Tests.Generators
             v.AddNode("FLIGHTPLAN");
             v.AddNode("CTRLSTATE");
             v.AddNode("VESSELMODULES");
-
-            if (crewInventories != null)
-                CrewInventorySnapshot.WriteToSnapshot(v, crewInventories);
 
             return v;
         }

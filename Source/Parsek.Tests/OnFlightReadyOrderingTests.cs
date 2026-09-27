@@ -160,6 +160,7 @@ namespace Parsek.Tests
                 pendingStandalone: null,
                 pendingSplitRecorder: null,
                 pendingSplitInProgress: false,
+                chain: null,
                 currentUT: 17000.0,
                 loadedScene: GameScenes.FLIGHT);
 
@@ -185,6 +186,7 @@ namespace Parsek.Tests
                 pendingStandalone: null,
                 pendingSplitRecorder: null,
                 pendingSplitInProgress: false,
+                chain: new ChainSegmentManager(),
                 currentUT: 17000.0,
                 loadedScene: GameScenes.FLIGHT);
             RecorderStateLog.RecState("Restore:after-start", postRestore);

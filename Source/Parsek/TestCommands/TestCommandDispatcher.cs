@@ -623,8 +623,7 @@ namespace Parsek.TestCommands
                         return DispatchResult.Defer("career-not-ready");
                     bool needsSpaceCenter = action == "upgrade-facility"
                         || action == "demolish-building" || action == "repair-facility"
-                        || action == "activate-strategy" || action == "deactivate-strategy"
-                        || action == "accept-contract";
+                        || action == "activate-strategy" || action == "deactivate-strategy";
                     if (needsSpaceCenter && !state.AtSpaceCenter)
                         return DispatchResult.Defer("not-at-space-center");
                     // The Administration building's screen owns the slot count stock checks.

@@ -12,7 +12,7 @@ namespace Parsek.Tests
     ///
     ///   1. FilesDirty was not set in CreateSplitBranch
     ///      / AppendCapturedDataToRecording / FlushRecorderToTreeRecording /
-    ///      chain continuation sampling (since removed). Trajectory data sat in
+    ///      ChainSegmentManager continuation sampling. Trajectory data sat in
     ///      memory and never reached the .prec sidecar file because SaveRecordingFiles
     ///      guards on FilesDirty. On scene reload, TryRestoreActiveTreeNode reads
     ///      the empty .prec and produces a 0-point recording. The user lost an 88+
@@ -224,11 +224,12 @@ namespace Parsek.Tests
         /// naming MarkFilesDirty does not stand in for the call, and braces inside string /
         /// char literals do not unbalance the body walk.
         /// AppendCapturedDataToRecording additionally has a behavioural twin in this file;
-        /// the other row remains a source-level pin.
+        /// the other two rows remain source-level pins.
         /// </summary>
         [Theory]
         [InlineData("ParsekFlight.cs", "static void AppendCapturedDataToRecording(")]
         [InlineData("ParsekFlight.cs", "void FlushRecorderToTreeRecording(FlightRecorder")]
+        [InlineData("ChainSegmentManager.cs", "void SampleContinuationVessel(")]
         public void Bug273_MethodBody_ContainsMarkFilesDirtyCall(string fileName, string methodSignature)
         {
             string path = LocateSourceFile(fileName);

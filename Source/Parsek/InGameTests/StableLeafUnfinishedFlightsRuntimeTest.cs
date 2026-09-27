@@ -130,13 +130,12 @@ namespace Parsek.InGameTests
                 var members = UnfinishedFlightsGroup.ComputeMembers();
                 AssertContainsMember(members, orbiting, "Orbiting non-focus probe should be unfinished");
                 AssertContainsMember(members, subOrbital, "SubOrbital non-focus probe should be unfinished");
-                AssertDoesNotContainMember(members, eva,
-                    "An EVA kerbal is never an Unfinished Flight (Re-Fly is for vessel separations only)");
+                AssertContainsMember(members, eva, "Stranded EVA should be unfinished");
                 AssertDoesNotContainMember(members, focus, "Focused Orbiting slot should stay forward-only");
                 AssertDoesNotContainMember(members, debris, "Debris/non-controllable slot should stay forward-only");
                 AssertDoesNotContainMember(members, landed, "Stable Landed vessel should stay forward-only");
-                InGameAssert.AreEqual(2, CountSyntheticMembers(members, suffix),
-                    "Synthetic fixture should contribute exactly two Unfinished Flight rows");
+                InGameAssert.AreEqual(3, CountSyntheticMembers(members, suffix),
+                    "Synthetic fixture should contribute exactly three Unfinished Flight rows");
 
                 RewindPoint resolvedRp;
                 int resolvedSlot;
@@ -167,7 +166,7 @@ namespace Parsek.InGameTests
                 members = UnfinishedFlightsGroup.ComputeMembers();
                 AssertContainsMember(members, landed,
                     "Stashed Landed slot should enter Unfinished Flights");
-                InGameAssert.AreEqual(3, CountSyntheticMembers(members, suffix),
+                InGameAssert.AreEqual(4, CountSyntheticMembers(members, suffix),
                     "Stashed Landed slot should add one synthetic Unfinished Flight row");
 
                 InGameAssert.IsTrue(
@@ -205,9 +204,6 @@ namespace Parsek.InGameTests
                     return true;
                 };
 
-                // Legacy data: an older build left this EVA tip CommittedProvisional.
-                // It is not an Unfinished Flight, but its open tip still blocks the
-                // ordinary reaper until something closes it.
                 InGameAssert.IsTrue(UnfinishedFlightSealHandler.TrySeal(eva, out reason),
                     "Sealing the final CommittedProvisional member should succeed");
                 InGameAssert.AreEqual(MergeState.Immutable, eva.MergeState,

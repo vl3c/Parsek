@@ -2943,9 +2943,6 @@ namespace Parsek.TestCommands
                     return Funding.Instance != null;
                 case "demolish-building":
                     return true;
-                case "accept-contract":
-                    // Accept pays the contract's advance into Funding.
-                    return Funding.Instance != null && Contracts.ContractSystem.Instance != null;
                 case "activate-strategy":
                 case "deactivate-strategy":
                     // Activate debits whichever of the three pools the strategy's setup

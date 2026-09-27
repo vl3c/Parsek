@@ -136,10 +136,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RevertReset_ResetsTreeRecordings_AndSkipsNonTreeRecordings()
+        public void RevertReset_RollsBackContinuationData_AndSkipsNonTreeRecordings()
         {
             var tree = MarkedDebris("tree-rec", "tree-old");
-            tree.VesselSpawned = true;
+            tree.Points.Add(new TrajectoryPoint { ut = 300 });
+            tree.ContinuationBoundaryIndex = 2;
 
             var loose = new Recording
             {
@@ -152,7 +153,8 @@ namespace Parsek.Tests
                 new List<Recording> { tree, loose });
 
             Assert.Equal(1, reset);
-            Assert.False(tree.VesselSpawned);
+            Assert.Equal(2, tree.Points.Count);
+            Assert.Equal(-1, tree.ContinuationBoundaryIndex);
             Assert.True(loose.VesselSpawned);
             Assert.Equal(7u, loose.SpawnedVesselPersistentId);
         }

@@ -581,7 +581,6 @@ namespace Parsek
 
             int swapCount = 0;
             int partIndex = 0;
-            var swappedNames = new Dictionary<string, string>(StringComparer.Ordinal);
 
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
             {
@@ -625,7 +624,6 @@ namespace Parsek
                         ParsekLog.Verbose("CrewReservation",
                             $"Snapshot swap: '{crewNames[i]}' -> '{replacementName}' in PART[{partIndex}]");
                         updated.Add(replacementName);
-                        swappedNames[crewNames[i]] = replacementName;
                         anyChanged = true;
                         swapCount++;
                     }
@@ -645,19 +643,10 @@ namespace Parsek
                 partIndex++;
             }
 
-            // The seat's recorded crew inventory follows the seat to the stand-in who
-            // occupies it (CrewInventorySnapshot): the recorded cargo is part of what the
-            // recorded vessel carries, and a stand-in never holds the original's roster
-            // inventory. A cleared seat keeps its entry under the original name, which
-            // the spawn restore then reports as unseated and does not apply.
-            int inventoryKeysSwapped = CrewInventorySnapshot.RenameKerbals(snapshot,
-                name => swappedNames.TryGetValue(name, out string standIn) ? standIn : null);
-
             if (swapCount > 0 || seatsCleared > 0)
                 ParsekLog.Verbose("CrewReservation",
                     $"Snapshot crew swap complete: {swapCount} name(s) replaced, " +
-                    $"{seatsCleared} seat(s) left empty across {partIndex} part(s), " +
-                    $"{inventoryKeysSwapped} crew inventory key(s) moved to stand-ins");
+                    $"{seatsCleared} seat(s) left empty across {partIndex} part(s)");
 
             return swapCount;
         }

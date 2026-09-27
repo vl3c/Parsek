@@ -424,8 +424,7 @@ Mission Control and Administration stay at level 1 (two contract slots, one stra
 so the one Active contract plus the committed accept fill both slots at UT 50000 and
 every other Offered row carries the C2 slot block. The earliest committed row is
 30000 s after the clock, so a Space Center lane at 1x cannot reach it. Hosts
-`GUI-28-census-stock-screens` and `KB-3-ksc-click-blocks-after-rewind` (which presses the
-tech, upgrade, hire and accept controls its four reservations block).
+`GUI-28-census-stock-screens`.
 
 ## stock-screen-census-repair (GAME Mode = CAREER, 0 VESSELS, 3 recordings)
 

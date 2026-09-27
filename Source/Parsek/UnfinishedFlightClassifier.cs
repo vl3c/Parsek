@@ -13,41 +13,6 @@ namespace Parsek
         private const string Tag = "UnfinishedFlights";
         internal const string RecordingActionReasonPrefix = "recordingAction:";
 
-        /// <summary>
-        /// Non-qualifying verdict for an EVA kerbal recording. Re-Fly is for
-        /// vessel separations only, so an EVA kerbal never becomes an
-        /// Unfinished Flight (owner ruling 2026-09-27).
-        /// </summary>
-        internal const string EvaNotSeparationReason = "evaNotSeparation";
-
-        /// <summary>
-        /// Resolves the type of the branch point <paramref name="rp"/> was
-        /// authored at, through the tree that owns <paramref name="rec"/>
-        /// (the pending <paramref name="treeContext"/> first, then the committed
-        /// trees). Null when the branch point cannot be found.
-        /// </summary>
-        internal static BranchPointType? ResolveRewindPointBranchType(
-            Recording rec, RewindPoint rp, RecordingTree treeContext)
-        {
-            if (rp == null || string.IsNullOrEmpty(rp.BranchPointId)) return null;
-            RecordingTree tree = EffectiveState.ResolveOwningTree(rec, treeContext);
-            var bps = tree?.BranchPoints;
-            if (bps == null) return null;
-            for (int i = 0; i < bps.Count; i++)
-            {
-                var bp = bps[i];
-                if (bp != null && string.Equals(bp.Id, rp.BranchPointId, StringComparison.Ordinal))
-                    return bp.Type;
-            }
-            return null;
-        }
-
-        /// <summary>True when the recording is an EVA kerbal's own recording.</summary>
-        internal static bool IsEvaKerbalRecording(Recording rec)
-        {
-            return rec != null && !string.IsNullOrEmpty(rec.EvaCrewName);
-        }
-
         internal static bool Qualifies(
             Recording rec,
             ChildSlot slot,
@@ -130,22 +95,6 @@ namespace Parsek
                 : matchesChild && !matchesParent
                 ? "active-parent-child"
                 : "child";
-
-            // A legacy Rewind Point authored at an EVA split (before the
-            // 2026-09-27 ruling) offers no Re-Fly on EITHER side: rewinding to
-            // the EVA moment to fly the vessel back is still an EVA Re-Fly. The
-            // load-time sweep reaps such RPs; this closes the window before it
-            // runs (for example a pending tree committed mid-session).
-            BranchPointType? rpBranchType = ResolveRewindPointBranchType(rec, rp, treeContext);
-            if (rpBranchType.HasValue && !RewindPointAuthor.IsReFlySplitType(rpBranchType.Value))
-            {
-                reason = EvaNotSeparationReason;
-                LogVerdict(false, recId, reason,
-                    WithBranchSide(
-                        $"rp={rp.RewindPointId ?? "<no-rp>"} rpBp={rp.BranchPointId ?? "<none>"} rpBpType={rpBranchType.Value}",
-                        branchSide));
-                return false;
-            }
 
             if (rec.IsDebris || !slot.Controllable)
             {
@@ -230,24 +179,6 @@ namespace Parsek
         {
             reason = null;
             TerminalState? terminal = chainTip?.TerminalStateValue;
-
-            // Re-Fly is for vessel separations only (owner ruling 2026-09-27): an
-            // EVA kerbal is never an Unfinished Flight, whatever its terminal
-            // (Destroyed included). Checked before the terminal so a legacy EVA
-            // Rewind Point in an existing career cannot surface a Re-Fly.
-            if (IsEvaKerbalRecording(chainTip) || IsEvaKerbalRecording(rec))
-            {
-                string evaCrew = !string.IsNullOrEmpty(chainTip?.EvaCrewName)
-                    ? chainTip.EvaCrewName
-                    : rec?.EvaCrewName;
-                reason = EvaNotSeparationReason;
-                LogVerdict(false, recId, reason,
-                    WithBranchSide(
-                        $"terminal={(terminal.HasValue ? terminal.Value.ToString() : "<none>")} crew={evaCrew}",
-                        branchSide));
-                return false;
-            }
-
             if (!terminal.HasValue)
             {
                 reason = "noTerminal";
@@ -264,6 +195,27 @@ namespace Parsek
                 reason = "crashed";
                 LogVerdict(true, recId, reason, WithBranchSide("terminal=Destroyed", branchSide));
                 return true;
+            }
+
+            if (!string.IsNullOrEmpty(chainTip.EvaCrewName))
+            {
+                if (terminal.Value != TerminalState.Boarded)
+                {
+                    string detail = WithBranchSide(
+                        $"terminal={terminal.Value} crew={chainTip.EvaCrewName}", branchSide);
+                    if (TryRejectRecordingScopedWorldAction(
+                        rec, recId, out reason, detail))
+                        return false;
+
+                    reason = "strandedEva";
+                    LogVerdict(true, recId, reason, detail);
+                    return true;
+                }
+
+                reason = "stableTerminal";
+                LogVerdict(false, recId, reason,
+                    WithBranchSide($"terminal={terminal.Value} crew={chainTip.EvaCrewName}", branchSide));
+                return false;
             }
 
             // Re-Fly merge focus override (v0.9.1, design §4.6).
@@ -789,13 +741,11 @@ namespace Parsek
             if (terminalRec == null || !terminalRec.TerminalStateValue.HasValue)
                 return false;
 
-            // Same EVA gate as TerminalOutcomeQualifiesInternal: an EVA kerbal
-            // never has an Unfinished Flight shape.
-            if (IsEvaKerbalRecording(rec) || IsEvaKerbalRecording(terminalRec))
-                return false;
-
             var terminal = terminalRec.TerminalStateValue.Value;
             if (terminal == TerminalState.Destroyed)
+                return true;
+            if (!string.IsNullOrEmpty(terminalRec.EvaCrewName)
+                && terminal != TerminalState.Boarded)
                 return true;
             return terminal == TerminalState.Orbiting
                 || terminal == TerminalState.SubOrbital;
@@ -847,9 +797,6 @@ namespace Parsek
             // IsUnfinishedFlightCandidateShape, which hops switch continuations; a
             // stash shape read on the bare chain walk would see no terminal at all.
             Recording terminalRec = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, null);
-            // An EVA kerbal is never re-flyable, so it has no stash shape either.
-            if (IsEvaKerbalRecording(rec) || IsEvaKerbalRecording(terminalRec))
-                return false;
             return terminalRec != null
                 && terminalRec.TerminalStateValue.HasValue
                 && StashedTerminalQualifies(terminalRec.TerminalStateValue.Value);
@@ -936,10 +883,9 @@ namespace Parsek
 
         private static bool IsManualStashOverrideReason(string reason)
         {
-            // Stash only covers default-excluded stable leaves. Crashed rows are
-            // already Unfinished Flights, so they reject earlier as
-            // alreadyUnfinishedFlight instead of becoming stashable. An EVA kerbal
-            // (evaNotSeparation) is never stashable either.
+            // Stash only covers default-excluded stable leaves. Crashed and
+            // stranded EVA rows are already Unfinished Flights, so they reject
+            // earlier as alreadyUnfinishedFlight instead of becoming stashable.
             return string.Equals(reason, "stableTerminal", StringComparison.Ordinal)
                 || string.Equals(reason, "stableTerminalFocusSlot", StringComparison.Ordinal)
                 || string.Equals(reason, "noFocusSignalOrbiting", StringComparison.Ordinal);

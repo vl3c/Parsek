@@ -1143,6 +1143,7 @@ namespace Parsek
                 pendingStandalone: null,
                 pendingSplitRecorder: null,
                 pendingSplitInProgress: false,
+                chain: null,
                 currentUT: Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
                 loadedScene: HighLogic.LoadedScene);
         }
@@ -2523,6 +2524,12 @@ namespace Parsek
             treeNode.AddValue("isActive", "True");
 
             // Persist recorder state needed to resume after quickload.
+            // NOTE: BoundaryAnchor is a TrajectoryPoint struct with lat/lon/alt/rotation/
+            // velocity, and serializing just the UT is insufficient to reconstruct it on
+            // restore — RestoreActiveTreeFromPending explicitly leaves BoundaryAnchor
+            // unset. Either serialize the full TrajectoryPoint or don't write anything;
+            // we chose the latter because a missing anchor just produces one extra
+            // boundary point on the next chain continuation, which is benign.
             //
             // In outsider state (#266), recorder is null — there's no live rewind save
             // filename to persist. The tree's root recording still has rewindSave from
@@ -6040,6 +6047,7 @@ namespace Parsek
                 // pass after this scene-load OnLoad), so there is no in-flight payload state
                 // to lose, but a small set of [NonSerialized] mitigation flags
                 // (FilesDirty / SidecarLoadFailed / SidecarLoadFailureReason /
+                // ContinuationBoundaryIndex / Pre-Continuation snapshots /
                 // Pre-ReFly anchor trajectory) may already be set
                 // by earlier load-time code paths and the refresh must not wipe them. The
                 // structural fields (trajectory, orbit segments, track sections, terminal
@@ -6099,7 +6107,9 @@ namespace Parsek
                     : PendingTreeState.Limbo;
                 RecordingStore.StashPendingTree(tree, stashState);
 
-                // Read resume hints for the restore coroutine (rewind save filename only).
+                // Read resume hints for the restore coroutine (rewind save filename only;
+                // BoundaryAnchor can't round-trip because we only have the UT, not the
+                // full TrajectoryPoint state — restore leaves it unset).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
 
                 ParsekLog.Info("Scenario",
@@ -6742,6 +6752,8 @@ namespace Parsek
             {
                 var rec = recordings[i];
                 if (rec == null || !rec.IsTreeRecording) continue;
+
+                RecordingStore.RollbackContinuationData(rec);
 
                 rec.VesselSpawned = false;
                 rec.SpawnAttempts = 0;
@@ -7980,48 +7992,23 @@ namespace Parsek
             // Check pending tree recordings
             if (RecordingStore.HasPendingTree)
             {
-                var pendingTree = RecordingStore.PendingTree;
-                int stampedCount = 0;
-                int skippedEarlierSegmentCount = 0;
-                foreach (var rec in pendingTree.Recordings.Values)
+                foreach (var rec in RecordingStore.PendingTree.Recordings.Values)
                 {
-                    if (!MatchesVessel(rec, identity, vesselPid)
-                        || !CanOverwriteTerminalState(rec.TerminalStateValue, state))
-                        continue;
-
-                    // An earlier segment of the same vessel (split parent, dock dominant
-                    // parent, background or switch continuation) shares name + pid + guid
-                    // with the recovered vessel but ended when its continuation began.
-                    // Stamping it would stretch its EndUT to the event UT, drop its
-                    // snapshot, and pair the same recovery funds event a second time at
-                    // commit (AddVesselRecoveryCostActions keys by recording id).
-                    if (!IsTerminalEventTarget(rec, pendingTree))
+                    if (MatchesVessel(rec, identity, vesselPid) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
                     {
-                        skippedEarlierSegmentCount++;
-                        continue;
+                        rec.ExplicitEndUT = ut;
+                        CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                        // Snapshot first, stamp second: CanOverwriteTerminalState
+                        // deliberately allows Landed/Orbiting/Splashed/SubOrbital ->
+                        // Recovered|Destroyed, and that is exactly the transition the
+                        // crew-end-state seam must re-infer against — it has to judge
+                        // re-derivability against the surface that survives this block
+                        // (the ghost snapshot), not the snapshot being dropped here.
+                        rec.VesselSnapshot = null;
+                        rec.StampTerminalState(state, "UpdateRecordingsForTerminalEvent");
+                        anyUpdated = true;
+                        ParsekLog.Verbose("Scenario", $"Updated pending tree recording '{rec.VesselName}' with {state}");
                     }
-
-                    rec.ExplicitEndUT = ut;
-                    CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                    // Snapshot first, stamp second: CanOverwriteTerminalState
-                    // deliberately allows Landed/Orbiting/Splashed/SubOrbital ->
-                    // Recovered|Destroyed, and that is exactly the transition the
-                    // crew-end-state seam must re-infer against — it has to judge
-                    // re-derivability against the surface that survives this block
-                    // (the ghost snapshot), not the snapshot being dropped here.
-                    rec.VesselSnapshot = null;
-                    rec.StampTerminalState(state, "UpdateRecordingsForTerminalEvent");
-                    anyUpdated = true;
-                    stampedCount++;
-                    ParsekLog.Verbose("Scenario", $"Updated pending tree recording '{rec.VesselName}' with {state}");
-                }
-
-                if (skippedEarlierSegmentCount > 0)
-                {
-                    ParsekLog.Info("Scenario", string.Format(CultureInfo.InvariantCulture,
-                        "UpdateRecordingsForTerminalEvent: vessel='{0}' pid={1} state={2} stamped={3} " +
-                        "skippedEarlierSegments={4} (same-vessel segments with a continuation keep their own end)",
-                        identity.DisplayName, vesselPid, state, stampedCount, skippedEarlierSegmentCount));
                 }
             }
 
@@ -8032,23 +8019,6 @@ namespace Parsek
             // any mutation persists through reverts, permanently preventing re-spawn.
 
             return anyUpdated;
-        }
-
-        /// <summary>
-        /// True when a matching pending-tree recording is the vessel's current tip and so
-        /// the target of a recovery / termination stamp: a recording with no child branch
-        /// point, or a breakup-continuous recording whose branch point has no same-pid
-        /// child (<see cref="GhostPlaybackLogic.IsEffectiveLeafForVessel(Recording, RecordingTree)"/>,
-        /// #224). A recording whose branch point continued the same vessel as another
-        /// recording is an earlier segment and is left alone.
-        /// </summary>
-        internal static bool IsTerminalEventTarget(Recording rec, RecordingTree tree)
-        {
-            if (rec == null)
-                return false;
-            if (string.IsNullOrEmpty(rec.ChildBranchPointId))
-                return true;
-            return GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, tree);
         }
 
         /// <summary>

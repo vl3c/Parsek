@@ -373,8 +373,8 @@ namespace Parsek.InGameTests
             tree.Recordings["payload"] = Leg("payload", "C2", 0, DeliveryUndockUT, 3300, "Payload");
 
             // Production invariant: every recording in a tree carries
-            // TreeId = tree.Id (stamped at recording creation and
-            // re-stamped on tree load). The REAL RouteBuilder
+            // TreeId = tree.Id (stamped by ChainSegmentManager at segment
+            // creation and re-stamped on tree load). The REAL RouteBuilder
             // reads it off the delivery source recording
             // (BackingMissionTreeId = source.TreeId), and ResolveLoopUnit's
             // backing-mission derivation looks the tree up by that id - an

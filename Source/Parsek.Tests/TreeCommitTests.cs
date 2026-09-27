@@ -804,17 +804,19 @@ namespace Parsek.Tests
             Assert.False(rp.SessionProvisional);
         }
 
-        // Re-Fly is for vessel separations only (owner ruling 2026-09-27). A
-        // legacy Rewind Point authored at an EVA split by an older build offers no
-        // Re-Fly on either side: the EVA kerbal never qualifies whatever its
-        // terminal, and the vessel side of that RP does not qualify either.
-        [Theory]
-        [InlineData(TerminalState.Landed)]
-        [InlineData(TerminalState.Splashed)]
-        [InlineData(TerminalState.Orbiting)]
-        [InlineData(TerminalState.SubOrbital)]
-        [InlineData(TerminalState.Destroyed)]
-        public void CommitTree_EvaKerbalUnderLegacyEvaRewindPoint_NeverPromoted(TerminalState terminal)
+        [Fact]
+        public void CommitTree_LandedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting()
+        {
+            AssertStableSurfaceEvaChildAutoSeals(TerminalState.Landed);
+        }
+
+        [Fact]
+        public void CommitTree_SplashedEvaChildUnderRewindPoint_AutoSealsInsteadOfPromoting()
+        {
+            AssertStableSurfaceEvaChildAutoSeals(TerminalState.Splashed);
+        }
+
+        private void AssertStableSurfaceEvaChildAutoSeals(TerminalState terminal)
         {
             bool priorSuppress = ParsekLog.SuppressLogging;
             bool? priorVerboseOverride = ParsekLog.VerboseOverrideForTesting;
@@ -825,7 +827,7 @@ namespace Parsek.Tests
 
             try
             {
-                var tree = MakeTreeWithBranch("legacy_eva_tree");
+                var tree = MakeTreeWithBranch("stable_eva_tree");
                 tree.BranchPoints[0].Type = BranchPointType.EVA;
                 tree.BranchPoints[0].RewindPointId = "rp_stage";
                 tree.Recordings["child1"].TerminalStateValue = TerminalState.Landed;
@@ -851,17 +853,23 @@ namespace Parsek.Tests
                 RecordingStore.CommitTree(tree);
 
                 Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
+                // Stable-EVA conclusion leaves the slot's tip Immutable (the
+                // born state) instead of demoting to CommittedProvisional, so
+                // the slot reads closed.
                 Assert.Equal(MergeState.Immutable, tree.Recordings["child2"].MergeState);
-                Assert.False(UnfinishedFlightClassifier.TryQualify(
+                // Shape still qualifies (strandedEva), but the slot is closed
+                // because its effective tip is Immutable.
+                Assert.True(UnfinishedFlightClassifier.TryQualify(
                     tree.Recordings["child2"], rp.ChildSlots[1], rp,
-                    out string reason, tree));
-                Assert.Equal(UnfinishedFlightClassifier.EvaNotSeparationReason, reason);
+                    out string sealedReason, tree));
+                Assert.Equal("strandedEva", sealedReason);
                 Assert.False(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
-                Assert.DoesNotContain(logLines, l =>
-                    l.Contains("[UnfinishedFlights]") && l.Contains("CommitTree promoted"));
                 Assert.Contains(logLines, l =>
                     l.Contains("[UnfinishedFlights]")
-                    && l.Contains("IsUnfinishedFlight=false rec=child2 reason=evaNotSeparation"));
+                    && l.Contains("CommitTree auto-sealed stable EVA")
+                    && l.Contains("rec=child2")
+                    && l.Contains($"terminal={terminal}")
+                    && l.Contains("reason=strandedEva"));
             }
             finally
             {
@@ -872,16 +880,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CommitTree_CrashedVesselSideOfLegacyEvaRewindPoint_NotPromoted()
+        public void CommitTree_OrbitingEvaChildUnderRewindPoint_StillPromotesToCommittedProvisional()
         {
-            // The vessel (not the kerbal) crashed after the EVA. Under a
-            // separation RP a crash qualifies; under a legacy EVA RP it does not,
-            // because rewinding to the EVA moment is still an EVA Re-Fly.
-            var tree = MakeTreeWithBranch("legacy_eva_vessel_tree");
+            var tree = MakeTreeWithBranch("orbiting_eva_tree");
             tree.BranchPoints[0].Type = BranchPointType.EVA;
             tree.BranchPoints[0].RewindPointId = "rp_stage";
-            tree.Recordings["child1"].TerminalStateValue = TerminalState.Destroyed;
-            tree.Recordings["child2"].TerminalStateValue = TerminalState.Landed;
+            tree.Recordings["child1"].TerminalStateValue = TerminalState.Landed;
+            tree.Recordings["child2"].TerminalStateValue = TerminalState.Orbiting;
+            tree.Recordings["child2"].VesselName = "Jebediah Kerman";
             tree.Recordings["child2"].EvaCrewName = "Jebediah Kerman";
             var rp = new RewindPoint
             {
@@ -889,6 +895,7 @@ namespace Parsek.Tests
                 BranchPointId = "bp1",
                 SessionProvisional = true,
                 CreatingSessionId = null,
+                FocusSlotIndex = 0,
                 ChildSlots = new List<ChildSlot>
                 {
                     Slot(0, "child1"),
@@ -900,41 +907,8 @@ namespace Parsek.Tests
             RecordingStore.CommitTree(tree);
 
             Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
-            Assert.False(UnfinishedFlightClassifier.TryQualify(
-                tree.Recordings["child1"], rp.ChildSlots[0], rp, out string reason, tree));
-            Assert.Equal(UnfinishedFlightClassifier.EvaNotSeparationReason, reason);
-        }
-
-        [Fact]
-        public void CommitTree_CrashedVesselSideOfUndockRewindPoint_StillPromoted()
-        {
-            // Control for the cell above: the same crash under a vessel
-            // separation (Undock) keeps its Re-Fly.
-            var tree = MakeTreeWithBranch("undock_vessel_tree");
-            tree.BranchPoints[0].Type = BranchPointType.Undock;
-            tree.BranchPoints[0].RewindPointId = "rp_stage";
-            tree.Recordings["child1"].TerminalStateValue = TerminalState.Destroyed;
-            tree.Recordings["child2"].TerminalStateValue = TerminalState.Landed;
-            var rp = new RewindPoint
-            {
-                RewindPointId = "rp_stage",
-                BranchPointId = "bp1",
-                SessionProvisional = true,
-                CreatingSessionId = null,
-                ChildSlots = new List<ChildSlot>
-                {
-                    Slot(0, "child1"),
-                    Slot(1, "child2"),
-                }
-            };
-            InstallScenarioWithRps(rp);
-
-            RecordingStore.CommitTree(tree);
-
-            Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child1"].MergeState);
-            Assert.True(UnfinishedFlightClassifier.TryQualify(
-                tree.Recordings["child1"], rp.ChildSlots[0], rp, out string reason, tree));
-            Assert.Equal("crashed", reason);
+            Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child2"].MergeState);
+            Assert.True(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
         }
 
         [Fact]

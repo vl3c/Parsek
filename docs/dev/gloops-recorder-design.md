@@ -709,6 +709,7 @@ These files have zero or minimal Parsek-specific references and form the engine 
 - `ParsekPlaybackPolicy.cs` — spawn/resource/camera policy
 - `VesselSpawner.cs` — real vessel spawning
 - `RecordingStore.cs`, `ParsekScenario.cs` — persistence
+- `ChainSegmentManager.cs` — chain segment state
 - All UI, timeline, game actions, crew, CommNet code
 
 ### 11.5 Extraction Sequence

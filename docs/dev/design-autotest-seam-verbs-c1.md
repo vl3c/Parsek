@@ -889,25 +889,6 @@ accounted whatever DID happen.
 > `fundsAfter`; deactivate `slots`. Manifest kinds: `strategy-activate` /
 > `strategy-deactivate`. First flown on `GUI-5-census-career-ksc`'s strategy block.
 
-> Update (2026-09-27, the contract accept and the refused-click line). `action=accept-contract
-> contract=<guid>` makes Mission Control's Accept call, `Contract.Accept()` (the button's
-> `MissionControl.OnClickAccept` ends in it; stock pays the advance). `contract=` is the
-> contract's guid, matched whole and case-insensitively, braces allowed, over
-> `ContractSystem.Instance.Contracts`. The effect is confirmed by the contract reading
-> `Active`; anything else is `blocked-committed` (`ContractAcceptPatch` refuses a contract the
-> committed timeline accepts, or whose slot it needs). The seam does not model Mission
-> Control's slot count, which stock's Accept button checks before this call. Refusals after
-> `missing-arg`: `unknown-contract` (arg class), `contract-not-offered` (career class).
-> Dispatch: CAREER (Funding and the contract system live) + SPACECENTER. Manifest kind
-> `contract-accept`; payload `state` / `fundsAfter`.
->
-> A research, upgrade, hire or accept whose stock call left no effect now writes one Info line
-> before its refusal: `kscaction <action> not applied: target=<t> <key>Before=<b> <key>After=<a>
-> fundsBefore= fundsAfter= fundsDelta= scienceBefore= scienceAfter= scienceDelta=` (key `state`
-> for research and accept, `level` for upgrade, `type` for hire; `FormatNotAppliedLine`), so a
-> lane can read that a refused click changed nothing. First flown on
-> `KB-3-ksc-click-blocks-after-rewind`.
-
 **Payload.** `OK action=<action> target=<target> applied=true` plus an observed-after
 field for logging only (`scienceAfter` / `fundsAfter` / `level` / `crewCount`). The
 observed-after values are for the KSP.log / debugging; they are NEVER the oracle's

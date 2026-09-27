@@ -7044,7 +7044,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     per-category BATCH_COMPLETE line plus the `category=multi:<n>` aggregate.
 
     WHY THE FAMILY EXISTS. Roughly eighteen in-game categories hold one or two
-    tests each (`Bug289`, `ForwardRender`,
+    tests each (`Bug289`, `ContinuationIntegrity`, `ForwardRender`,
     `PartEventTiming`, the small `Pipeline-*` four, `RecordingStore`,
     `ResourceManifest`, `StockWarpLimits`, `TestRunner`, `Watch`, `Unity`, ...).
     Under the pre-2026-09-07 rule each would have cost its own KSP boot, which is
@@ -7082,6 +7082,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
         "LT-1-long-tail-flight": ("FLIGHT", {
             "BackgroundSeeder": 2,
             "Bug289": 2,
+            "ContinuationIntegrity": 2,
             "DisabledHoverEcho": 1,
             "FinalizeLimbo": 2,
             "Flight": 2,
@@ -9665,6 +9666,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE REWIND READ-BACK GUARD PAIR, 2026-09-27.
+        "RB-1-rewind-readback-divergence.toml": "tier=operator on the calibration-discipline shape, NOT debt: the first live FLAGGED DIVERGENCE (a Step-3b resurrected-recovery retirement after a post-RP hire, on the rewind-readback preset over career-science-pad with the L3 Flea flight). Owed: only the ordinary promotion call",
+        "RB-2-rewind-readback-within-range.toml": "tier=operator on the calibration-discipline shape, NOT debt: RB-1's control (the same flight and retirement with no post-RP spend, so the guard must read within-expected-range). Owed: only the ordinary promotion call",
         # THE D17 PERSISTENT-ROTATION LANE, 2026-09-26.
         "MC-5-persistent-rotation.toml": "tier=operator on the calibration-discipline shape, NOT debt: the D17 `persistent-rotation` host (the pinned PersistentRotationUpgraded on modded-compat, the SpinVessel verb, a loop replay of the spin-forward segment). Reading `2026-09-26_1849`, armed re-flight `_1853` PASS attempt 1 with ghostLifecycle GATING, offline negative control red on every seeded fault; D17 claimed. Owed: only the ordinary promotion call (MC-3's nightly slot beside it)",
         # THE D17 MAKING-HISTORY LANE, 2026-09-25.
@@ -12972,6 +12976,10 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     # ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
     # workflow.
     GHOSTLIFE_ARMED_SPECS = {
+        # ARMED 2026-09-27 off the reading run `2026-09-27_1243_OC-1-overlap-cap-per-recording`
+        # (PASS attempt 1): peakLive 20 (the per-recording cap reached, never exceeded),
+        # spawnLines = destroyLines = 34, 14 `overlap expired`.
+        "OC-1-overlap-cap-per-recording.toml",
         # ARMED 2026-09-26 off the reading run `2026-09-26_1849_MC-5-persistent-rotation`
         # (PASS attempt 1): 53 AfterUpdate lines, all `checkpoint-orbit-spin`, dRotDeg=0.000,
         # sweep 40.33 deg (0.8 rad/s over 0.88 s). Armed re-flight `_1853` PASS (60 lines,
@@ -13293,6 +13301,12 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # follow the reading run through GHOSTLIFE_ARMED_SPECS, on GS-4's
         # discipline.
         "RF-8-ghost-during-refly.toml",
+        # THE PER-RECORDING OVERLAP CAP (OC-1, 2026-09-27). Declares the v4 `peakLive`
+        # window at exactly 20 (the cap reached and never exceeded) and requires the
+        # `overlap expired` destroy reason. The windows are DERIVED, not censused: the
+        # preset's loop starts after the save clock, so every copy spawns under the
+        # tracer, and ceil(120 s / 6 s) = 20 copies is what the cap arithmetic allows.
+        "OC-1-overlap-cap-per-recording.toml",
     }
 
     def test_ghost_lifecycle_declarers_are_the_recorded_roster(self):
@@ -23591,17 +23605,6 @@ class KscActionRefusalSourceSyncTests(unittest.TestCase):
                 ("activate-not-applied", "driver-gate"),
                 ("deactivate-not-applied", "driver-gate")):
             with self.subTest(msg=msg):
-                self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
-                self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
-
-    def test_the_accept_contract_refusals_classify_as_designed(self):
-        tokens = self._emitted_tokens()
-        for msg, expected in (
-                ("unknown-contract", "driver-arg"),
-                ("contract-not-offered", "driver-career"),
-                ("blocked-committed", "driver-career")):
-            with self.subTest(msg=msg):
-                self.assertIn(msg, tokens)
                 self.assertEqual(expected, hlib.classify_seam_refusal_subkind(msg))
                 self.assertIn(expected, hlib.RETRYABLE_INVALID_SUBKINDS)
 

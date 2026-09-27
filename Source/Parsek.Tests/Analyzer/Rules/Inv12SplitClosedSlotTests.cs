@@ -305,8 +305,8 @@ namespace Parsek.Tests.Analyzer.Rules
         {
             // The tip walk this rule models refuses to cross ChainBranch
             // (EffectiveState skips a candidate whose ChainBranch differs), and
-            // recordings committed by the retired chain-segment path carry ChainBranch = 1
-            // for ghost-only parallel continuations. Keying on ChainId alone would pair these two and report a
+            // ChainSegmentManager writes ChainBranch = 1 for ghost-only parallel
+            // continuations. Keying on ChainId alone would pair these two and report a
             // slot nobody reads.
             var model = Model(new[]
             {

@@ -7,7 +7,7 @@ namespace Parsek
         // ─── Committed-list structural notifications ────────────────────────
         //
         // Index-keyed live state (ghost engine slots, held ghosts, map-presence dicts,
-        // watch-mode index, KSC ghost slots) mirrors
+        // watch-mode index, chain continuation indices, KSC ghost slots) mirrors
         // committedRecordings by position. Every mid-list mutation of that list must raise
         // these so the scene controller (ParsekFlight / ParsekKSC / ParsekTrackingStation)
         // can shift that state in step. Raised by RunOptimizationPass (merge removal +

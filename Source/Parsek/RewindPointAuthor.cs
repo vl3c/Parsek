@@ -44,17 +44,6 @@ namespace Parsek
         internal static Action<RewindPoint, RewindPointAuthorContext> SyncRunForTesting;
 
         /// <summary>
-        /// True when a split of this type may carry a Rewind Point. Re-Fly is for
-        /// vessel separations only (staging, decoupling, undocking, structural
-        /// breakup): an EVA is not a separation and never gets a Rewind Point.
-        /// A player who regrets an EVA uses F9 or Discard.
-        /// </summary>
-        internal static bool IsReFlySplitType(BranchPointType type)
-        {
-            return type != BranchPointType.EVA;
-        }
-
-        /// <summary>
         /// Public entry point. Validates scene, builds the RP stub, wires it into
         /// <see cref="ParsekScenario.RewindPoints"/> + <see cref="BranchPoint.RewindPointId"/>,
         /// and schedules the deferred capture coroutine. Returns the RP on success
@@ -77,16 +66,6 @@ namespace Parsek
             if (branchPoint == null)
             {
                 ParsekLog.Warn("RewindSave", "Begin: branchPoint is null");
-                return null;
-            }
-            // Re-Fly is for vessel separations only (owner ruling 2026-09-27).
-            // Every authoring path funnels through here, so the split-type gate
-            // lives in this one place rather than at each call site.
-            if (!IsReFlySplitType(branchPoint.Type))
-            {
-                ParsekLog.Info("Rewind",
-                    $"Split type={branchPoint.Type}: no Rewind Point " +
-                    $"(Re-Fly is for vessel separations only) bp={branchPoint.Id}");
                 return null;
             }
             if (childSlots == null || childSlots.Count == 0)

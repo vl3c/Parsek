@@ -54,9 +54,9 @@ saves. Cheats are process-static, never saved.
 | ResourceAbundance | not read; routes replay recorded amounts | OK (new-game-only) |
 | ReentryHeatScale | thermal only; ghost reentry FX derived from recorded speed/density; overheat destruction recorded as events | OK |
 | EnableCommNet | only read in `GhostCommNetRelay` (dead code, todo GUI-D3); ghosts CommNet-inert in every setting | OK in effect; ruling already pending under GUI-D3. If the relay is ever wired: null-guard `HighLogic.CurrentGame` and re-evaluate on difficulty change |
-| AllowOtherLaunchSites (MH) | launch-site capture exists; alt-site replay/spawn with the setting off untested (registry D17 unflown) | CHECK (low). 2026-09-27: every stock site now retires an ending like KSC, and the stale-site tag is fixed (todo KSP-SETTINGS-FOLLOWUPS-RECORDING-2026-09-27) |
+| AllowOtherLaunchSites (MH) | launch-site capture exists; alt-site replay/spawn with the setting off untested (registry D17 unflown) | CHECK (low) |
 | AutoHireCrews | stock hires before flight; Parsek reservations hire replacements | CHECK (low): confirm the auto-hire path emits the same hire event Parsek's ledger captures |
-| persistKerbalInventories | traced 2026-09-27: a spawned-at-end vessel gave each kerbal his current roster inventory (duplicated or lost cargo; the flag widens the duplication). Fixed by capturing crew inventories with the snapshot and restoring them at spawn (todo KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); logistics pickups walk part modules only, unaffected | FIXED |
+| persistKerbalInventories | not examined against inventory-carrying recordings / logistics pickups | CHECK (low) |
 | AllowStockVessels | craft browser only | N/A |
 
 ### 2.3 Advanced (AdvancedParams) and CommNet (CommNetParams)
@@ -102,8 +102,8 @@ saves. Cheats are process-static, never saved.
 | Career cheats (+/- funds, science, rep; reason `Cheating`), Max Tech, Max Facilities, Max XP, Max Progression | Cheat currency arrives as FundsChanged/Reputation/Science events that are never converted to ledger actions: held by the UP clamp ("Kept your earned funds") until a rewind recalc wipes it. Max Tech / Facilities / Progression go through the ordinary stock events Parsek does capture (not traced individually). | RULING (Q6) |
 | Infinite Propellant / Infinite Electricity | recordings show no consumption; route cost manifests derived from snapshots may under-state cost (not traced) | CHECK (low) |
 | No Crash Damage, Unbreakable Joints, Ignore Max Temperature | recordings lack destruction events; replay is faithful | OK |
-| Set Orbit / Set Position / middle-click teleport | trajectory discontinuity inside a live recording; no guard | CHECK (low): at least log it; a teleport mid-recording could be split into a new section. 2026-09-27: FIXED, logged + section seam / body split (todo KSP-SETTINGS-FOLLOWUPS-RECORDING-2026-09-27) |
-| Hack Gravity | changes `GeeASL` of every body live; recorded orbit segments captured under hacked gravity are replayed with real mu (whether gravParameter is recomputed not traced) | accepted (cheat), unless you want it logged. 2026-09-27: one Warn per recording (owner ruling) |
+| Set Orbit / Set Position / middle-click teleport | trajectory discontinuity inside a live recording; no guard | CHECK (low): at least log it; a teleport mid-recording could be split into a new section |
+| Hack Gravity | changes `GeeASL` of every body live; recorded orbit segments captured under hacked gravity are replayed with real mu (whether gravParameter is recomputed not traced) | accepted (cheat), unless you want it logged |
 | Pause on vessel unpack, part clipping, non-strict attachment, EVA/inventory limits | N/A |
 
 ## 5. Per-save setting-like state
