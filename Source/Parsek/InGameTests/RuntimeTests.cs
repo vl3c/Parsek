@@ -1026,9 +1026,9 @@ namespace Parsek.InGameTests
             // The whole point of the fix: the recording's stale segment alone would
             // produce decision=CannotSpawnSafely with reason=periapsis-below-safe-altitude.
             // After tail-derive, the safety check must return SpawnNow (or at minimum NOT
-            // CannotSpawnSafely). Stronger than periAlt > atmosphereDepth — the safety
-            // margin (typically 5 km above atmosphere) is what TerminalOrbitSpawnSafety
-            // actually gates on at spawn time.
+            // CannotSpawnSafely). The spawn gate's periapsis line is the atmosphere top
+            // (OrbitClearance); asserting the periapsis also clears the 5 km deferral margin
+            // is deliberately stronger, so the SpawnNow below cannot be a deferral.
             InGameAssert.IsTrue(periAlt > safeAlt,
                 $"Derived periapsis ({periAlt:F0} m) must clear safe altitude ({safeAlt:F0} m)");
             InGameAssert.AreEqual(
@@ -2467,7 +2467,7 @@ namespace Parsek.InGameTests
                 // vessel snapshot, so ShouldSpawnAtRecordingEnd must not report
                 // "no vessel snapshot" for it.
                 var evaSpawnDecision = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    finalizedEva, isActiveChainMember: false, isChainLooping: false);
+                    finalizedEva, isActiveChainMember: false);
                 bool sawNoSnapshotSuppression =
                     evaSpawnDecision.reason == "no vessel snapshot";
                 bool sawDestroyedClassification = captured.Any(line =>

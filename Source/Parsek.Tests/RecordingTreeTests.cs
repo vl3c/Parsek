@@ -408,11 +408,11 @@ namespace Parsek.Tests
                 TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied,
                 restoredRec.TerminalSpawnSafetyReasonCode);
 
-            // The persisted flag must drive the spawn-hold decision after reload so
-            // the deferred/pre-spawn guards keep the vessel down.
-            Assert.True(
-                TerminalOrbitSpawnSafety.ShouldHoldDeferredSpawnUntilUT(restoredRec, 200000.0, out string holdReason),
-                "A reloaded cannot-spawn-safely recording must still resolve to a spawn Hold.");
+            // The persisted flag must drive the refusal after reload so the deferred /
+            // pre-spawn guards keep the vessel down (and a held ghost is released).
+            Assert.Equal(
+                TerminalOrbitDeferredSpawnState.Refused,
+                TerminalOrbitSpawnSafety.GetDeferredSpawnState(restoredRec, 200000.0, out string holdReason));
             Assert.Equal(TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied, holdReason);
         }
 

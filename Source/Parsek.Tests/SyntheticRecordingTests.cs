@@ -7574,47 +7574,52 @@ namespace Parsek.Tests
         internal const double SituationCorrectionWindowSeconds = 100.0;
 
         /// <summary>
-        /// The Orbiting recording's terminal orbit: periapsis 60 km, apoapsis 150 km over
-        /// Kerbin (atmosphere 70 km, so the terminal-orbit spawn safe altitude is 75 km with
-        /// the 5 km <c>TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters</c>), near
-        /// equatorial. Periapsis passage is <see cref="TerminalOrbitPeriapsisLeadSeconds"/>
-        /// after the save UT; the orbit is under 75 km from about +50 s to about +550 s.
+        /// The Orbiting recording's terminal orbit: periapsis 71 km, apoapsis 90 km over
+        /// Kerbin, near equatorial. Kerbin's atmosphere top is 70 km, so the periapsis clears
+        /// the <c>OrbitClearance</c> periapsis floor and commit classification calls this orbit
+        /// Orbiting (a state real play produces), but it dips into the 5 km
+        /// <c>TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters</c> band: a spawn attempt
+        /// while the vessel is under the 75 km safe altitude defers until it climbs back above
+        /// it, and then spawns (operator ruling 2026-09-27: any orbit Parsek calls Orbiting
+        /// will spawn). Periapsis passage is <see cref="TerminalOrbitPeriapsisLeadSeconds"/>
+        /// after the save UT; the orbit is under 75 km from about UT 440 to about UT 1002.6.
         /// argPe is placed so the vessel stays on the far side of Kerbin from the focused
-        /// Kerbal X for the whole lane (174 degrees apart at the save UT).
+        /// Kerbal X for the whole lane.
         /// </summary>
-        internal const double TerminalOrbitSma = 705000.0;
-        internal const double TerminalOrbitEcc = 0.06382978723404255;
+        internal const double TerminalOrbitSma = 680500.0;
+        internal const double TerminalOrbitEcc = 19000.0 / 1361000.0;
         internal const double TerminalOrbitInc = 0.1;
         internal const double TerminalOrbitLan = 0.0;
         internal const double TerminalOrbitArgPe = 303.32825538401545;
-        internal const double TerminalOrbitMnaAtSaveUT = 5.330776652375797;
+        internal const double TerminalOrbitMnaAtSaveUT = 5.278882181174997;
         internal const double TerminalOrbitPeriapsisLeadSeconds = 300.0;
 
         /// <summary>
         /// The recording's single flat point: where the orbit puts the vessel at the save
         /// UT, in Kerbin body-fixed coordinates. Derived from the Kerbal X Probe's saved
         /// position and ORBIT node on the same host (its element-frame longitude minus its
-        /// body-fixed longitude is the frame offset at the save UT), so it is the ghost's
-        /// first pose, not a physics-exact state; the spawn never reads it (an Orbiting
-        /// terminal spawns from the recorded terminal orbit).
+        /// body-fixed longitude is the frame offset at the save UT; lat / lon follow the
+        /// orbit's argument of latitude at that UT), so it is the ghost's first pose, not a
+        /// physics-exact state; the spawn never reads it (an Orbiting terminal spawns from the
+        /// recorded terminal orbit propagated to the spawn UT).
         /// </summary>
-        internal const double TerminalOrbitPointLat = -0.0887;
-        internal const double TerminalOrbitPointLon = 145.4877;
-        internal const double TerminalOrbitPointAlt = 80926.8;
+        internal const double TerminalOrbitPointLat = -0.0902;
+        internal const double TerminalOrbitPointLon = 147.3878;
+        internal const double TerminalOrbitPointAlt = 75497.1;
         internal const string TerminalOrbitVesselName = "Low Perigee Probe";
         internal const string TerminalOrbitRecordingId = "terminal-orbit-safety-rec";
 
-        /// <summary>Seconds from the save UT to the Orbiting recording's EndUT (alt about 68 km).</summary>
+        /// <summary>Seconds from the save UT to the Orbiting recording's EndUT (alt about 72.7 km).</summary>
         internal const double TerminalOrbitWindowSeconds = 120.0;
 
         /// <summary>
         /// The two absolute <c>WarpToUT</c> targets SS-1 pins. The first warp crosses both
         /// EndUTs (so both spawns are warp-deferred) and stops at about periapsis, with the
         /// terminal orbit under the safe altitude; the second crosses the orbit's next safe
-        /// UT, where the deferred spawn re-evaluates.
+        /// UT (about 1002.6), where the deferred spawn re-evaluates and spawns.
         /// </summary>
         internal const double SpawnSafetyFirstWarpUT = 715.0;
-        internal const double SpawnSafetySecondWarpUT = 1040.0;
+        internal const double SpawnSafetySecondWarpUT = 1100.0;
 
         /// <summary>
         /// Game seconds before a <c>WarpToUT</c> target at which the rails rate is back at
@@ -7759,7 +7764,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SpawnSafetyTerminalOrbit_DefersAtTheFirstWarpAndRefusesAtTheSecond()
+        public void SpawnSafetyTerminalOrbit_DefersAtTheFirstWarpAndSpawnsAtTheSecond()
         {
             Recording rec = MaterializeSpawnSafetyRecording(
                 SpawnSafetyTerminalOrbit(SinglePointHoldSaveUT), TerminalOrbitRecordingId);
@@ -7782,17 +7787,23 @@ namespace Parsek.Tests
 
             double pe = TerminalOrbitSma * (1.0 - TerminalOrbitEcc) - SpawnSafetyKerbinRadius;
             double ap = TerminalOrbitSma * (1.0 + TerminalOrbitEcc) - SpawnSafetyKerbinRadius;
-            Assert.Equal(60000.0, pe, 6);
-            Assert.Equal(150000.0, ap, 6);
-            Assert.Equal(60000.0, TerminalOrbitAltitudeAt(
+            Assert.Equal(71000.0, pe, 6);
+            Assert.Equal(90000.0, ap, 6);
+            Assert.Equal(71000.0, TerminalOrbitAltitudeAt(
                 SinglePointHoldSaveUT + TerminalOrbitPeriapsisLeadSeconds), 1);
             // The recorded point sits at the orbit's own altitude at the save UT.
             Assert.Equal(TerminalOrbitPointAlt, TerminalOrbitAltitudeAt(SinglePointHoldSaveUT), 0);
 
+            // A state real play produces: commit classification calls a 71 km periapsis over
+            // Kerbin's 70 km atmosphere top Orbiting (the shared OrbitClearance floor).
+            Assert.Equal(TerminalState.Orbiting, RecordingTree.DetermineTerminalStateFromOrbitEvidence(
+                32, TerminalOrbitEcc, TerminalOrbitSma * (1.0 - TerminalOrbitEcc),
+                SpawnSafetyKerbinRadius, true, 70000.0));
+
             // Both EndUTs fall well inside the first warp, with the orbit already under
             // 75 km at the Orbiting EndUT, so a spawn attempt anywhere between that EndUT
-            // and the first warp's end (a held-ghost retry during the warp, or the deferred
-            // flush after it) takes the DeferUntilSafe branch.
+            // and the first warp's 1x dwell (a held-ghost retry during the warp, or the
+            // deferred flush after it) takes the DeferUntilSafe branch.
             Assert.True(SinglePointHoldSaveUT + SituationCorrectionWindowSeconds < SpawnSafetyFirstWarpUT - 100.0);
             Assert.True(SinglePointHoldSaveUT + TerminalOrbitWindowSeconds < SpawnSafetyFirstWarpUT - 100.0);
             double safe = TerminalOrbitSpawnSafety.ComputeSafeAltitude(
@@ -7807,15 +7818,33 @@ namespace Parsek.Tests
                 Assert.Equal(TerminalOrbitSpawnSafety.ReasonCurrentAltitudeBelowSafeAltitude, d.ReasonCode);
             }
 
-            // The second warp ends past the next safe UT: the re-evaluation clears the
-            // current-altitude check and then refuses on the periapsis. A periapsis under the
-            // safe altitude never becomes spawnable; the deferral only delays that verdict.
+            // The next safe UT (the first UT after EndUT with the orbit back at 75 km) lies
+            // after the first warp's 1x dwell and before the second warp's flush: the hold is
+            // in force through the dwell and has expired by the second flush.
             double secondFlushUT = SpawnSafetySecondWarpUT - SpawnSafetyWarpRampDownSeconds;
-            Assert.True(TerminalOrbitAltitudeAt(secondFlushUT) > safe + 5000.0);
-            var refusal = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
-                true, 70000.0, TerminalOrbitAltitudeAt(secondFlushUT), pe, ap);
-            Assert.Equal(TerminalOrbitSpawnSafetyAction.CannotSpawnSafely, refusal.Action);
-            Assert.Equal(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude, refusal.ReasonCode);
+            double nextSafeUT = double.NaN;
+            for (double ut = SinglePointHoldSaveUT + TerminalOrbitWindowSeconds; ut < secondFlushUT; ut += 0.01)
+            {
+                if (TerminalOrbitAltitudeAt(ut) >= safe)
+                {
+                    nextSafeUT = ut;
+                    break;
+                }
+            }
+            Assert.False(double.IsNaN(nextSafeUT));
+            Assert.InRange(nextSafeUT, SpawnSafetyFirstWarpUT + 60.0, secondFlushUT);
+            Assert.InRange(nextSafeUT, 1002.0, 1003.0);
+
+            // Past the next safe UT the re-evaluation clears the altitude check and the
+            // periapsis clears the atmosphere top, so the deferred Orbiting spawn materializes
+            // (operator ruling 2026-09-27: any orbit Parsek calls Orbiting will spawn).
+            foreach (double ut in new[] { 1002.7, secondFlushUT })
+            {
+                var spawn = VesselSpawner.EvaluateTerminalOrbitSpawnSafetyGeometry(
+                    true, 70000.0, TerminalOrbitAltitudeAt(ut), pe, ap);
+                Assert.Equal(TerminalOrbitSpawnSafetyAction.SpawnNow, spawn.Action);
+                Assert.Equal(TerminalOrbitSpawnSafety.ReasonAboveSafeAltitude, spawn.ReasonCode);
+            }
         }
 
         [Fact]

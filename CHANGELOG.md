@@ -10,6 +10,8 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: two lanes for the crew inventory restore at spawn.** `H72-kerbal-inventory-spawn` (flown green 2026-09-27) runs the in-game `KerbalInventorySpawn` category over the pad craft's seated Jeb, whose roster carries a two-part inventory, and checks the capture, the roster applier and the rollback lines. `EVA-7-crew-inventory-spawn-after-rewind` (flown green 2026-09-27) replays EVA-6's chain: Jeb carries a parachute and a seismometer, places the seismometer on EVA, the recording commits, Rewind-to-Launch, and the Space Center spawns him. It checks that his spawn restores the recorded one-part inventory rather than the two-part one the rewind put back on the roster, and that the restore runs exactly once.
+- **Dev: a lane for auto-hire after a rewound hire.** `AH-1-auto-hire-reserved-applicant` (flown green 2026-09-27) runs a new in-game test, `AutoHireReservation`, on a fresh career: it gives the first applicant a committed hire later in the timeline (the state a rewind to before that hire leaves), turns on the Auto-Hire Crews difficulty option and runs stock's own crew fill on a three-seat pod two kerbals short. It checks that auto-hire passes over the reserved applicant for each short seat, never reaches the hire refusal, hires and seats other kerbals and seats nobody twice, then puts the roster, funds, ledger and difficulty option back.
 - **Dev: lanes for the per-recording loop cap and the rewind read-back check.** `OC-1-overlap-cap-per-recording` loops one injected recording on its own toggle faster than its length / 20 and checks that playback slows the relaunches to keep at most 20 copies (`auto-adjusted (cap reached)`) and that old copies disappear; flown and armed. The ghost lifecycle check gains a `peakLive` count (the most copies of one recording alive at once). `RB-1-rewind-readback-divergence` and its control `RB-2-rewind-readback-within-range` fly a recovery and then a Re-Fly that brings the recovered vessel back; RB-1's first flight found that the recovery money is not taken back (todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED). With that fixed, RB-1 now shows the first live flag of the rewind read-back check (the recovery value comes off after a post-rewind-point hire) and RB-2 shows the same retirement staying within range without the hire. Both lanes are flown.
 - **Dev: the automated tests now gate on 37 more save-structure checks.** Report-only checks
   on the saved game (rewind points, supersede rows, tombstones, tree and recording shape) now
@@ -1226,6 +1228,33 @@ _(unreleased — entries accumulate here per commit)_
   recovery from what Parsek records at the moment of the recovery: the recovery payout, or
   the crew being returned to the roster. The vessel must still be positively the same launch,
   and a recovery from before the rewind point is left alone.
+- **Looping one phase of a split flight is now visual only.** A long flight that Parsek
+  splits into phases (launch, coast, landing) is a chain. Ticking Loop on any one phase used to
+  change the whole flight's outcome: its final vessel never spawned, its crew stayed reserved
+  forever, and a crew death became permanent even with stock respawn on. Now the loop only adds
+  ghost replays. The flight plays once for real and its final vessel spawns once at the end, in
+  flight, at the Space Center and in the Tracking Station. The crew of its other phases are
+  freed exactly as for any flight: at the end of a recovered flight, when the vessel is
+  recovered, or when a flight that ends parked at the Space Center is retired (the looped
+  phase's own crew are still not reserved, a known gap). A death follows stock respawn. Phases before the
+  end still never spawn a vessel, and a looped mission (which loops the whole mission) is
+  unchanged. A kerbal's hover no longer says a loop holds him. The log names the spawn with
+  `Chain loop first-run spawn:`.
+- **Every orbit Parsek calls Orbiting now spawns, and a refused ghost no longer lingers.** A
+  recording ending in orbit is marked Orbiting only when its periapsis clears the body's
+  atmosphere, and on a body with no atmosphere its highest terrain, so a low Mun orbit that
+  would hit a mountain ends as a sub-orbital flight. The spawn check now uses that same line.
+  Before, a vessel whose periapsis was up to 5 km above the atmosphere (a 72 x 100 km Kerbin
+  orbit, and the same band over Duna, Eve, Laythe and Jool) was recorded as Orbiting and then
+  refused at spawn, and its ghost stayed on screen past the end of the recording for the rest
+  of the scene. The 5 km margin is now used only to wait while the vessel is low in that band,
+  and the vessel spawns once it climbs. A recording that ended with its vessel unloaded no
+  longer counts as Orbiting just because its periapsis is above sea level: a periapsis inside
+  the atmosphere makes it sub-orbital. A spawn that can never succeed (an orbit that cannot
+  be rebuilt, a spawned vessel that died, bad numbers) no longer holds its ghost: the ghost
+  finishes its replay and disappears at the recording's end, along with its map-view orbit.
+  A refusal saved in an existing game is checked again under the new rule when the game loads,
+  except a vessel that already died when it spawned, which stays refused. Ruling 2026-09-27.
 - **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
   its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
   merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier
@@ -1618,7 +1647,7 @@ _(unreleased — entries accumulate here per commit)_
   by which committed flight (for example `Researched on Y2 D114 by the committed flight
   'Mun Lander 3'.`), that committed history cannot happen earlier or twice, and when the item
   frees up. A kerbal held by a committed flight says when he is free again, or that he is
-  free once the flight is recovered, or that its loop holds him. The hover and the refused
+  free once the flight is recovered. The hover and the refused
   click now show the same text, and the facility dialog names the building instead of its
   internal id.
 - **Space Center: facility upgrades no longer stay blocked after the committed upgrade has
@@ -1870,8 +1899,8 @@ _(unreleased — entries accumulate here per commit)_
   not a purely historical recording, the rewind and chain rules). Every later loop is still
   ghost-only. This applies in flight and at the Space Center. The Tracking Station already
   spawned looping recordings; it now applies the same "never replayed" check to them as to
-  any other recording. A chain with one looped phase still never spawns its final vessel
-  (an open question, not changed here).
+  any other recording. A chain with one looped phase now follows the same rule (see "Looping
+  one phase of a chain no longer stops its final vessel from spawning").
 - **A ghost whose vessel cannot spawn yet now stays visible while Parsek retries.** When a
   recording's spawn could not settle at once (a one-point recording on an occupied spot, or
   a spawn that failed), Parsek logged that it would keep the ghost at its final position for the 5 second retry

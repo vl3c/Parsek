@@ -51,10 +51,6 @@ namespace Parsek
         /// <summary>The reservation's end (<c>KerbalReservation.ReservedUntilUT</c>);
         /// +inf for an open-ended hold.</summary>
         internal double ReleaseUT;
-        /// <summary>True when the holding flight's chain has a looping segment.</summary>
-        internal bool IsLooping;
-        /// <summary>The holding flight's recorded end, or NaN.</summary>
-        internal double FlightEndUT;
         /// <summary>The slot owner the kerbal is reserved for, or null / his own name.</summary>
         internal string SlotOwner;
         /// <summary>The reserved kerbal.</summary>
@@ -463,14 +459,10 @@ namespace Parsek
         /// <list type="bullet">
         /// <item>a finite hold (a Recovered flight, or an aboard hold bounded by a
         /// recovery): <c>Free after &lt;date&gt;.</c></item>
-        /// <item>a Recovered flight in a looping chain (open-ended only because of the
-        /// loop): stopping the loop releases it on the next ledger walk
-        /// (<c>LoopHold_TurningLoopOff_ReleasesARecoveredHoldOnTheNextWalk</c>).</item>
-        /// <item>an aboard / unknown flight in a looping chain: the loop keeps it, and after
-        /// the loop stops only a recovery ends it
-        /// (<c>LoopHold_TurningLoopOff_LeavesAnAboardHoldOpenEnded</c>).</item>
         /// <item>an aboard / unknown flight: <c>Free once 'X' is recovered.</c></item>
         /// </list>
+        /// A looped segment never holds anyone open-ended: the loop is visual only
+        /// (design 12.7, operator ruling 2026-09-27).
         /// </summary>
         internal static ReservationText KerbalOnFlight(KerbalHold hold, Func<double, string> formatDate)
         {
@@ -490,26 +482,9 @@ namespace Parsek
                 : "Flies a committed flight" + seat + " on your timeline.";
 
             string wayOut;
-            string subject = flightRef ?? "that flight";
-            // A Recovered flight's hold is finite unless its chain loops, so an open-ended
-            // Recovered hold is a loop hold even when the loop flag was turned off after
-            // the last ledger walk.
-            bool loopHeld = !finite
-                && (hold.IsLooping || hold.EndState == KerbalEndState.Recovered);
             if (finite)
             {
                 wayOut = "Free after " + FormatDate(hold.ReleaseUT, formatDate) + ".";
-            }
-            else if (loopHeld && hold.EndState == KerbalEndState.Recovered)
-            {
-                bool endKnown = !double.IsNaN(hold.FlightEndUT) && !double.IsInfinity(hold.FlightEndUT);
-                wayOut = "Held while " + subject + " loops. Stopping its loop frees them "
-                         + (endKnown ? "after " + FormatDate(hold.FlightEndUT, formatDate) : "when it ends")
-                         + ".";
-            }
-            else if (loopHeld)
-            {
-                wayOut = "Held while " + subject + " loops, and then until it is recovered.";
             }
             else
             {

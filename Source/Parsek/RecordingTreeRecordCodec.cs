@@ -774,12 +774,12 @@ namespace Parsek
             // so VesselSpawner.SpawnOrRecoverIfTooClose's pre-spawn guard keeps a
             // known-dead terminal-orbit vessel from re-materializing after reload.
             // Absent on saves from before this fix -> defaults to false (current
-            // behaviour), so no migration is required.
-            rec.TerminalSpawnCannotSpawnSafely = ParseBoolOr(
-                recNode, "terminalSpawnCannotSpawnSafely", rec.TerminalSpawnCannotSpawnSafely);
-            string terminalSpawnReason = recNode.GetValue("terminalSpawnSafetyReasonCode");
-            if (!string.IsNullOrEmpty(terminalSpawnReason))
-                rec.TerminalSpawnSafetyReasonCode = terminalSpawnReason;
+            // behaviour), so no migration is required. Only a durable refusal is
+            // restored; a geometry verdict is re-derived on the next spawn attempt.
+            TerminalOrbitSpawnSafety.RestoreSavedRefusal(
+                rec,
+                ParseBoolOr(recNode, "terminalSpawnCannotSpawnSafely", rec.TerminalSpawnCannotSpawnSafely),
+                recNode.GetValue("terminalSpawnSafetyReasonCode"));
             // #573/#589: load the scoped post-rewind suppression marker. The only
             // reason produced today is same-recording. Pre-reset saves that wrote a
             // bare bool without a reason are rejected at the schema-generation gate

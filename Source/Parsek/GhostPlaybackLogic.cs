@@ -7949,8 +7949,8 @@ namespace Parsek
         /// "First" is the recording's timeline position, not a cycle count: the check
         /// keys on the real UT against the recording's EndUT, never on a loop clock.
         /// Every other gate is the normal one, folded into <paramref name="spawnEligible"/>
-        /// by the caller (VesselSpawned, the replay-scope history gate, the chain rules
-        /// including "chain looping", the #573 rewind block), so after the one spawn
+        /// by the caller (VesselSpawned, the replay-scope history gate, the chain rules,
+        /// the #573 rewind block), so after the one spawn
         /// VesselSpawned=true keeps every later cycle ghost-only, and a Rewind-to-Launch
         /// strip (which resets VesselSpawned) re-arms exactly one spawn.
         /// <paramref name="alreadyAttempted"/> is the caller's one-shot latch, cleared
@@ -7969,6 +7969,42 @@ namespace Parsek
             if (alreadyAttempted) return false;
             if (!spawnEligible) return false;
             return currentUT > recordingEndUT;
+        }
+
+        /// <summary>
+        /// The one Info line for a chain-with-a-looped-phase tip spawn (design 12.7, operator
+        /// ruling 2026-09-27 on LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS): the chain's first
+        /// run is real, so its tip spawns once and later loop replays stay ghost-only.
+        /// Returns null when <paramref name="chainLooping"/> is false (an ordinary spawn,
+        /// which its scene logs on its own). Invariant culture: tests read it.
+        /// </summary>
+        internal static string FormatChainLoopFirstRunSpawn(
+            string scene, int index, Recording rec, double currentUT, bool chainLooping)
+        {
+            if (!chainLooping || rec == null) return null;
+            var ic = CultureInfo.InvariantCulture;
+            return "Chain loop first-run spawn: #" + index.ToString(ic)
+                + " \"" + (rec.VesselName ?? "?") + "\" id=" + (rec.RecordingId ?? "(none)")
+                + " chain=" + (rec.ChainId ?? "(none)")
+                + " tipLooping=" + (rec.LoopPlayback ? "true" : "false")
+                + " scene=" + (scene ?? "?")
+                + " UT=" + currentUT.ToString("F2", ic)
+                + " endUT=" + rec.EndUT.ToString("F2", ic)
+                + " (a chain with a looped phase keeps its first run real: the tip spawns once,"
+                + " later loop replays stay ghost-only)";
+        }
+
+        /// <summary>
+        /// Logs <see cref="FormatChainLoopFirstRunSpawn"/> when it applies. Rate-limited per
+        /// recording so a spawn that retries (a blocked or deferred spawn) prints once.
+        /// </summary>
+        internal static void LogChainLoopFirstRunSpawn(
+            string subsystem, string scene, int index, Recording rec, double currentUT, bool chainLooping)
+        {
+            string line = FormatChainLoopFirstRunSpawn(scene, index, rec, currentUT, chainLooping);
+            if (line == null) return;
+            ParsekLog.InfoRateLimited(
+                subsystem, "chain-loop-first-run|" + (rec.RecordingId ?? "(none)"), line);
         }
 
         /// <summary>
@@ -8120,16 +8156,13 @@ namespace Parsek
         /// </summary>
         /// <param name="rec">The recording to evaluate.</param>
         /// <param name="isActiveChainMember">True if the recording belongs to the chain currently being built.</param>
-        /// <param name="isChainLooping">True if the recording's chain has at least one branch-0 looping segment.</param>
         internal static (bool needsSpawn, string reason) ShouldSpawnAtRecordingEnd(
             Recording rec,
-            bool isActiveChainMember,
-            bool isChainLooping)
+            bool isActiveChainMember)
         {
             return ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember,
-                isChainLooping,
                 treeContext: null);
         }
 
@@ -8143,7 +8176,6 @@ namespace Parsek
         internal static (bool needsSpawn, string reason) ShouldSpawnAtRecordingEnd(
             Recording rec,
             bool isActiveChainMember,
-            bool isChainLooping,
             RecordingTree treeContext,
             bool liveSameLaunchVesselPresent = true)
         {
@@ -8222,14 +8254,12 @@ namespace Parsek
             // above handle this — after first spawn, VesselSpawned=true prevents re-spawning.
             // No blanket LoopPlayback suppression needed here. The looping render paths
             // reach this decision through ShouldAttemptLoopFirstRunSpawn.
-
-            // Suppress spawn for looping chains (ghost loops forever, never reaches a "final" state).
-            // Note: fully-disabled chains used to suppress here too, but that gated career state on
-            // a visual toggle (bug #433). A fully-disabled chain still spawns its vessel at tip.
-            if (isChainLooping)
-            {
-                return (false, "chain looping");
-            }
+            //
+            // The same holds for a chain with a looped phase (design 12.7, operator ruling
+            // 2026-09-27): its first run is real, so its tip spawns once at the end of that
+            // run and later loop replays stay ghost-only. There is deliberately no
+            // "chain looping" refusal here; which segment spawns is the tip rule (mid-chain
+            // segments are refused by each scene's chain-tip gate).
 
             // Breakup-continuous check: the foreground recording continued past a breakup
             // (ProcessBreakupEvent sets ChildBranchPointId without creating a same-PID
@@ -8357,7 +8387,7 @@ namespace Parsek
         /// suppression, PID dedup), so the answer is stable before, during and after the
         /// end-of-recording spawn is settled. False for a recording whose terminal spawn a
         /// later continuation owns, a ghost-only / debris / branch &gt; 0 recording, an
-        /// intermediate chain segment, a segment of a looping chain, and a non-leaf tree
+        /// intermediate chain segment, and a non-leaf tree
         /// recording (it branched into a same-vessel continuation: a later chain or
         /// switch-continuation segment carries the flight on). A breakup-continuous
         /// recording that is the effective leaf for its vessel counts as final. Used by the
@@ -8372,8 +8402,9 @@ namespace Parsek
                 return false;
             if (rec.IsGhostOnly || rec.IsDebris || rec.ChainBranch > 0)
                 return false;
-            if (!string.IsNullOrEmpty(rec.ChainId)
-                && (RecordingStore.IsChainMidSegment(rec) || RecordingStore.IsChainLooping(rec.ChainId)))
+            // A looped phase does not make the chain's tip non-final: the first run is
+            // real (design 12.7), the same answer ShouldSpawnAtRecordingEnd gives.
+            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainMidSegment(rec))
                 return false;
 
             bool hasSpawnableTerminal = rec.TerminalStateValue.HasValue
@@ -8604,9 +8635,6 @@ namespace Parsek
                 return (false, $"orbital vessel deferred to flight scene (terminal={rec.TerminalStateValue})");
 
             // At KSC, no chain is being built → isActiveChainMember = false
-            bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId) &&
-                RecordingStore.IsChainLooping(rec.ChainId);
-
             // Intermediate chain segments should not spawn — only the chain tip spawns.
             // In Flight, ShouldSuppressSpawnForChain handles this via runtime GhostChain
             // state, but at KSC there are no GhostChain objects. Use the committed data.
@@ -8617,7 +8645,7 @@ namespace Parsek
             // player did not re-fly (no live same-craft vessel present) still spawns its
             // recorded terminal at KSC, identical to Flight and the Tracking Station.
             return ShouldSpawnAtRecordingEnd(
-                rec, false, isChainLooping,
+                rec, false,
                 treeContext: null,
                 ResolveRewindSuppressionLiveLaunchPresence(rec));
         }
