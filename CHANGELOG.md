@@ -1206,6 +1206,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
+  its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
+  merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier
+  recorded leg of the same vessel as recovered too: the leg before a staging, undock or EVA,
+  the leg before a dock, and each earlier part of a background recording. Those legs then
+  claimed to last until the recovery, lost their saved vessel, and on merge each one booked
+  the recovery payout again. Only the leg the vessel was actually flying at the recovery is
+  marked now, so the payout is booked once; a flight that shed only debris is still marked as
+  before.
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:

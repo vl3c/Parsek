@@ -474,7 +474,23 @@ inside a live recording; infinite-propellant recordings vs route cost manifests;
 
 ---
 
-## RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL: a recovery stamps the non-leaf earlier segment of the recovered vessel too [FILED 2026-09-26 from the MatchesVessel trace. OPEN, pre-existing]
+## KSP-SETTINGS-FOLLOWUPS-2026-09-27: fixes from the traces of the settings audit [FILED 2026-09-27, branch `kss2-career`]
+
+Follow-ups from the "To trace before filing" list and the open lines of
+KSP-SETTINGS-AUDIT-2026-09-26 above (investigations in the session scratchpad, not committed).
+
+- ~~1. A recovery / termination stamped every earlier same-vessel segment of the pending tree
+  and the commit paid the recovery funds twice.~~ FIXED 2026-09-27: see
+  RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL below (the Re-Fly sibling edge stays open).
+
+Handled on other branches (not here): Set Orbit / Set Position teleports inside a live
+recording (teleport seam), the launch-site tag on recordings, retirement of flights ending at
+an alternate launch site, the HackGravity cheat warning, and `persistKerbalInventories` vs
+recorded crew inventories.
+
+---
+
+## ~~RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL: a recovery stamps the non-leaf earlier segment of the recovered vessel too~~ [FILED 2026-09-26 from the MatchesVessel trace. FIXED 2026-09-27, branch `kss2-career`; the Re-Fly sibling edge below stays OPEN]
 
 Segments of one vessel share pid, launch guid and name: a breakup parent (its
 `ChildBranchPointId` set) and its same-vessel parent continuation
@@ -488,10 +504,41 @@ recovery it stamps the NON-LEAF earlier segment Recovered as well, nulls its
 which `Recording.EndUT` (`Recording.cs:468`) then reports as that segment's end - a segment
 that ended at the split or dock now claims to run until the recovery. Old name-only matching
 did the same; the pid + guid tightening (KSP-SETTINGS-AUDIT S5) neither caused nor fixed it.
-Candidate fix: filter the walk to leaves (`rec.ChildBranchPointId == null`). Not traced: the
-effect on the ledger's recovery matching (`LedgerOrchestrator.PickRecoveryRecordingId` and the
-commit-time pairing in `CreateVesselCostActions`, which key on the Recovered terminal), so the
-fix needs that read first.
+The same walk runs for a termination (tracking-station delete), stamping every same-vessel
+segment Destroyed, which lets crew end-state inference call a kerbal who left the earlier
+segment alive Dead. Reach: the walk only sees a pending tree, so a merge decision must be
+outstanding (Re-Fly, switch-segment, Limbo stash, or autoMerge off in automation).
+
+Ledger consequence (traced 2026-09-27): DOUBLE RECOVERY FUNDS. The tree commit calls
+`CreateVesselCostActions` for every recording; `AddVesselRecoveryCostActions` pairs the
+FundsChanged(VesselRecovery) event within 0.1 s of each Recovered recording's EndUT, and the
+stretched non-leaf EndUT equals the leaf's, so both paired the same event and emitted two
+FundsEarning(Recovery) rows on two recording ids (dedup keys on the recording id, so both
+survived). The stretch also tied the non-leaf with the leaf in `PickRecoveryRecording`.
+
+The first candidate fix (`rec.ChildBranchPointId == null`) was WRONG: a breakup-continuous
+foreground recording keeps flying after `WireBreakupIntoTree` sets its `ChildBranchPointId`
+(its branch children are debris), so the naive filter would skip the vessel's live recording
+and lose the recovery funds (the outside-FLIGHT immediate patch is also skipped because the
+pending tree still owns the vessel).
+
+FIXED 2026-09-27, branch `kss2-career`: `ParsekScenario.IsTerminalEventTarget` stamps a
+matching recording only when it has no child branch point or is the effective leaf for its
+vessel (`GhostPlaybackLogic.IsEffectiveLeafForVessel`, #224: no same-pid child under its
+branch point). One `[Scenario] UpdateRecordingsForTerminalEvent: ... skippedEarlierSegments=N`
+Info line per event that skipped any. `HasPendingLedgerRecordingForVessel` is unchanged (the
+tip matches whenever an earlier segment does). Cells: `TerminalEventEarlierSegmentTests`
+(split parent, breakup-continuous still stamped, dock dominant parent keeps Docked, background
+chain, terminate path, exactly one recovery funds row on commit, the log line).
+
+Still OPEN (Re-Fly sibling edge, not traced): a Re-Fly provisional is a SIBLING of the origin
+child (same parent branch point, same pid + guid, `SupersedeTargetId` = the prior tip); if the
+origin copy is in the pending tree at the recovery, both are leaves and both are stamped, and
+both could pair the recovery event at commit. Neither predicate separates them; it would need
+"skip a recording that is the SupersedeTargetId of another matching recording", after checking
+whether `SupersedeCommit` already strips the origin's ledger rows. Defensive follow-up worth
+considering with it: refuse a second recovery row with the same recovery dedup key within one
+tree commit.
 
 ---
 
