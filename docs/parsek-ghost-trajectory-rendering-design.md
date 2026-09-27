@@ -231,7 +231,7 @@ This section enumerates every situation that produces an anchor. Each entry spec
 
 ### 7.1 Re-fly Separation Anchor (Live)
 
-**Trigger:** Player rewinds to a multi-controllable split and re-flies one sibling. The live sibling spawns at the split UT. The ghost siblings begin playback.
+**Trigger:** Player rewinds to a multi-controllable vessel separation (staging, decoupling, undocking; an EVA never carries a Rewind Point) and re-flies one sibling. The live sibling spawns at the split UT. The ghost siblings begin playback.
 
 **Reference position:** Live sibling's spawn position plus the recorded relative offset between the two vessels at separation UT. The recorded offset is `ghost_abs(t_sep) - live_abs(t_sep)`, common-mode clean.
 
