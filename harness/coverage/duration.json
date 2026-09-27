@@ -2112,6 +2112,16 @@
         "2026-09-09T20:20:13Z": 171.0
       }
     },
+    "RF-16-separation-slot-walks-own-eva": {
+      "last": 135.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 135.0,
+      "p95": 135.0,
+      "samples": {
+        "2026-09-27T13:36:45Z": 135.0
+      }
+    },
     "RF-2-two-reflies-in-sequence": {
       "last": 64.0,
       "lastVsP50": 1.0,

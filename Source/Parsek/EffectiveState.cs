@@ -1403,6 +1403,14 @@ namespace Parsek
             if (tree?.Recordings == null || tree.BranchPoints == null)
                 return walk;
 
+            // A walk that starts MID-stretch (the vessel continuation after an EVA, a
+            // slot member in its own right) never crossed the EVA that put the crew
+            // out, so a later same-vessel Board would read its kerbal as foreign.
+            // Register the crew of every own EVA behind the start first, so the walk
+            // reaches the same tip from any member of the stretch.
+            if (followOwnEvaBoard)
+                PreRegisterOwnEvaCrewBehind(rec, tree, walk);
+
             var visited = new HashSet<string>(StringComparer.Ordinal);
             if (!string.IsNullOrEmpty(current.RecordingId))
                 visited.Add(current.RecordingId);
@@ -1531,6 +1539,35 @@ namespace Parsek
                 ResolveOwnEvaCrewForeignJoin(walk);
 
             return walk;
+        }
+
+        /// <summary>
+        /// Walks backward from <paramref name="start"/> across own-vessel hops and
+        /// registers, as the vessel's own EVA crew on <paramref name="walk"/>, the
+        /// kerbal children of every EVA branch point the backward walk crosses. Cheap
+        /// exit for the common start whose parent branch point is not an own-vessel hop.
+        /// </summary>
+        private static void PreRegisterOwnEvaCrewBehind(
+            Recording start, RecordingTree tree, SlotVesselWalk walk)
+        {
+            if (start == null || tree == null || walk == null) return;
+            Recording head = ResolveChainHeadRecording(start, tree);
+            if (head == null || string.IsNullOrEmpty(head.ParentBranchPointId)) return;
+
+            List<Recording> back = CollectOwnVesselStretchBackward(
+                start, tree, null, double.NaN, stopBeforeSpanningRewind: false);
+            Recording child = start;
+            for (int i = 0; i < back.Count; i++)
+            {
+                Recording parent = back[i];
+                Recording childHead = ResolveChainHeadRecording(child, tree);
+                BranchPoint bp = childHead != null
+                    ? FindBranchPointByIdInTree(tree, childHead.ParentBranchPointId)
+                    : null;
+                if (bp != null && bp.Type == BranchPointType.EVA)
+                    AddOwnEvaKerbals(tree, bp, parent, walk, collectDetail: false);
+                child = parent;
+            }
         }
 
         private static void AddVesselSegmentWithChain(

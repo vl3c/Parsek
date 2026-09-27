@@ -169,6 +169,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Walk_FromTheVesselContinuation_ReachesTheSameTip()
+        {
+            // A walk that starts MID-stretch never crossed the EVA, so the Board's kerbal
+            // parent must still be recognised as the vessel's own crew. Measured live on
+            // RF-16's first flight (2026-09-27_1334): before the pre-registration the walk
+            // from the continuation stopped at the Board with reason=boardForeignParent.
+            var tree = Install(ReFlyThroughEvaVariant.Reboard);
+            InstallScenario(ReFlyThroughEvaFixture.BuildRewindPoint());
+
+            SlotVesselWalk walk = EffectiveState.WalkSlotVessel(
+                tree.Recordings[ReFlyThroughEvaFixture.UpperAfterEvaId], tree, true, true);
+            Assert.Equal(ReFlyThroughEvaFixture.UpperAfterBoardId, walk.Tip.RecordingId);
+            Assert.Null(walk.StopReason);
+            Assert.DoesNotContain(logLines, l => l.Contains("reason=boardForeignParent"));
+
+            // Still foreign when the kerbal did come from another vessel.
+            var foreign = Install(ReFlyThroughEvaVariant.ForeignKerbalBoardsUpper);
+            SlotVesselWalk foreignWalk = EffectiveState.WalkSlotVessel(
+                foreign.Recordings[ReFlyThroughEvaFixture.UpperAfterEvaId], foreign, true, true);
+            Assert.Equal("boardForeignParent", foreignWalk.StopReason);
+        }
+
+        [Fact]
         public void Walk_EvaBoardOptOut_StopsAtTheEva_ForTheMapPresenceBorrow()
         {
             var tree = Install(ReFlyThroughEvaVariant.Reboard);

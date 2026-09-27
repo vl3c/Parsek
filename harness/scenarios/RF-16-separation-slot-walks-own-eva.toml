@@ -87,10 +87,11 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# DERIVED, not measured (never flown): GS-2 measured 2-4 recordings for the split alone;
-# the EVA adds the vessel continuation and the kerbal, the Board adds the merged vessel.
-# Re-pin to the measured value after the first flight.
-count = { min = 4, max = 8 }
+# MEASURED on the reading run `2026-09-27_1334` (PASS attempt 1): exactly 5 - the pod
+# stack root, the released probe, the pod stack's continuation after the EVA, the
+# kerbal, and the pod stack merged at the Board. Exact, because logContracts are
+# presence-only and this is the one numeric guard on the EVA / Board topology.
+count = { min = 5, max = 5 }
 
 [expectations.logContracts]
 # GROUP 1 - GS-2's split and RewindPoint (MEASURED on GS-2).
@@ -123,20 +124,34 @@ required  = ["Recording started",
              "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
              "OnSave: saving 1 committed tree\\(s\\)",
              "ReapOrphanedRPs: reaped=0 remaining=[1-9][0-9]*"]
+# `reason=boardForeignParent` is forbidden since the second flight: the reading run
+# `2026-09-27_1334` printed it ONCE, from a walk that started at the pod stack's
+# continuation after the EVA (a slot member) and so read Valentina's Board as foreign.
+# The walk now registers the crew of every own EVA behind its start
+# (`EffectiveState.PreRegisterOwnEvaCrewBehind`), and nothing in this flight boards a
+# foreign vessel, so the token must not appear. The kerbal's own walk still stops at
+# the Board with `boardNotSameVessel`, which is correct and not forbidden.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
-             "Reaped rp="]
+             "Reaped rp=",
+             "reason=boardForeignParent"]
 
 [expectations.rewind]
-# REPORT-ONLY until a reading run (the arming discipline).
+# REPORT-ONLY. The reading run `2026-09-27_1334` measured rewindPoints 1, supersedeRows 0,
+# tombstones 0 - inside these windows. Arming is the operator's per-scenario call.
 rewindPoints  = { min = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
+# REPORT-ONLY, pinned to the reading run `2026-09-27_1334`: 5 recordings, one JointBreak,
+# one EVA, one Board; terminals Orbiting 2 (probe, merged pod stack) and Boarded 2 (the
+# kerbal, and the pod stack's continuation the Board ended - which is why the slot's
+# hard-safety terminal must be read on the walked tip, not there).
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 4 }
-branchPoints   = { JointBreak = { min = 1 }, EVA = { min = 1 }, Board = { min = 1 } }
+recordings     = { min = 5, max = 5 }
+terminalStates = { Orbiting = { min = 2 }, Boarded = { min = 2 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 }, EVA = { min = 1, max = 1 }, Board = { min = 1, max = 1 } }
 
 [runtime]
 # GS-2's 1100 plus 120 EvaExit + 120 EvaBoard.
