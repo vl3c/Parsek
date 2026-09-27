@@ -47,7 +47,7 @@ id = "GS-12-kerbalx-loop-cycles"
 # rewind-point census) stays intact.
 #
 # WHAT MUST NOT RED THIS LANE (known, filed): LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS
-# (this tree has no chain), LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED (the loop is
+# (fixed 2026-09-27; this tree has no chain), LOOP-ANCHOR-ACTIVE-VESSEL-NEVER-MARKED-LOADED (the loop is
 # not anchored to the watcher), and booster debris does not loop.
 #
 # THE WARP IS 10x, NEVER HIGHER: past 50x the flight engine hides every overlap copy

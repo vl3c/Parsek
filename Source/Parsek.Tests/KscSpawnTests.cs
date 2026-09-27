@@ -308,10 +308,10 @@ namespace Parsek.Tests
         #region ShouldSpawnAtKscEnd — chain suppression
 
         [Fact]
-        public void ShouldSpawnAtKscEnd_ChainLooping_ReturnsFalse()
+        public void ShouldSpawnAtKscEnd_ChainLooping_TipSpawnsFirstRun_MidStaysSuppressed()
         {
-            // Test the chain tip (highest index) — mid-segments are already
-            // suppressed by IsChainMidSegment. Looping suppresses even the tip.
+            // A looped phase keeps the chain's first run real (design 12.7, operator
+            // ruling 2026-09-27): the tip spawns at its end, mid-segments never do.
             var midRec = MakeEligibleRecording("rec-mid", "LoopVessel");
             midRec.ChainId = "chain-loop";
             midRec.ChainIndex = 0;
@@ -328,8 +328,10 @@ namespace Parsek.Tests
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtKscEnd(tipRec, tipRec.EndUT + 1);
 
-            Assert.False(needsSpawn);
-            Assert.Contains("chain looping", reason);
+            Assert.True(needsSpawn, reason);
+            var mid = GhostPlaybackLogic.ShouldSpawnAtKscEnd(midRec, tipRec.EndUT + 1);
+            Assert.False(mid.needsSpawn);
+            Assert.Contains("intermediate chain segment", mid.reason);
         }
 
         [Fact]

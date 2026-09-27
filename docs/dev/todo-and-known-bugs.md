@@ -527,7 +527,10 @@ Owner rulings (2026-09-26):
   through the merge), so row order never matters; the log names `respawn suppressed:
   looping chain` / `open-ended co-row` or `respawn kept: open-ended co-row starts after the
   respawn`. The Timeline "respawns after" text reads the same resolved hold
-  (`ResolveTimelineRespawnSeconds`), not the raw stamp. Before this an overlapping
+  (`ResolveTimelineRespawnSeconds`), not the raw stamp. **Superseded in part 2026-09-27**
+  (LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS): the loop is visual only, so a looped segment no
+  longer makes a chain's death permanent (`chainHasLoop` and the `respawn suppressed: looping
+  chain` log are gone); the open-ended co-row rule stands. Before this an overlapping
   open-ended co-row turned the death into an ordinary endless hold with a free stand-in (the
   kerbal read Reserved and never respawned). A finite later flight that outlasts the
   respawn still extends the hold as an ordinary reservation.
@@ -1977,7 +1980,9 @@ every annotated screen drew; the findings below are what the screenshots showed.
 `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`:
 - F1, X1 (the cancel zeroes the completion, and the tech unlock and build it funded are
   refused), X2/X3, S1 and P1 are confirmed.
-- The loop hold is released by turning the loop off only for a Recovered end.
+- The loop hold is released by turning the loop off only for a Recovered end. (Superseded
+  2026-09-27: a looped segment no longer holds a chain's crew at all, so the toggle changes
+  no hold; `StockUiReservationVerificationTests.LoopToggle_*`.)
 - The CC Mission Control bypass is code-read only: it needs a live Mission Control with CC
   installed.
 
@@ -3333,7 +3338,7 @@ not loaded; a looping ghost is not held for a retry, because the loop renderer o
 pad terminal therefore materializes only at the Space Center or the Tracking Station, which
 has always been true of non-looping pad recordings too.
 
-## LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS: should a chain with a looped segment still leave its real vessel at the end of the first run? [FILED 2026-09-23 from LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS. OPEN; OPERATOR QUESTION]
+## ~~LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS: should a chain with a looped segment still leave its real vessel at the end of the first run?~~ [FILED 2026-09-23 from LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS. **RULED + FIXED 2026-09-27** on branch `chain-loop-first-run`; see "Ruling" and "Fix" below]
 
 In gameplay terms: a long flight that Parsek split into phases (launch, coast, landing) is a
 chain. If the player turns on the loop toggle for ONE phase (say, to watch the landing
@@ -3349,6 +3354,67 @@ where a chain tip would otherwise spawn (a merge after a revert, a future-dated 
 spawns once, later replays ghost-only), or is a chain with any looped phase a pure replay?
 A mission loop over a chain-split tree is NOT affected: mission loops set no per-recording
 toggle, so its tip takes the first-run spawn like a standalone recording.
+
+**Ruling (2026-09-27).** Looping one phase of a chain keeps the chain's first run REAL: the
+tip spawns once at the end of the first run, later loop replays are ghost-only. The operator
+framed it as "the Loop checkbox is visual only", and extended it to the crew: a looping
+chain's crew holds close like any chain's, and a death follows the stock respawn (retiring the
+2026-09-26 looping-chain-death rule). Design 12.7 now says so for chains.
+
+**Fix (2026-09-27).** `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` lost its "chain looping"
+refusal and the `isChainLooping` parameter that fed only it (every caller: flight timeline
+flags, flight nearby-spawn candidates, the Space Center `ShouldSpawnAtKscEnd`, the Tracking
+Station `ShouldSpawnAtTrackingStationEnd`; `MergeDialog.CanPersistVessel` and the EVA in-game
+test passed false). `IsFinalSpawnSegment` (the crew side of the KSC end-of-flight retirement)
+dropped the same clause so it still agrees with the spawn side. Nothing else was needed: the
+tip rule already refuses mid-chain segments in every scene, the #1778 loop first-run seams
+already take a chain tip (`!isMidChain`, the chain's effective end), and VesselSpawned keeps
+later cycles ghost-only. `RecordingStore.IsChainLooping` remains as the replay-scope render
+term (`loopingLike`) and the log flag. Each scene's spawn point logs one rate-limited Info
+`Chain loop first-run spawn: ... scene=FLIGHT|SPACECENTER|TRACKSTATION` for a looping chain's
+tip (`GhostPlaybackLogic.LogChainLoopFirstRunSpawn`). Unit tests: `ChainLoopFirstRunSpawnTests`
+(the decision with each phase looped, the looped tip's one spawn then "already spawned", the
+Space Center and Tracking Station gates, the flight engine seam fed by the real decision for a
+looped tip and a looped mid segment, `IsFinalSpawnSegment`, the log line); re-inserting the
+refusal reds 9 cells, re-inserting the crew clause reds 1. Three tests that pinned "chain
+looping" were removed or flipped (`KscSpawnTests.ShouldSpawnAtKscEnd_ChainLooping_TipSpawnsFirstRun_MidStaysSuppressed`).
+
+Crew side (found by the PR review: the tip now spawns a real vessel, but the walk still held
+its crew forever). `KerbalsModule.ProcessAction` dropped `chainHasLoop` (Recovered forced to
++inf, the split-handoff and recovery / KSC-retirement closures skipped, a respawn-on death made
+permanent); `loopingChainIds` stays only as the PrePass summary count.
+`CrewRecoveryReservationClose` dropped the mirrored `IsInLoopingChain` skip. The looped
+segment's own rows are still skipped (`meta.IsLoop`, see LOOP-RECORDING-CREW-NEVER-RESERVED).
+The tooltip's "Held while X loops" branches were dead and are gone, with the
+`KerbalHold.IsLooping` / `FlightEndUT`, `AstronautComplexContext.IsLoopingRecording` and
+`StockUiOverlayController.IsRecordingInLoopingChain` plumbing that fed only them. Tests flipped:
+`KerbalEndStateTests.Recalculate_LoopingChain_RecoveredCrew_FreedAtTipEnd`,
+`KerbalDeathRespawnTests.DeathInLoopingChain_FollowsTheStockRespawnLikeAnyChain` /
+`Timeline_LoopingChainDeath_NamesTheRespawn`,
+`KerbalRecoveryReservationCloseTests.BuildClosureRows_ClosesAHoldInAChainWithALoopingSegment`,
+`StockUiReservationVerificationTests.LoopToggle_*`,
+`ReservationExplanationTests.KerbalOnFlight_OpenEndedHold_NeverNamesALoop`; new
+`KscPadRetirementTests.Crew_ChainWithALoopedSegment_TipRetiredOnThePad_IsFreedAtItsEnd`.
+Every changed crew cell reds against `origin/main`'s `KerbalsModule`.
+
+**No harness lane (by cost).** No seam verb sets a single recording's loop toggle
+(`MissionConfig` loops a whole mission, the unaffected shape), and a chain tip only spawns
+where the #573 block does not hold it (a chain of ANOTHER tree ahead of the rewind UT, or a
+future-dated chain), so a lane needs a new automation verb plus a two-tree chain fixture. The
+decision is shared by every scene's gate and pinned in xUnit above.
+
+## LOOP-RECORDING-CREW-NEVER-RESERVED: ticking Loop on a recording frees its crew for other flights [FILED 2026-09-27 from LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS. OPEN; NOT TRACED]
+
+The operator ruling of 2026-09-27 says the per-recording Loop checkbox is visual only. One
+gameplay effect remains: `KerbalsModule.ProcessAction` returns early for a loop recording
+(`if (meta.IsLoop) return;`), and `CrewRecoveryReservationClose.BuildClosureRows` skips its
+rows too, so a looped recording (standalone, or the looped segment of a chain) reserves none
+of its crew. Ticking Loop therefore makes that flight's kerbals available for other flights
+across the recorded window, and unticking takes it back on the next ledger walk. Not traced
+further: what the stock crew dialogs and the stand-in slots do with such a kerbal, and whether
+the early return guards something else (the walk's retired / all-crew sets are also built
+after it). Fix direction if confirmed: hold a loop recording's crew exactly like a
+non-looping recording's for its real first run.
 
 ## ~~LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED: with a mission loop armed, a Rewind-to-Launch shows no ghost for the whole first run~~ [FILED 2026-09-24 from the #1808 review. PRODUCT DEFECT, operator ruling. **FIXED 2026-09-25** on branch `loop-first-run-visible`; see "Fix" below]
 
@@ -4602,9 +4668,9 @@ live pid and different from the craft pid) - that ended at or before the recover
 latest-ending one per tree. The recovered names are reverse-mapped to reservation owners
 (`KerbalsModule.ReverseMapCrewNames`, as the assignment rows are), and one row per (owner,
 kerbal) is written only when that kerbal has an open-ended hold in scope (an ELS
-`KerbalAssignment` row, non-tourist, not a loop and not in a chain with a looping segment -
-the walk's own override, mirrored so the writer never logs a closure that changes nothing -
-end state Aboard or Unknown). Rows are deduped
+`KerbalAssignment` row, non-tourist, not a loop recording - the walk's own exemption,
+mirrored so the writer never logs a closure that changes nothing; since 2026-09-27 a looped
+segment elsewhere in the chain no longer exempts it - end state Aboard or Unknown). Rows are deduped
 by `GetActionKey` = `recordingId|kerbalName` inside the 0.1 s window, logged once at Info as
 `Crew reservation closed by recovery: '<name>' recoveryUT=<ut> recordingId=<id> vessel='<v>'
 openHolds=<n>`, then `RecalculateAndPatchForLiveTimelineEvent(ut,

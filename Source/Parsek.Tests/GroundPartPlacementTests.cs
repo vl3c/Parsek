@@ -398,7 +398,7 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackLogic.IsNonLeafInTree(kerbal, tree));
             Assert.True(GhostPlaybackLogic.IsFinalSpawnSegment(kerbal, tree));
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                kerbal, false, false, tree);
+                kerbal, false, tree);
             Assert.True(needsSpawn, reason);
 
             // The member is unaffected, and a real split below the kerbal still counts.

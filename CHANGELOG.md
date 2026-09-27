@@ -1215,6 +1215,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Looping one phase of a split flight is now visual only.** A long flight that Parsek
+  splits into phases (launch, coast, landing) is a chain. Ticking Loop on any one phase used to
+  change the whole flight's outcome: its final vessel never spawned, its crew stayed reserved
+  forever, and a crew death became permanent even with stock respawn on. Now the loop only adds
+  ghost replays. The flight plays once for real and its final vessel spawns once at the end, in
+  flight, at the Space Center and in the Tracking Station. The crew of its other phases are
+  freed exactly as for any flight: at the end of a recovered flight, when the vessel is
+  recovered, or when a flight that ends parked at the Space Center is retired (the looped
+  phase's own crew are still not reserved, a known gap). A death follows stock respawn. Phases before the
+  end still never spawn a vessel, and a looped mission (which loops the whole mission) is
+  unchanged. A kerbal's hover no longer says a loop holds him. The log names the spawn with
+  `Chain loop first-run spawn:`.
 - **Every orbit Parsek calls Orbiting now spawns, and a refused ghost no longer lingers.** A
   recording ending in orbit is marked Orbiting only when its periapsis clears the body's
   atmosphere, and on a body with no atmosphere its highest terrain, so a low Mun orbit that
@@ -1622,7 +1634,7 @@ _(unreleased — entries accumulate here per commit)_
   by which committed flight (for example `Researched on Y2 D114 by the committed flight
   'Mun Lander 3'.`), that committed history cannot happen earlier or twice, and when the item
   frees up. A kerbal held by a committed flight says when he is free again, or that he is
-  free once the flight is recovered, or that its loop holds him. The hover and the refused
+  free once the flight is recovered. The hover and the refused
   click now show the same text, and the facility dialog names the building instead of its
   internal id.
 - **Space Center: facility upgrades no longer stay blocked after the committed upgrade has
@@ -1874,8 +1886,8 @@ _(unreleased — entries accumulate here per commit)_
   not a purely historical recording, the rewind and chain rules). Every later loop is still
   ghost-only. This applies in flight and at the Space Center. The Tracking Station already
   spawned looping recordings; it now applies the same "never replayed" check to them as to
-  any other recording. A chain with one looped phase still never spawns its final vessel
-  (an open question, not changed here).
+  any other recording. A chain with one looped phase now follows the same rule (see "Looping
+  one phase of a chain no longer stops its final vessel from spawning").
 - **A ghost whose vessel cannot spawn yet now stays visible while Parsek retries.** When a
   recording's spawn could not settle at once (a one-point recording on an occupied spot, or
   a spawn that failed), Parsek logged that it would keep the ghost at its final position for the 5 second retry

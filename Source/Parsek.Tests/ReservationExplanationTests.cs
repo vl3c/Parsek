@@ -113,7 +113,7 @@ namespace Parsek.Tests
             var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
             {
                 KerbalName = "Jeb", FlightName = "Mun Lander 3", EndState = KerbalEndState.Recovered,
-                ReleaseUT = 13000, FlightEndUT = 13000
+                ReleaseUT = 13000
             }, Fmt);
             Assert.Equal("Reserved until D130", text.Title);
             Assert.Equal("Flies 'Mun Lander 3' on your committed timeline. " + CrewRule + " Free after D130.", text.Body);
@@ -125,7 +125,7 @@ namespace Parsek.Tests
             var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
             {
                 KerbalName = "Jeb", FlightName = "Mun Lander 3", EndState = KerbalEndState.Aboard,
-                ReleaseUT = double.PositiveInfinity, FlightEndUT = 13000
+                ReleaseUT = double.PositiveInfinity
             }, Fmt);
             Assert.Equal("Reserved", text.Title);
             Assert.Equal("Flies 'Mun Lander 3' on your committed timeline. " + CrewRule
@@ -133,38 +133,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void KerbalOnFlight_RecoveredInALoop_StoppingTheLoopFreesThem()
+        public void KerbalOnFlight_OpenEndedHold_NeverNamesALoop()
         {
+            // The loop is visual only (design 12.7, operator ruling 2026-09-27): no hold is
+            // ever explained as held by a loop.
             var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
             {
                 KerbalName = "Jeb", FlightName = "Mun Lander 3", EndState = KerbalEndState.Recovered,
-                ReleaseUT = double.PositiveInfinity, IsLooping = true, FlightEndUT = 13000
+                ReleaseUT = double.PositiveInfinity
             }, Fmt);
-            Assert.Equal("Flies 'Mun Lander 3' on your committed timeline. " + CrewRule
-                + " Held while 'Mun Lander 3' loops. Stopping its loop frees them after D130.", text.Body);
-        }
-
-        [Fact]
-        public void KerbalOnFlight_OpenEndedRecovered_IsALoopHoldEvenWithTheFlagOff()
-        {
-            // A Recovered hold is finite unless its chain looped at the last walk.
-            var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
-            {
-                KerbalName = "Jeb", FlightName = "Mun Lander 3", EndState = KerbalEndState.Recovered,
-                ReleaseUT = double.PositiveInfinity, IsLooping = false, FlightEndUT = double.NaN
-            }, Fmt);
-            Assert.EndsWith("Held while 'Mun Lander 3' loops. Stopping its loop frees them when it ends.", text.Body);
-        }
-
-        [Fact]
-        public void KerbalOnFlight_AboardInALoop_TheLoopThenARecoveryEndIt()
-        {
-            var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
-            {
-                KerbalName = "Val", FlightName = "Station Hop", EndState = KerbalEndState.Aboard,
-                ReleaseUT = double.PositiveInfinity, IsLooping = true
-            }, Fmt);
-            Assert.EndsWith("Held while 'Station Hop' loops, and then until it is recovered.", text.Body);
+            Assert.DoesNotContain("loop", text.Body);
+            Assert.EndsWith("Free once 'Mun Lander 3' is recovered.", text.Body);
         }
 
         [Fact]

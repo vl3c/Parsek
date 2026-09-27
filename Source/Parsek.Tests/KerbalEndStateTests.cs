@@ -392,7 +392,7 @@ namespace Parsek.Tests
         #region Looping chain reservation guard
 
         [Fact]
-        public void Recalculate_LoopingChain_RecoveredCrew_StaysInfinite()
+        public void Recalculate_LoopingChain_RecoveredCrew_FreedAtTipEnd()
         {
             // Setup: chain with 2 segments. Index 0 loops, index 1 is the tip with crew.
             RecordingStore.ResetForTesting();
@@ -427,16 +427,16 @@ namespace Parsek.Tests
 
             var kerbals = KerbalsTestHelper.RecalculateFromStore();
 
-            // Crew should be reserved with Infinity endUT because chain has a looping segment
+            // The loop is visual only (design 12.7, operator ruling 2026-09-27): the looped
+            // segment does not keep the tip's Recovered crew held past the tip's end.
             var reservations = kerbals.Reservations;
             Assert.True(reservations.ContainsKey("Jeb"),
                 "Jeb should be reserved");
-            Assert.True(double.IsPositiveInfinity(reservations["Jeb"].ReservedUntilUT),
-                "endUT should be Infinity for looping chain despite Recovered endState");
+            Assert.Equal(200.0, reservations["Jeb"].ReservedUntilUT);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[KerbalsModule]") && l.Contains("Reservation") && l.Contains("Jeb")
-                && l.Contains("chainHasLoop"));
+                l.Contains("[KerbalsModule]") && l.Contains("Reservation") && l.Contains("Jeb"));
+            Assert.DoesNotContain(logLines, l => l.Contains("chainHasLoop"));
 
             RecordingStore.ResetForTesting();
         }
