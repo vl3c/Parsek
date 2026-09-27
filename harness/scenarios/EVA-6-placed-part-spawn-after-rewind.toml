@@ -1,0 +1,417 @@
+schema = 1
+id = "EVA-6-placed-part-spawn-after-rewind"
+# NIGHTLY (seam lane on a recorded fixture). Closes the autotest gap
+# EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE (docs/dev/todo-and-known-bugs.md).
+#
+# WHAT IT PROVES. A ground part an EVA kerbal PLACES AND LEAVES is its own tree member
+# (BranchPointType.GroundPartPlaced, docs/parsek-flight-recorder-design.md section 4.11),
+# ends Landed, and is a spawnable leaf: after a Rewind-to-Launch to before the placement,
+# the Space Center's ordinary spawn-at-end brings it back as a REAL vessel once time
+# passes its EndUT. EVA-5 picks its part up (Disassembled, never spawned) and every other
+# EVA host places on the launch pad, where the KSC exclusion zone (50 m) RETIRES a vessel
+# that ends there instead of spawning it; the headless half is GroundPartPlacementTests.
+#
+# HOST: `kerbin-splashdown-recorded`, whose committed Kerbal X flight left Jeb's capsule
+# LANDED on Kerbin about 1,690 km from the pad (lat -0.12, lon 86.70, alt 152 m). The
+# operator-recommended host was EVA-4's pad hop, but its reading run `2026-09-26_2042`
+# splashed Jeb down at sea (lat 0.342, lon -74.201, ~6 km north-east of the pad,
+# `situation=SPLASHED`), where stock refuses a placement (`place-gate-timeout
+# able=false ... situation=SPLASHED`); the hop's drift is not steerable from the mission
+# params. Recording starts on the kerbal AFTER he is out of the capsule, for two reasons:
+# the fixture boots on its committed tip, which the recorder promotes, and a promotion
+# captures no rewind save; and Rewind-to-Launch lands at the Space Center, where no time
+# verb runs (TimeJump / WarpToUT are FLIGHT-only), so the member's EndUT must be crossed
+# at 1x. A manual start on the kerbal is a non-promotion start ("Captured rewind save ...
+# in LANDED"), and the rewind goes back 15 s (RewindToLaunchLeadTimeSeconds) before it,
+# which is before the placement. The new tree is two recordings: the kerbal (root, the
+# rewound recording) and the placed-part member.
+#
+# THE INVENTORY PATCH is EVA-5's: evaChute + the seismometer (the jetpack must go for the
+# 40 L cap). Nothing in this lane uses the jetpack or the chute.
+#
+# WITNESSES (all quoted from the emitting call sites): the member line
+# (GroundPartPlacement.FormatMemberCreatedLog), the KSC spawn pair
+# ParsekKSC.TrySpawnAtRecordingEnd `[KSCSpawn] Attempting spawn for #i "<name>"
+# (id=<rec>)` -> `[KSCSpawn] Vessel spawned for #i "<name>" pid=<p> sit=LANDED`, tied to
+# the member by its recording id, and the committed store's own read-back (ListHandles:
+# the member row spawned=false pid 0 right after the rewind, spawned=true with that same
+# pid after the wait). The fixture's own tree lists first (rec0..rec8, sorted by id); this
+# lane's two rows are rec9 / rec10, sorted by id, so each mark carries BOTH (a-* and b-*)
+# and the regexes find each row by its recording id. A retirement (`Spawn RETIRED`), an
+# adoption of a surviving source vessel, a failed or abandoned spawn, or a pick-up are
+# all forbidden.
+#
+# THE KERBAL COMES BACK TOO. Jeb stays out on EVA, so his recording (the rewound root) is
+# the end of his own flight; after the strip no live Jeb exists, the #573 standalone lift
+# applies, and he spawns at the Space Center beside the part. Before this lane's product
+# fix the spawn decision's #114 safety net (GhostPlaybackLogic.IsNonLeafInTree) read the
+# placement's branch point, which names the kerbal as its parent, as "branched into a
+# continuation" and never spawned him (`Spawn not needed ... non-leaf in tree`, forbidden
+# below). His spawned vessel carries a stand-in (`Snapshot swap: 'Jebediah Kerman' ->
+# '<stand-in>'`): the fixture's Kerbal X tree still reserves Jeb open-ended (Aboard) because
+# his EVA out of it is unrecorded here, so the ordinary D12 crew swap applies. Not asserted.
+#
+# READING RUNS. `2026-09-26_2042` (EVA-4 host): INVALID, Jeb splashed down at sea, see
+# HOST. `2026-09-26_2058` (this host): every step OK, PARSEK-FAIL on three spec gaps, no
+# product defect: the rewind save is captured a beat after the ladder release (`in
+# FLYING`, not LANDED); the kerbal's KSC spawn line carries no `eva=` suffix (a manual
+# start on the kerbal is not an EVA branch, so EvaCrewName is unset); and the commit's own
+# adoption of the live placed vessel (`SpawnTreeLeaves leaf ... already exists -
+# adopting`, correct) tripped the adoption guard, which now reads only after the rewind.
+# Measured there: the kerbal recording ran UT 1279.4 -> 1282.0, the rewind landed at
+# 1264.4, and both spawns fired at UT ~1282 (MissionMark cadence 0.25 s, so the 240-mark
+# wait reaches ~1328). SEPARATE FINDING, not this lane's claim: the rewind also stripped
+# the fixture's own Kerbal X capsule (the boot had resumed its committed recording) and
+# nothing re-spawned it (todo REWIND-STRIPS-RESUMED-COMMITTED-TIP).
+
+tier = "nightly"
+description = "A ground part an EVA kerbal places and leaves comes back as a real vessel after a rewind: on kerbin-splashdown-recorded Jeb steps out of his landed capsule 1,690 km from the pad, a recording started on the kerbal places a Breaking Ground seismometer and leaves it (its own GroundPartPlaced tree member, ending Landed), commit, Rewind-to-Launch to before the placement, and 1x Space Center time spawns the member through the ordinary KSC spawn-at-end, never retired; Jeb, left out on EVA, spawns beside it."
+instanceProfile = "stock-minimal"
+tags = ["eva", "inventory", "ground-science", "breaking-ground", "rewind-to-launch", "spawn", "EVA-6"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.crewInventory]]
+kerbal    = "Jebediah Kerman"
+inventory = "evaChute,DeployedSeismicSensor"
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: boot hygiene. The fixture boots FLIGHT on its committed tip (the landed capsule),
+  # which the recorder PROMOTES; stop and discard that continuation (the LF-2 / SE-1 recipe)
+  # so the kerbal's recording below is a fresh, non-promotion start.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-boot" },                     expect = "OK" },
+  # ACT 1: Jeb steps out of the landed capsule (unrecorded), recording starts on the kerbal
+  # (captures the tree's parsek_rw_ save), he places the seismometer and leaves it.
+  { cmd = "EvaExit",    args = { release = "true" },                         expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" }, expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-commit-count-${c0.count}-a-${c0.rec9}-${c0.rec9spawned}-${c0.rec9spawnedPid}-b-${c0.rec10}-${c0.rec10spawned}-${c0.rec10spawnedPid}" }, expect = "OK" },
+  # ACT 2: Rewind-to-Launch the tree just committed; it lands at the Space Center 15 s
+  # before the kerbal recording started, i.e. before the placement.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                expect = "OK", budget = 300 },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c1", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-rewound-count-${c1.count}-a-${c1.rec9}-${c1.rec9spawned}-${c1.rec9spawnedPid}-b-${c1.rec10}-${c1.rec10spawned}-${c1.rec10spawnedPid}" }, expect = "OK" },
+  # ACT 3: 1x Space Center time re-crosses both EndUTs (no time verb runs at the Space
+  # Center; each MissionMark is one seam round trip, about 0.25 s).
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscwait" }, expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c2", expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva6-kscspawn-count-${c2.count}-a-${c2.rec9}-${c2.rec9spawned}-${c2.rec9spawnedPid}-b-${c2.rec10}-${c2.rec10spawned}-${c2.rec10spawnedPid}" }, expect = "OK" },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 11, max = 11 }
+
+# REPORT-ONLY: the produced save holds the two spawned vessels, once each.
+[expectations.recordings.structure]
+gating      = false
+vesselNames = { "Grand Slam Passive Seismometer" = 1, "Jebediah Kerman" = 1 }
+
+[expectations.logContracts]
+required = [
+  "evaexit complete",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Captured rewind save at UT ([0-9.]+): vessel \"Jebediah Kerman\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  "evagroundscience place start kerbal=Jebediah Kerman part=DeployedSeismicSensor slot=1 inventory=0:evaChute,1:DeployedSeismicSensor",
+  "evagroundscience place confirmed part=DeployedSeismicSensor presses=[1-9]",
+  "evagroundscience place complete part=DeployedSeismicSensor partPid=[0-9]+ ",
+  "Ground part placement detected: part='DeployedSeismicSensor' vesselPid=[0-9]+ kerbalRec=[0-9a-f]+ ",
+  "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=[0-9]+ rec=([0-9a-f]+) parentRec=([0-9a-f]+) bp=[0-9a-f]+ ut=[0-9.]+ snapshot=True",
+  "committree committed=true",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=2",
+  "Rewind-to-Launch initiated to UT",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=[0-9]+ rec=([0-9a-f]+) parentRec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*MISSIONMARK label=eva6-rewound-count-11-[^\\r\\n]*-\\2-false-0(?:-|\\s)",
+  "startrecording recordingId=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva6-rewound-count-11-[^\\r\\n]*-\\1-false-0(?:-|\\s)[\\s\\S]*same-recording spawn suppression lifted for standalone rewind target rec=\\1 [\\s\\S]*\\[KSCSpawn\\] Attempting spawn for #([0-9]+) \\\"Jebediah Kerman\\\" \\(id=\\1\\)[\\s\\S]*\\[KSCSpawn\\] Vessel spawned for #\\2 \\\"Jebediah Kerman\\\" pid=([0-9]+) sit=LANDED [\\s\\S]*MISSIONMARK label=eva6-kscspawn-count-11-[^\\r\\n]*-\\1-true-\\3(?:-|\\s)",
+  "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=[0-9]+ rec=([0-9a-f]+) parentRec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva6-rewound-count[\\s\\S]*\\[KSCSpawn\\] Attempting spawn for #([0-9]+) \\\"[^\\\"\\r\\n]*\\\" \\(id=\\2\\)[\\s\\S]*\\[KSCSpawn\\] Vessel spawned for #\\4 \\\"[^\\\"\\r\\n]*\\\" pid=([0-9]+) sit=LANDED [\\s\\S]*MISSIONMARK label=eva6-kscspawn-count-11-[^\\r\\n]*-\\2-true-\\5(?:-|\\s)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evagroundscience failed",
+  "evagroundscience refused",
+  "Ground part placement not recorded",
+  "Ground part placement dropped",
+  "Part event captured: InventoryPartRemoved",
+  "invokerewindtolaunch refused",
+  "Spawn RETIRED",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+  "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=[0-9]+ rec=([0-9a-f]+) parentRec=([0-9a-f]+) [\\s\\S]*invokerewindtolaunch complete [\\s\\S]*source vessel pid=\\1 already exists",
+  "Spawn not needed for #[0-9]+ \\\"Jebediah Kerman\\\": non-leaf in tree",
+]
+
+[runtime]
+budgetSeconds = 1500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

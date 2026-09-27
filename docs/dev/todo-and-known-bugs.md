@@ -623,7 +623,7 @@ dequeued recording and whose start is after the rewind UT (the placement is the 
 separate vessel's flight), or (2) keep the side-off policy. The switch-segment scoped Discard already
 owns the member (it walks GroundPartPlaced children by parent id).
 
-## EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. AUTOTEST GAP, open]
+## ~~EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind~~ [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. CLOSED 2026-09-27, branch `eva-placed-spawn-lane`]
 
 EVA-5 picks its part up (Disassembled, never spawned), and every EVA fixture places on the launch pad,
 where a part left behind is retired by the KSC exclusion zone (50 m) instead of spawned. The
@@ -631,6 +631,104 @@ still-placed answer is pinned headlessly (`GroundPartPlacementTests`: a Landed m
 leaf, a Disassembled one is not). A live lane needs an off-pad crewed landed host (a fixture landed more
 than 50 m from the pad, or a walk verb), then: place without picking up, board, commit, rewind to before
 the placement, and assert the member's spawn line after its end UT.
+
+**Fix / proof.** New lane `EVA-6-placed-part-spawn-after-rewind` on `kerbin-splashdown-recorded` (Jeb's
+capsule LANDED about 1,690 km from the pad), with EVA-5's inventory patch. Jeb steps out, a recording
+started on the kerbal (a non-promotion start, so it captures the tree's `parsek_rw_` save) places the
+seismometer and leaves it, commit, Rewind-to-Launch `tree=latest`, then 1x Space Center time. It pins:
+the member line; the rewind loading exactly the save the kerbal's start captured; the committed store
+row of the member `spawned=false pid 0` right after the rewind; `[KSCSpawn] Attempting spawn for #10
+"Grand Slam Passive Seismometer" (id=<member>)` -> `Vessel spawned for #10 ... sit=LANDED`, and the
+store row `spawned=true` with that pid; and forbids `Spawn RETIRED`, an adoption of a surviving part
+after the rewind, and any pick-up. The recommended EVA-4 hop host was tried first: its reading run
+`2026-09-26_2042` was INVALID because Jeb splashed down at sea (lat 0.342, lon -74.201) and stock
+refuses a placement there (`place-gate-timeout ... situation=SPLASHED`). Reading run `2026-09-26_2058`
+on the new host (PARSEK-FAIL on three spec gaps, no product defect, see the spec header), armed run
+`2026-09-26_2106` PASS attempt 1 on automation DLL sha256 `c56f9c5f...0b556e` (equal to the branch
+build). Offline negative controls over both logs through `hlib.evaluate_expectations`: intact PASS;
+the member's KSC spawn pair stripped, a `Spawn RETIRED` injected for it, the pre-fix kerbal answer,
+an adoption after the rewind, and the store row left unspawned each FAIL.
+
+The lane also found a product defect, fixed in the same branch: see
+KERBAL-LEFT-ON-EVA-AFTER-PLACING-NEVER-SPAWNS below. And one separate open finding:
+REWIND-STRIPS-RESUMED-COMMITTED-TIP.
+
+## ~~KERBAL-LEFT-ON-EVA-AFTER-PLACING-NEVER-SPAWNS: a kerbal who places a ground part and stays out on EVA never comes back after a rewind~~ [FILED AND FIXED 2026-09-27, branch `eva-placed-spawn-lane`]
+
+A placement's `GroundPartPlaced` branch point names the placing kerbal as its parent while the kerbal
+keeps recording (design section 4.11: he stays an ordinary leaf). `RecordingTree.IsSpawnableLeaf`
+agreed, but the spawn decision's #114 safety net, `GhostPlaybackLogic.IsNonLeafInTree` (shared by
+`ShouldSpawnAtRecordingEnd` and `IsFinalSpawnSegment`), reads "parent of any branch point" as
+"branched into a continuation", so the kerbal's recording answered `non-leaf in tree (safety net)`
+and never spawned: after a rewind the part came back and the kerbal who placed it did not.
+
+**Fix.** `IsNonLeafInTree` skips `GroundPartPlaced` branch points. Unit test
+`GroundPartPlacementTests.KerbalLeftOnEvaAfterPlacing_IsNotANonLeafForTheSpawnDecision` (red before the
+fix, green after; a real EVA split below the kerbal still reads non-leaf). Live: EVA-6 requires the
+kerbal's own KSC spawn (`Attempting spawn for #9 "Jebediah Kerman" (id=<kerbal rec>)` -> `Vessel spawned
+... sit=LANDED`, after the #573 standalone lift) and forbids the safety-net answer; green on
+`2026-09-26_2058` and `_2106`.
+
+## ~~REWIND-STRIPS-RESUMED-COMMITTED-TIP: a rewind of a later tree strips an earlier tree's spawned vessel and nothing re-spawns it~~ [FILED 2026-09-27 from EVA-6's reading run, branch `eva-placed-spawn-lane`; FIXED 2026-09-27, branch `fix-rewind-strips-tip`]
+
+**Evidence** (`2026-09-26_2058` and `_2106`, `kerbin-splashdown-recorded`). The boot lands in FLIGHT on
+the fixture's committed tip, the Kerbal X capsule (pid 2708531065), and restores its tree
+(`TryTakeCommittedTreeForSpawnedVesselRestore: cleared prior spawn flags on resumed recording
+'28b6e543...' (wasSpawnedPid=2708531065 ...)`, `ResumeCommittedActiveRecording`); the lane then runs
+the harness boot hygiene (StopRecording, DiscardTree). Jeb leaves the capsule unrecorded, a NEW tree is
+recorded on him and committed, and that new tree is rewound to launch (UT 1279 -> 1264). The rewind's
+OnLoad logs `ResetAllPlaybackState: terminal spawn for recording '28b6e543...' vessel='Kerbal X'
+superseded by continuation 'd1f3243...' vesselPid=2708531065 reason=spawned-pid-match` and `Stripping
+orphaned spawned vessel '#autoLOC_501232' (pid=2708531065 ...) matched recording 'Kerbal X' ...
+same-launch recording match`, and no `[KSCSpawn]` line for any Kerbal X recording follows in the next
+64 s of Space Center time (to UT 1328). The produced save holds four `Kerbal X Debris`, Jeb and the
+seismometer, and no capsule.
+
+**Root cause.** Neither the resume nor the harness DiscardTree. The resumed tree was thrown away at the
+rewind's scene exit (`TryAutoDiscardNoOpNoSessionCommittedResume ... reverting to committed original`)
+and DiscardTree was a no-op (`discardtree nothing=true`). What matters is that the chain head
+`28b6e543` still carried the fixture's spawn fields (`spawnedPid=2708531065`; the load-time optimizer
+split moved the terminal to `c108e0a2` but left the spawn fields on the head). The plain rewind's
+pre-load strip (`RecordingStore.ExecuteRewindSaveLoad` -> `PreProcessRewindSave`) removed EVERY
+committed recording's spawned pid from the rewind quicksave (`CollectSpawnedVesselInfo: 3 PID(s)`,
+`Stripped 2 vessel(s) from save (1 by name [Jebediah Kerman], 1 by PID)`), so the capsule was also
+missing from the quicksave whitelist (`Captured 5 surviving vessel PID(s)`: four debris and the
+asteroid). The OnLoad launch-identity strip then removed it (`same-launch recording match`). The
+strip assumes the recording spawns the vessel again, but the replay-scope gate forbids that: the
+chain tip `c108e0a2` [853.7, 1276.6] has its activation start behind the post-rewind playhead
+(1264.3) and was never latched into replay scope (the fixture's spawn came from an earlier process),
+so `ParsekKSC` classifies it historical-never-replayed and draws no ghost and spawns nothing. The
+`superseded by continuation ... reason=spawned-pid-match` line is a side effect of the stale head
+pid (the head's own chain successor); it did not decide anything, since the head never spawns.
+
+**Ordinary play reaches it** with no harness step: land a capsule and commit it through the
+Switch-To Merge dialog (`CommitTreeFlight` adopts the live vessel, stamping its spawned pid), launch
+another flight, commit, rewind that flight: the capsule is lost. Same for a vessel a replay spawned
+in an earlier game session (the scope latch does not survive a restart).
+
+**Fix.** The pre-load PID strip is scoped at the save's adjusted UT
+(`RecordingStore.ResolveRewindSpawnStripScope`, new `PreProcessRewindSave` resolver overload): a
+spawned pid is stripped only when a recording that replays after the rewind re-produces it (the
+holder itself, the continuation its terminal spawn was handed to, a member of its chain, or a
+recording flying the same vessel - a unique spawn pid by pid, an adoption-stamped pid only when the
+launch guids do not differ). Everything else is committed history: it stays in the save and in the
+quicksave whitelist, so the OnLoad strip keeps it as `pre-existing`, and `ResetAllPlaybackState`
+keeps those holders' spawn state (the guid-aware post-strip reconcile still resets one whose vessel
+is gone), which is how a revert already treats an earlier tree's vessels. A latched in-scope
+recording is still stripped and re-spawned as before. Unit tests `RewindHistorySpawnScopeTests` (the
+EVA-6-shaped repro fails with the old strip set; mirror cases: latched holder, replaying chain tip,
+replaying continuation, replaying flier of a unique spawn pid, same-craft relaunch with a different
+guid kept, NaN UT). Live proof pending: EVA-6 re-flown should log `Rewind strip scope: ...
+keptHistoryPids=1`, `Keeping vessel '#autoLOC_501232' (pid=2708531065 ...) - pre-existing in
+launch/rewind quicksave`, no `Stripping orphaned spawned vessel '#autoLOC_501232'`, and the
+produced save should hold the capsule.
+
+**Open, not fixed here.** The pre-load strip's NAME half (`BuildRewindStripNames`: the rewind
+owner's vessel name) is still name-only: rewinding a relaunch of the same craft also strips an
+earlier flight's same-named vessel from the quicksave, and the OnLoad passes then remove it. It
+needs an identity-aware owner strip (the quicksave VESSEL `pid` guid against the owner's
+`RecordedVesselGuid`), with care for the owner vessel itself; filed here rather than widened into
+this fix.
 
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 
@@ -1112,8 +1210,8 @@ pairing rule):
   `MissionControl.OnClickCancel` and two debug-toolbar buttons (player actions, refused)
   plus `ContractSystem.RebuildContracts()` (the debug toolbar's regenerate, which clears
   and rebuilds the whole list right after), let through by
-  `ContractSystemRebuildContractsScopePatch`. The unconditional double penalty itself is
-  the ledger bug below and stays open.
+  `ContractSystemRebuildContractsScopePatch`. The unconditional double penalty itself was
+  the ledger bug below, since fixed in the walk (branch `fix-reservation-ledger`).
   Open: the in-game cell `MissionControlActiveRowLabelAndCancelBlockedWithReason` needs a
   career host with an Active contract (it never accepts one: SPACECENTER batches restore
   `persistent.sfs` on disk only); H45's `career-earned-ksc` has none, so it skips there.
@@ -1176,9 +1274,49 @@ pairing rule):
   `RecordingStore.RewindUTAdjustmentPending`. It runs before `PatchPurchasedParts`, so a committed
   purchase on the node lands in the same pass. Pinned by `CommittedTechUnlockPatchTests`
   (drives the cursor's own decisions into the real orchestrator path). Not proven in game.
-- Contract fail / cancel penalties are charged unconditionally, so an already-resolved
-  contract is charged again (C4 X2/X3, C6, and a world-driven failure).
-- F3: a facility repair row charges even when nothing is destroyed.
+- ~~Contract fail / cancel penalties are charged unconditionally, so an already-resolved
+  contract is charged again (C4 X2/X3, C6, and a world-driven failure).~~ Fixed (branch
+  `fix-reservation-ledger`). **Fix:** `ContractsModule.ProcessFail` / `ProcessCancel` mark the
+  row `Effective=false` when the contract's current lifecycle already ended earlier in the
+  walk (pure `ResolvePriorContractResolution`: an effective completion, or a charged fail /
+  cancel; an Accept clears it). A deadline expiry found by `CheckDeadlines` is not a charged
+  resolution, so the recorded or synthetic fail that carries its penalty still charges, and a
+  fail of a contract the walk never saw accepted (pre-ledger) still charges: only positive
+  knowledge skips. `FundsModule.ProcessContractPenalty`, `ReputationModule.ProcessContractPenaltyRep`,
+  `FundsModule.TryGetProjectionDelta` (so the committed future no longer reserves it), the
+  post-walk reconciler and the commit-window emitted deltas all gate on `Effective`, like a
+  duplicate completion. `FundsModule.ComputeTotalSpendings` runs in PrePass, before Effective
+  is known, so the skip branch takes the penalty back out of `totalCommittedSpendings`
+  (`UncountPrePassSpending`): the no-projection `GetAvailableFunds` is what `PatchFunds`
+  writes on every cutoff-less recalc (OnLoad, commit, the no-future fallback), and without it
+  the double charge returned once the clock passed the row. Reputation patches its running
+  value and has no PrePass total. An ineffective row leaves the terminal maps alone, so the FIRST
+  resolution stays the contract's terminal outcome (the state stock holds, which
+  `KspStatePatcher`'s terminal-contract survival reads); the audit cell that pinned
+  last-wins is flipped (`TerminalContractMaps_SecondTerminalActionWithNoReAccept_KeepsTheFirst`).
+  Pinned by `ChargeOnceLedgerTests` (X3, C6, world-driven fail then committed fail / cancel,
+  the X1 path unchanged, the mirror cells) and the flipped section 12 cell
+  `X2X3_CancelNowPlusCommittedFailOrCancel_ChargesOnlyTheFirstPenalty_Fixed`.
+- ~~F3: a facility repair row charges even when nothing is destroyed.~~ Fixed (branch
+  `fix-reservation-ledger`), alongside the Repair control block. **Fix:** the facilities tier
+  dispatches after the funds tier, so `FundsModule` keeps its own per-building state from the
+  walk's FacilityDestruction / FacilityRepair rows; a repair of a building whose last row was
+  a repair is `Effective=false`, charges nothing and logs `FacilityRepair not charged`
+  (projection and commit-window deltas gate on it too, and the skip takes the cost back out
+  of the PrePass `totalCommittedSpendings`, as for the penalties). A repair of a building with no row in
+  the walk still charges (pure `FundsModule.ShouldChargeFacilityRepair`): the repair row
+  proves stock found it destroyed, and a pre-ledger collapse leaves no row, the same "never
+  infer intact from an absent row" rule `FacilityStatePatcher.PatchLiveDestructionState`
+  follows. Known cost: a repair whose collapse row left the effective ledger (a Re-Fly that
+  supersedes the flight that knocked the building down) still charges. Pinned by
+  `ChargeOnceLedgerTests` (one destruction one charge, two repairs of one destruction one
+  charge, no-row repair charges, repair after repair free, per building, cutoff projection;
+  every cutoff-less cell also asserts `GetAvailableFunds`).
+- Open, display only: `CommittedFutureIndex` and the Timeline / Career rows still list an
+  `Effective=false` fail / cancel / repair row with its amount (the Timeline demotes it to
+  T2; the Career window already skips it). The index is built from the effective ledger on
+  its own cache cycle, not from the walk, so reading the walk's `Effective` there is not a
+  trivially safe change; left for the overlay program.
 - K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.
 
 **Defects in the existing PR #721 layer:**
@@ -5679,6 +5817,27 @@ unit tests, and the in-game `AntennaSpecsProduceRelayPower` (H28 re-pinned by de
   removed, zero GhostCommNet WARN / ERROR. Both specs armed off them and D6 `commnet-relay`
   claimed (coverage 243 -> 244 of 247); offline negative control red on 22 of 22 seeded faults.
   H28 re-flown `2026-09-26_1123` PASS, confirming its derived `total=4 skipped=2` pin.
+- **Follow-on lanes (2026-09-26, branch `commnet-lanes`), FLOWN AND ARMED.** The in-game cell
+  `ActiveVesselControlPathUsesGhostRelay` skips on every committed host (the pad vessel links KSC
+  directly) and no committed fixture has a probe out of home RANGE, so a live vessel's own node is
+  proven by OCCLUSION instead: `CN-2-ghost-commnet-live-probe` warps `duna-park-probe`'s DD1 into
+  the window where Duna hides home from it, with three injected ghosts on its own orbit (new
+  category `GhostCommNetLive`: scenarios 1, 3 and 8 on the probe's `ControlPath` /
+  `IsConnectedHome`, each with a negative control). `CN-3-ghost-commnet-timeline-warp` crosses a
+  deploy event, a destroyed end and a warp-deferred spawn in one rails warp (new category
+  `GhostCommNetTimeline`: scenarios 9, 10 and the spawn hand-off of 1), and adds the verbose
+  `Held ghost node position:` line (`GhostCommNetMath.FormatHeldPosition`) so a hold's position
+  is visible in the log. Both derivations are pinned by `GhostCommNetLaneGeometryTests` (the stock
+  ephemeris against three recorded SOI crossings). CN-2 reading run `2026-09-26_2030` PASS
+  attempt 1 (the first flight). CN-3's first flight `2026-09-26_2034` was PARSEK-FAIL(expectation)
+  on its held-window tokens alone: an orbital end spawns in the same frame at its EndUT even
+  during warp (`Deferred spawn during warp`, then `Held ghost spawn succeeded on retry ...
+  held=0.0s`, the ghost node removed `reason=vessel-spawned ut=371.2`), so no node is ever held
+  and scenario 16 is not reachable on this lane (it stays unit-tested); the spec was corrected in
+  `c0ede5d03` and the reading run `2026-09-26_2053` passed attempt 1. Both batches
+  `total=3 passed=3 failed=0 skipped=0`, automation DLL sha256 `a92379703364...`; both specs
+  armed off the readings, offline negative control red on every seeded fault. Remaining: the
+  armed confirmation re-flights and the operator -> nightly promotion call.
 
 ## GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST: the continuation-hold pass has no manager-level dedupe test, and FLIGHT scans for it every frame [FILED 2026-09-26 by the commnet-followups review. OPEN, low; test and performance hygiene, no live defect]
 

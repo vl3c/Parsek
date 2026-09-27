@@ -4293,6 +4293,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # `passed=4 failed=0 skipped=5`, and both specs took the line WHOLE. Like GUI-1 they are
     # not H-series ids, so this class's own cells never read them;
     # CommittedBatchTallySourceSyncTests gates their `total=`.
+    #
+    # CN-2-ghost-commnet-live-probe and CN-3-ghost-commnet-timeline-warp ENTERED on
+    # 2026-09-26 (the new GhostCommNetLive / GhostCommNetTimeline categories, 3 FLIGHT
+    # cells each, `total=3` literal with the split regexed, predicted 3 / 0 each) and LEFT
+    # the same day: their reading runs 2026-09-26_2030 (CN-2) and 2026-09-26_2053 (CN-3),
+    # both PASS attempt 1, measured the prediction, `passed=3 failed=0 skipped=0`, and both
+    # specs took the line WHOLE. Like CN-1 they are not H-series ids, so this class's own
+    # cells never read them; CommittedBatchTallySourceSyncTests gates their `total=`.
     INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.

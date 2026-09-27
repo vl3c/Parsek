@@ -819,6 +819,9 @@ namespace Parsek
                         case GameActionType.ContractCancel:
                             // #440B: funds penalty has no transform today; keep raw.
                             // Rep penalty: EffectiveRep is already signed negative.
+                            // Gate on Effective: a fail / cancel of an already-resolved
+                            // contract charges nothing (ContractsModule).
+                            if (!a.Effective) break;
                             deltas.EmittedFundsDelta -= a.FundsPenalty;
                             deltas.EmittedRepDelta += a.EffectiveRep;
                             break;
@@ -839,6 +842,9 @@ namespace Parsek
                             deltas.FacilityUpgradeCount++;
                             break;
                         case GameActionType.FacilityRepair:
+                            // A repair of a building the walk already has intact is free
+                            // (FundsModule.ShouldChargeFacilityRepair).
+                            if (!a.Effective) break;
                             deltas.EmittedFundsDelta -= a.FacilityCost;
                             deltas.FacilityRepairCount++;
                             break;

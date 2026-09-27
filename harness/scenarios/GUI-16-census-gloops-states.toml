@@ -26,8 +26,9 @@ tier = "operator"
 # census on `b1-pad-craft` and was the obvious host. GUI-7 ends with `DiscardTree` and
 # gates `[expectations.recordings] count = {min = 0, max = 0}`, which is the verifier
 # behind its D1 `discard-rollback` claim. A Gloops STOP that commits writes a recording
-# of its own, and `DeleteRecording` cannot take it back: that verb is typed REJECTED
-# `flight-delete-blocked` in the FLIGHT scene. So amending GUI-7 would have meant either
+# of its own, and nothing can take it back (the `DeleteRecording` verb, which refused in
+# FLIGHT anyway, was removed on 2026-09-26 with every player deletion surface). So amending
+# GUI-7 would have meant either
 # loosening its count gate (making a leaked flight recording indistinguishable from the
 # Gloops take) or dropping the take. A separate lane keeps GUI-7's gate exact and lets
 # this one pin its own.

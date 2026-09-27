@@ -394,14 +394,14 @@ namespace Parsek.InGameTests
                 recC.LoopPlayback, reasonC));
         }
 
-        private static string ExclusionOf(GhostCommNetManager manager, string key)
+        internal static string ExclusionOf(GhostCommNetManager manager, string key)
         {
             return manager.TryGetExclusionReason(key, out string reason)
                 ? "excluded (" + reason + ")"
                 : "not a candidate on the last tick";
         }
 
-        private static CommNetwork RequireStockNetwork()
+        internal static CommNetwork RequireStockNetwork()
         {
             if (CommNetScenario.Instance == null)
                 InGameAssert.Skip("CommNet is disabled in this save (difficulty setting or a CommNet-replacing mod)");

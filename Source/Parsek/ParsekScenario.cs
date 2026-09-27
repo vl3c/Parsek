@@ -4773,8 +4773,11 @@ namespace Parsek
                 $"OnLoad: rewind cleanup data set — " +
                 $"{rewindSpawnedPids.Count} pid(s), {allRecordingNames.Count} name(s)");
 
-            // Reset ALL playback state (recordings + trees)
-            var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState();
+            // Reset ALL playback state (recordings + trees), except the spawn state of
+            // committed history whose vessel the pre-load strip kept (an earlier tree's
+            // spawned vessel that no replaying recording re-produces).
+            var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState(
+                RewindContext.RewindHistoricalSpawnKeepRecordingIds);
             ParsekLog.Info("Rewind",
                 $"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees");
 

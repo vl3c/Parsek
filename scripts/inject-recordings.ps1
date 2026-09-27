@@ -28,6 +28,8 @@ $injectFilterByPreset = @{
     "drill-harvest-route"   = "InjectDrillHarvestRoute"
     "background-claim"      = "InjectBackgroundClaim"
     "ghost-commnet-relay"   = "InjectGhostCommNetRelays"
+    "ghost-commnet-live"    = "InjectGhostCommNetLive"
+    "ghost-commnet-timeline" = "InjectGhostCommNetTimeline"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -48,6 +50,8 @@ $defaultSaveByPreset = @{
     "drill-harvest-route"   = "drill-harvest-route-fixture"
     "background-claim"      = "background-claim-fixture"
     "ghost-commnet-relay"   = "ghost-commnet-relay-fixture"
+    "ghost-commnet-live"    = "ghost-commnet-live-fixture"
+    "ghost-commnet-timeline" = "ghost-commnet-timeline-fixture"
 }
 
 $ErrorActionPreference = "Stop"

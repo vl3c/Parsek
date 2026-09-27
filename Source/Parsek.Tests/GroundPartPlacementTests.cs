@@ -384,6 +384,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void KerbalLeftOnEvaAfterPlacing_IsNotANonLeafForTheSpawnDecision()
+        {
+            // The spawn decision's #114 safety net reads "parent of any branch point" as
+            // "branched into a continuation". A placement's branch point names the kerbal as
+            // its parent while the kerbal keeps recording, so the net must skip it: a kerbal
+            // who places a part and stays out on EVA is still the end of his own flight.
+            var (tree, kerbal, member, _) = BuildPlacedTree();
+            kerbal.VesselSnapshot = new ConfigNode("VESSEL");
+            kerbal.TerminalStateValue = TerminalState.Landed;
+            member.TerminalStateValue = TerminalState.Landed;
+
+            Assert.False(GhostPlaybackLogic.IsNonLeafInTree(kerbal, tree));
+            Assert.True(GhostPlaybackLogic.IsFinalSpawnSegment(kerbal, tree));
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                kerbal, false, false, tree);
+            Assert.True(needsSpawn, reason);
+
+            // The member is unaffected, and a real split below the kerbal still counts.
+            Assert.True(GhostPlaybackLogic.IsFinalSpawnSegment(member, tree));
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "evaSplit",
+                Type = BranchPointType.EVA,
+                ParentRecordingIds = new List<string> { kerbal.RecordingId },
+                ChildRecordingIds = new List<string> { "someChild" }
+            });
+            Assert.True(GhostPlaybackLogic.IsNonLeafInTree(kerbal, tree));
+            Assert.False(GhostPlaybackLogic.IsFinalSpawnSegment(kerbal, tree));
+        }
+
+        [Fact]
         public void AreAllLeavesTerminal_CountsAStillPlacedMemberAsAlive()
         {
             var (tree, kerbal, member, _) = BuildPlacedTree();

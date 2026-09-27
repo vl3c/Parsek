@@ -522,7 +522,9 @@ namespace Parsek
         {
             string id = action.ContractId ?? "";
 
-            // Penalties apply unconditionally
+            if (TrySkipResolutionOfResolvedContract(action, id, "Fail"))
+                return;
+
             bool wasActive = activeContracts.Remove(id);
             terminalContracts.Add(id);
             terminalContractActions[id] = GameActionType.ContractFail;
@@ -536,6 +538,65 @@ namespace Parsek
                 $"repPenalty={action.RepPenalty} " +
                 $"wasActive={wasActive} " +
                 $"activeSlots={activeContracts.Count}/{maxSlots}");
+        }
+
+        /// <summary>
+        /// Pure: the terminal state that already ended the contract's current lifecycle
+        /// in this walk, or null when a fail / cancel row still applies. Stock charges a
+        /// fail or cancel penalty once, on the transition out of Active; a completed,
+        /// failed or cancelled contract cannot be failed or cancelled again. A deadline
+        /// expiry found by <see cref="CheckDeadlines"/> is NOT a charged resolution: its
+        /// penalty is carried by the fail row that follows it (the recorded one, or the
+        /// PrePass synthetic one), so that row still applies.
+        ///
+        /// <para>Only POSITIVE knowledge skips a row. A fail / cancel of a contract the walk
+        /// never saw accepted (accepted before the ledger began) still charges, as stock
+        /// did.</para>
+        /// </summary>
+        internal static string ResolvePriorContractResolution(
+            bool explicitlyResolved, bool hasOutcome, ContractTerminalOutcome outcome)
+        {
+            if (!hasOutcome)
+                return explicitlyResolved ? "resolved" : null;
+            if (outcome == ContractTerminalOutcome.Completed)
+                return "completed";
+            if (!explicitlyResolved)
+                return null;   // deadline expiry only: the penalty row is still due
+            switch (outcome)
+            {
+                case ContractTerminalOutcome.Failed: return "failed";
+                case ContractTerminalOutcome.Cancelled: return "cancelled";
+                case ContractTerminalOutcome.DeadlineExpired: return "failed at its deadline";
+                default: return "resolved";
+            }
+        }
+
+        /// <summary>
+        /// Marks a fail / cancel row ineffective (no funds or reputation penalty, no change
+        /// to the contract's terminal state) when the contract's current lifecycle already
+        /// ended earlier in the walk. The first resolution stays the contract's terminal
+        /// outcome, which is the state stock holds. Returns true when the row was skipped.
+        /// </summary>
+        private bool TrySkipResolutionOfResolvedContract(GameAction action, string id, string label)
+        {
+            // Rows with no contract id share the "" key; they carry no identity to match.
+            if (string.IsNullOrEmpty(action.ContractId))
+                return false;
+
+            ContractTerminalOutcome outcome;
+            bool hasOutcome = terminalContractOutcomes.TryGetValue(id, out outcome);
+            string prior = ResolvePriorContractResolution(
+                explicitlyResolvedContracts.Contains(id), hasOutcome, outcome);
+            if (prior == null)
+                return false;
+
+            action.Effective = false;
+            ParsekLog.Info(Tag,
+                $"{label}: contractId='{id}' effective=false (already {prior} earlier in the walk), " +
+                $"penalties not charged: fundsPenalty={action.FundsPenalty.ToString("R", IC)} " +
+                $"repPenalty={action.RepPenalty.ToString("R", IC)} " +
+                $"ut={action.UT.ToString("R", IC)} recording={action.RecordingId ?? "(none)"}");
+            return true;
         }
 
         private bool HasPrepassExplicitResolutionAtOrBefore(string contractId, double completeUT)
@@ -552,7 +613,9 @@ namespace Parsek
         {
             string id = action.ContractId ?? "";
 
-            // Penalties apply unconditionally
+            if (TrySkipResolutionOfResolvedContract(action, id, "Cancel"))
+                return;
+
             bool wasActive = activeContracts.Remove(id);
             terminalContracts.Add(id);
             terminalContractActions[id] = GameActionType.ContractCancel;

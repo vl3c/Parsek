@@ -43,6 +43,19 @@ _(unreleased — entries accumulate here per commit)_
   recording hidden from playback relays there too), and a ghost that is about to be held for its
   spawn no longer blinks out for a moment at the end of its recording in the Tracking Station.
 
+- **Automated testing: two new ghost CommNet lanes, both passing.** `CN-2-ghost-commnet-live-probe`
+  checks ghost relays from a real probe's point of view: the uncrewed Duna probe of an existing
+  test save is warped to where Duna blocks its signal home, and three injected ghosts on its own
+  orbit must behave as stock would treat real vessels there - a relay at the limb carries the probe
+  home (and it is cut off without that relay), a crewed ghost with a probe control point and no
+  relay gives it control when it has no path home, and a relay hidden behind Duna with the probe
+  carries nothing through the planet. `CN-3-ghost-commnet-timeline-warp` warps across three
+  recorded events: a deployable antenna that starts relaying at its recorded deploy, a relay
+  destroyed in its recording that stops at its destruction, and a relay whose recording ends
+  during the warp, whose spawn the warp postpones only for that same moment: the vessel appears
+  at the recording's end and takes over the relay from the ghost with no gap. Verbose logs now
+  print where a held ghost relay sits while it waits to spawn, once every few seconds.
+
 - **Automated testing: a lane checks that losing the vessel you fly does not end a mission while
   another vessel of it survives.** When the active vessel is destroyed but another controlled
   vessel of the same flight is still alive, Parsek keeps recording instead of wrapping the mission
@@ -116,6 +129,11 @@ _(unreleased — entries accumulate here per commit)_
   `scene-editor` (coverage unchanged at 238 of 247). Test staging now creates every staged save's
   `Ships/VAB` and `Ships/SPH` folders the way KSP does for a real save, without which the editor's Launch
   button failed to write its auto-saved ship.
+- **Automated testing: a ground part left behind on EVA comes back after a rewind, in a lane.** A new
+  lane has Jebediah step out of a capsule landed far from the Space Center, place a Breaking Ground
+  seismometer and leave it, then rewinds to before the placement and checks that the Space Center
+  brings the seismometer back as a real vessel once its time comes, and Jebediah with it. It found
+  the kerbal half of that broken (fixed below).
 - **Automated testing: an EVA kerbal places and picks up a Breaking Ground seismometer in a lane.**
   A new test-seam command places a ground-science part from an EVA kerbal's inventory through the
   inventory slot click and the confirm key, and picks it back up through the part's own Pick Up
@@ -1205,6 +1223,28 @@ _(unreleased — entries accumulate here per commit)_
     waiting 2 seconds on every load for funds and reputation, which those modes do not have.
   - Currency from the Alt+F12 cheat menu is still not recorded (by design, the next rewind
     removes it); each cheat now writes one log line saying so.
+- **A contract penalty or a facility repair is no longer charged twice across a rewind.**
+  After a rewind, the timeline can hold two endings for one contract: something you did in
+  the present (a cancel, a completion, or a failure caused by losing a vessel) and the fail or
+  cancel your committed flights recorded later. Parsek charged the later penalty as well, so
+  the contract cost you twice. It now charges a fail or cancel penalty only if the contract is
+  still open at that point, as stock does, and the first ending stays the contract's state. A
+  repair of a building the timeline already has repaired (a second repair of one collapse) now
+  costs nothing and is logged. A repair of a building Parsek has no collapse record for still
+  charges, because stock only repairs destroyed buildings. A single fail, cancel or repair
+  still costs exactly what it did.
+
+- **Rewinding a later flight no longer deletes a vessel an earlier flight left behind.** A
+  plain rewind removed every vessel Parsek had spawned or adopted for any committed recording,
+  expecting each recording to spawn its vessel again. A recording that ended before the rewind
+  point is history, though: it does not replay after the rewind, so its vessel never came back.
+  For example, land a capsule, commit it through the Switch-To dialog, launch another flight
+  and rewind that one: the capsule was gone. A rewind now keeps a
+  spawned vessel when no recording that replays after the rewind will spawn it again, and the
+  kept vessel stays linked to its recording, the same way a revert keeps an earlier flight's
+  vessels. Vessels of the rewound flight, and of any recording that replays, are removed and
+  spawned again as before.
+
 - **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
   Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
   "recovered" ending from committed recordings that Parsek had marked as handled, which hit
@@ -1310,7 +1350,10 @@ _(unreleased — entries accumulate here per commit)_
   its ghost stands where it was placed and disappears when the kerbal picks it up. A part
   that is still placed when the flight ends comes back as a real vessel after a rewind, like
   any other vessel the flight leaves behind; a part that was picked up ends as "Disassembled"
-  and is never spawned. Only a real placement by the kerbal you are recording counts: an old
+  and is never spawned. The kerbal who placed it still counts as the end of his own flight, so a
+  kerbal left standing on EVA after placing a part also comes back after a rewind (he used to be
+  treated as having branched into the part and never came back). Only a real placement by the
+  kerbal you are recording counts: an old
   experiment that merely loads nearby no longer adds anything to the recording, and one
   pick-up records one pick-up (stock reports it twice).
 

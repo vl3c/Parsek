@@ -271,6 +271,17 @@ namespace Parsek
             if (nominal == 0f)
                 return;
 
+            // ContractsModule marks a fail / cancel of an already-resolved contract
+            // ineffective: stock takes the penalty once, on the transition.
+            if (!action.Effective)
+            {
+                action.EffectiveRep = 0f;
+                ParsekLog.Verbose(Tag,
+                    $"Contract {action.Type} rep skipped (not effective: contract already resolved) " +
+                    $"at UT={action.UT.ToString("F1", IC)}: contractId={action.ContractId ?? "null"}");
+                return;
+            }
+
             var result = ApplyReputationCurve(nominal, runningRep);
 
             action.EffectiveRep = result.actualDelta; // negative
