@@ -446,6 +446,16 @@ SPAWN_LINES_KEY = "spawnLines"
 DESTROY_LINES_KEY = "destroyLines"
 # v2: the count of LoopCycle lines (cycle advances observed on live objects).
 CYCLE_LINES_KEY = "cycleLines"
+# v4 (2026-09-27, the per-recording overlap cap lane OC-1): the most mesh
+# copies of ONE recording alive at once, read off the MeshSpawned /
+# MeshDestroyed lines in log order and sampled at FRAME boundaries (every line
+# carries `frame=`), so a new primary spawning and an old copy expiring inside
+# one engine frame never reads as a transient extra copy. It is a lower bound,
+# never an over-count: a destroy with no counted spawn clamps at zero instead
+# of going negative, so a copy spawned before `ghostRenderTracing` was turned
+# on (no MeshSpawned) can only hide a copy, never add one. A lane that wants
+# the number exact starts its loop AFTER the tracer is on.
+PEAK_LIVE_KEY = "peakLive"
 REQUIRE_BALANCED_KEY = "requireBalanced"
 DESTROYED_REASONS_KEY = "destroyedReasons"
 FORBIDDEN_KEY = "forbidden"
@@ -473,14 +483,15 @@ ATTITUDE_BLOCK_KEYS: Tuple[str, ...] = ATTITUDE_WINDOW_KEYS + (REFS_KEY,)
 # over a facet the module does not measure could only ever be answered by a
 # default - the vacuity `_check_windows_against_facets` refuses to invent.
 GHOST_LIFECYCLE_WINDOW_KEYS: Tuple[str, ...] = (
-    SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY, CYCLE_LINES_KEY)
+    SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY, CYCLE_LINES_KEY,
+    PEAK_LIVE_KEY)
 # The windows a `vessels` entry may carry (each an unconditional key of every
 # `perVessel` facet row).
 VESSEL_WINDOW_KEYS: Tuple[str, ...] = (
     SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY)
 GHOST_LIFECYCLE_ASSERTION_KEYS: Tuple[str, ...] = (
     SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY, CYCLE_LINES_KEY,
-    REQUIRE_BALANCED_KEY, DESTROYED_REASONS_KEY, VESSELS_KEY, ATTITUDE_KEY)
+    PEAK_LIVE_KEY, REQUIRE_BALANCED_KEY, DESTROYED_REASONS_KEY, VESSELS_KEY, ATTITUDE_KEY)
 GHOST_LIFECYCLE_BLOCK_KEYS: Tuple[str, ...] = (
     (GATING_KEY,) + GHOST_LIFECYCLE_ASSERTION_KEYS)
 
@@ -911,6 +922,7 @@ def observed_ghost_lifecycle_facets(snapshot: Optional[GhostLifecycleSnapshot]
             spawn_ids.append(line.rec_id)
     destroy_ids = {l.rec_id for l in snapshot.destroys}
     unbalanced = unbalanced_recordings(snapshot)
+    peak = peak_live_copies(snapshot.lines)
     return {
         GHOST_LIFECYCLE_BLOCK: {
             # THE window-key facet, named exactly as its spec key and written
@@ -966,6 +978,13 @@ def observed_ghost_lifecycle_facets(snapshot: Optional[GhostLifecycleSnapshot]
             "cycleRecordings": len({c.rec_id for c in snapshot.cycles}),
             # ---- v3 facet (additive) ----
             ATTITUDE_KEY: attitude_facets(snapshot.attitude),
+            # ---- v4 facets (additive) ----
+            # The most copies of one recording alive at a frame boundary (the
+            # window key), and which recording reached it (triage; "" when no
+            # mesh line was seen). See PEAK_LIVE_KEY.
+            PEAK_LIVE_KEY: peak.count,
+            "peakLiveRecording": peak.rec_id,
+            "peakLiveFrame": peak.frame,
         },
     }
 
@@ -1041,6 +1060,50 @@ def attitude_facets(samples: Sequence[AttitudeSample]) -> Dict[str, Any]:
         "perRef": {ref: _attitude_row(rows) for ref, rows in sorted(by_ref.items())},
     })
     return row
+
+
+@dataclass(frozen=True)
+class PeakLive:
+    """The ``peakLive`` facet: the count, the recording that reached it first
+    ("" when none) and the frame it was sampled at (-1 when none)."""
+
+    count: int = 0
+    rec_id: str = ""
+    frame: int = -1
+
+
+def peak_live_copies(lines: Sequence[MeshLifecycleLine]) -> PeakLive:
+    """The most mesh copies of ONE recording alive at once (pure).
+
+    Walks the mesh lines in log order keeping a per-recording live count
+    (MeshSpawned +1, MeshDestroyed -1, clamped at zero) and samples the counts
+    only when the frame changes and at the end, so the same-frame pair "new
+    primary spawns, oldest copy expires" reads as the steady count it is, not
+    as one extra copy. The first recording to reach the maximum is reported.
+    """
+    live: Dict[str, int] = {}
+    best = PeakLive()
+    pending_frame: Optional[int] = None
+
+    def sample(frame: Optional[int], current: PeakLive) -> PeakLive:
+        out = current
+        for rec_id, n in live.items():
+            if n > out.count:
+                out = PeakLive(count=n, rec_id=rec_id,
+                               frame=frame if frame is not None else -1)
+        return out
+
+    for l in lines:
+        if pending_frame is not None and l.frame != pending_frame:
+            best = sample(pending_frame, best)
+        pending_frame = l.frame
+        if l.phase == PHASE_SPAWNED:
+            live[l.rec_id] = live.get(l.rec_id, 0) + 1
+        elif l.phase == PHASE_DESTROYED:
+            live[l.rec_id] = max(0, live.get(l.rec_id, 0) - 1)
+    if pending_frame is not None:
+        best = sample(pending_frame, best)
+    return best
 
 
 def _per_vessel_facets(snapshot: GhostLifecycleSnapshot) -> Dict[str, Dict[str, int]]:

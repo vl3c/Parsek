@@ -184,11 +184,11 @@ required  = [
   "PickupSourcesHaveCargo: route [0-9a-f]{8} all 1 pickup source\\(s\\) cover - eligible",
   "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ dispatch fired \\(carrierStopIndex=0\\)",
   # THE ORIGIN HALF, RVR-7's measurement on untouched bytes.
-  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* tankBefore=200 tankAfter=45\\.[56][0-9]* path=unloaded",
-  "Inventory remove \\(unloaded\\): source=B pid=90564594 .* removed=1",
+  "Origin debit: route=.* origin=B pid=90564594 resource=LiquidFuel requested=154\\.39.* tankBefore=200 tankAfter=45\\.[56][0-9]* path=loaded",
+  "Inventory remove \\(loaded\\): source=B pid=90564594 .* removed=1",
   # THE DELIVERY HALF, THE SUBJECT: the same manifest into an EMPTY tank.
-  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=unloaded",
-  "Inventory store: route=.* dest=A pid=4280917262 .* path=unloaded",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=loaded",
+  "Inventory store: route=.* dest=A pid=4280917262 .* path=loaded",
   "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0",
   "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 COMPLETED cycle consumed the armed pause",
 ]
@@ -205,7 +205,10 @@ forbidden = [
   "partial=1",
 ]
 
+# ARMED 2026-09-27 off the reading run `2026-09-27_1218` (PASS attempt 1, automation DLL built
+# from origin/main 6437750ba): every window met.
 [expectations.recordings.structure]
+gating = true
 trees          = { min = 3, max = 3 }
 committedTrees = { min = 3, max = 3 }
 recordings     = { min = 10, max = 12 }
@@ -218,7 +221,7 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 # window read exactly as declared - count=1 dormant=0 stops=2 sourceRefs=3
 # completedCycles=1 skippedCycles=0 statuses={Paused:1}; measured-only holdKinds={} - so
 # the arming moved NO number. Any report-only wording below is the authoring record.
-# `recordings.structure` above stays a report-only reading. ARMED RE-FLIGHT
+# `recordings.structure` above was a report-only reading until 2026-09-27. ARMED RE-FLIGHT
 # `2026-09-10_2128` (same DLL): PASS attempt 1, saveParse gating PASS, armed ['routes'],
 # no mismatch, every routes and structure facet identical to the reading. The windows
 # gate through the routes evaluator paths already inverted live (RVR-7 skippedCycles,

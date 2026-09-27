@@ -525,13 +525,15 @@ namespace Parsek.Tests
             IReadOnlyDictionary<string, KerbalsModule.KerbalSlot> slots = null,
             IReadOnlyDictionary<string, KerbalsModule.KerbalReservation> reservations = null,
             IReadOnlyList<string> retired = null,
-            IReadOnlyList<KerbalsPresentation.FlightGroup> flights = null)
+            IReadOnlyList<KerbalsPresentation.FlightGroup> flights = null,
+            Func<string, bool> lossReFlyReachable = null)
         {
             var res = reservations
                       ?? new Dictionary<string, KerbalsModule.KerbalReservation>(
                           StringComparer.Ordinal);
             return KerbalsPresentation.BuildRosterRows(
-                roster, slots, res, retired, flights, ActiveChainIndexLike(res), FakeDate);
+                roster, slots, res, retired, flights, ActiveChainIndexLike(res), FakeDate,
+                lossReFlyReachable);
         }
 
         private static KerbalsPresentation.RosterRow Find(
@@ -808,8 +810,10 @@ namespace Parsek.Tests
                     startUT: 700.0),
             };
 
+            // An open Re-Fly reaches the death recording r2: the way back is offered.
             KerbalsPresentation.RosterRowSet set =
-                Roster(roster, slots, flights: Flights(entries));
+                Roster(roster, slots, flights: Flights(entries),
+                    lossReFlyReachable: id => id == "r2");
 
             KerbalsPresentation.RosterRow row = Find(set, "Bill Kerman");
             Assert.Equal(KerbalsPresentation.RosterStatus.Lost, row.Status);
@@ -821,6 +825,16 @@ namespace Parsek.Tests
             Assert.Equal("Last Ride - Lost", row.LastFlightText);
             // The Last flight cell is the Timeline cross-link to that mission.
             Assert.Equal("r2", row.LastFlightRecordingId);
+
+            // Owner ruling 2026-09-27: no open Re-Fly reaches r2 (none at all, or one
+            // that rewrites a different flight) - the sentence is omitted.
+            Assert.Equal("Lost on Last Ride (launched D700).",
+                Find(Roster(roster, slots, flights: Flights(entries)), "Bill Kerman")
+                    .StatusTooltipText);
+            Assert.Equal("Lost on Last Ride (launched D700).",
+                Find(Roster(roster, slots, flights: Flights(entries),
+                        lossReFlyReachable: id => id == "r1"), "Bill Kerman")
+                    .StatusTooltipText);
         }
 
         // catches: the c1 capture's phantom "Lars Kerman / Available" row. Jane is the
@@ -1851,8 +1865,8 @@ namespace Parsek.Tests
                 switch (s)
                 {
                     case KerbalsPresentation.RosterStatus.Lost:
-                        Assert.Equal("Lost on a committed flight. "
-                                     + KerbalsPresentation.LostReFlyRemedy, tip);
+                        // No death row to reach: the Re-Fly way back is never offered.
+                        Assert.Equal("Lost on a committed flight.", tip);
                         break;
                     case KerbalsPresentation.RosterStatus.Reserved:
                         Assert.EndsWith(KerbalsPresentation.ReservationHoldRule, tip);

@@ -370,7 +370,7 @@ required  = [
   "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='RVR16 Slot Limit' status=Paused",
   "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
   "DestinationHasCapacity: route [0-9a-f]{8} full manifest fits \\(stopsResolved=1 stopsUnresolved=0\\)",
-  "Delivery write: route=.* dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.[0-9]* written=97\\.[0-9]* tankBefore=100 tankAfter=197\\.[0-9]* capacity=400 path=unloaded",
+  "Delivery write: route=.* dest=rover fuel 0 pid=2123618197 resource=LiquidFuel requested=97\\.[0-9]* written=97\\.[0-9]* tankBefore=100 tankAfter=197\\.[0-9]* capacity=400 path=loaded",
   "Inventory store: route=.* dest=rover fuel 0 pid=2123618197 part=evaChute",
   "Inventory store: route=.* dest=rover fuel 0 pid=2123618197 part=evaScienceKit",
   "Inventory store: route=.* dest=rover fuel 0 pid=2123618197 part=DeployedCentralStation",
@@ -392,13 +392,16 @@ forbidden = [
   "BLOCKED kind=OriginLacksCargo",
 ]
 
+# ARMED 2026-09-27 off the reading run `2026-09-27_1219` (PASS attempt 1, automation DLL built
+# from origin/main 6437750ba): every window met.
 [expectations.recordings.structure]
-# REPORT-ONLY (no `gating` key), and every window is the COMMITTED FIXTURE's own
+gating = true
+# Every window is the COMMITTED FIXTURE's own
 # structure re-read through `harness/lib/saveparse.py`: 2 trees, both committed, 5
 # recordings, terminal states {Landed 3, Docked 1, one unset on the dock member}, one
 # `Dock` and one `Undock` branch point. Nothing in this lane's driver creates or
 # destroys a recording (`autoRecordOnLaunch=false`, `StopRecording`, `DiscardTree`), so
-# the produced save should read the same numbers - which is the reading, not a gate.
+# the produced save should read the same numbers (it did on every reading).
 trees          = { min = 2, max = 2 }
 committedTrees = { min = 2, max = 2 }
 recordings     = { min = 5, max = 5 }
@@ -412,7 +415,7 @@ branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 # completedCycles=1 skippedCycles=1 statuses={Paused:1}; measured-only
 # holdKinds={DestinationFull:1}, destinationVesselPids=['2123618197'] - so the arming
 # moved NO number. Any report-only wording below is the authoring record.
-# `recordings.structure` above stays a report-only reading. ARMED RE-FLIGHT
+# `recordings.structure` above was a report-only reading until 2026-09-27. ARMED RE-FLIGHT
 # `2026-09-10_2129` (same DLL): PASS attempt 1, saveParse gating PASS, armed ['routes'],
 # no mismatch, every routes and structure facet identical to the reading. The windows
 # gate through the routes evaluator paths already inverted live (RVR-7 skippedCycles,

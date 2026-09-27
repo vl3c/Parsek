@@ -1,0 +1,103 @@
+schema = 1
+id = "RB-2-rewind-readback-within-range"
+# =====================================================================================
+# THE CONTROL FOR RB-1 (todo REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE): the SAME
+# preset, the SAME flight and recovery, the SAME Re-Fly of rp_rb_root slot 1, and NO
+# post-RP spend. See RB-1's header for the guard's derivation from source.
+#
+# What stays identical: Step 3b still resurrects the Flea and still retires its recovery
+# bundle (the `Resurrected-recovery retirement: rec=... pid=2905720181` line is REQUIRED
+# here too), so the target still drops by R below the pre-rewind pool. What differs: with
+# no spend the target is eRp + E, above the RP-time floor, so
+#     floor = min(eRp + E + R, eRp) = eRp,   target = eRp + E >= floor.
+# Predicted off L3's measured economy: eBefore = 536558, eRp = 500000, floor = 500000,
+# target = 532000, delta = +32000 -> `within-expected-range resource=funds` (a Verbose
+# line, hence verboseLogging), and `FLAGGED DIVERGENCE` is FORBIDDEN.
+#
+# Together the pair pins the guard's discriminator on live data: a Step-3b retirement
+# alone does not flag; a retirement PLUS post-RP spending that outweighs post-RP earnings
+# does - the first of the two legitimate causes the WARN names.
+# -------------------------------------------------------------------------------------
+# First authored as an EXPECTED-FAIL witness of REFLY-RESURRECTED-RECOVERY-STAYS-BANKED
+# (Step 3b retired nothing for an ordinary auto-merged recovery). FIXED 2026-09-27 on
+# branch `recovered-after-commit`. The first two attempts (2026-09-27_1417 and its _a2
+# retry) died in the MISSION on the preset's shared part flight ids (`0 parachute(s)`,
+# crash), fixed in the preset. Reading 2026-09-27_1431: XPASS, every expectation met,
+#   `Resurrected-recovery retirement: rec=de8cdbd4... pid=2905720181 anchorUT=347.7
+#    fallbackAnchor=False actions=4 evidence=recovery-row`
+#   `within-expected-range resource=funds eBefore=541358 eRp=500000 floor=500000
+#    target=536800 delta=36800 tolerance=1`
+# with the same four tombstones as RB-1 and no FLAGGED DIVERGENCE: the retirement alone
+# does not flag. The expectedFail block is removed.
+# -------------------------------------------------------------------------------------
+tier = "operator"
+description = "Rewind read-back guard control: RB-1 without the post-RP hire. Step 3b still retires the resurrected Flea's recovery, but the funds target stays above the RP-time floor, so the guard reads within-expected-range and never flags."
+instanceProfile = "stock-minimal"
+tags = ["RB-2", "control", "rewind", "refly", "read-back-guard", "career", "ledger", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-science-pad"
+injectedRecordings = "rewind-readback"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "science_bench_recover"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },    expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoMerge",          value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 1320 },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "SaveGame",     args = { name = "rb-post-recovery" },                    expect = "OK", budget = 120 },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "rb-post-recovery" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "InvokeRewind", args = { rp = "rp_rb_root", slot = "1" },                expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+throttle                 = 1.0
+apoapsisWindowMeters     = { min = 6000, max = 30000 }
+chuteArmMaxRateMps       = 30
+chuteFullDeployAltMeters = 2500
+landedSituations         = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds     = 90
+coastTimeoutSeconds      = 180
+descentTimeoutSeconds    = 360
+collectMinExperiments = 1
+collectTimeoutSeconds = 120
+transmitMinScienceGain = 0.5
+transmitTimeoutSeconds = 120
+recoverMinFundsGain = 1.0
+recoverTimeoutSeconds = 180
+
+[dimensionsCovered]
+D14 = ["kerbin", "career", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+required = [
+  "VesselRecovery funds patched: vessel='Jumping Flea' amount=4558",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
+  "Resurrected-recovery retirement: rec=\\S+ pid=2905720181 anchorUT=[0-9.]+ fallbackAnchor=False actions=[1-9]",
+  "armed rewind read-back guard: eBeforeFunds=[0-9.]+ eRpFunds=[0-9.]+ ",
+  "within-expected-range resource=funds eBefore=[0-9.]+ eRp=[0-9.]+ floor=[0-9.]+ target=[0-9.]+ delta=[0-9.]+ tolerance=1",
+  "Invocation complete",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "FLAGGED DIVERGENCE",
+  "kscaction action=hire-kerbal",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+

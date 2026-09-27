@@ -153,6 +153,11 @@ RP_SIDECAR_BY_PRESET = {
     "ghost-commnet-live": None,
     # CN-3's deploy / destroyed / held relays: three committed trees, no RP.
     "ghost-commnet-timeline": None,
+    # OC-1's per-recording overlap-cap loop: one committed tree, no RP.
+    "overlap-cap": None,
+    # RB-1 / RB-2's resurrection RP: the two-slot tree under rp_rb_root, whose
+    # quicksave re-admits the host's own Jumping Flea.
+    "rewind-readback": "rp_rb_root",
 }
 INJECTION_PRESETS = tuple(RP_SIDECAR_BY_PRESET)
 

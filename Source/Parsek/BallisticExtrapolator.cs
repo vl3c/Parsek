@@ -90,6 +90,8 @@ namespace Parsek
         public double GravitationalParameter;
         public double Radius;
         public double AtmosphereDepth;
+        // Highest terrain above sea level (PQS radiusMax - radius); 0 when unknown.
+        public double MaxTerrainAltitude;
         public double SphereOfInfluence;
         public TerrainAltitudeResolver TerrainAltitude;
         public ParentFrameStateResolver ParentFrameState;

@@ -610,10 +610,11 @@ class RoverRouteCareerSeedOverrideSpecTests(unittest.TestCase):
             if want["cmd"] == "RouteCommand":
                 self.assertEqual(want["args"]["action"], got["args"]["action"])
 
-    def test_the_spec_arms_routes_only(self):
+    def test_the_spec_arms_routes_and_structure(self):
         """`routes` ARMED 2026-09-10 (wave package A2) off the reading run
         `2026-09-10_1727` (completedCycles 0, skippedCycles 2, Paused 1, every
-        window as declared); `recordings.structure` stays a REPORT-ONLY reading."""
+        window as declared); `recordings.structure` ARMED 2026-09-27 off the
+        reading `2026-09-27_1221` on current code, every window met."""
         expectations = self.spec["expectations"]
         routes = expectations.get("routes") or {}
         structure = (expectations.get("recordings") or {}).get("structure") or {}
@@ -622,8 +623,8 @@ class RoverRouteCareerSeedOverrideSpecTests(unittest.TestCase):
                         "RVR-17 declares no recordings.structure block at all")
         self.assertIs(True, routes.get("gating"),
                       "RVR-17's routes block must stay ARMED")
-        self.assertNotIn("gating", structure,
-                         "RVR-17 arms its recordings.structure block")
+        self.assertIs(True, structure.get("gating"),
+                      "RVR-17's recordings.structure block must stay ARMED")
         self.assertNotIn("[expectations.renderComposition]", self.text)
         self.assertNotIn("ExportRenderManifest", self.text)
 

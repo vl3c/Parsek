@@ -15,6 +15,307 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REFLY-SESSION-EVA-CANNOT-SUPERSEDE: a Re-Fly session in which the player went EVA from the re-flown vessel merged with 0 supersede rows~~ [FOUND 2026-09-27 by the PR #1907 review (pre-existing, made likely by REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA); FIXED 2026-09-27, branch `refly-session-eva-merge`]
+
+**Symptom.** Re-fly a separation slot, step a kerbal out of the re-flown vessel (and back in, or not),
+merge: `[Supersede] AppendRelations outcome=refused-unflown-provisional ... reason=null TerminalState`,
+0 rows. The old stretch stayed visible next to the new one, and the section 4.9 rule "an EVA during a
+Re-Fly auto-seals" could not take effect (the slot tip stayed the old, open recording).
+
+**Root cause.** `SupersedeCommit.AppendRelations` validated the RAW provisional
+(`ValidateSupersedeTarget(provisional)`). The marker's `ActiveReFlyRecordingId` names the fork the
+recorder started on at the rewind point and is written only at `RewindInvoker.AtomicMarkerWrite` and the
+optimizer-survivor re-point in `MergeDialog.TryCommitReFlySupersede`; an EVA split ENDS that fork at the
+EVA branch point with no terminal and the vessel flies on as a continuation. Two more defects sat behind
+the refusal and surfaced as soon as rows were written: (1) the session's own continuations carry the
+re-flown vessel's pid and start after the rewind point, so `EnqueuePidPeerSiblings` pulled them into the
+supersede closure and the merge would have superseded the new flight with its own head; (2) the merge
+flipped only the fork's `MergeState`, while open/closed is read on the slot's WALKED tip (a continuation
+born `Immutable`), so a crashed re-fly would have read sealed.
+
+**Fix.** The walked tip is resolved at merge time; the marker is NOT re-pointed. `MarkerValidator`
+requires the marker's recording to be the NotCommitted provisional, and a continuation is ordinary
+`Immutable` data, so a re-pointed marker would be discarded by the next load's `LoadTimeSweep` (F5 / F9
+mid-session) and the fork, the head of the new flight, would then be swept as a zombie. The rows keep
+`NewRecordingId` = the fork; the slot tip is reached from it through the same `WalkSlotVessel`.
+- `SupersedeCommit.ValidateReFlySessionSupersedeSource`: payload on the fork or a walked vessel segment,
+  terminal on the walked tip; exactly `ValidateSupersedeTarget` when the walk takes no hop. Used by
+  `AppendRelations`, `ConcludeRetiredProvisional`, `MergeDialog.ConcludeMissingProvisional` and the
+  prune's alive-and-validating proof. New grep token
+  `AppendRelations outcome=validated-through-vessel-walk ... terminalRec= terminal= evaHops= boardHops=
+  switchHops= walkStop=`; the refusal line now carries the same walk fields.
+- `EffectiveState.CollectActiveSessionOwnedRecordingIds`: the fork's forward descendants (every branch
+  point naming a member as a parent, chain segments of a descendant, anchored debris) are removed from
+  the closure's candidate index, so no expansion admits them (`fenced live session's own recordings`).
+  The fork keeps its existing NotCommitted guards; the root and the slot origin are never fenced.
+- `SupersedeCommit.ApplyMergeStateToSessionVesselTip` (from `FlipMergeStateAndClearTransient`): the
+  merge verdict is written on the walked tip too (`session vessel tip rec=... mergeState a->b`). The
+  v0.9 fallback classification reads the walked terminal as well.
+- Journal recovery needs nothing new: every step re-derives the same walk from the same fork.
+
+**Rule chosen for a kerbal who boards a FOREIGN vessel during the session** (owner ruling 2026-09-27
+rule 2 makes the slot non-re-flyable): the merge still supersedes the old stretch (the player keeps the
+flight they flew) and the slot seals on `evaCrewJoinedForeignVessel`, even when the vessel crashed.
+
+**Tests.** `ReFlySessionEvaMergeTests` (end-to-end `MergeJournalOrchestrator.RunMerge` over
+`ReFlyThroughEvaFixture.AddReFlySession`; crash recovery from TreeMerge / Split / Supersede / Finalize;
+mid-session marker validation + `LoadTimeSweep`; mirror cells for no-branch / Dock / Stage / switch /
+Undock). Mutation-tested: reverting any of the three changes reds cells. Live lane
+`RF-19-refly-session-eva-reboard-merges`. Design: `docs/parsek-rewind-to-separation-design.md` section 6.12.
+
+## ~~REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE: a Re-Fly session that UNDOCKS the re-flown vessel merges with 0 supersede rows~~ [FILED 2026-09-27 from the mirror check of REFLY-SESSION-EVA-CANNOT-SUPERSEDE; OWNER-APPROVED FIX 2026-09-27; FIXED 2026-09-27, branch `refly-session-undock-merge`]
+
+**Shape.** An undock ends the parent recording at the Undock branch point with its terminal untouched
+(`docs/dev/dock-undock-recording-structure.md` section 4), and an undock is a separation, so the slot
+walk stops there by design. The fork therefore still reads `null TerminalState` and the merge logs
+`outcome=refused-unflown-provisional ... walkStop=notSwitchBranchPoint`, keeping the old stretch next to
+the new one. Dock (closed `Docked`) and staging (tree-branching: the fork keeps its id and its own
+terminal) are unaffected.
+
+**Fix (as proposed, owner-approved 2026-09-27).** `SupersedeCommit.ValidateReFlySessionSupersedeSource`
+gains a marker overload: a walked tip with no terminal is concluded when the walk STOPPED at a
+separation the session authored (`IsSessionSeparationStop`: `Undock` / `JointBreak` / `Breakup`, the tip
+among its parents, not in `marker.PreSessionBranchPointIds`). Only the missing-terminal refusal can be
+answered that way (payload refusals stand); a pre-session separation or a legacy marker with no baseline
+keeps the refusal. `AppendRelations` passes the marker and logs
+`outcome=validated-at-session-separation ... bp=... type=Undock`; the three conclusion-side callers pass it
+too, so they keep agreeing with it. Reuses #1909 unchanged: the one slot walk, the session-owned closure
+fence (both halves are the fork's descendants) and the walked-tip MergeState write (the tip is the fork
+itself). The slot seals through Site B-1's existing `classifierClosed:downstreamBp` (section 4.9 rule 4),
+which closes before the rule 2 structural gate is reached.
+
+**Tests.** `ReFlySessionEvaMergeTests`: the old known-gap pin is now
+`Merge_Undock_SupersedesAndSealsOnTheSessionSeparation` (survivor Landed and Destroyed), plus crash
+recovery through `MergeJournalOrchestrator.RunFinisher`, mid-session `MarkerValidator` + `LoadTimeSweep`,
+a pre-session undock and a legacy marker (both still refused), and the pure `IsSessionSeparationStop` gates.
+Mutation: passing a null marker to `AppendRelations` reds exactly the three undock-merge cells.
+
+**No live lane (feasibility checked 2026-09-27, deferred on cost).** A host needs a Rewind Point whose
+slot vessel is itself a docked assembly, so the re-flown fork can undock without docking first (a
+session-time dock closes the fork `Docked`, a path that already validates). What the committed
+fixtures hold:
+- **No such Rewind Point exists.** All ten RP quicksaves (`bdock-recorded` 3, `bdock-second-dock-recorded`
+  4, `refly-autopilot-recorded`, `refly-split-crewed-recorded`, `refly-split-crewed-merged`; none under
+  `Source/Parsek.Tests/Fixtures/`) carry docking ports only in `Ready` / `Disengage`. The only Undock RP
+  (bp `857e997a`) splits a docked pair into two single vessels.
+- **No in-run producer exists either.** The only docked vessel in any fixture is
+  `bdock-second-dock-recorded`'s Station + third Kerbal X (pid 3620499050). Its two `dockingPort2` join the
+  two `mk1-3pod` noses, so undocking yields two single vessels, and its only decouplers (the two
+  `Decoupler.2` under the pods, both `istg 0`) cut away command-less service modules, which is not the
+  multi-controllable split an RP needs (`SegmentBoundaryLogic.IsMultiControllableSplit`). No vessel in
+  any fixture carries two docking ports, so no three-body chain can be formed without a new craft.
+
+Options and cost (the cap was 3 flights in total):
+- **(b) Synthetic injected preset.** `ScenarioWriter.BuildRewindPointQuicksave` clones the donor save's
+  first vessel for every slot and restamps only the vessel identity and the root part pid, so a donor of
+  `bdock-second-dock-recorded` would give a genuinely docked slot vessel. Needed: a per-slot donor (one
+  donor for both slots stacks two identical Station clones on one spot), a synthetic origin tree whose
+  Undock branch point never happened, an undock-only mode for `d5_redock` (it re-docks today, which
+  closes the fork `Docked`), and the spec. Nominally 2 flights, realistically 3-4: a cloned docked
+  vessel has never been loaded through a Re-Fly, and synthetic RP origins have caused a fixture-shaped
+  divergence before (the `BuildRewindPointQuicksave` R1 note). It also proves only the session half
+  live, not an RP authored over a docked slot.
+- **(c) Harvest flight.** A new craft with two docking ports (or a docking that keeps a probe-cored
+  lower stage attached so a later staging leaves a controllable docked slot), a launch, rendezvous and
+  dock mission of BDOCK-2's shape (which took 4 flights), a harvest, then the lane's reading and arming
+  runs: about 4-6 flights.
+
+Neither fits the cap. The fix stands on the unit and mutation evidence above. Revisit when a two-port
+craft or a docked-assembly harvest lands for another reason, since (c) then costs only the lane.
+
+## ~~REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA: a separation slot whose vessel put a crew member out on EVA was refused `downstreamBp`~~ [FOUND 2026-09-27 behind REFLY-SEPARATIONS-ONLY; OWNER DECISIONS 2026-09-27 (interview); IMPLEMENTED 2026-09-27, branch `refly-through-eva`]
+
+**The gap.** A separation slot's tip walk (`EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations`,
+consumed by `UnfinishedFlightClassifier.TryQualify`) followed only chain hops and
+`VesselSwitchContinuation` branch points. A vessel whose crew member went EVA ended its segment at the
+EVA branch point, and a non-Destroyed segment there was refused `downstreamBp`: Kerbal X stages (a
+staging RP), Jeb EVAs from the upper stage for a report and re-boards, the upper stage later crashes -
+no Re-Fly from the staging point, while the same crash with no EVA was offered. Before
+REFLY-SEPARATIONS-ONLY the EVA's own Rewind Point had covered this.
+
+**Owner decisions (2026-09-27).** Goal: "re-fly is available from the point of separation,
+respecting the sealing rules defined in the design docs."
+1. The slot follows its own vessel through the vessel's EVA branch points (the same-pid vessel
+   continuation) and through the Board where the kerbal re-boards the SAME vessel. Any other branch
+   point stops the walk as before.
+2. A kerbal who went EVA from the vessel after the separation and joined a DIFFERENT vessel makes the
+   slot non-re-flyable (new reason `evaCrewJoinedForeignVessel`). Left standing or dead on EVA does not
+   block.
+3. Re-flying the vessel rewrites the kerbal's EVA: the closure and supersede write-set include the EVA
+   crew recordings, their placed parts and flags; an EVA death is tombstoned like a crash death.
+4. Sealing rules apply across the walked history: EVA science is retry-blocking; automatic
+   consequence rows are not; an EVA during a Re-Fly still auto-seals; hard-safety terminals are read on
+   the vessel's real tip.
+5. The Kerbals window's Lost hover offers the Re-Fly way back only when an open Unfinished Flight
+   would reach that kerbal's loss.
+
+**What changed.**
+- `EffectiveState.WalkSlotVessel` (new; `SlotVesselWalk` result) behind
+  `ResolveTerminalRecordingAcrossSwitchContinuations` and so behind `EffectiveTipRecordingId` /
+  `ChildSlot.EffectiveRecordingId` and every slot consumer (reaper, Seal, Stash,
+  `IsVisibleUnfinishedFlight`, CommitTree promotion, Site B-1 / B-2, RP slot resolution,
+  `LoadTimeSweep`). Hops log `[Supersede] SwitchContinuationWalk: hop ... kind=switch|eva|board`.
+  A Board by a kerbal from another vessel stops it (`boardForeignParent`, a foreign merge). A walk
+  that starts mid-stretch first registers the crew of every own EVA behind its start
+  (`PreRegisterOwnEvaCrewBehind`; RF-18's reading run (flown as RF-16 before a lane-id collision renamed it) caught a mid-stretch walk reading the Board as
+  foreign). The map presence chain-tip segment borrow keeps the switch-only walk
+  (`followOwnEvaBoard: false`).
+- `UnfinishedFlightClassifier`: the walk starts at the slot stretch head
+  (`ResolveSlotStretchHead`, so every stretch member reaches the origin's verdict), rule 2 rejects with
+  `evaCrewJoinedForeignVessel`, verdict lines carry `walkedEva=N walkedBoard=M`, and the retry-blocking
+  scan reads the stretch head. `SupersedeCommit.CollectRecordingIdsForSafetyGate` adds the walked
+  stretch; Site B-1 auto-seals on the new reason like `downstreamBp`.
+- `EffectiveState.ComputeSubtreeClosureInternal`: own-EVA crew admission
+  (`IsOwnEvaKerbalClosureChild`), same-vessel Board admission, `GroundPartPlaced` children of a kerbal
+  in the closure, and backward stretch seeding from a merge-time root
+  (`CollectOwnVesselStretchBackward`, stopping at the slot origin, at a re-fly fork and before a
+  recording that starts before the rewind UT). `RecordingTreeSplitter.SplitOriginAtRewindUT` splits the
+  spanning stretch ancestor when the walked tip does not span the rewind point
+  (`FindSpanningOwnVesselStretchAncestor`).
+- Lost hover: `KerbalsPresentation.ShouldOfferLostReFlyRemedy` over
+  `EffectiveState.ComputeOpenSlotReFlyReachRecordingIds`, also on the stock-screen Lost explanation.
+
+**Cases decided from the rules** (reported to the supervisor): a Board by a kerbal from another vessel
+onto the slot vessel stops the walk (`downstreamBp`); a kerbal who re-boards after the vessel docked is
+unreachable (the walk already stopped at the Dock); with several EVAs, one kerbal joining a foreign
+vessel blocks the slot; a kerbal-free probe slot is untouched.
+
+**Tests.** `ReFlyThroughEvaTests` over the new generator `ReFlyThroughEvaFixture` (+ `ScenarioWriter`
+`EvaBranch` / `BoardBranch` / `SeparationBranch`); the graph fuzzer's continuation-free agreement cell;
+the Lost-hover cells in `KerbalsWindowUITests`, `KerbalDeathRespawnTests`, `ReservationExplanationTests`.
+Design: `docs/parsek-rewind-to-separation-design.md` section 1.6.
+
+## ~~EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE: the `EvaGroundScience place` seam step can time out with the placement preview held off-terrain against a collider~~ [FILED 2026-09-27 from EVA-7's first flight. FIXED 2026-09-27, branch `eva-harness-hardening`, harness seam only, no product change]
+
+**Symptom.** Run `2026-09-27_1344_EVA-7-crew-inventory-spawn-after-rewind` classified INVALID
+driver-unresolved-handle: `evagroundscience failed reason=placement-timeout
+part=DeployedSeismicSensor elapsed=120.0s built=true onTerrain=false insideCap=false
+collisions=1 presses=1 hit=COL/layer0`. EVA-5's `2026-09-26_1821` / `_1824` failed the same
+way before the re-turn mitigation existed (one turn, 120 s of a blocked preview).
+
+**Root cause (seam, not Parsek).** The `faceAway` turn did not stick. Stock places the
+preview at `vesselTransform.forward * spawnDistance` and re-reads that every frame, and the
+turned kerbal swung back to face the hull: every logged re-turn read an `angle=` of 146-166
+degrees one second after a turn to 0, and the fix's own drift reading shows it happens
+within ONE frame (`faceaway hold n=1 drift=147.7` on EVA-6 `2026-09-27_1815`, `155.3` on
+EVA-7 `_1819`). The old placement only succeeded when a press landed in the one or two
+frames the turn held. On `_1344` the re-turn read placeable, the press armed for the next
+frame missed (the kerbal had turned back), and the old `ShouldReTurn` refused every
+re-turn once a press had gone out, so the preview stayed blocked for the whole budget.
+`Vessel.SetRotation` writes the part transforms only (decompiled), and `KerbalEVA`'s idle
+`UpdateHeading` zeroes the yaw rate with no movement input, so the exact stock mechanism
+that turns the kerbal back was not pinned down; the fix does not depend on it.
+
+**Fix.** `ParsekTestCommandAddon.EvaGroundScience.cs` + pure `TestCommandEvaGroundScience`:
+(1) the turn also writes each part's rigidbody rotation and zeroes its spin; (2) the chosen
+heading is kept in the body frame and HELD: any poll whose drift exceeds
+`HeadingHoldToleranceDegrees` (10) re-asserts it until the placement is confirmed, bounded by
+`MaxHeadingHolds` (1200), first hold at Info, later ones rate-limited, cap logged;
+(3) `ShouldReTurn` no longer ends after a press: a press that did not land (the preview still
+up and the spot blocked past `ReTurnFrames` since both the turn and the press) re-turns;
+(4) re-turns fan out on `TurnOffsetDegrees` (0, +30, -30, +60, -60), so a spot blocked by
+something other than the nearest vessel is not retried on the same line; (5) bounds
+`MaxReTurns` 5 -> 8 and `MaxConfirmPresses` 5 -> 8 (a press per re-turn); (6) the preview
+diagnostic now carries `answered= reTurns= holds= drift=`. The grep-stable lines the EVA
+specs require (`place start`, `place confirmed ... presses=`, `place complete`) are
+unchanged. Cells: `TestCommandEvaGroundScienceTests` (the after-press re-turn cell reds on
+the old `pressesSoFar > 0` gate; hold, offset ladder and budget cells).
+
+**Proof.** One flight each on the fix's DLL (sha256 `540428aa...`): EVA-5 `2026-09-27_1812`
+PASS (turn held, drift 0.0, first press landed), EVA-6 `2026-09-27_1815` PASS (108 holds kept
+drift at 0.0; the straight-away spot read `collisions=2` and the +30 degree re-turn cleared
+it), EVA-7 `2026-09-27_1819` PASS (6 holds, first press landed).
+
+---
+
+## ~~RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE: RVR-8's second cycle delivered instead of blocking on the spent origin~~ [FILED 2026-09-27 from run `2026-09-27_1147` (PARSEK-FAIL(expectation), automation DLL `d6dbc5e0`, origin/main `6437750ba`). FIXED 2026-09-27, branch `fix-rvr8-armed-pause`]
+
+**Symptom.** Cycle 0 consumed the send-once pause on completion (`delivered-then-paused`), as it
+should. The second send-once then dispatched cycle 1 at ut=2400 and picked up 154.4 LiquidFuel
+from origin B again: the `Origin debit:` line read `tankBefore=200`, not the 45.6 cycle 0 left.
+saveParse read `completedCycles 2` against a window of 1. The green 2026-09-10 run had blocked
+cycle 1 `OriginLacksCargo` (B raw 45.6, shortfall 108.8).
+
+**Not the armed pause, and not a skipped cargo check.** Both runs consume the pause the same way.
+The cycle-1 gate did run: its `all ... pickup source(s) cover - eligible` line is
+`VerboseRateLimited` per route and fell inside cycle 0's window. It passed because B really read
+200.
+
+**Root cause (a latent product defect, not a bisectable regression).** Every Logistics
+probe/writer pair picked its store with `vessel.loaded && !vessel.packed`, so an endpoint that is
+LOADED but PACKED (inside physics range, on rails under warp or a seam `TimeJump`) was read and
+written through its `ProtoVessel` snapshot. For a loaded vessel the live parts are the authority:
+stock `Vessel.BackupVessel` rebuilds `protoVessel` from them on every save and on unload, so the
+debit and the delivery were discarded at the next save. Evidence: even the GREEN 2026-09-10 run's
+produced save holds B=200 / A=200 after a completed cycle; it only passed because no save ran
+between the two cycles, so cycle 1 re-read the edited-but-doomed snapshot. On the 09-27 run the
+scene load was slow (OnLoad 1238 ms against 237 ms), so stock's first flight-ready autosave
+(`Flight State Captured` / `Game State Saved as persistent`) landed after cycle 0 and before
+cycle 1, and wiped both writes. For a player this means a route between vessels near the active
+one, run during time warp, moved nothing durable.
+
+**Fix.** `RouteOrchestrator.EndpointStoreIsLiveParts` (live parts iff `vessel.loaded`, packed or
+not) is the one gate at all eight capture sites (origin debit, pickup debit, inventory pickup,
+delivery, origin-cargo gate, pickup-source gate, multi-stop capacity probe, and the Logistics
+window's DestinationFull capacity line). The writer lines for
+these in-range endpoints now read `path=loaded`; RVR-2, RVR-4, RVR-7, RVR-8, RVR-15, RVR-16,
+RVR-20 and GUI-20 are re-pinned from `path=unloaded`. Unit tests: `EndpointStoreGateTests`.
+
+**Live proof (2026-09-27, automation DLL `d5b0f410`).** All eight re-pinned lanes PASS attempt 1
+(`2026-09-27_1310` RVR-8 through `_1330` GUI-20). RVR-8 blocks cycle 1 `OriginLacksCargo`
+shortfall=108.8 and its produced save holds B=45.6 / A=400; RVR-7, RVR-15 and RVR-2 saves carry
+their delivered and debited amounts too, where every earlier save had reverted them.
+## ~~H45-MISSION-CONTROL-TAB-SWITCH-ASSERTED-SAME-FRAME: an in-game cell asserted a row absent in the frame stock destroyed it~~ [FILED AND FIXED 2026-09-27, branch `arm-save-checks`, test-only]
+
+H45's first flight of its twelve-cell shape (`2026-09-27_1140`) red on
+`MissionControlAvailableRowLabelSurvivesTabSwitchAndRebuild`: "the Offered contract should
+not be listed on the Active tab". The cell called `MissionControl.SetDisplayModeActive()`
+and asserted in the same frame; stock's rebuild Destroy()s the old rows, Unity destroys them
+at the end of the frame, and `GetComponentsInChildren<MCListItem>(true)` returns them until
+then. Fix: the cell yields one frame before the assertion (and the finder skips
+Unity-destroyed rows); the Active-row Cancel cell had the same same-frame assertion and gets
+the same frame. A row the Active rebuild itself lists for the contract is alive on the next
+frame, so the assertion still catches the product defect it exists for. Re-fly
+`2026-09-27_1235` PASS 10 / 0 / 2.
+
+## H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE: two StockUiOverlay cells never run on `career-earned-ksc` [FILED 2026-09-27. OPEN, fixture gap, not a defect]
+
+On H45's host both skip at run time (`RUNTIME_SKIPS` 2, run `2026-09-27_1235`):
+`MissionControlActiveRowLabelAndCancelBlockedWithReason` ("needs a career host with an
+Active contract ... contracts=9 offered=9 active=0") and
+`RnDResearchButtonDisabledShowsItsReason` ("No unresearched RESEARCHABLE R&D node
+(unresearched=145); the Research button is hidden on FADED nodes"). So the greyed
+Research button with its reason, and the Active-row label with the Cancel block, have never
+executed. Fixture that would exercise both: a career save that boots to the Space Center
+with at least one Active contract with a non-empty title and at least one unresearched node
+whose parents are all researched (state RESEARCHABLE), for example `career-earned-ksc`
+with one Offered contract accepted and one tier-1 node left unresearched after its parent
+(`start`) - or `stock-screen-census`, if it carries both (not checked). Not fixed now:
+a new or re-harvested fixture moves H45's host and every lane pinned to it.
+
+## SAVE-BLOCKS-AWAITING-READINGS: 30 report-only save-structure blocks on 24 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
+
+The operator's 2026-09-27 arming pass armed every report-only `rewind` /
+`recordings.structure` / `recordings.points` block that had a matching reading on current
+enough code (37 blocks; `autotest-status.md` header), and RVR-8 `structure` followed the
+same day off its green re-fly `2026-09-27_1310`. These remain report-only, and each
+needs a reading flight on current code (or a decision) before it can be armed:
+
+- No reading on file anywhere: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`;
+  CL-3, GS-1, GS-2, GS-3 `structure`; GS-7, GS-8, V3C, V3F, V3R both blocks; RF-2, RF-3,
+  RF-12L `rewind`.
+- Readings only before the 2026-09-23 rewind fixes (#1788 and after): GS-9 both
+  (`2026-09-11_0109`), RF-1 and RF-9 `structure` (`2026-09-15_1542` / `_1546`).
+- A reading that contradicts the window: RF-4 `rewind` read rewindPoints 1 against
+  `max = 0` (`2026-09-15_1553`, before #1788); the window needs a decision under the
+  rewind-point-survives ruling, not just a flight.
+
+Cheapest next flights (proposed 2026-09-27, deferred by the supervisor): GS-9, GS-8 (nightly,
+about 6-8 min each), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,
+V3F, V3R. The long harvest missions (B17, V3C, B23-B30, RF-2, RF-3, RF-12L) are not proposed.
+
+---
+
 ## ~~WIDE-WINDOWS-OFF-SCREEN-AT-1280: the Missions and Logistics windows' right-hand columns are unreachable on a 1280 px screen~~ [FILED AND FIXED 2026-09-26, branch `wide-window-hscroll`]
 
 Owner request. The Missions window (both tabs) is laid out at 1355 px and Logistics at
@@ -180,7 +481,65 @@ segment and may be similarly off. A fix would skip, or clamp at the surface, a s
 periapsis lies below the body's radius; verify against the fixture's sidecar first.
 
 ---
-## ~~SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: every repeat submission of a science subject re-credited the earlier ones~~ [FILED AND FIXED 2026-09-26, branch `fix-deployed-science-ledger`]
+## ~~REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL: rewinding a relaunch of a craft strips the earlier launch of that craft from the rewind save~~ [FILED AND FIXED 2026-09-27, branch `fix-rewind-name-strip`; the open half of REWIND-STRIPS-RESUMED-COMMITTED-TIP. Headless-proven; NOT yet live-proven]
+
+**What the name strip is for.** The plain rewind's pre-load strip (`RecordingStore.ExecuteRewindSaveLoad`
+-> `PreProcessRewindSave`) removes the rewind OWNER's own vessel from the `parsek_rw_` quicksave: the
+owner is the recording that captured that quicksave (`GetRewindRecording`: the recording itself or its
+tree root), and `FlightRecorder.CaptureRewindSave` takes it at the owner's recording start, so the
+quicksave holds the owner's vessel as it was then. The rewind replays that flight as a ghost and spawns
+its vessel at the end, so the quicksave copy must go (the strip dates from `937bf9c5b`, "Strip only the
+recorded vessel on rewind"). It matched by NAME because that was the only key used then; the
+persistentId is craft-baked, so a pid would not have been safer. EVA-6's `1 by name [Jebediah Kerman]`
+is this strip removing the owner itself (the kerbal's own recording captured the save).
+
+**Defect.** A relaunch of a craft carries the craft's name. Land Kerbal X, commit it (the in-flight commit
+adopts the live vessel), relaunch Kerbal X, commit, and rewind the second flight: the quicksave taken at
+the second launch holds BOTH vessels, and the name strip removed both. The first one is committed
+history (its recording ends before the rewind point and never replays), so nothing re-spawns it; it also
+missed the quicksave whitelist, and the guid-aware post-strip reconcile then reset its recording's spawn
+state. Ordinary play, no harness step. Mutation check: making the classifier name-only again reds
+`SameCraftRelaunch_RewindOfSecondFlight_KeepsFirstLandedVessel` and `Classify_Table`.
+
+**The OnLoad passes do not share the flaw.** `StripOrphanedSpawnedVessels` (`same-launch recording
+match`, `matchSource: true` on rewind) is launch-identity-aware (BUG-H) and never strips a pid in the
+rewind-quicksave whitelist; `StripFuturePrelaunchVessels` keeps whatever the quicksave held; the
+`PendingCleanupNames` set is only a trigger now (`CleanupOrphanedSpawnedVessels` decides by identity).
+All three removed an earlier vessel only because the pre-load strip had already dropped it from the
+quicksave, and so from the whitelist. Note that without the whitelist the rewind's `matchSource` strip
+WOULD match an earlier launch's adopted vessel (its spawn pid and guid are that recording's own), so the
+whitelist is load-bearing there.
+
+**Fix.** `RecordingStore.BuildRewindOwnerStrip` + `ClassifyRewindOwnerStripVessel`
+(`RecordingStore.RewindOwnerStrip.cs`), wired into a new `PreProcessRewindSave(RewindOwnerStrip, ...)`
+overload; the old name-set overloads delegate to it as name-only. Per quicksave VESSEL: an EVA child name
+of the owner's chain is stripped by name (kerbal names are roster-unique, and a chain EVA kerbal standing
+outside at the save boards later and re-exits under a new guid, so a guid gate would leave a duplicate
+kerbal); the owner's name is stripped UNLESS some vessel in the save carries the owner's
+`RecordedVesselGuid` (the owner is anchored) and this vessel's `pid` guid conclusively differs
+(`VesselLaunchIdentity.GuidsConclusivelyDiffer`), in which case it is another launch and kept
+(`Rewind owner strip: keeping vessel ... different launch`); a vessel under another name carrying the
+owner's guid is the owner's own vessel after a recordings-table rename and is stripped by guid. An
+unknown guid on either side, or an unanchored owner, falls back to the name. The strip summary line
+keeps its `N by name [...]` prefix and adds `by owner guid` and `kept N other launch(es)` counts.
+Re-Fly (`RewindInvoker`), revert and warp-to-game-start (no pre-process) are untouched.
+
+**Tests.** `RewindOwnerStripTests` (9): the repro through the whole plain-rewind chain (pre-load strip,
+whitelist, OnLoad identity strip, future-prelaunch pass, playback reset, post-strip reconcile); owner
+guid unknown, owner not anchored, save vessel without a guid (all name-decided); renamed owner stripped
+by guid; EVA-6 shape (Jeb stripped, `1 by name [Jebediah Kerman], 0 by owner guid`, capsule kept); chain
+EVA child name-only; the decision table; the anchor predicate.
+
+**Live proof (not flown).** EVA-6 keeps its tokens in logic (its owner is Jeb's own recording, stripped
+by name exactly as before, and the capsule's name is not the owner's). A cheap new lane would re-launch
+the same craft on a host with a committed landed vessel of that craft, commit, rewind `tree=latest`, and
+require the `Rewind owner strip: keeping vessel` line plus the earlier vessel in the produced save.
+Authored as `RR-1-relaunch-rewind-keeps-earlier-launch` (nightly, never flown, branch
+`lane-relaunch-rewind`): on `kerbin-splashdown-recorded` it relaunches the stock Kerbal X from the SPH
+onto the Runway, commits, rewinds `tree=latest`, and gates on the keep line naming the fixture capsule
+(pid 2708531065), the summary `1 by name [Kerbal X], 0 by owner guid, ... kept 1 other launch(es)`, the
+OnLoad keep of `#autoLOC_501232` and the committed store still holding the capsule's spawn pid. The live
+proof is owed by that lane's reading flight.
 
 ---
 
@@ -478,8 +837,14 @@ Owner rulings (2026-09-26):
   flight (`SceneExitInterceptor` -> Re-Fly merge dialog; Esc "Space Center" / "Tracking
   Station" are not CanRestart-gated). `ReFlyRevertButtonGate.Apply` logs one Info line per
   evaluation while a re-fly is live on such a game (`Flight.CanRestart=False ... re-fly Retry
-  not offered`). Live check still owed: fly a Hard-preset re-fly, leave the flight, confirm
-  the scene-exit merge dialog appears.
+  not offered`). Live check automated 2026-09-27, branch `lane-hard-refly-exit`, and FLOWN
+  GREEN 2026-09-27 (RF-16 `2026-09-27_1341`, RF-17 `2026-09-27_1343`, both PASS attempt 1 on
+  `lanes-ksp-settings-checks`): `RF-16-hard-preset-refly-exit-merge` /
+  `RF-17-hard-preset-refly-exit-discard` re-fly
+  on the derived fixture `gloops-airshow-hard` (`gloops-airshow` with `preset = Hard` and the
+  three Hard FLIGHT flags off), require the gate line, the scene-exit drive to the Space
+  Center and the `labels=ReFlyAttempt` merge dialog, answer Merge / Discard, and forbid every
+  revert road. Both reading runs matched every token as written; nothing owed.
 - ~~S8 (Q2). A recorded crew death follows stock `Difficulty.MissingCrewsRespawn`: when on, the
   kerbal is free again at death UT + `Difficulty.RespawnTimer`; permanent only when off.~~
   FIXED 2026-09-26, branch `kss-respawn`: `KerbalsModule.PopulateCrewEndStates` stamps the
@@ -511,7 +876,10 @@ Owner rulings (2026-09-26):
   through the merge), so row order never matters; the log names `respawn suppressed:
   looping chain` / `open-ended co-row` or `respawn kept: open-ended co-row starts after the
   respawn`. The Timeline "respawns after" text reads the same resolved hold
-  (`ResolveTimelineRespawnSeconds`), not the raw stamp. Before this an overlapping
+  (`ResolveTimelineRespawnSeconds`), not the raw stamp. **Superseded in part 2026-09-27**
+  (LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS): the loop is visual only, so a looped segment no
+  longer makes a chain's death permanent (`chainHasLoop` and the `respawn suppressed: looping
+  chain` log are gone); the open-ended co-row rule stands. Before this an overlapping
   open-ended co-row turned the death into an ordinary endless hold with a free stand-in (the
   kerbal read Reserved and never respawned). A finite later flight that outlasts the
   respawn still extends the hold as an ordinary reservation.
@@ -629,8 +997,17 @@ KSP-SETTINGS-AUDIT-2026-09-26 above (investigations in the session scratchpad, n
   applicant; with nothing to skip stock runs unchanged. S9-gated (listed in
   `ParsekGameModeGateTests`); one `[KerbalHirePatch] auto-hire applicant pick:` Info line per
   pick that skipped. `KerbalHirePatch` stays the Astronaut Complex backstop. Cells:
-  `KerbalHirePatchTests.AutoHireApplicant*`. NEEDS A LIVE CHECK (not flown): auto-hire on, a
-  rewound future hire, a craft one seat short.
+  `KerbalHirePatchTests.AutoHireApplicant*`. LIVE CHECK DONE 2026-09-27: run
+  `2026-09-27_1341_AH-1-auto-hire-reserved-applicant` PASS attempt 1 (`total=1 passed=1
+  failed=0 skipped=0`, `pickLines=2 hired=2 seated=3 refusals=0`, teardown `reverted=3
+  removed=2`, all as predicted).
+  `harness/scenarios/AH-1-auto-hire-reserved-applicant.toml` runs the in-game cell
+  `FlightIntegrationTests.AutoHireSkipsCommittedFutureHireApplicant` (category
+  `AutoHireReservation`, `InGameTests/AutoHireReservationInGameTest.cs`) on `fresh-career`: a
+  committed future CrewHired row for the first applicant (the rewound state, seeded in-process),
+  auto-hire on, the real stock `DefaultCrewForVessel` on a Mk1-3 pod two seats short; it asserts
+  the skip once per short seat, no `KerbalHirePatch` refusal, nobody seated twice, and reverts
+  every roster / funds / ledger change.
 
 Handled on other branches (not here): Set Orbit / Set Position teleports inside a live
 recording (teleport seam), the launch-site tag on recordings, retirement of flights ending at
@@ -696,7 +1073,7 @@ transfer, so both are already correct).
 
 ---
 
-## ~~KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN: a vessel spawned at a recording's end gave each kerbal his current roster inventory, not what he carried~~ [FILED AND FIXED 2026-09-27 from KSP-SETTINGS-AUDIT-2026-09-26's `persistKerbalInventories` trace, branch `kss2-inventory`. Live check owed]
+## ~~KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN: a vessel spawned at a recording's end gave each kerbal his current roster inventory, not what he carried~~ [FILED AND FIXED 2026-09-27 from KSP-SETTINGS-AUDIT-2026-09-26's `persistKerbalInventories` trace, branch `kss2-inventory`. Lanes H72 + EVA-7 flown green 2026-09-27; the pod-cargo manual check is still owed]
 
 Problem: a crewed kerbal's inventory lives on his roster entry (`ProtoCrewMember.InventoryNode`,
 the roster CREW node's `INVENTORY`) or, while its UI is live, on a `KerbalInventoryScenario`
@@ -757,12 +1134,26 @@ Tests: `CrewInventorySnapshotTests` (codec round-trip, sidecar round-trip, DeepC
 split and merge, restore replaces / no-key unchanged / only seated crew, stand-in reverse map and
 KSC swap) and the builder's `VesselSnapshotBuilder.WithCrewInventory`. In-game: new category
 `KerbalInventorySpawn` (two self-skipping FLIGHT cells: the live capture, and the roster applier
-replacing and restoring an active crew member's inventory), no lane.
+replacing and restoring an active crew member's inventory), driven by `H72-kerbal-inventory-spawn`.
 
-Live check owed: fly a crewed craft whose kerbal carries a cargo part from the VAB (persist
+Manual check still owed (the lanes below cover the EVA direction only): fly a crewed craft whose kerbal carries a cargo part from the VAB (persist
 inventories on), stow it in the pod, revert and commit, and confirm the spawned vessel holds the
 part exactly once; then the reverse (take a part from the pod, keep it on the kerbal) and confirm
 it survives the spawn.
+
+Lanes (2026-09-27, branch `lane-inventory-spawn`, both FLOWN GREEN 2026-09-27: H72
+`2026-09-27_1339` measured `total=2 passed=2 failed=0 skipped=0`; EVA-7 `2026-09-27_1349` measured
+`storedParts=1` and `seated=1 restored=1 noEntry=0 applyFailed=0 unseated=0` once, on the
+stand-in Mitcal Kerman who took Jeb's seat, the inventory following the seat): `H72-kerbal-inventory-spawn`
+runs the in-game category over `b1-pad-craft`'s seated Jeb; `EVA-7-crew-inventory-spawn-after-rewind`
+replays EVA-6's chain (Jeb carries evaChute + a seismometer, places it on EVA, commit,
+Rewind-to-Launch, 1x Space Center spawn) and requires the restore inside Jeb's own KSC spawn to
+apply the recorded ONE-part inventory (not the two-part roster the rewind restored), exactly
+once. That is the "keep a part on the kerbal" direction for an EVA recording. The pod-cargo
+directions above (stow a part in the pod, or take one out, then REVERT and commit) are not
+lane-reachable with today's seam: no verb moves a part between a kerbal's and a pod's
+inventory, and none drives stock Revert to Launch. They need two new seam verbs (an
+inventory transfer, a stock revert) or stay a manual check.
 
 ---
 
@@ -1083,6 +1474,11 @@ belongs to the kerbal, and the kerbal is not re-flown. The one residual path is 
 player started on a legacy EVA Rewind Point before upgrading and has not concluded; it ends under the
 old side-off policy, and its RP is reaped on the next load.
 
+**Superseded 2026-09-27 by REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA.** The owner then ruled that a
+separation slot's Re-Fly rewrites its vessel's own EVAs: the closure now admits the vessel's own EVA
+crew recordings and, by parent id, the ground parts they placed (option 1 above, reached through the
+vessel rather than a kerbal root). The paragraph above describes the state between the two rulings.
+
 ## ~~EVA-PLACED-PART-SPAWN-AFTER-REWIND-LANE: no harness lane proves a still-placed ground part comes back as a real vessel after a rewind~~ [FILED 2026-09-26 with the placed-part tree member, branch `eva-placed-part-member`. CLOSED 2026-09-27, branch `eva-placed-spawn-lane`]
 
 EVA-5 picks its part up (Disassembled, never spawned), and every EVA fixture places on the launch pad,
@@ -1191,7 +1587,8 @@ owner's vessel name) is still name-only: rewinding a relaunch of the same craft 
 earlier flight's same-named vessel from the quicksave, and the OnLoad passes then remove it. It
 needs an identity-aware owner strip (the quicksave VESSEL `pid` guid against the owner's
 `RecordedVesselGuid`), with care for the owner vessel itself; filed here rather than widened into
-this fix.
+this fix. Now filed and fixed as REWIND-NAME-STRIP-TAKES-EARLIER-SAME-CRAFT-VESSEL (branch
+`fix-rewind-name-strip`).
 
 ## C2-DERIVED-FIXTURES-HOLD-JEB-OPEN-ENDED: every career fixture built from `C2CareerPostFix` shows Jeb held with no end date although he was recovered [FILED 2026-09-26 from the GUI-28 stock-screen census (run `2026-09-25_2055`, finding F8); OPEN, fixture work, not an overlay defect]
 
@@ -1341,7 +1738,10 @@ a fixed orbit. It fires only when the propagated altitude is under the safe alti
 periapsis is under it too, and the re-evaluation at the next safe UT then refuses on the
 periapsis. The deferral delays the `CannotSpawnSafely` verdict (and keeps the ghost visible
 meanwhile); `Terminal spawn succeeded after defer` is reachable only if the re-evaluated orbit
-differs from the first one.
+differs from the first one. SUPERSEDED 2026-09-27 by the operator ruling in
+SS1-REFUSED-TERMINAL-ORBIT-GHOST-HELD-FOR-THE-SCENE: the periapsis line is now the atmosphere top
+and the 5 km margin only defers, so a deferral ends in a spawn and SS-1's subject is a 71 x 90 km
+orbit that does.
 
 ## SS1-WARPTOUT-WARP-LOCKED-AFTER-LOAD: `WarpToUT` refused `warp-locked` for at least 19 s after a load that other runs warped from at the same moment [FILED 2026-09-26 from SS-1. OPEN, harness flake; the holder diagnostic LANDED 2026-09-26, the cause waits for the next occurrence]
 
@@ -1379,7 +1779,7 @@ completion after the stale cleanup destroyed the slot (the completed-state bookk
 slot whose ghost was never live), and a headless engine test that crosses EndUT once in warp and
 asserts one delivery.
 
-## SS1-REFUSED-TERMINAL-ORBIT-GHOST-HELD-FOR-THE-SCENE: a terminal-orbit spawn refused as CannotSpawnSafely keeps its held ghost until the scene ends [FILED 2026-09-26 from SS-1. OPEN, question for the operator]
+## ~~SS1-REFUSED-TERMINAL-ORBIT-GHOST-HELD-FOR-THE-SCENE: a terminal-orbit spawn refused as CannotSpawnSafely keeps its held ghost until the scene ends~~ [FILED 2026-09-26 from SS-1. RULED AND FIXED 2026-09-27, branch `spawn-safety-orbit-ruling`]
 
 After the refusal at UT 971.24, `Low Perigee Probe`'s ghost (held since the warp-deferred
 completion) is never released: `DecideHeldGhostAction` returns `Hold` whenever
@@ -1389,6 +1789,42 @@ release applies. The ghost stays visible past EndUT for the rest of the scene. T
 intent (a visible stand-in for a vessel that can never materialize), but no comment or design
 doc says so. Decide: keep (and say so at `DecideHeldGhostAction`), or release the ghost once the
 verdict is CannotSpawnSafely.
+
+**Ruling (operator, 2026-09-27).** "Any orbit Parsek calls Orbiting will spawn. A periapsis
+inside the atmosphere is a decaying flight and ends SubOrbital or Destroyed, never as a refused
+orbit. If a spawn is still refused for a reason that can never clear, the ghost finishes its
+replay and disappears at the end of the recording; it is not held."
+
+**What the investigation found.** The refusal was reachable from real play, not only from the
+injected preset: (1) commit classification (`RecordingTree.IsBoundOrbitAboveAtmosphere`) used the
+plain atmosphere top while spawn safety refused any periapsis under atmosphere + 5 km, so a
+72 x 100 km Kerbin orbit (and the same 5 km band on Duna, Eve, Laythe and Jool) committed
+Orbiting and was refused at spawn; (2) the unloaded-vessel inference
+(`ParsekFlight.HasStableOrbitEvidenceForTerminalInference`, also used by `BackgroundRecorder`)
+accepted any periapsis above sea level; (3) airless bodies had no terrain line at all, so a 2 km
+Mun periapsis committed Orbiting and spawned into a mountain; (4) the permanent refusal held the
+ghost.
+
+**Fix.** One periapsis floor, `OrbitClearance` (the atmosphere top, or the stock PQS maximum
+terrain height `radiusMax - radius` on an airless body, the value stock time warp uses there), read
+by commit classification (`RecordingTree.DetermineTerminalState` and the Re-Fly auto-seal
+preview), the unloaded-vessel inference, the scene-exit finalizer (an extrapolated Orbiting under
+the floor downgrades to SubOrbital, `ApplyPeriapsisFloorToExtrapolatedTerminal`) and
+`TerminalOrbitSpawnSafety.Evaluate`, which now refuses only a periapsis not above the floor. The
+5 km margin is kept only for the deferral (propagated altitude under atmosphere + 5 km while the
+orbit climbs above it); an orbit that never reaches the margin, or a deferral whose orbit scan
+finds no next safe UT, spawns now. A permanent `CannotSpawnSafely` verdict (periapsis refusal,
+failed orbit resolution, a spawned vessel that died, non-finite values) is the new
+`TerminalOrbitDeferredSpawnState.Refused`: `DecideHeldGhostAction` releases the ghost
+(`ReleaseCannotSpawnSafely`, logged `Held ghost released (cannot spawn safely)`), the completion
+path does not hold it (`Ghost not held ... cannot spawn safely`), and the terminal map presence is
+not retained for it. A deferral with no finite next attempt UT is re-evaluated rather than held
+forever. On load only the spawn-death abandon (`spawned-terminal-orbit-vessel-died`, BUG-C) is restored (`TerminalOrbitSpawnSafety.IsDurableRefusal`, both the codec and the in-session OnLoad reconcile); any other saved refusal is dropped and re-evaluated from the recorded orbit, so a save refused under the old 5 km band spawns under the new rule. Tests: `OrbitClearanceRulingTests` (the Kerbin / Duna / Eve / Laythe / Jool bands, a
+commit-inference-spawn agreement sweep across each boundary, the Mun terrain case, the finalizer
+downgrade, every refusal reason releasing the hold), two real-policy cells in
+`StalePastEndCleanupDeferralTests`, the finalizer recovery mirror in
+`SceneExitFinalizationIntegrationTests`, and the updated `TerminalOrbitSpawnSafetyGeometryTests`.
+SS-1's injected subject was re-scoped to a 71 x 90 km orbit (see its spec and autotest-status).
 ## ~~TIMELINE-KERBAL-EXPERIENCE-RAW-ROW: a kerbal's career-log (XP) ledger row rendered in the Timeline as the raw word "KerbalExperience" and warned on every rebuild~~ [FILED and FIXED 2026-09-25, coverage wave 4, branch `cov-ingame`]
 
 **Symptom.** `KerbalExperience` (type 31, written by a crewed recovery's career-log correlation) had no
@@ -1922,7 +2358,9 @@ every annotated screen drew; the findings below are what the screenshots showed.
 `Source/Parsek.Tests/StockUiReservationVerificationTests.cs`:
 - F1, X1 (the cancel zeroes the completion, and the tech unlock and build it funded are
   refused), X2/X3, S1 and P1 are confirmed.
-- The loop hold is released by turning the loop off only for a Recovered end.
+- The loop hold is released by turning the loop off only for a Recovered end. (Superseded
+  2026-09-27: a looped segment no longer holds a chain's crew at all, so the toggle changes
+  no hold; `StockUiReservationVerificationTests.LoopToggle_*`.)
 - The CC Mission Control bypass is code-read only: it needs a live Mission Control with CC
   installed.
 
@@ -2135,7 +2573,7 @@ would pin). Open:
 
 ## ~~TIERC-LOOP-PERIOD-AUTO-MODE-HOST: no lane flies a loop on the global Auto period, and no lane has overlap copies expiring or the 20-copy cap stretching a cadence~~ [FILED 2026-09-24, ghost-replay Tier C PR 1, branch `tierc-claims`. **CLOSED 2026-09-24 by GS-12** (branch `gs12-loop`): `MissionConfig unit=auto` reaches `LoopTimeUnit.Auto` on a MISSION loop (whose overlap cadence IS the global auto interval), and a 5 s period on the 109 s Kerbal X span is flown at 10 s with copies expiring: the MISSION-loop cap (`MaxOverlapMissionInstances`) is applied in `MissionLoopUnitBuilder` before the engine sees the period, so the engine's `Loop cadence` line reads `requested=10.00s ... no adjustment` (the primary witness), with the MissionConfig reply's `overlapCadenceSeconds=10` supporting. The unconstrained phase lock (`P=5`) rounds every mission cadence up to a multiple of 5 s, so the cap's 5.455 s reads 10. D6 `loop-period-modes` (all three modes) and `overlap-expiry-soft-caps` SCOPED TO THE MISSION-LOOP CAP are claimed on GS-12; the per-recording cap moved to OVERLAP-CAP-PER-RECORDING-HAS-NO-LANE below.]
 
-## OVERLAP-CAP-PER-RECORDING-HAS-NO-LANE: no lane flies the per-recording 20-copy cap or prints its `auto-adjusted (cap reached)` verdict [FILED 2026-09-24 from the #1808 review, operator ruling]
+## ~~OVERLAP-CAP-PER-RECORDING-HAS-NO-LANE: no lane flies the per-recording 20-copy cap or prints its `auto-adjusted (cap reached)` verdict~~ [FILED 2026-09-24 from the #1808 review, operator ruling. **CLOSED 2026-09-27 by OC-1** (branch `cap-divergence-lanes`): the new `overlap-cap` preset gives `pad-runway-pair` one recording with its own loop toggle and a 5 s period against a 120 s span; `OC-1-overlap-cap-per-recording` reading `2026-09-27_1243` and armed `_1247` PASS print `Loop cadence #0 "Overlap Cap Probe": requested=5.00s duration=120.00s cap=20 effective=6.00s (cycles=20) auto-adjusted (cap reached)`, and the ghostlife v4 `peakLive` window reads exactly 20 with copies expiring (`overlap expired`). D6 `overlap-expiry-soft-caps` now covers both caps.]
 
 D6 `overlap-expiry-soft-caps` is claimed on GS-12 scoped to the MISSION-loop cap (`GhostPlayback.MaxOverlapMissionInstances`, `MissionLoopUnitBuilder` step 6b). The per-recording cap, `GhostPlayback.MaxOverlapGhostsPerRecording`, applied by `GhostPlaybackEngine.UpdateOverlapPlayback` through `ComputeEffectiveLaunchCadence` and logged by `LogOverlapCadenceIfChanged` as `Loop cadence #N ... auto-adjusted (cap reached)`, has no lane: for a mission member the builder has already capped the period, so the engine verdict reads `no adjustment` by construction, and no committed lane loops a single recording below duration/20. A host needs a recording with its own loop toggle (not a mission loop) and a period under its duration/20, which the seam cannot set today (MissionConfig arms missions only). Until then the cell's per-recording half is uncovered.
 
@@ -3278,7 +3716,7 @@ not loaded; a looping ghost is not held for a retry, because the loop renderer o
 pad terminal therefore materializes only at the Space Center or the Tracking Station, which
 has always been true of non-looping pad recordings too.
 
-## LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS: should a chain with a looped segment still leave its real vessel at the end of the first run? [FILED 2026-09-23 from LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS. OPEN; OPERATOR QUESTION]
+## ~~LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS: should a chain with a looped segment still leave its real vessel at the end of the first run?~~ [FILED 2026-09-23 from LOOP-ARMED-REWIND-LEAVES-ZERO-VESSELS. **RULED + FIXED 2026-09-27** on branch `chain-loop-first-run`; see "Ruling" and "Fix" below]
 
 In gameplay terms: a long flight that Parsek split into phases (launch, coast, landing) is a
 chain. If the player turns on the loop toggle for ONE phase (say, to watch the landing
@@ -3294,6 +3732,67 @@ where a chain tip would otherwise spawn (a merge after a revert, a future-dated 
 spawns once, later replays ghost-only), or is a chain with any looped phase a pure replay?
 A mission loop over a chain-split tree is NOT affected: mission loops set no per-recording
 toggle, so its tip takes the first-run spawn like a standalone recording.
+
+**Ruling (2026-09-27).** Looping one phase of a chain keeps the chain's first run REAL: the
+tip spawns once at the end of the first run, later loop replays are ghost-only. The operator
+framed it as "the Loop checkbox is visual only", and extended it to the crew: a looping
+chain's crew holds close like any chain's, and a death follows the stock respawn (retiring the
+2026-09-26 looping-chain-death rule). Design 12.7 now says so for chains.
+
+**Fix (2026-09-27).** `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` lost its "chain looping"
+refusal and the `isChainLooping` parameter that fed only it (every caller: flight timeline
+flags, flight nearby-spawn candidates, the Space Center `ShouldSpawnAtKscEnd`, the Tracking
+Station `ShouldSpawnAtTrackingStationEnd`; `MergeDialog.CanPersistVessel` and the EVA in-game
+test passed false). `IsFinalSpawnSegment` (the crew side of the KSC end-of-flight retirement)
+dropped the same clause so it still agrees with the spawn side. Nothing else was needed: the
+tip rule already refuses mid-chain segments in every scene, the #1778 loop first-run seams
+already take a chain tip (`!isMidChain`, the chain's effective end), and VesselSpawned keeps
+later cycles ghost-only. `RecordingStore.IsChainLooping` remains as the replay-scope render
+term (`loopingLike`) and the log flag. Each scene's spawn point logs one rate-limited Info
+`Chain loop first-run spawn: ... scene=FLIGHT|SPACECENTER|TRACKSTATION` for a looping chain's
+tip (`GhostPlaybackLogic.LogChainLoopFirstRunSpawn`). Unit tests: `ChainLoopFirstRunSpawnTests`
+(the decision with each phase looped, the looped tip's one spawn then "already spawned", the
+Space Center and Tracking Station gates, the flight engine seam fed by the real decision for a
+looped tip and a looped mid segment, `IsFinalSpawnSegment`, the log line); re-inserting the
+refusal reds 9 cells, re-inserting the crew clause reds 1. Three tests that pinned "chain
+looping" were removed or flipped (`KscSpawnTests.ShouldSpawnAtKscEnd_ChainLooping_TipSpawnsFirstRun_MidStaysSuppressed`).
+
+Crew side (found by the PR review: the tip now spawns a real vessel, but the walk still held
+its crew forever). `KerbalsModule.ProcessAction` dropped `chainHasLoop` (Recovered forced to
++inf, the split-handoff and recovery / KSC-retirement closures skipped, a respawn-on death made
+permanent); `loopingChainIds` stays only as the PrePass summary count.
+`CrewRecoveryReservationClose` dropped the mirrored `IsInLoopingChain` skip. The looped
+segment's own rows are still skipped (`meta.IsLoop`, see LOOP-RECORDING-CREW-NEVER-RESERVED).
+The tooltip's "Held while X loops" branches were dead and are gone, with the
+`KerbalHold.IsLooping` / `FlightEndUT`, `AstronautComplexContext.IsLoopingRecording` and
+`StockUiOverlayController.IsRecordingInLoopingChain` plumbing that fed only them. Tests flipped:
+`KerbalEndStateTests.Recalculate_LoopingChain_RecoveredCrew_FreedAtTipEnd`,
+`KerbalDeathRespawnTests.DeathInLoopingChain_FollowsTheStockRespawnLikeAnyChain` /
+`Timeline_LoopingChainDeath_NamesTheRespawn`,
+`KerbalRecoveryReservationCloseTests.BuildClosureRows_ClosesAHoldInAChainWithALoopingSegment`,
+`StockUiReservationVerificationTests.LoopToggle_*`,
+`ReservationExplanationTests.KerbalOnFlight_OpenEndedHold_NeverNamesALoop`; new
+`KscPadRetirementTests.Crew_ChainWithALoopedSegment_TipRetiredOnThePad_IsFreedAtItsEnd`.
+Every changed crew cell reds against `origin/main`'s `KerbalsModule`.
+
+**No harness lane (by cost).** No seam verb sets a single recording's loop toggle
+(`MissionConfig` loops a whole mission, the unaffected shape), and a chain tip only spawns
+where the #573 block does not hold it (a chain of ANOTHER tree ahead of the rewind UT, or a
+future-dated chain), so a lane needs a new automation verb plus a two-tree chain fixture. The
+decision is shared by every scene's gate and pinned in xUnit above.
+
+## LOOP-RECORDING-CREW-NEVER-RESERVED: ticking Loop on a recording frees its crew for other flights [FILED 2026-09-27 from LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS. OPEN; NOT TRACED]
+
+The operator ruling of 2026-09-27 says the per-recording Loop checkbox is visual only. One
+gameplay effect remains: `KerbalsModule.ProcessAction` returns early for a loop recording
+(`if (meta.IsLoop) return;`), and `CrewRecoveryReservationClose.BuildClosureRows` skips its
+rows too, so a looped recording (standalone, or the looped segment of a chain) reserves none
+of its crew. Ticking Loop therefore makes that flight's kerbals available for other flights
+across the recorded window, and unticking takes it back on the next ledger walk. Not traced
+further: what the stock crew dialogs and the stand-in slots do with such a kerbal, and whether
+the early return guards something else (the walk's retired / all-crew sets are also built
+after it). Fix direction if confirmed: hold a loop recording's crew exactly like a
+non-looping recording's for its real first run.
 
 ## ~~LOOP-ARMED-REWIND-FIRST-RUN-NOT-RENDERED: with a mission loop armed, a Rewind-to-Launch shows no ghost for the whole first run~~ [FILED 2026-09-24 from the #1808 review. PRODUCT DEFECT, operator ruling. **FIXED 2026-09-25** on branch `loop-first-run-visible`; see "Fix" below]
 
@@ -4547,9 +5046,9 @@ live pid and different from the craft pid) - that ended at or before the recover
 latest-ending one per tree. The recovered names are reverse-mapped to reservation owners
 (`KerbalsModule.ReverseMapCrewNames`, as the assignment rows are), and one row per (owner,
 kerbal) is written only when that kerbal has an open-ended hold in scope (an ELS
-`KerbalAssignment` row, non-tourist, not a loop and not in a chain with a looping segment -
-the walk's own override, mirrored so the writer never logs a closure that changes nothing -
-end state Aboard or Unknown). Rows are deduped
+`KerbalAssignment` row, non-tourist, not a loop recording - the walk's own exemption,
+mirrored so the writer never logs a closure that changes nothing; since 2026-09-27 a looped
+segment elsewhere in the chain no longer exempts it - end state Aboard or Unknown). Rows are deduped
 by `GetActionKey` = `recordingId|kerbalName` inside the 0.1 s window, logged once at Info as
 `Crew reservation closed by recovery: '<name>' recoveryUT=<ut> recordingId=<id> vessel='<v>'
 openHolds=<n>`, then `RecalculateAndPatchForLiveTimelineEvent(ut,
@@ -6059,7 +6558,39 @@ fail-loud contract working as designed, but it is not what `ParsekUI.cs:937-940`
 the check is advisory. A named, unarmed safety gate is worse than none, because the next
 reader assumes it fires. D7 is closed above.
 
-## REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE [FILED 2026-09-14 by the guard-retire decision]
+## ~~REFLY-RESURRECTED-RECOVERY-STAYS-BANKED~~: a Re-Fly that brings back a vessel you recovered keeps its recovery funds [FILED 2026-09-27 from the RB-1 reading run, branch `cap-divergence-lanes`. FIXED 2026-09-27 on branch `recovered-after-commit` (Step 3b keys on the ledger's recovery row too); see Fix below]
+
+**What the player gets.** Recover a vessel, then Re-Fly an earlier separation whose rewind point still has that vessel in its world (it was sitting on the pad, in orbit, anywhere the Re-Fly preserves). The vessel is back, and its recovery money is still in the account. Issue #15's Step 3b (`RewindInvoker.RetireResurrectedVesselRecoveryRows`) exists to retire exactly that money, but in the shipping configuration it never matches.
+
+**Evidence.** `RB-1-rewind-readback-divergence` reading `2026-09-27_1249` (automation DLL sha256 `4862ebb5...`): the Jumping Flea is flown, recovered (`VesselRecovery funds patched: vessel='Jumping Flea' amount=4558`), and the Re-Fly of `rp_rb_root` slot 1 preserves it (`Re-Fly save scrub preserved 1 unrelated vessel(s) [#autoLOC_501224]`, `Strip leaveAlone: unrelated v=2905720181`). Step 3b then logs `Resurrected-recovery retirement: none (survivors=2 cutoffUT=9.1)`. The produced save still carries the recovery row (`fundsAwarded = 4558`, recording `f68473da...`) and no tombstone at all.
+
+**Cause.** `ResurrectionRetirementEligibility.Classify` requires the recording's terminal to be `TerminalState.Recovered`. The Flea's committed recording reads `terminalState = 1` (Landed). The only writer of Recovered is `ParsekScenario.UpdateRecordingsForTerminalEvent`, which stamps a PENDING tree only (committed recordings are frozen by design). With autoMerge on (the shipping value, clamped in `ParsekScenario.OnLoad`), the in-flight Recover path commits the tree at scene exit and `onVesselRecovered` fires afterwards at the Space Center (the comment in `OnVesselRecovered` states this order for the crew leg), so an ordinary recovered flight is committed Landed and Step 3b can never match it. Its unit tests stamp Recovered directly, a shape the live recovery does not produce.
+
+**Fix direction (needs a ruling).** Classify could key on the recovery evidence the ledger already holds (a `FundsEarning` with `FundsEarningSource.Recovery` on a recording positively guid-matched to the resurrected vessel) instead of the terminal state, or the recovery could stamp the committed leaf. Either way the fix turns RB-1 XPASS; claim D9 `read-back-guard` on it then, fly RB-2 (the no-spend control), and arm both.
+
+**Fix (branch `recovered-after-commit`).** Classify keys on the ledger. The three candidates, weighed against the traced ordering:
+- Stamping Recovered on the committed recording when the recovery arrives would break the "committed recordings are never modified by a terminal event" rule (`UpdateRecordingsForTerminalEvent`), which KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL already chose to keep for the same ordering ("a row, not a re-stamp"), and it would also have to re-run the commit-time crew and funds derivations.
+- Deferring the auto-commit until the recovery resolves only covers the in-flight Recover. A Tracking Station recovery of an older flight reaches a recording committed long before, with the same Landed / Orbiting terminal, and needs the ledger answer anyway.
+- The ledger answer covers all three producers. A recovery row exists only when the vessel was recovered: the commit-time pairing emits one only for a Recovered terminal, and #444 (`OnVesselRecoveryFunds`) and the crew close (`OnRealVesselCrewRecovered`) write only from a real `onVesselRecovered`.
+
+A recording now qualifies when a survivor is POSITIVELY its launch and it either ended Recovered (the manual-merge shape, unchanged) or carries a `FundsEarning(Recovery)` or `KerbalRecovered` row after the cutoff, on a terminal that left the vessel in the world (`VesselOutlivedTerminal`: none, Orbiting, Landed, Splashed, SubOrbital). The retired bundle is unchanged: funds, Recovered-method science, recovery XP, and Recovered-end-state crew rows. The `KerbalRecovered` row counts as evidence but is NOT retired. Retiring it would leave the recording's Aboard hold open, and a later recovery of the resurrected vessel before the recording's end could not close it again (`CrewRecoveryReservationClose.SelectOwnerRecordings` takes only owners that ended by the recovery). Mirror directions: the manual merge keeps the Recovered-terminal path, and a Tracking Station recovery and an in-flight auto-merge recovery both go through the row path. Logs: each entry line gains `evidence=terminal-recovered|recovery-row`; the `none` and summary lines gain `matchedWithoutRecovery=N` (the number of committed recordings a survivor positively matched that carry no post-cutoff recovery or ended on a vessel-ending terminal; earlier segments of one launch each count). Tests: `ResurrectionRetirementEligibilityTests` (the RB-1 shape `LandedCommitWithPostCutoffRecoveryRow_Classifies`, guid gate, cutoff, vessel-ending terminals, crew-close evidence-not-retired).
+
+**Live proof (2026-09-27, automation DLL sha256 `567982e3...`).** `RB-1-rewind-readback-divergence` `2026-09-27_1423` XPASS: `Resurrected-recovery retirement: rec=8a79b68a... pid=2905720181 anchorUT=347.4 fallbackAnchor=False actions=4 evidence=recovery-row`, then `FLAGGED DIVERGENCE resource=funds eBefore=479245 eRp=500000 floor=479245 target=474687 delta=-4558`. The produced save carries four tombstones: the 4558 recovery funds row, two Recovered-method science rows and Jebediah's recovery XP. The control `RB-2-rewind-readback-within-range` `2026-09-27_1431` XPASS: the same retirement, and `within-expected-range resource=funds ... delta=36800`. The first three attempts (RB-1 `_1353`, RB-2 `_1417` and `_1420_a2`) never reached the rewind. The `rewind-readback` preset's runway relay and RP slot clones shared the Flea's part flight ids, kRPC read the relay's parts, and the mission logged `set deploy_altitude=2500m on 0 parachute(s)` and crashed. The preset now gives the clones their own part ids (`RewindReadbackFixture.GiveClonePartsFreshIdentities`, pinned by `CapReadbackFixtureTests`). The harness flake-quarantine entry those attempts left for RB-2 is a fixture artifact, not a flake. Both lanes' `expectedFail` blocks are removed, and RB-1 claims D9 `read-back-guard`.
+
+**Sibling, filed below:** the committed Landed terminal of a recovered vessel is read by two other consumers that assume a recovery reads Recovered (RECOVERED-AFTER-COMMIT-READS-LANDED-ELSEWHERE).
+
+## RECOVERED-AFTER-COMMIT-READS-LANDED-ELSEWHERE: with auto-merge on, a recovered flight is committed Landed, and two more consumers read that as "not recovered" [FILED 2026-09-27 while fixing REFLY-RESURRECTED-RECOVERY-STAYS-BANKED, branch `recovered-after-commit`. OPEN, BY READING ONLY: neither path has been flown]
+
+The ordering is measured (RB-1 `2026-09-27_1249`: `FinalizeIndividualRecording ... stable terminal state Landed (vessel.situation=LANDED, isSceneExit=True)`, then `Silent full-fidelity auto-commit (scene-exit)`, then `[VesselRecovery]: Jumping Flea recovered` at the Space Center). With a manual merge the same flight commits `Recovered`. Step 3b now reads the ledger instead. Two other readers still key on the terminal alone:
+
+- **Spawn at the recording's end** (`GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`): Recovered is not spawnable, Landed is. After a rewind to before such a flight, its replay would materialize the vessel at the landing site, and the recovery row would still credit the payout when the clock passes the recovery UT. The vessel could then be recovered again. Pad and runway ends are retired by #1783, so this needs a landing away from the KSC. Check it with a lane or an in-game test before designing anything.
+- **The Stash classifier** (`UnfinishedFlightClassifier.StashedTerminalQualifies`): its comment excludes recoveries as "not safe to re-fly", but Landed qualifies. A recovered flight can therefore be stashed and re-flown. With the Step 3b fix its recovery money is retired on the Re-Fly, so the economy stays consistent, but the rule the comment states does not hold.
+
+The candidate fix is one shared predicate, "recovered by the Recovered terminal or by a recovery row", used by all three readers. It is not done here because the spawn half changes what a rewind puts in the world and needs a ruling.
+
+## ~~REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE~~ [FILED 2026-09-14 by the guard-retire decision. UPDATED 2026-09-27: the lane exists (RB-1) and found that its designed cause cannot happen in the shipping configuration. CLOSED 2026-09-27 (branch `recovered-after-commit`): with REFLY-RESURRECTED-RECOVERY-STAYS-BANKED fixed, RB-1 `2026-09-27_1423` is the first live `FLAGGED DIVERGENCE` and RB-2 `2026-09-27_1431` its within-range control. The A7 strategy / mod-grant follow-up below stays OPEN]
+
+**2026-09-27 (branch `cap-divergence-lanes`).** The guard, re-derived from source: `RewindInvoker` arms it with eBefore (the live career before the rewind load) and eRp (the live career right after it), and `KspStatePatcher.RunRewindReadbackGuard` warns when the funds recalc target is below min(eBefore, eRp) - 1. Before a rewind the target equals the live pool, so only something the rewind itself retires can put it below eBefore, and the only designed retirement is Step 3b (`RetireResurrectedVesselRecoveryRows`). With R the retired recovery credit, S the post-RP spending and E the other post-RP earnings, it flags exactly when R > 1 and S - E > 1. A recovered SLOT cannot be re-flown (`UnfinishedFlightClassifier` admits no Recovered terminal, stashed or not), so the resurrected vessel has to be one unrelated to the RP's slots. `RB-1-rewind-readback-divergence` flies that (new `rewind-readback` preset: career-science-pad's own Flea is in the RP quicksave, the lane flies and recovers it, hires a kerbal, then re-flies slot 1). Reading `2026-09-27_1249` did not flag: Step 3b retired nothing (see REFLY-RESURRECTED-RECOVERY-STAYS-BANKED), so the guard read `within-expected-range resource=funds eBefore=625645 eRp=548000 floor=548000 target=673645 delta=125645`. The guard itself behaved as written. RB-1 and its control RB-2 are expected-fail witnesses of that defect; they become this entry's live witness when it is fixed. The strategy / mod-grant follow-up below is unchanged.
 
 **Evidence.** The rewind read-back divergence guard is warn-and-proceed by decision (see the
 D7 resolution above), so its only product is the `FLAGGED DIVERGENCE` WARN - and across 665
@@ -19703,6 +20234,13 @@ Open items, highest leverage first:
   claims v1 never un-completes a contract, but `PatchContracts` can remove a
   tombstoned finished row.
 ## MOON-LOOP-FINDINGS: two product observations from the V6/V7 moon quartet [FOUND 2026-08-08, both report-only. ~~neither fixed~~ **FINDING (2) IS FIXED 2026-08-29** (branch `release-hygiene`, PR #1568, R5 item 2): the Parsek half of the watch-mode teardown NRE - `GetActiveVesselSafe` now catches the `NullReferenceException` arm too, through `ReadActiveVesselGuarded`, which also un-shadows ~20 lines of `ParsekFlight.OnDestroy` teardown that had never executed in the end-inside-watch shape. The stock/MechJeb cascade in the same census is NOT ours and stays unarmed. **FINDING (1) - the deterministic 131.22 deg `icon-off-orbit` raise - REMAINS OPEN AND REPORT-ONLY**, with its discriminating experiment named but unflown. Header reconciled 2026-09-01: the 2026-08-29 hygiene trim carried the pre-fix bracket forward while the body already recorded the fix]
+
+**2026-09-27: NO LONGER REPRODUCES.** `V7T-minmus-ts-arrival` flew PASS attempt 1 as
+`2026-09-27_1230` (branch `arm-save-checks`, automation DLL built from origin/main
+`6437750ba`) with `mapRenderTracing` armed and the TS tracer writing (61 MapRender lines),
+zero `icon-off-orbit` raises and an empty anomaly sweep; its save blocks were armed off
+that run. Which change removed the raise is not established, so the finding stays open as
+a question (a bisect over the map/TS render commits since 2026-08-08 would answer it).
 
 **(1) `icon-off-orbit`, deterministic, 131.22 deg.** `V7T-minmus-ts-arrival` reds
 `PARSEK-FAIL(anomaly)` on both of its flights (`2026-08-08_1614`, `_1616`) with

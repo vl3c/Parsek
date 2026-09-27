@@ -54,8 +54,8 @@ namespace Parsek.Logistics
         // Injected by the caller - captured once per pickup and shared between
         // the probe (find slot by identity) and the remove (clear that slot) so
         // both read/write the SAME loaded/unloaded branch. Re-evaluating
-        // vessel.loaded && !vessel.packed per-call would diverge if the source
-        // transitions packed state mid-tick (same rationale as
+        // RouteOrchestrator.EndpointStoreIsLiveParts per call would diverge if
+        // the source loads or unloads mid-tick (same rationale as
         // LiveDeliveryWriters.isLoaded).
         internal readonly bool isLoaded;
         private int removedCount;

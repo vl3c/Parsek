@@ -471,11 +471,10 @@ namespace Parsek.Tests
         /// INV-3 for <see cref="EffectiveState.EffectiveTipRecordingId"/>: the
         /// composite chain+supersede walker terminates, stays inside the id
         /// universe, is stable, agrees with its own hot-loop dictionary overload,
-        /// and - on a graph carrying NO chain links at all - is exactly the
-        /// pure-supersede walker (the chain hop cannot fire, so the two loops are
-        /// the same loop). The chain-free agreement is verified against a
-        /// chain-stripped clone of the same graph so the comparison is real
-        /// rather than assumed.
+        /// and - on a graph carrying NO chain links and NO child branch-point links -
+        /// is exactly the pure-supersede walker (the chain hop cannot fire, so the two
+        /// loops are the same loop). The agreement is verified against a stripped
+        /// clone of the same graph so the comparison is real rather than assumed.
         /// </summary>
         private static void AssertCompositeWalker(
             FuzzGraph g,
@@ -517,8 +516,9 @@ namespace Parsek.Tests
                     Show(tip) + ") and dictionary (" + Show(viaIndex) + ") overloads");
             }
 
-            // Chain-free agreement: strip every ChainId, reinstall, and require
-            // the composite walker to collapse onto the pure supersede walker.
+            // Continuation-free agreement: strip every ChainId and child branch-point
+            // link, reinstall, and require the composite walker to collapse onto the
+            // pure supersede walker.
             var chainFree = g.CloneWithoutChains();
             Install(chainFree);
             try
@@ -1707,9 +1707,13 @@ namespace Parsek.Tests
             internal ReFlySessionMarker Marker;
 
             /// <summary>
-            /// Deep-enough clone with every ChainId stripped, used for the
-            /// chain-free walker-agreement invariant. Recordings are cloned so the
-            /// original graph's chain data survives for the caller's re-install.
+            /// Deep-enough clone with every ChainId AND every child branch-point link
+            /// stripped, used for the continuation-free walker-agreement invariant.
+            /// The composite walker's chain hop also follows a vessel through its own
+            /// EVA / same-vessel Board branch points (owner ruling 2026-09-27), and the
+            /// fuzzer draws EVA points with same-pid children, so only a graph with no
+            /// chain AND no child link makes that hop unable to fire. Recordings are
+            /// cloned so the original graph's data survives for the caller's re-install.
             /// </summary>
             internal FuzzGraph CloneWithoutChains()
             {
@@ -1743,9 +1747,8 @@ namespace Parsek.Tests
                         IsDebris = src.IsDebris,
                         ParentAnchorRecordingId = src.ParentAnchorRecordingId,
                         ParentBranchPointId = src.ParentBranchPointId,
-                        ChildBranchPointId = src.ChildBranchPointId,
+                        // ChildBranchPointId and ChainId deliberately left null.
                         ProvisionalForRpId = src.ProvisionalForRpId,
-                        // ChainId deliberately left null.
                         ChainIndex = -1,
                         ChainBranch = 0,
                     });

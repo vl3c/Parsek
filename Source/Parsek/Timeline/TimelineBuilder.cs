@@ -474,7 +474,7 @@ namespace Parsek
                 var deathType = TimelineEntryType.CrewDeath;
                 // The respawn delay comes from the policy stamped at the death, never the
                 // live difficulty (owner ruling S8), and only while the walk's resolved hold
-                // still respawns him (a looping chain or an overlapping open-ended co-row
+                // still respawns him (an overlapping open-ended co-row
                 // makes the death permanent).
                 double respawnSeconds = KerbalsModule.ResolveTimelineRespawnSeconds(
                     rec, kvp.Key, resolvedHolds);

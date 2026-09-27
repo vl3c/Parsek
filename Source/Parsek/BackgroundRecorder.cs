@@ -352,7 +352,9 @@ namespace Parsek
         /// Situation terminal for a dropped member from its last recorded state:
         /// <list type="number">
         /// <item>The last orbit segment, when it ends at or after the last flat point:
-        /// Orbiting when its periapsis clears the body, else SubOrbital.</item>
+        /// Orbiting when its periapsis clears the body's periapsis floor (the atmosphere top,
+        /// or the highest terrain on an airless body; <see cref="OrbitClearance"/>), else
+        /// SubOrbital.</item>
         /// <item>No flat points: the on-rails surface capture (<c>SurfacePos</c>, Landed or
         /// Splashed), else SubOrbital.</item>
         /// <item>Otherwise the scene-exit inference over the last point

@@ -253,8 +253,21 @@ namespace Parsek
             // effective. Warn (not Error) because the outcome is reachable by a
             // legitimate user action; the token below is grep-stable and pairs with
             // the two earlier ReFlyProvisionalBinding raises.
+            //
+            // REFLY-SESSION-EVA-CANNOT-SUPERSEDE: the check reads the re-flown VESSEL's
+            // walked history, not the raw provisional. An EVA (or a stock Switch-To)
+            // during the session ends the provisional at that branch point with no
+            // terminal; the vessel's ending is on the continuation the slot walk
+            // reaches. REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE: an undock the session
+            // performed ends the fork at a separation the walk does not cross; the
+            // marker lets the validation accept that as the slot's end. See
+            // ValidateReFlySessionSupersedeSource.
             string invariantReason;
-            if (!ValidateSupersedeTarget(provisional, out invariantReason))
+            SlotVesselWalk sessionWalk;
+            BranchPoint sessionSeparation;
+            if (!ValidateReFlySessionSupersedeSource(
+                    provisional, null, marker, out invariantReason, out sessionWalk,
+                    out sessionSeparation))
             {
                 ParsekLog.Warn(Tag,
                     $"AppendRelations outcome=refused-unflown-provisional " +
@@ -262,10 +275,32 @@ namespace Parsek
                     $"reason={invariantReason} sess={marker.SessionId ?? "<no-id>"} " +
                     $"origin={originId ?? "<none>"} supersedeTarget={closureRoot ?? "<none>"} " +
                     $"subtreeCount={subtreeCount.ToString(ic)} " +
-                    $"{DescribeSupersedePayload(provisional)} -- the re-fly attempt has no " +
+                    $"{DescribeSupersedePayload(provisional)} " +
+                    $"{DescribeSessionWalk(sessionWalk)} -- the re-fly attempt has no " +
                     $"playable trajectory, so it cannot replace the origin; writing 0 supersede " +
                     $"rows and completing the merge (origin stays effective)");
                 return new List<string>();
+            }
+            if (sessionSeparation != null)
+            {
+                ParsekLog.Info(Tag,
+                    $"AppendRelations outcome=validated-at-session-separation " +
+                    $"provisional={provisional.RecordingId ?? "<no-id>"} " +
+                    $"sess={marker.SessionId ?? "<no-id>"} " +
+                    $"bp={sessionSeparation.Id ?? "<no-id>"} type={sessionSeparation.Type} " +
+                    $"bpUT={sessionSeparation.UT.ToString("R", ic)} " +
+                    $"{DescribeSessionWalk(sessionWalk)} -- the re-flown vessel's flight for this " +
+                    $"slot ended at a separation this session authored (no terminal on the " +
+                    $"parent by recorder contract); it replaces the old stretch");
+            }
+            else if (sessionWalk?.Tip != null && !ReferenceEquals(sessionWalk.Tip, provisional))
+            {
+                ParsekLog.Info(Tag,
+                    $"AppendRelations outcome=validated-through-vessel-walk " +
+                    $"provisional={provisional.RecordingId ?? "<no-id>"} " +
+                    $"sess={marker.SessionId ?? "<no-id>"} " +
+                    $"{DescribeSessionWalk(sessionWalk)} -- the re-flown vessel continued past " +
+                    $"the provisional's own end; its ending is read on the walked tip");
             }
 
             HashSet<string> extraSkip = null;
@@ -849,6 +884,13 @@ namespace Parsek
                     isPrediction: false);
 
             provisional.MergeState = classification.NewState;
+            // Open/closed is read from the slot's WALKED tip (the same recording
+            // CommitTree's Site A demotes, Seal / Stash flip and the reaper read). When
+            // the session went EVA / switched, that tip is a continuation the recorder
+            // created with the default Immutable, so it must carry the verdict too - or
+            // a crashed re-fly would read sealed, and a stable one left open by a Site A
+            // tip promotion would never seal.
+            ApplyMergeStateToSessionVesselTip(provisional, classification.NewState);
             // Re-Fly provisionals are created with PlaybackEnabled=false in
             // RewindInvoker.BuildProvisionalRecording so the in-flight session
             // does not also play the attempt back as a ghost. After merge, the
@@ -934,6 +976,45 @@ namespace Parsek
 
             ParsekLog.Info(SessionTag,
                 $"End reason=merged sess={sessionId ?? "<no-id>"} provisional={provisional.RecordingId ?? "<no-id>"}");
+        }
+
+        /// <summary>
+        /// Writes the merge verdict onto the re-flown vessel's walked tip when the walk
+        /// from <paramref name="provisional"/> hopped (own EVA, same-vessel Board,
+        /// switch continuation). Value-write idempotent, so the journal's Finalize
+        /// re-run rewrites the same state. Never touches a NotCommitted tip (a live
+        /// recorder's row). Returns true when a state changed.
+        /// </summary>
+        internal static bool ApplyMergeStateToSessionVesselTip(
+            Recording provisional, MergeState newState)
+        {
+            if (provisional == null) return false;
+            Recording tip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(
+                provisional, null);
+            if (tip == null || ReferenceEquals(tip, provisional)) return false;
+            if (tip.MergeState == MergeState.NotCommitted)
+            {
+                ParsekLog.Warn(Tag,
+                    $"FlipMergeStateAndClearTransient: session vessel tip rec={tip.RecordingId ?? "<no-id>"} " +
+                    $"is NotCommitted (walked from provisional={provisional.RecordingId ?? "<no-id>"}); " +
+                    $"leaving it for its own recorder");
+                return false;
+            }
+            if (tip.MergeState == newState)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"FlipMergeStateAndClearTransient: session vessel tip rec={tip.RecordingId ?? "<no-id>"} " +
+                    $"already {newState} (walked from provisional={provisional.RecordingId ?? "<no-id>"})");
+                return false;
+            }
+            MergeState prior = tip.MergeState;
+            tip.MergeState = newState;
+            tip.MarkFilesDirty();
+            ParsekLog.Info(Tag,
+                $"FlipMergeStateAndClearTransient: session vessel tip rec={tip.RecordingId ?? "<no-id>"} " +
+                $"mergeState {prior}->{newState} (walked from provisional={provisional.RecordingId ?? "<no-id>"}; " +
+                $"the slot reads open/closed on this tip)");
+            return true;
         }
 
         internal static int ClearPreReFlyAnchorSnapshotsForSession(string sessionId)
@@ -1082,7 +1163,12 @@ namespace Parsek
             bool logFallback,
             bool isPrediction = false)
         {
-            TerminalKind kind = TerminalKindClassifier.Classify(provisional);
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: the fallback kind reads the same
+            // walked terminal as the slot-aware path below (an EVA / switch during the
+            // session leaves the provisional itself without a terminal).
+            TerminalKind kind = TerminalKindClassifier.Classify(
+                EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(provisional, null)
+                ?? provisional);
             var result = new MergeStateClassification
             {
                 Kind = kind,
@@ -1634,6 +1720,12 @@ namespace Parsek
             if (string.Equals(closeReason.Detail, "downstreamBp",
                     StringComparison.Ordinal))
                 return true;
+            // Owner ruling 2026-09-27 rule 2: an own-EVA crew member joined a foreign
+            // vessel, the same kind of downstream world interaction as downstreamBp.
+            if (string.Equals(closeReason.Detail,
+                    UnfinishedFlightClassifier.EvaCrewJoinedForeignVesselReason,
+                    StringComparison.Ordinal))
+                return true;
             if (string.Equals(closeReason.Detail, "stableTerminal",
                     StringComparison.Ordinal))
                 return IsHardSafetyTerminal(rec);
@@ -1865,10 +1957,49 @@ namespace Parsek
                 if (tree?.Recordings == null) continue;
                 AddMatchingChainRecordingIds(ids, rec, tree.Recordings.Values);
             }
+
+            // Owner ruling 2026-09-27: the slot follows its vessel through its own
+            // EVA / same-vessel Board (and switch-continuation) branch points, and the
+            // sealing rules apply across that walked history. Credited science a crew
+            // member earned on his EVA (EVA Report, Surface Sample, ...) or aboard a
+            // later vessel segment is a retry-blocking recording-linked action for the
+            // slot, exactly like science earned aboard the origin segment. The ground
+            // parts the crew placed are part of the same history.
+            int walkedAdded = AddSlotVesselWalkRecordingIds(ids, rec);
             AddSupersedeLineageRecordingIds(
                 ids, ParsekScenario.Instance?.RecordingSupersedes);
 
+            if (walkedAdded > 0)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    $"safety-gate-walk|{rec?.RecordingId}",
+                    $"CollectRecordingIdsForSafetyGate: rec={rec?.RecordingId ?? "<no-id>"} " +
+                    $"walkedRecordings={walkedAdded.ToString(CultureInfo.InvariantCulture)} " +
+                    $"total={ids.Count.ToString(CultureInfo.InvariantCulture)}");
+            }
             return ids;
+        }
+
+        /// <summary>
+        /// Adds every recording the slot-vessel walk from <paramref name="rec"/>
+        /// crossed (vessel segments, own EVA crew, their placed parts) to
+        /// <paramref name="ids"/>. Returns how many were new.
+        /// </summary>
+        private static int AddSlotVesselWalkRecordingIds(HashSet<string> ids, Recording rec)
+        {
+            if (ids == null || rec == null) return 0;
+            if (string.IsNullOrEmpty(rec.ChildBranchPointId) && string.IsNullOrEmpty(rec.ChainId))
+                return 0;
+            SlotVesselWalk walk = EffectiveState.WalkSlotVessel(
+                rec, null, followOwnEvaBoard: true, collectDetail: true);
+            if (walk == null) return 0;
+            int added = 0;
+            foreach (var id in walk.CollectStretchRecordingIds())
+            {
+                if (!string.IsNullOrEmpty(id) && ids.Add(id))
+                    added++;
+            }
+            return added;
         }
 
         private static void AddRecordingId(HashSet<string> ids, Recording rec)
@@ -2821,6 +2952,171 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The merge's supersede-source validation for a Re-Fly session's provisional
+        /// (REFLY-SESSION-EVA-CANNOT-SUPERSEDE). The provisional is the recording the
+        /// marker names: the fork the recorder started on at the rewind point. When the
+        /// player goes EVA from it (or a stock Switch-To splits it), the recorder ENDS
+        /// the fork at that branch point with no terminal and the vessel flies on as a
+        /// continuation, so the vessel's real ending lives where the slot walk
+        /// (<see cref="EffectiveState.WalkSlotVessel"/>, the same walk every slot
+        /// consumer reads the slot's tip through) lands. This predicate reads:
+        /// <list type="bullet">
+        ///   <item><description>payload: on the provisional, on the walked tip, or on
+        ///   any vessel segment the walk stood on (a fork stepped out of at the rewind
+        ///   instant holds no sample; the flight is on the continuation);</description></item>
+        ///   <item><description>terminal: on the walked tip.</description></item>
+        /// </list>
+        /// When the walk takes no hop it is exactly <see cref="ValidateSupersedeTarget"/>
+        /// on the provisional (same reasons), so a placeholder, an unflown provisional,
+        /// a docked fork (closed <c>Docked</c>) and a staging fork (keeps its id through a
+        /// tree-branching split) decide as before. A walk that STOPS at a real separation
+        /// (Undock / JointBreak / Breakup / a foreign Board) leaves the tip on the fork;
+        /// the marker overload below decides whether that stop concludes the slot.
+        /// <para>
+        /// Rows still name the provisional as <c>NewRecordingId</c>: it is the HEAD of
+        /// the new flight, and the slot tip is reached from it through the same walk
+        /// (<c>EffectiveState.EffectiveTipRecordingId</c>).
+        /// </para>
+        /// <para>
+        /// The marker overload adds one more way to conclude
+        /// (REFLY-SESSION-UNDOCK-CANNOT-SUPERSEDE): a walked tip with no terminal whose
+        /// walk STOPPED at a separation THIS session authored
+        /// (<see cref="IsSessionSeparationStop"/>). An undock ends the parent recording
+        /// at the Undock split with its terminal untouched, and the slot walk stops at a
+        /// separation by design (section 1.6), so the vessel's flight for this slot ends
+        /// there. Without a marker (or with a legacy marker carrying no pre-session
+        /// baseline) the rule cannot prove the separation belongs to the session and
+        /// the refusal stands.
+        /// </para>
+        /// </summary>
+        internal static bool ValidateReFlySessionSupersedeSource(
+            Recording provisional, RecordingTree treeContext,
+            out string reason, out SlotVesselWalk walk)
+            => ValidateReFlySessionSupersedeSource(
+                provisional, treeContext, null, out reason, out walk, out _);
+
+        internal static bool ValidateReFlySessionSupersedeSource(
+            Recording provisional, RecordingTree treeContext, ReFlySessionMarker marker,
+            out string reason, out SlotVesselWalk walk, out BranchPoint sessionSeparation)
+        {
+            walk = null;
+            sessionSeparation = null;
+            if (provisional == null)
+            {
+                reason = "null recording";
+                return false;
+            }
+
+            walk = EffectiveState.WalkSlotVessel(
+                provisional, treeContext, followOwnEvaBoard: true, collectDetail: true);
+            Recording tip = walk?.Tip;
+            if (tip == null || ReferenceEquals(tip, provisional))
+            {
+                if (ValidateSupersedeTarget(provisional, out reason))
+                    return true;
+                // Only the missing-terminal refusal can be answered by a session
+                // separation; a payload refusal (placeholder / unflown) always stands.
+                if (string.Equals(reason, "null TerminalState", StringComparison.Ordinal)
+                    && IsSessionSeparationStop(walk, marker, treeContext, out sessionSeparation))
+                {
+                    reason = null;
+                    return true;
+                }
+                return false;
+            }
+
+            if (!HasPlayableSupersedePayload(provisional)
+                && !HasPlayableSupersedePayload(tip)
+                && !WalkedVesselSegmentHasPayload(walk, provisional, treeContext))
+            {
+                reason = provisional.Points == null ? "null Points" : "empty Points";
+                return false;
+            }
+            if (!tip.TerminalStateValue.HasValue
+                && !IsSessionSeparationStop(walk, marker, treeContext, out sessionSeparation))
+            {
+                reason = "null TerminalState";
+                return false;
+            }
+            reason = null;
+            return true;
+        }
+
+        /// <summary>
+        /// True when <paramref name="walk"/> stopped, on its tip, at a vessel SEPARATION
+        /// (<see cref="BranchPointType.Undock"/>, <see cref="BranchPointType.JointBreak"/>,
+        /// <see cref="BranchPointType.Breakup"/>) that the live Re-Fly session authored:
+        /// the branch point is not in <see cref="ReFlySessionMarker.PreSessionBranchPointIds"/>
+        /// and names the tip as a parent. Those are exactly the section 4.9 rule 2
+        /// structural mutations, so a merge that concludes here also seals the slot.
+        /// False for a null walk / marker, a legacy marker with no baseline, a walk that
+        /// stopped at no branch point, a Dock / Board / EVA stop, or an unresolved point.
+        /// </summary>
+        internal static bool IsSessionSeparationStop(
+            SlotVesselWalk walk, ReFlySessionMarker marker, RecordingTree treeContext,
+            out BranchPoint separation)
+        {
+            separation = null;
+            if (walk?.Tip == null || marker == null) return false;
+            if (marker.PreSessionBranchPointIds == null) return false;
+            string bpId = walk.StopBranchPointId;
+            if (string.IsNullOrEmpty(bpId)) return false;
+            if (marker.PreSessionBranchPointIds.Contains(bpId)) return false;
+
+            RecordingTree tree = EffectiveState.ResolveOwningTree(walk.Tip, treeContext);
+            BranchPoint bp = EffectiveState.FindBranchPointByIdInTree(tree, bpId);
+            if (bp == null) return false;
+            if (bp.Type != BranchPointType.Undock
+                && bp.Type != BranchPointType.JointBreak
+                && bp.Type != BranchPointType.Breakup)
+                return false;
+            if (bp.ParentRecordingIds == null
+                || !bp.ParentRecordingIds.Contains(walk.Tip.RecordingId))
+                return false;
+            separation = bp;
+            return true;
+        }
+
+        private static bool WalkedVesselSegmentHasPayload(
+            SlotVesselWalk walk, Recording provisional, RecordingTree treeContext)
+        {
+            if (walk == null) return false;
+            RecordingTree tree = EffectiveState.ResolveOwningTree(provisional, treeContext);
+            var ids = walk.VesselRecordingIds;
+            for (int i = 0; i < ids.Count; i++)
+            {
+                Recording segment = null;
+                if (tree?.Recordings != null)
+                    tree.Recordings.TryGetValue(ids[i], out segment);
+                if (segment == null)
+                    segment = EffectiveState.FindCommittedRecordingByIdRaw(ids[i]);
+                if (HasPlayableSupersedePayload(segment))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Grep-stable walk evidence for the Re-Fly session supersede decision:
+        /// which recording carried the ending, which hops the walk took, and why it
+        /// stopped. Safe on a null walk.
+        /// </summary>
+        internal static string DescribeSessionWalk(SlotVesselWalk walk)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            if (walk == null)
+                return "terminalRec=<none> walkStop=<none>";
+            Recording tip = walk.Tip;
+            return $"terminalRec={tip?.RecordingId ?? "<none>"} " +
+                   $"terminal={(tip != null && tip.TerminalStateValue.HasValue ? tip.TerminalStateValue.Value.ToString() : "<null>")} " +
+                   $"evaHops={walk.EvaHops.ToString(ic)} " +
+                   $"boardHops={walk.BoardHops.ToString(ic)} " +
+                   $"switchHops={walk.SwitchHops.ToString(ic)} " +
+                   $"walkStop={walk.StopReason ?? "<none>"} " +
+                   $"walkStopBp={walk.StopBranchPointId ?? "<none>"}";
+        }
+
+        /// <summary>
         /// Grep-stable measured evidence for a supersede-target decision: exactly
         /// the surfaces <see cref="ValidateSupersedeTarget"/> reads, plus the
         /// pre-Re-Fly anchor point count that is easy to mistake for flight data.
@@ -2941,8 +3237,12 @@ namespace Parsek
             // ReFlyConclusionRoute.Classify already screens this; the duplicate
             // check is what makes "this route never writes a row" a property of
             // this method rather than of its call site.
+            // Same predicate AppendRelations applies below, so "this route never writes
+            // a row" holds by construction (a retired provisional has left its tree, so
+            // the walk takes no hop and this is the raw check).
             string validationReason;
-            if (ValidateSupersedeTarget(retired, out validationReason))
+            if (ValidateReFlySessionSupersedeSource(
+                    retired, null, marker, out validationReason, out _, out _))
             {
                 ParsekLog.Warn(Tag,
                     $"ConcludeRetiredProvisional: refusing the no-op route — provisional " +

@@ -445,14 +445,16 @@ rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
-# REPORT-ONLY structural shape, RE-PINNED from the green run `_2204`'s parse:
+# Structural shape, RE-PINNED from the green run `_2204`'s parse:
 # recordings=8, branchPoints {JointBreak: 5} (three booster-pair drops + the
 # core discard; every split coalesces as JointBreak - GS-2's measured
 # correction, not Breakup), terminalStates {Destroyed: 6, SubOrbital: 2} (six
 # crashed boosters+debris, the suborbital pod stack and probe core at commit).
-# Floors rather than exact pins while the block is report-only: bp coalescing
-# and impact timing can plausibly move the census by one.
+# ARMED 2026-09-27 off `2026-09-23_2012` and `2026-09-25_2028` (both PASS attempt 1, both
+# recordings 8, JointBreak 5, Destroyed 6 / SubOrbital 2, trees / committedTrees 1). The
+# floors stay floors: bp coalescing and impact timing can move the census by one.
 [expectations.recordings.structure]
+gating = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8 }

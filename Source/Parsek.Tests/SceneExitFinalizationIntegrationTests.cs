@@ -2922,7 +2922,7 @@ namespace Parsek.Tests
             Assert.True(result.terminalOrbit.HasValue);
             Assert.Equal("Kerbin", result.terminalOrbit.Value.bodyName);
             Assert.Equal(700000.0, result.terminalOrbit.Value.semiMajorAxis, precision: 3);
-            Assert.Equal(0.05, result.terminalOrbit.Value.eccentricity, precision: 6);
+            Assert.Equal(ControlledChildRecoveredEccentricity, result.terminalOrbit.Value.eccentricity, precision: 6);
             Assert.Equal(21.4, result.terminalOrbit.Value.epoch, precision: 3);
             // The recovery clears every field the SubSurfaceStart arm had populated.
             Assert.Null(result.subSurfaceDestroyedBodyName);
@@ -2931,9 +2931,35 @@ namespace Parsek.Tests
 
         // Shared arrange/act for the two cells above: extracted so the second cell reads
         // the SAME recovery result rather than re-deriving a near-copy of the fixture.
+        // Periapsis 700000 * (1 - 0.01) - 600000 = 93 km: clear of Kerbin's 70 km atmosphere, so
+        // the recovered Orbiting verdict survives the periapsis floor (OrbitClearance).
+        private const double ControlledChildRecoveredEccentricity = 0.01;
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_RecoveredOrbitingInsideAtmosphere_IsSubOrbital()
+        {
+            // Mirror of the two cells above (operator ruling 2026-09-27): the same recovery
+            // returning Orbiting on an orbit whose periapsis is inside Kerbin's atmosphere
+            // (700000 * 0.95 - 600000 = 65 km) is a decaying flight. The recovery path applies
+            // the same periapsis floor as commit and spawn, so it ships SubOrbital with no
+            // terminal orbit rather than an Orbiting verdict the spawn would refuse.
+            IncompleteBallisticFinalizationResult result =
+                RunParentAnchoredControlledChildRecovery(out bool built, out int extrapolateCallCount,
+                    eccentricity: 0.05);
+
+            Assert.True(built);
+            Assert.Equal(2, extrapolateCallCount);
+            Assert.Equal(TerminalState.SubOrbital, result.terminalState);
+            Assert.False(result.terminalOrbit.HasValue);
+            Assert.Contains(logLines, l => l.Contains("[Extrapolator]")
+                && l.Contains("downgraded to SubOrbital")
+                && l.Contains("parent-anchored-controlled-child"));
+        }
+
         private IncompleteBallisticFinalizationResult RunParentAnchoredControlledChildRecovery(
             out bool built,
-            out int extrapolateCallCountOut)
+            out int extrapolateCallCountOut,
+            double eccentricity = ControlledChildRecoveredEccentricity)
         {
             // Scenario (c): a near-parent controlled-decoupled child (IsDebris=false)
             // that does NOT crash. Same NullSolver origin-collapse on the live orbit,
@@ -2988,7 +3014,7 @@ namespace Parsek.Tests
                 endUT = 5000.0,
                 bodyName = "Kerbin",
                 inclination = 0.1,
-                eccentricity = 0.05,
+                eccentricity = eccentricity,
                 semiMajorAxis = 700000.0,
                 longitudeOfAscendingNode = 1.0,
                 argumentOfPeriapsis = 2.0,

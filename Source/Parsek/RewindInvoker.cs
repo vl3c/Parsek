@@ -1324,7 +1324,10 @@ namespace Parsek
                 // Step 3b (#15): retire the recovery rewards of every vessel this Re-Fly
                 // just put back in the world. The strip preserved unrelated vessels, so a
                 // craft the player had RECOVERED after the rewind point is now flying again
-                // while its recovery funds/science/crew rows are still banked. Retiring them
+                // while its recovery funds/science/crew rows are still banked. The recovery
+                // is proven by the recording's Recovered terminal OR by its post-cutoff
+                // ledger recovery row: with auto-merge on, the flight commits before stock
+                // fires onVesselRecovered, so the committed terminal reads Landed. Retiring them
                 // here — after the post-strip reconcile, so the surviving identities are
                 // settled, and BEFORE the marker write and the Step-5
                 // RecalculateAndPatch(double.MaxValue) with authoritativeReduction=true, so
@@ -1516,7 +1519,8 @@ namespace Parsek
                 survivingIdentities,
                 RecordingStore.CommittedRecordings,
                 Ledger.Actions,
-                retireCutoffUT);
+                retireCutoffUT,
+                out int matchedWithoutRecovery);
 
             var ic = CultureInfo.InvariantCulture;
             if (classified.Count == 0)
@@ -1524,6 +1528,7 @@ namespace Parsek
                 ParsekLog.Info(InvokeTag,
                     $"Resurrected-recovery retirement: none " +
                     $"(survivors={survivingIdentities.Count.ToString(ic)} " +
+                    $"matchedWithoutRecovery={matchedWithoutRecovery.ToString(ic)} " +
                     $"cutoffUT={retireCutoffUT.ToString("F1", ic)})");
                 return;
             }
@@ -1588,7 +1593,8 @@ namespace Parsek
                     $"pid={entry.LiveVesselPid.ToString(ic)} " +
                     $"anchorUT={entry.AnchorUT.ToString("F1", ic)} " +
                     $"fallbackAnchor={entry.UsedFallbackAnchor} " +
-                    $"actions={entry.RetiredActionIds.Count.ToString(ic)}");
+                    $"actions={entry.RetiredActionIds.Count.ToString(ic)} " +
+                    $"evidence={entry.Evidence}");
             }
 
             if (written > 0)
@@ -1598,6 +1604,7 @@ namespace Parsek
                 $"Resurrected-recovery retirement: recordings={classified.Count.ToString(ic)} " +
                 $"tombstonesWritten={written.ToString(ic)} " +
                 $"alreadyRetired={skippedDuplicate.ToString(ic)} " +
+                $"matchedWithoutRecovery={matchedWithoutRecovery.ToString(ic)} " +
                 $"retiring={retiringRecordingId ?? "<none>"} " +
                 $"cutoffUT={retireCutoffUT.ToString("F1", ic)}");
         }

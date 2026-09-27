@@ -885,6 +885,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "preparsek-untouched-career": True,
         "preparsek-brandnew-career": False,
         "gloops-airshow": True,
+        # gloops-airshow-hard is gloops-airshow byte for byte except the preset label
+        # and three PARAMETERS/FLIGHT flags (harness/tools/build_gloops_airshow_hard.py),
+        # so it carries the same ParsekScenario node gloops-airshow does.
+        "gloops-airshow-hard": True,
         "gs1-two-stage-pad": True,
         # coalescer-pad is gs1-two-stage-pad byte for byte except two parts' stage
         # assignments (harness/tools/build_coalescer_pad.py), so it carries the same
@@ -2802,10 +2806,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         #     gate, so a driven route's STOP resolves to `rover fuel 0`, ~568 m
         #     from the focus (inside stock's landed LOAD distance, outside its
         #     350 m PACK distance; the earlier `5.4 km` reading was wrong, see
-        #     `build_rover_route_recorded.py`) and therefore PACKED -
-        #     `path=unloaded`, which IS
-        #     a delivering path (`LiveDeliveryWriters.WriteResourceUnloaded`
-        #     writes `ProtoPartResourceSnapshot.amount`).
+        #     `build_rover_route_recorded.py`) and therefore LOADED but PACKED -
+        #     `path=loaded` since 2026-09-27 (live parts; the old proto-snapshot
+        #     write for a loaded vessel was discarded by the next BackupVessel).
         #   `terminalStates` SUMS TO 4, NOT 5: the dock member f2fb77ea carries
         #     no `terminalState` (it is a mid-tree merged child).
         #   `branchPoints` is the suite's second `Dock`/`Undock` pair and carries

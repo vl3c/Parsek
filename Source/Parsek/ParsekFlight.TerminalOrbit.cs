@@ -95,8 +95,11 @@ namespace Parsek
                 || provisional == null)
                 return;
 
+            // The merge's own predicate (walks an EVA / switch continuation), so
+            // "alive and validating" means what the conclusion will decide.
             string ignoredReason;
-            if (!SupersedeCommit.ValidateSupersedeTarget(provisional, out ignoredReason))
+            if (!SupersedeCommit.ValidateReFlySessionSupersedeSource(
+                    provisional, tree, marker, out ignoredReason, out _, out _))
                 return;
 
             ReFlyProvisionalRetirement.Clear("provisional-alive-and-validating:" + logTag);

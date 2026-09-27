@@ -403,7 +403,7 @@ forbidden = [
   # on the state a no-op fill would leave behind (A at 0 LiquidFuel with its three
   # committed free slots - RVR-15's staging exactly, which RVR-15 measured DELIVERING).
   # A fill that silently did nothing therefore reds on a green lane's measurement.
-  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=unloaded",
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=loaded",
   "inventoryUnitsSkipped=0 partial=0",
   # THE RESOURCE HALF MUST NOT BE THE REFUSER. With 400 of headroom against a 200 manifest
   # it arithmetically cannot be, so this line appearing would mean the resource staging
@@ -415,8 +415,11 @@ forbidden = [
   "BLOCKED kind=OriginLacksCargo",
 ]
 
+# ARMED 2026-09-27 off the reading run `2026-09-27_1224` (PASS attempt 1, automation DLL built
+# from origin/main 6437750ba): every window met.
 [expectations.recordings.structure]
-# REPORT-ONLY (no `gating` key) and identical to RVR-13's: the committed fixture's own
+gating = true
+# Identical to RVR-13's: the committed fixture's own
 # structure re-read through `harness/lib/saveparse.py`. Nothing in this lane's driver
 # creates or destroys a recording, and the liveState patch touches one FLIGHTSTATE vessel,
 # so the produced save should read the matrix's numbers. MEASURED 2026-09-06: it does -
@@ -454,7 +457,7 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 # byte what the report-only version declared, which is the S4.1 rule ("arming must not
 # smuggle in a re-pinned window") and is checkable against the diff. The spec is
 # registered in `ARMED_ALLOWLIST` in `harness/lib/test_hlib.py` in the same commit, and
-# the sibling `[expectations.recordings.structure]` block stays REPORT-ONLY - one block
+# the sibling `[expectations.recordings.structure]` block stayed REPORT-ONLY until 2026-09-27 - one block
 # per arming decision, RVR-7's shape verbatim.
 #
 # WHAT THE ARMING BUYS, and it is the mirror of RVR-7's. RVR-7 gates the COMPLETED half

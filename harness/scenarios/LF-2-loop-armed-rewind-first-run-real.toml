@@ -19,8 +19,9 @@ id = "LF-2-loop-armed-rewind-first-run-real"
 #
 # THE SUBJECT is LF-1's (H58's road): StartRecording, StopRecording, CommitTree - a
 # single-recording NON-CHAIN tree with a Landed terminal, committed with its own pid
-# adopted (spawned=true). Non-chain matters: the #573 rewind lift is standalone-only and
-# the "chain looping" rule is unchanged.
+# adopted (spawned=true). Non-chain matters: the #573 rewind lift is standalone-only (a
+# chain target's vessel stays blocked after a rewind; a looped chain phase itself no longer
+# blocks the tip, LOOPING-CHAIN-FIRST-RUN-TIP-NEVER-SPAWNS, fixed 2026-09-27).
 #
 # SUBJECT MOVED OFF THE PAD 2026-09-23 (KSC end-of-flight retirement ruling), exactly as
 # LF-1: the pad probe of `logi-cargo-pad` ends its flight inside the KSC exclusion zone and

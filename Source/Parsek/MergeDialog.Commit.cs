@@ -336,7 +336,8 @@ namespace Parsek
 
             string ignoredValidationReason;
             bool retiredValidates = haveRetired
-                && SupersedeCommit.ValidateSupersedeTarget(retired, out ignoredValidationReason);
+                && SupersedeCommit.ValidateReFlySessionSupersedeSource(
+                    retired, null, marker, out ignoredValidationReason, out _, out _);
 
             var decision = ReFlyConclusionRoute.Classify(
                 marker, provisionalId, haveRetired ? retired : null, retiredValidates);
@@ -572,7 +573,6 @@ namespace Parsek
             var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLooping: false,
                 treeContext: treeContext);
             return needsSpawn;
         }

@@ -217,11 +217,13 @@ forbidden = [
   "reason=sealedTipClosed",
 ]
 
-# REPORT-ONLY, and DERIVED from the fixture's committed bytes (RF-10 pins them exactly:
+# ARMED 2026-09-27 off `2026-09-27_1234` (PASS attempt 1: rewindPoints 1, supersedeRows 2,
+# tombstones 8), and DERIVED from the fixture's committed bytes (RF-10 pins them exactly:
 # 1 point, 2 supersede rows, 8 tombstones) plus what one in-batch merge could add. The
 # floors say "not fewer than the fixture already had"; there is no ceiling, because
 # whether a cell merges the session at all is the discovery-order question above.
 [expectations.rewind]
+gating = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 2 }
 tombstones    = { min = 8 }

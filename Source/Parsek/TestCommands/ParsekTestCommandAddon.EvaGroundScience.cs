@@ -20,6 +20,11 @@
 // Private stock fields (selectedPart, partFullyCreated, placementonTerrain,
 // placementInsideCap) are READ by reflection for the confirm gate and the timeout
 // diagnostics; nothing private is written or called.
+//
+// faceAway=true turns the kerbal away from the nearest other vessel first and then HOLDS
+// that heading until the placement is confirmed: a kerbal turned by Vessel.SetRotation
+// drifts back to face the hull within about a second, and stock reads the preview spot
+// off vesselTransform.forward every frame (EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE).
 // =====================================================================================
 using System;
 using System.Collections.Generic;
@@ -141,6 +146,11 @@ namespace Parsek.TestCommands
         private int groundSciTurnFrame;
         private int groundSciReTurns;
         private bool groundSciOpenedPaw;
+        // The chosen face-away heading, in the body's own frame so the floating origin
+        // and Krakensbane cannot move it; valid while groundSciHeadingChosen.
+        private Vector3 groundSciHeadingBodyLocal;
+        private bool groundSciHeadingChosen;
+        private int groundSciHeadingHolds;
 
         private void EvaGroundScienceImpl(ParsedCommand cmd)
         {
@@ -197,6 +207,9 @@ namespace Parsek.TestCommands
             groundSciTurnFrame = -1;
             groundSciReTurns = 0;
             groundSciOpenedPaw = false;
+            groundSciHeadingBodyLocal = Vector3.zero;
+            groundSciHeadingChosen = false;
+            groundSciHeadingHolds = 0;
             EvaJumpKeyPressInjection.Remove();
             EvaJumpKeyPressInjection.AnsweredCount = 0;
 
@@ -328,6 +341,8 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            HoldKerbalHeadingIfDrifted(kerbal);
+
             // Phase A: the slot click, once the kerbal can place (AbleToPlaceParts is stock's
             // own gate: EVA, landed, active, no preview up). Also wait for the inventory UI
             // controller, which DeployInventoryItem touches first.
@@ -339,7 +354,7 @@ namespace Parsek.TestCommands
                 bool standing = evaCtl != null && !evaCtl.isRagdoll && !evaCtl.OnALadder;
                 if (able && uiReady && standing && groundSciFaceAway && groundSciTurnFrame < 0)
                 {
-                    TurnKerbalAwayFromNearestVessel(kerbal);
+                    TurnKerbalAwayFromNearestVessel(kerbal, 0);
                     groundSciTurnFrame = Time.frameCount;
                     return;
                 }
@@ -415,14 +430,17 @@ namespace Parsek.TestCommands
                     GroundPlaceConfirmDecision d = TestCommandEvaGroundScience.DecideConfirm(
                         true, built, placeable, groundSciPresses, sincePress);
                     string diag = $"built={Bool(built)} onTerrain={Bool(onTerrain)} insideCap={Bool(insideCap)} "
-                        + $"collisions={collisions} presses={groundSciPresses} hit={DescribeTerrainHit(inv)}";
+                        + $"collisions={collisions} presses={groundSciPresses} hit={DescribeTerrainHit(inv)} "
+                        + $"answered={EvaJumpKeyPressInjection.AnsweredCount} reTurns={groundSciReTurns} "
+                        + $"holds={groundSciHeadingHolds} drift={FormatDrift(KerbalHeadingDriftDegrees(kerbal))}";
                     int sinceTurn = groundSciTurnFrame < 0 ? int.MaxValue : Time.frameCount - groundSciTurnFrame;
                     if (TestCommandEvaGroundScience.ShouldReTurn(
-                            groundSciFaceAway, built, placeable, groundSciPresses, sinceTurn, groundSciReTurns))
+                            groundSciFaceAway, built, placeable, groundSciPresses, sinceTurn, sincePress,
+                            groundSciReTurns))
                     {
                         groundSciReTurns++;
                         ParsekLog.Info(Tag, $"evagroundscience faceaway re-turn n={groundSciReTurns} " + diag);
-                        TurnKerbalAwayFromNearestVessel(kerbal);
+                        TurnKerbalAwayFromNearestVessel(kerbal, groundSciReTurns);
                         groundSciTurnFrame = Time.frameCount;
                         return;
                     }
@@ -555,9 +573,10 @@ namespace Parsek.TestCommands
         // the preview straight ahead of the kerbal (vesselTransform.forward * spawnDistance)
         // and refuses a spot whose terrain raycast lands on a vessel collider, and a kerbal
         // just off a ladder is facing the hull it climbed. The turn is about the local up
-        // axis only, away from the nearest other loaded vessel; KerbalEVA.UpdateHeading
-        // leaves an idle kerbal's heading alone, so the new facing holds.
-        private void TurnKerbalAwayFromNearestVessel(Vessel kerbal)
+        // axis only, away from the nearest other loaded vessel, fanned out by the pure
+        // offset ladder on later turns. The chosen heading is remembered and held by
+        // HoldKerbalHeadingIfDrifted, because the turned kerbal does NOT keep it.
+        private void TurnKerbalAwayFromNearestVessel(Vessel kerbal, int turnIndex)
         {
             Vessel nearest = null;
             double best = double.MaxValue;
@@ -579,14 +598,72 @@ namespace Parsek.TestCommands
                 ParsekLog.Info(Tag, "evagroundscience faceaway skipped reason=directly-above");
                 return;
             }
+            double offset = TestCommandEvaGroundScience.TurnOffsetDegrees(turnIndex);
+            Vector3 heading = Quaternion.AngleAxis((float)offset, up) * away.normalized;
             Vector3 before = kerbal.transform.forward;
-            kerbal.SetRotation(Quaternion.LookRotation(away.normalized, up)
-                * Quaternion.Inverse(Quaternion.LookRotation(kerbal.transform.forward, kerbal.transform.up))
-                * kerbal.transform.rotation);
+            ApplyKerbalHeading(kerbal, heading, up);
+            groundSciHeadingBodyLocal = kerbal.mainBody.bodyTransform.InverseTransformDirection(heading);
+            groundSciHeadingChosen = true;
             ParsekLog.Info(Tag, $"evagroundscience faceaway turned from={nearest.vesselName} "
                 + $"distance={best.ToString("F2", CultureInfo.InvariantCulture)} "
-                + $"angle={Vector3.Angle(before, away).ToString("F1", CultureInfo.InvariantCulture)}");
+                + $"angle={Vector3.Angle(before, heading).ToString("F1", CultureInfo.InvariantCulture)} "
+                + $"offset={offset.ToString("F0", CultureInfo.InvariantCulture)} turn={turnIndex}");
         }
+
+        // Yaw the kerbal to face `heading` about `up`. Vessel.SetRotation writes the part
+        // transforms only; the rigidbody pose is written too and the spin zeroed, so the
+        // next physics step starts from the new heading instead of the old one.
+        private static void ApplyKerbalHeading(Vessel kerbal, Vector3 heading, Vector3 up)
+        {
+            Quaternion delta = Quaternion.LookRotation(heading, up)
+                * Quaternion.Inverse(Quaternion.LookRotation(kerbal.transform.forward, kerbal.transform.up));
+            kerbal.SetRotation(delta * kerbal.transform.rotation);
+            if (kerbal.parts == null) return;
+            for (int i = 0; i < kerbal.parts.Count; i++)
+            {
+                Part p = kerbal.parts[i];
+                if (p == null || p.rb == null) continue;
+                p.rb.rotation = p.transform.rotation;
+                p.rb.angularVelocity = Vector3.zero;
+            }
+        }
+
+        // Degrees between the kerbal's forward (projected onto the local horizontal) and
+        // the chosen face-away heading; -1 when no heading was chosen.
+        private double KerbalHeadingDriftDegrees(Vessel kerbal)
+        {
+            if (!groundSciHeadingChosen || kerbal == null || kerbal.mainBody == null) return -1.0;
+            Vector3 up = (kerbal.transform.position - kerbal.mainBody.position).normalized;
+            Vector3 heading = kerbal.mainBody.bodyTransform.TransformDirection(groundSciHeadingBodyLocal);
+            Vector3 fwd = Vector3.ProjectOnPlane(kerbal.transform.forward, up);
+            if (fwd.sqrMagnitude < 1e-6f) return 180.0;
+            return Vector3.Angle(fwd, Vector3.ProjectOnPlane(heading, up));
+        }
+
+        private void HoldKerbalHeadingIfDrifted(Vessel kerbal)
+        {
+            double drift = KerbalHeadingDriftDegrees(kerbal);
+            if (!TestCommandEvaGroundScience.ShouldHoldHeading(
+                    groundSciFaceAway, groundSciHeadingChosen, groundSciPreviewGone, drift, groundSciHeadingHolds))
+                return;
+            Vector3 up = (kerbal.transform.position - kerbal.mainBody.position).normalized;
+            Vector3 heading = Vector3.ProjectOnPlane(
+                kerbal.mainBody.bodyTransform.TransformDirection(groundSciHeadingBodyLocal), up);
+            if (heading.sqrMagnitude < 1e-6f) return;
+            ApplyKerbalHeading(kerbal, heading.normalized, up);
+            groundSciHeadingHolds++;
+            string line = $"evagroundscience faceaway hold n={groundSciHeadingHolds} drift={FormatDrift(drift)} "
+                + $"presses={groundSciPresses} reTurns={groundSciReTurns}";
+            if (groundSciHeadingHolds == 1)
+                ParsekLog.Info(Tag, line);
+            else
+                ParsekLog.VerboseRateLimited(Tag, "evagroundscience-faceaway-hold", line);
+            if (groundSciHeadingHolds == TestCommandEvaGroundScience.MaxHeadingHolds)
+                ParsekLog.Info(Tag, $"evagroundscience faceaway hold cap reached holds={groundSciHeadingHolds}");
+        }
+
+        private static string FormatDrift(double drift)
+            => drift < 0 ? "none" : drift.ToString("F1", CultureInfo.InvariantCulture);
 
         // What the preview's terrain ray hit: stock only accepts a layer-15 collider that is
         // not a ROC, so a hull hit names the part that blocks the spot.

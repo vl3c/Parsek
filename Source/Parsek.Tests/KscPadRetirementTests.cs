@@ -508,7 +508,7 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             Assert.True(VesselSpawner.TryRetireEndedFlightAtKsc(rec, 0));
 
-            var flight = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(rec, false, false);
+            var flight = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(rec, false);
             var ksc = GhostPlaybackLogic.ShouldSpawnAtKscEnd(rec, 1000.0);
             Assert.False(flight.needsSpawn);
             Assert.False(ksc.needsSpawn);
@@ -748,6 +748,43 @@ namespace Parsek.Tests
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(250.0, "ksc-retire-test");
             Assert.Equal(200.0, Kerbals.Reservations[Jeb].ReservedUntilUT);
             Assert.False(Kerbals.IsReservedNow(Jeb));
+        }
+
+        [Fact]
+        public void Crew_ChainWithALoopedSegment_TipRetiredOnThePad_IsFreedAtItsEnd()
+        {
+            // The loop is visual only (design 12.7, operator ruling 2026-09-27): a chain whose
+            // first segment loops still ends its real flight at the tip, so the pad retirement
+            // frees the crew of every non-looped segment at the tip's EndUT.
+            var loopSeg = MakeParked("rec-loop-seg", MidRunwayLat, MidRunwayLon,
+                terminal: TerminalState.SubOrbital, startUT: 50.0, endUT: 100.0, crew: new[] { Jeb });
+            loopSeg.ChainId = "chain-pad";
+            loopSeg.ChainIndex = 0;
+            loopSeg.LoopPlayback = true;
+            RecordingStore.AddRecordingWithTreeForTesting(loopSeg);
+            var mid = MakeParked("rec-mid", MidRunwayLat, MidRunwayLon,
+                terminal: TerminalState.SubOrbital, startUT: 100.0, endUT: 150.0, crew: new[] { Jeb });
+            mid.ChainId = "chain-pad";
+            mid.ChainIndex = 1;
+            mid.TreeId = loopSeg.TreeId;
+            RecordingStore.AddRecordingWithTreeForTesting(mid);
+            var tip = MakeParked("rec-tip",
+                SpawnCollisionDetector.KscPadLatitude, SpawnCollisionDetector.KscPadLongitude,
+                startUT: 150.0, endUT: 200.0, crew: new[] { Jeb });
+            tip.ChainId = "chain-pad";
+            tip.ChainIndex = 2;
+            tip.TreeId = loopSeg.TreeId;
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
+            Ledger.AddAction(Assignment(loopSeg.RecordingId, Jeb, 50.0, 100.0, KerbalEndState.Unknown, 1));
+            Ledger.AddAction(Assignment(mid.RecordingId, Jeb, 100.0, 150.0, KerbalEndState.Unknown, 2));
+            Ledger.AddAction(Assignment(tip.RecordingId, Jeb, 150.0, 200.0, KerbalEndState.Aboard, 3));
+
+            Assert.True(GhostPlaybackLogic.IsFinalSpawnSegment(tip));
+            LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineUT(250.0, "ksc-retire-test");
+            Assert.Equal(200.0, Kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.False(Kerbals.IsReservedNow(Jeb));
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Reservation bounded by KSC retirement: 'Jebediah Kerman' recording 'rec-tip'"));
         }
 
         [Fact]

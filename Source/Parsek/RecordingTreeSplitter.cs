@@ -515,6 +515,27 @@ namespace Parsek
                 }
             }
 
+            // Own-vessel stretch redirect (owner ruling 2026-09-27). The slot walk
+            // resolves the marker's SupersedeTargetId to the vessel's REAL tip, past
+            // its own EVA / same-vessel Board / switch-continuation branch points. When
+            // that tip does not span the rewind point but an earlier segment of the
+            // same walked vessel does (the tree-branching parent that kept flying
+            // through the separation, then put a crew member out), that segment carries
+            // the pre-rewind history, so split IT. Its TIP then becomes the closure
+            // root, and the forward closure reaches every walked segment and the EVA
+            // crew hanging off them.
+            Recording stretchSpanning = FindSpanningOwnVesselStretchAncestor(
+                origin, marker, rewindUT, epsilon);
+            if (stretchSpanning != null)
+            {
+                ParsekLog.Info(Tag,
+                    $"SplitOriginAtRewindUT: closure root '{origin.RecordingId}' does not span " +
+                    $"rewindUT={rewindUT.ToString("F2", ic)}; splitting own-vessel stretch " +
+                    $"ancestor '{stretchSpanning.RecordingId}' that does " +
+                    $"(slotOrigin={marker.OriginChildRecordingId ?? "<none>"})");
+                origin = stretchSpanning;
+            }
+
             // Pass 5 review M3: env-homogeneous-origin invariant check.
             // The splitter assumes origin's TrackSections are all one env-class
             // (origin is one segment of an already-env-split chain). The
@@ -1300,6 +1321,53 @@ namespace Parsek
         // -----------------------------------------------------------------
         // Helpers
         // -----------------------------------------------------------------
+
+        /// <summary>
+        /// When <paramref name="closureRoot"/> does not strictly span
+        /// <paramref name="rewindUT"/>, walks backward along the own-vessel stretch
+        /// (<see cref="EffectiveState.CollectOwnVesselStretchBackward"/>, bounded by the
+        /// slot origin) and returns the first segment - or chain member of one - whose
+        /// sampled content strictly spans the rewind UT: the recording the split must
+        /// cut. Null when the root spans itself, or no stretch ancestor does. Uses the
+        /// same strict test as the span guard below.
+        /// </summary>
+        internal static Recording FindSpanningOwnVesselStretchAncestor(
+            Recording closureRoot, ReFlySessionMarker marker, double rewindUT, double epsilon)
+        {
+            if (closureRoot == null || marker == null) return null;
+            if (StrictlySpans(closureRoot, rewindUT, epsilon)) return null;
+            if (string.Equals(closureRoot.RecordingId, marker.OriginChildRecordingId,
+                    StringComparison.Ordinal))
+                return null;
+
+            List<Recording> stretch = EffectiveState.CollectOwnVesselStretchBackward(
+                closureRoot, null, marker.OriginChildRecordingId, rewindUT,
+                stopBeforeSpanningRewind: false,
+                alsoStopAtRecordingIds: EffectiveState.CollectSupersedeDestinationIds(
+                    ParsekScenario.Instance?.RecordingSupersedes));
+            if (stretch.Count == 0) return null;
+            RecordingTree tree = EffectiveState.ResolveOwningTree(closureRoot, null);
+            for (int i = 0; i < stretch.Count; i++)
+            {
+                List<Recording> members = EffectiveState.CollectChainMembersInTree(stretch[i], tree);
+                for (int m = 0; m < members.Count; m++)
+                {
+                    if (StrictlySpans(members[m], rewindUT, epsilon))
+                        return members[m];
+                }
+            }
+            return null;
+        }
+
+        private static bool StrictlySpans(Recording rec, double rewindUT, double epsilon)
+        {
+            double actualStartUT;
+            double actualEndUT;
+            return rec != null
+                && rec.TryGetActualTrajectoryBounds(out actualStartUT, out actualEndUT)
+                && actualStartUT < rewindUT - epsilon
+                && actualEndUT > rewindUT + epsilon;
+        }
 
         private static Recording FindCommittedRecordingById(string recordingId)
         {

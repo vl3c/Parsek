@@ -170,11 +170,15 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
+# ARMED 2026-09-27 (both blocks) off three reading runs `2026-09-23_1941` / `_1947` /
+# `_1959`, all PASS attempt 1: supersedeRows 0, tombstones 0, trees 1, committedTrees 1.
 [expectations.rewind]
+gating = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
+gating = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 
