@@ -85,6 +85,48 @@ namespace Parsek
         /// <summary>Test seam: replaces the runtime read + fallback merge.</summary>
         internal static Func<IList<LaunchSiteCircle>> AltSiteCirclesOverrideForTesting;
 
+        /// <summary>Test seam: replaces the Making History install check.</summary>
+        internal static Func<bool> MakingHistoryInstalledOverrideForTesting;
+
+        private static readonly LaunchSiteCircle[] NoFallbackCircles = new LaunchSiteCircle[0];
+
+        /// <summary>
+        /// Whether the Making History expansion is installed (stock
+        /// <c>Expansions.ExpansionsLoader.IsExpansionInstalled("MakingHistory")</c>, the check
+        /// <c>PSystemSetup</c> itself uses before it sets up the expansion sites). Without it
+        /// the four non-KSC sites do not exist, so their fallback circles must not retire a
+        /// flight that merely ends where they would be. A failed read counts as not installed.
+        /// </summary>
+        internal static bool IsMakingHistoryInstalled()
+        {
+            var provider = MakingHistoryInstalledOverrideForTesting;
+            if (provider != null)
+                return provider();
+            try
+            {
+                return ReadMakingHistoryInstalledCore();
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool ReadMakingHistoryInstalledCore()
+        {
+            return Expansions.ExpansionsLoader.IsExpansionInstalled("MakingHistory");
+        }
+
+        /// <summary>
+        /// The static fallback circles that apply: the table when Making History is installed,
+        /// none otherwise (the KSC pad / runway are separate and always apply). Pure.
+        /// </summary>
+        internal static IList<LaunchSiteCircle> ResolveFallbackCircles(bool makingHistoryInstalled)
+        {
+            return makingHistoryInstalled ? (IList<LaunchSiteCircle>)FallbackAltSiteCircles : NoFallbackCircles;
+        }
+
         private static IList<LaunchSiteCircle> cachedRuntimeCircles;
 
         internal static bool IsStockLaunchSiteName(string name)
@@ -170,8 +212,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The non-KSC circles: runtime positions merged over the fallback table. Headless or
-        /// before PSystemSetup exists this is the fallback table. A successful runtime read is
+        /// The non-KSC circles: runtime positions merged over the fallback table (the table
+        /// only when Making History is installed). Headless or before PSystemSetup exists this
+        /// is the fallback table, or nothing without the expansion. A successful runtime read is
         /// cached for the process (site spawn points are body-fixed).
         /// </summary>
         internal static IList<LaunchSiteCircle> GetAltSiteCircles()
@@ -190,7 +233,15 @@ namespace Parsek
             {
                 runtime = null;
             }
-            List<LaunchSiteCircle> merged = MergeWithFallback(runtime, FallbackAltSiteCircles);
+            bool makingHistory = IsMakingHistoryInstalled();
+            List<LaunchSiteCircle> merged = MergeWithFallback(
+                runtime, ResolveFallbackCircles(makingHistory));
+            if (!makingHistory)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "no-making-history",
+                    "Making History not installed: no fallback launch-site circles (KSC pad / runway only"
+                    + (runtime != null && runtime.Count > 0 ? ", plus the runtime sites)" : ")"));
+            }
             if (runtime != null && runtime.Count > 0)
             {
                 cachedRuntimeCircles = merged;
@@ -270,6 +321,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             AltSiteCirclesOverrideForTesting = null;
+            MakingHistoryInstalledOverrideForTesting = null;
             cachedRuntimeCircles = null;
         }
     }

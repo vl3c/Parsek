@@ -25,6 +25,7 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             LaunchSiteExclusionZones.ResetForTesting();
+            LaunchSiteExclusionZones.MakingHistoryInstalledOverrideForTesting = () => true;
 
             var kerbin = TestBodyRegistry.CreateBody("Kerbin", KerbinRadius, 3.5316e12);
             FieldInfo field = typeof(CelestialBody).GetField("isHomeWorld");
@@ -195,6 +196,45 @@ namespace Parsek.Tests
             Assert.False(VesselSpawner.EvaluateKscEndOfFlightRetirement(rec).Retire);
             Assert.False(VesselSpawner.TryRetireEndedFlightAtKsc(rec, 5));
             Assert.False(rec.VesselSpawned);
+        }
+
+        // catches: the Making History fallback circles retiring a flight on an install
+        // without the expansion, where those sites do not exist.
+        [Fact]
+        public void TryRetire_DesertPadSpot_WithoutMakingHistory_StillSpawns()
+        {
+            LaunchSiteExclusionZones.MakingHistoryInstalledOverrideForTesting = () => false;
+            var desert = LaunchSiteExclusionZones.FallbackAltSiteCircles[0];
+            var rec = MakeParked("rec-desert-nomh", desert.Latitude, desert.Longitude);
+
+            Assert.Empty(LaunchSiteExclusionZones.GetAltSiteCircles());
+            Assert.False(VesselSpawner.EvaluateKscEndOfFlightRetirement(rec).Retire);
+            Assert.False(VesselSpawner.TryRetireEndedFlightAtKsc(rec, 6));
+            Assert.False(rec.VesselSpawned);
+        }
+
+        // The KSC pad / runway do not depend on the expansion.
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void TryRetire_KscPad_RetiresWithOrWithoutMakingHistory(bool makingHistory)
+        {
+            LaunchSiteExclusionZones.MakingHistoryInstalledOverrideForTesting = () => makingHistory;
+            var rec = MakeParked("rec-ksc-pad-" + makingHistory,
+                SpawnCollisionDetector.KscPadLatitude, SpawnCollisionDetector.KscPadLongitude);
+
+            Assert.True(VesselSpawner.TryRetireEndedFlightAtKsc(rec, 7));
+            Assert.True(VesselSpawner.IsSettledAsKscRetirement(rec));
+        }
+
+        [Fact]
+        public void ResolveFallbackCircles_OnlyWithMakingHistory()
+        {
+            Assert.Equal(LaunchSiteExclusionZones.FallbackAltSiteCircles.Length,
+                LaunchSiteExclusionZones.ResolveFallbackCircles(true).Count);
+            Assert.Empty(LaunchSiteExclusionZones.ResolveFallbackCircles(false));
+            LaunchSiteExclusionZones.ResetForTesting();
+            Assert.Null(LaunchSiteExclusionZones.MakingHistoryInstalledOverrideForTesting);
         }
 
         [Fact]

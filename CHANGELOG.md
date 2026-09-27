@@ -1227,8 +1227,9 @@ _(unreleased — entries accumulate here per commit)_
   funds go negative.** Those presets let stock take funds (or science) below zero, for
   example with a failed contract's penalty. Parsek treated the negative balance as a spend it
   had missed: it showed the message, wrote a warning to the log on every recalculation, and a
-  rewind reset the balance to zero. It now keeps the negative balance stock would show; on the
-  presets that keep currency at zero nothing changes.
+  rewind reset the balance to zero. It now keeps a negative balance that already exists, as
+  stock shows it; money a committed future flight will spend later still never takes the
+  balance below zero early. On the presets that keep currency at zero nothing changes.
 - **Auto-hire no longer seats a kerbal your committed future hires.** With the difficulty
   option that hires crew automatically for empty seats, after a rewind to before a kerbal's
   recorded hire, auto-hire could pick that same applicant: Parsek refused the hire, but the
@@ -1251,9 +1252,9 @@ _(unreleased — entries accumulate here per commit)_
     on a launch site, and a fresh rollout keep their site, and a vessel standing on a site now
     names that site rather than the last one you launched from.
   - A flight that ends parked on any stock launch site (the Making History Desert pad and
-    airfield, the Woomerang pad and the Island airfield, as well as the KSC pad and runway) is
-    retired: no vessel is spawned there, its crew is freed and no funds are paid. KSC behaves
-    exactly as before.
+    airfield, the Woomerang pad and the Island airfield when Making History is installed, as
+    well as the KSC pad and runway) is retired: no vessel is spawned there, its crew is freed
+    and no funds are paid. KSC behaves exactly as before.
   - Recording while Hack Gravity is on now writes one warning to KSP.log: orbits recorded under
     changed gravity replay at the wrong rate once gravity is back to normal. Nothing else
     changes.

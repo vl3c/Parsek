@@ -1489,8 +1489,8 @@ namespace Parsek
         /// The earliest finite end among the reservations still in force at
         /// <paramref name="nowUT"/> (all of the given ones when the clock is unknown; the
         /// walk passes its in-force view), or +inf when none will lapse by time alone. A
-        /// recorded death's respawn instant still ahead of the clock counts as well, also
-        /// when a later flight extends the hold past it (the Lost -> held-with-stand-in
+        /// recorded death's respawn instant strictly after a known clock counts as well,
+        /// also when a later flight extends the hold past it (the Lost -> held-with-stand-in
         /// flip is a transition the clock must trigger). Pure.
         /// </summary>
         internal static double ComputeNextReleaseUT(
@@ -1506,10 +1506,14 @@ namespace Parsek
                 if (!double.IsNaN(end) && !double.IsInfinity(end) && end < next) next = end;
                 // A respawn inside a hold a later flight extends (G6) is a transition too:
                 // the kerbal stops reading Lost and a stand-in takes the later flight's
-                // seat, so a clock crossing it must recalculate like a release.
+                // seat, so a clock crossing it must recalculate like a release. Only a
+                // respawn strictly after a KNOWN clock: with the clock unknown the respawn
+                // may already be behind the live clock, and a next-release at or before
+                // now would re-trigger the crossed-release recalculation on every check
+                // while walks keep reading no clock.
                 double respawn = reservation.DeathRespawnUT;
                 if (!double.IsNaN(respawn) && !double.IsInfinity(respawn)
-                    && (double.IsNaN(nowUT) || nowUT < respawn)
+                    && !double.IsNaN(nowUT) && nowUT < respawn
                     && respawn < next)
                     next = respawn;
             }

@@ -557,7 +557,12 @@ namespace Parsek.Tests
             };
             Assert.Equal(1300.0, KerbalsModule.ComputeNextReleaseUT(new[] { merged }, 800.0));
             Assert.Equal(2500.0, KerbalsModule.ComputeNextReleaseUT(new[] { merged }, 1300.0));
-            Assert.Equal(1300.0, KerbalsModule.ComputeNextReleaseUT(new[] { merged }, double.NaN));
+            // Unknown clock: the respawn may already be behind the live clock, so only the
+            // ordinary end counts (a next-release at or before now would re-trigger the
+            // crossed-release recalculation on every check).
+            Assert.Equal(2500.0, KerbalsModule.ComputeNextReleaseUT(new[] { merged }, double.NaN));
+            Assert.False(KerbalsModule.IsReservationReleaseDue(
+                2000.0, KerbalsModule.ComputeNextReleaseUT(new[] { merged }, double.NaN), double.NaN));
 
             var openEnded = new KerbalsModule.KerbalReservation
             {

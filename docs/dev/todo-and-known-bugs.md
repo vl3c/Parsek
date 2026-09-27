@@ -536,7 +536,9 @@ KSP-SETTINGS-AUDIT-2026-09-26 above (investigations in the session scratchpad, n
   `IsLossHold` and its readers (Kerbals window, stock-screen marks, crew dialog) keep their
   signatures, the Lost date reads `DeathRespawnUT` (`KerbalsModule.LossRespawnUT`,
   `KerbalsPresentation.FormatLostUntilDate`, `ExplainKerbalReservation`), and
-  `ComputeNextReleaseUT` also returns the respawn so crossing it recalculates. Log `Death
+  `ComputeNextReleaseUT` also returns the respawn (only when strictly after a KNOWN walk clock,
+  so an unknown-clock walk can never leave a next-release at or before now that re-triggers the
+  crossed-release recalculation on every check) so crossing it recalculates. Log `Death
   hold: '<name>' lost until the respawn although a later flight extends the hold`. Cells:
   `KerbalDeathRespawnTests.G6_*`, `IsLossHoldAt_Cases`,
   `ComputeNextReleaseUT_IncludesARespawnInsideAnExtendedHold`.
@@ -547,12 +549,18 @@ KSP-SETTINGS-AUDIT-2026-09-26 above (investigations in the session scratchpad, n
   UPLIFT ... missing spending channel" WARN on every recalc plus a once-per-session toast,
   and an authoritative recalc (rewind, re-fly) lifted the deficit to 0.~~ FIXED 2026-09-27:
   with the flag on (`KspStatePatcher.ReadAllowNegativeCurrency`, null-guarded, test seam
-  `AllowNegativeCurrencyProviderForTesting`) the funds and science patch targets are the
-  unfloored projected minimum (`ResolveNegativeCurrencyPatchTarget` over
-  `GetProjectionMinBalance`) whenever the 0 floor is what hides it; flag off unchanged. One
-  rate-limited Verbose line when the unfloored target is used. Accepted consequence (judgement
-  call, not an owner ruling): on Moderate / Hard a committed future that overdraws shows a
-  negative live pool after a rewind, as stock would. Cells: `AllowNegativeCurrencyPatchTests`.
+  `AllowNegativeCurrencyProviderForTesting`) the funds and science patch targets may go below
+  zero only by a deficit that already EXISTS now: `ResolveNegativeCurrencyPatchTarget` returns
+  `max(projectedMin, min(0, runningBalanceNow, liveNow))` when the 0 floor is what separates
+  them; flag off unchanged. The first version patched to the projected minimum alone, which also
+  covers every FUTURE committed row, so a reserved future deficit (a committed 70k upgrade a
+  superseded reward no longer covers) was written into the live pool before any debit happened
+  (review repro, now a real-walk cell for funds and science). The live pool is part of the
+  "exists now" bound so the audit sequence (reservation lowered live to 2000, a 5000 penalty
+  took it to -3000 while the running balance is still +5000) keeps -3000 with no false uplift
+  clamp; the target never moves live further below zero than it already is unless the running
+  balance itself is lower. One rate-limited Verbose line when a negative target is used. Cells:
+  `AllowNegativeCurrencyPatchTests`.
 - ~~4. `Difficulty.AutoHireCrews`: after a rewind to before a committed hire, stock auto-hire
   (`KerbalRoster.DefaultCrewForVessel`'s shortfall loop, the only caller of
   `KerbalRoster.GetNextApplicant()` in the 1.12.5 decompile) could pick that applicant;
@@ -619,7 +627,12 @@ transfer, so both are already correct).
   `SpawnCollisionDetector.DecideLaunchSiteEndOfFlightRetirement` checks the unchanged KSC circles
   first; `VesselSpawner.EvaluateKscEndOfFlightRetirement` (spawn and crew side) uses it, so the
   KSC log line is byte-identical and another site logs `launch-site exclusion zone (<Site>
-  pad|runway)`. Tests `LaunchSiteFollowupTests`. No lane flies an alternate-site ending yet.
+  pad|runway)`. The static fallback applies only when Making History is installed
+  (`LaunchSiteExclusionZones.IsMakingHistoryInstalled`, stock
+  `ExpansionsLoader.IsExpansionInstalled("MakingHistory")`, the check `PSystemSetup` uses;
+  a failed read counts as not installed), so without the expansion only the KSC circles
+  retire (follow-up 2026-09-27 from the review). Tests `LaunchSiteFollowupTests`. No lane
+  flies an alternate-site ending yet.
 - ~~4. Hack Gravity.~~ FIXED per the ruling. Stock keeps the cheat on the debug-screen widget
   (`HackGravity.gravityFactor`, 1.0 when off); `GravityHackDetector` reads it at record start and
   `Patches/HackGravityPatch.cs` postfixes `HackGravity.SetGravityFactor`, and the recorder writes
