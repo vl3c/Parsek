@@ -30,6 +30,8 @@ $injectFilterByPreset = @{
     "ghost-commnet-relay"   = "InjectGhostCommNetRelays"
     "ghost-commnet-live"    = "InjectGhostCommNetLive"
     "ghost-commnet-timeline" = "InjectGhostCommNetTimeline"
+    "overlap-cap"           = "InjectOverlapCap"
+    "rewind-readback"       = "InjectRewindReadback"
 }
 
 # Per-preset default save name, applied only when -SaveName is not given. Keeps a
@@ -52,6 +54,8 @@ $defaultSaveByPreset = @{
     "ghost-commnet-relay"   = "ghost-commnet-relay-fixture"
     "ghost-commnet-live"    = "ghost-commnet-live-fixture"
     "ghost-commnet-timeline" = "ghost-commnet-timeline-fixture"
+    "overlap-cap"           = "overlap-cap-fixture"
+    "rewind-readback"       = "rewind-readback-fixture"
 }
 
 $ErrorActionPreference = "Stop"
