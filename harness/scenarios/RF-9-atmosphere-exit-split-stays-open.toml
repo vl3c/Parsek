@@ -223,6 +223,14 @@ steps = [
   { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
   { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
   { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  # SAVE BEFORE THE RELOAD (RF-13H's / RF-20's order, todo
+  # RF-LANES-RELOAD-A-PRE-COMMIT-SAVE). The tree commits on arrival at the Space Center,
+  # AFTER the exit's own persistent.sfs write, so a LoadGame straight after the exit
+  # quickload-resumes the pre-commit tree as a live recording (`TryRestoreActiveTreeNode:
+  # removed committed tree`) and the re-fly's merge never concludes (reading
+  # `2026-09-27_1948` on RF-1, the same act). The 2026-09-15 greens passed only because that build dropped the
+  # active node on an incompatible sidecar and so kept the committed copy.
+  { cmd = "SaveGame",          args = { name = "persistent" },                           expect = "OK" },
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
   { cmd = "StopRecording",                                                               expect = "OK" },
@@ -489,14 +497,15 @@ terminalStates = { Destroyed = { min = 8 }, SubOrbital = { min = 1 } }
 #   SetSetting x4     120 x4                =  480
 #   mission           1600                  = 1600
 #   ExitToSpaceCenter max(120,120+60) = 180 =  180
+#   SaveGame          120                   =  120
 #   StopRecording     120                   =  120
 #   ListHandles       120                   =  120
 #   InvokeRewind      660                   =  660
 #   AnswerMergeDialog 180                   =  180
 #   RecordingState    120                   =  120
-#   FlushAndQuit      120                   =  120   -> sum 4900
+#   FlushAndQuit      120                   =  120   -> sum 5020
 # The ceiling must EXCEED that sum or a capped deferred wait KILLs mid-step instead of
-# surfacing the seam's own per-step TIMEOUT. 5200 clears it by 300.
+# surfacing the seam's own per-step TIMEOUT. 5200 clears it by 180.
 budgetSeconds = 5200
 
 [retry]

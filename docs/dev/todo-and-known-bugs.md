@@ -297,6 +297,49 @@ with one Offered contract accepted and one tier-1 node left unresearched after i
 (`start`) - or `stock-screen-census`, if it carries both (not checked). Not fixed now:
 a new or re-harvested fixture moves H45's host and every lane pinned to it.
 
+## GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. OPEN]
+
+**In gameplay terms.** The player watches a replayed Kerbal X to the end of its flight. At
+the moment its recording ends, the camera does not hold on the Kerbal X (the 3 s end hold,
+then back to the player's vessel); it jumps to the probe-cored core stage the rocket dropped
+about 150 s EARLIER, holds 3 s on that, and exits. Nothing is lost or mis-recorded: the save
+is correct, only the camera goes to the wrong ghost for the last 3 seconds.
+
+**Evidence.** GS-8's one failing expectation was
+`logContracts.required not matched: phase=MeshDestroyed [^
+]*vessel=Kerbal X reason=watch hold expired`.
+The log (`results/2026-09-27_2029_GS-8-kerbalx-zone-round-trip_shots/KSP.log`):
+- `PlaybackCompleted index=0 vessel=Kerbal X ghostWasActive=True pastEffectiveEnd=True ... watched=True`
+- `FindNextWatchTarget: currentIndex=0, chainId=null, chainIndex=-1, treeId=7ce95245..., childBpId=6200c1cd..., supersedes=0`
+  then `found target at index 7` and `Auto-following: #0 "Kerbal X" -> #7 "Kerbal X Probe"`
+- `phase=MeshDestroyed ... vessel=Kerbal X reason=auto-followed to next stage`
+- `PlaybackCompleted index=7 vessel=Kerbal X Probe ... pastEffectiveEnd=True` in the same frame,
+  `Watch hold started for #7: 3s terminal=SubOrbital`, then
+  `phase=MeshDestroyed ... vessel=Kerbal X Probe reason=watch hold expired`.
+
+The produced save says why the follow was wrong: the Kerbal X recording `526d008e...` runs
+to `explicitEndUT = 297.64` with its own `terminalState = 3` (SubOrbital), yet carries
+`childBranchPointId = 6200c1cd...`, a JointBreak / DECOUPLE branch point at `ut = 146.44`
+whose only child is the probe `517ffd5a...` (the parent CONTINUED past the split). The
+2026-09-08 greens read `Watch hold started for #0: 3s terminal=SubOrbital` on the Kerbal X
+itself (autotest-status GS-8 row). Every save window matched (supersedeRows 0, tombstones
+0; trees 1, committedTrees 1, recordings 8, JointBreak 5, SubOrbital 2, Destroyed 6), and
+the run was a single attempt (a PARSEK-FAIL is not retried).
+
+**Suspected cause (from source, not bisected).** `GhostPlaybackLogic.FindNextWatchTarget`
+case 2 treats `ChildBranchPointId` as the branch the recording ENDED at: it looks for an
+active child and, for a non-Breakup branch, falls back to a different-pid child. On a
+parent-continues split the branch point is mid-recording, so a recording that ended on its
+own terminal is "followed" to the child of a split 150 s earlier. What changed since
+2026-09-08 (the flight shape, or which recording carries the branch point) is not
+established. Fix direction: case 2 should only follow a child when the branch point is at
+the recording's end (bp.UT at or after the recording's end, within the coalesce window),
+or when the recording has no terminal of its own. Mirror check: the chain case 1 and the
+`MapFocus` / watch re-target paths that also read `ChildBranchPointId`.
+
+**Harness.** GS-8's `rewind` and `recordings.structure` blocks stay report-only until a
+green reading. GS-9 and GS-7 (the same mission) read green in this pass.
+
 ## SAVE-BLOCKS-AWAITING-READINGS: 30 report-only save-structure blocks on 24 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
 
 The operator's 2026-09-27 arming pass armed every report-only `rewind` /

@@ -11360,6 +11360,20 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "V23T-mun-landing-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
+                       # 2026-09-27 BATCH 2 (branch `arm-batch2`, the operator's arming
+                       # decision of 2026-09-27), each off its own reading on current main
+                       # (automation DLL sha256 f747fdee...), every window met, every bound
+                       # inverted offline against that produced save and red on exactly its
+                       # window. GS-1 / GS-2 / GS-3 `structure` joined their armed `rewind`
+                       # (`_2000` / `_2005` / `_2007`); GS-7 both blocks `_2016`; GS-9 both
+                       # `_2040`; V3F both `_2048`; V3R both `_2104` (all `2026-09-27_`).
+                       # GS-8's reading `_2029` was PARSEK-FAIL on a watch-hold token (todo
+                       # GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD), so its blocks stay
+                       # report-only.
+                       "GS-7-kerbalx-crash-watch-hold.toml",
+                       "GS-9-kerbalx-repeat-rewind.toml",
+                       "V3F-flight-arrival-faithful.toml",
+                       "V3R-flight-arrival-reaim.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight
                        # authors no RP/supersede/tombstone) + structure (the
                        # exact two-recording committed topology) armed

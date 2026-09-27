@@ -77,12 +77,18 @@ allowedAnomalies = []
 count = { min = 2, max = 3 }
 
 [expectations.rewind]
-# REPORT-ONLY until the arming pass.
+# ARMED 2026-09-27 (branch `arm-batch2`) off the reading `2026-09-27_2104` on current
+# main (PASS attempt 1): rewindPoints 0, supersedeRows 0, tombstones 0; each bound
+# inverted offline against that save reds on exactly its window.
+gating        = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
+# ARMED 2026-09-27 (branch `arm-batch2`) off the same reading: committedTrees 1, trees 1;
+# each bound inverted offline against that save reds on exactly its window.
+gating         = true
 committedTrees = { min = 1, max = 1 }
 trees          = { min = 1, max = 2 }
 

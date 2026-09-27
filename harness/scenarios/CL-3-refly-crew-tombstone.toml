@@ -300,6 +300,15 @@ mission = "cl3_refly_crew_tombstone"
 steps = [
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  # THE FUTURE-RP GATE (operator ruling 2026-09-23, RP-SURVIVES-REWIND-TO-LAUNCH): a
+  # rewind point is not invokable until the clock reaches its UT. `RewindCrewLossFixture`
+  # places the split 60 s after the host save's UT (9.06 -> rp_cl_root at 69.06), so the
+  # mission's InvokeRewind was REJECTED `refly-gate This separation is in your future`
+  # (reading `2026-09-27_1956`, MISSION-FLAKE twice). TimeJump 61 s puts the clock just
+  # past the split and still ahead of both leaves' ends (probe split+40, pod split+55),
+  # so nothing materializes: S4.1's fix. The rewind then lands on the quicksave's own
+  # UT (the template's 9.06), so `clockRewound` still reads about a minute.
+  { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                    expect = "OK", budget = 120 },
   { phase = "mission",                                                    expect = "MISSION-OK", budget = 600 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },               expect = "OK", budget = 240 },
   { cmd = "RecordingState",                                               expect = "OK" },
@@ -615,16 +624,17 @@ maxTotal = 0
 # budget:
 #   LoadGame           max(240,600)+60 = 660
 #   SetSetting         (default)       =  60
+#   TimeJump           max(120,600)+60 = 660
 #   mission            (step budget)   = 600
 #   AnswerMergeDialog  (budget; C# DeferralBudget is 120) = 240
 #   RecordingState     (default)       =  60
-#   FlushAndQuit       (default)       =  60   -> sum 1680; +120 margin = 1800.
+#   FlushAndQuit       (default)       =  60   -> sum 2340; +60 margin = 2400.
 # THE MISSION BUDGET IS 600, NOT R1's 1200, because this lane flies no ascent. Its worst
 # path is the kRPC connect (<=30) + the STOP/IDLE round trips (~10) + InvokeRewind's KSP
 # scene reload (its C# DeferralBudget is 300) + VERIFY (~10) + RELAUNCH's 240 frames
 # (~120 at the 0.5 s poll cadence) + the LOOP-POINTS probe (~10) => ~480, and 600 is the
 # slack over that. On the happy path the real wall clock is a KSP boot plus ~2 minutes.
-budgetSeconds = 1800
+budgetSeconds = 2400
 
 [retry]
 policy = "once"
