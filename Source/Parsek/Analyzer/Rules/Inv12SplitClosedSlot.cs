@@ -89,8 +89,8 @@ namespace Parsek.Analyzer.Rules
             //
             // ChainBranch is part of the key because the tip walk this rule models REFUSES
             // to cross branches (EffectiveState.cs:1115 / :1166 both skip a candidate whose
-            // ChainBranch differs), ChainSegmentManager.cs:577 really does write
-            // ChainBranch = 1 for ghost-only parallel continuations, and the sibling rule
+            // ChainBranch differs), recordings committed by the retired chain-segment
+            // path carry ChainBranch = 1 for ghost-only parallel continuations, and the sibling rule
             // Inv7TreeTopology keys on the same pair. Grouping on ChainId alone would let a
             // branch-0 head pair with a branch-1 member no slot ever reads, and would hide
             // the real branch-0 tip behind it.

@@ -1100,15 +1100,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// A child under a Rewind Point that qualifies as an unfinished flight
-        /// is committed, but its rewind slot stays open until a later successful
-        /// re-fly or explicit Seal closes it. Stable surface EVA side-branches
-        /// are the exception: when the only classifier reason is stranded EVA
-        /// and the terminal is safe, the commit closes the slot immediately.
-        /// Legacy/default recordings are born Immutable, so stamp that precise
-        /// shape during the normal tree commit path.
-        /// </summary>
-        /// <summary>
         /// Test seam: re-runs the slot-driven MergeState promotion + clobber
         /// guard (collapse-seal-into-mergestate) against the already-committed
         /// trees, exactly as a later CommitTree would. Builds the committed-TREE
@@ -1129,6 +1120,14 @@ namespace Parsek
             ApplyRewindProvisionalMergeStates(tree, snapshot);
         }
 
+        /// <summary>
+        /// A child under a Rewind Point that qualifies as an unfinished flight
+        /// is committed, but its rewind slot stays open until a later successful
+        /// re-fly or explicit Seal closes it. Legacy/default recordings are born
+        /// Immutable, so stamp that precise shape during the normal tree commit
+        /// path. An EVA kerbal never qualifies (Re-Fly is for vessel separations
+        /// only), so it is never promoted.
+        /// </summary>
         private static void ApplyRewindProvisionalMergeStates(
             RecordingTree tree, HashSet<string> alreadyCommittedRecordingIds)
         {
@@ -1167,7 +1166,6 @@ namespace Parsek
 
             int promoted = 0;
             int tipsPromoted = 0;
-            int autoSealed = 0;
             foreach (var rec in tree.Recordings.Values)
             {
                 if (rec == null) continue;
@@ -1200,15 +1198,6 @@ namespace Parsek
                         $"vessel='{rec.VesselName ?? "<unnamed>"}' not promoted reason={qualifyReason} " +
                         $"rp={rp.RewindPointId ?? "<no-rp>"} slot={slotListIndex}");
                     continue;
-                }
-
-                if (ShouldAutoSealStableEvaCommitSlot(rec, qualifyReason, tree))
-                {
-                    if (AutoSealStableEvaCommitSlot(rec, rp, slot, slotListIndex, tree, qualifyReason))
-                    {
-                        autoSealed++;
-                        continue;
-                    }
                 }
 
                 // Demote the qualifying HEAD on first commit. The first-commit guard
@@ -1263,62 +1252,8 @@ namespace Parsek
                 }
             }
 
-            if (promoted > 0 || tipsPromoted > 0 || autoSealed > 0)
+            if (promoted > 0 || tipsPromoted > 0)
                 BumpStateVersion();
-        }
-
-        private static bool ShouldAutoSealStableEvaCommitSlot(
-            Recording rec,
-            string qualifyReason,
-            RecordingTree tree)
-        {
-            if (!string.Equals(qualifyReason, "strandedEva", StringComparison.Ordinal))
-                return false;
-
-            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: this decides whether to CLOSE
-            // the slot, so it must read the terminal over the recording the slot's
-            // effective tip now resolves to (EffectiveState.EffectiveTipRecordingId).
-            Recording tip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, tree);
-            if (tip == null || string.IsNullOrEmpty(tip.EvaCrewName)
-                || !tip.TerminalStateValue.HasValue)
-                return false;
-
-            return tip.TerminalStateValue.Value == TerminalState.Landed
-                || tip.TerminalStateValue.Value == TerminalState.Splashed;
-        }
-
-        private static bool AutoSealStableEvaCommitSlot(
-            Recording rec,
-            RewindPoint rp,
-            ChildSlot slot,
-            int slotListIndex,
-            RecordingTree tree,
-            string qualifyReason)
-        {
-            if (slot == null)
-                return false;
-
-            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: same walk as the decision in
-            // ShouldAutoSealStableEvaCommitSlot, so the logged terminal cannot name a
-            // different recording than the one the seal was decided on.
-            Recording tip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, tree);
-            string terminal = tip?.TerminalStateValue.HasValue == true
-                ? tip.TerminalStateValue.Value.ToString()
-                : "<none>";
-
-            // A stable-EVA conclusion is closed by leaving the slot's effective
-            // tip Immutable (its born state). Open/closed is read from the tip
-            // MergeState (the single source of truth), so closing the slot
-            // means NOT demoting the first-commit tip to CommittedProvisional.
-            // The caller skips the CP demotion when this returns true. No slot
-            // bit and no state-version bump are needed: the tip never changes
-            // state, so no consumer's cached open/closed view goes stale.
-            ParsekLog.Info("UnfinishedFlights",
-                $"CommitTree auto-sealed stable EVA slot={slotListIndex} " +
-                $"rec={rec?.RecordingId ?? "<no-id>"} vessel='{rec?.VesselName ?? "<unnamed>"}' " +
-                $"rp={rp?.RewindPointId ?? "<no-rp>"} terminal={terminal} reason={qualifyReason} " +
-                $"(tip left Immutable = concluded)");
-            return true;
         }
 
         private static BranchPoint FindBranchPointById(RecordingTree tree, string branchPointId)
@@ -4857,48 +4792,11 @@ namespace Parsek
             return (committedRecordings.Count, committedTrees.Count);
         }
 
-        /// <summary>
-        /// Rolls back continuation data appended after commit (bug #95).
-        /// If a continuation boundary is set, truncates Points back to the boundary,
-        /// restores pre-continuation snapshots, and marks file dirty. Called from all
-        /// revert/rewind paths (ResetRecordingPlaybackFields,
-        /// tree recording reset loop).
-        /// </summary>
-        internal static void RollbackContinuationData(Recording rec)
-        {
-            if (rec.ContinuationBoundaryIndex >= 0)
-            {
-                // Truncate continuation points (if any were added)
-                if (rec.ContinuationBoundaryIndex < rec.Points.Count)
-                {
-                    int removeCount = rec.Points.Count - rec.ContinuationBoundaryIndex;
-                    rec.Points.RemoveRange(rec.ContinuationBoundaryIndex, removeCount);
-                    rec.FilesDirty = true;
-                    if (!SuppressLogging)
-                        ParsekLog.Verbose("Rewind",
-                            $"Rolled back {removeCount} continuation point(s) for '{rec.VesselName}' " +
-                            $"(boundary={rec.ContinuationBoundaryIndex}, id={rec.RecordingId})");
-                }
-
-                // Restore pre-continuation snapshots (may have been overwritten
-                // by RefreshContinuationSnapshotCore even without new points)
-                if (rec.PreContinuationVesselSnapshot != null)
-                    rec.VesselSnapshot = rec.PreContinuationVesselSnapshot;
-                if (rec.PreContinuationGhostSnapshot != null)
-                    rec.GhostVisualSnapshot = rec.PreContinuationGhostSnapshot;
-            }
-            rec.ContinuationBoundaryIndex = -1;
-            rec.PreContinuationVesselSnapshot = null;
-            rec.PreContinuationGhostSnapshot = null;
-        }
-
         private static void ResetRecordingPlaybackFields(
             Recording rec,
             HashSet<string> keepSpawnStateRecordingIds = null,
             HashSet<string> keptLogged = null)
         {
-            RollbackContinuationData(rec);
-
             // The terminal verdict is NOT touched: a committed recording's
             // TerminalStateValue is recorded content (real-vessel terminal events stamp
             // only the pending tree), and Destroyed / Recovered are never spawnable, so

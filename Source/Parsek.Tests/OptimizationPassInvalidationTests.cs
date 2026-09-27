@@ -502,7 +502,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Watch-mode and continuation mirrors
+        #region Watch-mode mirrors
 
         private static List<Recording> MakeRecordings(params string[] ids)
         {
@@ -551,105 +551,6 @@ namespace Parsek.Tests
             var recordings = MakeRecordings("a", "c", "d");
             Assert.Equal((-1, (string)null), WatchModeController.ComputeWatchIndexAfterDelete(1, "b", 1, recordings));
             Assert.Equal((1, "c"), WatchModeController.ComputeWatchIndexAfterDelete(2, "c", 1, recordings));
-        }
-
-        [Fact]
-        public void ResolveCommittedIndexThroughAbsorption_FollowsTheMergeChain()
-        {
-            var committed = MakeRecordings("p", "q", "r");
-            var absorbed = new Dictionary<string, string>
-            {
-                ["seg-new"] = "seg-mid",
-                ["seg-mid"] = "q",
-            };
-            Assert.Equal(1, ChainSegmentManager.ResolveCommittedIndexThroughAbsorption("seg-new", absorbed, committed));
-            Assert.Equal(2, ChainSegmentManager.ResolveCommittedIndexThroughAbsorption("r", absorbed, committed));
-            Assert.Equal(-1, ChainSegmentManager.ResolveCommittedIndexThroughAbsorption("gone", absorbed, committed));
-            Assert.Equal(-1, ChainSegmentManager.ResolveCommittedIndexThroughAbsorption(null, absorbed, committed));
-        }
-
-        [Fact]
-        public void ResolveCommittedIndexThroughAbsorption_IsCycleSafe()
-        {
-            var committed = MakeRecordings("p");
-            var cycle = new Dictionary<string, string> { ["x"] = "y", ["y"] = "x" };
-            Assert.Equal(-1, ChainSegmentManager.ResolveCommittedIndexThroughAbsorption("x", cycle, committed));
-        }
-
-        [Fact]
-        public void ChainSegmentManager_Removed_RetargetsAnAbsorbedContinuation_ToTheMergeTarget()
-        {
-            RecordingStore.AddRecordingWithTreeForTesting(MakeInertRecording("target"));
-            RecordingStore.AddRecordingWithTreeForTesting(MakeInertRecording("absorbed"));
-            RecordingStore.AddRecordingWithTreeForTesting(MakeInertRecording("above"));
-            var manager = new ChainSegmentManager
-            {
-                ContinuationVesselPid = 77,
-                ContinuationRecordingIdx = 1,
-                ContinuationRecordingId = "absorbed",
-                UndockContinuationPid = 88,
-                UndockContinuationRecIdx = 2,
-                UndockContinuationRecId = "above",
-            };
-            var target = RecordingStore.CommittedRecordings[0];
-            var absorbed = RecordingStore.CommittedRecordings[1];
-
-            RecordingStore.RemoveCommittedInternal(absorbed);
-            manager.OnCommittedRecordingRemoved(1, absorbed, target);
-
-            // The continuation follows its trajectory into the merge target; the undock
-            // continuation above the removal is rebound by id one slot down.
-            Assert.Equal(77u, manager.ContinuationVesselPid);
-            Assert.Equal(0, manager.ContinuationRecordingIdx);
-            Assert.Equal("target", manager.ContinuationRecordingId);
-            Assert.Equal(88u, manager.UndockContinuationPid);
-            Assert.Equal(1, manager.UndockContinuationRecIdx);
-            Assert.Equal("above", manager.UndockContinuationRecId);
-        }
-
-        [Fact]
-        public void ChainSegmentManager_Removed_StopsAContinuationWhoseRecordingWasDeleted()
-        {
-            RecordingStore.AddRecordingWithTreeForTesting(MakeInertRecording("a"));
-            RecordingStore.AddRecordingWithTreeForTesting(MakeInertRecording("tracked"));
-            var manager = new ChainSegmentManager
-            {
-                ContinuationVesselPid = 77,
-                ContinuationRecordingIdx = 1,
-                ContinuationRecordingId = "tracked",
-            };
-            var tracked = RecordingStore.CommittedRecordings[1];
-
-            RecordingStore.RemoveCommittedInternal(tracked);
-            manager.OnCommittedRecordingRemoved(1, tracked, null);
-
-            Assert.Equal(0u, manager.ContinuationVesselPid);
-            Assert.Equal(-1, manager.ContinuationRecordingIdx);
-            Assert.Null(manager.ContinuationRecordingId);
-        }
-
-        [Fact]
-        public void ChainSegmentManager_Inserted_RebindsBothContinuationsById()
-        {
-            RecordingStore.AddRecordingWithTreeForTesting(MakeInertRecording("a"));
-            RecordingStore.AddRecordingWithTreeForTesting(MakeInertRecording("inserted"));
-            RecordingStore.AddRecordingWithTreeForTesting(MakeInertRecording("b"));
-            RecordingStore.AddRecordingWithTreeForTesting(MakeInertRecording("c"));
-            // Indices as they were before "inserted" landed at #1.
-            var manager = new ChainSegmentManager
-            {
-                ContinuationVesselPid = 77,
-                ContinuationRecordingIdx = 1,
-                ContinuationRecordingId = "b",
-                UndockContinuationPid = 88,
-                UndockContinuationRecIdx = 0,
-                UndockContinuationRecId = "a",
-            };
-
-            manager.OnCommittedRecordingInserted(1);
-
-            Assert.Equal(2, manager.ContinuationRecordingIdx);
-            Assert.Equal(0, manager.UndockContinuationRecIdx);
         }
 
         #endregion

@@ -250,7 +250,8 @@ follow-up is validation/tuning work against larger corpora rather than another p
 ### v0.9 — Rewind to Separation
 
 Phase 12 shipped: re-fly unfinished missions after multi-controllable splits (staging, undock, EVA
-with 2+ controllable outputs). Full design: [`docs/parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md).
+with 2+ controllable outputs). Owner ruling 2026-09-27 narrowed it to vessel separations only
+(staging, decoupling, undocking): an EVA never gets a Rewind Point or a Re-Fly. Full design: [`docs/parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md).
 The pre-implementation spec that drove v0.9 is archived at
 [`docs/dev/done/parsek-rewind-separation-design.md`](dev/done/parsek-rewind-separation-design.md).
 
@@ -295,7 +296,8 @@ research note (R17) at
 
 - **Broader Unfinished Flights predicate** — `IsUnfinishedFlight` now includes
   controllable non-focus Rewind Point children that end `Orbiting` or
-  `SubOrbital`, plus stranded EVA kerbals with non-boarded terminal states.
+  `SubOrbital`, plus stranded EVA kerbals with non-boarded terminal states (the EVA branch was
+  removed by the 2026-09-27 ruling: an EVA kerbal is never an Unfinished Flight).
   Focus-continuation upper stages, debris, and successful auto-recovered
   boosters stay out of the list.
 - **STASH system group and row actions** — the virtual Unfinished Flights group

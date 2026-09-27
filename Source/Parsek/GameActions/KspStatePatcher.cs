@@ -202,7 +202,8 @@ namespace Parsek
 
             float currentScience = ResearchAndDevelopment.Instance.Science;
             double targetScience = AdjustSciencePatchTargetForPendingRecentTechResearch(
-                science.GetAvailableScience(),
+                ResolveSciencePatchBaseTarget(
+                    science, currentScience, ReadAllowNegativeCurrency()),
                 currentScience);
             targetScience = AdjustSciencePatchTargetForPendingRecentScienceEarning(
                 targetScience,
@@ -1777,6 +1778,110 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Test-only seam for <c>AdvancedParams.AllowNegativeCurrency</c>. Production reads
+        /// the live game parameter. Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<bool> AllowNegativeCurrencyProviderForTesting;
+
+        /// <summary>
+        /// Stock <c>AdvancedParams.AllowNegativeCurrency</c> (Moderate / Hard presets): when
+        /// on, <c>Funding.AddFunds</c> / <c>SetFunds</c> and
+        /// <c>ResearchAndDevelopment.AddScience</c> / <c>SetScience</c> skip their
+        /// <c>Math.Max(0, pool)</c> clamp, so an involuntary debit (a contract failure
+        /// penalty) can leave the pool negative. Null-guarded: no live game reads false.
+        /// </summary>
+        internal static bool ReadAllowNegativeCurrency()
+        {
+            var provider = AllowNegativeCurrencyProviderForTesting;
+            if (provider != null)
+                return provider();
+            try
+            {
+                var game = HighLogic.CurrentGame;
+                if (game == null || game.Parameters == null)
+                    return false;
+                var advanced = game.Parameters.CustomParams<GameParameters.AdvancedParams>();
+                return advanced != null && advanced.AllowNegativeCurrency;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "allow-negative-currency-read",
+                    $"ReadAllowNegativeCurrency: read failed ({ex.GetType().Name}) - treating as off");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// The pool target the patch writes. The module's available value is floored at 0
+        /// (the committed future may not be spent past zero). With
+        /// <c>AllowNegativeCurrency</c> on, stock itself leaves a pool below zero after an
+        /// involuntary debit (a contract failure penalty); the floored target then sits above
+        /// that live deficit, the uplift guard reads the gap as a missing spending channel on
+        /// every recalc, and an authoritative recalc lifts the deficit to 0.
+        ///
+        /// <para>With the flag on the target may go below zero, but only by a deficit that
+        /// ALREADY EXISTS now: the lower of the ledger's running balance at the current UT
+        /// and the live pool, capped at 0, and never below the projected minimum. The
+        /// projected minimum alone also covers every FUTURE committed row, so using it would
+        /// write a reserved future deficit (a committed spend a superseded reward no longer
+        /// covers) into the live pool before any debit happened. Flag off keeps the floored
+        /// target (stock clamps at 0 anyway). Pure.</para>
+        /// </summary>
+        internal static double ResolveNegativeCurrencyPatchTarget(
+            double flooredAvailable, double unflooredMinBalance,
+            double runningBalanceNow, double currentLive, bool allowNegativeCurrency)
+        {
+            if (!allowNegativeCurrency) return flooredAvailable;
+            if (double.IsNaN(unflooredMinBalance) || double.IsInfinity(unflooredMinBalance))
+                return flooredAvailable;
+            if (flooredAvailable > 0.0 || unflooredMinBalance >= 0.0) return flooredAvailable;
+
+            double existingDeficit = 0.0;
+            if (!double.IsNaN(runningBalanceNow) && runningBalanceNow < existingDeficit)
+                existingDeficit = runningBalanceNow;
+            if (!double.IsNaN(currentLive) && currentLive < existingDeficit)
+                existingDeficit = currentLive;
+            return unflooredMinBalance > existingDeficit ? unflooredMinBalance : existingDeficit;
+        }
+
+        /// <summary>The funds patch target <see cref="PatchFunds"/> writes (before the drawdown guard).</summary>
+        internal static double ResolveFundsPatchTarget(
+            FundsModule funds, double currentLive, bool allowNegativeCurrency)
+        {
+            return ResolveNegativeCurrencyPatchTarget(
+                "funds", funds.GetAvailableFunds(), funds.GetProjectionMinBalance(),
+                funds.GetRunningBalance(), currentLive, allowNegativeCurrency);
+        }
+
+        /// <summary>The science patch target <see cref="PatchScience"/> starts from (before its pending adjusters).</summary>
+        internal static double ResolveSciencePatchBaseTarget(
+            ScienceModule science, double currentLive, bool allowNegativeCurrency)
+        {
+            return ResolveNegativeCurrencyPatchTarget(
+                "science", science.GetAvailableScience(), science.GetProjectionMinBalance(),
+                science.GetRunningScience(), currentLive, allowNegativeCurrency);
+        }
+
+        private static double ResolveNegativeCurrencyPatchTarget(
+            string resource, double flooredAvailable, double unflooredMinBalance,
+            double runningBalanceNow, double currentLive, bool allowNegativeCurrency)
+        {
+            double target = ResolveNegativeCurrencyPatchTarget(
+                flooredAvailable, unflooredMinBalance, runningBalanceNow, currentLive,
+                allowNegativeCurrency);
+            if (target != flooredAvailable)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "negative-currency-target|" + resource,
+                    $"Patch target for {resource}: AllowNegativeCurrency on, existing deficit " +
+                    $"{target.ToString("F1", IC)} kept below zero " +
+                    $"(running={runningBalanceNow.ToString("F1", IC)} live={currentLive.ToString("F1", IC)} " +
+                    $"projectedMin={unflooredMinBalance.ToString("F1", IC)} " +
+                    $"floored available={flooredAvailable.ToString("F1", IC)})");
+            }
+            return target;
+        }
+
+        /// <summary>
         /// Patches KSP's fund balance to match the module's available funds.
         /// Uses AddFunds with a computed delta to reach the target value.
         /// No-op if Funding.Instance is null (sandbox mode).
@@ -1809,7 +1914,8 @@ namespace Parsek
             }
 
             double currentFunds = Funding.Instance.Funds;
-            double targetFunds = funds.GetAvailableFunds();
+            double targetFunds = ResolveFundsPatchTarget(
+                funds, currentFunds, ReadAllowNegativeCurrency());
 
             // "Keep what you earned" guard (plan §3.3 / §4.2): clamp keyed on the
             // NON-RESERVED running balance, not the reservation-aware available target.
@@ -4286,6 +4392,7 @@ namespace Parsek
         {
             SuppressUnityCallsForTesting = false;
             PartPurchaseLiveUtProviderForTesting = null;
+            AllowNegativeCurrencyProviderForTesting = null;
             protoTechNodesReflectionWarnEmitted = false;
             scienceSubjectsReflectionWarnEmitted = false;
             ResetDrawdownGuardSessionLatches();
