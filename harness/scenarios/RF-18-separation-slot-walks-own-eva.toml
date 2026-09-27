@@ -1,0 +1,171 @@
+schema = 1
+id = "RF-18-separation-slot-walks-own-eva"
+# RENAMED from RF-16 before merge: a parallel branch landed RF-16 / RF-17 (the Hard-preset
+# re-fly lanes) first. The reading run below was flown under the old id, so its results
+# directory is `2026-09-27_1334_RF-16-separation-slot-walks-own-eva`.
+# =====================================================================================
+# THE SEPARATION SLOT FOLLOWS ITS VESSEL THROUGH THE CREW'S OWN EVA (owner ruling
+# 2026-09-27, todo REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA, design
+# docs/parsek-rewind-to-separation-design.md section 1.6).
+#
+# GS-2's host and flight, unchanged up to its dwell: the crewed Kerbal X stack parked at
+# ~100 km fires its decoupler in orbit, the split authors a staging RewindPoint (focus =
+# the crewed pod stack, slot origin = the root recording that keeps flying through the
+# split, section 4.8), and the released probe core coasts away. THEN, before the scene
+# exit, Valentina steps out of the pod stack (EvaExit, on the ladder) and climbs back in
+# (EvaBoard). The EVA is a split in the recording DAG with NO Rewind Point (section 1.5),
+# and the Board re-merges the pod stack with its own crew.
+#
+# WHAT THIS LANE PROVES LIVE, on recorder-produced topology rather than a hand-built
+# tree: the pod stack slot's walk crosses the EVA branch point to the vessel
+# continuation (same pid) and the Board to the merged vessel, and the classifier reads
+# the slot's terminal on the REAL tip. Before the ruling the walk stopped at the EVA and
+# the verdict read `reason=downstreamBp`; now it reads the focus-slot verdict
+# `reason=stableTerminalFocusSlot` carrying `walkedEva=1 walkedBoard=1`. The probe slot
+# still opens its Unfinished Flight and the RewindPoint survives, exactly as GS-2.
+#
+# FLOWN: reading run `2026-09-27_1334` PASS attempt 1 (as RF-16; caught one mid-stretch
+# walk reading the Board as foreign - fixed, token now forbidden), re-flight
+# `2026-09-27_1439` PASS attempt 1 on the merged branch (DLL sha256 `4ef9e054...`).
+#
+# WHAT IT DOES NOT PROVE, and where that is proven instead. The pod stack is the FOCUS
+# slot ending Orbiting, so it is not itself an Unfinished Flight (stock physics cannot
+# crash a vessel parked in a stable orbit inside the seam's verbs, and no verb opens a
+# stable focus leaf: StashSlot is reserved, unimplemented). So the Re-Fly of the pod
+# stack, the closure admitting the EVA kerbal, the EVA death tombstone and the
+# foreign-vessel block are proven headlessly in `ReFlyThroughEvaTests` over the
+# `ReFlyThroughEvaFixture` generator, including an end-to-end CommitSupersede and the
+# splitter cutting the spanning tree-branching parent.
+tier = "operator"
+description = "GS-2's in-orbit staging split, then an EVA and re-board from the crewed pod stack: the pod stack slot walks through its own EVA and Board to the real tip (walkedEva=1 walkedBoard=1, focus verdict, not downstreamBp) while the probe slot still opens an Unfinished Flight and the RewindPoint survives."
+instanceProfile = "stock-minimal"
+tags = ["RF18", "rewind", "unfinished-flights", "eva", "board", "staging", "orbital", "auto-merge", "scene-exit"]
+
+[fixture]
+# GS-2's committed template: the crewed Kerbal X stack (Valentina Kerman, Bob Kerman)
+# with its probe-cored core still attached, parked at ~100 km.
+saveTemplate       = "fixtures/saves/gs2-orbital-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs2_orbital_probe_deploy"
+
+# GS-2's steps, plus EvaExit / EvaBoard between the mission and the scene exit. The
+# kerbal stays on the ladder (no release), so EvaBoard re-boards at ~0 m; EvaBoard with
+# no target prefers the pod the same process just exited (lastEvaExitFromPid), so the
+# drifting probe core cannot be picked. settleSeconds=10 lets the EVA split's recorder
+# sample the kerbal before the board.
+steps = [
+  { cmd = "LoadGame",        args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",      args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",      args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",      args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                           expect = "OK" },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 300 },
+  { cmd = "EvaExit",         args = { kerbal = "Valentina Kerman", settleSeconds = "10" }, expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",                                                                 expect = "OK", budget = 120 },
+  { cmd = "ExitToSpaceCenter",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[driver.missionParams]
+settleSituations = ["ORBITING"]
+settleDebounceFrames = 3
+settleTimeoutSeconds = 120
+deployTimeoutSeconds = 60
+deployDebounceFrames = 2
+postDeployDwellSeconds = 45
+postDeployDebounceFrames = 3
+postDeployTimeoutSeconds = 180
+minSafePeriapsisMeters = 75000
+siblingVesselName = "Kerbal X Probe"
+
+[dimensionsCovered]
+# Claims nothing new: the cells below are GS-2's, re-claimed because this lane flies
+# the same split and commit. The subject (the walk) is a Re-Fly membership rule, not a
+# registry dimension value.
+D1 = ["commit-scene-exit", "auto-merge"]
+D5 = ["controlled-decoupled-child"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# MEASURED on the reading run `2026-09-27_1334` (PASS attempt 1): exactly 5 - the pod
+# stack root, the released probe, the pod stack's continuation after the EVA, the
+# kerbal, and the pod stack merged at the Board. Exact, because logContracts are
+# presence-only and this is the one numeric guard on the EVA / Board topology.
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+# GROUP 1 - GS-2's split and RewindPoint (MEASURED on GS-2).
+# GROUP 2 - THE EVA AND BOARD, no Rewind Point at the EVA (EVA-3's measured token for
+#   the no-RP line; "Tree branch created: type=EVA" and "detected boarding from EVA" are
+#   EVA-1 / EVA-2 / EVA-3 measured).
+# GROUP 3 - THE WALK (NEW, derived from the emitting sites, verbose):
+#   "SwitchContinuationWalk: hop from=... to=... bp=... hop=N kind=eva|board"
+#       EffectiveState.WalkSlotVessel (VerboseRateLimited, first emission prints).
+#   "IsUnfinishedFlight=false rec=... reason=stableTerminalFocusSlot ... walkedEva=1 walkedBoard=1"
+#       UnfinishedFlightClassifier.LogVerdict at the CommitTree promotion pass. The
+#       walked counts exist only when the classifier read the slot's terminal THROUGH
+#       the EVA and the Board, so this line cannot be produced by the pre-ruling build,
+#       whose verdict for the same slot was reason=downstreamBp.
+# GROUP 4 - GS-2's commit, the probe's Unfinished Flight and the non-reap (MEASURED).
+required  = ["Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2 focusSlot=[01]",
+             "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
+             "Tree branch created: type=EVA",
+             "\\[Rewind\\] Split type=EVA: no Rewind Point \\(Re-Fly is for vessel separations only\\) bp=[0-9a-f]{32}",
+             "detected boarding from EVA",
+             "SwitchContinuationWalk: hop from=\\S+ to=\\S+ bp=\\S+ hop=[0-9]+ kind=eva",
+             "SwitchContinuationWalk: hop from=\\S+ to=\\S+ bp=\\S+ hop=[0-9]+ kind=board",
+             "IsUnfinishedFlight=false rec=\\S+ reason=stableTerminalFocusSlot .*walkedEva=1 walkedBoard=1",
+             "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+             "CommitTreeSceneExit: stashed pending tree",
+             "CommitTree: promoted 1 normal staging RP\\(s\\)",
+             "CommitTree promoted (?:chain-tip )?rec=\\S+ .*reason=stableLeafUnconcluded to CommittedProvisional",
+             "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+             "OnSave: saving 1 committed tree\\(s\\)",
+             "ReapOrphanedRPs: reaped=0 remaining=[1-9][0-9]*"]
+# `reason=boardForeignParent` is forbidden since the second flight: the reading run
+# `2026-09-27_1334` printed it ONCE, from a walk that started at the pod stack's
+# continuation after the EVA (a slot member) and so read Valentina's Board as foreign.
+# The walk now registers the crew of every own EVA behind its start
+# (`EffectiveState.PreRegisterOwnEvaCrewBehind`), and nothing in this flight boards a
+# foreign vessel, so the token must not appear. The kerbal's own walk still stops at
+# the Board with `boardNotSameVessel`, which is correct and not forbidden.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "Reaped rp=",
+             "reason=boardForeignParent"]
+
+[expectations.rewind]
+# REPORT-ONLY. The reading run `2026-09-27_1334` measured rewindPoints 1, supersedeRows 0,
+# tombstones 0 - inside these windows. Arming is the operator's per-scenario call.
+rewindPoints  = { min = 1 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY, pinned to the reading run `2026-09-27_1334`: 5 recordings, one JointBreak,
+# one EVA, one Board; terminals Orbiting 2 (probe, merged pod stack) and Boarded 2 (the
+# kerbal, and the pod stack's continuation the Board ended - which is why the slot's
+# hard-safety terminal must be read on the walked tip, not there).
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 5, max = 5 }
+terminalStates = { Orbiting = { min = 2 }, Boarded = { min = 2 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 }, EVA = { min = 1, max = 1 }, Board = { min = 1, max = 1 } }
+
+[runtime]
+# GS-2's 1100 plus 120 EvaExit + 120 EvaBoard.
+budgetSeconds = 1340
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

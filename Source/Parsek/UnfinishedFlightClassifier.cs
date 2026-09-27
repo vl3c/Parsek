@@ -21,6 +21,15 @@ namespace Parsek
         internal const string EvaNotSeparationReason = "evaNotSeparation";
 
         /// <summary>
+        /// Non-qualifying verdict for a separation slot whose vessel put a crew
+        /// member out on EVA after the separation, and that kerbal then joined a
+        /// DIFFERENT vessel (boarded it, or his EVA history otherwise merged into a
+        /// foreign vessel). A downstream structural / world interaction, like
+        /// <c>downstreamBp</c> (owner ruling 2026-09-27, rule 2).
+        /// </summary>
+        internal const string EvaCrewJoinedForeignVesselReason = "evaCrewJoinedForeignVessel";
+
+        /// <summary>
         /// Resolves the type of the branch point <paramref name="rp"/> was
         /// authored at, through the tree that owns <paramref name="rec"/>
         /// (the pending <paramref name="treeContext"/> first, then the committed
@@ -155,22 +164,33 @@ namespace Parsek
                 return false;
             }
 
-            // Walks chain hops AND VesselSwitchContinuation branch points. A
-            // stock Fly / Switch-To glance opens a new segment on the SAME
-            // vessel; the segment carries the terminal, and the branch point
-            // between them is an observation boundary, not a downstream split.
-            // Real splits (Undock / Dock / EVA / Board / …) still stop the walk,
-            // so the downstreamBp reject below keeps its original meaning. The
-            // (rec, slot, rp) subject and branchSide stay the ORIGIN's — only
-            // the terminal is read through the segment.
-            Recording chainTip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(
-                rec, treeContext);
+            // Walks chain hops, VesselSwitchContinuation branch points, and (owner
+            // ruling 2026-09-27) the vessel's own EVA branch points plus a Board
+            // that re-merges the same vessel with its own EVA crew. A stock Fly /
+            // Switch-To glance, or a crew member stepping out for a report and
+            // climbing back in, does not end the vessel's flight: the terminal
+            // lives on the segment after it. Real splits (Undock / Dock /
+            // JointBreak / Breakup / a Board by a foreign kerbal) still stop the
+            // walk, so the downstreamBp reject below keeps its original meaning.
+            // The (rec, slot, rp) subject and branchSide stay the ORIGIN's - only
+            // the terminal is read through the walked segments.
+            //
+            // The walk starts at the slot stretch's HEAD, not at rec: a later vessel
+            // segment of the same walked stretch (the continuation after an EVA) is a
+            // slot member too, and it must reach the same verdict as the origin -
+            // including the own-EVA crew registered at an EVA it never crossed itself
+            // (rule 2) and the retry-blocking science they earned.
+            Recording stretchHead = ResolveSlotStretchHead(rec, slot, treeContext);
+            SlotVesselWalk walk = EffectiveState.WalkSlotVessel(
+                stretchHead, treeContext, followOwnEvaBoard: true, collectDetail: true);
+            Recording chainTip = walk?.Tip;
             if (chainTip == null)
             {
                 reason = "noTerminal";
                 LogVerdict(false, recId, reason, "tip=<null>");
                 return false;
             }
+            branchSide = WithWalkCounts(branchSide, walk);
 
             if (!string.IsNullOrEmpty(chainTip.ChildBranchPointId)
                 && !string.Equals(chainTip.ChildBranchPointId, rp.BranchPointId, StringComparison.Ordinal))
@@ -185,10 +205,29 @@ namespace Parsek
                 {
                     reason = "downstreamBp";
                     LogVerdict(false, recId, reason,
-                        $"chainTipChildBp={chainTip.ChildBranchPointId} matchedRpBp={rp.BranchPointId ?? "<none>"} " +
-                        $"downstreamRp={hasResolvedDownstreamRp}");
+                        WithBranchSide(
+                            $"chainTipChildBp={chainTip.ChildBranchPointId} matchedRpBp={rp.BranchPointId ?? "<none>"} " +
+                            $"downstreamRp={hasResolvedDownstreamRp} walkStop={walk.StopReason ?? "<none>"}",
+                            branchSide));
                     return false;
                 }
+            }
+
+            // Owner ruling 2026-09-27 rule 2: a crew member who stepped out of this
+            // vessel after the separation and joined a DIFFERENT vessel (boarded it,
+            // or his EVA history otherwise merged into a foreign vessel) is a
+            // downstream structural / world interaction - the re-fly could not
+            // rewrite the other vessel's history. A kerbal left standing on EVA, or
+            // who died on it, does not block.
+            if (walk.HasForeignJoin)
+            {
+                reason = EvaCrewJoinedForeignVesselReason;
+                LogVerdict(false, recId, reason,
+                    WithBranchSide(
+                        $"kerbalRec={walk.ForeignJoinKerbalRecordingId ?? "<none>"} " +
+                        $"joinBp={walk.ForeignJoinBranchPointId} joinType={walk.ForeignJoinBranchPointType}",
+                        branchSide));
+                return false;
             }
 
             if (chainTip.TerminalStateValue.HasValue
@@ -199,12 +238,36 @@ namespace Parsek
                 // not suppress the older playable split.
                 return TerminalOutcomeQualifiesInternal(
                     rec, recId, chainTip, slot, rp, out reason, branchSide,
-                    focusSlotOverride);
+                    focusSlotOverride, safetySubject: stretchHead);
             }
 
             return TerminalOutcomeQualifiesInternal(
                 rec, recId, chainTip, slot, rp, out reason, branchSide,
-                focusSlotOverride);
+                focusSlotOverride, safetySubject: stretchHead);
+        }
+
+        /// <summary>
+        /// The head of the own-vessel stretch <paramref name="rec"/> sits on: walked
+        /// BACKWARD across switch-continuation, own-EVA and same-vessel-Board branch
+        /// points (<see cref="EffectiveState.CollectOwnVesselStretchBackward"/>), stopping
+        /// at the slot's origin and at a re-fly fork. <paramref name="rec"/> itself when
+        /// it heads its stretch (the common case: a slot origin or a fork).
+        /// </summary>
+        internal static Recording ResolveSlotStretchHead(
+            Recording rec, ChildSlot slot, RecordingTree treeContext)
+        {
+            if (rec == null) return null;
+            if (slot != null
+                && string.Equals(rec.RecordingId, slot.OriginChildRecordingId, StringComparison.Ordinal))
+                return rec;
+            if (string.IsNullOrEmpty(rec.ParentBranchPointId) && string.IsNullOrEmpty(rec.ChainId))
+                return rec;
+            List<Recording> back = EffectiveState.CollectOwnVesselStretchBackward(
+                rec, treeContext, slot?.OriginChildRecordingId, double.NaN,
+                stopBeforeSpanningRewind: false,
+                alsoStopAtRecordingIds: EffectiveState.CollectSupersedeDestinationIds(
+                    GetScenarioSupersedes(ParsekScenario.Instance)));
+            return back.Count > 0 ? back[back.Count - 1] : rec;
         }
 
         internal static bool TerminalOutcomeQualifies(
@@ -226,10 +289,14 @@ namespace Parsek
             RewindPoint rp,
             out string reason,
             string branchSide,
-            int? focusSlotOverride)
+            int? focusSlotOverride,
+            Recording safetySubject = null)
         {
             reason = null;
             TerminalState? terminal = chainTip?.TerminalStateValue;
+            // The retry-blocking action scan reads the slot stretch's head so every
+            // stretch member sees the same walked history (see TryQualify).
+            Recording safetyRec = safetySubject ?? rec;
 
             // Re-Fly is for vessel separations only (owner ruling 2026-09-27): an
             // EVA kerbal is never an Unfinished Flight, whatever its terminal
@@ -258,7 +325,7 @@ namespace Parsek
             if (terminal.Value == TerminalState.Destroyed)
             {
                 if (TryRejectRecordingScopedWorldAction(
-                    rec, recId, out reason, WithBranchSide("terminal=Destroyed", branchSide)))
+                    safetyRec, recId, out reason, WithBranchSide("terminal=Destroyed", branchSide)))
                     return false;
 
                 reason = "crashed";
@@ -299,7 +366,7 @@ namespace Parsek
                         $"slot={overrideSlotListIndex} focusSlot={rp.FocusSlotIndex} focusSlotOverride={focusSlotOverride.Value} terminal={terminal.Value}",
                         branchSide);
                     if (TryRejectRecordingScopedWorldAction(
-                        rec, recId, out reason, overrideDetail))
+                        safetyRec, recId, out reason, overrideDetail))
                         return false;
 
                     reason = "stableTerminalFocusSlot";
@@ -316,7 +383,7 @@ namespace Parsek
                     $"slot={stashedSlotListIndex} focusSlot={focusSlotIndex} terminal={terminal.Value} stashedRealTime={slot.StashedRealTime ?? "<none>"}",
                     branchSide);
                 if (TryRejectRecordingScopedWorldAction(
-                    rec, recId, out reason, detail))
+                    safetyRec, recId, out reason, detail))
                     return false;
 
                 reason = "stashedStableLeaf";
@@ -385,7 +452,7 @@ namespace Parsek
                     $"slot={slotListIndex} focusSlot={focusSlotLogValue} terminal={terminal.Value}",
                     branchSide);
                 if (TryRejectRecordingScopedWorldAction(
-                    rec, recId, out reason, detail))
+                    safetyRec, recId, out reason, detail))
                     return false;
 
                 reason = "stableLeafUnconcluded";
@@ -955,6 +1022,20 @@ namespace Parsek
             }
 
             return slot != null ? slot.SlotIndex : -1;
+        }
+
+        /// <summary>
+        /// Appends the slot-vessel walk's EVA / Board hop counts to the verdict's side
+        /// token (<c>side=child walkedEva=1 walkedBoard=1</c>) when the walk crossed any,
+        /// so a verdict read through a crew member's EVA is greppable. A walk with no
+        /// EVA / Board hop leaves the token unchanged.
+        /// </summary>
+        internal static string WithWalkCounts(string branchSide, SlotVesselWalk walk)
+        {
+            if (walk == null || (walk.EvaHops == 0 && walk.BoardHops == 0))
+                return branchSide;
+            string counts = $"walkedEva={walk.EvaHops} walkedBoard={walk.BoardHops}";
+            return string.IsNullOrEmpty(branchSide) ? counts : branchSide + " " + counts;
         }
 
         private static string WithBranchSide(string details, string branchSide)

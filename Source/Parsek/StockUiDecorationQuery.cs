@@ -104,7 +104,11 @@ namespace Parsek
         /// count's own subtraction rule, or null (<c>StandInSeatCount.SeatSharedOwner</c>):
         /// only then does the stand-in's tooltip say it does not count against the limit.</summary>
         internal Func<string, string> SeatSharedOwner;
-        internal Func<string, bool> IsLoopingRecording;
+        /// <summary>True when an open Re-Fly would rewrite the given (death) recording, so
+        /// a Lost explanation may name the Re-Fly way back
+        /// (<see cref="KerbalsPresentation.ShouldOfferLostReFlyRemedy"/>); null offers it
+        /// never.</summary>
+        internal Func<string, bool> LossReFlyReachable;
         /// <summary>Names already in the live Crew or Tourist lists: a committed future
         /// hire of one of them is moot, so it is not marked.</summary>
         internal ISet<string> LiveCrewOrTourist;
@@ -339,8 +343,8 @@ namespace Parsek
             string kerbalName,
             KerbalsModule.KerbalReservation reservation,
             string slotOwner,
-            Func<string, bool> isLoopingRecording,
-            Func<double, string> formatDate)
+            Func<double, string> formatDate,
+            Func<string, bool> lossReFlyReachable = null)
         {
             if (KerbalsModule.IsLossHold(reservation))
             {
@@ -357,7 +361,9 @@ namespace Parsek
                 return ReservationExplanation.KerbalLost(
                     death?.RecordingName,
                     KerbalsModule.LossRespawnUT(reservation),
-                    formatDate);
+                    formatDate,
+                    offerReFlyRemedy: KerbalsPresentation.ShouldOfferLostReFlyRemedy(
+                        death?.RecordingId, lossReFlyReachable));
             }
 
             double release = reservation != null ? reservation.ReservedUntilUT : double.PositiveInfinity;
@@ -369,10 +375,7 @@ namespace Parsek
                 SlotOwner = slotOwner,
                 FlightName = holdRow?.RecordingName,
                 EndState = holdRow != null ? holdRow.EndState : KerbalEndState.Unknown,
-                ReleaseUT = release,
-                IsLooping = holdRow != null && holdRow.RecordingId != null
-                    && isLoopingRecording != null && isLoopingRecording(holdRow.RecordingId),
-                FlightEndUT = holdRow != null ? holdRow.EndUT : double.NaN
+                ReleaseUT = release
             };
             return ReservationExplanation.KerbalOnFlight(hold, formatDate);
         }
@@ -579,7 +582,8 @@ namespace Parsek
                     var reservation = context.Reservation != null ? context.Reservation(name) : null;
                     string owner = context.SlotOwner != null ? context.SlotOwner(name) : null;
                     var text = StockUiReservationPredicates.ExplainKerbalReservation(
-                        index, name, reservation, owner, context.IsLoopingRecording, formatDate);
+                        index, name, reservation, owner, formatDate,
+                        context.LossReFlyReachable);
                     Mark(ref d,
                         KerbalsModule.IsLossHold(reservation)
                             ? StockUiDecorationKind.KerbalLost

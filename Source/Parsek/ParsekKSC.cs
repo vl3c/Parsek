@@ -1926,7 +1926,8 @@ namespace Parsek
         /// <c>TryQueueLoopFirstRunSpawn</c>): when a looping recording's real playhead crosses
         /// its own EndUT, attempt its terminal spawn once through the ordinary
         /// <see cref="TrySpawnAtRecordingEnd"/>, which applies <c>ShouldSpawnAtKscEnd</c>
-        /// (VesselSpawned, chain rules including "chain looping", the #573 rewind block).
+        /// (VesselSpawned, the chain-tip rule, the #573 rewind block). A looped chain tip
+        /// spawns here too: a looped phase keeps the chain's first run real (design 12.7).
         /// The cheap pre-gates here keep the one-shot <c>kscSpawnAttempted</c> latch from
         /// being consumed early: a historical (never replayed) recording, an already
         /// spawned one, and the frames while a rewind's UT correction is still pending
@@ -1989,6 +1990,10 @@ namespace Parsek
                     $"Spawn not needed for #{recIdx} \"{rec.VesselName}\": {reason}");
                 return;
             }
+
+            if (!string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainLooping(rec.ChainId))
+                GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
+                    "KSCSpawn", "SPACECENTER", recIdx, rec, Planetarium.GetUniversalTime(), true);
 
             try
             {

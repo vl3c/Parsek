@@ -4021,6 +4021,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H52-reentry-fx":            ("ReentryFx", 3, "FLIGHT"),
         "H53-scene-and-patch":       ("SceneAndPatch", 7, "FLIGHT"),
         "H54-missions":              ("Missions", 13, "FLIGHT"),
+        # KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN's live half (2026-09-27): two FLIGHT
+        # cells over b1-pad-craft's seated Jeb. LIVE-PROVEN on its reading run
+        # 2026-09-27_1339 (`passed=2 skipped=0`); the pin is whole.
+        "H72-kerbal-inventory-spawn": ("KerbalInventorySpawn", 2, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -4316,6 +4320,19 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # both PASS attempt 1, measured the prediction, `passed=3 failed=0 skipped=0`, and both
     # specs took the line WHOLE. Like CN-1 they are not H-series ids, so this class's own
     # cells never read them; CommittedBatchTallySourceSyncTests gates their `total=`.
+    #
+    # H72-kerbal-inventory-spawn ENTERED on 2026-09-27 (the KerbalInventorySpawn category, 2
+    # FLIGHT cells, `total=2` literal with the split regexed, predicted passed=2 skipped=0 and
+    # already required cell by cell through the runner's PASSED lines) and LEFT the same day:
+    # its reading run 2026-09-27_1339 (PASS attempt 1) measured the prediction, `passed=2
+    # failed=0 skipped=0`, and the spec took the line WHOLE.
+    #
+    # AH-1-auto-hire-reserved-applicant ENTERED on 2026-09-27 (the new AutoHireReservation
+    # category, 1 SPACECENTER cell, `total=1` literal with the split regexed, predicted
+    # 1 / 0). Like CN-1 it is not an H-series id, so this class's own cells never read it;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT the same day: its
+    # reading run 2026-09-27_1341 (PASS attempt 1) measured the prediction, `passed=1
+    # failed=0 skipped=0`, and the spec pinned the line whole.
     INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -4398,8 +4415,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(44, len(self.GROUP),
-                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 group is 44 "
+        self.assertEqual(45, len(self.GROUP),
+                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 + H72 group is 45 "
                          "specs; if it genuinely changed size, update this floor AND the "
                          "counts in docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -9680,6 +9697,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE REWIND READ-BACK GUARD PAIR, 2026-09-27.
+        "RB-1-rewind-readback-divergence.toml": "tier=operator on the calibration-discipline shape, NOT debt: the first live FLAGGED DIVERGENCE (a Step-3b resurrected-recovery retirement after a post-RP hire, on the rewind-readback preset over career-science-pad with the L3 Flea flight). Owed: only the ordinary promotion call",
+        "RB-2-rewind-readback-within-range.toml": "tier=operator on the calibration-discipline shape, NOT debt: RB-1's control (the same flight and retirement with no post-RP spend, so the guard must read within-expected-range). Owed: only the ordinary promotion call",
         # THE D17 PERSISTENT-ROTATION LANE, 2026-09-26.
         "MC-5-persistent-rotation.toml": "tier=operator on the calibration-discipline shape, NOT debt: the D17 `persistent-rotation` host (the pinned PersistentRotationUpgraded on modded-compat, the SpinVessel verb, a loop replay of the spin-forward segment). Reading `2026-09-26_1849`, armed re-flight `_1853` PASS attempt 1 with ghostLifecycle GATING, offline negative control red on every seeded fault; D17 claimed. Owed: only the ordinary promotion call (MC-3's nightly slot beside it)",
         # THE D17 MAKING-HISTORY LANE, 2026-09-25.
@@ -9998,6 +10018,21 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "and an ordinary save + load. Reading 2026-09-24_1718 found a product "
             "defect in the first build (fixed); re-flight 2026-09-24_1811 PASS, rewind "
             "block armed off it. Discharged: cadence promotion is the only step left, a "
+            "human call",
+        "RF-18-separation-slot-walks-own-eva.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-27 as the live lane "
+            "of REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA (owner ruling: a separation slot "
+            "follows its vessel through the crew's own EVA and re-board): GS-2's split, "
+            "then EvaExit + EvaBoard from the pod stack. Reading 2026-09-27_1334 PASS, "
+            "re-flight 2026-09-27_1439 PASS. Discharged: arming the report-only blocks "
+            "and cadence promotion are the steps left, a human call",
+        "RF-19-refly-session-eva-reboard-merges.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-27 as the live lane "
+            "of REFLY-SESSION-EVA-CANNOT-SUPERSEDE (PR #1907 review): RF-13's re-fly to "
+            "orbit, then EvaExit + EvaBoard inside the live session and a merge that must "
+            "supersede and seal. Reading 2026-09-27_1532 PASS, offline negative control "
+            "red on the pre-fix shape; rewind + structure ARMED 2026-09-27 on the owner "
+            "ruling of 2026-09-27. Discharged: cadence promotion is the step left, a "
             "human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
@@ -10977,6 +11012,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # other two stay floors because a subtree closure's row and
                        # tombstone counts depend on what each break-up sheds.
                        "RF-11-both-slots-in-sequence.toml",
+                       # RF-19: `rewind` + `recordings.structure` armed 2026-09-27 on the
+                       # owner ruling of 2026-09-27, off the reading run `2026-09-27_1532`
+                       # (supersedeRows 1, tombstones 2; branchPoints EVA 1 / Board 1);
+                       # armed confirmation `2026-09-27_1621` PASS attempt 1.
+                       "RF-19-refly-session-eva-reboard-merges.toml",
                        # CI-1: `structure` armed 2026-09-08 off its own reading run
                        # `2026-09-08_1054_CI-1-eva-switch-bg-member` (trees {1,2} for the
                        # duplicate-writer hazard, committedTrees 0, recordings 4,
@@ -13022,6 +13062,10 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     # ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
     # workflow.
     GHOSTLIFE_ARMED_SPECS = {
+        # ARMED 2026-09-27 off the reading run `2026-09-27_1243_OC-1-overlap-cap-per-recording`
+        # (PASS attempt 1): peakLive 20 (the per-recording cap reached, never exceeded),
+        # spawnLines = destroyLines = 34, 14 `overlap expired`.
+        "OC-1-overlap-cap-per-recording.toml",
         # ARMED 2026-09-26 off the reading run `2026-09-26_1849_MC-5-persistent-rotation`
         # (PASS attempt 1): 53 AfterUpdate lines, all `checkpoint-orbit-spin`, dRotDeg=0.000,
         # sweep 40.33 deg (0.8 rad/s over 0.88 s). Armed re-flight `_1853` PASS (60 lines,
@@ -13343,6 +13387,12 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # follow the reading run through GHOSTLIFE_ARMED_SPECS, on GS-4's
         # discipline.
         "RF-8-ghost-during-refly.toml",
+        # THE PER-RECORDING OVERLAP CAP (OC-1, 2026-09-27). Declares the v4 `peakLive`
+        # window at exactly 20 (the cap reached and never exceeded) and requires the
+        # `overlap expired` destroy reason. The windows are DERIVED, not censused: the
+        # preset's loop starts after the save clock, so every copy spawns under the
+        # tracer, and ceil(120 s / 6 s) = 20 copies is what the cap arithmetic allows.
+        "OC-1-overlap-cap-per-recording.toml",
     }
 
     def test_ghost_lifecycle_declarers_are_the_recorded_roster(self):

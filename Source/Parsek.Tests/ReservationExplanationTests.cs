@@ -113,7 +113,7 @@ namespace Parsek.Tests
             var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
             {
                 KerbalName = "Jeb", FlightName = "Mun Lander 3", EndState = KerbalEndState.Recovered,
-                ReleaseUT = 13000, FlightEndUT = 13000
+                ReleaseUT = 13000
             }, Fmt);
             Assert.Equal("Reserved until D130", text.Title);
             Assert.Equal("Flies 'Mun Lander 3' on your committed timeline. " + CrewRule + " Free after D130.", text.Body);
@@ -125,7 +125,7 @@ namespace Parsek.Tests
             var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
             {
                 KerbalName = "Jeb", FlightName = "Mun Lander 3", EndState = KerbalEndState.Aboard,
-                ReleaseUT = double.PositiveInfinity, FlightEndUT = 13000
+                ReleaseUT = double.PositiveInfinity
             }, Fmt);
             Assert.Equal("Reserved", text.Title);
             Assert.Equal("Flies 'Mun Lander 3' on your committed timeline. " + CrewRule
@@ -133,38 +133,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void KerbalOnFlight_RecoveredInALoop_StoppingTheLoopFreesThem()
+        public void KerbalOnFlight_OpenEndedHold_NeverNamesALoop()
         {
+            // The loop is visual only (design 12.7, operator ruling 2026-09-27): no hold is
+            // ever explained as held by a loop.
             var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
             {
                 KerbalName = "Jeb", FlightName = "Mun Lander 3", EndState = KerbalEndState.Recovered,
-                ReleaseUT = double.PositiveInfinity, IsLooping = true, FlightEndUT = 13000
+                ReleaseUT = double.PositiveInfinity
             }, Fmt);
-            Assert.Equal("Flies 'Mun Lander 3' on your committed timeline. " + CrewRule
-                + " Held while 'Mun Lander 3' loops. Stopping its loop frees them after D130.", text.Body);
-        }
-
-        [Fact]
-        public void KerbalOnFlight_OpenEndedRecovered_IsALoopHoldEvenWithTheFlagOff()
-        {
-            // A Recovered hold is finite unless its chain looped at the last walk.
-            var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
-            {
-                KerbalName = "Jeb", FlightName = "Mun Lander 3", EndState = KerbalEndState.Recovered,
-                ReleaseUT = double.PositiveInfinity, IsLooping = false, FlightEndUT = double.NaN
-            }, Fmt);
-            Assert.EndsWith("Held while 'Mun Lander 3' loops. Stopping its loop frees them when it ends.", text.Body);
-        }
-
-        [Fact]
-        public void KerbalOnFlight_AboardInALoop_TheLoopThenARecoveryEndIt()
-        {
-            var text = ReservationExplanation.KerbalOnFlight(new KerbalHold
-            {
-                KerbalName = "Val", FlightName = "Station Hop", EndState = KerbalEndState.Aboard,
-                ReleaseUT = double.PositiveInfinity, IsLooping = true
-            }, Fmt);
-            Assert.EndsWith("Held while 'Station Hop' loops, and then until it is recovered.", text.Body);
+            Assert.DoesNotContain("loop", text.Body);
+            Assert.EndsWith("Free once 'Mun Lander 3' is recovered.", text.Body);
         }
 
         [Fact]
@@ -193,13 +172,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void KerbalLost_UsesTheKerbalsWindowRemedy()
+        public void KerbalLost_UsesTheKerbalsWindowRemedy_OnlyWhenAReFlyReachesTheLoss()
         {
-            var named = ReservationExplanation.KerbalLost("Mun Lander 3");
+            // Owner ruling 2026-09-27: the Re-Fly way back is named only when an open
+            // Re-Fly would actually reach this loss.
+            var named = ReservationExplanation.KerbalLost(
+                "Mun Lander 3", offerReFlyRemedy: true);
             Assert.Equal("Lost", named.Title);
             Assert.Equal("Lost on the committed flight 'Mun Lander 3'. That flight is fixed history. "
                 + KerbalsPresentation.LostReFlyRemedy, named.Body);
             Assert.StartsWith("Lost on a committed flight.", ReservationExplanation.KerbalLost(null).Body);
+
+            var unreachable = ReservationExplanation.KerbalLost("Mun Lander 3");
+            Assert.Equal("Lost on the committed flight 'Mun Lander 3'. That flight is fixed history.",
+                unreachable.Body);
+            Assert.DoesNotContain("rewind point", unreachable.Body);
+        }
+
+        [Fact]
+        public void ExplainKerbalReservation_OffersTheRemedyOnlyForAReachableDeathRecording()
+        {
+            var index = CommittedFutureIndex.Build(
+                new List<GameAction>
+                {
+                    new GameAction
+                    {
+                        Type = GameActionType.KerbalAssignment, KerbalName = "Jeb",
+                        RecordingId = "rec-dead", UT = 100.0, StartUT = 100f, EndUT = 500f,
+                        KerbalEndStateField = KerbalEndState.Dead,
+                    },
+                },
+                id => true, id => "Mun Lander 3", null);
+            var hold = new KerbalsModule.KerbalReservation
+            {
+                KerbalName = "Jeb", ReservedUntilUT = double.PositiveInfinity, IsPermanent = true,
+            };
+
+            var reachable = StockUiReservationPredicates.ExplainKerbalReservation(
+                index, "Jeb", hold, null, Fmt, id => id == "rec-dead");
+            Assert.EndsWith(KerbalsPresentation.LostReFlyRemedy, reachable.Body);
+
+            var other = StockUiReservationPredicates.ExplainKerbalReservation(
+                index, "Jeb", hold, null, Fmt, id => id == "rec-other");
+            Assert.DoesNotContain(KerbalsPresentation.LostReFlyRemedy, other.Body);
+
+            var none = StockUiReservationPredicates.ExplainKerbalReservation(
+                index, "Jeb", hold, null, Fmt);
+            Assert.DoesNotContain(KerbalsPresentation.LostReFlyRemedy, none.Body);
         }
 
         [Fact]

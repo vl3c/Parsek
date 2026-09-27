@@ -213,6 +213,21 @@ namespace Parsek
             IReadOnlyList<RecordingSupersedeRelation> supersedes,
             IReadOnlyDictionary<string, Recording> recById,
             RecordingTree treeContext)
+            => EffectiveTipRecordingId(
+                originRecordingId, supersedes, recById, treeContext, followOwnEvaBoard: true);
+
+        /// <summary>
+        /// Core overload. <paramref name="followOwnEvaBoard"/> selects whether the
+        /// chain hop follows the vessel through its own EVA / same-vessel Board branch
+        /// points (owner ruling 2026-09-27, every slot consumer) or only through switch
+        /// continuations (the map-presence chain-tip segment borrow, a rendering read).
+        /// </summary>
+        internal static string EffectiveTipRecordingId(
+            string originRecordingId,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyDictionary<string, Recording> recById,
+            RecordingTree treeContext,
+            bool followOwnEvaBoard)
         {
             if (string.IsNullOrEmpty(originRecordingId))
                 return null;
@@ -272,7 +287,7 @@ namespace Parsek
                         || !string.IsNullOrEmpty(currentRec.ChildBranchPointId)))
                 {
                     Recording chainTip = ResolveTerminalRecordingAcrossSwitchContinuations(
-                        currentRec, treeContext);
+                        currentRec, treeContext, followOwnEvaBoard);
                     if (chainTip != null
                         && !string.IsNullOrEmpty(chainTip.RecordingId)
                         && !string.Equals(chainTip.RecordingId, current, StringComparison.Ordinal))
@@ -1265,113 +1280,207 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Hard bound on the switch-continuation walk in
-        /// <see cref="ResolveTerminalRecordingAcrossSwitchContinuations"/>. The
-        /// visited set already makes the walk cycle-safe; this is the belt-and-
-        /// braces stop for a pathological (acyclic but enormous) switch chain.
+        /// Hard bound on the slot-vessel walk in
+        /// <see cref="ResolveTerminalRecordingAcrossSwitchContinuations(Recording, RecordingTree)"/>
+        /// and <see cref="WalkSlotVessel"/>. The visited set already makes the walk
+        /// cycle-safe; this is the belt-and-braces stop for a pathological (acyclic but
+        /// enormous) chain of continuations.
         /// </summary>
         internal const int MaxSwitchContinuationHops = 64;
 
         /// <summary>
         /// Resolves the recording whose <c>TerminalStateValue</c> represents how
-        /// this vessel's engagement actually ENDED, following
-        /// <see cref="BranchPointType.VesselSwitchContinuation"/> branch points
-        /// in addition to the chain hops of
-        /// <see cref="ResolveChainTerminalRecording"/>.
-        ///
-        /// <para>
-        /// A <c>VesselSwitchContinuation</c> branch point is NOT a physical
-        /// split: it records that the player glanced at (or resumed flying) the
-        /// SAME vessel through a stock Fly / Switch-To click, so the recorder
-        /// opened a new segment. The vessel downstream of such a branch point is
-        /// the same vessel, and its terminal is this vessel's terminal. Every
-        /// other branch-point type (Undock / Dock / EVA / Board / JointBreak /
-        /// Breakup / …) IS a real downstream split and stops the walk, so
-        /// existing consumption semantics (the <c>downstreamBp</c> reject in
-        /// <see cref="UnfinishedFlightClassifier.TryQualify"/>) are preserved.
-        /// </para>
-        ///
-        /// <para>
-        /// A dangling switch branch point (no resolvable child recording, or more
-        /// than one claimant) stops the walk and returns the last resolved tip —
-        /// callers then see the pre-fix shape and take their existing path.
-        /// Cycle-safe via a visited set plus
-        /// <see cref="MaxSwitchContinuationHops"/>.
-        /// </para>
-        ///
-        /// <para>
-        /// <paramref name="treeContext"/> plumbing matters exactly as it does for
-        /// <see cref="ResolveChainTerminalRecording"/>: merge dialogs run
-        /// pre-commit, so the pending tree must be passed in rather than looked
-        /// up in <see cref="RecordingStore.CommittedTrees"/>.
-        /// </para>
-        ///
-        /// <para>
-        /// DELIBERATELY SUPERSEDE-BLIND. This walker follows tree topology only;
-        /// it does not consult <c>RecordingSupersedes</c>, so a hop can land on a
-        /// recording that a later re-fly has superseded. That is the SAME
-        /// one-level staleness the pre-existing chain hop inside
-        /// <see cref="ResolveChainTerminalRecording"/> already has, and it is
-        /// safe for the same reason: visibility / ERS filtering happens ABOVE
-        /// this call (see <see cref="IsVisible"/>,
-        /// <see cref="ComputeERS"/>, and the slot-anchor dedupe in
-        /// <c>TryResolveUnfinishedFlight</c>), and the composite chain+supersede
-        /// walk that slots need lives in
-        /// <see cref="EffectiveTipRecordingId(string, IReadOnlyList{RecordingSupersedeRelation})"/>.
-        /// Do not fold supersede hops in here without re-reading why those two
-        /// walkers are separate.
-        /// </para>
+        /// this vessel's engagement actually ENDED. Thin wrapper over
+        /// <see cref="WalkSlotVessel"/> that follows the vessel through its own EVA
+        /// and same-vessel Board branch points (owner ruling 2026-09-27). See
+        /// <see cref="WalkSlotVessel"/> for the hop rules.
         /// </summary>
         internal static Recording ResolveTerminalRecordingAcrossSwitchContinuations(
             Recording rec,
             RecordingTree treeContext)
+            => ResolveTerminalRecordingAcrossSwitchContinuations(
+                rec, treeContext, followOwnEvaBoard: true);
+
+        /// <summary>
+        /// Overload with an explicit <paramref name="followOwnEvaBoard"/> switch.
+        /// <c>false</c> restores the switch-continuation-only walk; the only caller
+        /// that passes it is the map-presence chain-tip segment borrow in
+        /// <c>GhostMapPresence</c>, which is a rendering read, not a slot question.
+        /// </summary>
+        internal static Recording ResolveTerminalRecordingAcrossSwitchContinuations(
+            Recording rec,
+            RecordingTree treeContext,
+            bool followOwnEvaBoard)
+        {
+            SlotVesselWalk walk = WalkSlotVessel(
+                rec, treeContext, followOwnEvaBoard, collectDetail: false);
+            return walk?.Tip;
+        }
+
+        /// <summary>
+        /// The walk a Rewind Point slot takes from its vessel's recording to the
+        /// recording that carries that vessel's real ending.
+        ///
+        /// <para>
+        /// Hops, in order of discovery along <c>ChildBranchPointId</c> (each hop
+        /// lands on the chain tip of the child, exactly like the plain chain walk):
+        /// </para>
+        /// <list type="bullet">
+        ///   <item><description><see cref="BranchPointType.VesselSwitchContinuation"/>:
+        ///   an observation boundary on the SAME vessel (a stock Fly / Switch-To); the
+        ///   sole child continues it.</description></item>
+        ///   <item><description><see cref="BranchPointType.EVA"/> from this vessel
+        ///   (owner ruling 2026-09-27): a crew member stepped out. The child with the
+        ///   SAME <c>VesselPersistentId</c> and no <c>EvaCrewName</c> continues the
+        ///   vessel; the kerbal children are recorded as the vessel's OWN EVA crew
+        ///   (their chain and switch-continuation segments too) so a later Board can
+        ///   be recognised.</description></item>
+        ///   <item><description><see cref="BranchPointType.Board"/> that re-merges the
+        ///   SAME vessel: the merged child carries this vessel's pid, and every other
+        ///   parent is one of this vessel's own EVA crew recordings. A Board by a
+        ///   kerbal from ANY other vessel is a merge with a foreign vessel and stops
+        ///   the walk (<c>boardForeignParent</c>).</description></item>
+        /// </list>
+        /// <para>
+        /// Every other branch-point type (Undock / Dock / JointBreak / Breakup / a
+        /// foreign Board) IS a real downstream split and stops the walk, so the
+        /// <c>downstreamBp</c> reject in <see cref="UnfinishedFlightClassifier.TryQualify"/>
+        /// keeps its meaning. With <paramref name="followOwnEvaBoard"/> false only
+        /// switch continuations are followed (the pre-ruling walk).
+        /// </para>
+        /// <para>
+        /// With <paramref name="collectDetail"/> true the result also carries the
+        /// visited vessel segments, the vessel's own EVA branch points, the kerbal
+        /// recordings hanging off them, the ground parts those kerbals placed, and
+        /// the first own-EVA kerbal whose history joins a FOREIGN vessel (a Board or
+        /// Dock the vessel walk did not pass through) - owner ruling 2026-09-27 rule
+        /// 2, which makes the slot non-re-flyable.
+        /// </para>
+        /// <para>
+        /// A dangling or ambiguous hop (no resolvable child, or more than one claimant)
+        /// stops the walk and returns the last resolved tip, so callers see the
+        /// un-walked shape and take their existing path. Cycle-safe via a visited set
+        /// plus <see cref="MaxSwitchContinuationHops"/>.
+        /// </para>
+        /// <para>
+        /// <paramref name="treeContext"/> plumbing matters exactly as it does for
+        /// <see cref="ResolveChainTerminalRecording"/>: merge dialogs and the CommitTree
+        /// promotion pass run pre-commit, so the pending tree must be passed in rather
+        /// than looked up in <see cref="RecordingStore.CommittedTrees"/>.
+        /// </para>
+        /// <para>
+        /// DELIBERATELY SUPERSEDE-BLIND. This walker follows tree topology only, so a
+        /// hop can land on a recording a later re-fly has superseded. That is the same
+        /// one-level staleness the chain hop inside
+        /// <see cref="ResolveChainTerminalRecording"/> has, and it is safe for the same
+        /// reason: visibility / ERS filtering happens ABOVE this call (see
+        /// <see cref="IsVisible"/>, <see cref="ComputeERS"/> and the slot-anchor dedupe in
+        /// <c>TryResolveUnfinishedFlight</c>), and the composite chain+supersede walk
+        /// slots need lives in
+        /// <see cref="EffectiveTipRecordingId(string, IReadOnlyList{RecordingSupersedeRelation})"/>.
+        /// Do not fold supersede hops in here without re-reading why the two walkers are
+        /// separate.
+        /// </para>
+        /// </summary>
+        internal static SlotVesselWalk WalkSlotVessel(
+            Recording rec,
+            RecordingTree treeContext,
+            bool followOwnEvaBoard,
+            bool collectDetail)
         {
             if (rec == null) return null;
 
             Recording current = ResolveChainTerminalRecording(rec, treeContext);
             if (current == null) return null;
 
+            var walk = new SlotVesselWalk { Start = rec, Tip = current };
             RecordingTree tree = ResolveOwningTree(rec, treeContext);
+            if (collectDetail)
+            {
+                AddVesselSegmentWithChain(walk, rec, tree);
+                AddVesselSegmentWithChain(walk, current, tree);
+            }
             if (tree?.Recordings == null || tree.BranchPoints == null)
-                return current;
+                return walk;
+
+            // A walk that starts MID-stretch (the vessel continuation after an EVA, a
+            // slot member in its own right) never crossed the EVA that put the crew
+            // out, so a later same-vessel Board would read its kerbal as foreign.
+            // Register the crew of every own EVA behind the start first, so the walk
+            // reaches the same tip from any member of the stretch.
+            if (followOwnEvaBoard)
+                PreRegisterOwnEvaCrewBehind(rec, tree, walk);
 
             var visited = new HashSet<string>(StringComparer.Ordinal);
             if (!string.IsNullOrEmpty(current.RecordingId))
                 visited.Add(current.RecordingId);
 
-            // Every stop and every hop is logged (rate-limited on the from|to
-            // pair, because EffectiveTipRecordingId now reaches this walker from
-            // per-slot / per-frame readers). The hop line is the grep-stable
-            // witness that a slot's tip was resolved THROUGH a switch
-            // continuation rather than at the origin.
+            // Every stop and every hop is logged (rate-limited on the from|to pair,
+            // because EffectiveTipRecordingId reaches this walker from per-slot /
+            // per-frame readers). The hop line is the grep-stable witness that a
+            // slot's tip was resolved THROUGH a continuation rather than at the
+            // origin; kind= names which rule took it.
             int hopCount = 0;
             for (int hops = 0; hops < MaxSwitchContinuationHops; hops++)
             {
                 string childBpId = current.ChildBranchPointId;
                 if (string.IsNullOrEmpty(childBpId)) break;
 
-                BranchPoint bp = FindSwitchContinuationBranchPoint(tree, childBpId);
+                BranchPoint bp = FindBranchPointByIdInTree(tree, childBpId);
+                Recording child = null;
+                string kind = null;
+                string stopReason = null;
                 if (bp == null)
                 {
-                    LogSwitchWalkStop(current.RecordingId, childBpId, "notSwitchBranchPoint");
-                    break;
+                    stopReason = "notSwitchBranchPoint";
+                }
+                else if (bp.Type == BranchPointType.VesselSwitchContinuation)
+                {
+                    child = FindSoleChildOfBranchPoint(tree, bp.Id);
+                    kind = "switch";
+                    if (child == null) stopReason = "danglingOrAmbiguousChild";
+                }
+                else if (followOwnEvaBoard && bp.Type == BranchPointType.EVA)
+                {
+                    child = FindOwnEvaVesselContinuation(tree, bp, current);
+                    kind = "eva";
+                    if (child == null) stopReason = "evaNoVesselContinuation";
+                }
+                else if (followOwnEvaBoard && bp.Type == BranchPointType.Board)
+                {
+                    child = FindSoleChildOfBranchPoint(tree, bp.Id);
+                    kind = "board";
+                    if (child == null)
+                        stopReason = "danglingOrAmbiguousChild";
+                    else
+                        stopReason = ClassifySameVesselBoard(bp, current, child, walk);
+                    if (stopReason != null) child = null;
+                }
+                else
+                {
+                    stopReason = "notSwitchBranchPoint";
                 }
 
-                Recording child = FindSoleSwitchContinuationChild(tree, bp.Id);
                 if (child == null)
                 {
-                    LogSwitchWalkStop(current.RecordingId, childBpId, "danglingOrAmbiguousChild");
+                    walk.StopReason = stopReason;
+                    walk.StopBranchPointId = childBpId;
+                    LogSwitchWalkStop(current.RecordingId, childBpId, stopReason);
                     break;
                 }
 
                 Recording childTip = ResolveChainTerminalRecording(child, tree);
                 if (childTip == null || string.IsNullOrEmpty(childTip.RecordingId))
                 {
+                    walk.StopReason = "childChainTipUnresolved";
+                    walk.StopBranchPointId = childBpId;
                     LogSwitchWalkStop(current.RecordingId, childBpId, "childChainTipUnresolved");
                     break;
                 }
                 if (!visited.Add(childTip.RecordingId))
                 {
+                    walk.StopReason = "cycle";
+                    walk.StopBranchPointId = childBpId;
                     ParsekLog.Warn("Supersede",
                         "SwitchContinuationWalk: cycle detected at switch-hop from " +
                         $"{current.RecordingId ?? "<no-id>"} to {childTip.RecordingId} " +
@@ -1379,32 +1488,95 @@ namespace Parsek
                     break;
                 }
 
+                // The EVA hop registers the vessel's own crew BEFORE moving on, so a
+                // Board further down the walk can tell its own kerbal from a foreign one.
+                if (kind == "eva")
+                {
+                    walk.EvaHops++;
+                    walk.AddOwnEvaBranchPointId(bp.Id);
+                    AddOwnEvaKerbals(tree, bp, current, walk, collectDetail);
+                }
+                else if (kind == "board")
+                {
+                    walk.BoardHops++;
+                    walk.AddHoppedBoardBranchPointId(bp.Id);
+                }
+                else
+                {
+                    walk.SwitchHops++;
+                }
+
                 // ParsekLog.VerboseRateLimited checks IsVerboseEnabled INSIDE the call,
                 // but the key and message are interpolated at the CALL SITE, and this
-                // walker is now reached from per-slot / per-frame readers. Build
-                // neither string when verbose is off.
+                // walker is reached from per-slot / per-frame readers. Build neither
+                // string when verbose is off.
                 if (ParsekLog.IsVerboseEnabled)
                 {
                     ParsekLog.VerboseRateLimited("Supersede",
                         $"switchhop|{current.RecordingId}|{childTip.RecordingId}",
                         "SwitchContinuationWalk: hop from=" +
                         $"{current.RecordingId ?? "<no-id>"} to={childTip.RecordingId} " +
-                        $"bp={childBpId} hop={hops + 1}");
+                        $"bp={childBpId} hop={hops + 1} kind={kind}");
                 }
 
                 current = childTip;
+                walk.Tip = current;
+                if (collectDetail)
+                    AddVesselSegmentWithChain(walk, current, tree);
                 hopCount++;
             }
 
             if (hopCount >= MaxSwitchContinuationHops)
             {
+                walk.StopReason = "hopCap";
                 ParsekLog.Warn("Supersede",
                     $"SwitchContinuationWalk: hop cap {MaxSwitchContinuationHops} reached from " +
                     $"origin={rec.RecordingId ?? "<no-id>"}; returning last-visited=" +
                     $"{current.RecordingId ?? "<no-id>"}");
             }
 
-            return current;
+            if (collectDetail)
+                ResolveOwnEvaCrewForeignJoin(walk);
+
+            return walk;
+        }
+
+        /// <summary>
+        /// Walks backward from <paramref name="start"/> across own-vessel hops and
+        /// registers, as the vessel's own EVA crew on <paramref name="walk"/>, the
+        /// kerbal children of every EVA branch point the backward walk crosses. Cheap
+        /// exit for the common start whose parent branch point is not an own-vessel hop.
+        /// </summary>
+        private static void PreRegisterOwnEvaCrewBehind(
+            Recording start, RecordingTree tree, SlotVesselWalk walk)
+        {
+            if (start == null || tree == null || walk == null) return;
+            Recording head = ResolveChainHeadRecording(start, tree);
+            if (head == null || string.IsNullOrEmpty(head.ParentBranchPointId)) return;
+
+            List<Recording> back = CollectOwnVesselStretchBackward(
+                start, tree, null, double.NaN, stopBeforeSpanningRewind: false);
+            Recording child = start;
+            for (int i = 0; i < back.Count; i++)
+            {
+                Recording parent = back[i];
+                Recording childHead = ResolveChainHeadRecording(child, tree);
+                BranchPoint bp = childHead != null
+                    ? FindBranchPointByIdInTree(tree, childHead.ParentBranchPointId)
+                    : null;
+                if (bp != null && bp.Type == BranchPointType.EVA)
+                    AddOwnEvaKerbals(tree, bp, parent, walk, collectDetail: false);
+                child = parent;
+            }
+        }
+
+        private static void AddVesselSegmentWithChain(
+            SlotVesselWalk walk, Recording segment, RecordingTree tree)
+        {
+            if (walk == null || segment == null) return;
+            var members = CollectChainMembersInTree(segment, tree);
+            for (int i = 0; i < members.Count; i++)
+                walk.AddVesselRecordingId(members[i].RecordingId);
         }
 
         private static void LogSwitchWalkStop(string fromId, string childBpId, string reason)
@@ -1417,25 +1589,19 @@ namespace Parsek
                 $"{fromId ?? "<no-id>"} bp={childBpId ?? "<none>"} reason={reason}");
         }
 
-        /// <summary>
-        /// Returns the branch point with <paramref name="branchPointId"/> when it
-        /// exists in <paramref name="tree"/> AND is a
-        /// <see cref="BranchPointType.VesselSwitchContinuation"/>; null otherwise
-        /// (unknown id, or a real downstream split that must stop the walk).
-        /// </summary>
-        private static BranchPoint FindSwitchContinuationBranchPoint(
+        /// <summary>Returns the branch point with <paramref name="branchPointId"/> in
+        /// <paramref name="tree"/>, of any type; null when unknown.</summary>
+        internal static BranchPoint FindBranchPointByIdInTree(
             RecordingTree tree,
             string branchPointId)
         {
             var bps = tree?.BranchPoints;
             if (bps == null || string.IsNullOrEmpty(branchPointId)) return null;
-
             for (int i = 0; i < bps.Count; i++)
             {
                 var bp = bps[i];
-                if (bp == null) continue;
-                if (!string.Equals(bp.Id, branchPointId, StringComparison.Ordinal)) continue;
-                return bp.Type == BranchPointType.VesselSwitchContinuation ? bp : null;
+                if (bp != null && string.Equals(bp.Id, branchPointId, StringComparison.Ordinal))
+                    return bp;
             }
             return null;
         }
@@ -1443,10 +1609,10 @@ namespace Parsek
         /// <summary>
         /// Returns the single recording in <paramref name="tree"/> whose
         /// <c>ParentBranchPointId</c> is <paramref name="branchPointId"/>. Returns
-        /// null when there is none (dangling switch branch point) or more than one
-        /// (ambiguous — the walk refuses to guess and stops).
+        /// null when there is none (dangling branch point) or more than one
+        /// (ambiguous - the walk refuses to guess and stops).
         /// </summary>
-        private static Recording FindSoleSwitchContinuationChild(
+        private static Recording FindSoleChildOfBranchPoint(
             RecordingTree tree,
             string branchPointId)
         {
@@ -1463,6 +1629,445 @@ namespace Parsek
                 found = candidate;
             }
             return found;
+        }
+
+        /// <summary>
+        /// The vessel continuation of an EVA split this vessel authored: the single
+        /// child with the vessel's own <c>VesselPersistentId</c> and no
+        /// <c>EvaCrewName</c>. Null when <paramref name="vessel"/> is itself a kerbal,
+        /// has no pid, is not a parent of <paramref name="bp"/>, or the continuation is
+        /// missing or ambiguous.
+        /// </summary>
+        internal static Recording FindOwnEvaVesselContinuation(
+            RecordingTree tree, BranchPoint bp, Recording vessel)
+        {
+            if (tree?.Recordings == null || bp == null || vessel == null) return null;
+            if (!string.IsNullOrEmpty(vessel.EvaCrewName)) return null;
+            if (vessel.VesselPersistentId == 0u) return null;
+            if (bp.ParentRecordingIds == null
+                || !bp.ParentRecordingIds.Contains(vessel.RecordingId))
+                return null;
+
+            Recording found = null;
+            foreach (var candidate in tree.Recordings.Values)
+            {
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.ParentBranchPointId, bp.Id, StringComparison.Ordinal))
+                    continue;
+                if (!string.IsNullOrEmpty(candidate.EvaCrewName)) continue;
+                if (candidate.VesselPersistentId != vessel.VesselPersistentId) continue;
+                if (found != null) return null;
+                found = candidate;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Decides whether a Board branch point re-merges <paramref name="vessel"/>
+        /// with its OWN EVA crew. Returns null when it does (the walk hops), or the
+        /// stop reason: <c>boardNotSameVessel</c> (the merged child is not this
+        /// vessel, or this vessel is not a parent) or <c>boardForeignParent</c> (some
+        /// other parent is not one of this vessel's own EVA crew recordings - a merge
+        /// with a foreign vessel).
+        /// </summary>
+        internal static string ClassifySameVesselBoard(
+            BranchPoint bp, Recording vessel, Recording mergedChild, SlotVesselWalk walk)
+        {
+            if (bp == null || vessel == null || mergedChild == null)
+                return "boardNotSameVessel";
+            if (!string.IsNullOrEmpty(vessel.EvaCrewName)
+                || vessel.VesselPersistentId == 0u
+                || mergedChild.VesselPersistentId != vessel.VesselPersistentId
+                || !string.IsNullOrEmpty(mergedChild.EvaCrewName))
+                return "boardNotSameVessel";
+            if (bp.ParentRecordingIds == null
+                || !bp.ParentRecordingIds.Contains(vessel.RecordingId))
+                return "boardNotSameVessel";
+
+            for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+            {
+                string parentId = bp.ParentRecordingIds[i];
+                if (string.IsNullOrEmpty(parentId)) continue;
+                if (string.Equals(parentId, vessel.RecordingId, StringComparison.Ordinal))
+                    continue;
+                if (walk == null || !walk.IsOwnKerbalRecording(parentId))
+                    return "boardForeignParent";
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Registers the kerbal children of an EVA split <paramref name="vessel"/>
+        /// authored as the vessel's own EVA crew: each kerbal's recording, its chain
+        /// siblings, and every switch-continuation segment after it. With
+        /// <paramref name="collectDetail"/> it also records how each kerbal's history
+        /// ENDS (for the foreign-join rule) and the ground parts the kerbal placed
+        /// (<see cref="BranchPointType.GroundPartPlaced"/> children, found by parent
+        /// id like <c>RecordingStore.EnqueueGroundPartPlacedChildren</c>).
+        /// </summary>
+        private static void AddOwnEvaKerbals(
+            RecordingTree tree, BranchPoint evaBp, Recording vessel,
+            SlotVesselWalk walk, bool collectDetail)
+        {
+            if (tree?.Recordings == null || evaBp == null || vessel == null) return;
+
+            var queue = new Queue<Recording>();
+            foreach (var candidate in tree.Recordings.Values)
+            {
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.ParentBranchPointId, evaBp.Id, StringComparison.Ordinal))
+                    continue;
+                if (string.IsNullOrEmpty(candidate.EvaCrewName)) continue;
+                queue.Enqueue(candidate);
+            }
+
+            int guard = 0;
+            while (queue.Count > 0 && guard++ < MaxSwitchContinuationHops * 4)
+            {
+                Recording kerbal = queue.Dequeue();
+                if (kerbal == null || string.IsNullOrEmpty(kerbal.RecordingId)) continue;
+                if (walk.IsOwnKerbalRecording(kerbal.RecordingId)) continue;
+
+                walk.AddOwnKerbalRecordingId(kerbal.RecordingId);
+                var members = CollectChainMembersInTree(kerbal, tree);
+                for (int m = 0; m < members.Count; m++)
+                {
+                    walk.AddOwnKerbalRecordingId(members[m].RecordingId);
+                    if (collectDetail)
+                        AddGroundPartPlacedProducts(tree, members[m].RecordingId, walk);
+                }
+
+                Recording kerbalTip = ResolveChainTerminalRecording(kerbal, tree) ?? kerbal;
+                string endBpId = kerbalTip.ChildBranchPointId;
+                if (string.IsNullOrEmpty(endBpId)) continue;
+                BranchPoint endBp = FindBranchPointByIdInTree(tree, endBpId);
+                if (endBp == null) continue;
+
+                if (endBp.Type == BranchPointType.VesselSwitchContinuation)
+                {
+                    Recording next = FindSoleChildOfBranchPoint(tree, endBp.Id);
+                    if (next != null) queue.Enqueue(next);
+                    continue;
+                }
+
+                if (collectDetail)
+                    walk.AddKerbalEnd(kerbalTip.RecordingId, endBp);
+            }
+        }
+
+        private static void AddGroundPartPlacedProducts(
+            RecordingTree tree, string placingRecordingId, SlotVesselWalk walk)
+        {
+            if (tree?.BranchPoints == null || string.IsNullOrEmpty(placingRecordingId)) return;
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                BranchPoint bp = tree.BranchPoints[b];
+                if (bp == null || bp.Type != BranchPointType.GroundPartPlaced) continue;
+                if (bp.ParentRecordingIds == null || !bp.ParentRecordingIds.Contains(placingRecordingId))
+                    continue;
+                if (bp.ChildRecordingIds == null) continue;
+                for (int i = 0; i < bp.ChildRecordingIds.Count; i++)
+                    walk.AddOwnKerbalProductRecordingId(bp.ChildRecordingIds[i]);
+            }
+        }
+
+        /// <summary>
+        /// Owner ruling 2026-09-27 rule 2: a kerbal who went EVA from the vessel and
+        /// did NOT come back to it - his history ends in a Board or Dock the vessel
+        /// walk did not pass through - joined a foreign vessel. The first such kerbal
+        /// is recorded on the walk. A kerbal left standing, or dead, ends in no merge
+        /// and does not count.
+        /// </summary>
+        private static void ResolveOwnEvaCrewForeignJoin(SlotVesselWalk walk)
+        {
+            if (walk?.KerbalEnds == null) return;
+            for (int i = 0; i < walk.KerbalEnds.Count; i++)
+            {
+                SlotVesselWalk.KerbalEnd end = walk.KerbalEnds[i];
+                if (end.BranchPointType != BranchPointType.Board
+                    && end.BranchPointType != BranchPointType.Dock)
+                    continue;
+                if (end.BranchPointType == BranchPointType.Board
+                    && walk.HasHoppedBoard(end.BranchPointId))
+                    continue;
+                walk.ForeignJoinKerbalRecordingId = end.KerbalRecordingId;
+                walk.ForeignJoinBranchPointId = end.BranchPointId;
+                walk.ForeignJoinBranchPointType = end.BranchPointType;
+                return;
+            }
+        }
+
+        /// <summary>
+        /// Every recording in <paramref name="tree"/> sharing <paramref name="rec"/>'s
+        /// <c>ChainId</c> / <c>ChainBranch</c> (the recording itself included), or just
+        /// the recording when it is not chained.
+        /// </summary>
+        internal static List<Recording> CollectChainMembersInTree(Recording rec, RecordingTree tree)
+        {
+            var members = new List<Recording>();
+            if (rec == null) return members;
+            members.Add(rec);
+            if (string.IsNullOrEmpty(rec.ChainId) || tree?.Recordings == null) return members;
+            foreach (var candidate in tree.Recordings.Values)
+            {
+                if (candidate == null || ReferenceEquals(candidate, rec)) continue;
+                if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                if (candidate.ChainBranch != rec.ChainBranch) continue;
+                members.Add(candidate);
+            }
+            return members;
+        }
+
+        /// <summary>
+        /// The chain member of <paramref name="rec"/> with the lowest
+        /// <c>ChainIndex</c> in its owning tree - the segment that carries the
+        /// <c>ParentBranchPointId</c> link. Non-chained recordings return themselves.
+        /// </summary>
+        internal static Recording ResolveChainHeadRecording(Recording rec, RecordingTree tree)
+        {
+            if (rec == null) return null;
+            if (string.IsNullOrEmpty(rec.ChainId) || tree?.Recordings == null) return rec;
+            Recording head = rec;
+            foreach (var candidate in tree.Recordings.Values)
+            {
+                if (candidate == null || ReferenceEquals(candidate, rec)) continue;
+                if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                if (candidate.ChainBranch != rec.ChainBranch) continue;
+                if (candidate.ChainIndex >= head.ChainIndex) continue;
+                head = candidate;
+            }
+            return head;
+        }
+
+        /// <summary>
+        /// Walks BACKWARD from <paramref name="rec"/> along the own-vessel hops
+        /// <see cref="WalkSlotVessel"/> follows forward (switch continuation, the
+        /// vessel continuation of an own EVA, a same-vessel Board) and returns the
+        /// vessel recordings passed, nearest first (<paramref name="rec"/> itself
+        /// excluded). Each returned recording is the chain tip whose
+        /// <c>ChildBranchPointId</c> is the hop's branch point.
+        ///
+        /// <para>Stops at <paramref name="stopAtRecordingId"/> and at any id in
+        /// <paramref name="alsoStopAtRecordingIds"/> (included when reached), at any
+        /// other branch-point type, at a NotCommitted recording, and
+        /// - when <paramref name="stopBeforeSpanningRewind"/> is set and
+        /// <paramref name="rewindUT"/> is valid - BEFORE a recording whose sampled
+        /// content starts strictly before <paramref name="rewindUT"/> (the same strict
+        /// test <c>RecordingTreeSplitter.SplitOriginAtRewindUT</c> splits on: such a
+        /// recording carries pre-rewind history the splitter owns).</para>
+        /// </summary>
+        internal static List<Recording> CollectOwnVesselStretchBackward(
+            Recording rec,
+            RecordingTree treeContext,
+            string stopAtRecordingId,
+            double rewindUT,
+            bool stopBeforeSpanningRewind,
+            ICollection<string> alsoStopAtRecordingIds = null)
+        {
+            var result = new List<Recording>();
+            if (rec == null) return result;
+            RecordingTree tree = ResolveOwningTree(rec, treeContext);
+            if (tree?.Recordings == null || tree.BranchPoints == null) return result;
+
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            if (!string.IsNullOrEmpty(rec.RecordingId)) visited.Add(rec.RecordingId);
+            Recording cur = rec;
+            for (int hops = 0; hops < MaxSwitchContinuationHops; hops++)
+            {
+                if (!string.IsNullOrEmpty(stopAtRecordingId)
+                    && string.Equals(cur.RecordingId, stopAtRecordingId, StringComparison.Ordinal))
+                    break;
+                if (alsoStopAtRecordingIds != null
+                    && !string.IsNullOrEmpty(cur.RecordingId)
+                    && alsoStopAtRecordingIds.Contains(cur.RecordingId))
+                    break;
+
+                Recording head = ResolveChainHeadRecording(cur, tree);
+                if (head == null || string.IsNullOrEmpty(head.ParentBranchPointId)) break;
+                BranchPoint bp = FindBranchPointByIdInTree(tree, head.ParentBranchPointId);
+                if (bp == null || bp.ParentRecordingIds == null) break;
+
+                string parentId = ResolveOwnVesselParentId(bp, head, tree);
+                if (string.IsNullOrEmpty(parentId)) break;
+                Recording parent;
+                if (!tree.Recordings.TryGetValue(parentId, out parent) || parent == null) break;
+                if (!string.Equals(parent.ChildBranchPointId, bp.Id, StringComparison.Ordinal)) break;
+                if (parent.MergeState == MergeState.NotCommitted) break;
+                if (!visited.Add(parent.RecordingId)) break;
+
+                if (stopBeforeSpanningRewind
+                    && StartsStrictlyBeforeRewind(parent, rewindUT))
+                    break;
+
+                result.Add(parent);
+                cur = parent;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The vessel-side parent of an own-vessel hop branch point, seen from its
+        /// vessel child <paramref name="child"/>; null when <paramref name="bp"/> is
+        /// not such a hop.
+        /// </summary>
+        private static string ResolveOwnVesselParentId(
+            BranchPoint bp, Recording child, RecordingTree tree)
+        {
+            if (bp == null || child == null || bp.ParentRecordingIds == null) return null;
+            switch (bp.Type)
+            {
+                case BranchPointType.VesselSwitchContinuation:
+                    return bp.ParentRecordingIds.Count == 1 ? bp.ParentRecordingIds[0] : null;
+                case BranchPointType.EVA:
+                case BranchPointType.Board:
+                {
+                    if (!string.IsNullOrEmpty(child.EvaCrewName) || child.VesselPersistentId == 0u)
+                        return null;
+                    string vesselParent = null;
+                    for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+                    {
+                        string id = bp.ParentRecordingIds[i];
+                        Recording p;
+                        if (string.IsNullOrEmpty(id)
+                            || !tree.Recordings.TryGetValue(id, out p) || p == null)
+                            return null;
+                        bool isKerbal = !string.IsNullOrEmpty(p.EvaCrewName);
+                        if (!isKerbal && p.VesselPersistentId == child.VesselPersistentId)
+                        {
+                            if (vesselParent != null) return null;
+                            vesselParent = id;
+                        }
+                        else if (!isKerbal)
+                        {
+                            // A second VESSEL parent is a foreign merge, not a re-board.
+                            return null;
+                        }
+                    }
+                    return vesselParent;
+                }
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/>'s sampled content starts strictly before
+        /// <paramref name="rewindUT"/> (by more than
+        /// <see cref="PidPeerStartUtEpsilonSeconds"/>). False for an invalid UT or a
+        /// recording with no sampled content.
+        /// </summary>
+        internal static bool StartsStrictlyBeforeRewind(Recording rec, double rewindUT)
+        {
+            if (rec == null) return false;
+            if (double.IsNaN(rewindUT) || double.IsInfinity(rewindUT) || rewindUT <= 0.0)
+                return false;
+            double start;
+            if (!rec.TryGetActualTrajectoryBounds(out start, out _)) return false;
+            return start < rewindUT - PidPeerStartUtEpsilonSeconds;
+        }
+
+        /// <summary>
+        /// The recordings a Re-Fly of <paramref name="slot"/> would rewrite: the
+        /// vessel's walked stretch from the last attempt that reached the slot (its
+        /// origin, or the latest re-fly fork) to its effective tip, plus the EVA crew
+        /// hanging off that stretch and the parts they placed. Empty when the slot's
+        /// tip does not resolve. Owner ruling 2026-09-27: a kerbal killed aboard the
+        /// vessel, or on an EVA from it, inside this stretch is brought back by the
+        /// re-fly (the death row is tombstoned with the rest of the stretch).
+        /// </summary>
+        internal static HashSet<string> CollectSlotReFlyRewriteRecordingIds(
+            ChildSlot slot,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (slot == null) return ids;
+            string tipId = slot.EffectiveRecordingId(supersedes);
+            Recording tip = FindCommittedRecordingByIdRaw(tipId);
+            if (tip == null) return ids;
+
+            // The stretch the NEXT re-fly rewrites starts at the slot origin or at the
+            // latest supersede destination (an earlier re-fly's fork); the history
+            // before a fork was already rewritten by that fork's merge.
+            HashSet<string> forkIds = CollectSupersedeDestinationIds(supersedes);
+            List<Recording> backward = CollectOwnVesselStretchBackward(
+                tip, null, slot.OriginChildRecordingId, double.NaN,
+                stopBeforeSpanningRewind: false, alsoStopAtRecordingIds: forkIds);
+            Recording head = backward.Count > 0 ? backward[backward.Count - 1] : tip;
+            SlotVesselWalk walk = WalkSlotVessel(
+                head, null, followOwnEvaBoard: true, collectDetail: true);
+            if (walk != null)
+            {
+                foreach (var id in walk.CollectStretchRecordingIds())
+                    ids.Add(id);
+            }
+            ids.Add(tip.RecordingId);
+            return ids;
+        }
+
+        /// <summary>The <c>NewRecordingId</c> of every supersede relation: the re-fly
+        /// forks. A backward stretch walk stops at one, because the history before a
+        /// fork was already rewritten by that fork's merge.</summary>
+        internal static HashSet<string> CollectSupersedeDestinationIds(
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            if (supersedes == null) return ids;
+            for (int i = 0; i < supersedes.Count; i++)
+            {
+                string newId = supersedes[i]?.NewRecordingId;
+                if (!string.IsNullOrEmpty(newId)) ids.Add(newId);
+            }
+            return ids;
+        }
+
+        /// <summary>
+        /// Union of <see cref="CollectSlotReFlyRewriteRecordingIds"/> over every
+        /// Rewind Point slot that is OPEN right now (its effective tip is
+        /// CommittedProvisional: a re-flyable Unfinished Flight or an open stash).
+        /// The Kerbals window's Lost hover and the stock-screen Lost explanation offer
+        /// the Re-Fly remedy only when the kerbal's death recording is in this set.
+        /// </summary>
+        internal static HashSet<string> ComputeOpenSlotReFlyReachRecordingIds()
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var scenario = ParsekScenario.Instance;
+            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
+                return ids;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                scenario.RecordingSupersedes
+                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
+
+            int openSlots = 0;
+            for (int r = 0; r < scenario.RewindPoints.Count; r++)
+            {
+                RewindPoint rp = scenario.RewindPoints[r];
+                if (rp?.ChildSlots == null) continue;
+                for (int s = 0; s < rp.ChildSlots.Count; s++)
+                {
+                    ChildSlot slot = rp.ChildSlots[s];
+                    if (slot == null || !UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(slot))
+                        continue;
+                    openSlots++;
+                    foreach (var id in CollectSlotReFlyRewriteRecordingIds(slot, supersedes))
+                        ids.Add(id);
+                }
+            }
+
+            ParsekLog.VerboseRateLimited("UnfinishedFlights", "reflyReach",
+                $"ComputeOpenSlotReFlyReachRecordingIds: openSlots={openSlots} " +
+                $"reachableRecordings={ids.Count}");
+            return ids;
+        }
+
+        /// <summary>
+        /// Live predicate over <see cref="ComputeOpenSlotReFlyReachRecordingIds"/>,
+        /// computed once per call of this factory: true when an open Re-Fly would
+        /// rewrite the given (death) recording.
+        /// </summary>
+        internal static Func<string, bool> BuildLossReFlyReachablePredicate()
+        {
+            HashSet<string> reach = ComputeOpenSlotReFlyReachRecordingIds();
+            return id => !string.IsNullOrEmpty(id) && reach.Contains(id);
         }
 
         /// <summary>
@@ -1700,6 +2305,25 @@ namespace Parsek
                         recById[r.RecordingId] = r;
                 }
 
+                // The live session's OWN recordings are never supersede sources
+                // (design section 1.5 / 6.3). The fork itself is fenced by the
+                // NotCommitted guards below, but what the recorder created from it
+                // during the session - the vessel continuation after an EVA or a
+                // switch, the EVA kerbal, the re-boarded vessel - is ordinary
+                // Immutable data carrying the re-flown vessel's pid and starting
+                // after the rewind point, so the pid-peer expansion would admit it
+                // and the merge would supersede the new flight with its own head.
+                // Every walk below reads candidates through recById, so removing
+                // them here fences every expansion at once.
+                HashSet<string> sessionOwned = CollectActiveSessionOwnedRecordingIds(
+                    marker, rootOverride, recById);
+                int sessionOwnedExcluded = 0;
+                if (sessionOwned != null)
+                {
+                    foreach (string ownedId in sessionOwned)
+                        if (recById.Remove(ownedId)) sessionOwnedExcluded++;
+                }
+
                 // BranchPoint lookup via RewindPoint-persisted branch points is not
                 // available directly; BranchPoints are referenced from Recording.
                 // The closure walks committed recordings and inspects each's
@@ -1746,6 +2370,21 @@ namespace Parsek
                 int sideOffSkips = 0;
                 int debrisAdded = 0;
                 int debrisAnchorOnlySkips = 0;
+                int evaKerbalsAdded = 0;
+                int sameVesselBoardsAdded = 0;
+                int placedPartsAdded = 0;
+
+                // Own-vessel stretch seeding (owner ruling 2026-09-27). The merge-time
+                // root is the marker's SupersedeTargetId, which the slot walk resolves
+                // to the vessel's REAL tip - past the vessel's own EVA / same-vessel
+                // Board / switch-continuation branch points. The forward walk from that
+                // tip alone would miss the vessel segments (and the EVA crew hanging off
+                // them) between the rewind point and the tip, so seed the closure with
+                // the stretch walked BACKWARD from the root. The backward walk stops at
+                // the slot origin, and before any recording that starts strictly before
+                // the rewind UT (the splitter owns that pre-rewind history).
+                int stretchSeedsAdded = SeedOwnVesselStretch(
+                    marker, rootOverride, recById, result, queue);
 
                 while (queue.Count > 0)
                 {
@@ -1803,6 +2442,13 @@ namespace Parsek
                         currentRec, recById, queue, result,
                         ref debrisAdded, ref debrisAnchorOnlySkips);
 
+                    // Ground parts an EVA kerbal in the closure placed hang off a
+                    // GroundPartPlaced point the (still recording) kerbal does NOT
+                    // reference through ChildBranchPointId, so they are found by parent
+                    // id (RecordingStore.EnqueueGroundPartPlacedChildren's pattern).
+                    EnqueueGroundPartPlacedChildrenForClosure(
+                        currentRec, recById, queue, result, ref placedPartsAdded);
+
                     if (string.IsNullOrEmpty(currentRec.ChildBranchPointId))
                         continue;
 
@@ -1816,6 +2462,11 @@ namespace Parsek
                         string childId = bp.ChildRecordingIds[ci];
                         if (string.IsNullOrEmpty(childId)) continue;
                         if (result.Contains(childId)) continue;
+                        // A child fenced out as the live session's own recording (see
+                        // CollectActiveSessionOwnedRecordingIds) is absent from recById
+                        // but still named here; never admit it.
+                        if (sessionOwned != null && sessionOwned.Contains(childId))
+                            continue;
 
                         // Any BranchPoint with a parent outside the suppressed set halts the walk
                         // (dock/board merges are the common case but this is type-agnostic per design §3.3).
@@ -1839,8 +2490,46 @@ namespace Parsek
                         // child. The fully-known case (both PIDs nonzero and
                         // different) is the only one we can confidently call a
                         // side-off.
-                        if (recById.TryGetValue(childId, out var childRec)
+                        recById.TryGetValue(childId, out var childRec);
+
+                        // Own-EVA crew admission (owner ruling 2026-09-27): a kerbal who
+                        // stepped out of the re-flown vessel after the rewind point was
+                        // aboard it at the rewind point, so his EVA is part of the history
+                        // the re-fly rewrites. The same-PID gate below would cull him as a
+                        // side-off; admit him here instead.
+                        string evaAdmitReason;
+                        if (IsOwnEvaKerbalClosureChild(
+                                bp, currentRec, childRec, marker, out evaAdmitReason))
+                        {
+                            result.Add(childId);
+                            evaKerbalsAdded++;
+                            queue.Enqueue(childId);
+                            ParsekLog.Verbose("ReFlySession",
+                                $"SessionSuppressedSubtree: admitted own-EVA kerbal child={childId} " +
+                                $"crew={childRec.EvaCrewName} vessel={currentRec.RecordingId} bp={bp.Id}");
+                            continue;
+                        }
+
+                        // A Board that re-merges the vessel with its own EVA crew: the merged
+                        // child carries the VESSEL's pid, so when the kerbal parent is the
+                        // one dequeued (its turn can come after the vessel's) the same-PID
+                        // gate must compare against the vessel parent, not the kerbal.
+                        if (bp.Type == BranchPointType.Board
                             && childRec != null
+                            && childRec.VesselPersistentId != 0
+                            && childRec.VesselPersistentId != currentRec.VesselPersistentId
+                            && HasClosureParentWithPid(bp, result, recById, childRec.VesselPersistentId))
+                        {
+                            result.Add(childId);
+                            sameVesselBoardsAdded++;
+                            queue.Enqueue(childId);
+                            ParsekLog.Verbose("ReFlySession",
+                                $"SessionSuppressedSubtree: admitted same-vessel board child={childId} " +
+                                $"childPid={childRec.VesselPersistentId} via={currentRec.RecordingId} bp={bp.Id}");
+                            continue;
+                        }
+
+                        if (childRec != null
                             && currentRec.VesselPersistentId != 0
                             && childRec.VesselPersistentId != 0
                             && childRec.VesselPersistentId != currentRec.VesselPersistentId)
@@ -1868,7 +2557,10 @@ namespace Parsek
                     $"SessionSuppressedSubtree: {result.Count} recording(s) closed from root={rootOverride} " +
                     $"(childrenAdded={childrenAdded} siblingsAdded={siblingsAdded} pidPeersAdded={pidPeersAdded} " +
                     $"debrisAdded={debrisAdded} debrisAnchorOnlySkips={debrisAnchorOnlySkips} " +
-                    $"mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips})");
+                    $"mixedParentHalts={mixedParentHalts} sideOffSkips={sideOffSkips} " +
+                    $"stretchSeeds={stretchSeedsAdded} evaKerbalsAdded={evaKerbalsAdded} " +
+                    $"sameVesselBoards={sameVesselBoardsAdded} placedPartsAdded={placedPartsAdded} " +
+                    $"sessionOwnedExcluded={sessionOwnedExcluded})");
 
                 return suppressionCache;
             }
@@ -2273,6 +2965,269 @@ namespace Parsek
                 result.Add(cand.RecordingId);
                 debrisAdded++;
                 queue.Enqueue(cand.RecordingId);
+            }
+        }
+
+        /// <summary>
+        /// The recordings the live Re-Fly session created FROM its fork (the marker's
+        /// active provisional): forward along every branch point that names a member
+        /// as a parent (EVA, Board, switch continuation, Undock, Breakup,
+        /// GroundPartPlaced, ...), across chain segments of a descendant, and to
+        /// breakup debris anchored on a member. All of it is the new flight, so none of
+        /// it may enter the supersede closure (design section 1.5 / 6.3). The fork
+        /// itself is NOT in the set: the closure's NotCommitted guards already fence it
+        /// (with their own grep-stable skip lines), and its chain identity may be
+        /// shared with the origin after chain promotion, so no chain hop is taken from
+        /// the fork. Fail-safe: the closure root and the slot origin are never fenced.
+        /// <para>
+        /// Returns null (nothing fenced) when there is no distinct active provisional:
+        /// no marker, an empty id, or the legacy in-place shape whose marker names the
+        /// origin / closure root itself. Pure over <paramref name="recById"/> plus the
+        /// owning tree's branch points.
+        /// </para>
+        /// </summary>
+        internal static HashSet<string> CollectActiveSessionOwnedRecordingIds(
+            ReFlySessionMarker marker,
+            string rootOverride,
+            Dictionary<string, Recording> recById)
+        {
+            if (marker == null || recById == null) return null;
+            string activeId = marker.ActiveReFlyRecordingId;
+            if (string.IsNullOrEmpty(activeId)) return null;
+            if (string.Equals(activeId, rootOverride, StringComparison.Ordinal)
+                || string.Equals(activeId, marker.OriginChildRecordingId, StringComparison.Ordinal))
+                return null;
+            Recording active;
+            if (!recById.TryGetValue(activeId, out active) || active == null) return null;
+
+            RecordingTree tree = ResolveOwningTree(active, null);
+            var visited = new HashSet<string>(StringComparer.Ordinal) { activeId };
+            var owned = new HashSet<string>(StringComparer.Ordinal);
+            var queue = new Queue<Recording>();
+            queue.Enqueue(active);
+            while (queue.Count > 0)
+            {
+                Recording rec = queue.Dequeue();
+                bool isFork = ReferenceEquals(rec, active);
+
+                if (!isFork
+                    && !string.IsNullOrEmpty(rec.ChainId) && !string.IsNullOrEmpty(rec.TreeId))
+                {
+                    foreach (var cand in recById.Values)
+                    {
+                        if (cand == null || string.IsNullOrEmpty(cand.RecordingId)) continue;
+                        if (!string.Equals(cand.TreeId, rec.TreeId, StringComparison.Ordinal)) continue;
+                        if (!string.Equals(cand.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                        if (cand.ChainBranch != rec.ChainBranch) continue;
+                        if (visited.Add(cand.RecordingId)) { owned.Add(cand.RecordingId); queue.Enqueue(cand); }
+                    }
+                }
+
+                foreach (var cand in recById.Values)
+                {
+                    if (cand == null || string.IsNullOrEmpty(cand.RecordingId)) continue;
+                    if (!cand.IsDebris) continue;
+                    if (!string.Equals(cand.ParentAnchorRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                        continue;
+                    if (visited.Add(cand.RecordingId)) { owned.Add(cand.RecordingId); queue.Enqueue(cand); }
+                }
+
+                if (tree?.BranchPoints == null) continue;
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    BranchPoint bp = tree.BranchPoints[b];
+                    if (bp?.ParentRecordingIds == null || bp.ChildRecordingIds == null) continue;
+                    bool fromMember = bp.ParentRecordingIds.Contains(rec.RecordingId)
+                        || string.Equals(bp.Id, rec.ChildBranchPointId, StringComparison.Ordinal);
+                    if (!fromMember) continue;
+                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                    {
+                        string childId = bp.ChildRecordingIds[c];
+                        if (string.IsNullOrEmpty(childId)) continue;
+                        Recording child;
+                        if (!recById.TryGetValue(childId, out child) || child == null) continue;
+                        if (visited.Add(childId)) { owned.Add(childId); queue.Enqueue(child); }
+                    }
+                }
+            }
+
+            // Fail-safe: the history being superseded is never fenced, whatever odd
+            // topology put it downstream of the fork.
+            bool droppedRoot = !string.IsNullOrEmpty(rootOverride) && owned.Remove(rootOverride);
+            bool droppedOrigin = !string.IsNullOrEmpty(marker.OriginChildRecordingId)
+                && owned.Remove(marker.OriginChildRecordingId);
+            if (droppedRoot || droppedOrigin)
+            {
+                ParsekLog.Warn("ReFlySession",
+                    $"SessionSuppressedSubtree: session-owned walk from provisional={activeId} " +
+                    $"reached root={rootOverride ?? "<none>"} (dropped={droppedRoot}) / " +
+                    $"origin={marker.OriginChildRecordingId ?? "<none>"} (dropped={droppedOrigin}); " +
+                    "kept them in the closure - investigate the tree topology");
+            }
+
+            if (owned.Count > 0)
+            {
+                ParsekLog.Verbose("ReFlySession",
+                    $"SessionSuppressedSubtree: fenced live session's own recordings " +
+                    $"sess={marker.SessionId ?? "<no-id>"} provisional={activeId} " +
+                    $"count={owned.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"[{string.Join(",", owned)}] (never supersede sources)");
+            }
+            return owned;
+        }
+
+        /// <summary>
+        /// Seeds the closure with the own-vessel stretch walked backward from
+        /// <paramref name="rootId"/> (see <see cref="CollectOwnVesselStretchBackward"/>).
+        /// Skipped for a legacy marker with no <see cref="ReFlySessionMarker.RewindPointUT"/>:
+        /// without the cutoff the walk could not tell post-rewind history from the
+        /// pre-rewind launch the splitter protects. Returns the number of seeds added.
+        /// </summary>
+        private static int SeedOwnVesselStretch(
+            ReFlySessionMarker marker,
+            string rootId,
+            Dictionary<string, Recording> recById,
+            HashSet<string> result,
+            Queue<string> queue)
+        {
+            if (marker == null || string.IsNullOrEmpty(rootId)) return 0;
+            if (string.Equals(rootId, marker.OriginChildRecordingId, StringComparison.Ordinal))
+                return 0;
+            Recording root;
+            if (!recById.TryGetValue(rootId, out root) || root == null) return 0;
+            if (string.IsNullOrEmpty(root.ParentBranchPointId) && string.IsNullOrEmpty(root.ChainId))
+                return 0;
+
+            double rewindUT = marker.RewindPointUT;
+            if (double.IsNaN(rewindUT) || double.IsInfinity(rewindUT) || rewindUT <= 0.0)
+            {
+                ParsekLog.Verbose("ReFlySession",
+                    $"SessionSuppressedSubtree: stretch seeding skipped root={rootId} " +
+                    "reason=noRewindPointUT (legacy marker)");
+                return 0;
+            }
+
+            List<Recording> stretch = CollectOwnVesselStretchBackward(
+                root, null, marker.OriginChildRecordingId, rewindUT,
+                stopBeforeSpanningRewind: true,
+                alsoStopAtRecordingIds: CollectSupersedeDestinationIds(
+                    ParsekScenario.Instance?.RecordingSupersedes));
+            int added = 0;
+            var seededIds = new List<string>();
+            for (int i = 0; i < stretch.Count; i++)
+            {
+                Recording seed = stretch[i];
+                if (seed == null || string.IsNullOrEmpty(seed.RecordingId)) continue;
+                if (!recById.ContainsKey(seed.RecordingId)) continue;
+                if (IsActiveSessionProvisional(seed, marker)) continue;
+                if (!result.Add(seed.RecordingId)) continue;
+                queue.Enqueue(seed.RecordingId);
+                seededIds.Add(seed.RecordingId);
+                added++;
+            }
+            if (added > 0)
+            {
+                ParsekLog.Verbose("ReFlySession",
+                    $"SessionSuppressedSubtree: seeded own-vessel stretch root={rootId} " +
+                    $"seeds={added} [{string.Join(",", seededIds)}]");
+            }
+            return added;
+        }
+
+        /// <summary>
+        /// Pure closure gate: true when <paramref name="child"/> is an EVA kerbal the
+        /// dequeued VESSEL <paramref name="vessel"/> put out at an EVA split after the
+        /// rewind point, committed, and not the live session's own recording. Owner
+        /// ruling 2026-09-27: re-flying the vessel from its separation rewrites that
+        /// EVA, because the kerbal was aboard at the rewind point. The reason names the
+        /// failed condition (<c>notEvaBranchPoint</c>, <c>notKerbal</c>,
+        /// <c>parentIsKerbal</c>, <c>notParent</c>, <c>notCommitted</c>,
+        /// <c>sessionProvisional</c>, <c>beforeRewind</c>) or is <c>admit</c>.
+        /// </summary>
+        internal static bool IsOwnEvaKerbalClosureChild(
+            BranchPoint bp,
+            Recording vessel,
+            Recording child,
+            ReFlySessionMarker marker,
+            out string reason)
+        {
+            reason = "notEvaBranchPoint";
+            if (bp == null || bp.Type != BranchPointType.EVA) return false;
+            reason = "notKerbal";
+            if (child == null || string.IsNullOrEmpty(child.EvaCrewName)) return false;
+            reason = "parentIsKerbal";
+            if (vessel == null || !string.IsNullOrEmpty(vessel.EvaCrewName)) return false;
+            reason = "notParent";
+            if (bp.ParentRecordingIds == null
+                || !bp.ParentRecordingIds.Contains(vessel.RecordingId))
+                return false;
+            reason = "notCommitted";
+            if (child.MergeState == MergeState.NotCommitted) return false;
+            reason = "sessionProvisional";
+            if (IsActiveSessionProvisional(child, marker)) return false;
+            reason = "beforeRewind";
+            if (marker != null
+                && !double.IsNaN(marker.RewindPointUT)
+                && marker.RewindPointUT > 0.0
+                && bp.UT < marker.RewindPointUT - PidPeerStartUtEpsilonSeconds)
+                return false;
+            reason = "admit";
+            return true;
+        }
+
+        private static bool HasClosureParentWithPid(
+            BranchPoint bp,
+            HashSet<string> closure,
+            Dictionary<string, Recording> recById,
+            uint pid)
+        {
+            if (bp?.ParentRecordingIds == null || pid == 0u) return false;
+            for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+            {
+                string id = bp.ParentRecordingIds[i];
+                if (string.IsNullOrEmpty(id) || !closure.Contains(id)) continue;
+                Recording parent;
+                if (recById.TryGetValue(id, out parent)
+                    && parent != null
+                    && string.IsNullOrEmpty(parent.EvaCrewName)
+                    && parent.VesselPersistentId == pid)
+                    return true;
+            }
+            return false;
+        }
+
+        private static void EnqueueGroundPartPlacedChildrenForClosure(
+            Recording rec,
+            Dictionary<string, Recording> recById,
+            Queue<string> queue,
+            HashSet<string> result,
+            ref int placedPartsAdded)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) return;
+            if (string.IsNullOrEmpty(rec.EvaCrewName)) return;
+            RecordingTree tree = ResolveOwningTree(rec, null);
+            if (tree?.BranchPoints == null) return;
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                BranchPoint bp = tree.BranchPoints[b];
+                if (bp == null || bp.Type != BranchPointType.GroundPartPlaced) continue;
+                if (bp.ParentRecordingIds == null || !bp.ParentRecordingIds.Contains(rec.RecordingId))
+                    continue;
+                if (bp.ChildRecordingIds == null) continue;
+                for (int i = 0; i < bp.ChildRecordingIds.Count; i++)
+                {
+                    string childId = bp.ChildRecordingIds[i];
+                    if (string.IsNullOrEmpty(childId) || result.Contains(childId)) continue;
+                    Recording child;
+                    if (!recById.TryGetValue(childId, out child) || child == null) continue;
+                    if (child.MergeState == MergeState.NotCommitted) continue;
+                    result.Add(childId);
+                    queue.Enqueue(childId);
+                    placedPartsAdded++;
+                    ParsekLog.Verbose("ReFlySession",
+                        $"SessionSuppressedSubtree: admitted placed ground part child={childId} " +
+                        $"placedBy={rec.RecordingId} bp={bp.Id}");
+                }
             }
         }
 

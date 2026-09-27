@@ -4501,7 +4501,7 @@ namespace Parsek.Tests
                 };
                 rec.VesselSnapshot.AddValue("sit", "ORBITING");
                 var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                    rec, isActiveChainMember: false, isChainLooping: false);
+                    rec, isActiveChainMember: false);
                 if (spawnable)
                 {
                     // Recording is built to clear every non-terminal gate (no

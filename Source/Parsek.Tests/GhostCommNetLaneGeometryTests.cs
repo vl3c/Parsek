@@ -479,14 +479,14 @@ namespace Parsek.Tests
             Assert.Null(doomed.VesselSnapshot);
             Assert.NotNull(doomed.GhostVisualSnapshot);
             Assert.Equal(save + SyntheticRecordingTests.GhostCommNetTimelineDoomedEndOffsetSeconds, doomed.EndUT, 6);
-            Assert.False(GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(doomed, false, false).needsSpawn);
+            Assert.False(GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(doomed, false).needsSpawn);
 
             // Held relay: a spawnable Orbiting end with a terminal orbit and an end snapshot.
             Assert.Equal(TerminalState.Orbiting, held.TerminalStateValue);
             Assert.Equal("Kerbin", held.TerminalOrbitBody);
             Assert.NotNull(held.VesselSnapshot);
             Assert.Equal(save + SyntheticRecordingTests.GhostCommNetTimelineHeldEndOffsetSeconds, held.EndUT, 6);
-            var spawn = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(held, false, false);
+            var spawn = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(held, false);
             Assert.True(spawn.needsSpawn, "the held relay would not spawn: " + spawn.reason);
         }
 

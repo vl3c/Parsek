@@ -885,6 +885,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "preparsek-untouched-career": True,
         "preparsek-brandnew-career": False,
         "gloops-airshow": True,
+        # gloops-airshow-hard is gloops-airshow byte for byte except the preset label
+        # and three PARAMETERS/FLIGHT flags (harness/tools/build_gloops_airshow_hard.py),
+        # so it carries the same ParsekScenario node gloops-airshow does.
+        "gloops-airshow-hard": True,
         "gs1-two-stage-pad": True,
         # coalescer-pad is gs1-two-stage-pad byte for byte except two parts' stage
         # assignments (harness/tools/build_coalescer_pad.py), so it carries the same

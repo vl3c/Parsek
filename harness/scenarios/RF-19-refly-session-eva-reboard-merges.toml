@@ -1,0 +1,170 @@
+schema = 1
+id = "RF-19-refly-session-eva-reboard-merges"
+# =====================================================================================
+# THE LIVE LANE OF REFLY-SESSION-EVA-CANNOT-SUPERSEDE (found by the PR #1907 review).
+#
+# A Re-Fly session in which the player steps a kerbal out of the re-flown vessel used to
+# merge with ZERO supersede rows: the recorder ends the provisional fork at the EVA
+# branch point with no terminal, and the merge validated that raw fork
+# (`AppendRelations outcome=refused-unflown-provisional ... reason=null TerminalState`).
+# The old stretch stayed on the timeline next to the new one and the section 4.9 rule
+# "an EVA during a Re-Fly auto-seals" could not take effect.
+#
+# THE FLIGHT is RF-13's, unchanged up to its orbit: rewind `refly-split-crewed-recorded`
+# slot 0 (the crewed Kerbal X top stack, Bill and Bob, died after the rewind point on
+# the superseded flight), burn it to orbit with `rf12s_refly_orbit_insert`. THEN, still
+# inside the live Re-Fly session, the first crew member steps out on the ladder
+# (EvaExit, no kerbal arg = the first crew member, the stock hatch-click shape) and
+# climbs back in (EvaBoard; with no target it prefers the part the same process just
+# exited). The merge follows (AnswerMergeDialog merge drives the scene exit,
+# finalization and the merge). RF-13's post-merge SaveGame / LoadGame is dropped: the
+# reload is RF-13's and RF-13R's subject, not this lane's.
+#
+# WHAT IT PROVES LIVE, on recorder-produced topology: the merge validates through the
+# vessel walk (evaHops=1 boardHops=1, terminal read on the re-boarded vessel), writes
+# the supersede row for the old flight's post-rewind half (the merge still SPLITS the
+# origin at the rewind point, as in RF-13), fences the session's own continuation /
+# kerbal / re-boarded vessel out of the closure, tombstones the old flight's two crew
+# deaths, and seals slot 0 on the re-boarded vessel's Orbiting ending.
+#
+# FLOWN: reading run `2026-09-27_1532` PASS attempt 1 (292 s, automation DLL sha256
+# `b6fafa5c...`, built from branch `refly-session-eva-merge`), every token below matched
+# as derived from the emitting sites: `validated-through-vessel-walk ... terminal=Orbiting
+# evaHops=1 boardHops=1`, `Added 1 supersede relations` rooted at the split TIP, the three
+# session recordings fenced (`count=3`), `Tombstoned 2 ... Kerbal=2`, slot 0 sealed
+# `classifierClosed:stableTerminalFocusSlot`, the walked tip `already Immutable`. saveParse
+# (report-only) read supersedeRows 1, tombstones 2, rewindPoints 1. Negative control
+# OFFLINE over `_1532`'s own log (RF-14 precedent): with the validated line replaced by the
+# pre-fix refusal and the lines that refusal suppresses removed, it reds exactly six
+# required tokens and the forbidden `outcome=refused-unflown-provisional`.
+# ARMED 2026-09-27 on the owner ruling of 2026-09-27 (Vlad: arm RF-19's saveParse
+# checks; also confirmed the foreign-vessel board rule this lane's headless cells pin):
+# `rewind` and `recordings.structure` gate, windows unchanged from the reading run.
+# ARMED CONFIRMATION `2026-09-27_1621` PASS attempt 1 (262 s, same DLL `b6fafa5c...`):
+# saveParse status=PASS gating=True armed=[rewind, recordings.structure], supersedeRows 1,
+# tombstones 2, mismatches 0.
+# =====================================================================================
+tier = "operator"
+description = "Re-Fly the crewed stack of refly-split-crewed-recorded to orbit (RF-13's flight), then step a kerbal out and back in INSIDE the live session and merge: the merge must validate through the vessel walk (evaHops=1 boardHops=1), write the supersede row and the crew-death tombstones instead of refused-unflown-provisional, never supersede the session's own EVA recordings, and seal the slot on the re-boarded vessel's Orbiting ending."
+instanceProfile = "stock-minimal"
+tags = ["RF-19", "rewind", "refly", "merge", "eva", "board", "supersede", "auto-seal",
+        "rp-split", "autopilot", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/refly-split-crewed-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "rf12s_refly_orbit_insert"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the closure fence and the walked-tip MergeState lines are Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },   expect = "OK" },
+  # InvokeRewind REJECTs `recording-active`; RF-12S's order.
+  { cmd = "StopRecording",                                                         expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles", expect = "OK" },
+  # Slot 0: the crewed stack (RF-13H's promotion line pins slot=0).
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },       expect = "OK", budget = 300 },
+  { phase = "mission",                                                              expect = "MISSION-OK", budget = 900 },
+  # THE SUBJECT: an EVA and a re-board inside the live Re-Fly session. settleSeconds=10
+  # lets the EVA split's recorder sample the kerbal before the board (RF-18's value).
+  { cmd = "EvaExit",           args = { settleSeconds = "10" },                    expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",                                                              expect = "OK", budget = 120 },
+  # Drives the scene exit, finalization (terminal Orbiting) and the merge.
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                        expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                                        expect = "OK" },
+  { cmd = "FlushAndQuit",                                                          expect = "OK" },
+]
+
+[driver.missionParams]
+# RF-13's pitch program, verbatim (see RF-13 for the measured history): the host
+# restores the stack at 29.1 km climbing almost vertically, so a single fixed pitch runs
+# dry short of orbit.
+headingDeg                = 90.0
+throttle                  = 1.0
+raiseApoapsisMeters       = 80000.0
+raisePitchDeg             = 45.0
+circStartVerticalSpeedMps = 30.0
+circPitchGainDegPerMps    = 0.5
+circPitchMinDeg           = -10.0
+circPitchMaxDeg           = 45.0
+coastFrames               = 600
+targetPeriapsisMeters     = 72000.0
+periapsisDebounceFrames   = 2
+minStartAltitudeMeters    = 10000.0
+minCrew                   = 1
+igniteFrames              = 20
+burnFrames                = 600
+
+[dimensionsCovered]
+# BASICS ONLY: a proof lane for one defect, not a dimension claim.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 40 }
+
+[expectations.logContracts]
+required = [
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  # THE EVA AND BOARD INSIDE THE SESSION (EVA-1 / EVA-3 / RF-18 measured tokens).
+  "Tree branch created: type=EVA",
+  "\\[Rewind\\] Split type=EVA: no Rewind Point \\(Re-Fly is for vessel separations only\\) bp=[0-9a-f]{32}",
+  "detected boarding from EVA",
+  # THE PRECONDITION RF-13 measured: this merge splits the origin at the rewind point.
+  "Split origin \\S+ at UT=[0-9.]+: HEAD=\\[",
+  # THE FIX (SupersedeCommit.AppendRelations, Info): validated through the vessel walk,
+  # terminal read on the re-boarded vessel.
+  "AppendRelations outcome=validated-through-vessel-walk provisional=rec_[0-9a-f]{32} sess=\\S+ terminalRec=\\S+ terminal=Orbiting evaHops=1 boardHops=1 switchHops=0",
+  "Added [1-9][0-9]* supersede relations for subtree rooted at",
+  # The session's own recordings (continuation, kerbal, re-boarded vessel) are fenced
+  # out of the closure (EffectiveState.CollectActiveSessionOwnedRecordingIds, Verbose).
+  "fenced live session's own recordings sess=\\S+ provisional=rec_[0-9a-f]{32} count=[3-9]",
+  "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]",
+  # THE SEAL on the walked tip: the focus-slot verdict on Orbiting (the headless cell's
+  # reason), or the session's structural EVA if the live classifier reads it first.
+  "Auto-sealed re-fly slot=0 rec=rec_[0-9a-f]{32} rp=\\S+ mergeState=Immutable terminal=Orbiting reason=(classifierClosed:stableTerminalFocusSlot|structuralMutation:)",
+  "FlipMergeStateAndClearTransient: session vessel tip rec=\\S+ (already Immutable|mergeState CommittedProvisional->Immutable)",
+  "End reason=merged sess=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE BUG: the merge refused the fork and wrote no row.
+  "outcome=refused-unflown-provisional",
+  "EnqueuePidPeerSiblings: skipped NotCommitted peer",
+]
+
+[expectations.rewind]
+# ARMED 2026-09-27 (owner ruling 2026-09-27). Derived from RF-13 (supersedeRows 1 = the origin's post-rewind TIP,
+# tombstones 2 = the two crew-death rows TIP carries; the session's EVA recordings add no
+# row, fenced) and MEASURED on the reading run `2026-09-27_1532`: 1 / 2.
+gating        = true
+supersedeRows = { min = 1, max = 1 }
+tombstones    = { min = 2, max = 2 }
+
+[expectations.recordings.structure]
+# ARMED 2026-09-27 (owner ruling 2026-09-27): one EVA and one Board, both authored by
+# the session, matched on the reading run `2026-09-27_1532`.
+gating       = true
+branchPoints = { EVA = { min = 1, max = 1 }, Board = { min = 1, max = 1 } }
+
+[runtime]
+# RF-13's chain without its reload tail, plus EvaExit + EvaBoard:
+# LoadGame 660 + SetSetting x2 240 + StopRecording 120 + ListHandles 120
+#   + InvokeRewind 660 + mission 900 + EvaExit 300 + EvaBoard 300
+#   + AnswerMergeDialog 540 + RecordingState 120 + FlushAndQuit 120 = 4200. 4500 clears it.
+budgetSeconds = 4500
+
+[retry]
+# none, as RF-13: a MISSION give-up retried is a second identical flight.
+policy = "none"
+
+[expectedFail]
+bugId = ""
