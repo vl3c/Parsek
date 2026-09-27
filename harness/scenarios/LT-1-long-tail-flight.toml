@@ -42,7 +42,8 @@ tier = "nightly"
 # chain-continuation state it checked (todo CHAIN-STATE-LEFT-BEHIND-BY-THE-CHAIN-
 # COMMIT-REMOVAL). Every other per-constituent line is unchanged; the aggregate is
 # the flown one minus that constituent's 2/2/0/0 line (58/51/0/7 -> 56/49/0/7,
-# multi:31 -> multi:30). Not re-flown for the removal alone.
+# multi:31 -> multi:30, and the runtests start line's multi=31 -> multi=30). Not
+# re-flown for the removal alone.
 description = "Run the 30 long-tail in-game categories as one multi-category batch at FLIGHT over the injected synthetic corpus, every constituent pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "LT-1"]
@@ -94,7 +95,7 @@ count = { min = 274, max = 274 }
 # measured census line (PartEventTiming from its post-fix control flight), plus the
 # aggregate whose counts are the sums. `failed=0` on every line is the assertion.
 required  = [
-  "runtests start category=BackgroundSeeder,Bug289,DisabledHoverEcho,FinalizeLimbo,Flight,ForwardRender,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,SwitchIntentPatch,TerminalOrbit,TestRunner,TestRunnerIsolation,Unity,Watch isolated=false strict=false multi=31",
+  "runtests start category=BackgroundSeeder,Bug289,DisabledHoverEcho,FinalizeLimbo,Flight,ForwardRender,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,SwitchIntentPatch,TerminalOrbit,TestRunner,TestRunnerIsolation,Unity,Watch isolated=false strict=false multi=30",
   "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=BackgroundSeeder scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Bug289 scene=FLIGHT",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=DisabledHoverEcho scene=FLIGHT",
