@@ -988,7 +988,7 @@ failed orbit resolution, a spawned vessel that died, non-finite values) is the n
 (`ReleaseCannotSpawnSafely`, logged `Held ghost released (cannot spawn safely)`), the completion
 path does not hold it (`Ghost not held ... cannot spawn safely`), and the terminal map presence is
 not retained for it. A deferral with no finite next attempt UT is re-evaluated rather than held
-forever. Tests: `OrbitClearanceRulingTests` (the Kerbin / Duna / Eve / Laythe / Jool bands, a
+forever. On load only the spawn-death abandon (`spawned-terminal-orbit-vessel-died`, BUG-C) is restored (`TerminalOrbitSpawnSafety.IsDurableRefusal`, both the codec and the in-session OnLoad reconcile); any other saved refusal is dropped and re-evaluated from the recorded orbit, so a save refused under the old 5 km band spawns under the new rule. Tests: `OrbitClearanceRulingTests` (the Kerbin / Duna / Eve / Laythe / Jool bands, a
 commit-inference-spawn agreement sweep across each boundary, the Mun terrain case, the finalizer
 downgrade, every refusal reason releasing the hold), two real-policy cells in
 `StalePastEndCleanupDeferralTests`, the finalizer recovery mirror in

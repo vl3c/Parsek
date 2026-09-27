@@ -299,6 +299,52 @@ namespace Parsek
             rec.TerminalSpawnSafetyPressure = double.NaN;
         }
 
+        /// <summary>
+        /// Pure: does a saved CannotSpawnSafely verdict with this reason survive a load? Only
+        /// the spawn-death abandon does (BUG-C: a terminal-orbit vessel that died on spawn must
+        /// not re-materialize after every scene change), and a verdict saved with no reason stays
+        /// conservative. Every other reason is a verdict the spawn re-derives from the recording's
+        /// own terminal orbit, so it is dropped on load and re-evaluated: a verdict saved by
+        /// older rules (a periapsis in the band above the atmosphere) then spawns under the
+        /// current ones, and a still-unsafe orbit is simply refused again.
+        /// </summary>
+        internal static bool IsDurableRefusal(string reasonCode)
+        {
+            return string.IsNullOrEmpty(reasonCode)
+                || string.Equals(reasonCode, ReasonSpawnedVesselDied, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Applies a saved CannotSpawnSafely flag + reason to <paramref name="rec"/> on load,
+        /// keeping only a durable refusal (<see cref="IsDurableRefusal"/>). Returns true when a
+        /// saved non-durable refusal was dropped, so the caller can log it.
+        /// </summary>
+        internal static bool RestoreSavedRefusal(
+            Recording rec,
+            bool savedCannotSpawn,
+            string savedReasonCode)
+        {
+            if (rec == null)
+                return false;
+
+            if (!string.IsNullOrEmpty(savedReasonCode))
+                rec.TerminalSpawnSafetyReasonCode = savedReasonCode;
+
+            if (savedCannotSpawn && !IsDurableRefusal(savedReasonCode))
+            {
+                rec.TerminalSpawnCannotSpawnSafely = false;
+                ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                    "Saved terminal spawn refusal dropped on load for re-evaluation: rec={0} vessel=\"{1}\" reason={2}",
+                    rec.RecordingId ?? "(null)",
+                    rec.VesselName ?? "(null)",
+                    savedReasonCode));
+                return true;
+            }
+
+            rec.TerminalSpawnCannotSpawnSafely = savedCannotSpawn;
+            return false;
+        }
+
         internal static bool HasActiveHold(Recording rec)
         {
             return rec != null

@@ -346,6 +346,62 @@ namespace Parsek.Tests
                     retryIntervalSeconds: 1f, currentUT: 500.0));
         }
 
+        [Theory]
+        [InlineData(TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied, true)]
+        [InlineData(null, true)]
+        [InlineData(TerminalOrbitSpawnSafety.ReasonPeriapsisBelowSafeAltitude, false)]
+        [InlineData("orbit-never-clears-safe-altitude", false)]
+        [InlineData(TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT, false)]
+        [InlineData(TerminalOrbitSpawnSafety.ReasonTerminalOrbitResolutionFailed, false)]
+        [InlineData(TerminalOrbitSpawnSafety.ReasonNonFinitePeriapsis, false)]
+        public void OnlyTheSpawnDeathAbandonIsDurableAcrossALoad(string reasonCode, bool durable)
+        {
+            Assert.Equal(durable, TerminalOrbitSpawnSafety.IsDurableRefusal(reasonCode));
+        }
+
+        [Fact]
+        public void SavedOldRuleRefusal_IsDroppedOnLoad_SoTheOrbitIsReEvaluated()
+        {
+            // A save written by the pre-ruling build: a 72 x 100 km Kerbin terminal orbit refused
+            // as orbit-never-clears-safe-altitude. Restored as-is it would skip Evaluate forever
+            // (VesselSpawner's pre-spawn guard) and, under the release rule, just vanish.
+            var saved = new Recording
+            {
+                RecordingId = "rec-old-band",
+                VesselName = "Old Band Probe",
+                TerminalSpawnCannotSpawnSafely = true,
+                TerminalSpawnSafetyReasonCode = "orbit-never-clears-safe-altitude",
+            };
+            var node = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(node, saved);
+
+            var reloaded = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(node, reloaded);
+
+            Assert.False(reloaded.TerminalSpawnCannotSpawnSafely);
+            Assert.Equal(TerminalOrbitDeferredSpawnState.None,
+                TerminalOrbitSpawnSafety.GetDeferredSpawnState(reloaded, 500.0, out _));
+            Assert.Contains(logLines, l => l.Contains("[Spawner]")
+                && l.Contains("Saved terminal spawn refusal dropped on load for re-evaluation")
+                && l.Contains("reason=orbit-never-clears-safe-altitude"));
+
+            // The in-session OnLoad reconcile applies the same rule.
+            var inSession = new Recording { RecordingId = "rec-old-band" };
+            ParsekScenario.RestorePersistedTerminalAbandon(inSession, node);
+            Assert.False(inSession.TerminalSpawnCannotSpawnSafely);
+
+            // The spawn-death abandon stays durable on both paths.
+            saved.TerminalSpawnSafetyReasonCode = TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied;
+            var deathNode = new ConfigNode("RECORDING");
+            RecordingTree.SaveRecordingInto(deathNode, saved);
+            var reloadedDeath = new Recording();
+            RecordingTreeRecordCodec.LoadRecordingFrom(deathNode, reloadedDeath);
+            Assert.True(reloadedDeath.TerminalSpawnCannotSpawnSafely);
+            var inSessionDeath = new Recording { RecordingId = "rec-old-band" };
+            ParsekScenario.RestorePersistedTerminalAbandon(inSessionDeath, deathNode);
+            Assert.True(inSessionDeath.TerminalSpawnCannotSpawnSafely);
+        }
+
         [Fact]
         public void MapPresence_IsNotRetainedForARefusedTerminalSpawn()
         {

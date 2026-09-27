@@ -1219,7 +1219,8 @@ _(unreleased — entries accumulate here per commit)_
   the atmosphere makes it sub-orbital. A spawn that can never succeed (an orbit that cannot
   be rebuilt, a spawned vessel that died, bad numbers) no longer holds its ghost: the ghost
   finishes its replay and disappears at the recording's end, along with its map-view orbit.
-  Ruling 2026-09-27.
+  A refusal saved in an existing game is checked again under the new rule when the game loads,
+  except a vessel that already died when it spawned, which stays refused. Ruling 2026-09-27.
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:
