@@ -720,7 +720,7 @@ PART
 		animSwitch = False
 		animTime = 1
 		animSpeed = 1
-		deployPercent = 100
+		deployPercent = 44
 		animationIsDisabled = False
 		stagingEnabled = True
 		EVENTS
@@ -802,7 +802,7 @@ PART
 		animSwitch = False
 		animTime = 1
 		animSpeed = 1
-		deployPercent = 100
+		deployPercent = 45
 		animationIsDisabled = False
 		stagingEnabled = True
 		EVENTS
@@ -1680,7 +1680,7 @@ PART
 		animSwitch = False
 		animTime = 1
 		animSpeed = 40
-		deployPercent = 100
+		deployPercent = 51
 		animationIsDisabled = False
 		stagingEnabled = True
 		EVENTS
