@@ -16491,23 +16491,56 @@ namespace Parsek
 
         internal static Func<string, double?> TerminalInferenceBodyRadiusResolverForTesting;
 
+        /// <summary>
+        /// Test seam for the periapsis floor (<see cref="OrbitClearance"/>) the inference reads.
+        /// When only the radius seam is installed the floor defaults to sea level.
+        /// </summary>
+        internal static Func<string, double?> TerminalInferencePeriapsisFloorResolverForTesting;
+
+        /// <summary>
+        /// Orbiting evidence for a recording whose vessel is gone: a bound last orbit segment
+        /// whose periapsis clears the body's periapsis floor (the atmosphere top, or the
+        /// highest terrain on an airless body), the same line commit classification and the
+        /// terminal-orbit spawn-safety check use. A periapsis inside the atmosphere is a
+        /// decaying flight, so it is not Orbiting evidence and the caller falls back to
+        /// SubOrbital.
+        /// </summary>
         internal static bool HasStableOrbitEvidenceForTerminalInference(OrbitSegment lastOrbit)
         {
             if (lastOrbit.eccentricity >= 1.0 || string.IsNullOrEmpty(lastOrbit.bodyName))
                 return false;
-            if (!TryResolveTerminalInferenceBodyRadius(lastOrbit.bodyName, out double bodyRadius)
+            if (!TryResolveTerminalInferenceBody(
+                    lastOrbit.bodyName, out double bodyRadius, out double periapsisFloor)
                 || bodyRadius <= 0.0)
                 return false;
 
             double periapsisRadius = lastOrbit.semiMajorAxis * (1.0 - lastOrbit.eccentricity);
-            return !double.IsNaN(periapsisRadius)
-                && !double.IsInfinity(periapsisRadius)
-                && periapsisRadius > bodyRadius;
+            bool clear = OrbitClearance.IsBoundOrbitClear(
+                lastOrbit.eccentricity,
+                periapsisRadius,
+                bodyRadius,
+                periapsisFloor);
+            if (!clear
+                && OrbitClearance.IsFinite(periapsisRadius)
+                && periapsisRadius > bodyRadius)
+            {
+                ParsekLog.Verbose("Flight", string.Format(CultureInfo.InvariantCulture,
+                    "HasStableOrbitEvidenceForTerminalInference: periapsis {0:F0}m on {1} is under " +
+                    "the periapsis floor {2:F0}m - not Orbiting evidence",
+                    periapsisRadius - bodyRadius,
+                    lastOrbit.bodyName,
+                    periapsisFloor));
+            }
+            return clear;
         }
 
-        private static bool TryResolveTerminalInferenceBodyRadius(string bodyName, out double bodyRadius)
+        private static bool TryResolveTerminalInferenceBody(
+            string bodyName,
+            out double bodyRadius,
+            out double periapsisFloor)
         {
             bodyRadius = 0.0;
+            periapsisFloor = 0.0;
             if (string.IsNullOrEmpty(bodyName))
                 return false;
 
@@ -16518,18 +16551,34 @@ namespace Parsek
                 if (resolved.HasValue && resolved.Value > 0.0)
                 {
                     bodyRadius = resolved.Value;
+                    Func<string, double?> floorResolver = TerminalInferencePeriapsisFloorResolverForTesting;
+                    double? floor = floorResolver != null ? floorResolver(bodyName) : null;
+                    periapsisFloor = floor.HasValue ? floor.Value : 0.0;
                     return true;
                 }
 
                 return false;
             }
 
+            return TryResolveTerminalInferenceBodyLive(bodyName, out bodyRadius, out periapsisFloor);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool TryResolveTerminalInferenceBodyLive(
+            string bodyName,
+            out double bodyRadius,
+            out double periapsisFloor)
+        {
+            bodyRadius = 0.0;
+            periapsisFloor = 0.0;
             try
             {
                 var body = FlightGlobals.GetBodyByName(bodyName);
                 if (body != null && body.Radius > 0.0)
                 {
                     bodyRadius = body.Radius;
+                    periapsisFloor = OrbitClearance.ResolvePeriapsisFloorAltitude(body);
                     return true;
                 }
             }

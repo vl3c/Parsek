@@ -1206,6 +1206,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Every orbit Parsek calls Orbiting now spawns, and a refused ghost no longer lingers.** A
+  recording ending in orbit is marked Orbiting only when its periapsis clears the body's
+  atmosphere, and on a body with no atmosphere its highest terrain, so a low Mun orbit that
+  would hit a mountain ends as a sub-orbital flight. The spawn check now uses that same line.
+  Before, a vessel whose periapsis was up to 5 km above the atmosphere (a 72 x 100 km Kerbin
+  orbit, and the same band over Duna, Eve, Laythe and Jool) was recorded as Orbiting and then
+  refused at spawn, and its ghost stayed on screen past the end of the recording for the rest
+  of the scene. The 5 km margin is now used only to wait while the vessel is low in that band,
+  and the vessel spawns once it climbs. A recording that ended with its vessel unloaded no
+  longer counts as Orbiting just because its periapsis is above sea level: a periapsis inside
+  the atmosphere makes it sub-orbital. A spawn that can never succeed (an orbit that cannot
+  be rebuilt, a spawned vessel that died, bad numbers) no longer holds its ghost: the ghost
+  finishes its replay and disappears at the recording's end, along with its map-view orbit.
+  Ruling 2026-09-27.
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:
