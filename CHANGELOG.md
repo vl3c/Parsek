@@ -1216,6 +1216,17 @@ _(unreleased — entries accumulate here per commit)_
   charges, because stock only repairs destroyed buildings. A single fail, cancel or repair
   still costs exactly what it did.
 
+- **Rewinding a later flight no longer deletes a vessel an earlier flight left behind.** A
+  plain rewind removed every vessel Parsek had spawned or adopted for any committed recording,
+  expecting each recording to spawn its vessel again. A recording that ended before the rewind
+  point is history, though: it does not replay after the rewind, so its vessel never came back.
+  For example, land a capsule, commit it through the Switch-To dialog, launch another flight
+  and rewind that one: the capsule was gone. A rewind now keeps a
+  spawned vessel when no recording that replays after the rewind will spawn it again, and the
+  kept vessel stays linked to its recording, the same way a revert keeps an earlier flight's
+  vessels. Vessels of the rewound flight, and of any recording that replays, are removed and
+  spawned again as before.
+
 - **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
   Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
   "recovered" ending from committed recordings that Parsek had marked as handled, which hit

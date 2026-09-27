@@ -47,6 +47,15 @@ namespace Parsek
         internal static HashSet<uint> RewindQuicksaveVesselPids { get; private set; }
 
         /// <summary>
+        /// Ids of committed recordings whose spawned vessel the plain rewind's pre-load strip
+        /// KEPT as committed history (no recording that replays after the rewind re-produces
+        /// it). The OnLoad playback reset preserves these recordings' spawn state so the kept
+        /// vessel stays linked to its recording. Null when the rewind kept nothing or did not
+        /// pre-process a save.
+        /// </summary>
+        internal static HashSet<string> RewindHistoricalSpawnKeepRecordingIds { get; private set; }
+
+        /// <summary>
         /// Sets all rewind state at the start of a rewind operation.
         /// RewindAdjustedUT and RewindQuicksaveVesselPids are set separately
         /// (after LoadGame and PreProcessRewindSave respectively).
@@ -56,6 +65,7 @@ namespace Parsek
         {
             IsRewinding = true;
             RewindUT = ut;
+            RewindHistoricalSpawnKeepRecordingIds = null;
             RewindReserved = reserved;
             RewindBaselineFunds = baselineFunds;
             RewindBaselineScience = baselineScience;
@@ -82,6 +92,7 @@ namespace Parsek
             RewindBaselineScience = 0;
             RewindBaselineRep = 0;
             RewindQuicksaveVesselPids = null;
+            RewindHistoricalSpawnKeepRecordingIds = null;
 
             ParsekLog.Info("RewindContext", "EndRewind: all rewind flags cleared");
         }
@@ -137,6 +148,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Sets the ids of recordings whose spawned vessel the pre-load strip kept as
+        /// committed history. Called from the rewind strip-scope resolver.
+        /// </summary>
+        internal static void SetHistoricalSpawnKeepRecordingIds(HashSet<string> ids)
+        {
+            RewindHistoricalSpawnKeepRecordingIds = ids != null && ids.Count > 0 ? ids : null;
+            int count = RewindHistoricalSpawnKeepRecordingIds?.Count ?? 0;
+            ParsekLog.Verbose("RewindContext",
+                $"SetHistoricalSpawnKeepRecordingIds: {count} recording(s)");
+        }
+
+        /// <summary>
         /// Resets all state without logging. For unit tests only.
         /// </summary>
         internal static void ResetForTesting()
@@ -150,6 +173,7 @@ namespace Parsek
             RewindBaselineScience = 0;
             RewindBaselineRep = 0;
             RewindQuicksaveVesselPids = null;
+            RewindHistoricalSpawnKeepRecordingIds = null;
         }
     }
 }
