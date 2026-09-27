@@ -2143,6 +2143,17 @@
         "2026-09-27T14:41:46Z": 117.0
       }
     },
+    "RF-19-refly-session-eva-reboard-merges": {
+      "last": 262.0,
+      "lastVsP50": 1.0,
+      "n": 2,
+      "p50": 262.0,
+      "p95": 292.0,
+      "samples": {
+        "2026-09-27T15:36:52Z": 292.0,
+        "2026-09-27T16:25:55Z": 262.0
+      }
+    },
     "RF-2-two-reflies-in-sequence": {
       "last": 64.0,
       "lastVsP50": 1.0,

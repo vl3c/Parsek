@@ -41,6 +41,30 @@ namespace Parsek.Tests.Generators
         TwoEvasOneLeavesForForeign,
     }
 
+    /// <summary>
+    /// What the player did with the re-flown upper stage during a Re-Fly session
+    /// (<see cref="ReFlyThroughEvaFixture.AddReFlySession"/>).
+    /// </summary>
+    public enum ReFlySessionShape
+    {
+        /// <summary>The fork flies to its end with no branch point.</summary>
+        NoBranch,
+        /// <summary>Jeb EVAs from the fork and re-boards it: fork -EVA- U1 + Jeb -Board- U2.</summary>
+        EvaReboard,
+        /// <summary>Jeb EVAs from the fork and stays out; U1 carries the vessel's end.</summary>
+        EvaKerbalStaysOut,
+        /// <summary>Jeb EVAs from the fork and boards a different vessel.</summary>
+        EvaKerbalBoardsForeignVessel,
+        /// <summary>A stock Switch-To away and back: fork -VesselSwitchContinuation- segment.</summary>
+        SwitchContinuation,
+        /// <summary>The fork docks with something (closed Docked by the recorder).</summary>
+        Dock,
+        /// <summary>The fork undocks: the parent ends at the Undock split, terminal untouched.</summary>
+        Undock,
+        /// <summary>The fork stages (tree-branching split: the fork keeps its id).</summary>
+        Stage,
+    }
+
     public static class ReFlyThroughEvaFixture
     {
         public const string RewindPointId = "rp_thru_eva";
@@ -300,6 +324,295 @@ namespace Parsek.Tests.Generators
                 tree.Recordings[RootId].ChildBranchPointId = EvaBranchPointId;
             }
             return tree;
+        }
+
+        // ------------------------------------------------------------------
+        // A Re-Fly SESSION of the upper-stage slot (the in-place fork and what the
+        // player did with it after the rewind), for the merge-side cells.
+        // ------------------------------------------------------------------
+
+        public const string SessionId = "sess_thru_eva";
+        public const string ForkId = "te-fork";
+        public const string ForkAfterEvaId = "te-fork-u1";
+        public const string ForkAfterBoardId = "te-fork-u2";
+        public const string ForkAfterSwitchId = "te-fork-sw";
+        public const string ForkAfterUndockId = "te-fork-ud";
+        public const string ForkUndockedPartnerId = "te-fork-ud-partner";
+        public const string ForkStagedChildId = "te-fork-stage-child";
+        public const string SessionKerbalId = "te-fork-jeb";
+        public const string ForeignVesselId = "te-foreign";
+        public const string ForeignVesselAfterBoardId = "te-foreign-b";
+        public const string SessionEvaBranchPointId = "bp_fork_eva";
+        public const string SessionBoardBranchPointId = "bp_fork_board";
+        public const string SessionForeignBoardBranchPointId = "bp_fork_foreign_board";
+        public const string SessionSwitchBranchPointId = "bp_fork_switch";
+        public const string SessionDockBranchPointId = "bp_fork_dock";
+        public const string SessionUndockBranchPointId = "bp_fork_undock";
+        public const string SessionStageBranchPointId = "bp_fork_stage";
+
+        public const uint ForeignVesselPid = 4100007u;
+        public const uint UndockedPartnerPid = 4100008u;
+        public const uint StagedChildPid = 4100009u;
+
+        public const double SessionEvaUT = 150.0;
+        public const double SessionBoardUT = 170.0;
+        public const double SessionEndUT = 250.0;
+
+        /// <summary>
+        /// Adds the recordings a Re-Fly session of the upper-stage slot leaves in the
+        /// committed tree at merge time (after <c>CommitPendingTree</c> unioned the
+        /// active tree in): the NotCommitted in-place fork, plus whatever the player
+        /// did after the rewind. Production shape of the fork
+        /// (<c>RewindInvoker.BuildProvisionalRecording</c>): session-tagged, playback
+        /// suppressed, the origin's parent branch point, no chain identity. Recordings
+        /// the recorder created DURING the session (vessel continuations, the EVA
+        /// kerbal, a switch segment) carry the default <see cref="MergeState.Immutable"/>
+        /// and no session id, exactly as <c>CreateSplitBranch</c> builds them.
+        /// Returns the fork. The caller registers every tree recording in the store.
+        /// </summary>
+        public static Recording AddReFlySession(
+            RecordingTree tree, ReFlySessionShape shape, TerminalState vesselEnd)
+        {
+            if (tree == null) throw new ArgumentNullException(nameof(tree));
+            var fork = SessionVessel(ForkId, tree.Id);
+            fork.MergeState = MergeState.NotCommitted;
+            fork.CreatingSessionId = SessionId;
+            fork.PlaybackEnabled = false;
+            fork.ParentBranchPointId = SplitBranchPointId;
+            fork.SupersedeTargetId = UpperAfterBoardId;
+
+            switch (shape)
+            {
+                case ReFlySessionShape.NoBranch:
+                    AddSpan(fork, SplitUT, SessionEndUT);
+                    fork.TerminalStateValue = vesselEnd;
+                    break;
+
+                case ReFlySessionShape.EvaReboard:
+                case ReFlySessionShape.EvaKerbalStaysOut:
+                case ReFlySessionShape.EvaKerbalBoardsForeignVessel:
+                {
+                    AddSpan(fork, SplitUT, SessionEvaUT);
+                    fork.ChildBranchPointId = SessionEvaBranchPointId;
+                    var afterEva = SessionVessel(ForkAfterEvaId, tree.Id);
+                    afterEva.ParentBranchPointId = SessionEvaBranchPointId;
+                    var kerbal = new Recording
+                    {
+                        RecordingId = SessionKerbalId,
+                        VesselName = EvaCrewName,
+                        TreeId = tree.Id,
+                        VesselPersistentId = KerbalPid,
+                        EvaCrewName = EvaCrewName,
+                        ParentBranchPointId = SessionEvaBranchPointId,
+                    };
+                    tree.BranchPoints.Add(ScenarioWriter.EvaBranch(
+                        SessionEvaBranchPointId, ForkId, ForkAfterEvaId, SessionKerbalId,
+                        SessionEvaUT));
+                    Add(tree, afterEva);
+                    Add(tree, kerbal);
+
+                    if (shape == ReFlySessionShape.EvaReboard)
+                    {
+                        AddSpan(afterEva, SessionEvaUT, SessionBoardUT);
+                        AddSpan(kerbal, SessionEvaUT, SessionBoardUT);
+                        afterEva.ChildBranchPointId = SessionBoardBranchPointId;
+                        kerbal.ChildBranchPointId = SessionBoardBranchPointId;
+                        kerbal.TerminalStateValue = TerminalState.Boarded;
+                        var afterBoard = SessionVessel(ForkAfterBoardId, tree.Id);
+                        afterBoard.ParentBranchPointId = SessionBoardBranchPointId;
+                        AddSpan(afterBoard, SessionBoardUT, SessionEndUT);
+                        afterBoard.TerminalStateValue = vesselEnd;
+                        tree.BranchPoints.Add(ScenarioWriter.BoardBranch(
+                            SessionBoardBranchPointId, SessionKerbalId, ForkAfterEvaId,
+                            ForkAfterBoardId, SessionBoardUT));
+                        Add(tree, afterBoard);
+                    }
+                    else if (shape == ReFlySessionShape.EvaKerbalStaysOut)
+                    {
+                        AddSpan(afterEva, SessionEvaUT, SessionEndUT);
+                        afterEva.TerminalStateValue = vesselEnd;
+                        AddSpan(kerbal, SessionEvaUT, SessionEndUT);
+                        kerbal.TerminalStateValue = TerminalState.Landed;
+                    }
+                    else
+                    {
+                        // Jeb leaves the re-flown vessel for a different vessel.
+                        AddSpan(afterEva, SessionEvaUT, SessionEndUT);
+                        afterEva.TerminalStateValue = vesselEnd;
+                        AddSpan(kerbal, SessionEvaUT, SessionBoardUT);
+                        kerbal.ChildBranchPointId = SessionForeignBoardBranchPointId;
+                        kerbal.TerminalStateValue = TerminalState.Boarded;
+                        var foreign = new Recording
+                        {
+                            RecordingId = ForeignVesselId,
+                            VesselName = "TE Foreign Lander",
+                            TreeId = tree.Id,
+                            VesselPersistentId = ForeignVesselPid,
+                            ChildBranchPointId = SessionForeignBoardBranchPointId,
+                        };
+                        AddSpan(foreign, SplitUT, SessionBoardUT);
+                        var foreignAfter = new Recording
+                        {
+                            RecordingId = ForeignVesselAfterBoardId,
+                            VesselName = "TE Foreign Lander",
+                            TreeId = tree.Id,
+                            VesselPersistentId = ForeignVesselPid,
+                            ParentBranchPointId = SessionForeignBoardBranchPointId,
+                            TerminalStateValue = TerminalState.Landed,
+                        };
+                        AddSpan(foreignAfter, SessionBoardUT, SessionEndUT);
+                        tree.BranchPoints.Add(ScenarioWriter.BoardBranch(
+                            SessionForeignBoardBranchPointId, SessionKerbalId, ForeignVesselId,
+                            ForeignVesselAfterBoardId, SessionBoardUT));
+                        Add(tree, foreign);
+                        Add(tree, foreignAfter);
+                    }
+                    break;
+                }
+
+                case ReFlySessionShape.SwitchContinuation:
+                {
+                    AddSpan(fork, SplitUT, SessionEvaUT);
+                    fork.ChildBranchPointId = SessionSwitchBranchPointId;
+                    var segment = SessionVessel(ForkAfterSwitchId, tree.Id);
+                    segment.ParentBranchPointId = SessionSwitchBranchPointId;
+                    AddSpan(segment, SessionEvaUT, SessionEndUT);
+                    segment.TerminalStateValue = vesselEnd;
+                    tree.BranchPoints.Add(new BranchPoint
+                    {
+                        Id = SessionSwitchBranchPointId,
+                        UT = SessionEvaUT,
+                        Type = BranchPointType.VesselSwitchContinuation,
+                        ParentRecordingIds = new List<string> { ForkId },
+                        ChildRecordingIds = new List<string> { ForkAfterSwitchId },
+                    });
+                    Add(tree, segment);
+                    break;
+                }
+
+                case ReFlySessionShape.Dock:
+                {
+                    // Dock: the recorder closes the fork Docked (docs/dev/
+                    // dock-undock-recording-structure.md section 3.1).
+                    AddSpan(fork, SplitUT, SessionEvaUT);
+                    fork.ChildBranchPointId = SessionDockBranchPointId;
+                    fork.TerminalStateValue = TerminalState.Docked;
+                    tree.BranchPoints.Add(new BranchPoint
+                    {
+                        Id = SessionDockBranchPointId,
+                        UT = SessionEvaUT,
+                        Type = BranchPointType.Dock,
+                        MergeCause = "DOCK",
+                        ParentRecordingIds = new List<string> { ForkId },
+                        ChildRecordingIds = new List<string>(),
+                    });
+                    break;
+                }
+
+                case ReFlySessionShape.Undock:
+                {
+                    // Undock: the parent ends at the split with its terminal untouched
+                    // (section 4 of the same doc); the survivor keeps the pid.
+                    AddSpan(fork, SplitUT, SessionEvaUT);
+                    fork.ChildBranchPointId = SessionUndockBranchPointId;
+                    var survivor = SessionVessel(ForkAfterUndockId, tree.Id);
+                    survivor.ParentBranchPointId = SessionUndockBranchPointId;
+                    AddSpan(survivor, SessionEvaUT, SessionEndUT);
+                    survivor.TerminalStateValue = vesselEnd;
+                    var partner = new Recording
+                    {
+                        RecordingId = ForkUndockedPartnerId,
+                        VesselName = "TE Undocked Partner",
+                        TreeId = tree.Id,
+                        VesselPersistentId = UndockedPartnerPid,
+                        ParentBranchPointId = SessionUndockBranchPointId,
+                        TerminalStateValue = TerminalState.Orbiting,
+                    };
+                    AddSpan(partner, SessionEvaUT, SessionEndUT);
+                    tree.BranchPoints.Add(ScenarioWriter.SeparationBranch(
+                        SessionUndockBranchPointId, ForkId,
+                        new[] { ForkAfterUndockId, ForkUndockedPartnerId },
+                        SessionEvaUT, BranchPointType.Undock));
+                    Add(tree, survivor);
+                    Add(tree, partner);
+                    break;
+                }
+
+                case ReFlySessionShape.Stage:
+                {
+                    // Staging / decoupling: a tree-branching split - the fork keeps
+                    // flying under its own id and reaches its own terminal; the
+                    // separated stage hangs off the split as a child.
+                    AddSpan(fork, SplitUT, SessionEndUT);
+                    fork.TerminalStateValue = vesselEnd;
+                    var staged = new Recording
+                    {
+                        RecordingId = ForkStagedChildId,
+                        VesselName = "TE Spent Stage",
+                        TreeId = tree.Id,
+                        VesselPersistentId = StagedChildPid,
+                        ParentBranchPointId = SessionStageBranchPointId,
+                        TerminalStateValue = TerminalState.Destroyed,
+                    };
+                    AddSpan(staged, SessionEvaUT, SessionEndUT);
+                    tree.BranchPoints.Add(ScenarioWriter.SeparationBranch(
+                        SessionStageBranchPointId, ForkId, new[] { ForkStagedChildId },
+                        SessionEvaUT));
+                    Add(tree, staged);
+                    break;
+                }
+            }
+
+            Add(tree, fork);
+            return fork;
+        }
+
+        /// <summary>The marker <c>RewindInvoker.AtomicMarkerWrite</c> writes for an
+        /// in-place Re-Fly of the upper-stage slot of the
+        /// <see cref="ReFlyThroughEvaVariant.Reboard"/> tree, whose walked tip is
+        /// <see cref="UpperAfterBoardId"/>.</summary>
+        public static ReFlySessionMarker BuildSessionMarker()
+        {
+            return new ReFlySessionMarker
+            {
+                SessionId = SessionId,
+                TreeId = "tree_thru_eva",
+                ActiveReFlyRecordingId = ForkId,
+                OriginChildRecordingId = UpperId,
+                SupersedeTargetId = UpperAfterBoardId,
+                RewindPointId = RewindPointId,
+                InvokedUT = SplitUT,
+                RewindPointUT = SplitUT,
+                InPlaceContinuation = true,
+                PreSessionBranchPointIds = new List<string>
+                {
+                    SplitBranchPointId, EvaBranchPointId, BoardBranchPointId,
+                },
+            };
+        }
+
+        private static Recording SessionVessel(string id, string treeId)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = "TE Upper",
+                TreeId = treeId,
+                VesselPersistentId = UpperPid,
+            };
+        }
+
+        private static void AddSpan(Recording rec, double startUT, double endUT)
+        {
+            rec.Points.Add(new TrajectoryPoint { ut = startUT, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = endUT, bodyName = "Kerbin" });
+            rec.ExplicitStartUT = startUT;
+            rec.ExplicitEndUT = endUT;
+        }
+
+        private static void Add(RecordingTree tree, Recording rec)
+        {
+            tree.AddOrReplaceRecording(rec);
         }
 
         private static RecordingBuilder Vessel(
