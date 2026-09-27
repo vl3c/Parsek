@@ -172,7 +172,11 @@ rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 2, max = 2 }
 tombstones    = { min = 8, max = 8 }
 
+# ARMED 2026-09-27 off `2026-09-15_1550` and `2026-09-27_1225` (both PASS attempt 1): the
+# fixture's identity, trees / committedTrees 1, recordings 11, JointBreak 5, Destroyed 10,
+# SubOrbital 1, the same on both DLLs.
 [expectations.recordings.structure]
+gating = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 11, max = 11 }

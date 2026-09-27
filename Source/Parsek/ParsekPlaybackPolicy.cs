@@ -644,6 +644,13 @@ namespace Parsek
                     ? IsWarpActiveOverrideForTesting()
                     : IsAnyWarpActiveFromGlobalsCore();
                 var committedForRetire = RecordingStore.CommittedRecordings;
+                if (!evt.Flags.isMidChain
+                    && evt.Index >= 0 && evt.Index < committedForRetire.Count)
+                {
+                    GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
+                        "Policy", "FLIGHT", evt.Index, committedForRetire[evt.Index],
+                        evt.CurrentUT, evt.Flags.isChainLooping);
+                }
                 if (isWarp
                     && evt.Index >= 0 && evt.Index < committedForRetire.Count
                     && !host.IsActiveGhostChainTipFromPolicy(committedForRetire[evt.Index])
@@ -715,8 +722,19 @@ namespace Parsek
                                 host.DeferredActivateVesselFromPolicy(spawnedPid);
                         }
 
+                        // A permanent CannotSpawnSafely verdict is not a blocked spawn: no retry
+                        // can clear it, so the ghost ends at EndUT (operator ruling 2026-09-27).
+                        if (!spawned && evt.GhostWasActive
+                            && committed[evt.Index].TerminalSpawnCannotSpawnSafely)
+                        {
+                            ParsekLog.Info("Policy",
+                                $"Ghost not held: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
+                                $"id={evt.Flags.recordingId} cannot spawn safely " +
+                                $"reason={committed[evt.Index].TerminalSpawnSafetyReasonCode ?? "(none)"} " +
+                                "- the ghost ends at EndUT without a spawn");
+                        }
                         // If spawn was blocked, hold the ghost (#96)
-                        if (!spawned && evt.GhostWasActive)
+                        else if (!spawned && evt.GhostWasActive)
                         {
                             DiagnosticsState.health.spawnFailures++;
                             heldGhosts[evt.Index] = new HeldGhostInfo
@@ -922,6 +940,15 @@ namespace Parsek
                         toRelease.Add(new KeyValuePair<int, string>(index, "held-rewind-retired"));
                         break;
 
+                    case HeldGhostAction.ReleaseCannotSpawnSafely:
+                        ParsekLog.Info("Policy",
+                            $"Held ghost released (cannot spawn safely): #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} reason={committed[index].TerminalSpawnSafetyReasonCode ?? "(none)"} " +
+                            $"held={now - info.holdStartTime:F1}s - the ghost ends at EndUT without a spawn");
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-cannot-spawn-safely"));
+                        break;
+
                     case HeldGhostAction.Timeout:
                         ParsekLog.Warn("Policy",
                             $"Held ghost timed out: #{index} \"{info.vesselName}\" " +
@@ -1056,6 +1083,12 @@ namespace Parsek
                     rec,
                     currentUT,
                     out _);
+            // A permanent CannotSpawnSafely verdict (periapsis refusal, failed orbit resolution,
+            // a spawned vessel that died, non-finite values) never clears in this scene: the
+            // ghost is released at EndUT instead of standing in for a vessel that will not come
+            // (operator ruling 2026-09-27). Only a genuine deferral keeps holding.
+            if (terminalDeferredState == TerminalOrbitDeferredSpawnState.Refused)
+                return HeldGhostAction.ReleaseCannotSpawnSafely;
             if (terminalDeferredState == TerminalOrbitDeferredSpawnState.Hold)
                 return HeldGhostAction.Hold;
 
@@ -1399,6 +1432,11 @@ namespace Parsek
                 return false;
             }
 
+            // The retention waits for a real spawn; a permanent CannotSpawnSafely verdict means
+            // none will come, so the map presence ends with the recording like the ghost does.
+            if (rec.TerminalSpawnCannotSpawnSafely)
+                return false;
+
             return VesselSpawner.HasRecordedTerminalOrbit(rec)
                 || rec.HasOrbitSegments
                 || TerminalOrbitSpawnSafety.HasActiveHold(rec);
@@ -1736,5 +1774,11 @@ namespace Parsek
 
         /// <summary>Index is invalid or recording ID mismatch — release ghost.</summary>
         InvalidIndex,
+
+        /// <summary>
+        /// The terminal spawn carries a permanent CannotSpawnSafely verdict: release the ghost
+        /// so it ends at EndUT (operator ruling 2026-09-27).
+        /// </summary>
+        ReleaseCannotSpawnSafely,
     }
 }

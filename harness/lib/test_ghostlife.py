@@ -308,7 +308,7 @@ class SpecSurfaceTests(unittest.TestCase):
         self.assertIn("unknown key(s)", errs[0])
         self.assertIn("spawnd", errs[0])
 
-    def test_the_accepted_key_set_is_exactly_the_nine(self):
+    def test_the_accepted_key_set_is_exactly_the_ten(self):
         # Four keys until 2026-09-10, when the two LINE-count windows joined for
         # the repeat-rewind lane (GS-9): the distinct `spawned` count and the
         # set-based balance ledger cannot see a second replay of the SAME
@@ -317,11 +317,15 @@ class SpecSurfaceTests(unittest.TestCase):
         # (LoopCycle census) and the per-vessel-name `vessels` table.
         # Eight until 2026-09-26, when v3 added the `attitude` sub-table (D6
         # attitude-preservation, the AfterUpdate dRotDeg residual).
+        # Nine until 2026-09-27, when v4 added the `peakLive` window (the
+        # per-recording overlap cap lane OC-1).
         self.assertEqual(
             ("gating", "spawned", "spawnLines", "destroyLines", "cycleLines",
-             "requireBalanced", "destroyedReasons", "vessels", "attitude"),
+             "peakLive", "requireBalanced", "destroyedReasons", "vessels",
+             "attitude"),
             ghostlife.GHOST_LIFECYCLE_BLOCK_KEYS)
-        self.assertEqual(("spawned", "spawnLines", "destroyLines", "cycleLines"),
+        self.assertEqual(("spawned", "spawnLines", "destroyLines", "cycleLines",
+                          "peakLive"),
                          ghostlife.GHOST_LIFECYCLE_WINDOW_KEYS)
         self.assertEqual(("forbidden", "required"),
                          ghostlife.DESTROYED_REASONS_BLOCK_KEYS)
@@ -1331,3 +1335,73 @@ class GhostlifeV3EmitterSourceGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class PeakLiveTests(unittest.TestCase):
+    """v4: the peakLive window - the most copies of one recording alive at a
+    frame boundary, the count the per-recording overlap cap bounds."""
+
+    RID = "overcap000000000000000000000000a"
+    OTHER = "other0000000000000000000000000bb"
+
+    def _facets(self, *lines):
+        return ghostlife.observed_ghost_lifecycle_facets(
+            ghostlife.parse_ghost_lifecycle(log(*lines)))["ghostLifecycle"]
+
+    def _spawn(self, frame, rec_id=None):
+        return line(ghostlife.PHASE_SPAWNED, rec_id=rec_id or self.RID, frame=frame)
+
+    def _destroy(self, frame, rec_id=None, reason=None):
+        return line(ghostlife.PHASE_DESTROYED, rec_id=rec_id or self.RID, frame=frame,
+                    reason=reason or ghostlife.OVERLAP_EXPIRED_REASON)
+
+    def test_an_empty_log_measures_zero(self):
+        f = self._facets()
+        self.assertEqual(0, f["peakLive"])
+        self.assertEqual("", f["peakLiveRecording"])
+        self.assertEqual(-1, f["peakLiveFrame"])
+
+    def test_copies_accumulate_across_frames(self):
+        f = self._facets(self._spawn(1), self._spawn(2), self._spawn(3))
+        self.assertEqual(3, f["peakLive"])
+        self.assertEqual(self.RID, f["peakLiveRecording"])
+        self.assertEqual(3, f["peakLiveFrame"])
+
+    def test_a_same_frame_spawn_and_expiry_is_not_an_extra_copy(self):
+        # Two copies live; in frame 10 a new primary spawns AND the oldest copy
+        # expires. Sampling per line would read 3; the frame-boundary sample is 2.
+        f = self._facets(self._spawn(1), self._spawn(2),
+                         self._spawn(10), self._destroy(10))
+        self.assertEqual(2, f["peakLive"])
+
+    def test_the_mutation_that_samples_per_line_would_read_higher(self):
+        # The same shape with the expiry one frame LATER is a real third copy.
+        f = self._facets(self._spawn(1), self._spawn(2),
+                         self._spawn(10), self._destroy(11))
+        self.assertEqual(3, f["peakLive"])
+
+    def test_counts_are_per_recording(self):
+        f = self._facets(self._spawn(1), self._spawn(1, self.OTHER),
+                         self._spawn(2), self._spawn(2, self.OTHER),
+                         self._spawn(3, self.OTHER))
+        self.assertEqual(3, f["peakLive"])
+        self.assertEqual(self.OTHER, f["peakLiveRecording"])
+
+    def test_an_unpaired_destroy_clamps_at_zero_and_never_over_counts(self):
+        # A copy spawned before the tracer was on writes only its destroy.
+        f = self._facets(self._destroy(1), self._destroy(2), self._spawn(3))
+        self.assertEqual(1, f["peakLive"])
+
+    def test_the_window_evaluates(self):
+        text = log(self._spawn(1), self._spawn(2), self._spawn(3),
+                   self._destroy(4), self._destroy(5, reason="engine teardown"),
+                   self._destroy(5, reason="engine teardown"))
+        r = ghostlife.evaluate_ghost_lifecycle(
+            {"ghostLifecycle": {"gating": True, "peakLive": {"min": 3, "max": 3}}},
+            ghostlife.parse_ghost_lifecycle(text))
+        self.assertEqual("PASS", r.status, r.mismatches)
+        r = ghostlife.evaluate_ghost_lifecycle(
+            {"ghostLifecycle": {"gating": True, "peakLive": {"max": 2}}},
+            ghostlife.parse_ghost_lifecycle(text))
+        self.assertEqual("FAIL", r.status)
+        self.assertIn("peakLive 3 > max 2", r.mismatches[0])

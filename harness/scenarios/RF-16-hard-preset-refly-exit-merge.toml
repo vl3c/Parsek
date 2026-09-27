@@ -1,0 +1,126 @@
+schema = 1
+id = "RF-16-hard-preset-refly-exit-merge"
+# =====================================================================================
+# THE HARD-PRESET RE-FLY EXIT, MERGE HALF. KSP-SETTINGS-AUDIT-2026-09-26 S7.
+#
+# Owner ruling 2026-09-26: Rewind-to-Separation and Re-Fly ignore the stock Hard flags.
+# On `Flight.CanRestart = false` stock does not build the Esc-menu "Revert Flight" button
+# (PauseMenu builds it only when `CanLeaveToEditor || CanRestart`) nor the Revert to
+# Launch entries, so the re-fly Retry choice is NOT offered. Merge / Discard stay
+# reachable by LEAVING THE FLIGHT: Esc "Space Center" / "Tracking Station" are not
+# CanRestart-gated, and the scene-exit interceptor surfaces the Re-Fly merge dialog.
+# `ReFlyRevertButtonGate.Apply` logs one Info line per evaluation while a re-fly is live
+# on such a game. This lane is the "live check still owed" the S7 note names.
+#
+# THE ROAD IS S4.1's, on a Hard-flight copy of its host. `gloops-airshow-hard` is
+# `gloops-airshow` with `preset = Hard` and PARAMETERS/FLIGHT `CanQuickLoad`,
+# `CanRestart`, `CanLeaveToEditor` False and nothing else changed
+# (harness/tools/build_gloops_airshow_hard.py, drift-gated by
+# harness/lib/test_gloops_airshow_hard.py). The rewind-b9 injector builds the RP
+# quicksave from the staged save, so the rewind loads a CanRestart=False game too.
+#
+#   LoadGame lands in FLIGHT (activeVessel = 1, the S4.1 route). TimeJump 61 s puts the
+#   clock 1 s past rp_b9_root (the future-RP gate S4.1 proves stays S4.1's) and ahead of
+#   both leaves' EndUTs. InvokeRewind re-flies slot 1; AtomicMarkerWrite runs the gate,
+#   which forces CanRevertToPostInit as on any game AND, here only, logs the Hard line.
+#   AnswerMergeDialog then LEAVES THE FLIGHT exactly as a player on Hard must: it
+#   persists and calls HighLogic.LoadScene(SPACECENTER) (the stock Esc "Space Center"
+#   road minus the button press), the SceneExitInterceptor prefix refuses the idle
+#   auto-discard for the live re-fly and shows the pre-transition Re-Fly dialog
+#   (labels=ReFlyAttempt), and the verb clicks Merge.
+#
+# WHAT THE REQUIRED TOKENS PROVE, in order: the re-fly started and completed on this
+# game; the gate saw CanRestart=False (the LITERAL run after the site hole, nothing
+# spanning it); the flight was left for the Space Center through the interceptor; the
+# merge dialog was OFFERED with the re-fly labels; the Merge choice completed. The
+# forbidden set proves NO revert happened by any road: no RevertInterceptor block (the
+# Esc Revert road), no stock OnRevertTo*FlightState event, no consumed revert, no
+# Retry or Esc-dialog discard session end.
+#
+# NOT CLAIMED: that the Revert Flight button is ABSENT from the Esc menu. That is stock
+# UI construction (decompiled PauseMenu), not a Parsek decision, and no seam verb opens
+# the pause menu; the gate line is Parsek's statement that it read the flag.
+#
+# LIVE-PROVEN 2026-09-27: reading run 2026-09-27_1341 (PASS attempt 1, wall 65 s) matched every
+# token below as written, and the report-only rewind block read inside its windows
+# (rewindPoints=1 supersedeRows=0 tombstones=0, 4 recordings); arming it is an
+# operator decision not taken here. Authored 2026-09-27 on branch
+# `lane-hard-refly-exit`: every token below
+# is S4.1's flown set (lifetime green) or derived from the source: the gate literal from
+# ReFlyRevertButtonGate.Apply, the scene-exit literals from SceneExitInterceptor and
+# ParsekTestCommandAddon.DriveReFlyConclusion, the revert literals from
+# RevertInterceptor.Prefix / RevertDetector. The rewind block is report-only until a
+# reading run confirms S4.1's zero-supersede / zero-tombstone windows hold here.
+# =====================================================================================
+tier = "nightly"
+description = "KSP-SETTINGS-AUDIT S7, Hard preset: InvokeRewind a crashed-booster slot on a Flight.CanRestart=False game (gloops-airshow-hard + rewind-b9), assert ReFlyRevertButtonGate logs that stock hides Revert Flight and Retry is not offered, then leave the flight for the Space Center through the scene-exit interceptor, assert the Re-Fly merge dialog is offered and answer Merge; no revert of any kind."
+instanceProfile = "stock-minimal"
+tags = ["RF-16", "rewind", "refly", "merge", "hard-preset", "ksp-settings-audit", "D9"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gloops-airshow-hard"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "TimeJump",          args = { deltaSeconds = "61.0" },                    expect = "OK", budget = 120 },
+  { cmd = "InvokeRewind",      args = { rp = "rp_b9_root", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                         expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
+       "terminal-kind-classify", "merge-journal"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+[expectations.logContracts]
+required = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke",
+  "Invocation complete",
+  "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+  "Restored: recs=.* pendingScience=",
+  "stock hides Revert Flight, re-fly Retry not offered; Merge / Discard by leaving the flight",
+  "answermergedialog driving re-fly conclusion scene-exit",
+  "TryAutoDiscardIdleActiveTree: refusing - refly-active sess=.* dest=SPACECENTER",
+  "Pre-transition tree merge dialog: .* labels=ReFlyAttempt",
+  "AppendRelations outcome=refused-unflown-provisional",
+  "answermergedialog choice=merge result=committed",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "subscriber threw",
+  "ReFlyRevertButtonGate\\.Apply threw",
+  "Prefix: blocking stock RevertTo",
+  "OnRevertTo(Launch|Prelaunch)FlightState fired",
+  "Consumed pending revert",
+  "End reason=retry ",
+  "End reason=discardReFly sess=",
+  "End reason=discardReFlyAttemptFromMergeDialog",
+]
+
+[expectations.rewind]
+gating        = false
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+budgetSeconds = 2460
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

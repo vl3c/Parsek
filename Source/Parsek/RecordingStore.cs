@@ -4219,9 +4219,12 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if any branch-0 segment in the chain has LoopPlayback set.
-        /// Note: deliberately does not check PlaybackEnabled (bug #433). Whether the
-        /// chain is looping is a career-state property — it determines if the vessel
-        /// spawns at chain tip. Hiding the ghost visual must not change that answer.
+        /// Note: deliberately does not check PlaybackEnabled (bug #433): hiding the ghost
+        /// visual must not change the answer. It does NOT gate the chain tip's spawn: a
+        /// looped phase keeps the chain's first run real, so the tip spawns once and later
+        /// loop replays stay ghost-only (design 12.7, operator ruling 2026-09-27). It marks
+        /// the chain's segments as looping-like for the replay-scope render gate and names
+        /// the tip spawn in the log (GhostPlaybackLogic.LogChainLoopFirstRunSpawn).
         /// </summary>
         internal static bool IsChainLooping(string chainId)
         {

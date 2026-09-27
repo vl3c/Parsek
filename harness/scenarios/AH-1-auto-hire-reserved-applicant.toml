@@ -1,0 +1,102 @@
+schema = 1
+id = "AH-1-auto-hire-reserved-applicant"
+tier = "nightly"
+# THE LIVE CHECK FOR THE AUTO-HIRE FIX (todo KSP-SETTINGS-FOLLOWUPS-2026-09-27 item 4,
+# `Source/Parsek/Patches/KerbalAutoHireApplicantPatch.cs`). LIVE-PROVEN 2026-09-27 (reading
+# run 2026-09-27_1341, PASS attempt 1, wall 54 s).
+#
+# THE DEFECT. With `Difficulty.AutoHireCrews` on, stock `KerbalRoster.DefaultCrewForVessel`
+# fills each seat the Available crew cannot with `GetNextApplicant()` (the first Applicant in
+# roster order), `HireApplicant`s him and seats him without reading the outcome. After a
+# rewind to before a committed hire, that first applicant is the one the committed timeline
+# hires later: `KerbalHirePatch` refused his hire, stock seated him unhired anyway, once per
+# short seat. The fix prefixes `GetNextApplicant()` to skip applicants a committed future
+# hires. The xUnit cells (`KerbalHirePatchTests.AutoHireApplicant*`) prove the pick decision;
+# only a live roster proves stock's shortfall loop actually goes through the prefix.
+#
+# WHY AN IN-GAME CELL AND NOT A REWIND LANE. The defect is entirely inside one synchronous
+# stock call (DefaultCrewForVessel -> GetNextApplicant -> HireApplicant -> seat). The rewind
+# only produces its INPUT: an applicant with a committed CrewHired row still ahead of the
+# clock. The cell `FlightIntegrationTests.AutoHireSkipsCommittedFutureHireApplicant`
+# (category `AutoHireReservation`) builds exactly that input in-process - a committed
+# recording plus its KSC-converted CrewHired ledger row 60 s ahead, naming the FIRST
+# applicant in roster order (stock's pick) - switches auto-hire on, sets every Available
+# crew kerbal but one Assigned so a Mk1-3 pod is two seats short, and calls the REAL
+# `DefaultCrewForVessel` on a one-pod craft node. It asserts: GetNextApplicant was reached
+# and skipped the reserved applicant once per short seat, KerbalHirePatch never refused him,
+# he stays an Applicant and is not seated, nobody is seated twice, all three seats are filled
+# (the kept kerbal plus one hire per short seat). Every roster type / status, the funds, the
+# ledger row, the recording and the difficulty flag are reverted in its finally, with crew
+# and funds events suppressed so nothing reaches the ledger.
+#
+# THE HOST is `fresh-career`: career (the cell skips otherwise), four Available crew and one
+# applicant (Verhat Kerman), Astronaut Complex level 0 (limit 5, active 4, so stock's
+# once-before-the-loop crew-limit check passes; `stock-screen-census`, the rewound career
+# that carries a REAL committed hire for Verhat, is at 5 of 5 and stock would not auto-hire
+# there at all), funds 500000 (the cell tops funds up for the hires if needed and restores them). With one applicant, the pick is
+# `(none - stock generates a new applicant)` both times, so stock hires two freshly
+# generated applicants; the teardown removes both and restores the three flipped statuses.
+#
+# THE PIN IS WHOLE: the reading run 2026-09-27_1341 measured `total=1 passed=1 failed=0
+# skipped=0` and the id has left `INTERIM_PIN_IDS`. The cell's own summary and teardown lines
+# were predicted from the host and measured exactly as predicted (`pickLines=2 hired=2
+# seated=3 refusals=0`, `kept=Jebediah Kerman`, teardown `reverted=3 removed=2`), and the
+# pick line printed twice.
+description = "Stock auto-hire on a career host with a committed future hire for the first applicant (the rewound state, seeded in-process): DefaultCrewForVessel on a Mk1-3 pod two seats short skips that applicant, hires and seats two others, seats nobody twice and never reaches the KerbalHirePatch refusal."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "kerbals", "action-blocking", "career", "AH-1"]
+
+[fixture]
+# No active vessel, so LoadGame takes the Space Center route (H48's host).
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "AutoHireReservation" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["kerbals", "action-blocking"]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Zero: the cell's committed recording lives in memory only and is removed in its finally.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required = [
+  # total=1 is attribute-exact (one SPACECENTER declaration); the split is the measured one.
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoHireReservation scene=SPACECENTER",
+  # The prefix skipped the reserved applicant, twice (one per short seat).
+  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[KerbalHirePatch\\] auto-hire applicant pick: skipped=1 applicant\\(s\\) a committed future hires; picked=\\(none - stock generates a new applicant\\)){2}",
+  "\\[Parsek\\]\\[INFO\\]\\[AutoHireReservation\\] auto-hire live check passed: reserved='Verhat Kerman' pod=mk1-3pod capacity=3 kept=[^ ]+ Kerman shortfall=2 pickLines=2 hired=2 seated=3 refusals=0",
+  "\\[Parsek\\]\\[INFO\\]\\[AutoHireReservation\\] auto-hire live check teardown: reverted=3 removed=2",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The backstop never refused: auto-hire never picked the reserved applicant.
+  "\\[KerbalHirePatch\\] blocking hire for name=",
+  "\\[CommittedAction\\] Blocked action: Cannot hire",
+  # The real hires ran under crew / funds suppression: nothing recorded, nothing spent.
+  "Game state: CrewHired",
+  "KSC spending recorded",
+]
+
+[runtime]
+# H48's shape and budget: one deferred LoadGame and one deferred RunTests.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

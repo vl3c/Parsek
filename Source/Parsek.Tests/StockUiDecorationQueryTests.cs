@@ -162,7 +162,6 @@ namespace Parsek.Tests
                 SlotOwner = owner,
                 DismissalRefusal = refusal,
                 ActiveStandInOwner = standInOwner,
-                IsLoopingRecording = id => false,
                 LiveCrewOrTourist = live
             };
         }

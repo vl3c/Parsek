@@ -281,30 +281,17 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSpawnAtRecordingEnd_ChainFullyDisabled_StillSpawns()
         {
-            // Bug #433: previously this was gated by IsChainFullyDisabled; now the
-            // caller never passes isChainLooping=true for a fully-disabled chain.
+            // Bug #433: previously this was gated by IsChainFullyDisabled. A hidden
+            // chain still spawns its tip.
             var rec = MakeSpawnableRecording();
             rec.ChainId = "chain-off";
             rec.PlaybackEnabled = false;
 
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: false);
+                rec, isActiveChainMember: false);
 
             Assert.True(needsSpawn);
             Assert.Equal("", reason);
-        }
-
-        [Fact]
-        public void ShouldSpawnAtRecordingEnd_ChainLooping_ReasonIsChainLooping()
-        {
-            var rec = MakeSpawnableRecording();
-            rec.ChainId = "chain-loop";
-
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, isActiveChainMember: false, isChainLooping: true);
-
-            Assert.False(needsSpawn);
-            Assert.Equal("chain looping", reason);
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -314,9 +301,10 @@ namespace Parsek.Tests
         [Fact]
         public void IsChainLooping_DisabledLoopSegment_StillReturnsTrue()
         {
-            // The chain's "is looping?" state is a career property — it determines
-            // if the vessel spawns at tip. It must not change when the visual toggle
-            // flips. Bug #433.
+            // The chain's "is looping?" state must not change when the visual toggle
+            // flips. Bug #433. It no longer gates the tip's spawn (a looped phase keeps
+            // the chain's first run real, ChainLoopFirstRunSpawnTests); it still marks
+            // the chain's segments looping-like for the replay-scope render gate.
             var points = new List<TrajectoryPoint>
             {
                 new TrajectoryPoint { ut = 100 },
@@ -332,11 +320,6 @@ namespace Parsek.Tests
             RecordingStore.CommitRecordingDirect(rec);
 
             Assert.True(RecordingStore.IsChainLooping("chain-disabled-loop"));
-
-            // Paired with ShouldSpawnAtRecordingEnd_ChainLooping_ReasonIsChainLooping
-            // above: when IsChainLooping→true, the tip's spawn is suppressed with
-            // reason "chain looping". Together these prove hiding the loop visual
-            // does not flip the chain from "loop, no spawn" to "spawn at tip".
         }
 
         // ─────────────────────────────────────────────────────────────

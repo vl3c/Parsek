@@ -7089,11 +7089,13 @@ namespace Parsek
 
             bool savedCannotSpawn = false;
             bool.TryParse(savedTreeRecNode.GetValue("terminalSpawnCannotSpawnSafely"), out savedCannotSpawn);
-            rec.TerminalSpawnCannotSpawnSafely = savedCannotSpawn;
 
-            string savedReason = savedTreeRecNode.GetValue("terminalSpawnSafetyReasonCode");
-            if (!string.IsNullOrEmpty(savedReason))
-                rec.TerminalSpawnSafetyReasonCode = savedReason;
+            // Only the durable spawn-death abandon is restored; a geometry verdict is
+            // re-derived from the recording's own terminal orbit on the next attempt.
+            TerminalOrbitSpawnSafety.RestoreSavedRefusal(
+                rec,
+                savedCannotSpawn,
+                savedTreeRecNode.GetValue("terminalSpawnSafetyReasonCode"));
         }
 
         /// <summary>

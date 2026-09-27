@@ -487,8 +487,11 @@ forbidden = [
   "dest=B pid=313889796",
 ]
 
+# ARMED 2026-09-27 off the reading run `2026-09-27_1222` (PASS attempt 1, automation DLL built
+# from origin/main 6437750ba): every window met.
 [expectations.recordings.structure]
-# REPORT-ONLY, the committed fixture's own structure. The removal is a FLIGHTSTATE edit
+gating = true
+# The committed fixture's own structure. The removal is a FLIGHTSTATE edit
 # and the transfer rebinds a ROUTE stop; neither touches anything this facet reads.
 trees          = { min = 2, max = 2 }
 committedTrees = { min = 2, max = 2 }
@@ -503,7 +506,7 @@ branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 # completedCycles=1 skippedCycles=1 statuses={Paused:1}
 # destinationVesselPids=['2875537755']; measured-only holdKinds={DestinationFull:1} - so
 # the arming moved NO number. Any report-only wording below is the authoring record.
-# `recordings.structure` above stays a report-only reading. ARMED RE-FLIGHT
+# `recordings.structure` above was a report-only reading until 2026-09-27. ARMED RE-FLIGHT
 # `2026-09-10_2130` (same DLL): PASS attempt 1, saveParse gating PASS, armed ['routes'],
 # no mismatch, every routes and structure facet identical to the reading. THE SET-KEY
 # NEGATIVE CONTROL FLEW in the 2026-09-11 closing round (same DLL):

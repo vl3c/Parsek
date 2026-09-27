@@ -4021,6 +4021,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H52-reentry-fx":            ("ReentryFx", 3, "FLIGHT"),
         "H53-scene-and-patch":       ("SceneAndPatch", 7, "FLIGHT"),
         "H54-missions":              ("Missions", 13, "FLIGHT"),
+        # KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN's live half (2026-09-27): two FLIGHT
+        # cells over b1-pad-craft's seated Jeb. LIVE-PROVEN on its reading run
+        # 2026-09-27_1339 (`passed=2 skipped=0`); the pin is whole.
+        "H72-kerbal-inventory-spawn": ("KerbalInventorySpawn", 2, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -4092,6 +4096,14 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # overlay and the cells share was fixed to unwrap stock's MissionSelection
         # payload - on the contract-carrying host the cells read "rows=9,
         # contractRows=0" until then. The spec header carries the reading.
+        #
+        # H45 owes 2 AGAIN from 2026-09-27 (the twelve-cell shape, run
+        # `2026-09-27_1235`, 10 / 0 / 2), both HOST gaps on `career-earned-ksc`:
+        # `MissionControlActiveRowLabelAndCancelBlockedWithReason` needs an Active
+        # contract (the host carries nine Offered, zero Active) and
+        # `RnDResearchButtonDisabledShowsItsReason` needs an unresearched RESEARCHABLE
+        # node (the host's 145 unresearched nodes are all FADED). Todo
+        # H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE names the fixture.
         # H53 (`gloops-airshow` + the 274-row corpus): "No ghost map PIDs - patch not
         # exercised" and "No live active tree to use as a synth source". BOTH ARE
         # DRIVER-STATE rather than fixture properties - the first wants playback armed
@@ -4112,6 +4124,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # a looped LANDING arrival) while naming an OPERATOR save, `s15`, that is not a
         # committed fixture. Each is satisfiable by its OWN harvest; none by this one.
         "H54-missions": 4,
+        "H45-stock-ui-overlay": 2,
     }
 
     # NOTE the asymmetry this leaves: for 13 of the 16, the skipped= floor is
@@ -4251,7 +4264,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #      OPERATOR save (`s15`) that is not a committed fixture at all. Reading a guard
     #      string as a fixture spec is a hypothesis, not a derivation.
     #
-    # Only H53 / H54 owe a RUNTIME_SKIPS entry (2 / 4; H45's 2 closed 2026-09-08). H44's 16 and H46's 1
+    # Only H53 / H54 / H45 owe a RUNTIME_SKIPS entry (2 / 4 / 2; H45's first 2 closed
+    # 2026-09-08, its current 2 are the twelve-cell shape's host gaps). H44's 16 and H46's 1
     # are PURE SCENE FILTERING - the runner's own `Scene eligibility skip summary` line
     # accounts for every one and neither run contains a single per-test `SKIPPED:` line -
     # and that distinction is the one to keep straight: a scene skip is a lane's SCOPE,
@@ -4285,6 +4299,11 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # R&D / Astronaut Complex badge cells were replaced by six stock-mechanism cells; PR 3
     # added the Active-row / Cancel-block cell (it skips on H45's host, which has no Active
     # contract), so the pin is `total=10` literal with the split regexed until first flight.
+    # PR 4 and PR 7 took it to `total=12`. LEFT 2026-09-27: the first flight of the
+    # twelve-cell shape (`2026-09-27_1140`) red on one TEST timing defect (an
+    # absence asserted in the frame stock destroyed the rows, fixed test-only), and
+    # the re-fly `2026-09-27_1235` PASS attempt 1 measured `passed=10 failed=0
+    # skipped=2`; the spec took that line WHOLE with RUNTIME_SKIPS 2.
     #
     # CN-1-ghost-commnet-relay and CN-1T-ghost-commnet-relay-ts ENTERED on 2026-09-26 (the
     # GhostCommNet category's FLIGHT and TRACKSTATION halves over the ghost-commnet-relay
@@ -4301,7 +4320,20 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # both PASS attempt 1, measured the prediction, `passed=3 failed=0 skipped=0`, and both
     # specs took the line WHOLE. Like CN-1 they are not H-series ids, so this class's own
     # cells never read them; CommittedBatchTallySourceSyncTests gates their `total=`.
-    INTERIM_PIN_IDS: set = {"H45-stock-ui-overlay"}
+    #
+    # H72-kerbal-inventory-spawn ENTERED on 2026-09-27 (the KerbalInventorySpawn category, 2
+    # FLIGHT cells, `total=2` literal with the split regexed, predicted passed=2 skipped=0 and
+    # already required cell by cell through the runner's PASSED lines) and LEFT the same day:
+    # its reading run 2026-09-27_1339 (PASS attempt 1) measured the prediction, `passed=2
+    # failed=0 skipped=0`, and the spec took the line WHOLE.
+    #
+    # AH-1-auto-hire-reserved-applicant ENTERED on 2026-09-27 (the new AutoHireReservation
+    # category, 1 SPACECENTER cell, `total=1` literal with the split regexed, predicted
+    # 1 / 0). Like CN-1 it is not an H-series id, so this class's own cells never read it;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. It LEFT the same day: its
+    # reading run 2026-09-27_1341 (PASS attempt 1) measured the prediction, `passed=1
+    # failed=0 skipped=0`, and the spec pinned the line whole.
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -4383,8 +4415,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(44, len(self.GROUP),
-                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 group is 44 "
+        self.assertEqual(45, len(self.GROUP),
+                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 + H72 group is 45 "
                          "specs; if it genuinely changed size, update this floor AND the "
                          "counts in docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -9665,6 +9697,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE REWIND READ-BACK GUARD PAIR, 2026-09-27.
+        "RB-1-rewind-readback-divergence.toml": "tier=operator on the calibration-discipline shape, NOT debt: the first live FLAGGED DIVERGENCE (a Step-3b resurrected-recovery retirement after a post-RP hire, on the rewind-readback preset over career-science-pad with the L3 Flea flight). Owed: only the ordinary promotion call",
+        "RB-2-rewind-readback-within-range.toml": "tier=operator on the calibration-discipline shape, NOT debt: RB-1's control (the same flight and retirement with no post-RP spend, so the guard must read within-expected-range). Owed: only the ordinary promotion call",
         # THE D17 PERSISTENT-ROTATION LANE, 2026-09-26.
         "MC-5-persistent-rotation.toml": "tier=operator on the calibration-discipline shape, NOT debt: the D17 `persistent-rotation` host (the pinned PersistentRotationUpgraded on modded-compat, the SpinVessel verb, a loop replay of the spin-forward segment). Reading `2026-09-26_1849`, armed re-flight `_1853` PASS attempt 1 with ghostLifecycle GATING, offline negative control red on every seeded fault; D17 claimed. Owed: only the ordinary promotion call (MC-3's nightly slot beside it)",
         # THE D17 MAKING-HISTORY LANE, 2026-09-25.
@@ -9984,6 +10019,13 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "defect in the first build (fixed); re-flight 2026-09-24_1811 PASS, rewind "
             "block armed off it. Discharged: cadence promotion is the only step left, a "
             "human call",
+        "RF-18-separation-slot-walks-own-eva.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-27 as the live lane "
+            "of REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA (owner ruling: a separation slot "
+            "follows its vessel through the crew's own EVA and re-board): GS-2's split, "
+            "then EvaExit + EvaBoard from the pod stack. Reading 2026-09-27_1334 PASS, "
+            "re-flight 2026-09-27_1439 PASS. Discharged: arming the report-only blocks "
+            "and cadence promotion are the steps left, a human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -10407,7 +10449,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V6M-mun-player-loop.toml":         "FLOWN GREEN 2026-08-08 (2026-08-08_1554 reading, PASS attempt 1, 54 s) - the pre-flight schedule prediction (k=13 pad rotations, phaseAnchorUt 280,176.945) matched the measured 280,176.94738016772, so no re-pin was needed. ARMED on both save-structure blocks (armed run 2026-08-08_1640 PASS attempt 1; negative control 2026-08-08_1644 PARSEK-FAIL(save-structure) on `rewind.supersedeRows 0 < min 1`, reverted). Operator tier is now an open PROMOTION call, not debt",
         "V6T-mun-ts-arrival.toml":          "FLOWN GREEN 2026-08-08 (2026-08-08_1559 reading, PASS attempt 1, 50 s) - the TS host materialized the looped faithful moon member (`created 1 ghost vessel(s)`, Mun-framed hyperbola, `factory chain ... reaimed=False`, V5's token inverted). ARMED on both save-structure blocks (armed run 2026-08-08_1641 PASS attempt 1; negative control shared with V6M's 1644). Operator tier is now an open PROMOTION call, not debt",
         "V7M-minmus-player-loop.toml":      "FLOWN GREEN 2026-08-08 after one falsification and one calibration (_1600 INVALID: the pinned watch OK was wrong because being inside the 300 km figure V4 quotes is NOT sufficient for entry - refused at 144-199 km, entered at 51.5 km, so the entry boundary brackets in (51.5 km, 144.3 km); the MECHANISM behind that boundary is UNESTABLISHED and the 120 km render-zone explanation first written for it was retracted 2026-08-09, see docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE; _1607 calibration located an in-boundary epoch; _1613 PASS attempt 1, 53 s, with the suite's FIRST watch-mode entry). ARMED on both save-structure blocks (armed run 2026-08-08_1642 PASS attempt 1; negative control shared with V6M's 1644). Carries one report-only product finding (a teardown NRE in WatchModeController.RestoreCameraAfterWatchExit when a run ends inside watch mode) which is FILED, not owed by this spec - and deliberately NOT armed as a unityExceptions ceiling, since the two green flights of the identical shape counted 1 and 5 raw NREs. Operator tier is now an open PROMOTION call, not debt",
-        "V7T-minmus-ts-arrival.toml":       "FLOWN 2026-08-08, RED BY FINDING and deliberately kept red (2026-08-08_1614 and _1616, both PARSEK-FAIL(anomaly), both `icon-off-orbit angleIconVsOrbitEff=131.22` to the decimal - deterministic, not a flake). Every other verifier green, all 16 steps met. The V1-map-dwell-mun-orbit precedent applies: a red-by-finding lane is an outcome, not a debt this tag would name. What a human owns here is the icon question itself, and it is written up in the spec header with a named discriminating experiment; report-only, nothing armed",
+        "V7T-minmus-ts-arrival.toml":       "FLOWN 2026-08-08, RED BY FINDING and deliberately kept red (2026-08-08_1614 and _1616, both PARSEK-FAIL(anomaly), both `icon-off-orbit angleIconVsOrbitEff=131.22` to the decimal - deterministic, not a flake). Every other verifier green, all 16 steps met. The V1-map-dwell-mun-orbit precedent applies: a red-by-finding lane is an outcome, not a debt this tag would name. What a human owns here is the icon question itself, and it is written up in the spec header with a named discriminating experiment. 2026-09-27: flown GREEN on current code (`2026-09-27_1230`, PASS attempt 1, mapRenderTracing armed, zero `icon-off-orbit` raises) and both save blocks ARMED off that run; what is open is why the raise stopped, not a debt",
         "V8-eve-player-loop.toml":          "FLOWN GREEN 2026-08-11 through four reading iterations on the new eve-orbit-recorded fixture - the program's first ENGAGED inward transfer and its first span>synodic loop unit (_0802 arm-and-read; _0807 brackets, PASS, and the FIRST-EVER seam-endpoint-outside-soi raise, ratio 4.6216 on the Sun->Eve seam after the tilt gate declined all 27 tof candidates to a faithful window; _0810 and _0814 PARSEK-FAIL(anomaly) on a line-blink detector gap at back-to-back seam-straddling TimeJumps, both filed with artifacts in todo-and-known-bugs.md, spec re-paced with RecordingState spacers rather than any anomaly exemption; _0818 and _0819 both PASS attempt 1 with clean sweeps - two consecutive flights of the final shape, the raise reproducing bit-identically at ratio=4.6216 on every bracketed run). ARMED on both save-structure blocks (armed run 2026-08-11_0828 PASS attempt 1, gating=True mismatches=0; negative control _0830 PARSEK-FAIL(save-structure) on the single inverted window `rewind.supersedeRows 0 < min 1`, reverted). The finding trio (tilt-decline, faithful window, the seam-endpoint raise) plus the D11 cut token are REQUIRED - the GS-3-style regression floor: a change that un-declines Eve's windows or moves the arrival geometry reds this lane and forces a re-read. FIX ERA (2026-08-11, branch reaim-inclined-targets): the tilt-retention fix red the floor BY DESIGN (_1242, exactly the three trio mismatches) and the lane was re-pinned to the healthy state (re-aimed transfer ready devFromRecorded=0s, state=retained, census outsideSoi=0; readings _1244/_1245, control _1246) with the old trio inverted into forbidden. Operator tier is calibration discipline, not debt",
         "V8T-eve-ts-arrival.toml":          "FLOWN GREEN 2026-08-11 (reading _0835 a1 INVALID on the TS-LOADGAME-RECORDING-ACTIVE-RACE, sighting 3, filed; _0836 a2 PASS clean; armed _0843 PASS attempt 1, gating=True mismatches=0; control shared with V8's _0830). First TS observation of a looped inward-transfer arrival: Eve-framed inbound materialized (created 1 ghost vessel(s), body=Eve TS token gates the D14 eve claim), factory reaimed=False (V5's Duna pin inverted - the tilt-declined faithful-window shape), census structural zero told from blindness, and the parity pair V5 omitted carried here. Surfaced + filed TS-FLUSHED-SAVE-DROPS-DEBRIS-TERMINALSTATE (byte-verified). FIX ERA (2026-08-11): the tilt-retention fix flipped the TS chain to genuinely re-aimed (baseline _1247 red on the reaimed=False pin; live reaimed=True phases=11); re-pinned to reaimed=True with fallback tokens forbidden (readings _1252/_1253). Operator tier is calibration discipline, not debt",
         "V8F-eve-loop-faithful.toml":       "FLOWN GREEN 2026-08-11 (iteration 1 PARSEK-FAIL on the author's own unescaped-parens regex, fixed; then two consecutive PASS runs with the five-raise set reproducing (four of five ratios to four decimals, the fifth 1 ulp: 138.2108/138.2109); armed same day, control shared with V8's _0830). The deliberate-faithful A/B half: FORCED FAITHFUL required + ENGAGED forbidden, the forced unit measured SELF-OVERLAPPING (overlapCadence = span/20, where the ENGAGED unit reads overlaps=no), and the hlib promotion blocker (2) population measured and PINNED - the first outsideSoi=[1-9] census pin, four per-instance Sun->Eve arrival raises (52.70-203.20) plus a Kerbin->Mun transit-seam raise (4.80). Calibration fact filed: benign ratios straddle V8's 4.6216 defect reading, so ratio cannot separate the classes. FIX ERA (2026-08-11): confirmed BYTE-IDENTICAL on the tilt-retention-fixed DLL (_1250 PASS - forced faithful bypasses the synth, the knob isolation held). Operator tier is calibration discipline, not debt",
@@ -11002,9 +11044,12 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # Kerbal X 1 / Kerbal X Probe 0, pointCount total 3 / largest 2).
                        "CI-5-background-event-claim.toml",
                        # SS-1: `structure` + `points` armed 2026-09-26 off its reading
-                       # `2026-09-25_2102` (trees / committedTrees / recordings 2,
-                       # Landed 1 / Orbiting 1, spawnedVessels 1, vesselNames Situation
-                       # Hopper 1 / Low Perigee Probe 0, pointCount total 4 / largest 3).
+                       # `2026-09-25_2102`; re-scoped 2026-09-27 (the probe is a real
+                       # 71 x 90 km Orbiting orbit that defers, then spawns) and re-armed
+                       # off the reading `2026-09-27_1300_a2` (trees / committedTrees /
+                       # recordings 2, Landed 1 / Orbiting 1, spawnedVessels 2,
+                       # vesselNames Situation Hopper 1 / Low Perigee Probe 1, pointCount
+                       # total 4 / largest 3); armed re-flight `2026-09-27_1304` PASS.
                        "SS-1-spawn-safety-corrections.toml",
                        # SE-1: `structure` armed 2026-09-26 off its reading run
                        # `2026-09-25_2334` (trees / committedTrees 2, recordings 10 - the
@@ -11304,11 +11349,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # V6M `2026-09-10_1901`, V6T `2026-09-10_1905_a2`, V7M
                        # `2026-09-10_1907`, each red on exactly the inverted
                        # element, drift gate met.
-                       # The FOURTH moon lane, V7T-minmus-ts-arrival, is
-                       # DELIBERATELY ABSENT: it flew RED BY FINDING (a
+                       # The FOURTH moon lane, V7T-minmus-ts-arrival, was
+                       # DELIBERATELY ABSENT here: it flew RED BY FINDING (a
                        # deterministic `icon-off-orbit` raise) and a lane whose
-                       # verdict is already carrying a finding must not have a
-                       # second gate armed on top of it.
+                       # verdict carries a finding gets no second gate. It flew
+                       # green on 2026-09-27 and is armed at the end of this set.
                        "V6M-mun-player-loop.toml",
                        "V6T-mun-ts-arrival.toml",
                        "V7M-minmus-player-loop.toml",
@@ -11580,7 +11625,39 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "H59-surface-route-map-lines.toml",
                        "B32-interbody-route-scope.toml",
                        "V26M-interbody-route-map-lines.toml",
-                       "V26T-interbody-route-ts-arrival.toml"}
+                       "V26T-interbody-route-ts-arrival.toml",
+                       # THE 2026-09-27 ARMING PASS (operator decision: arm the report-only
+                       # blocks whose latest reading matches). Each spec below was armed off
+                       # its own result JSON, re-evaluated against the committed windows, on
+                       # a DLL at or after 2026-09-23 (#1788 RP-survives-rewind); the run ids
+                       # sit at each block. B33 / B34 / B35 `rewind` (all 0): `2026-09-25_2246`
+                       # / `_2346` / `_2357`. GS-10 both blocks: `2026-09-23_1941` / `_1947` /
+                       # `_1959`. GS-11 both blocks: `2026-09-23_1953` / `_2004`. GS-6
+                       # `rewind`: `2026-09-25_2205` / `_2221`. MC-4 both blocks:
+                       # `2026-09-25_2132` / `_2146`. GS-4 `structure` (its `rewind` above):
+                       # `2026-09-23_2012` / `2026-09-25_2028`. EVA-6 `structure`:
+                       # `2026-09-27_1026`, the first reading on a DLL carrying #1891.
+                       "B33-tylo-orbit.toml", "B34-bop-orbit.toml", "B35-pol-orbit.toml",
+                       "GS-10-kerbalx-debris-ttl.toml",
+                       "GS-11-kerbalx-debris-promotion.toml",
+                       "GS-6-part-event-applier-sweep.toml",
+                       "MC-4-making-history-desert.toml",
+                       "EVA-6-placed-part-spawn-after-rewind.toml",
+                       # Read on current code 2026-09-27 (automation DLL built from origin/main
+                       # 6437750ba, every run PASS attempt 1, every window met) and armed off
+                       # those runs: RF-5 `rewind` `2026-09-27_1226` (and `2026-09-15_1552`),
+                       # RF-7M / RF-7T both blocks `_1227` / `_1229`, RF-12 `rewind` `_1234`,
+                       # RF-12W `rewind` `_1231`, V7T both blocks `_1230`. The same flights
+                       # armed `structure` on RVR-5, RVR-7, RVR-9 .. RVR-20 and RF-10, which
+                       # were already listed here for their `routes` / `rewind` blocks. RVR-8
+                       # stays report-only: its reading `_1147` was PARSEK-FAIL (todo
+                       # RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE).
+                       "RF-5-seal-closes-the-slot.toml",
+                       "RF-7M-predicted-tail-map-render.toml",
+                       "RF-7T-predicted-tail-ts-render.toml",
+                       "RF-12-concluded-refly-batch.toml",
+                       "RF-12W-rewind-batch-after-warp-crash.toml",
+                       "V7T-minmus-ts-arrival.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -12972,6 +13049,10 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     # ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
     # workflow.
     GHOSTLIFE_ARMED_SPECS = {
+        # ARMED 2026-09-27 off the reading run `2026-09-27_1243_OC-1-overlap-cap-per-recording`
+        # (PASS attempt 1): peakLive 20 (the per-recording cap reached, never exceeded),
+        # spawnLines = destroyLines = 34, 14 `overlap expired`.
+        "OC-1-overlap-cap-per-recording.toml",
         # ARMED 2026-09-26 off the reading run `2026-09-26_1849_MC-5-persistent-rotation`
         # (PASS attempt 1): 53 AfterUpdate lines, all `checkpoint-orbit-spin`, dRotDeg=0.000,
         # sweep 40.33 deg (0.8 rad/s over 0.88 s). Armed re-flight `_1853` PASS (60 lines,
@@ -13293,6 +13374,12 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # follow the reading run through GHOSTLIFE_ARMED_SPECS, on GS-4's
         # discipline.
         "RF-8-ghost-during-refly.toml",
+        # THE PER-RECORDING OVERLAP CAP (OC-1, 2026-09-27). Declares the v4 `peakLive`
+        # window at exactly 20 (the cap reached and never exceeded) and requires the
+        # `overlap expired` destroy reason. The windows are DERIVED, not censused: the
+        # preset's loop starts after the save clock, so every copy spawns under the
+        # tracer, and ceil(120 s / 6 s) = 20 copies is what the cap arithmetic allows.
+        "OC-1-overlap-cap-per-recording.toml",
     }
 
     def test_ghost_lifecycle_declarers_are_the_recorded_roster(self):
