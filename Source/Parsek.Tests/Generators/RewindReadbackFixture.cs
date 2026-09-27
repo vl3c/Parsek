@@ -162,6 +162,7 @@ namespace Parsek.Tests.Generators
                 ConfigNode slot = slots[i];
                 StripCrew(slot);
                 uint pid = ParsePid(slot);
+                GiveClonePartsFreshIdentities(slot, "rb-slot:" + pid.ToString(CultureInfo.InvariantCulture));
                 double lon = pid == ScenarioWriter.DeriveVesselPersistentId(BoosterRecordingId)
                     ? BoosterSlotLongitude
                     : UpperSlotLongitude;
@@ -214,6 +215,7 @@ namespace Parsek.Tests.Generators
             if (flea == null) return false;
 
             ConfigNode relay = flightState.AddNode(flea.CreateCopy());
+            GiveClonePartsFreshIdentities(relay, RelayRole);
             ScenarioWriter.StampUnrelatedVesselIdentity(
                 relay, RelayVesselPid, RelayRootPartPid, RelayVesselName, "Relay", RelayRole);
             StripCrew(relay);
@@ -225,6 +227,50 @@ namespace Parsek.Tests.Generators
             outRoot.AddNode(gameCopy);
             outRoot.Save(savePath);
             return true;
+        }
+
+        /// <summary>
+        /// Gives every PART of a Flea clone its own flight id (<c>uid</c>) and every non-root
+        /// PART its own <c>persistentId</c>, derived from <paramref name="seed"/>, and repoints
+        /// the VESSEL <c>ref</c> at the new root uid. The root part's persistentId is left
+        /// alone: the caller stamps it (the relay) or the RP slot map keys on it (the slots).
+        ///
+        /// <para>A clone that shares the Flea's part ids breaks the flight while both are
+        /// loaded. KSP re-rolls a colliding persistentId on load but not the flight id, and
+        /// kRPC resolves parts by flight id, so the mission read the runway relay's parts in
+        /// place of the Flea's: no thrust on the ascent, then no parachute at all once the
+        /// relay unloaded (RB-1 `2026-09-27_1353` and RB-2 `2026-09-27_1417`, both
+        /// `set deploy_altitude=2500m on 0 parachute(s)` and a crash).</para>
+        /// </summary>
+        internal static void GiveClonePartsFreshIdentities(ConfigNode vessel, string seed)
+        {
+            if (vessel == null) return;
+            var ic = CultureInfo.InvariantCulture;
+            int rootIndex;
+            if (!int.TryParse(vessel.GetValue("root"), NumberStyles.Integer, ic, out rootIndex))
+                rootIndex = 0;
+            ConfigNode[] parts = vessel.GetNodes("PART");
+            string oldRootUid = rootIndex >= 0 && rootIndex < parts.Length
+                ? parts[rootIndex].GetValue("uid")
+                : null;
+            string newRootUid = null;
+            for (int i = 0; i < parts.Length; i++)
+            {
+                string key = (seed ?? "") + ":part" + i.ToString(ic);
+                string uid = ScenarioWriter.DeriveVesselPersistentId(key + ":uid").ToString(ic);
+                parts[i].SetValue("uid", uid, true);
+                if (i == rootIndex)
+                    newRootUid = uid;
+                else
+                    parts[i].SetValue("persistentId",
+                        ScenarioWriter.DeriveRootPartPersistentId(key).ToString(ic), true);
+            }
+            if (newRootUid != null
+                && (string.IsNullOrEmpty(vessel.GetValue("ref"))
+                    || string.Equals(vessel.GetValue("ref"), oldRootUid, StringComparison.Ordinal)))
+            {
+                vessel.SetValue("ref", newRootUid, true);
+            }
         }
 
         internal static void StripCrew(ConfigNode vessel)

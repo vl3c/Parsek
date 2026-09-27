@@ -15,14 +15,15 @@ _(unreleased — entries accumulate here per commit)_
 
 - **Dev: two lanes for the crew inventory restore at spawn.** `H72-kerbal-inventory-spawn` (flown green 2026-09-27) runs the in-game `KerbalInventorySpawn` category over the pad craft's seated Jeb, whose roster carries a two-part inventory, and checks the capture, the roster applier and the rollback lines. `EVA-7-crew-inventory-spawn-after-rewind` (flown green 2026-09-27) replays EVA-6's chain: Jeb carries a parachute and a seismometer, places the seismometer on EVA, the recording commits, Rewind-to-Launch, and the Space Center spawns him. It checks that his spawn restores the recorded one-part inventory rather than the two-part one the rewind put back on the roster, and that the restore runs exactly once.
 - **Dev: a lane for auto-hire after a rewound hire.** `AH-1-auto-hire-reserved-applicant` (flown green 2026-09-27) runs a new in-game test, `AutoHireReservation`, on a fresh career: it gives the first applicant a committed hire later in the timeline (the state a rewind to before that hire leaves), turns on the Auto-Hire Crews difficulty option and runs stock's own crew fill on a three-seat pod two kerbals short. It checks that auto-hire passes over the reserved applicant for each short seat, never reaches the hire refusal, hires and seats other kerbals and seats nobody twice, then puts the roster, funds, ledger and difficulty option back.
-- **Dev: lanes for the per-recording loop cap and the rewind read-back check.** `OC-1-overlap-cap-per-recording` loops one injected recording on its own toggle faster than its length / 20 and checks that playback slows the relaunches to keep at most 20 copies (`auto-adjusted (cap reached)`) and that old copies disappear; flown and armed. The ghost lifecycle check gains a `peakLive` count (the most copies of one recording alive at once). `RB-1-rewind-readback-divergence` and its control `RB-2-rewind-readback-within-range` fly a recovery and then a Re-Fly that brings the recovered vessel back; RB-1's first flight found that the recovery money is not taken back (todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED), so both stand as expected-fail lanes until that is fixed.
-- **Dev: the automated tests now gate on 37 more save-structure checks.** Report-only checks
+- **Dev: lanes for the per-recording loop cap and the rewind read-back check.** `OC-1-overlap-cap-per-recording` loops one injected recording on its own toggle faster than its length / 20 and checks that playback slows the relaunches to keep at most 20 copies (`auto-adjusted (cap reached)`) and that old copies disappear; flown and armed. The ghost lifecycle check gains a `peakLive` count (the most copies of one recording alive at once). `RB-1-rewind-readback-divergence` and its control `RB-2-rewind-readback-within-range` fly a recovery and then a Re-Fly that brings the recovered vessel back; RB-1's first flight found that the recovery money is not taken back (todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED). With that fixed, RB-1 now shows the first live flag of the rewind read-back check (the recovery value comes off after a post-rewind-point hire) and RB-2 shows the same retirement staying within range without the hire. Both lanes are flown.
+- **Dev: the automated tests now gate on 38 more save-structure checks.** Report-only checks
   on the saved game (rewind points, supersede rows, tombstones, tree and recording shape) now
   fail a test run when they drift, wherever a recent run read them correctly: 21 lanes were
-  flown on current code to read them. 31 checks on 25 lanes still wait for a reading. The
+  flown on current code to read them. 30 checks on 24 lanes still wait for a reading. The
   stock-screen annotation batch (H45) was re-flown and now pins its exact result, after a
   timing fix in one of its tests. One logistics lane (RVR-8) found that a route's second
-  cycle no longer holds when its origin is out of cargo; it is filed, not fixed.
+  cycle no longer held when its origin was out of cargo. That was lost supply-route cargo
+  (see Fixed), and RVR-8's own check is armed off its green re-fly.
 - **Dev: a lane for the tech, upgrade, hire and contract-accept blocks after a rewind.** `KB-3-ksc-click-blocks-after-rewind` runs on the stock-screen census career, whose committed timeline researches a tech, upgrades the Tracking Station, hires an applicant and accepts a contract after the save clock. For each of the four it checks that the stock control is greyed with the committed-timeline explanation, that the stock call behind the control is refused with the blocked dialog, that the dialog shows exactly the explanation the hover showed, and that no state, funds, science or ledger row changes. The `KscAction` test verb gains `action=accept-contract contract=<guid>` (Mission Control's own `Contract.Accept()` call), and a refused research, upgrade, hire or accept now logs the target's state and the funds and science pools before and after stock's call.
 - **Dev: a lane for the facility repair block after a rewind.** `KB-2-ksc-repair-block-after-rewind` (never flown) runs on a new committed fixture, `stock-screen-census-repair`: the stock-screen census career with the Tracking Station dish destroyed before the save clock and its repair committed after it, built by `Source/Parsek.Tests/StockScreenRepairFixture.cs`. It checks that the Tracking Station menu greys Repair and shows the explanation on its tooltip, and that a repair made through the menu's own call is refused with the blocked dialog, repairs nothing and leaves funds unchanged. The `StockScreen` test verb can now hover the facility menu's Repair button (`item=repair`), and a refused `KscAction repair-facility` logs the destroyed-building count and the funds before and after stock's call.
 - **Automated testing: the coverage-wave rulings are confirmed, and the RemoteTech cell is retired.**
@@ -1220,6 +1221,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A Re-Fly that brings back a vessel you recovered now takes the recovery money back.** If
+  you flew, landed and recovered a vessel, then re-flew an earlier separation whose rewind
+  point still had that vessel in the world, the vessel came back and its recovery funds stayed
+  in the account, so it could be recovered and paid for a second time. Parsek already had a
+  step for this, but it only recognised a flight that was saved as "Recovered". With
+  auto-merge on (the normal setting), an in-flight Recover saves the flight as Landed before
+  the game actually recovers the vessel, and a recovery from the Tracking Station reaches a
+  flight that was saved long before, so the step never matched. It now also recognises the
+  recovery from what Parsek records at the moment of the recovery: the recovery payout, or
+  the crew being returned to the roster. The vessel must still be positively the same launch,
+  and a recovery from before the rewind point is left alone.
 - **Supply routes between nearby vessels now really move the cargo during time warp.** When a
   route's pickup or delivery vessel was close enough to your active vessel to be loaded but was
   on rails (time warp), Parsek wrote the fuel and parts into the vessel's saved copy instead of
