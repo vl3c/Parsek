@@ -1205,6 +1205,10 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Deploy-limited cargo bays now open on the replay.** A cargo bay set to open only part of the
+  way (the stock Mallard's Mk3 bays ship at 44, 45 and 51 percent) recorded nothing when opened
+  or shut, so its ghost's doors never moved. Parsek now counts a bay as open once its doors stop
+  at the limit, and the ghost opens its doors to that same limit rather than all the way.
 - **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
   Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
   "recovered" ending from committed recordings that Parsek had marked as handled, which hit
