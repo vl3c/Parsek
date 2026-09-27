@@ -482,6 +482,10 @@ namespace Parsek
 
             if (!action.Effective)
             {
+                // ComputeTotalSpendings (PrePass, before Effective is known) counted this
+                // penalty; take it back out so the no-projection GetAvailableFunds, which
+                // PatchFunds writes on every cutoff-less recalc, does not charge it.
+                UncountPrePassSpending(penalty);
                 ParsekLog.Verbose(Tag,
                     $"{label} penalty skipped (not effective: contract already resolved), " +
                     $"penalty={penalty.ToString("R", IC)}, " +
@@ -496,6 +500,18 @@ namespace Parsek
                 $"{label} penalty: -{penalty.ToString("R", IC)}, " +
                 $"contractId={action.ContractId ?? "(none)"}, " +
                 $"runningBalance={runningBalance.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Removes a spending that <see cref="ComputeTotalSpendings"/> counted in PrePass but
+        /// the walk found ineffective (a fail / cancel of a resolved contract, a repair of an
+        /// intact building). PrePass runs before any module sets Effective, so it cannot
+        /// decide these rows itself.
+        /// </summary>
+        private void UncountPrePassSpending(double amount)
+        {
+            if (amount > 0.0)
+                totalCommittedSpendings -= amount;
         }
 
         /// <summary>
@@ -544,6 +560,7 @@ namespace Parsek
             {
                 action.Effective = false;
                 action.Affordable = true;
+                UncountPrePassSpending((double)action.FacilityCost);
                 ParsekLog.Info(Tag,
                     $"FacilityRepair not charged: building '{buildingId}' is already intact " +
                     $"at ut={action.UT.ToString("R", IC)} (its last destruction was already repaired " +

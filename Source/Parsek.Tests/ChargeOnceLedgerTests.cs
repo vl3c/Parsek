@@ -62,6 +62,14 @@ namespace Parsek.Tests
             return w;
         }
 
+        // Every cutoff-less recalc patches GetAvailableFunds() into stock (no projection is
+        // installed), so a charge-once decision must hold there as well as in the balance.
+        private static void AssertFunds(Walk w, double expected)
+        {
+            Assert.Equal(expected, w.Funds.GetRunningBalance(), 1);
+            Assert.Equal(expected, w.Funds.GetAvailableFunds(), 1);
+        }
+
         private static GameAction FundsSeed(float amount = 10000f)
         {
             return new GameAction { UT = 0.0, Type = GameActionType.FundsInitial, InitialFunds = amount };
@@ -144,11 +152,13 @@ namespace Parsek.Tests
                 FundsSeed(), Accept(100.0, "c-x3"), first, second
             });
 
-            Assert.Equal(10000.0 - 200.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 200.0);
             Assert.True(first.Effective);
             Assert.True(first.EffectiveRep < 0f);
             Assert.False(second.Effective);
             Assert.Equal(0f, second.EffectiveRep);
+            // Reputation patches from the running value (no PrePass total): one penalty.
+            Assert.Equal((double)first.EffectiveRep, (double)w.Rep.GetRunningRep(), 3);
         }
 
         [Theory]
@@ -167,7 +177,7 @@ namespace Parsek.Tests
             Assert.True(complete.Effective);
             Assert.False(later.Effective);
             Assert.Equal(0f, later.EffectiveRep);
-            Assert.Equal(10000.0 + 3000.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 + 3000.0);
             Assert.Contains(logLines, l => l.Contains("[Contracts]") && l.Contains("c-c6")
                 && l.Contains("effective=false (already completed earlier in the walk)")
                 && l.Contains("fundsPenalty=800"));
@@ -190,7 +200,8 @@ namespace Parsek.Tests
 
             Assert.True(worldFail.Effective);
             Assert.False(later.Effective);
-            Assert.Equal(10000.0 - 500.0, w.Funds.GetRunningBalance(), 1);
+            Assert.Equal((double)worldFail.EffectiveRep, (double)w.Rep.GetRunningRep(), 3);
+            AssertFunds(w, 10000.0 - 500.0);
             Assert.Equal(ContractTerminalOutcome.Failed, w.Contracts.GetTerminalContractOutcomes()["c-w"]);
         }
 
@@ -208,7 +219,7 @@ namespace Parsek.Tests
 
             Assert.True(worldFail.Effective);
             Assert.False(complete.Effective);
-            Assert.Equal(10000.0 - 500.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 500.0);
         }
 
         [Fact]
@@ -244,7 +255,7 @@ namespace Parsek.Tests
 
             Assert.True(resolution.Effective);
             Assert.True(resolution.EffectiveRep < 0f);
-            Assert.Equal(10000.0 - 500.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 500.0);
         }
 
         [Fact]
@@ -257,7 +268,7 @@ namespace Parsek.Tests
             RecalculationEngine.Recalculate(new List<GameAction> { FundsSeed(), fail });
 
             Assert.True(fail.Effective);
-            Assert.Equal(10000.0 - 500.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 500.0);
         }
 
         [Fact]
@@ -275,7 +286,7 @@ namespace Parsek.Tests
 
             Assert.True(expiryFail.Effective);
             Assert.False(laterCancel.Effective);
-            Assert.Equal(10000.0 - 500.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 500.0);
             Assert.Equal(ContractTerminalOutcome.DeadlineExpired,
                 w.Contracts.GetTerminalContractOutcomes()["c-d"]);
         }
@@ -290,7 +301,39 @@ namespace Parsek.Tests
                 new GameAction { UT = 500.0, Type = GameActionType.FundsEarning, FundsAwarded = 0f }
             });
 
-            Assert.Equal(10000.0 - 500.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 500.0);
+        }
+
+        [Fact]
+        public void NoCutoff_TwoCancels_AvailableFundsChargeOnce()
+        {
+            // Review reproduction: PrePass counted both penalties, so the patched
+            // (no-projection) availability read 9500.
+            var w = Register();
+            RecalculationEngine.Recalculate(new List<GameAction>
+            {
+                FundsSeed(), Accept(100.0, "c-nc"),
+                Resolution(GameActionType.ContractCancel, 200.0, "c-nc", 200f),
+                Resolution(GameActionType.ContractCancel, 300.0, "c-nc", 300f)
+            });
+
+            Assert.Equal(9800.0, w.Funds.GetAvailableFunds(), 1);
+            Assert.Equal(200.0, w.Funds.GetTotalCommittedSpendings(), 1);
+        }
+
+        [Fact]
+        public void NoCutoff_TwoRepairsOfOneDestruction_AvailableFundsChargeOnce()
+        {
+            // Review reproduction: the patched availability read 2000.
+            var w = Register();
+            RecalculationEngine.Recalculate(new List<GameAction>
+            {
+                FundsSeed(), Destruction(200.0, MainBuilding),
+                Repair(300.0, MainBuilding, 4000f), Repair(400.0, MainBuilding, 4000f)
+            });
+
+            Assert.Equal(6000.0, w.Funds.GetAvailableFunds(), 1);
+            Assert.Equal(4000.0, w.Funds.GetTotalCommittedSpendings(), 1);
         }
 
         [Fact]
@@ -303,7 +346,7 @@ namespace Parsek.Tests
 
             Assert.True(a.Effective);
             Assert.True(b.Effective);
-            Assert.Equal(10000.0 - 800.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 800.0);
         }
 
         [Fact]
@@ -318,7 +361,7 @@ namespace Parsek.Tests
                 Resolution(GameActionType.ContractFail, 300.0, "c-r", 500f)
             });
 
-            Assert.Equal(10000.0 - 200.0 - 500.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 200.0 - 500.0);
         }
 
         [Fact]
@@ -336,7 +379,7 @@ namespace Parsek.Tests
 
             Assert.False(complete.Effective);
             Assert.True(fail.Effective);
-            Assert.Equal(10000.0 - 500.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 500.0);
         }
 
         [Fact]
@@ -352,7 +395,7 @@ namespace Parsek.Tests
             });
 
             Assert.True(fail.Effective);
-            Assert.Equal(10000.0 - 500.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 500.0);
         }
 
         [Fact]
@@ -417,7 +460,7 @@ namespace Parsek.Tests
             });
 
             Assert.True(repair.Effective);
-            Assert.Equal(10000.0 - 4000.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 4000.0);
             Assert.False(w.Facilities.IsFacilityDestroyed(MainBuilding));
         }
 
@@ -437,7 +480,7 @@ namespace Parsek.Tests
             Assert.True(liveRepair.Effective);
             Assert.False(committedRepair.Effective);
             Assert.True(committedRepair.Affordable);
-            Assert.Equal(10000.0 - 4000.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 4000.0);
             Assert.Contains(logLines, l => l.Contains("[Funds]")
                 && l.Contains("FacilityRepair not charged")
                 && l.Contains(MainBuilding)
@@ -455,7 +498,7 @@ namespace Parsek.Tests
             RecalculationEngine.Recalculate(new List<GameAction> { FundsSeed(), repair });
 
             Assert.True(repair.Effective);
-            Assert.Equal(10000.0 - 4000.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 4000.0);
         }
 
         [Fact]
@@ -468,7 +511,7 @@ namespace Parsek.Tests
 
             Assert.True(first.Effective);
             Assert.False(second.Effective);
-            Assert.Equal(10000.0 - 4000.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 4000.0);
         }
 
         [Fact]
@@ -482,7 +525,7 @@ namespace Parsek.Tests
                 Destruction(400.0, MainBuilding), Repair(500.0, MainBuilding, 4000f)
             });
 
-            Assert.Equal(10000.0 - 8000.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 8000.0);
         }
 
         [Fact]
@@ -498,7 +541,7 @@ namespace Parsek.Tests
             });
 
             Assert.True(otherRepair.Effective);
-            Assert.Equal(10000.0 - 5000.0, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, 10000.0 - 5000.0);
         }
 
         [Fact]
@@ -549,7 +592,7 @@ namespace Parsek.Tests
             RecalculationEngine.Recalculate(actions);
 
             Assert.Equal(10000.0 - 200.0 - 4000.0, first, 1);
-            Assert.Equal(first, w.Funds.GetRunningBalance(), 1);
+            AssertFunds(w, first);
         }
 
         [Theory]

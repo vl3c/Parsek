@@ -315,6 +315,7 @@ namespace Parsek.Tests
             // or cancel of a contract the player already cancelled is charged nothing, as
             // stock charges a penalty once, on the transition out of Active.
             Assert.Equal(10000.0 - 200.0, funds.GetRunningBalance(), 1);
+            Assert.Equal(10000.0 - 200.0, funds.GetAvailableFunds(), 1);
             Assert.True(actions[2].Effective);
             Assert.False(actions[3].Effective);
             Assert.Contains(logLines, l => l.Contains("[Contracts]") && l.Contains("c-x2")

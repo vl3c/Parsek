@@ -1055,7 +1055,12 @@ pairing rule):
   knowledge skips. `FundsModule.ProcessContractPenalty`, `ReputationModule.ProcessContractPenaltyRep`,
   `FundsModule.TryGetProjectionDelta` (so the committed future no longer reserves it), the
   post-walk reconciler and the commit-window emitted deltas all gate on `Effective`, like a
-  duplicate completion. An ineffective row leaves the terminal maps alone, so the FIRST
+  duplicate completion. `FundsModule.ComputeTotalSpendings` runs in PrePass, before Effective
+  is known, so the skip branch takes the penalty back out of `totalCommittedSpendings`
+  (`UncountPrePassSpending`): the no-projection `GetAvailableFunds` is what `PatchFunds`
+  writes on every cutoff-less recalc (OnLoad, commit, the no-future fallback), and without it
+  the double charge returned once the clock passed the row. Reputation patches its running
+  value and has no PrePass total. An ineffective row leaves the terminal maps alone, so the FIRST
   resolution stays the contract's terminal outcome (the state stock holds, which
   `KspStatePatcher`'s terminal-contract survival reads); the audit cell that pinned
   last-wins is flipped (`TerminalContractMaps_SecondTerminalActionWithNoReAccept_KeepsTheFirst`).
@@ -1067,14 +1072,21 @@ pairing rule):
   dispatches after the funds tier, so `FundsModule` keeps its own per-building state from the
   walk's FacilityDestruction / FacilityRepair rows; a repair of a building whose last row was
   a repair is `Effective=false`, charges nothing and logs `FacilityRepair not charged`
-  (projection and commit-window deltas gate on it too). A repair of a building with no row in
+  (projection and commit-window deltas gate on it too, and the skip takes the cost back out
+  of the PrePass `totalCommittedSpendings`, as for the penalties). A repair of a building with no row in
   the walk still charges (pure `FundsModule.ShouldChargeFacilityRepair`): the repair row
   proves stock found it destroyed, and a pre-ledger collapse leaves no row, the same "never
   infer intact from an absent row" rule `FacilityStatePatcher.PatchLiveDestructionState`
   follows. Known cost: a repair whose collapse row left the effective ledger (a Re-Fly that
   supersedes the flight that knocked the building down) still charges. Pinned by
   `ChargeOnceLedgerTests` (one destruction one charge, two repairs of one destruction one
-  charge, no-row repair charges, repair after repair free, per building, cutoff projection).
+  charge, no-row repair charges, repair after repair free, per building, cutoff projection;
+  every cutoff-less cell also asserts `GetAvailableFunds`).
+- Open, display only: `CommittedFutureIndex` and the Timeline / Career rows still list an
+  `Effective=false` fail / cancel / repair row with its amount (the Timeline demotes it to
+  T2; the Career window already skips it). The index is built from the effective ledger on
+  its own cache cycle, not from the walk, so reading the walk's `Effective` there is not a
+  trivially safe change; left for the overlay program.
 - K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.
 
 **Defects in the existing PR #721 layer:**
