@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Xunit;
 
@@ -101,6 +101,18 @@ namespace Parsek.Tests
             };
         }
 
+        private static GameAction CrewClose(string actionId, string recId, double ut)
+        {
+            return new GameAction
+            {
+                ActionId = actionId,
+                RecordingId = recId,
+                UT = ut,
+                Type = GameActionType.KerbalRecovered,
+                KerbalName = "Jebediah Kerman",
+            };
+        }
+
         private static List<(uint pid, string guid)> Survivors(params (uint, string)[] items)
         {
             var list = new List<(uint pid, string guid)>();
@@ -186,23 +198,230 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void RecordingNotTerminallyRecovered_DoesNotClassify()
+        public void LandedRecordingWithNoRecoveryRow_DoesNotClassify_AndIsCountedAsMatched()
         {
             // A landed-but-not-recovered craft was never paid out; there is nothing to retire.
+            // The survivor IS its launch, so the skip is counted for the caller's summary.
             var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
             rec.TerminalStateValue = TerminalState.Landed;
+            var actions = new List<GameAction> { RecoveredScience("act-sci", "rec-1", 500.0) };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0,
+                out int matchedWithoutRecovery);
+
+            Assert.Empty(result);
+            Assert.Equal(1, matchedWithoutRecovery);
+        }
+
+        [Fact]
+        public void RecordingWithNoTerminalVerdictAndNoRecoveryRow_DoesNotClassify()
+        {
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            rec.TerminalStateValue = null;
+            var actions = new List<GameAction> { RecoveredScience("act-sci", "rec-1", 500.0) };
+
+            Assert.Empty(ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0));
+        }
+
+        // ================================================================
+        // Recovery after the commit (REFLY-RESURRECTED-RECOVERY-STAYS-BANKED)
+        // ================================================================
+
+        /// <summary>
+        /// The SHIPPING shape, measured on RB-1 reading 2026-09-27_1249: with auto-merge on,
+        /// the in-flight Recover commits the tree at the scene change with the situation
+        /// terminal (Landed), and stock fires onVesselRecovered afterwards at the Space
+        /// Center, where the #444 path writes the recovery row onto the committed recording.
+        /// The terminal is never re-stamped, so the ledger row is the only recovery evidence.
+        /// Fails if the classifier goes back to requiring a Recovered terminal.
+        /// </summary>
+        [Fact]
+        public void LandedCommitWithPostCutoffRecoveryRow_Classifies()
+        {
+            var rec = RecoveredRecording("rec-tail", 2905720181u, GuidA, 341.1, 347.2);
+            rec.TerminalStateValue = TerminalState.Landed;
+            var actions = new List<GameAction>
+            {
+                RecoveryFunds("act-funds", "rec-tail", 347.3, 4558f),
+                RecoveredScience("act-sci", "rec-tail", 347.2),
+                TransmittedScience("act-xmit", "rec-tail", 347.2),
+            };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((2905720181u, GuidA)), new List<Recording> { rec }, actions, 9.1,
+                out int matchedWithoutRecovery);
+
+            Assert.Single(result);
+            Assert.Equal("rec-tail", result[0].RecordingId);
+            Assert.Equal(2905720181u, result[0].LiveVesselPid);
+            Assert.Equal(347.3, result[0].AnchorUT);
+            Assert.False(result[0].UsedFallbackAnchor);
+            Assert.Equal(ResurrectionRetirementEligibility.EvidenceLedgerRow, result[0].Evidence);
+            Assert.Equal(new List<string> { "act-funds", "act-sci" }, result[0].RetiredActionIds);
+            Assert.Equal(0, matchedWithoutRecovery);
+        }
+
+        [Fact]
+        public void NoTerminalVerdictWithPostCutoffRecoveryRow_Classifies()
+        {
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            rec.TerminalStateValue = null;
+            var actions = new List<GameAction> { RecoveryFunds("act-funds", "rec-1", 600.0, 8000f) };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
+
+            Assert.Single(result);
+            Assert.Equal(ResurrectionRetirementEligibility.EvidenceLedgerRow, result[0].Evidence);
+        }
+
+        [Fact]
+        public void RecoveredTerminal_ReportsTerminalEvidence()
+        {
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
             var actions = new List<GameAction> { RecoveryFunds("act-funds", "rec-1", 500.0, 8000f) };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
+
+            Assert.Single(result);
+            Assert.Equal(ResurrectionRetirementEligibility.EvidenceTerminal, result[0].Evidence);
+        }
+
+        [Fact]
+        public void LandedCommitWithRecoveryRowBeforeTheCutoff_IsLeftAlone()
+        {
+            // The recovery happened before the rewind point, so it is still true in the
+            // reverted world. Same cutoff as the Recovered-terminal path.
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 10.0, 100.0);
+            rec.TerminalStateValue = TerminalState.Landed;
+            var actions = new List<GameAction> { RecoveryFunds("act-funds", "rec-1", 150.0, 8000f) };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0,
+                out int matchedWithoutRecovery);
+
+            Assert.Empty(result);
+            Assert.Equal(1, matchedWithoutRecovery);
+        }
+
+        [Fact]
+        public void LandedCommitWithRecoveryRow_StillNeedsAPositiveGuidMatch()
+        {
+            // The ledger-evidence path must not weaken the identity gate: a relaunch of the
+            // same craft (same baked pid, different launch) keeps its recovery.
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            rec.TerminalStateValue = TerminalState.Landed;
+            var actions = new List<GameAction> { RecoveryFunds("act-funds", "rec-1", 600.0, 8000f) };
+
+            Assert.Empty(ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidB)), new List<Recording> { rec }, actions, 200.0));
+            Assert.Empty(ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, null)), new List<Recording> { rec }, actions, 200.0));
+        }
+
+        [Theory]
+        [InlineData(TerminalState.Destroyed)]
+        [InlineData(TerminalState.Docked)]
+        [InlineData(TerminalState.Boarded)]
+        [InlineData(TerminalState.Disassembled)]
+        public void VesselEndingTerminalWithRecoveryRow_DoesNotClassify(TerminalState terminal)
+        {
+            // The recorded vessel ceased to exist at its terminal, so a recovery row on it is
+            // a misattribution; retiring it would take money on a wrong pick. Positive guids on
+            // both sides, so only the terminal guard stops it.
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            rec.TerminalStateValue = terminal;
+            var actions = new List<GameAction> { RecoveryFunds("act-funds", "rec-1", 600.0, 8000f) };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0,
+                out int matchedWithoutRecovery);
+
+            Assert.Empty(result);
+            Assert.Equal(1, matchedWithoutRecovery);
+        }
+
+        [Theory]
+        [InlineData(null, true)]
+        [InlineData(TerminalState.Orbiting, true)]
+        [InlineData(TerminalState.Landed, true)]
+        [InlineData(TerminalState.Splashed, true)]
+        [InlineData(TerminalState.SubOrbital, true)]
+        [InlineData(TerminalState.Recovered, false)]
+        [InlineData(TerminalState.Destroyed, false)]
+        [InlineData(TerminalState.Docked, false)]
+        [InlineData(TerminalState.Boarded, false)]
+        [InlineData(TerminalState.Disassembled, false)]
+        public void VesselOutlivedTerminal_TruthTable(TerminalState? terminal, bool expected)
+        {
+            Assert.Equal(expected, ResurrectionRetirementEligibility.VesselOutlivedTerminal(terminal));
+        }
+
+        [Fact]
+        public void CrewCloseRow_IsEvidenceButIsNeverRetired()
+        {
+            // A zero-value crewed recovery after the commit leaves only the KerbalRecovered
+            // row. It proves the recovery (and anchors it), but retiring it would leave the
+            // Aboard hold open with nothing able to close it again.
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            rec.TerminalStateValue = TerminalState.Landed;
+            var actions = new List<GameAction>
+            {
+                CrewClose("act-crew-close", "rec-1", 520.0),
+                RecoveredScience("act-sci", "rec-1", 500.0),
+            };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
+
+            Assert.Single(result);
+            Assert.Equal(520.0, result[0].AnchorUT);
+            Assert.False(result[0].UsedFallbackAnchor);
+            Assert.Equal(ResurrectionRetirementEligibility.EvidenceLedgerRow, result[0].Evidence);
+            Assert.Equal(new List<string> { "act-sci" }, result[0].RetiredActionIds);
+        }
+
+        [Fact]
+        public void CrewCloseRow_IsNotRetiredOnTheRecoveredTerminalPathEither()
+        {
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            var actions = new List<GameAction>
+            {
+                RecoveryFunds("act-funds", "rec-1", 500.0, 8000f),
+                CrewClose("act-crew-close", "rec-1", 500.0),
+            };
+
+            var result = ResurrectionRetirementEligibility.Classify(
+                Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0);
+
+            Assert.Single(result);
+            Assert.DoesNotContain("act-crew-close", result[0].RetiredActionIds);
+        }
+
+        [Fact]
+        public void CrewCloseRowAlone_WithNothingToRetire_ProducesNoEntry()
+        {
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
+            rec.TerminalStateValue = TerminalState.Landed;
+            var actions = new List<GameAction> { CrewClose("act-crew-close", "rec-1", 520.0) };
 
             Assert.Empty(ResurrectionRetirementEligibility.Classify(
                 Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0));
         }
 
         [Fact]
-        public void RecordingWithNoTerminalVerdict_DoesNotClassify()
+        public void CrewCloseRowBeforeTheCutoff_IsNotEvidence()
         {
-            var rec = RecoveredRecording("rec-1", 42u, GuidA, 100.0, 500.0);
-            rec.TerminalStateValue = null;
-            var actions = new List<GameAction> { RecoveryFunds("act-funds", "rec-1", 500.0, 8000f) };
+            var rec = RecoveredRecording("rec-1", 42u, GuidA, 10.0, 100.0);
+            rec.TerminalStateValue = TerminalState.Landed;
+            var actions = new List<GameAction>
+            {
+                CrewClose("act-crew-close", "rec-1", 150.0),
+                RecoveredScience("act-sci", "rec-1", 100.0),
+            };
 
             Assert.Empty(ResurrectionRetirementEligibility.Classify(
                 Survivors((42u, GuidA)), new List<Recording> { rec }, actions, 200.0));

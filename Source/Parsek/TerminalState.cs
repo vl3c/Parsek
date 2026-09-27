@@ -1,4 +1,4 @@
-namespace Parsek
+﻿namespace Parsek
 {
     public enum TerminalState
     {
@@ -21,8 +21,10 @@ namespace Parsek
         ///
         /// <para>Not a recovery: no funds, science or reputation are involved. The
         /// ledger's recovery correlator (<c>LedgerOrchestrator.AddVesselRecoveryCostActions</c>)
-        /// and the resurrection/retirement eligibility walk key strictly on
-        /// <see cref="Recovered"/>, so this value cannot reach either.</para>
+        /// keys strictly on <see cref="Recovered"/>, and the resurrection/retirement
+        /// eligibility walk accepts a post-commit recovery row only on a terminal that left
+        /// the vessel in the world (<c>ResurrectionRetirementEligibility.VesselOutlivedTerminal</c>),
+        /// so this value cannot reach either.</para>
         ///
         /// <para>Purely additive: appending an enum member renames no key, adds no
         /// field and changes no binary layout, so it is NOT a schema change and

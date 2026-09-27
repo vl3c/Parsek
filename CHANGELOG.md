@@ -1215,6 +1215,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A Re-Fly that brings back a vessel you recovered now takes the recovery money back.** If
+  you flew, landed and recovered a vessel, then re-flew an earlier separation whose rewind
+  point still had that vessel in the world, the vessel came back and its recovery funds stayed
+  in the account, so it could be recovered and paid for a second time. Parsek already had a
+  step for this, but it only recognised a flight that was saved as "Recovered". With
+  auto-merge on (the normal setting), an in-flight Recover saves the flight as Landed before
+  the game actually recovers the vessel, and a recovery from the Tracking Station reaches a
+  flight that was saved long before, so the step never matched. It now also recognises the
+  recovery from the recovery payout Parsek records at the moment of the recovery. The vessel
+  must still be positively the same launch, and a recovery from before the rewind point is
+  left alone.
 - **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
   its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
   merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier

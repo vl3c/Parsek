@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -412,7 +412,8 @@ namespace Parsek.Tests
         public void ResurrectionEligibility_Disassembled_IsNotARecoveryAnchor()
         {
             // The resurrection / retirement walk is the second place a terminal state
-            // can be mistaken for a recovery. It also keys strictly on Recovered.
+            // can be mistaken for a recovery. It accepts a post-commit recovery row only
+            // on a terminal that left the vessel in the world, which Disassembled is not.
             var rec = new Recording
             {
                 RecordingId = "rec-disassembled-resurrect",

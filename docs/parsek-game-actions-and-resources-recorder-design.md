@@ -974,6 +974,13 @@ When a vessel is recovered, KSP returns a percentage of the vessel's part costs 
 
 The recovery percentage formula is KSP's domain — the ledger stores only the final awarded amount.
 
+**Implementation note: which recording carries a recovery, and when (2026-09-27).** There are two producers of the `FundsEarning(Recovery)` row, and which one fires depends on whether the flight is still pending when stock recovers the vessel:
+
+- Pending tree (manual merge: the merge dialog waits at the Space Center, so `onVesselRecovered` fires first). `UpdateRecordingsForTerminalEvent` stamps the pending leaf `Recovered`, and `CreateVesselCostActions` pairs the `FundsChanged(VesselRecovery)` event into the row at commit.
+- Committed recording (auto-merge on, the shipping setting: an in-flight Recover commits the tree at the scene change with the situation terminal, usually Landed, BEFORE stock recovers the vessel at the Space Center; and every Tracking Station recovery of an older flight). Committed recordings are never re-stamped by a terminal event, so the terminal stays Landed / Orbiting. `onVesselRecovered` writes the row directly (#444, `LedgerOrchestrator.OnVesselRecoveryFunds`, tagged by `PickRecoveryRecordingId`) plus one `KerbalRecovered` row per recovered kerbal (see the 9.3 recovery note).
+
+So the ledger, not the terminal state, is the one surface that records every recovery. Anything that asks "was this recording's vessel recovered after UT X" must accept either the `Recovered` terminal or a recovery row after X. The Re-Fly resurrection retirement (`ResurrectionRetirementEligibility.Classify`, Step 3b of `RewindInvoker`) does exactly that: it retires the recovery of a vessel the Re-Fly puts back in the world when a survivor is POSITIVELY the recording's launch (pid and both launch guids) and the recording either ended `Recovered` or carries a `FundsEarning(Recovery)` / `KerbalRecovered` row after the rewind cutoff, on a terminal that left the vessel in the world (not Destroyed / Docked / Boarded / Disassembled). It retires the funds row, the `Recovered`-method science and the recovery XP; the `KerbalRecovered` row is evidence only and stays, because retiring it would leave the kerbal's Aboard hold open with no later recovery able to close it. Todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED.
+
 ### 15.12 Verified scenarios
 
 **Basic career with seeded balance:**
