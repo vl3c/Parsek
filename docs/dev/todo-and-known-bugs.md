@@ -68,6 +68,12 @@ EVA child name-only; the decision table; the anchor predicate.
 by name exactly as before, and the capsule's name is not the owner's). A cheap new lane would re-launch
 the same craft on a host with a committed landed vessel of that craft, commit, rewind `tree=latest`, and
 require the `Rewind owner strip: keeping vessel` line plus the earlier vessel in the produced save.
+Authored as `RR-1-relaunch-rewind-keeps-earlier-launch` (nightly, never flown, branch
+`lane-relaunch-rewind`): on `kerbin-splashdown-recorded` it relaunches the stock Kerbal X from the SPH
+onto the Runway, commits, rewinds `tree=latest`, and gates on the keep line naming the fixture capsule
+(pid 2708531065), the summary `1 by name [Kerbal X], 0 by owner guid, ... kept 1 other launch(es)`, the
+OnLoad keep of `#autoLOC_501232` and the committed store still holding the capsule's spawn pid. The live
+proof is owed by that lane's reading flight.
 
 ---
 
