@@ -11017,9 +11017,12 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # Kerbal X 1 / Kerbal X Probe 0, pointCount total 3 / largest 2).
                        "CI-5-background-event-claim.toml",
                        # SS-1: `structure` + `points` armed 2026-09-26 off its reading
-                       # `2026-09-25_2102` (trees / committedTrees / recordings 2,
-                       # Landed 1 / Orbiting 1, spawnedVessels 1, vesselNames Situation
-                       # Hopper 1 / Low Perigee Probe 0, pointCount total 4 / largest 3).
+                       # `2026-09-25_2102`; re-scoped 2026-09-27 (the probe is a real
+                       # 71 x 90 km Orbiting orbit that defers, then spawns) and re-armed
+                       # off the reading `2026-09-27_1300_a2` (trees / committedTrees /
+                       # recordings 2, Landed 1 / Orbiting 1, spawnedVessels 2,
+                       # vesselNames Situation Hopper 1 / Low Perigee Probe 1, pointCount
+                       # total 4 / largest 3); armed re-flight `2026-09-27_1304` PASS.
                        "SS-1-spawn-safety-corrections.toml",
                        # SE-1: `structure` armed 2026-09-26 off its reading run
                        # `2026-09-25_2334` (trees / committedTrees 2, recordings 10 - the

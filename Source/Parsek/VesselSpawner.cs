@@ -5660,11 +5660,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Atmosphere depth the terminal-orbit spawn-safety margin is built on. An airless
-        /// body (or a body that could not be resolved) contributes no depth, so
+        /// Atmosphere depth the terminal-orbit spawn-safety deferral margin is built on. An
+        /// airless body (or a body that could not be resolved) contributes no depth, so
         /// <see cref="TerminalOrbitSpawnSafety.ComputeSafeAltitude"/> also drops the margin
-        /// and the safe altitude collapses to 0 - a Sun/Mun-referenced coast is geometrically
-        /// safe at any positive altitude.
+        /// and no deferral applies. The periapsis line on an airless body is its highest
+        /// terrain (<see cref="OrbitClearance"/>), passed separately.
         /// </summary>
         internal static double ResolveSpawnSafetyAtmosphereDepth(
             bool bodyHasAtmosphere,
@@ -5684,31 +5684,38 @@ namespace Parsek
             double bodyAtmosphereDepth,
             double currentAltitude,
             double periapsisAltitude,
-            double apoapsisAltitude)
+            double apoapsisAltitude,
+            double maxTerrainAltitude = 0.0)
         {
             return TerminalOrbitSpawnSafety.Evaluate(
                 currentAltitude,
                 ResolveSpawnSafetyAtmosphereDepth(bodyHasAtmosphere, bodyAtmosphereDepth),
                 TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
                 periapsisAltitude,
-                apoapsisAltitude);
+                apoapsisAltitude,
+                maxTerrainAltitude);
         }
 
         /// <summary>
-        /// Pure downgrade applied when a <c>DeferUntilSafe</c> decision has no future safe UT:
-        /// the soft deferral becomes a hard <c>CannotSpawnSafely</c> carrying
-        /// <see cref="TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT"/>.
+        /// Pure resolution applied when a <c>DeferUntilSafe</c> decision finds no future safe UT
+        /// (the scan over one period missed the climb above the margin). A deferral is only
+        /// reached once the periapsis already clears the periapsis floor, so the vessel is above
+        /// the atmosphere all the way round: it spawns now, carrying
+        /// <see cref="TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT"/>, rather than being refused.
         /// </summary>
-        internal static void DowngradeTerminalOrbitDeferralToNoFutureSafeUT(
+        internal static void ResolveTerminalOrbitDeferralWithNoFutureSafeUT(
             ref TerminalOrbitSpawnSafetyDecision decision,
             double currentAltitude)
         {
-            decision.Action = TerminalOrbitSpawnSafetyAction.CannotSpawnSafely;
+            decision.Action = TerminalOrbitSpawnSafetyAction.SpawnNow;
             decision.ReasonCode = TerminalOrbitSpawnSafety.ReasonNoFutureSafeUT;
             decision.Reason = string.Format(CultureInfo.InvariantCulture,
-                "propagated altitude {0:F1}m is below safe altitude {1:F1}m and no future safe UT was found",
+                "propagated altitude {0:F1}m is below safe altitude {1:F1}m and no future safe UT was found; " +
+                "periapsis {2:F1}m clears the periapsis floor {3:F1}m, so the orbit spawns now",
                 currentAltitude,
-                decision.SafeAltitude);
+                decision.SafeAltitude,
+                decision.PeriapsisAltitude,
+                decision.PeriapsisFloorAltitude);
         }
 
         internal static bool TryPassTerminalOrbitSpawnSafety(
@@ -5729,7 +5736,8 @@ namespace Parsek
                 body != null ? body.atmosphereDepth : 0.0,
                 currentAltitude,
                 periapsisAltitude,
-                apoapsisAltitude);
+                apoapsisAltitude,
+                OrbitClearance.ResolveMaxTerrainAltitude(body));
 
             if (decision.Action == TerminalOrbitSpawnSafetyAction.DeferUntilSafe)
             {
@@ -5768,7 +5776,7 @@ namespace Parsek
                     return false;
                 }
 
-                DowngradeTerminalOrbitDeferralToNoFutureSafeUT(ref decision, currentAltitude);
+                ResolveTerminalOrbitDeferralWithNoFutureSafeUT(ref decision, currentAltitude);
             }
 
             LogTerminalSpawnSafetyDecision(rec, index, body, currentUT, decision, pressure);
@@ -5779,7 +5787,8 @@ namespace Parsek
                 ParsekLog.Warn("Spawner", string.Format(CultureInfo.InvariantCulture,
                     "Cannot spawn terminal orbit safely: rec={0} idx={1} vessel=\"{2}\" " +
                     "currentUT={3:F2} propagatedAlt={4:F1} safeAlt={5:F1} atmosphereDepth={6:F1} " +
-                    "periapsis={7:F1} apoapsis={8:F1} decision={9} reason={10} pressure={11}",
+                    "periapsis={7:F1} apoapsis={8:F1} decision={9} reason={10} pressure={11} " +
+                    "periapsisFloor={12}",
                     rec?.RecordingId ?? "(null)",
                     index,
                     rec?.VesselName ?? "(null)",
@@ -5791,7 +5800,8 @@ namespace Parsek
                     decision.ApoapsisAltitude,
                     decision.Action,
                     decision.ReasonCode,
-                    FormatOptionalDouble(pressure)));
+                    FormatOptionalDouble(pressure),
+                    FormatOptionalDouble(decision.PeriapsisFloorAltitude)));
                 return false;
             }
 
@@ -5821,6 +5831,7 @@ namespace Parsek
                 SafeAltitude = TerminalOrbitSpawnSafety.ComputeSafeAltitude(
                     atmosphereDepth,
                     TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters),
+                PeriapsisFloorAltitude = OrbitClearance.ResolvePeriapsisFloorAltitude(body),
                 PeriapsisAltitude = double.NaN,
                 ApoapsisAltitude = double.NaN,
                 NextSafeUT = double.NaN,
@@ -5857,7 +5868,7 @@ namespace Parsek
                 "Terminal spawn safety decision: rec={0} idx={1} vessel=\"{2}\" body={3} " +
                 "decision={4} reason={5} currentUT={6:F2} propagatedAlt={7:F1} safeAlt={8:F1} " +
                 "atmosphereDepth={9:F1} margin={10:F1} periapsis={11:F1} apoapsis={12:F1} " +
-                "nextSafeUT={13} nextSafeAlt={14} pressure={15}",
+                "nextSafeUT={13} nextSafeAlt={14} pressure={15} periapsisFloor={16}",
                 rec?.RecordingId ?? "(null)",
                 index,
                 rec?.VesselName ?? "(null)",
@@ -5873,7 +5884,8 @@ namespace Parsek
                 decision.ApoapsisAltitude,
                 FormatOptionalDouble(decision.NextSafeUT),
                 FormatOptionalDouble(decision.NextSafeAltitude),
-                FormatOptionalDouble(pressure)));
+                FormatOptionalDouble(pressure),
+                FormatOptionalDouble(decision.PeriapsisFloorAltitude)));
         }
 
         private static bool TryFindNextSafeTerminalOrbitSpawnUT(
