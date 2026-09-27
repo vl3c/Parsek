@@ -354,7 +354,7 @@ namespace Parsek
                 }
                 return ReservationExplanation.KerbalLost(
                     death?.RecordingName,
-                    reservation.IsPermanent ? double.NaN : reservation.ReservedUntilUT,
+                    KerbalsModule.LossRespawnUT(reservation),
                     formatDate);
             }
 

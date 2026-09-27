@@ -478,9 +478,13 @@ Owner rulings (2026-09-26):
   split (`ResolveSplitHandoffUT`; a breakup-continuous parent that flies on keeps its row);
   the child's own row decides the rest (respawn, permanent, recovered, still aboard). Log
   `Reservation bounded by split handoff`. Cells: `KerbalDeathRespawnTests.StagedFlight_*`.
-  OPEN (trace item G6, pre-existing merge behaviour, not fixed): while a respawn is still
+  ~~OPEN (trace item G6, pre-existing merge behaviour, not fixed): while a respawn is still
   pending, a kerbal who also has a LATER flight reads Reserved with a stand-in for the whole
-  merged range (including the dead / missing window) instead of Lost.
+  merged range (including the dead / missing window) instead of Lost.~~ FIXED 2026-09-27,
+  branch `kss2-career` (KSP-SETTINGS-FOLLOWUPS-2026-09-27 item 2): the loss is decided against
+  the walk clock (`KerbalsModule.IsLossHoldAt`), so before the respawn he reads Lost until the
+  respawn date with no stand-in, and from the respawn to the later flight's end the merged
+  hold is an ordinary reservation with a stand-in.
 - ~~S9 (Q3). Parsek is inert (no recording, ghosts or rewind; one log line) in `MISSION`,
   `MISSION_BUILDER`, `SCENARIO` and `SCENARIO_NON_RESUMABLE` games.~~ FIXED 2026-09-26,
   branch `kss-modes`: one pure predicate `ParsekGameModeGate` (`IsActiveMode` true only for
@@ -509,12 +513,134 @@ Supervisor defaults (not overridden):
   (`GameStateRecorder.LogUnledgeredCheatCurrency`) saying it is not ledgered and the next rewind
   undoes it.
 
-To trace before filing as defects (low): `AllowNegativeCurrency` against reserved funds on
+To trace before filing as defects (low; `AllowNegativeCurrency` and `AutoHireCrews` traced and
+fixed 2026-09-27, see KSP-SETTINGS-FOLLOWUPS-2026-09-27 below): `AllowNegativeCurrency` against reserved funds on
 spends no click-block covers; `AutoHireCrews` hire capture; Set Orbit / Set Position teleports
 inside a live recording; infinite-propellant recordings vs route cost manifests;
 `persistKerbalInventories` vs inventory-carrying recordings (traced 2026-09-27: filed and fixed as
 KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 `AllowOtherLaunchSites` off.
+
+---
+
+## KSP-SETTINGS-FOLLOWUPS-2026-09-27: fixes from the traces of the settings audit [FILED 2026-09-27, branch `kss2-career`]
+
+Follow-ups from the "To trace before filing" list and the open lines of
+KSP-SETTINGS-AUDIT-2026-09-26 above (investigations in the session scratchpad, not committed).
+
+- ~~1. A recovery / termination stamped every earlier same-vessel segment of the pending tree
+  and the commit paid the recovery funds twice.~~ FIXED 2026-09-27: see
+  RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL below (the Re-Fly sibling edge stays open).
+- ~~2. G6: a respawn-on death merged with a LATER flight of the same kerbal that outlasts the
+  respawn read as an ordinary hold, so over the dead window (and before the death after a
+  rewind) the kerbal read Reserved on the later flight and a free stand-in covered his seat.~~
+  FIXED 2026-09-27: `KerbalsModule.IsLossHoldAt(r, walkClockUT)` decides the loss in
+  `PostWalk` (no slot, no stand-in while the clock is before `DeathRespawnUT`; unknown clock
+  fails closed), the walk records it on the rebuilt reservation (`LossAtWalkClock`) so
+  `IsLossHold` and its readers (Kerbals window, stock-screen marks, crew dialog) keep their
+  signatures, the Lost date reads `DeathRespawnUT` (`KerbalsModule.LossRespawnUT`,
+  `KerbalsPresentation.FormatLostUntilDate`, `ExplainKerbalReservation`), and
+  `ComputeNextReleaseUT` also returns the respawn (only when strictly after a KNOWN walk clock,
+  so an unknown-clock walk can never leave a next-release at or before now that re-triggers the
+  crossed-release recalculation on every check) so crossing it recalculates. Log `Death
+  hold: '<name>' lost until the respawn although a later flight extends the hold`. Cells:
+  `KerbalDeathRespawnTests.G6_*`, `IsLossHoldAt_Cases`,
+  `ComputeNextReleaseUT_IncludesARespawnInsideAnExtendedHold`.
+- ~~3. `AdvancedParams.AllowNegativeCurrency` (Moderate / Hard): reserved funds and science
+  were already protected (every voluntary stock spend is gated on the patched live pool), but
+  with the pool legitimately negative after an involuntary debit (a contract failure
+  penalty) `PatchFunds` floored its target at 0, so the uplift guard logged a false "GUARDED
+  UPLIFT ... missing spending channel" WARN on every recalc plus a once-per-session toast,
+  and an authoritative recalc (rewind, re-fly) lifted the deficit to 0.~~ FIXED 2026-09-27:
+  with the flag on (`KspStatePatcher.ReadAllowNegativeCurrency`, null-guarded, test seam
+  `AllowNegativeCurrencyProviderForTesting`) the funds and science patch targets may go below
+  zero only by a deficit that already EXISTS now: `ResolveNegativeCurrencyPatchTarget` returns
+  `max(projectedMin, min(0, runningBalanceNow, liveNow))` when the 0 floor is what separates
+  them; flag off unchanged. The first version patched to the projected minimum alone, which also
+  covers every FUTURE committed row, so a reserved future deficit (a committed 70k upgrade a
+  superseded reward no longer covers) was written into the live pool before any debit happened
+  (review repro, now a real-walk cell for funds and science). The live pool is part of the
+  "exists now" bound so the audit sequence (reservation lowered live to 2000, a 5000 penalty
+  took it to -3000 while the running balance is still +5000) keeps -3000 with no false uplift
+  clamp; the target never moves live further below zero than it already is unless the running
+  balance itself is lower. One rate-limited Verbose line when a negative target is used. Cells:
+  `AllowNegativeCurrencyPatchTests`.
+- ~~4. `Difficulty.AutoHireCrews`: after a rewind to before a committed hire, stock auto-hire
+  (`KerbalRoster.DefaultCrewForVessel`'s shortfall loop, the only caller of
+  `KerbalRoster.GetNextApplicant()` in the 1.12.5 decompile) could pick that applicant;
+  `KerbalHirePatch` refused the hire with a dialog, but stock ignores the outcome, so it
+  seated the still-Applicant kerbal for free with a false "hired" message (twice with two
+  seats short).~~ FIXED 2026-09-27: `Patches/KerbalAutoHireApplicantPatch.cs` prefixes
+  `GetNextApplicant()` and returns the first applicant in roster order that no committed
+  future hires (`StockUiReservationPredicates.IsKerbalHireBlocked`, the `KerbalHirePatch`
+  predicate, replay bypassed), or null when none is left so stock generates a fresh
+  applicant; with nothing to skip stock runs unchanged. S9-gated (listed in
+  `ParsekGameModeGateTests`); one `[KerbalHirePatch] auto-hire applicant pick:` Info line per
+  pick that skipped. `KerbalHirePatch` stays the Astronaut Complex backstop. Cells:
+  `KerbalHirePatchTests.AutoHireApplicant*`. NEEDS A LIVE CHECK (not flown): auto-hire on, a
+  rewound future hire, a craft one seat short.
+
+Handled on other branches (not here): Set Orbit / Set Position teleports inside a live
+recording (teleport seam), the launch-site tag on recordings, retirement of flights ending at
+an alternate launch site, the HackGravity cheat warning, and `persistKerbalInventories` vs
+recorded crew inventories.
+
+---
+
+## KSP-SETTINGS-FOLLOWUPS-RECORDING-2026-09-27: cheat teleports, stale launch-site tags, alternate-site retirement and Hack Gravity [FILED 2026-09-27 from the KSP-SETTINGS-AUDIT-2026-09-26 trace list, branch `kss2-recording`. FIXED on that branch]
+
+Owner rulings (2026-09-27): a flight that ends parked on ANY stock launch site is retired like the
+KSC pad / runway ending; Hack Gravity gets one Warn and no behavior change; no warning for
+infinite-propellant routes (billing prices the launch load and delivery is the witnessed
+transfer, so both are already correct).
+
+- ~~1. Alt+F12 teleports inside a live recording.~~ FIXED. Stock Set Orbit, Rendezvous and Set
+  Position all end in the protected `FlightGlobals.PostOrbitSet(CelestialBody oldBody)`
+  (decompiled 1.12.5; the middle-click cheat only fills Set Position's fields and teleports
+  through the same button), so `Patches/CheatTeleportPatch.cs` postfixes that one method (S9
+  gated) and forwards to `FlightRecorder.OnCheatTeleport` (`FlightRecorder.CheatTeleport.cs`,
+  pure `CheatTeleportDecision`). Every teleport logs `Cheat teleport detected ... action=`. On
+  rails with a coastable new orbit: the pre-teleport segment closes (dropped when zero-length)
+  and the new orbit is re-captured; cross-body on rails is already handled by the SOI handler
+  stock fires inside `PostOrbitSet`. Off rails (the pad / atmosphere case, where the rails
+  handler skipped the segment on the stale situation), or on rails onto a non-coast (inside an
+  atmosphere, airless sub-surface arc): a same-body jump writes a zero-duration one-frame
+  `isBoundarySeam` section at the next go-off-rails (the producer-C shape; the postfix cannot
+  sample, `v.latitude` is still pre-teleport), so the jump is not a split point; a cross-body
+  jump splits the section by body at once and sets `SoiChangePending`, and deliberately carries
+  NO seam flag, because the seam short-circuit would suppress the #251 body split. Residue: the
+  flat points still lerp over the ~10-frame unpack hold (about 0.2 s); a teleport during warp
+  followed by an SOI change in the same warp keeps the on-rails seam semantics (none needed).
+  Tests `CheatTeleportRecorderTests`.
+- ~~2. Stale launch-site tag.~~ CONFIRMED and FIXED. `FlightDriver.LaunchSiteName` is static and
+  only `StartWithNewLaunch` writes it; `ResolveLaunchSiteName` read it for every fresh non-EVA
+  non-promotion start, including `OnVesselSituationChange` from settled LANDED (take-off from a
+  remote landing) and the post-switch fresh start, and `RouteAnalysisEngine.IsKscOriginRecording`
+  needs only a non-empty site plus `StartBodyName == Kerbin`, so such a route was billed as a KSC
+  launch. `FlightRecorder.ShouldCaptureLaunchSite` now captures the site only for a launch start:
+  PRELAUNCH now, the PRELAUNCH auto-record transition (`ParsekFlight.StartRecording(...,
+  fromPrelaunchTransition)`), this scene's fresh rollout, or a vessel at rest whose live
+  `landedAt` names a stock site (a wheeled runway rover is LANDED, never PRELAUNCH); the last
+  also supplies the site name itself. The start log carries `launchSiteGate=`. Re-fly
+  recordings still copy the origin's site. Tests `LaunchSiteFollowupTests`.
+- ~~3. Alternate launch sites vs end-of-flight retirement.~~ FIXED per the ruling.
+  `LaunchSiteExclusionZones` reads the stock sites at runtime (`PSystemSetup.Instance.LaunchSites`
+  filtered by `IsStockLaunchSite`, home world, each `LaunchSite.SpawnPoint`; SPH facility =
+  runway) with a static fallback table (Desert pad measured from the MC-4 save; Desert airfield,
+  Woomerang and Island airfield are published coordinates, unverified in game).
+  `SpawnCollisionDetector.DecideLaunchSiteEndOfFlightRetirement` checks the unchanged KSC circles
+  first; `VesselSpawner.EvaluateKscEndOfFlightRetirement` (spawn and crew side) uses it, so the
+  KSC log line is byte-identical and another site logs `launch-site exclusion zone (<Site>
+  pad|runway)`. The static fallback applies only when Making History is installed
+  (`LaunchSiteExclusionZones.IsMakingHistoryInstalled`, stock
+  `ExpansionsLoader.IsExpansionInstalled("MakingHistory")`, the check `PSystemSetup` uses;
+  a failed read counts as not installed), so without the expansion only the KSC circles
+  retire (follow-up 2026-09-27 from the review). Tests `LaunchSiteFollowupTests`. No lane
+  flies an alternate-site ending yet.
+- ~~4. Hack Gravity.~~ FIXED per the ruling. Stock keeps the cheat on the debug-screen widget
+  (`HackGravity.gravityFactor`, 1.0 when off); `GravityHackDetector` reads it at record start and
+  `Patches/HackGravityPatch.cs` postfixes `HackGravity.SetGravityFactor`, and the recorder writes
+  one `Gravity hack active while recording` Warn per recording. Tests `GravityHackDetectorTests`.
 
 ---
 
@@ -588,7 +714,7 @@ it survives the spawn.
 
 ---
 
-## RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL: a recovery stamps the non-leaf earlier segment of the recovered vessel too [FILED 2026-09-26 from the MatchesVessel trace. OPEN, pre-existing]
+## ~~RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL: a recovery stamps the non-leaf earlier segment of the recovered vessel too~~ [FILED 2026-09-26 from the MatchesVessel trace. FIXED 2026-09-27, branch `kss2-career`; the Re-Fly sibling edge below stays OPEN]
 
 Segments of one vessel share pid, launch guid and name: a breakup parent (its
 `ChildBranchPointId` set) and its same-vessel parent continuation
@@ -602,10 +728,41 @@ recovery it stamps the NON-LEAF earlier segment Recovered as well, nulls its
 which `Recording.EndUT` (`Recording.cs:468`) then reports as that segment's end - a segment
 that ended at the split or dock now claims to run until the recovery. Old name-only matching
 did the same; the pid + guid tightening (KSP-SETTINGS-AUDIT S5) neither caused nor fixed it.
-Candidate fix: filter the walk to leaves (`rec.ChildBranchPointId == null`). Not traced: the
-effect on the ledger's recovery matching (`LedgerOrchestrator.PickRecoveryRecordingId` and the
-commit-time pairing in `CreateVesselCostActions`, which key on the Recovered terminal), so the
-fix needs that read first.
+The same walk runs for a termination (tracking-station delete), stamping every same-vessel
+segment Destroyed, which lets crew end-state inference call a kerbal who left the earlier
+segment alive Dead. Reach: the walk only sees a pending tree, so a merge decision must be
+outstanding (Re-Fly, switch-segment, Limbo stash, or autoMerge off in automation).
+
+Ledger consequence (traced 2026-09-27): DOUBLE RECOVERY FUNDS. The tree commit calls
+`CreateVesselCostActions` for every recording; `AddVesselRecoveryCostActions` pairs the
+FundsChanged(VesselRecovery) event within 0.1 s of each Recovered recording's EndUT, and the
+stretched non-leaf EndUT equals the leaf's, so both paired the same event and emitted two
+FundsEarning(Recovery) rows on two recording ids (dedup keys on the recording id, so both
+survived). The stretch also tied the non-leaf with the leaf in `PickRecoveryRecording`.
+
+The first candidate fix (`rec.ChildBranchPointId == null`) was WRONG: a breakup-continuous
+foreground recording keeps flying after `WireBreakupIntoTree` sets its `ChildBranchPointId`
+(its branch children are debris), so the naive filter would skip the vessel's live recording
+and lose the recovery funds (the outside-FLIGHT immediate patch is also skipped because the
+pending tree still owns the vessel).
+
+FIXED 2026-09-27, branch `kss2-career`: `ParsekScenario.IsTerminalEventTarget` stamps a
+matching recording only when it has no child branch point or is the effective leaf for its
+vessel (`GhostPlaybackLogic.IsEffectiveLeafForVessel`, #224: no same-pid child under its
+branch point). One `[Scenario] UpdateRecordingsForTerminalEvent: ... skippedEarlierSegments=N`
+Info line per event that skipped any. `HasPendingLedgerRecordingForVessel` is unchanged (the
+tip matches whenever an earlier segment does). Cells: `TerminalEventEarlierSegmentTests`
+(split parent, breakup-continuous still stamped, dock dominant parent keeps Docked, background
+chain, terminate path, exactly one recovery funds row on commit, the log line).
+
+Still OPEN (Re-Fly sibling edge, not traced): a Re-Fly provisional is a SIBLING of the origin
+child (same parent branch point, same pid + guid, `SupersedeTargetId` = the prior tip); if the
+origin copy is in the pending tree at the recovery, both are leaves and both are stamped, and
+both could pair the recovery event at commit. Neither predicate separates them; it would need
+"skip a recording that is the SupersedeTargetId of another matching recording", after checking
+whether `SupersedeCommit` already strips the origin's ledger rows. Defensive follow-up worth
+considering with it: refuse a second recovery row with the same recovery dedup key within one
+tree commit.
 
 ---
 

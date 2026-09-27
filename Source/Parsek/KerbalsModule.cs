@@ -297,6 +297,42 @@ namespace Parsek
             /// after it is a post-respawn reuse (ordinary hold, respawn intact).
             /// </summary>
             public double OpenEndedCoRowStartUT = double.NaN;
+            /// <summary>
+            /// Derived by <see cref="PostWalk"/> for the walk's clock: the hold carries a
+            /// respawn-on death whose respawn instant the clock has not reached, although a
+            /// later flight extends the hold past it (<see cref="IsLossHoldAt"/>). The kerbal
+            /// reads Lost until <see cref="DeathRespawnUT"/> and is an ordinary hold after.
+            /// Recorded here so the clock-free readers (<see cref="IsLossHold"/>) agree with
+            /// the stand-in decision; the reservation dict is rebuilt every walk.
+            /// </summary>
+            public bool LossAtWalkClock;
+        }
+
+        /// <summary>
+        /// True when the hold reads as a LOSS at <paramref name="nowUT"/>: a permanent death,
+        /// or a respawn-on death whose stock respawn instant (<see cref="KerbalReservation.DeathRespawnUT"/>)
+        /// is still ahead of the clock, whatever later flight the merged hold also carries.
+        /// Before the respawn the kerbal is dead or missing in stock and no stand-in covers
+        /// him; from the respawn on, a later flight's hold is an ordinary reservation. An
+        /// unknown clock (NaN) fails closed (loss, no stand-in), like the hold rule. Pure.
+        /// </summary>
+        internal static bool IsLossHoldAt(KerbalReservation reservation, double nowUT)
+        {
+            if (reservation == null) return false;
+            if (reservation.IsPermanent) return true;
+            if (double.IsNaN(reservation.DeathRespawnUT)) return false;
+            return double.IsNaN(nowUT) || nowUT < reservation.DeathRespawnUT;
+        }
+
+        /// <summary>
+        /// The instant a non-permanent loss hold ends (the recorded death's stock respawn),
+        /// or NaN for a permanent death or a hold that carries no respawn. The Lost date
+        /// every surface shows. Pure.
+        /// </summary>
+        internal static double LossRespawnUT(KerbalReservation reservation)
+        {
+            if (reservation == null || reservation.IsPermanent) return double.NaN;
+            return reservation.DeathRespawnUT;
         }
 
         /// <summary>
@@ -394,7 +430,9 @@ namespace Parsek
         internal static bool IsLossHold(KerbalReservation reservation)
         {
             return reservation != null
-                && (reservation.IsPermanent || IsRespawnPendingHold(reservation));
+                && (reservation.IsPermanent
+                    || IsRespawnPendingHold(reservation)
+                    || reservation.LossAtWalkClock);
         }
 
         /// <summary>
@@ -1366,10 +1404,23 @@ namespace Parsek
                 // A recorded death waiting for its stock respawn: the owner is gone until
                 // then exactly like a permanent death (stock leaves a dead or missing
                 // kerbal unreplaced), so no stand-in is demanded; the walk that crosses the
-                // respawn instant releases him through the branch above.
-                if (IsRespawnPendingHold(kvp.Value))
+                // respawn instant releases him through the branch above. Decided against
+                // the walk's clock, so a LATER flight merged into the same hold (G6) does
+                // not turn the dead window into an ordinary hold with a stand-in: before
+                // the respawn he is Lost, from the respawn on the later flight holds him
+                // as an ordinary reservation.
+                if (IsLossHoldAt(kvp.Value, walkClockUT))
                 {
                     respawnPendingReservations++;
+                    if (!IsRespawnPendingHold(kvp.Value))
+                    {
+                        kvp.Value.LossAtWalkClock = true;
+                        ParsekLog.Verbose(Tag,
+                            $"Death hold: '{kvp.Key}' lost until the respawn although a later flight " +
+                            $"extends the hold (respawnUT={FormatClockUT(kvp.Value.DeathRespawnUT)} " +
+                            $"holdEndUT={FormatClockUT(kvp.Value.ReservedUntilUT)} " +
+                            $"walkClockUT={FormatClockUT(walkClockUT)}); no stand-in until the respawn");
+                    }
                     KerbalSlot goneSlot;
                     if (slots.TryGetValue(kvp.Key, out goneSlot))
                         goneSlot.OwnerPermanentlyGone = true;
@@ -1427,7 +1478,10 @@ namespace Parsek
         /// <summary>
         /// The earliest finite end among the reservations still in force at
         /// <paramref name="nowUT"/> (all of the given ones when the clock is unknown; the
-        /// walk passes its in-force view), or +inf when none will lapse by time alone. Pure.
+        /// walk passes its in-force view), or +inf when none will lapse by time alone. A
+        /// recorded death's respawn instant strictly after a known clock counts as well,
+        /// also when a later flight extends the hold past it (the Lost -> held-with-stand-in
+        /// flip is a transition the clock must trigger). Pure.
         /// </summary>
         internal static double ComputeNextReleaseUT(
             IEnumerable<KerbalReservation> reservationSet, double nowUT)
@@ -1437,10 +1491,21 @@ namespace Parsek
             foreach (var reservation in reservationSet)
             {
                 if (reservation == null || reservation.IsPermanent) continue;
-                double end = reservation.ReservedUntilUT;
-                if (double.IsNaN(end) || double.IsInfinity(end)) continue;
                 if (!IsReservationActiveAt(reservation, nowUT)) continue;
-                if (end < next) next = end;
+                double end = reservation.ReservedUntilUT;
+                if (!double.IsNaN(end) && !double.IsInfinity(end) && end < next) next = end;
+                // A respawn inside a hold a later flight extends (G6) is a transition too:
+                // the kerbal stops reading Lost and a stand-in takes the later flight's
+                // seat, so a clock crossing it must recalculate like a release. Only a
+                // respawn strictly after a KNOWN clock: with the clock unknown the respawn
+                // may already be behind the live clock, and a next-release at or before
+                // now would re-trigger the crossed-release recalculation on every check
+                // while walks keep reading no clock.
+                double respawn = reservation.DeathRespawnUT;
+                if (!double.IsNaN(respawn) && !double.IsInfinity(respawn)
+                    && !double.IsNaN(nowUT) && nowUT < respawn
+                    && respawn < next)
+                    next = respawn;
             }
             return next;
         }

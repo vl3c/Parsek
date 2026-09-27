@@ -690,6 +690,13 @@ namespace Parsek
         public string StartBiome { get; private set; }
         public string StartSituation { get; private set; }
         public string LaunchSiteName { get; private set; }
+        /// <summary>
+        /// Set by <c>ParsekFlight.StartRecording</c> when the start was triggered by the
+        /// active vessel leaving PRELAUNCH (the auto-record launch transition). By then the
+        /// vessel's situation is already FLYING / LANDED, so this is how
+        /// <see cref="ShouldCaptureLaunchSite"/> still knows the start is a launch.
+        /// </summary>
+        internal bool StartedFromPrelaunchTransition { get; set; }
         public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
         internal RecordingFinalizationCache FinalizationCache { get; private set; }
@@ -6578,6 +6585,7 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "Recording started: vessel=\"{0}\", parts={1}, points=0{2}, treeRec={3}",
                     v.vesselName, partCount, isPromotion ? ", promotion" : "", treeRecDbg));
+            NoteGravityHack("record-start", GravityHackDetector.ReadLiveHackedFactor());
             if (ShouldShowStartRecordingScreenMessage(isPromotion, suppressStartScreenMessage))
                 ParsekLog.ScreenMessage("Recording STARTED", 2f);
         }
@@ -6613,10 +6621,97 @@ namespace Parsek
             StartBodyName = v.mainBody?.name;
             StartSituation = v.isEVA ? "EVA" : VesselSpawner.HumanizeSituation(v.situation);
             StartBiome = VesselSpawner.TryResolveBiome(v.mainBody?.name, v.latitude, v.longitude);
-            LaunchSiteName = ResolveLaunchSiteName(v, isPromotion);
+            uint freshRolloutPid = RecordingStore.SceneEntryFreshRolloutVesselPid;
+            string landedAtSite = ResolveLandedAtLaunchSite(v.situation, v.landedAt);
+            string launchSiteGate;
+            bool captureSite = ShouldCaptureLaunchSite(
+                v.isEVA,
+                isPromotion,
+                v.situation,
+                StartedFromPrelaunchTransition,
+                freshRolloutPid != 0u && v.persistentId == freshRolloutPid,
+                landedAtSite != null,
+                out launchSiteGate);
+            // A vessel standing on a site names it itself (landedAt is live, the
+            // FlightDriver static is only as fresh as the last new launch).
+            LaunchSiteName = !captureSite
+                ? null
+                : landedAtSite != null
+                    ? HumanizeLaunchSiteName(landedAtSite)
+                    : ResolveLaunchSiteName(v, isPromotion);
             ParsekLog.Verbose("Recorder",
                 $"Start location captured: body={StartBodyName ?? "(null)"}, biome={StartBiome ?? "(null)"}, " +
-                $"situation={StartSituation ?? "(null)"}, launchSite={LaunchSiteName ?? "(null)"}");
+                $"situation={StartSituation ?? "(null)"}, launchSite={LaunchSiteName ?? "(null)"}, " +
+                $"launchSiteGate={launchSiteGate}");
+        }
+
+        /// <summary>
+        /// Whether a recording start may carry <c>FlightDriver.LaunchSiteName</c>. That field
+        /// is static and only <c>FlightDriver.StartWithNewLaunch</c> writes it
+        /// (<c>StartAndFocusVessel</c> never resets it, decompiled KSP 1.12.5), so after a
+        /// save load, a Tracking Station Fly, a vessel switch or a later take-off it still
+        /// names the LAST launch (default "LaunchPad"). A non-empty site is the whole
+        /// KSC-origin proof (<c>RouteAnalysisEngine.IsKscOriginRecording</c>), so a stale
+        /// one bills a route as a KSC launch. Captured only for a launch start: the vessel
+        /// is PRELAUNCH now, the start was the PRELAUNCH -> flight auto-record transition,
+        /// the vessel is this scene's fresh rollout, or it is standing on a stock launch site
+        /// (a wheeled runway rollout is LANDED, never PRELAUNCH, and stays so after a revert
+        /// or reload). EVA and promotion / continuation starts never carry a site.
+        /// </summary>
+        internal static bool ShouldCaptureLaunchSite(
+            bool isEva,
+            bool isPromotionOrContinuation,
+            Vessel.Situations situation,
+            bool fromPrelaunchTransition,
+            bool isFreshRolloutVessel,
+            bool standingOnLaunchSite,
+            out string reason)
+        {
+            if (isEva)
+            {
+                reason = "eva";
+                return false;
+            }
+            if (isPromotionOrContinuation)
+            {
+                reason = "promotion-or-continuation";
+                return false;
+            }
+            if (situation == Vessel.Situations.PRELAUNCH)
+            {
+                reason = "prelaunch";
+                return true;
+            }
+            if (fromPrelaunchTransition)
+            {
+                reason = "launch-transition";
+                return true;
+            }
+            if (isFreshRolloutVessel)
+            {
+                reason = "fresh-rollout";
+                return true;
+            }
+            if (standingOnLaunchSite)
+            {
+                reason = "landed-at-launch-site";
+                return true;
+            }
+            reason = "not-a-launch-start";
+            return false;
+        }
+
+        /// <summary>
+        /// The stock launch-site name a vessel at rest is standing on (its live
+        /// <c>landedAt</c>), or null when it is not at rest on one.
+        /// </summary>
+        internal static string ResolveLandedAtLaunchSite(Vessel.Situations situation, string landedAt)
+        {
+            if (situation != Vessel.Situations.PRELAUNCH
+                && situation != Vessel.Situations.LANDED
+                && situation != Vessel.Situations.SPLASHED)
+                return null;
+            return LaunchSiteExclusionZones.IsStockLaunchSiteName(landedAt) ? landedAt : null;
         }
 
         /// <summary>
@@ -11069,6 +11164,19 @@ namespace Parsek
             // Surface vessel went on rails without orbit segment — sample boundary point for continuity
             if (!isOnRails)
             {
+                // A cheat teleport armed at PostOrbitSet finishes here, where the vessel's
+                // live position is valid again (FlightRecorder.CheatTeleport.cs).
+                SegmentEnvironment teleportEnv = environmentHysteresis != null
+                    ? environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.ExoBallistic;
+                if (FinishPendingCheatTeleportAtOffRails(
+                        Planetarium.GetUniversalTime(), teleportEnv, () => SamplePosition(v)))
+                {
+                    ReseedAtmosphereState(v);
+                    ReseedAltitudeState(v);
+                    RefreshFinalizationCache(v, "go_off_rails_cheat_teleport", force: true);
+                    return;
+                }
                 SamplePosition(v);
                 RefreshFinalizationCache(v, "go_off_rails_surface", force: true);
                 return;
