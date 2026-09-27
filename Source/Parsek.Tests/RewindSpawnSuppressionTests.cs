@@ -105,8 +105,7 @@ namespace Parsek.Tests
 
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
 
             Assert.False(result.needsSpawn);
             Assert.Contains("#573", result.reason);
@@ -140,7 +139,6 @@ namespace Parsek.Tests
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLooping: false,
                 treeContext: null,
                 liveSameLaunchVesselPresent: false);
 
@@ -175,7 +173,6 @@ namespace Parsek.Tests
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLooping: false,
                 treeContext: null,
                 liveSameLaunchVesselPresent: true);
 
@@ -206,7 +203,6 @@ namespace Parsek.Tests
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
                 isActiveChainMember: false,
-                isChainLooping: false,
                 treeContext: null,
                 liveSameLaunchVesselPresent: false);
 
@@ -235,8 +231,7 @@ namespace Parsek.Tests
 
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
 
             Assert.True(result.needsSpawn);
             // Marker preserved (not consumed) — the decision is pure.
@@ -266,8 +261,7 @@ namespace Parsek.Tests
 
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
 
             Assert.True(result.needsSpawn);
             // Not cleared, not logged: the decision is a pure query.
@@ -453,8 +447,7 @@ namespace Parsek.Tests
 
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
             Assert.True(result.needsSpawn,
                 $"After watch-entry clears the same-recording rewind marker, the " +
                 $"Landed terminal recording must be spawn-eligible. Got reason='{result.reason}'.");
@@ -547,8 +540,7 @@ namespace Parsek.Tests
 
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
             Assert.True(result.needsSpawn,
                 $"Null-terminal recording with spawnable snapshot must spawn after " +
                 $"watch lifts the rewind marker. Got reason='{result.reason}'.");
@@ -590,8 +582,7 @@ namespace Parsek.Tests
 
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
             Assert.False(result.needsSpawn);
             Assert.Contains(terminal.ToString(), result.reason);
         }
@@ -766,8 +757,7 @@ namespace Parsek.Tests
             // Before watch entry: spawn must remain blocked.
             var blocked = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 source,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
             Assert.False(blocked.needsSpawn);
             Assert.Contains("#573", blocked.reason);
 
@@ -777,8 +767,7 @@ namespace Parsek.Tests
             // After watch entry: spawn is allowed.
             var allowed = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 source,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
             Assert.True(allowed.needsSpawn,
                 $"Watched rewound recording must be spawn-eligible. " +
                 $"Got reason='{allowed.reason}'.");
@@ -1118,8 +1107,7 @@ namespace Parsek.Tests
 
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 canonFork,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
 
             Assert.True(result.needsSpawn,
                 $"Canon Immutable orbital fork must be spawn-eligible after " +
@@ -1160,8 +1148,7 @@ namespace Parsek.Tests
 
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 canonFork,
-                isActiveChainMember: false,
-                isChainLooping: false);
+                isActiveChainMember: false);
 
             Assert.True(result.needsSpawn,
                 $"Canon Immutable orbital fork (with tree context) must be " +

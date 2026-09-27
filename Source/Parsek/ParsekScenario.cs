@@ -7089,11 +7089,13 @@ namespace Parsek
 
             bool savedCannotSpawn = false;
             bool.TryParse(savedTreeRecNode.GetValue("terminalSpawnCannotSpawnSafely"), out savedCannotSpawn);
-            rec.TerminalSpawnCannotSpawnSafely = savedCannotSpawn;
 
-            string savedReason = savedTreeRecNode.GetValue("terminalSpawnSafetyReasonCode");
-            if (!string.IsNullOrEmpty(savedReason))
-                rec.TerminalSpawnSafetyReasonCode = savedReason;
+            // Only the durable spawn-death abandon is restored; a geometry verdict is
+            // re-derived from the recording's own terminal orbit on the next attempt.
+            TerminalOrbitSpawnSafety.RestoreSavedRefusal(
+                rec,
+                savedCannotSpawn,
+                savedTreeRecNode.GetValue("terminalSpawnSafetyReasonCode"));
         }
 
         /// <summary>
@@ -7980,23 +7982,48 @@ namespace Parsek
             // Check pending tree recordings
             if (RecordingStore.HasPendingTree)
             {
-                foreach (var rec in RecordingStore.PendingTree.Recordings.Values)
+                var pendingTree = RecordingStore.PendingTree;
+                int stampedCount = 0;
+                int skippedEarlierSegmentCount = 0;
+                foreach (var rec in pendingTree.Recordings.Values)
                 {
-                    if (MatchesVessel(rec, identity, vesselPid) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
+                    if (!MatchesVessel(rec, identity, vesselPid)
+                        || !CanOverwriteTerminalState(rec.TerminalStateValue, state))
+                        continue;
+
+                    // An earlier segment of the same vessel (split parent, dock dominant
+                    // parent, background or switch continuation) shares name + pid + guid
+                    // with the recovered vessel but ended when its continuation began.
+                    // Stamping it would stretch its EndUT to the event UT, drop its
+                    // snapshot, and pair the same recovery funds event a second time at
+                    // commit (AddVesselRecoveryCostActions keys by recording id).
+                    if (!IsTerminalEventTarget(rec, pendingTree))
                     {
-                        rec.ExplicitEndUT = ut;
-                        CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                        // Snapshot first, stamp second: CanOverwriteTerminalState
-                        // deliberately allows Landed/Orbiting/Splashed/SubOrbital ->
-                        // Recovered|Destroyed, and that is exactly the transition the
-                        // crew-end-state seam must re-infer against — it has to judge
-                        // re-derivability against the surface that survives this block
-                        // (the ghost snapshot), not the snapshot being dropped here.
-                        rec.VesselSnapshot = null;
-                        rec.StampTerminalState(state, "UpdateRecordingsForTerminalEvent");
-                        anyUpdated = true;
-                        ParsekLog.Verbose("Scenario", $"Updated pending tree recording '{rec.VesselName}' with {state}");
+                        skippedEarlierSegmentCount++;
+                        continue;
                     }
+
+                    rec.ExplicitEndUT = ut;
+                    CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                    // Snapshot first, stamp second: CanOverwriteTerminalState
+                    // deliberately allows Landed/Orbiting/Splashed/SubOrbital ->
+                    // Recovered|Destroyed, and that is exactly the transition the
+                    // crew-end-state seam must re-infer against — it has to judge
+                    // re-derivability against the surface that survives this block
+                    // (the ghost snapshot), not the snapshot being dropped here.
+                    rec.VesselSnapshot = null;
+                    rec.StampTerminalState(state, "UpdateRecordingsForTerminalEvent");
+                    anyUpdated = true;
+                    stampedCount++;
+                    ParsekLog.Verbose("Scenario", $"Updated pending tree recording '{rec.VesselName}' with {state}");
+                }
+
+                if (skippedEarlierSegmentCount > 0)
+                {
+                    ParsekLog.Info("Scenario", string.Format(CultureInfo.InvariantCulture,
+                        "UpdateRecordingsForTerminalEvent: vessel='{0}' pid={1} state={2} stamped={3} " +
+                        "skippedEarlierSegments={4} (same-vessel segments with a continuation keep their own end)",
+                        identity.DisplayName, vesselPid, state, stampedCount, skippedEarlierSegmentCount));
                 }
             }
 
@@ -8007,6 +8034,23 @@ namespace Parsek
             // any mutation persists through reverts, permanently preventing re-spawn.
 
             return anyUpdated;
+        }
+
+        /// <summary>
+        /// True when a matching pending-tree recording is the vessel's current tip and so
+        /// the target of a recovery / termination stamp: a recording with no child branch
+        /// point, or a breakup-continuous recording whose branch point has no same-pid
+        /// child (<see cref="GhostPlaybackLogic.IsEffectiveLeafForVessel(Recording, RecordingTree)"/>,
+        /// #224). A recording whose branch point continued the same vessel as another
+        /// recording is an earlier segment and is left alone.
+        /// </summary>
+        internal static bool IsTerminalEventTarget(Recording rec, RecordingTree tree)
+        {
+            if (rec == null)
+                return false;
+            if (string.IsNullOrEmpty(rec.ChildBranchPointId))
+                return true;
+            return GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, tree);
         }
 
         /// <summary>

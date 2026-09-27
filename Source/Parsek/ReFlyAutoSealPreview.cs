@@ -333,7 +333,8 @@ namespace Parsek
                         orbit.PeR,
                         body.Radius,
                         body.atmosphere,
-                        body.atmosphereDepth);
+                        body.atmosphereDepth,
+                        OrbitClearance.ResolveMaxTerrainAltitude(body));
                     // A bound orbit with periapsis inside the atmosphere (or
                     // any unbound / sub-atmospheric orbit) is still in flight
                     // under the new contract: it will decay or crash, not

@@ -416,6 +416,217 @@ namespace Parsek.Tests
         }
 
         // ------------------------------------------------------------------
+        // G6: a respawn-on death merged with a LATER flight of the same kerbal that
+        // outlasts the respawn. Lost (no stand-in) until the respawn, an ordinary hold
+        // with a stand-in from the respawn to the later flight's end.
+        // ------------------------------------------------------------------
+
+        /// <summary>Death at 300 with a 1000 s timer (respawn 1300) plus a later flight
+        /// 2000-2500 that ends Recovered.</summary>
+        private static void CommitDeathThenLaterFlight()
+        {
+            CommitDeath(true, 1000.0);
+            var later = new Recording
+            {
+                RecordingId = "rec-g6-later",
+                VesselName = "Second Flea",
+                TreeId = "tree-g6-later",
+                VesselSnapshot = CrewSnapshot(Jeb),
+                GhostVisualSnapshot = CrewSnapshot(Jeb),
+                ExplicitStartUT = 2000.0,
+                ExplicitEndUT = 2500.0,
+                CrewEndStates = new Dictionary<string, KerbalEndState> { { Jeb, KerbalEndState.Recovered } },
+                CrewEndStatesResolved = true
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(later);
+            Ledger.AddAction(new GameAction
+            {
+                ActionId = "act_" + Guid.NewGuid().ToString("N"),
+                UT = 2000.0,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = "rec-g6-later",
+                KerbalName = Jeb,
+                KerbalRole = "Pilot",
+                StartUT = 2000f,
+                EndUT = 2500f,
+                KerbalEndStateField = KerbalEndState.Recovered,
+                Sequence = 1
+            });
+        }
+
+        private static void AssertLostBeforeTheRespawnOfAMergedHold(
+            KerbalsModule kerbals, double respawnUT, string clock)
+        {
+            var r = kerbals.Reservations[Jeb];
+            Assert.False(r.IsPermanent, "merged respawning death read permanent at clock " + clock);
+            Assert.Equal(respawnUT, r.DeathRespawnUT);
+            Assert.True(r.ReservedUntilUT > respawnUT, "the later flight did not extend the hold");
+            Assert.False(KerbalsModule.IsRespawnPendingHold(r));
+            Assert.True(KerbalsModule.IsLossHoldAt(r, kerbals.WalkClockUT));
+            Assert.True(r.LossAtWalkClock, "walk did not record the loss at clock " + clock);
+            Assert.True(KerbalsModule.IsLossHold(r));
+            Assert.True(kerbals.IsReservedNow(Jeb));
+            Assert.False(kerbals.IsKerbalAvailable(Jeb));
+            Assert.False(kerbals.Slots.ContainsKey(Jeb), "stand-in slot created at clock " + clock);
+            Assert.Equal(KerbalsPresentation.RosterStatus.Lost,
+                KerbalsPresentation.ClassifyStatus(Jeb, false, false, r, null, null));
+            // The Lost date is the respawn, not the later flight's end.
+            Assert.Equal(KerbalsPresentation.FormatReleaseDate(RespawnHold(respawnUT), Fmt),
+                KerbalsPresentation.FormatLostUntilDate(r, Fmt));
+            var text = StockUiReservationPredicates.ExplainKerbalReservation(
+                null, Jeb, r, null, Fmt);
+            Assert.Equal("Lost until " + Fmt(respawnUT), text.Title);
+            Assert.Equal(respawnUT, kerbals.NextReservationReleaseUT);
+        }
+
+        // catches: G6 - the later flight's end outrunning the respawn turned the whole
+        // merged hold into an ordinary reservation, so over the dead window the kerbal read
+        // Reserved (on the later flight) with a free stand-in covering his seat.
+        [Fact]
+        public void G6_ClockInsideTheDeadWindow_LaterFlight_ReadsLostUntilTheRespawn_NoStandIn()
+        {
+            CommitDeathThenLaterFlight();
+
+            KerbalsModule kerbals = Walk(800.0);
+
+            AssertLostBeforeTheRespawnOfAMergedHold(kerbals, 1300.0, "800");
+            Assert.Equal(2500.0, kerbals.Reservations[Jeb].ReservedUntilUT);
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
+                && l.Contains("Death hold: 'Jebediah Kerman' lost until the respawn although a later flight")
+                && l.Contains("respawnUT=1300"));
+        }
+
+        // catches: a rewind to before the death handing out a stand-in the death-only
+        // timeline would not (the whole merged hold read ordinary from clock 0).
+        [Fact]
+        public void G6_RewindBeforeTheDeath_LaterFlight_ReadsLost()
+        {
+            CommitDeathThenLaterFlight();
+
+            KerbalsModule kerbals = Walk(200.0);
+
+            AssertLostBeforeTheRespawnOfAMergedHold(kerbals, 1300.0, "200");
+        }
+
+        // catches: the fix over-reaching past the respawn - from the respawn to the later
+        // flight's end the hold is ordinary (design 9.2 no-gap rule) with a stand-in.
+        [Theory]
+        [InlineData(1300.0)] // exactly at the respawn
+        [InlineData(1500.0)] // in the gap before the later flight
+        [InlineData(2200.0)] // during the later flight
+        public void G6_AtOrAfterTheRespawn_LaterFlight_IsAnOrdinaryHoldWithAStandIn(double clock)
+        {
+            CommitDeathThenLaterFlight();
+
+            KerbalsModule kerbals = Walk(clock);
+
+            var r = kerbals.Reservations[Jeb];
+            Assert.False(KerbalsModule.IsLossHoldAt(r, clock));
+            Assert.False(r.LossAtWalkClock);
+            Assert.False(KerbalsModule.IsLossHold(r));
+            Assert.True(kerbals.IsReservedNow(Jeb));
+            Assert.True(kerbals.Slots.ContainsKey(Jeb), "no stand-in slot at clock " + clock);
+            Assert.False(kerbals.Slots[Jeb].OwnerPermanentlyGone);
+            Assert.Equal(KerbalsPresentation.RosterStatus.Reserved,
+                KerbalsPresentation.ClassifyStatus(Jeb, false, false, r, null, null));
+            Assert.Equal(2500.0, kerbals.NextReservationReleaseUT);
+        }
+
+        // catches: the open-ended "respawn kept" branch (flown again after the respawn,
+        // still aboard) giving a stand-in over the dead window.
+        [Fact]
+        public void G6_OpenEndedLaterFlight_ClockBeforeTheRespawn_ReadsLost()
+        {
+            CommitDeath(true, 7200.0);           // dies at 300, respawns at 7500
+            CommitOpenEndedAboardFlight(8000.0); // flown again after the respawn, never recovered
+
+            KerbalsModule kerbals = Walk(5000.0);
+
+            Assert.True(double.IsPositiveInfinity(kerbals.Reservations[Jeb].ReservedUntilUT));
+            AssertLostBeforeTheRespawnOfAMergedHold(kerbals, 7500.0, "5000");
+        }
+
+        // catches: the Lost -> held-with-stand-in flip at the respawn not being driven by
+        // the clock (no recalculation until the next scene change or commit).
+        [Fact]
+        public void ComputeNextReleaseUT_IncludesARespawnInsideAnExtendedHold()
+        {
+            var merged = new KerbalsModule.KerbalReservation
+            {
+                KerbalName = Jeb, ReservedUntilUT = 2500.0, DeathRespawnUT = 1300.0
+            };
+            Assert.Equal(1300.0, KerbalsModule.ComputeNextReleaseUT(new[] { merged }, 800.0));
+            Assert.Equal(2500.0, KerbalsModule.ComputeNextReleaseUT(new[] { merged }, 1300.0));
+            // Unknown clock: the respawn may already be behind the live clock, so only the
+            // ordinary end counts (a next-release at or before now would re-trigger the
+            // crossed-release recalculation on every check).
+            Assert.Equal(2500.0, KerbalsModule.ComputeNextReleaseUT(new[] { merged }, double.NaN));
+            Assert.False(KerbalsModule.IsReservationReleaseDue(
+                2000.0, KerbalsModule.ComputeNextReleaseUT(new[] { merged }, double.NaN), double.NaN));
+
+            var openEnded = new KerbalsModule.KerbalReservation
+            {
+                KerbalName = Jeb, ReservedUntilUT = double.PositiveInfinity, DeathRespawnUT = 7500.0
+            };
+            Assert.Equal(7500.0, KerbalsModule.ComputeNextReleaseUT(new[] { openEnded }, 5000.0));
+            Assert.True(double.IsPositiveInfinity(
+                KerbalsModule.ComputeNextReleaseUT(new[] { openEnded }, 9000.0)));
+        }
+
+        [Fact]
+        public void IsLossHoldAt_Cases()
+        {
+            var merged = new KerbalsModule.KerbalReservation
+            {
+                KerbalName = Jeb, ReservedUntilUT = 2500.0, DeathRespawnUT = 1300.0
+            };
+            Assert.True(KerbalsModule.IsLossHoldAt(merged, 800.0));
+            Assert.True(KerbalsModule.IsLossHoldAt(merged, double.NaN)); // unknown clock fails closed
+            Assert.False(KerbalsModule.IsLossHoldAt(merged, 1300.0));
+            var permanent = new KerbalsModule.KerbalReservation
+            {
+                KerbalName = Jeb, ReservedUntilUT = double.PositiveInfinity, IsPermanent = true
+            };
+            Assert.True(KerbalsModule.IsLossHoldAt(permanent, 1e9));
+            Assert.False(KerbalsModule.IsLossHoldAt(new KerbalsModule.KerbalReservation
+            {
+                KerbalName = Jeb, ReservedUntilUT = 2500.0
+            }, 800.0));
+            Assert.False(KerbalsModule.IsLossHoldAt(null, 800.0));
+            Assert.Equal(1300.0, KerbalsModule.LossRespawnUT(merged));
+            Assert.True(double.IsNaN(KerbalsModule.LossRespawnUT(permanent)));
+            Assert.Null(KerbalsPresentation.FormatLostUntilDate(permanent, Fmt));
+        }
+
+        // catches: the slot flipping between "owner gone" and "stand-in active" across
+        // walks losing its persisted chain name (a rewind into the dead window and back
+        // must reuse the same stand-in name, not mint a new one).
+        [Fact]
+        public void G6_FlipAcrossTheRespawn_ReusesTheChainName()
+        {
+            CommitDeathThenLaterFlight();
+
+            KerbalsModule kerbals = Walk(1500.0);
+            var slot = kerbals.Slots[Jeb];
+            Assert.Single(slot.Chain);
+            // ApplyToRoster fills the placeholder with the generated stand-in's name.
+            slot.Chain[0] = "Standin Kerman";
+            Assert.Equal(0, kerbals.GetActiveChainIndex(slot));
+
+            kerbals = Walk(800.0); // rewind into the dead window
+            slot = kerbals.Slots[Jeb];
+            Assert.True(slot.OwnerPermanentlyGone);
+            Assert.Equal(KerbalsModule.NoActiveChainOccupant, kerbals.GetActiveChainIndex(slot));
+            Assert.Equal(new[] { "Standin Kerman" }, slot.Chain);
+
+            kerbals = Walk(1500.0); // past the respawn again
+            slot = kerbals.Slots[Jeb];
+            Assert.False(slot.OwnerPermanentlyGone);
+            Assert.Equal(new[] { "Standin Kerman" }, slot.Chain);
+            Assert.Equal(0, kerbals.GetActiveChainIndex(slot));
+        }
+
+        // ------------------------------------------------------------------
         // Staged flights: the crew ride a child of a split and the parent ends at the
         // split with no terminal state (its crew row reads Unknown)
         // ------------------------------------------------------------------
@@ -680,14 +891,16 @@ namespace Parsek.Tests
             });
         }
 
-        // catches: a respawn-on death in a looping chain becoming an ordinary never-ending
-        // hold with a free stand-in (G1), or respawning; respawn off / unstamped unchanged.
+        // catches: a looped segment elsewhere in the chain changing a death's hold. The loop
+        // is visual only (design 12.7, operator ruling 2026-09-27, which retired the
+        // 2026-09-26 "a looping chain's death is permanent" rule): a respawn-on death
+        // respawns exactly as in a non-looping chain; respawn off / unstamped stay permanent.
         [Theory]
-        [InlineData(true, 1000.0)]   // inside the would-be respawn window
-        [InlineData(true, 1e7)]      // long after the would-be respawn
+        [InlineData(true, 1000.0)]   // inside the respawn window
+        [InlineData(true, 1e7)]      // long after the respawn
         [InlineData(false, 1e7)]
         [InlineData(null, 1e7)]
-        public void DeathInLoopingChain_IsPermanentLoss_NoStandIn(bool? respawns, double clock)
+        public void DeathInLoopingChain_FollowsTheStockRespawnLikeAnyChain(bool? respawns, double clock)
         {
             CommitLoopingSegment("chain-loop");
             CommitDeath(respawns, 7200.0, chainId: "chain-loop");
@@ -695,20 +908,19 @@ namespace Parsek.Tests
             KerbalsModule kerbals = Walk(clock);
 
             string label = clock.ToString("R", CultureInfo.InvariantCulture);
-            AssertPermanent(kerbals, label);
-            Assert.False(kerbals.IsKerbalAvailable(Jeb));
-            Assert.False(kerbals.Slots.ContainsKey(Jeb), "stand-in slot created at clock " + label);
-            Assert.Equal(KerbalsPresentation.RosterStatus.Lost,
-                KerbalsPresentation.ClassifyStatus(Jeb, false, false, kerbals.Reservations[Jeb], null, null));
+            Assert.DoesNotContain(logLines, l => l.Contains("looping chain"));
+            if (respawns != true)
+            {
+                AssertPermanent(kerbals, label);
+                return;
+            }
+            var r = kerbals.Reservations[Jeb];
+            Assert.False(r.IsPermanent);
+            Assert.Equal(7500.0, r.DeathRespawnUT);
+            Assert.True(KerbalsModule.IsRespawnPendingHold(r), "respawn-pending at clock " + label);
             Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
                 && l.Contains("Death hold: 'Jebediah Kerman'")
-                && l.Contains("is permanent (respawn suppressed:"));
-            Assert.DoesNotContain(logLines, l => l.Contains("respawn scheduled"));
-            if (respawns == true)
-            {
-                Assert.Contains(logLines, l => l.Contains("[KerbalsModule]")
-                    && l.Contains("respawn suppressed: looping chain"));
-            }
+                && l.Contains("respawn scheduled"));
         }
 
         // catches: an un-closed Aboard co-row that overlaps the dead window turning a
@@ -770,10 +982,10 @@ namespace Parsek.Tests
                 && e.RecordingId == RecordingId);
         }
 
-        // catches: the Timeline promising a respawn for a death the walk made permanent
-        // (a looping chain), i.e. reading the raw stamp instead of the resolved hold.
+        // catches: the Timeline dropping the respawn of a death in a chain with a looped
+        // segment (the loop is visual only; the walk keeps the respawn).
         [Fact]
-        public void Timeline_LoopingChainDeath_NamesNoRespawn()
+        public void Timeline_LoopingChainDeath_NamesTheRespawn()
         {
             ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
             CommitLoopingSegment("chain-loop");
@@ -783,7 +995,7 @@ namespace Parsek.Tests
             TimelineEntry death = DeathEntry();
 
             Assert.NotNull(death);
-            Assert.DoesNotContain("respawns after", death.DisplayText);
+            Assert.Contains("respawns after", death.DisplayText);
         }
 
         // catches: the same for an overlapping open-ended co-row, and the resolved lookup
@@ -1070,7 +1282,7 @@ namespace Parsek.Tests
         public void StockScreens_RespawningDeathIsMarkedLost_WithTheRespawnDate()
         {
             var text = StockUiReservationPredicates.ExplainKerbalReservation(
-                null, Jeb, RespawnHold(7500.0), null, null, Fmt);
+                null, Jeb, RespawnHold(7500.0), null, Fmt);
             Assert.Equal("Lost until D7500", text.Title);
             Assert.Contains("Stock respawn returns this kerbal on D7500.", text.Body);
 
@@ -1078,7 +1290,7 @@ namespace Parsek.Tests
                 null, Jeb, new KerbalsModule.KerbalReservation
                 {
                     KerbalName = Jeb, ReservedUntilUT = double.PositiveInfinity, IsPermanent = true
-                }, null, null, Fmt);
+                }, null, Fmt);
             Assert.Equal("Lost", permanent.Title);
             Assert.DoesNotContain("respawn", permanent.Body);
         }

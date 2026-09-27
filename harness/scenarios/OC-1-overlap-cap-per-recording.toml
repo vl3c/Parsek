@@ -1,0 +1,112 @@
+schema = 1
+id = "OC-1-overlap-cap-per-recording"
+# =====================================================================================
+# THE PER-RECORDING OVERLAP CAP (todo OVERLAP-CAP-PER-RECORDING-HAS-NO-LANE).
+#
+# D6 `overlap-expiry-soft-caps` means (registry D6 comment, redefined 2026-09-24): old
+# overlapping copies disappear when their own flight ends, and the 20-copy cap
+# (`GhostPlayback.MaxOverlapGhostsPerRecording`) slows relaunches, read off the
+# `Loop cadence #N ...` Info line's `auto-adjusted (cap reached)` verdict. GS-12 claimed
+# the cell SCOPED TO THE MISSION-LOOP CAP only: a mission member's period is capped by
+# `MissionLoopUnitBuilder` before the engine sees it, so the engine line reads
+# `no adjustment` by construction. No lane ever looped ONE recording on its own toggle
+# below span / 20, so the engine's own cap never fired in a collected log.
+#
+# THE HOST. The `overlap-cap` preset (Source/Parsek.Tests/Generators/OverlapCapFixture.cs)
+# injects ONE committed single-recording tree into `pad-runway-pair`: a 120 s ghost-only
+# climb 150 m north of the pad, `loopPlayback = True`, `loopIntervalSeconds = 5`
+# (`LoopTiming.MinCycleDuration`, so `ResolveLoopInterval` does not clamp it), unit Sec.
+# The Recordings tab is the only production writer of a per-recording period and the seam
+# does not drive it, hence the preset. span / 20 = 6 s > 5 s, so
+# `GhostPlaybackLogic.ComputeEffectiveLaunchCadence(5, 120, 20)` returns exactly 6 and
+# `LogOverlapCadenceIfChanged` prints the verdict with `cycles=20`.
+#
+# WHY THE LOOP STARTS AFTER THE SAVE CLOCK. The recording starts 35 s after the save's UT
+# (25.26), so no copy exists at scene load: every copy spawns after `ghostRenderTracing`
+# is on and writes its own MeshSpawned line. That is what makes the ghostlife v4
+# `peakLive` count exact (a copy spawned before the tracer would write only its destroy,
+# and the facet clamps that at zero, which can hide a copy but never add one).
+#
+# THE FLIGHT. The WarpToUT runs the clock from ~27 to 260 at <= 10x rails warp (the
+# overlap path suppresses copies only above 50x, WarpThresholds.GhostHide). The loop
+# reaches its 20-copy steady state at UT 180.26 (start + span) and holds it for ~80 s, so
+# copies expire (`overlap expired`) while new primaries spawn every 6 s.
+#
+# THE WITNESSES, each a literal from source:
+#   * the engine verdict (GhostPlaybackEngine.LogOverlapCadenceIfChanged);
+#   * ghostLifecycle `peakLive` (the most MeshSpawned-minus-MeshDestroyed copies of one
+#     recording alive at a frame boundary) pinned at exactly 20: the cap is REACHED and
+#     never EXCEEDED;
+#   * `overlap expired` destroy reasons (GhostPlaybackEngine.UpdateExpireAndPositionOverlaps
+#     -> DestroyOverlapGhostState), the "old copies disappear when their flight ends" half.
+# -------------------------------------------------------------------------------------
+tier = "nightly"
+description = "D6 overlap-expiry-soft-caps, per-recording half: one injected recording loops on its OWN toggle with a 5 s period under span/20 = 6 s; the engine raises the cadence to 6 s (auto-adjusted (cap reached), cycles=20), live copies peak at exactly 20, and old copies expire."
+instanceProfile = "stock-minimal"
+tags = ["OC-1", "overlap-cap", "loop-playback", "self-overlap", "synthetic", "flown"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/pad-runway-pair"
+injectedRecordings = "overlap-cap"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree",   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "WarpToUT",   args = { ut = "260", maxRate = "10" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D6  = ["overlap-expiry-soft-caps", "self-overlap"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  "setting name=ghostRenderTracing old=false new=true",
+  "Loop cadence #[0-9]+ \"Overlap Cap Probe\": requested=5\\.00s duration=120\\.00s cap=20 effective=6\\.00s \\(cycles=20\\) auto-adjusted \\(cap reached\\)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "SanitizeNonLoopableLoopPlayback: cleared",
+  "ResolveLoopInterval: period .* for 'Overlap Cap Probe'",
+  "Loop cadence #[0-9]+ \"Overlap Cap Probe\": .* no adjustment",
+]
+
+# ARMED off the reading run 2026-09-27_1243 (PASS attempt 1): peakLive 20, spawnLines =
+# destroyLines = 34, unbalanced 0, destroyed reasons {overlap expired: 14, engine
+# teardown: 20}. spawnLines is windowed (20 copies to reach the cap plus one per 6 s
+# for the ~80 s held at it). destroyLines is DELIBERATELY NOT windowed: the 20 copies
+# alive at quit write `engine teardown` only when the engine's teardown beats
+# Application.Quit to the log, and the first armed run (2026-09-27_1245, PARSEK-FAIL on
+# `destroyLines 14 < min 30`, every other window green) lost that race while the reading
+# run won it (ghostlife.py SPAWN_LINES_KEY: the line counts are not honest when copies
+# are alive at log end). The expiry half is carried by the required reason instead.
+[expectations.ghostLifecycle]
+gating = true
+peakLive = { min = 20, max = 20 }
+spawnLines = { min = 30, max = 40 }
+destroyedReasons = { required = ["^overlap expired$"] }
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

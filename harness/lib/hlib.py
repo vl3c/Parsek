@@ -269,7 +269,37 @@ INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9",
                                         # injector refuses a target save at
                                         # another UT. No RP. Consumer:
                                         # CN-3-ghost-commnet-timeline-warp.
-                                        "ghost-commnet-timeline")
+                                        "ghost-commnet-timeline",
+                                        # overlap-cap: ONE committed
+                                        # single-recording tree on
+                                        # pad-runway-pair, a 120 s ghost-only
+                                        # climb beside the pad with its OWN
+                                        # loop toggle and a 5 s period (under
+                                        # span/20 = 6 s), starting after the
+                                        # save's clock so every copy spawns
+                                        # with the tracer on. `--filter
+                                        # InjectOverlapCap`; the injector
+                                        # refuses a target save at another UT.
+                                        # No RP. Consumer:
+                                        # OC-1-overlap-cap-per-recording.
+                                        "overlap-cap",
+                                        # rewind-readback: a crewless two-slot
+                                        # rewindable tree (both slots
+                                        # Destroyed, slot 1 an open Unfinished
+                                        # Flight) under `rp_rb_root`, split
+                                        # BEFORE career-science-pad's clock,
+                                        # whose RP quicksave parks the slot
+                                        # clones in orbit and re-admits the
+                                        # host's REAL Jumping Flea verbatim, so
+                                        # a lane that flies and recovers that
+                                        # Flea after the split resurrects it
+                                        # on the rewind. `--filter
+                                        # InjectRewindReadback`; the injector
+                                        # refuses a target save at another UT.
+                                        # Consumers:
+                                        # RB-1-rewind-readback-divergence,
+                                        # RB-2-rewind-readback-within-range.
+                                        "rewind-readback")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -9436,6 +9466,11 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "strategy-cannot-deactivate": "driver-career",
     "activate-not-applied": "driver-gate",
     "deactivate-not-applied": "driver-gate",
+    # KscAction accept-contract (Mission Control's Accept, Contract.Accept()). A guid the
+    # contract system does not hold is the SPEC's fault; a contract that is no longer
+    # Offered is career state. A committed-timeline refusal is `blocked-committed`, above.
+    "unknown-contract": "driver-arg",
+    "contract-not-offered": "driver-career",
     # R12 (design "> Update (R12)"). Both verbs ship a TYPED refusal taxonomy; without
     # these rows every one of them collapses to the coarse driver-verdict-mismatch and the
     # taxonomy is decorative on the harness side. Same retryability either way - these

@@ -323,7 +323,8 @@ namespace Parsek.Tests
         }
 
         // ================================================================
-        // Loop hold: turning a chain's loop off
+        // A chain's loop toggle never changes a crew hold (the loop is visual only,
+        // design 12.7, operator ruling 2026-09-27)
         // ================================================================
 
         private static ConfigNode SnapshotWithCrew(string name)
@@ -363,12 +364,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoopHold_TurningLoopOff_ReleasesARecoveredHoldOnTheNextWalk()
+        public void LoopToggle_RecoveredTipHold_EndsAtTheTipEitherWay()
         {
             var loopSegment = AddLoopingChain("Jeb", KerbalEndState.Recovered, TerminalState.Splashed);
 
             var looping = KerbalsTestHelper.RecalculateFromStore();
-            Assert.True(double.IsPositiveInfinity(looping.Reservations["Jeb"].ReservedUntilUT));
+            Assert.Equal(200.0, looping.Reservations["Jeb"].ReservedUntilUT);
 
             // The Recordings-table toggle writes Recording.LoopPlayback and runs no recalc;
             // KerbalsModule.PrePass re-reads the flag on the next ledger walk.
@@ -379,16 +380,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void LoopHold_TurningLoopOff_LeavesAnAboardHoldOpenEnded()
+        public void LoopToggle_AboardTipHold_StaysOpenEndedEitherWay()
         {
             var loopSegment = AddLoopingChain("Val", KerbalEndState.Aboard, TerminalState.Orbiting);
 
+            // An Aboard hold ends only by a recovery closure, never by the loop toggle.
             var looping = KerbalsTestHelper.RecalculateFromStore();
             Assert.True(double.IsPositiveInfinity(looping.Reservations["Val"].ReservedUntilUT));
 
             loopSegment.LoopPlayback = false;
 
-            // An Aboard hold ends only by a recovery closure, never by the loop toggle.
             var stopped = KerbalsTestHelper.RecalculateFromStore();
             Assert.True(double.IsPositiveInfinity(stopped.Reservations["Val"].ReservedUntilUT));
         }

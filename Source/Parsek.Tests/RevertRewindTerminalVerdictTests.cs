@@ -328,7 +328,7 @@ namespace Parsek.Tests
             Assert.False(merged.VesselSpawned);
             Assert.Equal(0u, merged.SpawnedVesselPersistentId);
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                merged, isActiveChainMember: false, isChainLooping: false);
+                merged, isActiveChainMember: false);
             Assert.False(needsSpawn);
             Assert.Contains("terminal state Destroyed", reason);
         }
@@ -344,7 +344,7 @@ namespace Parsek.Tests
             Assert.Equal(TerminalState.Destroyed, merged.TerminalStateValue);
             Assert.False(merged.VesselSpawned);
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                merged, isActiveChainMember: false, isChainLooping: false);
+                merged, isActiveChainMember: false);
             Assert.False(needsSpawn);
             Assert.Contains("terminal state Destroyed", reason);
         }

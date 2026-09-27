@@ -7543,6 +7543,9 @@ namespace Parsek
                 chains,
                 rec,
                 realVesselExists);
+            GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
+                Tag, "TRACKSTATION", index, rec, currentUT,
+                !string.IsNullOrEmpty(rec.ChainId) && RecordingStore.IsChainLooping(rec.ChainId));
             VesselSpawner.SpawnOrRecoverIfTooClose(rec, index, preserveIdentity);
             if (!rec.VesselSpawned)
                 return;
@@ -9078,13 +9081,11 @@ namespace Parsek
                     : TrackingStationSpawnSkipSupersededByRelation);
             }
 
-            bool isChainLooping = !string.IsNullOrEmpty(rec.ChainId)
-                && RecordingStore.IsChainLooping(rec.ChainId);
             // Scene-agnostic #573 rewind lift: a standalone Rewind-to-Launch target the
             // player did not re-fly (no live same-craft vessel present) still spawns its
             // recorded terminal in the Tracking Station, identical to Flight and KSC.
             var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec, false, isChainLooping,
+                rec, false,
                 treeContext: null,
                 GhostPlaybackLogic.ResolveRewindSuppressionLiveLaunchPresence(rec));
             if (!spawnResult.needsSpawn)
