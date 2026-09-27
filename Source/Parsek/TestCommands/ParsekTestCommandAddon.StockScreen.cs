@@ -468,9 +468,21 @@ namespace Parsek.TestCommands
                 {
                     KSCFacilityContextMenu menu = FindOpenFacilityMenu(null);
                     if (menu == null) return TestCommandStockScreen.NotOpenReason + " screen=facilitymenu";
-                    var button = StockUiFacilityDecoration.UpgradeButtonOf(menu);
+                    string control = TestCommandStockScreen.ResolveFacilityMenuHoverControl(r.Item);
+                    if (control == null)
+                        return TestCommandStockScreen.ItemNotFoundReason + " control=" + r.Item
+                            + " valid=" + TestCommandStockScreen.FacilityMenuUpgradeControl
+                            + "," + TestCommandStockScreen.FacilityMenuRepairControl;
+                    bool repair = control == TestCommandStockScreen.FacilityMenuRepairControl;
+                    var button = repair
+                        ? StockUiFacilityDecoration.RepairButtonOf(menu)
+                        : StockUiFacilityDecoration.UpgradeButtonOf(menu);
+                    string label = repair ? "Repair" : "Upgrade";
+                    // Stock shows Repair only while a building of the facility is down.
+                    if (repair && (button == null || !button.gameObject.activeInHierarchy))
+                        return TestCommandStockScreen.ItemNotFoundReason + " control=Repair (not shown)";
                     TooltipController tip = button != null ? button.GetComponent<TooltipController>() : null;
-                    if (tip == null) return TestCommandStockScreen.NoTooltipReason + " control=Upgrade";
+                    if (tip == null) return TestCommandStockScreen.NoTooltipReason + " control=" + label;
                     return ArmHover(p, tip, button.transform as RectTransform);
                 }
                 case StockScreenAct.Close:

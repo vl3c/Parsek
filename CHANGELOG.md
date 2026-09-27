@@ -10,6 +10,7 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Dev: a lane for the facility repair block after a rewind.** `KB-2-ksc-repair-block-after-rewind` (never flown) runs on a new committed fixture, `stock-screen-census-repair`: the stock-screen census career with the Tracking Station dish destroyed before the save clock and its repair committed after it, built by `Source/Parsek.Tests/StockScreenRepairFixture.cs`. It checks that the Tracking Station menu greys Repair and shows the explanation on its tooltip, and that a repair made through the menu's own call is refused with the blocked dialog, repairs nothing and leaves funds unchanged. The `StockScreen` test verb can now hover the facility menu's Repair button (`item=repair`), and a refused `KscAction repair-facility` logs the destroyed-building count and the funds before and after stock's call.
 - **Automated testing: the coverage-wave rulings are confirmed, and the RemoteTech cell is retired.**
   The rulings the coverage waves applied pending the operator (three retired cells, the atmosphere,
   1x-warp, editor-scene and commit-abort definitions, the scoped synthetic claims and the rest) are
@@ -1223,6 +1224,11 @@ _(unreleased — entries accumulate here per commit)_
     waiting 2 seconds on every load for funds and reputation, which those modes do not have.
   - Currency from the Alt+F12 cheat menu is still not recorded (by design, the next rewind
     removes it); each cheat now writes one log line saying so.
+- **Deploy-limited cargo bays now open on the replay.** A cargo bay set to open only part of the
+  way (the stock Mallard's Mk3 bays ship at 44, 45 and 51 percent) recorded nothing when opened
+  or shut, so its ghost's doors never moved. Parsek now counts a bay as open once its doors stop
+  at the limit, and the ghost opens its doors to that same limit rather than all the way.
+
 - **A contract penalty or a facility repair is no longer charged twice across a rewind.**
   After a rewind, the timeline can hold two endings for one contract: something you did in
   the present (a cancel, a completion, or a failure caused by losing a vessel) and the fail or

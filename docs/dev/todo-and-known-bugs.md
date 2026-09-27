@@ -15,6 +15,32 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~H22-MISSION-REVEAL-FIXTURE-POINTS-HAVE-NO-BODY: H22 red on a `[Parsek][ERROR]` from a save that landed inside the mission-reveal in-game test~~ [FILED AND FIXED 2026-09-26, branch `fix-h22-reveal-fixture`; PARSEK-FAIL on the daily tier of 2026-09-26 (run `2026-09-26_1946`), reproduced on origin/main `26293f0ae` (run `2026-09-26_2024`)]
+
+`H22-ui-complexity-mode` classified PARSEK-FAIL (`logContracts.forbidden matched: \[Parsek\]\[ERROR\]`)
+with four ERROR lines: `SaveRecordingFiles failed ... ex=InvalidOperationException:Non-null string
+expected in binary string table.` and `OnSave: tree 'Parsek Reveal Probe A/B' ... could not be
+written from memory ... being dropped from this save`. Root cause is the test fixture, not
+production: `MissionRevealInGameTests` (category `UiComplexityMode`, introduced by `dfdc35171`)
+installs two synthetic committed trees whose points are `new TrajectoryPoint { ut = ... }` with no
+`bodyName`, and yields while they are committed. Stock's scene-entry persistent save can land
+inside that window (the harness `LoadGame` seam returns before `onFlightReady`); OnSave then sees
+the trees' sidecars as `trajectory-missing`, rewrites them, and the binary writer rejects the
+null body name (`TrajectorySidecarBinary` string-table `GetIndex`). The 2026-08-01 "green" H22
+run is not a baseline: the reveal test SKIPPED there, and in later runs the save landed before
+`RunTests`. Every production point constructor sets `bodyName` and both readers default it, so
+the writer is not relaxed.
+
+Fix: the fixture authors production-shaped points (`bodyName = "Kerbin"`), and the finally reaps
+any sidecars an interleaved save wrote (`InGameTestSidecarReaper.DeleteSidecarsForIds`, after the
+trees are removed so the reaper's known-id guard allows it); the class doc no longer claims
+nothing reaches disk. Latent same-shape fixtures (synchronous, so no save can interleave today):
+`ReFlyRecoveryBundleRuntimeTest` and `WatchAutoFollowFollowsSupersedeForkRuntimeTest` commit
+points without `bodyName`. Open, low: the `LoadGame` seam returning before `onFlightReady` lets a
+batch start while stock's scene-entry save is still pending.
+
+---
+
 ## ~~SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: every repeat submission of a science subject re-credited the earlier ones~~ [FILED AND FIXED 2026-09-26, branch `fix-deployed-science-ledger` (PR #1883); found independently from the KSP-SETTINGS-AUDIT S1 trace on `kss-ledger` (filed there as SCIENCE-CUMULATIVE-CAPTURE-OVER-CREDIT) and reconciled into this one implementation when `ksp-settings-fixes` merged main. Fix going forward only (owner decision 2026-09-26)]
 
 `GameStateRecorder.OnScienceReceived` stored `science = subject.science`, the subject's RUNNING
@@ -3177,9 +3203,17 @@ annotation; stock has no tooltip on Repair, so the controller is added with a co
 prefab, the Upgrade button's mechanism, and falls back to the description text with no
 prefab). New `StockUiDecorationKind.FacilityRepair` (tab `Repair`), logged as the facility
 menu pass's item line so the GUI mirror pairs it. Pinned by `FacilityRepairBlockTests` and a
-`test_gui_mirror` parse cell. Not proven in game: the live proof needs a GUI-28-style
-stock-screen census flight over a fixture rewound between a destruction and its committed
-repair (not flown).
+`test_gui_mirror` parse cell. Not proven in game yet. **Live-proof lane (authored 2026-09-27,
+branch `lane-ksc-repair-block`, NOT FLOWN):** `KB-2-ksc-repair-block-after-rewind` on the new
+committed fixture `stock-screen-census-repair` (`stock-screen-census` with the Tracking Station
+`OuterDish` destroyed, its `FacilityDestruction` row at UT 400 before the clock and a committed
+`FacilityRepair` row at UT 80000 after it; `Source/Parsek.Tests/StockScreenRepairFixture.cs`).
+It gates on the Repair decoration line, the `control ... name=Repair:SpaceCenter/TrackingStation
+... interactable=false` readback, the `Blocking facility repair` refusal of the menu's own
+`RepairFacility(true)` (driven by `KscAction repair-facility`), the blocked dialog, and
+`kscaction repair-facility not applied: ... fundsBefore=X fundsAfter=X fundsDelta=0`, with any
+StructureRepair funds change, `BuildingRepaired` or second `FacilityRepair` row forbidden. The
+live proof is its reading flight (then a negative control).
 
 ## ~~PROVISION-FRESH-WORKTREE-DOWNLOAD-404: a fresh worktree could not provision, because DOWNLOAD always re-fetched every release zip and the MechJeb2 URL now answers 404~~ [FILED + FIXED 2026-09-22 on branch `provision-artifact-cache`]
 
@@ -13780,7 +13814,7 @@ goes INTO the 1.25 m section of the stack (it is a structural section, not a
 nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
 is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
 
-## CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. PRODUCT GAP, OPEN]
+## ~~CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move~~ [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. FIXED 2026-09-27, branch `fix-cargobay-deploy-limit`; unit-proven, no stock-Mallard flight yet]
 
 THE MEASUREMENT. The stock `Mallard` ships its three Mk3 bays with `ModuleAnimateGeneric`
 `allowDeployLimit = true` and `deployPercent = 44 / 45 / 51`. BAY-1's first reading run flew
@@ -13803,6 +13837,28 @@ the closed end and stopped moving" as open. The ghost side then needs the matchi
 a recorder AND applier change. BAY-1 sidesteps it: its fixture copy of the Mallard sets all three
 bays to `deployPercent = 100`, so the lane gates a full door cycle and this gap stays visible
 here rather than being flown away.
+
+Fix: the recorder classifies a deploy-limited bay open when its animation is settled at the
+limit stop. `FlightRecorder.ResolveCargoBayDeployLimitStop` transcribes stock's clamp
+(`deployPercent * 0.01`, snapped to 1 above 0.995, mirrored under `revClampPercent`; null when
+`allowDeployLimit` is false, the stop is the ordinary open end, or it sits within 0.02 of the
+closed end), and `ClassifyCargoBayState` gained a stop argument: closed at the closed end, open
+at the open end or within 0.01 of the stop, otherwise mid-travel (skipped). This rule rather
+than "left the closed end and stopped moving" because it is stateless (a pure function of the
+module's persisted limit, no per-part frame memory or debounce) and a bay interrupted mid-travel
+never reads as open. All five classifier sites read the stop through the one resolver: the
+active recorder, the background recorder, the state seeder, the adoption tokens and the ghost's
+snapshot baseline. Ghost side: no new recorded field. `deployPercent` persists in the snapshot
+MODULE node and `allowDeployLimit` / `revClampPercent` come from the prefab, so the ghost build
+samples the bay's "deployed" pose AT the limit stop
+(`GhostVisualBuilder.TryResolveCargoBaySampleTimes`, cache key carries the stop), and
+`ApplyDeployableStateWithOutcome`'s stowed-to-deployed interpolation now ends where the real
+doors stopped. The snapshot baseline reads the same node through the same resolver, so a bay
+recorded open at its limit spawns open at that pose. Limitation: the pose follows the
+snapshot's limit; a player who drags the slider mid-flight changes the real stop, and the
+ghost keeps the snapshot's (no event records the slider, by design: it is not a door edge).
+Tests: `CargoBayDeployLimitTests`. BAY-1 is unchanged (still the `deployPercent = 100`
+fixture); proving the stock Mallard needs a re-flight with the stock limits restored.
 
 ## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. The route-driven ruling is OPERATOR-CONFIRMED 2026-09-26]
 
