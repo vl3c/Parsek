@@ -13,7 +13,10 @@ namespace Parsek
         /// <summary>The VAB/SPH crew assignment dialog (<c>BaseCrewAssignmentDialog</c>).</summary>
         CrewAssignment,
         /// <summary>The KSC facility context menu (the building right-click menu).</summary>
-        FacilityMenu
+        FacilityMenu,
+        /// <summary>The flight scene's crew controls: the crew hatch dialog's EVA / Transfer
+        /// rows and the crew portrait's EVA button (block audit row K2).</summary>
+        FlightCrew
     }
 
     /// <summary>Why a stock item is decorated. <see cref="None"/> is an undecorated item.</summary>

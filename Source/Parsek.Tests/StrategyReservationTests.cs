@@ -458,6 +458,72 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("activation refused strategy=A"));
         }
 
+        // ---- stock refuses, a committed activation of THIS strategy is ahead (gap 2) ----
+
+        private const string StockSlotsFull = "The Administration Building cannot support more than 1 active strategies.";
+
+        [Fact]
+        public void StockRefuses_CommittedActivationAhead_AppendsTheFactAfterStocksReason()
+        {
+            Ledger.AddAction(On(300.0, "A"));
+
+            string reason = StrategyReservationGate.AppendCommittedActivationFact("A", StockSlotsFull);
+
+            // Stock's reason first and unchanged, Parsek's fact on its own line after it.
+            Assert.StartsWith(StockSlotsFull + "\n", reason);
+            string fact = reason.Substring(StockSlotsFull.Length + 1);
+            Assert.StartsWith("Activated on ", fact);
+            Assert.DoesNotContain("\n", fact);
+            Assert.True(reason.All(c => c < 128), "non-ASCII in: " + reason);
+            // Stock's refusal stands: Parsek neither refuses nor raises a dialog of its own.
+            ReservationText text;
+            Assert.False(StrategyReservationGate.TryRefuseActivation("A", false, out text));
+            Assert.Empty(dialogBodies);
+            Assert.Contains(logLines, l => l.Contains("[StrategyReservation]")
+                && l.Contains("activation refused by stock strategy=A")
+                && l.Contains("committed activation fact appended"));
+        }
+
+        [Fact]
+        public void StockRefuses_NoCommittedActivationOfThisStrategy_LeavesStocksReasonAlone()
+        {
+            // Only ANOTHER strategy's activation and a deactivation of this one are ahead.
+            Ledger.AddAction(On(300.0, "B"));
+            Ledger.AddAction(On(10.0, "A"));
+            Ledger.AddAction(Off(400.0, "A"));
+
+            Assert.Equal(StockSlotsFull, StrategyReservationGate.AppendCommittedActivationFact("A", StockSlotsFull));
+            Assert.DoesNotContain(logLines, l => l.Contains("activation refused by stock strategy=A"));
+        }
+
+        [Fact]
+        public void StockRefuses_CommittedActivationAlreadyPassed_LeavesStocksReasonAlone()
+        {
+            Ledger.AddAction(On(50.0, "A"));
+            Assert.Equal(StockSlotsFull, StrategyReservationGate.AppendCommittedActivationFact("A", StockSlotsFull));
+        }
+
+        [Fact]
+        public void StockRefuses_DuringReplay_LeavesStocksReasonAlone()
+        {
+            Ledger.AddAction(On(300.0, "A"));
+            GameStateRecorder.IsReplayingActions = true;
+            Assert.Equal(StockSlotsFull, StrategyReservationGate.AppendCommittedActivationFact("A", StockSlotsFull));
+        }
+
+        [Fact]
+        public void AppendCommittedActivationToStockReason_IsPureAndIdempotent()
+        {
+            var entry = Index(On(300.0, "A")).FirstFuture(CommittedFutureKind.StrategyActivate, "A", 100.0);
+            Assert.NotNull(entry);
+            string once = StrategyReservationPredicates.AppendCommittedActivationToStockReason(StockSlotsFull, entry, Date);
+            Assert.Equal(StockSlotsFull + "\n" + ReservationExplanation.StrategyActivation(entry, Date).Fact, once);
+            Assert.Equal(once, StrategyReservationPredicates.AppendCommittedActivationToStockReason(once, entry, Date));
+            Assert.Equal(StockSlotsFull, StrategyReservationPredicates.AppendCommittedActivationToStockReason(StockSlotsFull, null, Date));
+            Assert.Equal(ReservationExplanation.StrategyActivation(entry, Date).Fact,
+                StrategyReservationPredicates.AppendCommittedActivationToStockReason(null, entry, Date));
+        }
+
         [Fact]
         public void Precedence_StockAllows_ParsekRefusesWithItsOwnReason()
         {

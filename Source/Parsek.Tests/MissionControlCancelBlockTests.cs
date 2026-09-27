@@ -286,6 +286,76 @@ namespace Parsek.Tests
                 Assert.True(c < 128, "non-ASCII char " + (int)c);
         }
 
+        // ---------------------------------------------------------------- expiry wording (gap 4)
+
+        [Fact]
+        public void CommittedFailAtOrAfterTheAcceptsDeadline_IsAnExpiry_InTheIndexAndTheText()
+        {
+            // Accepted at 10 with a deadline at 450; the committed fail row at 500 is the
+            // deadline running out (stock's DeadlineExpired fires the same fail event).
+            var index = Index(Accept(10, "c1", deadlineUT: 450), Fail(500, "c1", "rec"));
+
+            var fail = index.FirstFuture(CommittedFutureKind.ContractFail, "c1", 100);
+            Assert.NotNull(fail);
+            Assert.True(fail.DeadlineExpiry);
+            // The Timeline's own test agrees.
+            Assert.True(GameActionDisplay.IsExpiredContractFail(Fail(500, "c1", "rec"), Accept(10, "c1", deadlineUT: 450)));
+
+            var d = ActiveRow(index, "c1");
+            Assert.True(d.Blocked);
+            Assert.Equal("Expires on D5", d.Title);
+            Assert.StartsWith("Expires on D5 ", d.Why);
+            Assert.EndsWith("It expires and frees its slot on that date.", d.Why);
+            Assert.DoesNotContain("ail", d.Why);
+            Assert.Equal("expires D5", MissionControlStockAnnotation.RowStatus(d, Fmt));
+            Assert.Equal("<color=#fefa87>Survey</color> <color=#8fd3ff>- expires D5</color>",
+                MissionControlStockAnnotation.ComposeRowLabel("", "Survey", d));
+        }
+
+        [Fact]
+        public void CommittedFailBeforeTheDeadline_OrWithNoAccept_StaysAFailure()
+        {
+            var early = Index(Accept(10, "c1", deadlineUT: 900), Fail(500, "c1", "rec"));
+            Assert.False(early.FirstFuture(CommittedFutureKind.ContractFail, "c1", 100).DeadlineExpiry);
+            Assert.Equal("Fails on D5", ActiveRow(early, "c1").Title);
+
+            var openEnded = Index(Accept(10, "c1"), Fail(500, "c1", "rec"));
+            Assert.False(openEnded.FirstFuture(CommittedFutureKind.ContractFail, "c1", 100).DeadlineExpiry);
+
+            var noAccept = Index(Fail(500, "c1", "rec"));
+            Assert.False(noAccept.FirstFuture(CommittedFutureKind.ContractFail, "c1", 100).DeadlineExpiry);
+            Assert.Equal("fails D5", MissionControlStockAnnotation.RowStatus(ActiveRow(noAccept, "c1"), Fmt));
+        }
+
+        [Fact]
+        public void ExpiryJudgedAgainstTheAcceptTheFailCloses_NotAnEarlierOne()
+        {
+            // First accept (deadline 200) expired long ago; the contract was accepted again at
+            // 300 with a deadline at 900. A fail at 500 closes the SECOND accept: a failure.
+            var index = Index(
+                Accept(10, "c1", deadlineUT: 200), Fail(200, "c1", "rec"),
+                Accept(300, "c1", deadlineUT: 900), Fail(500, "c1", "rec"));
+            Assert.False(index.FirstFuture(CommittedFutureKind.ContractFail, "c1", 400).DeadlineExpiry);
+            Assert.True(index.AllEntries(CommittedFutureKind.ContractFail, "c1")[0].DeadlineExpiry);
+        }
+
+        [Fact]
+        public void ContractResolution_ExpiryText_IsPlainAscii_AndOnlyForAFail()
+        {
+            var expiry = ReservationExplanation.ContractResolution(
+                new CommittedFutureEntry(CommittedFutureKind.ContractFail, "k", 11400, null, null, deadlineExpiry: true), Fmt);
+            Assert.Equal("Expires on D114", expiry.Title);
+            foreach (char c in expiry.Body + expiry.Title)
+                Assert.True(c < 128, "non-ASCII char " + (int)c);
+            // The flag means nothing on another kind.
+            var complete = ReservationExplanation.ContractResolution(
+                new CommittedFutureEntry(CommittedFutureKind.ContractComplete, "k", 11400, null, null, deadlineExpiry: true), Fmt);
+            Assert.Equal("Completes on D114", complete.Title);
+            // A copy keeps the flag.
+            Assert.True(new CommittedFutureEntry(CommittedFutureKind.ContractFail, "k", 1, null, null, deadlineExpiry: true)
+                .WithAgentTitle("Agent").DeadlineExpiry);
+        }
+
         [Fact]
         public void ActiveRowLabel_KeepsTheStockTitle_AndSaysWhenItResolves()
         {

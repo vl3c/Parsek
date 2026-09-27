@@ -286,7 +286,7 @@ namespace Parsek
         /// copied from a stock controller in the menu, else in the scene, else among the
         /// loaded UI assets. Cached once found; logged once when none exists.
         /// </summary>
-        internal static Tooltip_Text FindTooltipPrefab(Component scope)
+        internal static Tooltip_Text FindTooltipPrefab(Component scope, string surface = "FacilityMenu")
         {
             if (cachedTooltipPrefab != null) return cachedTooltipPrefab;
 
@@ -295,7 +295,7 @@ namespace Parsek
             if (scope != null)
             {
                 found = FirstPrefab(scope.GetComponentsInChildren<TooltipController_Text>(true));
-                if (found != null) source = "the facility menu";
+                if (found != null) source = "the " + surface + " scope";
             }
             if (found == null)
             {
@@ -311,16 +311,16 @@ namespace Parsek
             if (found != null)
             {
                 cachedTooltipPrefab = found;
-                ParsekLog.Info(Tag, "FacilityMenu tooltip prefab copied from a stock TooltipController_Text in "
-                    + source + " (prefab '" + found.name + "')");
+                ParsekLog.Info(Tag, surface + " tooltip prefab copied from a stock TooltipController_Text in "
+                    + source + " (prefab '" + found.name + "'; cached for every added reason tooltip)");
                 return found;
             }
 
             if (!tooltipPrefabMissingLogged)
             {
                 tooltipPrefabMissingLogged = true;
-                ParsekLog.Warn(Tag, "FacilityMenu: no stock TooltipController_Text with a prefab found - the "
-                    + "Upgrade explanation falls back to the facility menu's description text");
+                ParsekLog.Warn(Tag, surface + ": no stock TooltipController_Text with a prefab found - an added "
+                    + "reason tooltip draws nothing (the facility menu falls back to its description text)");
             }
             return null;
         }

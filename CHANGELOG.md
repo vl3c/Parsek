@@ -1223,6 +1223,23 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A kerbal held by a committed flight can no longer be taken out on EVA or transferred in
+  flight.** A kerbal a committed flight still needs, who is aboard a live vessel that is not
+  the continuation of a committed flight (for example a craft a rewind left flying), could be
+  sent on EVA or moved to another part with no warning; when the committed flight later
+  spawned, his seat in it came out empty. The crew portrait's EVA button and the hatch
+  dialog's EVA and Transfer buttons are now greyed for him with the reason in their tooltip
+  (the hatch row also shows his status), and stock's EVA and transfer entry points refuse
+  him with the same text. Kerbals aboard a vessel Parsek spawned or adopted for a committed
+  flight fly on as before, and a retired stand-in is not held.
+- **Administration now says when a strategy stock refuses is activated later.** With every
+  strategy slot in use, the strategy the committed timeline activates later showed only
+  stock's "cannot support more than N active strategies"; the committed activation date now
+  follows stock's reason on its own line. Stock's refusal still decides.
+- **Mission Control says "expires" for a committed contract deadline expiry.** An Active
+  contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
+  the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
+  it now reads "expires" / "Expires on".
 - **A Re-Fly that brings back a vessel you recovered now takes the recovery money back.** If
   you flew, landed and recovered a vessel, then re-flew an earlier separation whose rewind
   point still had that vessel in the world, the vessel came back and its recovery funds stayed

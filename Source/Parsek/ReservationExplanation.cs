@@ -146,7 +146,8 @@ namespace Parsek
         /// (owner ruling D7, section 7.3): the Cancel refusal, the Mission Control detail
         /// panel and the Active-row label read the same text. The verb follows the
         /// committed row's kind (completes / fails / cancelled, the Timeline's contract
-        /// verbs); any other kind reads as a completion.
+        /// verbs; a fail that is the deadline running out reads "Expires", as the Timeline's
+        /// "Expired"); any other kind reads as a completion.
         /// </summary>
         internal static ReservationText ContractResolution(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
@@ -156,8 +157,17 @@ namespace Parsek
             switch (entry != null ? entry.Kind : CommittedFutureKind.ContractComplete)
             {
                 case CommittedFutureKind.ContractFail:
-                    verb = "Fails";
-                    wayOut = "It fails and frees its slot on that date.";
+                    if (entry.DeadlineExpiry)
+                    {
+                        // The Timeline's "Expired" and the Career window's "expires".
+                        verb = "Expires";
+                        wayOut = "It expires and frees its slot on that date.";
+                    }
+                    else
+                    {
+                        verb = "Fails";
+                        wayOut = "It fails and frees its slot on that date.";
+                    }
                     break;
                 case CommittedFutureKind.ContractCancel:
                     verb = "Cancelled";
