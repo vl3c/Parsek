@@ -70,9 +70,9 @@ namespace Parsek.TestCommands
 
         /// <summary>Presses allowed before the confirm phase gives up. Stock answers an
         /// invalid spot with its "not allowed" sound and leaves the preview up, so one
-        /// press is not always the last word; five is generous for a kerbal standing
-        /// still on flat ground.</summary>
-        internal const int MaxConfirmPresses = 5;
+        /// press is not always the last word. Sized to leave one press per face-away
+        /// re-turn (<see cref="MaxReTurns"/>).</summary>
+        internal const int MaxConfirmPresses = 8;
 
         /// <summary>Frames to wait after a press before reading its effect (the press
         /// frame itself, then the frame stock's placement runs in).</summary>
@@ -117,36 +117,76 @@ namespace Parsek.TestCommands
         internal static bool IsInjectedPressFrame(int armedFrame, int currentFrame)
             => armedFrame >= 0 && currentFrame == armedFrame;
 
+        /// <summary>Frames an unplaceable preview is given before the face-away turn is
+        /// applied again, counted from the last turn and, once a press went out, also from
+        /// that press (the press's own settle window).</summary>
+        internal const int ReTurnFrames = 60;
+
+        /// <summary>Upper bound on the face-away re-turns of one placement.</summary>
+        internal const int MaxReTurns = 8;
+
+        /// <summary>Heading drift, in degrees, past which the seam re-asserts the chosen
+        /// face-away heading. A kerbal turned with <c>Vessel.SetRotation</c> drifts back
+        /// to face the hull within about a second (EVA-5/6/7 logs: re-turn angles of
+        /// 146-166 degrees one second after a turn to 0).</summary>
+        internal const double HeadingHoldToleranceDegrees = 10.0;
+
+        /// <summary>Upper bound on heading re-assertions of one placement (about 20 s of
+        /// frames); past it the bounded re-turns are the only correction left.</summary>
+        internal const int MaxHeadingHolds = 1200;
+
+        /// <summary>Offsets, in degrees about the local up axis, tried on successive
+        /// face-away turns: straight away first, then fanned out, so a spot blocked by
+        /// something other than the nearest vessel is not retried on the same line.</summary>
+        private static readonly double[] TurnOffsetLadderDegrees = { 0.0, 30.0, -30.0, 60.0, -60.0 };
+
+        /// <summary>The heading offset for face-away turn <paramref name="turnIndex"/> (0 is
+        /// the first turn, n the n-th re-turn); the ladder repeats.</summary>
+        internal static double TurnOffsetDegrees(int turnIndex)
+        {
+            if (turnIndex <= 0) return 0.0;
+            return TurnOffsetLadderDegrees[turnIndex % TurnOffsetLadderDegrees.Length];
+        }
+
+        /// <summary>
+        /// Should the face-away turn be applied again? The preview spot is re-read from
+        /// <c>vesselTransform.forward</c> every frame, so a spot that stays unplaceable
+        /// (the terrain ray lands on a hull collider) is retried with a fresh turn, a
+        /// bounded number of times. A confirm press that did not land (the preview is
+        /// still up past the press's settle window and the spot now reads blocked) does
+        /// NOT end the retries: run <c>2026-09-27_1344</c> pressed once, the press missed,
+        /// and the spot then stayed blocked for the whole 120 s budget.
+        /// </summary>
+        internal static bool ShouldReTurn(
+            bool faceAway, bool previewBuilt, bool spotPlaceable, int pressesSoFar,
+            int framesSinceTurn, int framesSinceLastPress, int reTurnsSoFar)
+        {
+            if (!faceAway || !previewBuilt || spotPlaceable) return false;
+            if (reTurnsSoFar >= MaxReTurns) return false;
+            if (pressesSoFar > 0 && framesSinceLastPress < ReTurnFrames) return false;
+            return framesSinceTurn >= ReTurnFrames;
+        }
+
+        /// <summary>
+        /// Should the seam re-assert the chosen face-away heading this poll? Only once a
+        /// heading was chosen, only until the placement is confirmed, only past the drift
+        /// tolerance, and at most <see cref="MaxHeadingHolds"/> times.
+        /// </summary>
+        internal static bool ShouldHoldHeading(
+            bool faceAway, bool headingChosen, bool placementConfirmed,
+            double driftDegrees, int holdsSoFar)
+        {
+            if (!faceAway || !headingChosen || placementConfirmed) return false;
+            if (holdsSoFar >= MaxHeadingHolds) return false;
+            return driftDegrees > HeadingHoldToleranceDegrees;
+        }
+
         /// <summary>
         /// One poll of the confirm phase. <paramref name="previewUp"/> is stock's
         /// <c>selectedPart != null</c>; <paramref name="previewBuilt"/> its
         /// <c>partFullyCreated</c>; <paramref name="spotPlaceable"/> the conjunction the
         /// confirm branch itself tests (on terrain, inside the cap, no collisions).
         /// </summary>
-        /// <summary>Frames an unplaceable preview is given before the face-away turn is
-        /// applied again.</summary>
-        internal const int ReTurnFrames = 60;
-
-        /// <summary>Upper bound on the face-away re-turns of one placement.</summary>
-        internal const int MaxReTurns = 5;
-
-        /// <summary>
-        /// Should the face-away turn be applied again? A kerbal released from the ladder
-        /// can still be settling when the first turn is applied, and stock re-reads
-        /// <c>vesselTransform.forward</c> every frame for the preview spot, so a spot that
-        /// stays unplaceable (the terrain ray lands on the hull) is retried with a fresh
-        /// turn, a bounded number of times, and never once a confirm press was sent.
-        /// </summary>
-        internal static bool ShouldReTurn(
-            bool faceAway, bool previewBuilt, bool spotPlaceable, int pressesSoFar,
-            int framesSinceTurn, int reTurnsSoFar)
-        {
-            if (!faceAway || !previewBuilt || spotPlaceable) return false;
-            if (pressesSoFar > 0) return false;
-            if (reTurnsSoFar >= MaxReTurns) return false;
-            return framesSinceTurn >= ReTurnFrames;
-        }
-
         internal static GroundPlaceConfirmDecision DecideConfirm(
             bool previewUp, bool previewBuilt, bool spotPlaceable,
             int pressesSoFar, int framesSinceLastPress)

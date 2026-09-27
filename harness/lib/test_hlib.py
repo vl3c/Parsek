@@ -10024,8 +10024,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "of REFLY-SEPARATION-SLOT-THROUGH-OWN-EVA (owner ruling: a separation slot "
             "follows its vessel through the crew's own EVA and re-board): GS-2's split, "
             "then EvaExit + EvaBoard from the pod stack. Reading 2026-09-27_1334 PASS, "
-            "re-flight 2026-09-27_1439 PASS. Discharged: arming the report-only blocks "
-            "and cadence promotion are the steps left, a human call",
+            "re-flight 2026-09-27_1439 PASS; rewind + structure ARMED 2026-09-27 on the "
+            "owner-delegated decision of 2026-09-27. Discharged: cadence promotion is the "
+            "step left, a human call",
         "RF-19-refly-session-eva-reboard-merges.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-27 as the live lane "
             "of REFLY-SESSION-EVA-CANNOT-SUPERSEDE (PR #1907 review): RF-13's re-fly to "
@@ -11017,6 +11018,12 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # (supersedeRows 1, tombstones 2; branchPoints EVA 1 / Board 1);
                        # armed confirmation `2026-09-27_1621` PASS attempt 1.
                        "RF-19-refly-session-eva-reboard-merges.toml",
+                       # RF-18: `rewind` + `recordings.structure` armed 2026-09-27 on the
+                       # owner-delegated decision of 2026-09-27, off the reading run
+                       # `2026-09-27_1334` and its re-flight `_1439` (rewindPoints 1,
+                       # supersedeRows 0, tombstones 0; recordings 5, EVA 1 / Board 1),
+                       # both re-read offline armed: PASS, mismatches 0.
+                       "RF-18-separation-slot-walks-own-eva.toml",
                        # CI-1: `structure` armed 2026-09-08 off its own reading run
                        # `2026-09-08_1054_CI-1-eva-switch-bg-member` (trees {1,2} for the
                        # duplicate-writer hazard, committedTrees 0, recordings 4,

@@ -64,17 +64,83 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldReTurn_OnlyAnUnplaceableBuiltPreviewBeforeAnyPress_Bounded()
+        public void ShouldReTurn_OnlyAnUnplaceableBuiltPreview_Bounded()
         {
             int wait = TestCommandEvaGroundScience.ReTurnFrames;
-            Assert.True(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 0, wait, 0));
-            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 0, wait - 1, 0));
-            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(false, true, false, 0, wait, 0));
-            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, false, false, 0, wait, 0));
-            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, true, 0, wait, 0));
-            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 1, wait, 0));
+            int never = int.MaxValue;
+            Assert.True(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 0, wait, never, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 0, wait - 1, never, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(false, true, false, 0, wait, never, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, false, false, 0, wait, never, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, true, 0, wait, never, 0));
             Assert.False(TestCommandEvaGroundScience.ShouldReTurn(
-                true, true, false, 0, wait, TestCommandEvaGroundScience.MaxReTurns));
+                true, true, false, 0, wait, never, TestCommandEvaGroundScience.MaxReTurns));
+            Assert.True(TestCommandEvaGroundScience.ShouldReTurn(
+                true, true, false, 0, wait, never, TestCommandEvaGroundScience.MaxReTurns - 1));
+        }
+
+        [Fact]
+        public void ShouldReTurn_AfterAPressThatDidNotLand_OncePastItsSettleWindow()
+        {
+            // Run 2026-09-27_1344: presses=1, the preview still up and the spot blocked
+            // (hit=COL/layer0) for the rest of the 120 s budget. The old gate refused
+            // every re-turn once a press went out; a missed press must not end the retries.
+            int wait = TestCommandEvaGroundScience.ReTurnFrames;
+            Assert.True(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 1, wait, wait, 1));
+            Assert.True(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 3, wait * 5, wait, 4));
+            // The press is still in its settle window: its effect is not read yet.
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 1, wait, wait - 1, 1));
+            // The re-turn spacing still holds after a press.
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, false, 1, wait - 1, wait, 1));
+            // A placeable spot after a press is the confirm phase's business, never a re-turn.
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(true, true, true, 1, wait, wait, 1));
+            // The overall bound still applies.
+            Assert.False(TestCommandEvaGroundScience.ShouldReTurn(
+                true, true, false, 1, wait, wait, TestCommandEvaGroundScience.MaxReTurns));
+        }
+
+        [Fact]
+        public void ReTurnBudget_LeavesAPressPerReTurnAndFitsTheStepBudget()
+        {
+            Assert.True(TestCommandEvaGroundScience.MaxConfirmPresses >= TestCommandEvaGroundScience.MaxReTurns);
+            // Every re-turn waits ReTurnFrames; at 30 fps the whole ladder stays well
+            // inside the seam's 120 s EvaGroundScience budget.
+            double worstSeconds = (TestCommandEvaGroundScience.MaxReTurns + 1)
+                * 2.0 * TestCommandEvaGroundScience.ReTurnFrames / 30.0;
+            Assert.True(worstSeconds < 120.0 / 2, "re-turn ladder worst case " + worstSeconds + " s");
+        }
+
+        [Fact]
+        public void TurnOffsetDegrees_StartsStraightAwayThenFansOutAndRepeats()
+        {
+            Assert.Equal(0.0, TestCommandEvaGroundScience.TurnOffsetDegrees(0));
+            Assert.Equal(0.0, TestCommandEvaGroundScience.TurnOffsetDegrees(-3));
+            Assert.Equal(30.0, TestCommandEvaGroundScience.TurnOffsetDegrees(1));
+            Assert.Equal(-30.0, TestCommandEvaGroundScience.TurnOffsetDegrees(2));
+            Assert.Equal(60.0, TestCommandEvaGroundScience.TurnOffsetDegrees(3));
+            Assert.Equal(-60.0, TestCommandEvaGroundScience.TurnOffsetDegrees(4));
+            Assert.Equal(0.0, TestCommandEvaGroundScience.TurnOffsetDegrees(5));
+            Assert.Equal(30.0, TestCommandEvaGroundScience.TurnOffsetDegrees(6));
+            // Every offset keeps the kerbal facing away from the hull (under 90 degrees).
+            for (int i = 0; i <= TestCommandEvaGroundScience.MaxReTurns; i++)
+                Assert.True(System.Math.Abs(TestCommandEvaGroundScience.TurnOffsetDegrees(i)) < 90.0);
+        }
+
+        [Fact]
+        public void ShouldHoldHeading_OnlyPastTheToleranceUntilConfirmed_Bounded()
+        {
+            double tol = TestCommandEvaGroundScience.HeadingHoldToleranceDegrees;
+            int cap = TestCommandEvaGroundScience.MaxHeadingHolds;
+            // The drift the EVA-5/6/7 logs show one second after a turn.
+            Assert.True(TestCommandEvaGroundScience.ShouldHoldHeading(true, true, false, 153.6, 0));
+            Assert.True(TestCommandEvaGroundScience.ShouldHoldHeading(true, true, false, tol + 0.1, cap - 1));
+            Assert.False(TestCommandEvaGroundScience.ShouldHoldHeading(true, true, false, tol, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldHoldHeading(true, true, false, 153.6, cap));
+            // No faceAway, no heading chosen yet (drift reads -1), or already placed: never.
+            Assert.False(TestCommandEvaGroundScience.ShouldHoldHeading(false, true, false, 153.6, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldHoldHeading(true, false, false, 153.6, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldHoldHeading(true, true, true, 153.6, 0));
+            Assert.False(TestCommandEvaGroundScience.ShouldHoldHeading(true, true, false, -1.0, 0));
         }
 
         [Fact]

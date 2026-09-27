@@ -27,6 +27,14 @@ id = "RF-18-separation-slot-walks-own-eva"
 # FLOWN: reading run `2026-09-27_1334` PASS attempt 1 (as RF-16; caught one mid-stretch
 # walk reading the Board as foreign - fixed, token now forbidden), re-flight
 # `2026-09-27_1439` PASS attempt 1 on the merged branch (DLL sha256 `4ef9e054...`).
+# ARMED 2026-09-27, owner-delegated decision 2026-09-27: `rewind` and
+# `recordings.structure` gate, windows unchanged. Both readings' produced saves
+# (`_1334`, `_1439`) were re-read offline through saveparse.evaluate_save_structure
+# with the blocks armed: PASS, mismatches 0 (rewindPoints 1, supersedeRows 0,
+# tombstones 0; trees 1, committedTrees 1, recordings 5, Orbiting 2 / Boarded 2,
+# JointBreak 1 / EVA 1 / Board 1).
+# ARMED CONFIRMATION `2026-09-27_1822` PASS attempt 1 (116 s, DLL `540428aa...`): saveParse
+# status=PASS gating=True armed=[rewind, recordings.structure], mismatches 0.
 #
 # WHAT IT DOES NOT PROVE, and where that is proven instead. The pod stack is the FOCUS
 # slot ending Orbiting, so it is not itself an Unfinished Flight (stock physics cannot
@@ -143,17 +151,21 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "reason=boardForeignParent"]
 
 [expectations.rewind]
-# REPORT-ONLY. The reading run `2026-09-27_1334` measured rewindPoints 1, supersedeRows 0,
-# tombstones 0 - inside these windows. Arming is the operator's per-scenario call.
+# ARMED 2026-09-27 (owner-delegated decision 2026-09-27). The reading run
+# `2026-09-27_1334` and the re-flight `_1439` both measured rewindPoints 1,
+# supersedeRows 0, tombstones 0 - inside these windows.
+gating        = true
 rewindPoints  = { min = 1 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY, pinned to the reading run `2026-09-27_1334`: 5 recordings, one JointBreak,
+# ARMED 2026-09-27 (owner-delegated decision 2026-09-27), pinned to the reading run
+# `2026-09-27_1334` and matched by `_1439`: 5 recordings, one JointBreak,
 # one EVA, one Board; terminals Orbiting 2 (probe, merged pod stack) and Boarded 2 (the
 # kerbal, and the pod stack's continuation the Board ended - which is why the slot's
 # hard-safety terminal must be read on the walked tip, not there).
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 5, max = 5 }
