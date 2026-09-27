@@ -36,8 +36,13 @@ id = "RF-19-refly-session-eva-reboard-merges"
 # (report-only) read supersedeRows 1, tombstones 2, rewindPoints 1. Negative control
 # OFFLINE over `_1532`'s own log (RF-14 precedent): with the validated line replaced by the
 # pre-fix refusal and the lines that refusal suppresses removed, it reds exactly six
-# required tokens and the forbidden `outcome=refused-unflown-provisional`. Arming the
-# report-only blocks is the operator's call.
+# required tokens and the forbidden `outcome=refused-unflown-provisional`.
+# ARMED 2026-09-27 on the owner ruling of 2026-09-27 (Vlad: arm RF-19's saveParse
+# checks; also confirmed the foreign-vessel board rule this lane's headless cells pin):
+# `rewind` and `recordings.structure` gate, windows unchanged from the reading run.
+# ARMED CONFIRMATION `2026-09-27_1621` PASS attempt 1 (262 s, same DLL `b6fafa5c...`):
+# saveParse status=PASS gating=True armed=[rewind, recordings.structure], supersedeRows 1,
+# tombstones 2, mismatches 0.
 # =====================================================================================
 tier = "operator"
 description = "Re-Fly the crewed stack of refly-split-crewed-recorded to orbit (RF-13's flight), then step a kerbal out and back in INSIDE the live session and merge: the merge must validate through the vessel walk (evaHops=1 boardHops=1), write the supersede row and the crew-death tombstones instead of refused-unflown-provisional, never supersede the session's own EVA recordings, and seal the slot on the re-boarded vessel's Orbiting ending."
@@ -137,14 +142,17 @@ forbidden = [
 ]
 
 [expectations.rewind]
-# REPORT-ONLY. Derived from RF-13 (supersedeRows 1 = the origin's post-rewind TIP,
+# ARMED 2026-09-27 (owner ruling 2026-09-27). Derived from RF-13 (supersedeRows 1 = the origin's post-rewind TIP,
 # tombstones 2 = the two crew-death rows TIP carries; the session's EVA recordings add no
 # row, fenced) and MEASURED on the reading run `2026-09-27_1532`: 1 / 2.
+gating        = true
 supersedeRows = { min = 1, max = 1 }
 tombstones    = { min = 2, max = 2 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY: one EVA and one Board, both authored by the session (reading run matched).
+# ARMED 2026-09-27 (owner ruling 2026-09-27): one EVA and one Board, both authored by
+# the session, matched on the reading run `2026-09-27_1532`.
+gating       = true
 branchPoints = { EVA = { min = 1, max = 1 }, Board = { min = 1, max = 1 } }
 
 [runtime]

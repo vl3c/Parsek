@@ -10031,8 +10031,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "of REFLY-SESSION-EVA-CANNOT-SUPERSEDE (PR #1907 review): RF-13's re-fly to "
             "orbit, then EvaExit + EvaBoard inside the live session and a merge that must "
             "supersede and seal. Reading 2026-09-27_1532 PASS, offline negative control "
-            "red on the pre-fix shape. Discharged: arming the report-only blocks and "
-            "cadence promotion are the steps left, a human call",
+            "red on the pre-fix shape; rewind + structure ARMED 2026-09-27 on the owner "
+            "ruling of 2026-09-27. Discharged: cadence promotion is the step left, a "
+            "human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -11011,6 +11012,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # other two stay floors because a subtree closure's row and
                        # tombstone counts depend on what each break-up sheds.
                        "RF-11-both-slots-in-sequence.toml",
+                       # RF-19: `rewind` + `recordings.structure` armed 2026-09-27 on the
+                       # owner ruling of 2026-09-27, off the reading run `2026-09-27_1532`
+                       # (supersedeRows 1, tombstones 2; branchPoints EVA 1 / Board 1);
+                       # armed confirmation `2026-09-27_1621` PASS attempt 1.
+                       "RF-19-refly-session-eva-reboard-merges.toml",
                        # CI-1: `structure` armed 2026-09-08 off its own reading run
                        # `2026-09-08_1054_CI-1-eva-switch-bg-member` (trees {1,2} for the
                        # duplicate-writer hazard, committedTrees 0, recordings 4,
