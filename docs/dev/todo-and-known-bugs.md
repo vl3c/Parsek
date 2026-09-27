@@ -265,11 +265,12 @@ with one Offered contract accepted and one tier-1 node left unresearched after i
 (`start`) - or `stock-screen-census`, if it carries both (not checked). Not fixed now:
 a new or re-harvested fixture moves H45's host and every lane pinned to it.
 
-## SAVE-BLOCKS-AWAITING-READINGS: 31 report-only save-structure blocks on 25 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
+## SAVE-BLOCKS-AWAITING-READINGS: 30 report-only save-structure blocks on 24 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
 
 The operator's 2026-09-27 arming pass armed every report-only `rewind` /
 `recordings.structure` / `recordings.points` block that had a matching reading on current
-enough code (37 blocks; `autotest-status.md` header). These remain report-only, and each
+enough code (37 blocks; `autotest-status.md` header), and RVR-8 `structure` followed the
+same day off its green re-fly `2026-09-27_1310`. These remain report-only, and each
 needs a reading flight on current code (or a decision) before it can be armed:
 
 - No reading on file anywhere: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`;
@@ -280,8 +281,6 @@ needs a reading flight on current code (or a decision) before it can be armed:
 - A reading that contradicts the window: RF-4 `rewind` read rewindPoints 1 against
   `max = 0` (`2026-09-15_1553`, before #1788); the window needs a decision under the
   rewind-point-survives ruling, not just a flight.
-- A red reading: RVR-8 `structure` (see RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE, since fixed;
-  the green re-fly `2026-09-27_1310` is a candidate reading for arming it).
 
 Cheapest next flights (proposed 2026-09-27, deferred by the supervisor): GS-9, GS-8 (nightly,
 about 6-8 min each), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,

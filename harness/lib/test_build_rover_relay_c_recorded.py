@@ -916,24 +916,18 @@ class RoverRelayCEndpointMatrixTests(unittest.TestCase):
                           "run (wave package A2); un-arming it is a decision, "
                           "not a drift" % name)
 
-    # RVR-8's reading on current code (`2026-09-27_1147`) was PARSEK-FAIL on its
-    # routes windows (todo RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE), so
-    # its structure block was not armed with the other seven.
-    STRUCTURE_REPORT_ONLY = {"RVR-8-rover-relay-c-second-cycle-hold.toml"}
-
     def test_every_matrix_lane_arms_routes_and_its_structure_as_read(self):
         """`routes` ARMED 2026-09-10 (wave package A2) on all eight, each off its
         own reading run on the wave DLL. `recordings.structure` ARMED 2026-09-27
-        on seven of them, each off its own reading on current code (every window
-        met); its inversion was run offline against each produced save (every
-        inverted window red on exactly that window). RVR-8 keeps it report-only."""
+        on all eight, each off its own reading on current code (every window
+        met), with an offline inversion against each produced save (every
+        inverted window red on exactly that window). RVR-8 was armed last, off
+        `2026-09-27_1310`, because its first reading `_1147` was the PARSEK-FAIL
+        the endpoint-store fix closed."""
         for name in self.MATRIX:
             exp = self.spec[name]["expectations"]
             self.assertIs(True, exp["routes"].get("gating"), name)
-            if name in self.STRUCTURE_REPORT_ONLY:
-                self.assertNotIn("gating", exp["recordings"]["structure"], name)
-            else:
-                self.assertIs(True, exp["recordings"]["structure"].get("gating"), name)
+            self.assertIs(True, exp["recordings"]["structure"].get("gating"), name)
 
     def test_only_rvr8_drives_a_second_cycle(self):
         for name in self.MATRIX:

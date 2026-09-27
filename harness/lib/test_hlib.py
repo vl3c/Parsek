@@ -11662,9 +11662,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # RF-7M / RF-7T both blocks `_1227` / `_1229`, RF-12 `rewind` `_1234`,
                        # RF-12W `rewind` `_1231`, V7T both blocks `_1230`. The same flights
                        # armed `structure` on RVR-5, RVR-7, RVR-9 .. RVR-20 and RF-10, which
-                       # were already listed here for their `routes` / `rewind` blocks. RVR-8
-                       # stays report-only: its reading `_1147` was PARSEK-FAIL (todo
-                       # RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE).
+                       # were already listed here for their `routes` / `rewind` blocks. RVR-8's
+                       # `structure` followed later that day off the green re-fly `_1310`
+                       # (its `_1147` reading was the PARSEK-FAIL todo
+                       # RVR8-SECOND-CYCLE-DISPATCHES-AFTER-COMPLETED-PAUSE closed); 12 of 12
+                       # inverted bounds red on exactly their window.
                        "RF-5-seal-closes-the-slot.toml",
                        "RF-7M-predicted-tail-map-render.toml",
                        "RF-7T-predicted-tail-ts-render.toml",
