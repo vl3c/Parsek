@@ -588,6 +588,23 @@ FLIGHT on the rover, inside ghost range of the pad. The clone's launch Guid, ves
 drift-gated by `harness/tools/build_pad_runway_pair.py` (`--check`) and
 `harness/lib/test_pad_runway_pair.py`. Host of `EX-1-ghost-extension-past-endut`.
 
+## gloops-airshow-hard (GAME Mode = SANDBOX, 1 VESSEL + 1 asteroid, derived from gloops-airshow)
+
+`gloops-airshow`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except four
+values in the top-level `PARAMETERS` node: `preset = Normal -> Hard` and, in its `FLIGHT`
+section, `CanQuickLoad`, `CanRestart` and `CanLeaveToEditor` `True -> False` (the three
+flight flags KSP's own Hard preset turns off; the `DIFFICULTY` section is untouched).
+`preset` is only a label: decompiled `GameParameters.Load` parses it and then loads every
+section's values as written. The `rewind-b9` injector builds its RewindPoint quicksave from
+the staged save, so the re-fly the lanes invoke also loads a `CanRestart = False` game. The
+S4.1 host on a Hard-preset flight, for KSP-SETTINGS-AUDIT S7 (stock hides Revert Flight,
+re-fly Retry is not offered, Merge / Discard by leaving the flight). Built and drift-gated
+by `harness/tools/build_gloops_airshow_hard.py` (`--check`) and
+`harness/lib/test_gloops_airshow_hard.py`; no `Ships/VAB` or `AddOns` copy because its lanes
+launch nothing through kRPC. Host of `RF-16-hard-preset-refly-exit-merge` and
+`RF-17-hard-preset-refly-exit-discard` (two lanes, one leaf: neither harvests its produced
+save, so the shared staged directory is harmless).
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /
