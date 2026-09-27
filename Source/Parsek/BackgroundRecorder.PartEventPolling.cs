@@ -449,6 +449,7 @@ namespace Parsek
                 }
 
                 FlightRecorder.ClassifyCargoBayState(animModule.animTime, cargo.closedPosition,
+                    FlightRecorder.ResolveCargoBayDeployLimitStop(animModule, cargo.closedPosition),
                     out bool isOpen, out bool isClosed);
 
                 if (!isOpen && !isClosed)

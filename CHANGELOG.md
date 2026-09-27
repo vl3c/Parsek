@@ -1205,6 +1205,11 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Deploy-limited cargo bays now open on the replay.** A cargo bay set to open only part of the
+  way (the stock Mallard's Mk3 bays ship at 44, 45 and 51 percent) recorded nothing when opened
+  or shut, so its ghost's doors never moved. Parsek now counts a bay as open once its doors stop
+  at the limit, and the ghost opens its doors to that same limit rather than all the way.
+
 - **A contract penalty or a facility repair is no longer charged twice across a rewind.**
   After a rewind, the timeline can hold two endings for one contract: something you did in
   the present (a cancel, a completion, or a failure caused by losing a vessel) and the fail or

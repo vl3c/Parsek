@@ -13594,7 +13594,7 @@ goes INTO the 1.25 m section of the stack (it is a structural section, not a
 nose part), which also sidesteps the 0.625 m node entirely. Until then D7 `bays`
 is UNCOVERED by every lane, and GS-6 says so rather than implying it was missed.
 
-## CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. PRODUCT GAP, OPEN]
+## ~~CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING: a cargo bay whose deploy limit is below 100% never records CargoBayOpened or CargoBayClosed, so its ghost's doors never move~~ [MEASURED 2026-09-26 on BAY-1 reading run `2026-09-25_2214`. FIXED 2026-09-27, branch `fix-cargobay-deploy-limit`; unit-proven, no stock-Mallard flight yet]
 
 THE MEASUREMENT. The stock `Mallard` ships its three Mk3 bays with `ModuleAnimateGeneric`
 `allowDeployLimit = true` and `deployPercent = 44 / 45 / 51`. BAY-1's first reading run flew
@@ -13617,6 +13617,28 @@ the closed end and stopped moving" as open. The ghost side then needs the matchi
 a recorder AND applier change. BAY-1 sidesteps it: its fixture copy of the Mallard sets all three
 bays to `deployPercent = 100`, so the lane gates a full door cycle and this gap stays visible
 here rather than being flown away.
+
+Fix: the recorder classifies a deploy-limited bay open when its animation is settled at the
+limit stop. `FlightRecorder.ResolveCargoBayDeployLimitStop` transcribes stock's clamp
+(`deployPercent * 0.01`, snapped to 1 above 0.995, mirrored under `revClampPercent`; null when
+`allowDeployLimit` is false, the stop is the ordinary open end, or it sits within 0.02 of the
+closed end), and `ClassifyCargoBayState` gained a stop argument: closed at the closed end, open
+at the open end or within 0.01 of the stop, otherwise mid-travel (skipped). This rule rather
+than "left the closed end and stopped moving" because it is stateless (a pure function of the
+module's persisted limit, no per-part frame memory or debounce) and a bay interrupted mid-travel
+never reads as open. All five classifier sites read the stop through the one resolver: the
+active recorder, the background recorder, the state seeder, the adoption tokens and the ghost's
+snapshot baseline. Ghost side: no new recorded field. `deployPercent` persists in the snapshot
+MODULE node and `allowDeployLimit` / `revClampPercent` come from the prefab, so the ghost build
+samples the bay's "deployed" pose AT the limit stop
+(`GhostVisualBuilder.TryResolveCargoBaySampleTimes`, cache key carries the stop), and
+`ApplyDeployableStateWithOutcome`'s stowed-to-deployed interpolation now ends where the real
+doors stopped. The snapshot baseline reads the same node through the same resolver, so a bay
+recorded open at its limit spawns open at that pose. Limitation: the pose follows the
+snapshot's limit; a player who drags the slider mid-flight changes the real stop, and the
+ghost keeps the snapshot's (no event records the slider, by design: it is not a door edge).
+Tests: `CargoBayDeployLimitTests`. BAY-1 is unchanged (still the `deployPercent = 100`
+fixture); proving the stock Mallard needs a re-flight with the stock limits restored.
 
 ## D11-STATION-PHASE-LOCK-IS-ROUTE-DRIVEN: the `station-phase-lock` claim on V18T rides a supply route's backing mission, not a player-armed Missions-tab loop [CLAIMED 2026-09-25, coverage wave 1b. The route-driven ruling is OPERATOR-CONFIRMED 2026-09-26]
 

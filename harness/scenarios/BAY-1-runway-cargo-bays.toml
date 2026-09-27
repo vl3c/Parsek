@@ -39,22 +39,26 @@ id = "BAY-1-runway-cargo-bays"
 # every ghost would then be LOD-hidden 6e9 m away (the LF-2 post-strip trap). The KSC
 # scene needs no focus vessel and replays through the same applier.
 #
-# THE DEPLOY LIMIT, AND WHY THE FIXTURE CRAFT DIFFERS FROM STOCK HERE. The stock Mallard ships its
-# three bays with `deployPercent = 44 / 45 / 51` (ModuleAnimateGeneric `allowDeployLimit`), so
-# the doors stop part-way. The recorder's open test (`ClassifyCargoBayState`) wants the
-# animation at its far end, so a deploy-limited bay records NO CargoBayOpened and NO
-# CargoBayClosed at all: reading run `2026-09-25_2214` flew MISSION-OK, kRPC opened and shut all
-# three bays, and the recorder logged not one bay event (todo
-# CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING). The fixture copy therefore sets all three to
-# `deployPercent = 100`; this lane gates a full door cycle, and the partial-deploy gap is filed,
-# not hidden.
+# THE DEPLOY LIMIT. The fixture craft carries the stock Mallard's own bay limits:
+# ModuleAnimateGeneric `allowDeployLimit` with `deployPercent = 44` (mk3CargoBayM), `45`
+# (mk3CargoBayL) and `51` (mk3CargoRamp), so the doors stop part-way, at normalized animTime
+# 0.56 / 0.55 / 0.49 (closedPosition 1, revClampPercent). The recorder calls a bay open when it
+# has settled at that stop (`FlightRecorder.ResolveCargoBayDeployLimitStop`, todo
+# CARGOBAY-DEPLOY-LIMITED-BAY-RECORDS-NOTHING, fixed 2026-09-27), and the ghost samples its open
+# pose at the same stop from the snapshot's persisted deployPercent. The census line's
+# `limitStop=` field and the ghost build's `deploy-limited open pose sampled at animTime=` line
+# are required per bay, so a regression back to "open only at the far end" reds here.
+# HISTORY: reading 1 `2026-09-25_2214` (stock limits, pre-fix) recorded no bay event at all;
+# readings `_2218` / `_2230` flew a fixture copy set to `deployPercent = 100`. The stock limits
+# were restored 2026-09-27 with the fix; the new per-bay tokens are UNFLOWN until the next
+# reading run (the lane is a re-read), after which the numbers may be pinned.
 #
 # THE HOST FIXTURE. gs1-two-stage-pad (GS-1..GS-12's pad world): its pre-placed GS1
 # Auto-Chute Booster sits on the LAUNCH PAD, so a Runway rollout recovers nothing, and
 # Bill / Bob are Available for the Mk3 cockpit's default crew. The Mallard is this
 # fixture's third physically committed craft and its only consumer is this lane.
 # -------------------------------------------------------------------------------------
-tier = "operator"  # calibration discipline; reading `2026-09-25_2218` PASS, armed `2026-09-25_2230` PASS
+tier = "operator"  # calibration discipline; reading `2026-09-25_2218` PASS, armed `2026-09-25_2230` PASS (deployPercent=100 fixture); stock-limit re-read owed
 description = "D7 bays: roll the stock Mallard out onto the Runway, stage it in place (Parsek's first-staging auto-record trigger), cycle its three Mk3 cargo bays open and shut, commit, Rewind-to-Launch, and let the Space Center replay the recording as a KSC ghost; the applier's CargoBayOpened / CargoBayClosed surface=deployable lines are the witness that the ghost's bay doors animated."
 instanceProfile = "stock-minimal"
 tags = ["BAY1", "part-events", "cargo-bay", "ghost-render", "applier", "rewind-to-launch", "ksc-ghost", "D7"]
@@ -316,8 +320,18 @@ count = { min = 1 }
 
 [expectations.logContracts]
 required  = ["Auto-record started \\(first staging on pad",
-             "Part event: CargoBayOpened '[^']+' pid=[0-9]+",
-             "Part event: CargoBayClosed '[^']+' pid=[0-9]+",
+             "Visual coverage \\[CargoBay\\] [0-9]+: .*mk3CargoBayM\\[pid=[0-9]+\\]\\(deployIdx=[0-9]+,closed=[0-9.]+,limitStop=0\\.[0-9]+\\)",
+             "Visual coverage \\[CargoBay\\] [0-9]+: .*mk3CargoBayL\\[pid=[0-9]+\\]\\(deployIdx=[0-9]+,closed=[0-9.]+,limitStop=0\\.[0-9]+\\)",
+             "Visual coverage \\[CargoBay\\] [0-9]+: .*mk3CargoRamp\\[pid=[0-9]+\\]\\(deployIdx=[0-9]+,closed=[0-9.]+,limitStop=0\\.[0-9]+\\)",
+             "Part event: CargoBayOpened 'mk3CargoBayM' pid=[0-9]+",
+             "Part event: CargoBayOpened 'mk3CargoBayL' pid=[0-9]+",
+             "Part event: CargoBayOpened 'mk3CargoRamp' pid=[0-9]+",
+             "Part event: CargoBayClosed 'mk3CargoBayM' pid=[0-9]+",
+             "Part event: CargoBayClosed 'mk3CargoBayL' pid=[0-9]+",
+             "Part event: CargoBayClosed 'mk3CargoRamp' pid=[0-9]+",
+             "CargoBay 'mk3CargoBayM': deploy-limited open pose sampled at animTime=0\\.[0-9]+",
+             "CargoBay 'mk3CargoBayL': deploy-limited open pose sampled at animTime=0\\.[0-9]+",
+             "CargoBay 'mk3CargoRamp': deploy-limited open pose sampled at animTime=0\\.[0-9]+",
              "committree committed=true",
              "invokerewindtolaunch complete rec=",
              "\\[KSCGhost\\] Ghost #[0-9]+ \"Mallard\" entered range",
