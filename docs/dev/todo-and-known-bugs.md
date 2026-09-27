@@ -470,7 +470,8 @@ Supervisor defaults (not overridden):
   (`GameStateRecorder.LogUnledgeredCheatCurrency`) saying it is not ledgered and the next rewind
   undoes it.
 
-To trace before filing as defects (low): `AllowNegativeCurrency` against reserved funds on
+To trace before filing as defects (low; `AllowNegativeCurrency` and `AutoHireCrews` traced and
+fixed 2026-09-27, see KSP-SETTINGS-FOLLOWUPS-2026-09-27 below): `AllowNegativeCurrency` against reserved funds on
 spends no click-block covers; `AutoHireCrews` hire capture; Set Orbit / Set Position teleports
 inside a live recording; infinite-propellant recordings vs route cost manifests;
 `persistKerbalInventories` vs inventory-carrying recordings; alternate launch sites with
@@ -512,6 +513,20 @@ KSP-SETTINGS-AUDIT-2026-09-26 above (investigations in the session scratchpad, n
   rate-limited Verbose line when the unfloored target is used. Accepted consequence (judgement
   call, not an owner ruling): on Moderate / Hard a committed future that overdraws shows a
   negative live pool after a rewind, as stock would. Cells: `AllowNegativeCurrencyPatchTests`.
+- ~~4. `Difficulty.AutoHireCrews`: after a rewind to before a committed hire, stock auto-hire
+  (`KerbalRoster.DefaultCrewForVessel`'s shortfall loop, the only caller of
+  `KerbalRoster.GetNextApplicant()` in the 1.12.5 decompile) could pick that applicant;
+  `KerbalHirePatch` refused the hire with a dialog, but stock ignores the outcome, so it
+  seated the still-Applicant kerbal for free with a false "hired" message (twice with two
+  seats short).~~ FIXED 2026-09-27: `Patches/KerbalAutoHireApplicantPatch.cs` prefixes
+  `GetNextApplicant()` and returns the first applicant in roster order that no committed
+  future hires (`StockUiReservationPredicates.IsKerbalHireBlocked`, the `KerbalHirePatch`
+  predicate, replay bypassed), or null when none is left so stock generates a fresh
+  applicant; with nothing to skip stock runs unchanged. S9-gated (listed in
+  `ParsekGameModeGateTests`); one `[KerbalHirePatch] auto-hire applicant pick:` Info line per
+  pick that skipped. `KerbalHirePatch` stays the Astronaut Complex backstop. Cells:
+  `KerbalHirePatchTests.AutoHireApplicant*`. NEEDS A LIVE CHECK (not flown): auto-hire on, a
+  rewound future hire, a craft one seat short.
 
 Handled on other branches (not here): Set Orbit / Set Position teleports inside a live
 recording (teleport seam), the launch-site tag on recordings, retirement of flights ending at

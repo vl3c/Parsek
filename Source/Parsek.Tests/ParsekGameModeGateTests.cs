@@ -259,6 +259,7 @@ namespace Parsek.Tests
             "Parsek.Patches.FacilityUpgradePatch.Prefix",
             "Parsek.Patches.FacilityUpgradeSpendPatch.Prefix",
             "Parsek.Patches.GhostTrackingStationInitPatch.Prefix",
+            "Parsek.Patches.KerbalAutoHireApplicantPatch.Prefix",
             "Parsek.Patches.KerbalDismissalPatch.Prefix",
             "Parsek.Patches.KerbalHirePatch.Prefix",
             "Parsek.Patches.KerbalSackPatch.Prefix",

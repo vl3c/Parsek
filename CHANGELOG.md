@@ -1229,6 +1229,12 @@ _(unreleased — entries accumulate here per commit)_
   had missed: it showed the message, wrote a warning to the log on every recalculation, and a
   rewind reset the balance to zero. It now keeps the negative balance stock would show; on the
   presets that keep currency at zero nothing changes.
+- **Auto-hire no longer seats a kerbal your committed future hires.** With the difficulty
+  option that hires crew automatically for empty seats, after a rewind to before a kerbal's
+  recorded hire, auto-hire could pick that same applicant: Parsek refused the hire, but the
+  game seated him anyway without hiring him, announced a hire that cost nothing, and with two
+  seats short put him in both. Auto-hire now passes over applicants a committed flight hires
+  later and takes the next one (or a new applicant when none is left).
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:
