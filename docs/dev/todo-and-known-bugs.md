@@ -1813,6 +1813,18 @@ every annotated screen drew; the findings below are what the screenshots showed.
   Administration records call `StrategyReservationGate.TryRefuseActivation(id, out text)`, which now
   reads stock's verdict itself, so they follow the precedence without a change there.
 
+**Live behavioural proof of the click-blocks after a rewind (2026-09-27, branch `clickblock-lanes`):**
+`KB-3-ksc-click-blocks-after-rewind` (reading `2026-09-27_1238`, armed `2026-09-27_1240`, both PASS
+attempt 1) presses the R&D Research, facility-menu Upgrade, Astronaut Complex Hire and Mission Control
+Accept controls on `stock-screen-census` through the stock call behind each (`KscAction`, with the new
+`accept-contract` sub-action), and reads each refused by its backstop with the blocked dialog's body
+equal to the hover record's why, the target's state and the funds and science pools unchanged, and the
+ledger at 26 rows throughout. No product finding. A grep of all 333 specs for `Blocked action`,
+`blocked-committed` and `actionblocked` finds only KB-2 and KB-3 pressing a blocked control (GUI-10
+raises the dialog synthetically; KB-1 lists the refusals as forbidden), so the strategy activate /
+deactivate, Decline, Cancel, contract-slot, dismissal, crew-dialog seat and part-purchase blocks still
+have no behavioural lane (unit and in-game decision cells only).
+
 ---
 
 ## ~~STRATEGY-EXPIRY-REPLAY-DUPLICATE-DEACTIVATE-ROW: a stock strategy expiry that replays after a rewind appends a second StrategyDeactivate row, and every later walk warns~~ [FILED 2026-09-25 from the stock-UI strategies PR (PR 5, branch `stock-ui-strategies`); FIXED 2026-09-25, branch `strategy-expiry-replay`, option (c) chosen by the owner the same day; predates PR 5; KSPCommunityFixes installs only]
