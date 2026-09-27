@@ -209,7 +209,7 @@ Rebuilt on: recording commit, rewind, KSC spending, scene change, warp exit. Cur
 |---|---|
 | RecordingStart | Mission launch - fundamental timeline anchor |
 | VesselSpawn | Vessel materialization with terminal state - the outcome |
-| CrewDeath | Crew fatality (bug #229) - permanent roster loss |
+| CrewDeath | Crew fatality (bug #229) - roster loss; permanent, or until the stock crew respawn stamped at the death ("respawns after ...", owner ruling S8) |
 | UnfinishedFlightSeparation | Re-flyable staging split - carries Fly/Seal buttons |
 | MilestoneAchievement | One-time progression gate, often with large rewards |
 | ContractComplete | Mission objective achieved |

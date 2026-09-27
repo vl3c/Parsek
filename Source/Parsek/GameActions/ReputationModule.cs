@@ -150,20 +150,26 @@ namespace Parsek
             // magnitude off the captured ReputationChanged(VesselLoss) event, i.e. the
             // amount KSP measured off its own pool AFTER curving it (both CL-1
             // pod-impact flights: "Added -9.999828 (-10) reputation: 'VesselLoss'").
-            // Re-curving it here would apply the curve twice. Both pre-curved sources
-            // are captures of what stock already applied; every other source carries a
-            // NOMINAL amount and must be curved.
+            // Re-curving it here would apply the curve twice.
+            //
+            // ContractDecline is the THIRD, same reason again:
+            // GameStateEventConverter.ConvertContractDeclineReputation reads its magnitude
+            // off the ReputationChanged(ContractDecline) event stock fires after
+            // AddReputation(-Career.RepLossDeclined) has curved it. All three pre-curved
+            // sources are captures of what stock already applied; every other source
+            // carries a NOMINAL amount and must be curved.
             //
             // ReputationPenaltySource.StrategyConverter DELIBERATELY DOES NOT MATCH HERE.
             // That source is the QUERY family's debit leg and carries the query's
             // PRE-curve effect delta - the argument stock's
             // Reputation.OnCurrenciesModified hands to addReputation_granular - so it
             // must fall through to the ordinary curve arm below and be re-derived at the
-            // reconstruction's own running rep. This stays an OR of exactly two
+            // reconstruction's own running rep. This stays an OR of explicit
             // equalities, never a source SET: a set is how the debit leg gets silently
             // swept in.
             if (action.RepPenaltySource == ReputationPenaltySource.Strategy
-                || action.RepPenaltySource == ReputationPenaltySource.KerbalDeath)
+                || action.RepPenaltySource == ReputationPenaltySource.KerbalDeath
+                || action.RepPenaltySource == ReputationPenaltySource.ContractDecline)
             {
                 float effective = -action.NominalPenalty; // already-effective (negative)
                 action.EffectiveRep = effective;

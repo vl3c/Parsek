@@ -3921,9 +3921,13 @@ namespace Parsek
                 return string.Format(CultureInfo.InvariantCulture, "{0:F0}s", seconds);
             if (seconds < 3600.0)
                 return string.Format(CultureInfo.InvariantCulture, "{0:F1}m", seconds / 60.0);
-            if (seconds < 86400.0)
+            // The day length follows the player's calendar setting (Kerbin 6 h or Earth 24 h),
+            // and RouteCadence.ParseAndSnapInterval reads a typed "d" with the same length, so
+            // the displayed interval round-trips through the edit field on either calendar.
+            double secsPerDay = ParsekTimeFormat.SecsPerDay;
+            if (seconds < secsPerDay)
                 return string.Format(CultureInfo.InvariantCulture, "{0:F1}h", seconds / 3600.0);
-            return string.Format(CultureInfo.InvariantCulture, "{0:F1}d", seconds / 21600.0); // Kerbin days
+            return string.Format(CultureInfo.InvariantCulture, "{0:F1}d", seconds / secsPerDay);
         }
 
         // Cycle-column text (Phase QW5): completed deliveries, plus a "/ N skipped"

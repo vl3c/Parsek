@@ -872,6 +872,18 @@ namespace Parsek
             // FRESH recording, `target` is a live recording that keeps its own crew end
             // states, so a verdict change here can leave them stale. No-op in the normal
             // pre-commit case where nothing has populated them yet.
+            // The absorbed segment's crew death respawn stamp comes first: the terminal
+            // stamp below re-infers the target's end states, and a death it re-derives
+            // keeps the policy stamped when that death was first recorded.
+            if (absorbed.CrewDeathRespawns.HasValue)
+            {
+                target.CrewDeathRespawns = absorbed.CrewDeathRespawns;
+                target.CrewDeathRespawnSeconds = absorbed.CrewDeathRespawnSeconds;
+                ParsekLog.Verbose("Optimizer",
+                    $"MergeInto: crew death respawn stamp carried (respawn={absorbed.CrewDeathRespawns.Value} " +
+                    $"timer={absorbed.CrewDeathRespawnSeconds.ToString("R", CultureInfo.InvariantCulture)}) " +
+                    $"target={target.RecordingId ?? "<no-id>"} absorbed={absorbed.RecordingId ?? "<no-id>"}");
+            }
             if (absorbed.TerminalStateValue.HasValue)
             {
                 target.StampTerminalState(absorbed.TerminalStateValue, "RecordingOptimizer.AbsorbInto");
@@ -1387,10 +1399,20 @@ namespace Parsek
             second.CrewEndStatesResolved = original.CrewEndStatesResolved;
             original.CrewEndStates = null;
             original.CrewEndStatesResolved = false;
+            // The respawn stamp qualifies the death those end states carry, so it moves
+            // with them; the first half re-derives without a death and needs none.
+            second.CrewDeathRespawns = original.CrewDeathRespawns;
+            second.CrewDeathRespawnSeconds = original.CrewDeathRespawnSeconds;
+            original.CrewDeathRespawns = null;
+            original.CrewDeathRespawnSeconds = double.NaN;
             ParsekLog.Verbose("Optimizer",
                 $"Split: moved {moved.ToString(CultureInfo.InvariantCulture)} crew end state(s) " +
                 $"from {original.RecordingId ?? "<no-id>"} onto the second half with the terminal; " +
-                "first half cleared for the chain-handoff re-derivation");
+                "first half cleared for the chain-handoff re-derivation" +
+                (second.CrewDeathRespawns.HasValue
+                    ? " (crew death respawn stamp moved: respawn=" + second.CrewDeathRespawns.Value +
+                      " timer=" + second.CrewDeathRespawnSeconds.ToString("R", CultureInfo.InvariantCulture) + ")"
+                    : ""));
         }
 
         /// <summary>

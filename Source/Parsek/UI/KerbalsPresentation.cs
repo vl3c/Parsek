@@ -837,7 +837,10 @@ namespace Parsek
             FlightRow? hold = status == RosterStatus.Reserved
                 ? ResolveHoldFlight(reservation, ownGroup)
                 : null;
+            // A Lost kerbal carries a release date only when his death's stock respawn is
+            // pending (owner ruling S8): a permanent death has none.
             string releaseDateText = status == RosterStatus.Reserved
+                    || (status == RosterStatus.Lost && KerbalsModule.IsRespawnPendingHold(reservation))
                 ? FormatReleaseDate(reservation, ctx.FormatDate)
                 : null;
             FlightRow deathRow;
@@ -941,7 +944,7 @@ namespace Parsek
             string assignedVesselName)
         {
             if (ownerPermanentlyGone) return RosterStatus.Lost;
-            if (reservation != null && reservation.IsPermanent) return RosterStatus.Lost;
+            if (KerbalsModule.IsLossHold(reservation)) return RosterStatus.Lost;
             if (retired) return RosterStatus.Retired;
             if (reservation != null) return RosterStatus.Reserved;
             if (memberStatus.HasValue
@@ -1039,7 +1042,12 @@ namespace Parsek
             switch (status)
             {
                 case RosterStatus.Lost:
-                    return "Lost";
+                {
+                    // A death whose stock respawn is pending names the day he is back.
+                    if (string.IsNullOrEmpty(releaseDateText)) return "Lost";
+                    string until = "Lost until " + releaseDateText;
+                    return until.Length <= StatusCellMaxChars ? until : "Lost";
+                }
                 case RosterStatus.Retired:
                     return "Retired";
                 case RosterStatus.Reserved:
@@ -1137,6 +1145,14 @@ namespace Parsek
         internal const string LostReFlyRemedy =
             "If that mission has a rewind point, re-flying it can undo the loss.";
 
+        /// <summary>The release rule a Lost hover carries when the death's stock crew
+        /// respawn is pending (owner ruling S8): the respawn policy in force at the death
+        /// brings the kerbal back on that date.</summary>
+        internal static string FormatLostRespawnRule(string releaseDateText)
+        {
+            return "Stock respawn returns this kerbal on " + releaseDateText + ".";
+        }
+
         /// <summary>
         /// The "Status now" cell's hover text, or null when the cell says everything
         /// already.
@@ -1168,10 +1184,15 @@ namespace Parsek
             switch (status)
             {
                 case RosterStatus.Lost:
+                {
+                    string respawn = string.IsNullOrEmpty(releaseDateText)
+                        ? ""
+                        : FormatLostRespawnRule(releaseDateText) + " ";
                     if (!death.HasValue)
-                        return "Lost on a committed flight. " + LostReFlyRemedy;
+                        return "Lost on a committed flight. " + respawn + LostReFlyRemedy;
                     return "Lost on " + death.Value.MissionText + " (launched "
-                           + death.Value.DateText + "). " + LostReFlyRemedy;
+                           + death.Value.DateText + "). " + respawn + LostReFlyRemedy;
+                }
 
                 case RosterStatus.Reserved:
                 {

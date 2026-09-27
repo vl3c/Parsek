@@ -388,6 +388,9 @@ SCREEN_RESOLUTION_HEIGHT = "720"
 SIMULATE_IN_BACKGROUND = "True"    # MUST stay True: unattended runs lose focus
 AUTOSTRUT_SYMMETRY = "False"       # pin autostrut policy (plan section 2/10)
 CONIC_PATCH_DRAW_MODE = "3"
+# ... (volume and update-check keys elided; see the profile file)
+MAX_VESSELS_BUDGET = "250"         # player default (S6, 2026-09-26); dev cfg has 10000
+DECLUTTER_KSC = "True"             # player default (S6, 2026-09-26); dev cfg has False
 ```
 
 `modded-compat.toml` differs only by adding to `devSourcedMods`:

@@ -2628,8 +2628,11 @@ namespace Parsek
         /// Builds a set of crew names from the given list that are spawn-blocking.
         /// Only StrictlyDead (RosterStatus.Dead) crew block spawn — Dead is
         /// permanent. Missing crew are NOT blocking, regardless of reservation:
-        /// Missing is transient (KSP's natural respawn timer flips Missing back
-        /// to Available after the respawn cooldown), and the spawn pipeline
+        /// Missing is transient (stock resolves it at the kerbal's respawn timer:
+        /// back to Available when Difficulty.MissingCrewsRespawn is on, Dead when it
+        /// is off - decompiled ProtoCrewMember.CheckRespawnTimer), a recorded crew
+        /// death reaches Missing only with respawn on and is held by its own
+        /// death-respawn reservation (owner ruling S8), and the spawn pipeline
         /// rescues every Missing snapshot crew member to Available before
         /// <c>ProtoVessel.Load</c> (see
         /// <see cref="RescueReservedMissingCrewInSnapshot"/>). The reserved-only
@@ -3677,8 +3680,10 @@ namespace Parsek
         /// <summary>
         /// Checks whether a crew member is strictly Dead (not Missing) in the KSP crew roster.
         /// Dead is permanent and unconditionally blocks/strips the kerbal across all spawn paths;
-        /// Missing is transient (KSP's natural respawn timer recovers it) and is rescued to
-        /// Available before snapshot load. Called from <see cref="BuildDeadCrewSet"/>,
+        /// Missing is transient (stock ends it at the respawn timer: Available with
+        /// MissingCrewsRespawn on, Dead with it off; a recorded death is Missing only with
+        /// respawn on and is held by its own death-respawn reservation, owner ruling S8) and
+        /// a snapshot kerbal is rescued to Available before snapshot load. Called from <see cref="BuildDeadCrewSet"/>,
         /// <see cref="ClassifySnapshotCrew"/>, and <see cref="RemoveDeadCrewFromSnapshot"/> —
         /// the three sites that need a Dead-only predicate to avoid resurrecting Dead reserved
         /// crew. (#170 / #687)

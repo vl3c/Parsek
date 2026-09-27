@@ -31,6 +31,7 @@ namespace Parsek.Patches
 
         static bool Prefix(ProtoCrewMember ap)
         {
+            if (ParsekGameModeGate.CheckInert("KerbalHirePatch.Prefix")) return true; // S9 game-mode gate
             if (ap == null) return true;
             return ShouldAllowHire(ap.name);
         }
@@ -101,6 +102,7 @@ namespace Parsek.Patches
 
         static bool Prefix(UIListItem listItem)
         {
+            if (ParsekGameModeGate.CheckInert("AstronautComplexHireRecruitPatch.Prefix")) return true; // S9 game-mode gate
             ProtoCrewMember applicant;
             if (!TryGetApplicant(listItem, out applicant))
                 return true;

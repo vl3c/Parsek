@@ -122,7 +122,7 @@ bdock-recorded captures; the owner approved these, and each is a row of this doc
 19. **One crew vocabulary** (rec 9): the Astronaut Complex overlay's badge tooltips use the
     window's words - `Reserved - held by a committed flight (Parsek)`, `Reserved for <owner>
     - ...` only for a stand-in in someone else's slot, `Lost on a committed flight (Parsek)`
-    for a permanent (death) reservation, `Retired stand-in (Parsek)` - and no longer read
+    for a death reservation (permanent, or with the stock respawn pending: the Status cell then reads `Lost until <date>`, owner ruling S8), `Retired stand-in (Parsek)` - and no longer read
     "Reserved by Parsek for slot 'Jebediah Kerman'" on Jebediah himself.
 
 ### Two readings the rulings did not spell out, decided here

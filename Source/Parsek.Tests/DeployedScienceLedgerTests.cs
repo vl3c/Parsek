@@ -198,6 +198,8 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(8f, 1f, 24f, 8f)]
         [InlineData(3f, 1.5f, 2f, 2f)]      // stock scales the event by ScienceGainMultiplier
+        [InlineData(3f, 0.6f, 9f, 5f)]      // a sub-1 multiplier divides out upward
+        [InlineData(6f, -1f, 9f, 6f)]       // negative multiplier: the award stands
         [InlineData(3f, 0f, 9f, 3f)]        // no usable multiplier: the award stands
         [InlineData(3f, float.NaN, 9f, 3f)]
         [InlineData(6f, 1f, 4f, 4f)]        // never more than the running total

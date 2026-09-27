@@ -35,6 +35,7 @@ namespace Parsek.Patches
 
         static void Postfix(KSCFacilityContextMenu __instance)
         {
+            if (ParsekGameModeGate.CheckInert("FacilityMenuUpgradeBlockPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 StockUiFacilityDecoration.Apply(__instance, "values modified");

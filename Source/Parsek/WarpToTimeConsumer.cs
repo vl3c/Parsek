@@ -62,6 +62,11 @@ namespace Parsek
             if (scene != GameScenes.SPACECENTER)
                 return;
 
+            // S9 game-mode gate: no career-start snapshot and no Parsek warp in a mission /
+            // scenario game (a pending request is left armed for the game that owns it).
+            if (ParsekGameModeGate.CheckInert("WarpToTimeConsumer.LevelWasLoaded"))
+                return;
+
             // Capture the career-start snapshot once for a brand-new career (independent of any
             // pending warp). Idempotent: skips if a snapshot already exists or this is not a
             // fresh career (see CareerStartSnapshot.ShouldCapture).

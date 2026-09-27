@@ -31,6 +31,7 @@ namespace Parsek.Patches
 
         static void Postfix(KerbalRoster __instance, ref int __result)
         {
+            if (ParsekGameModeGate.CheckInert("ActiveCrewCountPatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 __result = StandInSeatCount.AdjustLiveCount(__instance, __result);

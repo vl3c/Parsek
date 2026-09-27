@@ -835,10 +835,14 @@ namespace Parsek
 
         /// <summary>
         /// Provisional cache write for newly filed ScienceEarning rows. Each row is a per-
-        /// submission INCREMENT, so the max merge below is only a lower bound; every caller is
-        /// followed by a recalc whose <c>RebuildCommittedScienceFromSurvivingLedger</c> replaces
-        /// the cache with the capped per-subject SUM of the surviving ledger, which is the
-        /// authoritative value.
+        /// submission INCREMENT, so the max merge below is only a lower bound. It is idempotent,
+        /// so a row mirrored twice (a dedup-suppressed duplicate, a commit retry) can never
+        /// over-state a subject. The next recalc (immediately after every caller except the
+        /// switch-segment discard dispositions, which defer it to the next natural recalc)
+        /// runs <c>RebuildCommittedScienceFromSurvivingLedger</c>, which replaces the cache with
+        /// the capped per-subject SUM of the surviving ledger: the authoritative value. Rows
+        /// written by older builds as running totals are summed there unchanged (owner
+        /// decision: fix going forward only, no repair).
         /// </summary>
         internal static void CommitScienceActions(IReadOnlyList<GameAction> actions)
         {

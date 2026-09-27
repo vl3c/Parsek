@@ -31,6 +31,7 @@ namespace Parsek.Patches
 
         internal static void Postfix(Strategies.Strategy __instance, bool __result)
         {
+            if (ParsekGameModeGate.CheckInert("StrategyActivatePatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 if (!__result)
@@ -69,6 +70,7 @@ namespace Parsek.Patches
 
         internal static void Postfix(Strategies.Strategy __instance, bool __result)
         {
+            if (ParsekGameModeGate.CheckInert("StrategyDeactivatePatch.Postfix")) return; // S9 game-mode gate
             try
             {
                 if (!__result)
