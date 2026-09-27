@@ -10,7 +10,7 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
-- **Dev: lanes for the per-recording loop cap and the rewind read-back check.** `OC-1-overlap-cap-per-recording` loops one injected recording on its own toggle faster than its length / 20 and checks that playback slows the relaunches to keep at most 20 copies (`auto-adjusted (cap reached)`) and that old copies disappear; flown and armed. The ghost lifecycle check gains a `peakLive` count (the most copies of one recording alive at once). `RB-1-rewind-readback-divergence` and its control `RB-2-rewind-readback-within-range` fly a recovery and then a Re-Fly that brings the recovered vessel back; RB-1's first flight found that the recovery money is not taken back (todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED), so both stand as expected-fail lanes until that is fixed.
+- **Dev: lanes for the per-recording loop cap and the rewind read-back check.** `OC-1-overlap-cap-per-recording` loops one injected recording on its own toggle faster than its length / 20 and checks that playback slows the relaunches to keep at most 20 copies (`auto-adjusted (cap reached)`) and that old copies disappear; flown and armed. The ghost lifecycle check gains a `peakLive` count (the most copies of one recording alive at once). `RB-1-rewind-readback-divergence` and its control `RB-2-rewind-readback-within-range` fly a recovery and then a Re-Fly that brings the recovered vessel back; RB-1's first flight found that the recovery money is not taken back (todo REFLY-RESURRECTED-RECOVERY-STAYS-BANKED). With that fixed, RB-1 now shows the first live flag of the rewind read-back check (the recovery value comes off after a post-rewind-point hire) and RB-2 shows the same retirement staying within range without the hire. Both lanes are flown.
 - **Dev: the automated tests now gate on 37 more save-structure checks.** Report-only checks
   on the saved game (rewind points, supersede rows, tombstones, tree and recording shape) now
   fail a test run when they drift, wherever a recent run read them correctly: 21 lanes were
@@ -1223,9 +1223,9 @@ _(unreleased — entries accumulate here per commit)_
   auto-merge on (the normal setting), an in-flight Recover saves the flight as Landed before
   the game actually recovers the vessel, and a recovery from the Tracking Station reaches a
   flight that was saved long before, so the step never matched. It now also recognises the
-  recovery from the recovery payout Parsek records at the moment of the recovery. The vessel
-  must still be positively the same launch, and a recovery from before the rewind point is
-  left alone.
+  recovery from what Parsek records at the moment of the recovery: the recovery payout, or
+  the crew being returned to the roster. The vessel must still be positively the same launch,
+  and a recovery from before the rewind point is left alone.
 - **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
   its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
   merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier

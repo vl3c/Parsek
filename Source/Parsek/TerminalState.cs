@@ -1,4 +1,4 @@
-﻿namespace Parsek
+namespace Parsek
 {
     public enum TerminalState
     {
