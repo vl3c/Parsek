@@ -1288,6 +1288,16 @@ _(unreleased — entries accumulate here per commit)_
   finishes its replay and disappears at the recording's end, along with its map-view orbit.
   A refusal saved in an existing game is checked again under the new rule when the game loads,
   except a vessel that already died when it spawned, which stays refused. Ruling 2026-09-27.
+- **Every column of the Missions and Logistics windows can be reached on a 1280 px screen.**
+  Both windows are laid out wider than 1280 px (Missions 1355, Logistics 1410), and nothing
+  kept a window on the screen, so on a 1280x720 game window their right-hand columns were
+  drawn off the edge and could not be reached. A Parsek window that cannot fit the screen at
+  its own width is now made as wide as the screen and moved onto it, and its table scrolls
+  sideways: in the Missions window the column headers scroll together with the rows, so every
+  column stays under its header, and the Close button and the help line stay in place. Such
+  a window cannot be dragged wider than the screen, and it returns to its normal width when
+  the screen is large enough again. On a screen the window already fits, nothing changes: it
+  stays where you put it, even partly off-screen.
 - **Recovering a vessel no longer pays its recovery funds twice, or rewrites the earlier legs of
   its flight.** When a vessel was recovered or deleted while its flight was still waiting to be
   merged (a Re-Fly or vessel-switch merge dialog, for example), Parsek marked every earlier
@@ -1340,7 +1350,6 @@ _(unreleased — entries accumulate here per commit)_
   - Recording while Hack Gravity is on now writes one warning to KSP.log: orbits recorded under
     changed gravity replay at the wrong rate once gravity is back to normal. Nothing else
     changes.
-
 - **Kerbals keep the inventory they carried when their vessel reappears.** A vessel that
   appears at the end of a recording used to give each kerbal the inventory he has on the roster
   now, not what he carried at the end of the flight, because a kerbal's own inventory is stored
@@ -4958,6 +4967,14 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **Automated testing: the wide windows at 1280x720.** New automation-only `UiAction op=state
+  window=missions key=scrollX value=<px>` drives the Missions window's horizontal scroll
+  (read back as the settled, clamped offset; 0 while the window fits), mirrored in hlib. The
+  `op=rect` op now applies the same screen fit a window takes before it draws, so a rect
+  commanded wider than the screen reads back at the screen width with `clamped=true`. New
+  operator-tier census lane `GUI-29-census-wide-windows-1280` photographs the Missions
+  window (both tabs, scrolled left and right) and Logistics on the 1280x720 frame.
 
 - **Removed the unused per-recording and per-milestone resource-cost helpers.**
   `ResourceBudget`'s `CommittedFundsCost` / `CommittedScienceCost` / `CommittedReputationCost`,

@@ -314,6 +314,63 @@ Cheapest next flights (proposed 2026-09-27, deferred by the supervisor): GS-9, G
 about 6-8 min each), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,
 V3F, V3R. The long harvest missions (B17, V3C, B23-B30, RF-2, RF-3, RF-12L) are not proposed.
 
+---
+
+## ~~WIDE-WINDOWS-OFF-SCREEN-AT-1280: the Missions and Logistics windows' right-hand columns are unreachable on a 1280 px screen~~ [FILED AND FIXED 2026-09-26, branch `wide-window-hscroll`]
+
+Owner request. The Missions window (both tabs) is laid out at 1355 px and Logistics at
+1410 px, both wider than a 1280x720 game window, and no window was ever capped to the screen
+(the only size clamp in the program was `ParsekUI.HandleResizeDrag`'s minimum, applied during
+a drag), so on such a screen their right-hand columns were drawn off the edge with no way to
+reach them. Every other window's minimum and default fit 1024 px (survey in
+`design-gui-inventory.md` section 7). The census-only fix of
+GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH (a 1920x1080 frame) never touched a
+player's screen.
+
+Fix: `UI/WideWindowLayout.cs`, one shared helper.
+- `ParsekUI.HandleResizeDrag` now also runs `FitWindowToScreen` before every draw of every
+  window with a resize handle, and it acts ONLY when the window cannot fit the screen at its
+  own width (`WideWindowLayout.NeedsScreenFit`: wider than the screen, or a minimum wider
+  than the screen) or was capped below its minimum by an earlier narrow screen (a width
+  below the minimum has no other source: defaults, drags and `op=rect` all floor at it).
+  Then the width is raised to `min(MinWindowWidth, Screen.width)` and capped to
+  `Screen.width`, and the window is moved fully on-screen horizontally and top-on-screen
+  vertically; the height is never changed (a GUILayout window resolves it from its
+  content). A window that fits the screen is never touched, so a player can still park it
+  partly off-screen. A resize drag is never wider than the screen and floors at
+  `min(MinWindowWidth, Screen.width)`; on a screen the window fits it is the drag it always
+  was. Logged only when the rect moves, rate-limited per window.
+- `WideWindowScroll` decides per window, latched on the Layout pass, whether the window is
+  below its natural width (`MinWindowWidth`), logging the transition only; on a screen the
+  window fits it draws nothing, so the layout is unchanged. When active, the Missions window
+  wraps its pinned column header AND its vertical body scroll view in ONE horizontal-only
+  scroll view whose content group is laid out at the natural width with the window style's
+  own horizontal padding, so header and body keep the x and widths they have at 1355 and
+  scroll in lockstep; the help strip and the Close row stay outside it. Logistics, whose
+  headers already live inside its single scroll view, only gets a minimum content width
+  inside that scroll view, so its own horizontal bar appears instead of the Name column
+  squeezing. Pinned by `TableRowInsetAlignmentTests.WideWindowScrollWrapsTheHeaderAndTheBodyTogether`
+  and `WideWindowLayoutTests`.
+- Trade-off taken: in the Missions window the body's vertical scrollbar sits at the right
+  end of the scrolled content, so it is visible only once scrolled right (the mouse wheel
+  scrolls vertically everywhere). The alternative, a header scrolled by a separate offset
+  above a body that keeps its bar at the window edge, needs the header's height fixed ahead
+  of layout (a GUILayout scroll view never reports its content height and lerps a
+  non-stretching child below its natural height), which cannot be read from the skin
+  without re-deriving IMGUI's margin rules.
+- Seam: `UiAction op=state window=missions key=scrollX` (hlib mirrored) and `op=rect` now
+  applies the same screen fit. Census lane `GUI-29-census-wide-windows-1280` (1280x720):
+  `2026-09-26_1926` PASS attempt 1, re-flown after review `2026-09-26_2027` PASS with the
+  in-game fit lines of both windows' first-open defaults required (both windows `applied=0,8,1280,700 clamped=true`,
+  `scrollX` settles at 95, header and rows aligned scrolled left and right). GUI-1 re-flown
+  at 1920x1080 `2026-09-26_1928` PASS: every Missions / Logistics dump geometry-identical to
+  the pre-change `2026-09-26_1745`.
+
+Residue: the one-line help strips of both windows are budgeted at their natural width
+(`TooltipEchoBudgetTests`), so on a capped window a long hover text is cut at the edge.
+
+---
+
 ## ~~REFLY-SEPARATIONS-ONLY: an EVA authored a Rewind Point and a stranded or dead EVA kerbal surfaced as a Re-Fly~~ [OWNER RULING 2026-09-27; IMPLEMENTED 2026-09-27, branch `refly-separations-only`]
 
 **Ruling (Vlad, 2026-09-27).** "Re-Fly is for vessel separations only (staging, decoupling,

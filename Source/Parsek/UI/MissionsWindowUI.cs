@@ -1011,7 +1011,7 @@ namespace Parsek
         /// the recordings tab's own header-plus-scroll structure (no outer vertical, no Close,
         /// no resize/drag of its own).
         /// </summary>
-        internal void DrawMissionsTabContent()
+        internal void DrawMissionsTabContent(WideWindowScroll wideScroll)
         {
             EnsureStyles();
 
@@ -1099,7 +1099,10 @@ namespace Parsek
             }
 
             // Fixed column-header row (outside the scroll view), styled with the
-            // recordings window's shared column-header style.
+            // recordings window's shared column-header style. On a screen narrower than
+            // the window's natural width the header and the body scroll horizontally
+            // together inside one wrapper (a no-op on a screen the window fits).
+            wideScroll?.BeginPinnedHeaderArea(parentUI.GetOpaqueWindowStyle());
             DrawColumnHeader();
 
             // Apply a cross-link scroll captured on an earlier pass. It MUST land before the
@@ -1221,6 +1224,7 @@ namespace Parsek
 
             GUILayout.EndVertical();
             GUILayout.EndScrollView();
+            wideScroll?.EndPinnedHeaderArea();
 
             // A target that survived a full Repaint pass is not in the list (its tree is gone,
             // or a filter this method does not clear is dropping it). Drop it rather than let it
