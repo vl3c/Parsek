@@ -1216,7 +1216,15 @@ _(unreleased — entries accumulate here per commit)_
   a window cannot be dragged wider than the screen, and it returns to its normal width when
   the screen is large enough again. On a screen the window already fits, nothing changes: it
   stays where you put it, even partly off-screen.
-
+- **Kerbals keep the inventory they carried when their vessel reappears.** A vessel that
+  appears at the end of a recording used to give each kerbal the inventory he has on the roster
+  now, not what he carried at the end of the flight, because a kerbal's own inventory is stored
+  with him rather than with the vessel. A part could exist twice (brought from the VAB, stowed
+  in the pod or placed during the flight, then revert and commit) or disappear (taken out of the
+  pod and kept by the kerbal). Parsek now records each crew member's inventory with the vessel
+  and gives it back to him when the vessel appears, EVA kerbals included; a stand-in who takes a
+  reserved kerbal's seat gets that seat's recorded inventory. Recordings made before this
+  version keep the old behaviour.
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:
