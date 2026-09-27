@@ -662,6 +662,7 @@ namespace Parsek
         public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null, bool preserveIdentity = false)
         {
             ProtoVessel pv = null;
+            CrewInventoryRestoreResult crewInventoryRestore = default(CrewInventoryRestoreResult);
             try
             {
                 if (!TryValidateSnapshotHasParts(vesselNode, out string partRejectionReason)
@@ -730,7 +731,7 @@ namespace Parsek
                 // carried when the snapshot was taken, replacing his current roster
                 // inventory, before the ProtoVessel reads the roster (no duplicated or
                 // lost cargo). No capture on the snapshot keeps the roster inventory.
-                CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "RespawnVessel");
+                crewInventoryRestore = CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "RespawnVessel");
 
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
@@ -740,6 +741,7 @@ namespace Parsek
                 {
                     ParsekLog.Error("Spawner", "CRITICAL: ProtoVessel.Load() produced null vesselRef — vessel will not appear");
                     CleanupFailedSpawnedProtoVessel(pv, "Spawner", "RespawnVessel cleanup");
+                    CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "RespawnVessel null vesselRef");
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
@@ -785,6 +787,7 @@ namespace Parsek
             {
                 ParsekLog.Error("Spawner", $"Failed to respawn vessel: {ex.Message}");
                 CleanupFailedSpawnedProtoVessel(pv, "Spawner", "RespawnVessel cleanup");
+                CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "RespawnVessel exception");
                 return 0;
             }
         }
@@ -1105,6 +1108,7 @@ namespace Parsek
             Orbit orbitOverride = null)
         {
             ProtoVessel pv = null;
+            CrewInventoryRestoreResult crewInventoryRestore = default(CrewInventoryRestoreResult);
             try
             {
                 ConfigNode spawnNode = vesselNode.CreateCopy();
@@ -1231,7 +1235,7 @@ namespace Parsek
                 // carried when the snapshot was taken, replacing his current roster
                 // inventory, before the ProtoVessel reads the roster (no duplicated or
                 // lost cargo). No capture on the snapshot keeps the roster inventory.
-                CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "SpawnAtPosition");
+                crewInventoryRestore = CrewInventorySnapshot.RestoreForSpawnLive(spawnNode, "SpawnAtPosition");
 
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
@@ -1241,6 +1245,7 @@ namespace Parsek
                 {
                     ParsekLog.Error("Spawner", "CRITICAL: SpawnAtPosition — ProtoVessel.Load() produced null vesselRef");
                     CleanupFailedSpawnedProtoVessel(pv, "Spawner", "SpawnAtPosition cleanup");
+                    CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "SpawnAtPosition null vesselRef");
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
@@ -1287,6 +1292,7 @@ namespace Parsek
             {
                 ParsekLog.Error("Spawner", $"SpawnAtPosition failed: {ex.Message}");
                 CleanupFailedSpawnedProtoVessel(pv, "Spawner", "SpawnAtPosition cleanup");
+                CrewInventorySnapshot.RollbackRestoreLive(crewInventoryRestore, "SpawnAtPosition exception");
                 return 0;
             }
         }

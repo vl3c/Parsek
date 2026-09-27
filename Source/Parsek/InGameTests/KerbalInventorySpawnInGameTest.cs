@@ -25,7 +25,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "KerbalInventorySpawn", Scene = GameScenes.FLIGHT,
-            Description = "A backed-up snapshot carries one captured inventory per seated kerbal")]
+            Description = "A backed-up snapshot captures each stored crew inventory without writing a default onto the roster")]
         public void SnapshotCapturesEverySeatedKerbalsInventory()
         {
             if (!TryGetCrewedActiveVessel(out Vessel vessel, out List<ProtoCrewMember> crew))
@@ -34,27 +34,50 @@ namespace Parsek.InGameTests
                 return;
             }
 
+            // A kerbal with no stored inventory (null roster backing field) records no entry;
+            // a loaded EVA kerbal always does (its own module is read).
+            var storedBefore = new Dictionary<string, bool>();
+            int expected = 0;
+            for (int i = 0; i < crew.Count; i++)
+            {
+                bool stored = CrewInventorySnapshot.ReadRosterPrior(crew[i].name) != null;
+                storedBefore[crew[i].name] = stored;
+                if (stored || vessel.isEVA) expected++;
+            }
+            if (expected == 0)
+            {
+                InGameAssert.Skip("No crew member of the active vessel has a stored inventory yet " +
+                    "(open a kerbal's inventory or fly a craft launched from the editor, then rerun).");
+                return;
+            }
+
             ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
             InGameAssert.IsNotNull(snapshot, "TryBackupSnapshot returned null for the active vessel");
             Dictionary<string, ConfigNode> captured = CrewInventorySnapshot.ReadFromSnapshot(snapshot);
             InGameAssert.IsNotNull(captured,
                 $"snapshot of '{vessel.vesselName}' carries no {CrewInventorySnapshot.NodeName} node");
+            InGameAssert.AreEqual(expected, captured.Count, "captured entries vs crew with a stored inventory");
 
-            // Keys follow the snapshot's own (stand-in reverse-mapped) crew names, so compare
-            // against the seated names in the snapshot, not the live roster names.
-            List<string> seated = CrewInventorySnapshot.CollectSeatedCrew(snapshot);
-            InGameAssert.AreEqual(crew.Count, seated.Count, "seated crew in snapshot vs live crew count");
-            for (int i = 0; i < seated.Count; i++)
+            // Keys follow the snapshot's own (stand-in reverse-mapped) crew names.
+            var seated = new HashSet<string>(CrewInventorySnapshot.CollectSeatedCrew(snapshot));
+            foreach (var kvp in captured)
             {
-                InGameAssert.IsTrue(captured.ContainsKey(seated[i]),
-                    $"no captured inventory for seated kerbal '{seated[i]}'");
-                InGameAssert.AreEqual(CrewInventorySnapshot.InventoryNodeName, captured[seated[i]].name,
-                    $"captured node name for '{seated[i]}'");
+                InGameAssert.IsTrue(seated.Contains(kvp.Key), $"captured key '{kvp.Key}' is not a seated kerbal");
+                InGameAssert.AreEqual(CrewInventorySnapshot.InventoryNodeName, kvp.Value.name,
+                    $"captured node name for '{kvp.Key}'");
+            }
+
+            // The capture must not write a default inventory onto a kerbal who had none.
+            for (int i = 0; i < crew.Count; i++)
+            {
+                if (storedBefore[crew[i].name]) continue;
+                InGameAssert.IsNull(CrewInventorySnapshot.ReadRosterPrior(crew[i].name),
+                    $"capture mutated '{crew[i].name}''s roster inventory");
             }
         }
 
         [InGameTest(Category = "KerbalInventorySpawn", Scene = GameScenes.FLIGHT,
-            Description = "The spawn restore replaces a kerbal's roster inventory and drops the live instance")]
+            Description = "The spawn restore replaces a kerbal's roster inventory, drops the live instance, and the rollback puts the prior back")]
         public void RosterApplyReplacesTheRosterInventory()
         {
             if (!TryGetCrewedActiveVessel(out Vessel vessel, out List<ProtoCrewMember> crew))
@@ -64,27 +87,19 @@ namespace Parsek.InGameTests
             }
 
             ProtoCrewMember pcm = crew[0];
-            ConfigNode snapshot = VesselSpawner.TryBackupSnapshot(vessel);
-            Dictionary<string, ConfigNode> captured = CrewInventorySnapshot.ReadFromSnapshot(snapshot);
-            ConfigNode original = null;
-            if (captured != null)
-            {
-                foreach (var kvp in captured)
-                {
-                    // The live name may be a stand-in whose key was reverse-mapped; fall back
-                    // to the roster node when the capture key differs.
-                    if (kvp.Key == pcm.name) original = kvp.Value.CreateCopy();
-                }
-            }
-            if (original == null)
-                original = pcm.InventoryNode != null ? pcm.InventoryNode.CreateCopy() : new ConfigNode("INVENTORY");
-            int originalCount = CrewInventorySnapshot.CountStoredParts(original);
+            // The prior state through the same reader the spawn rollback uses (a live
+            // instance's contents, else the roster backing field, else null) - never the
+            // InventoryNode getter, which writes a default inventory when none exists.
+            ConfigNode prior = CrewInventorySnapshot.ReadRosterPrior(pcm.name);
+            int priorCount = CrewInventorySnapshot.CountStoredParts(prior);
 
             try
             {
                 bool applied = CrewInventorySnapshot.ApplyToRosterKerbal(pcm.name, new ConfigNode("INVENTORY"));
                 InGameAssert.IsTrue(applied, $"ApplyToRosterKerbal refused '{pcm.name}'");
-                InGameAssert.AreEqual(0, CrewInventorySnapshot.CountStoredParts(pcm.InventoryNode),
+                ConfigNode after = CrewInventorySnapshot.ReadRosterPrior(pcm.name);
+                InGameAssert.IsNotNull(after, "roster inventory is null after the restore");
+                InGameAssert.AreEqual(0, CrewInventorySnapshot.CountStoredParts(after),
                     "roster inventory after applying an empty recorded inventory");
                 KerbalInventoryScenario scenario = KerbalInventoryScenario.Instance;
                 if (scenario != null)
@@ -93,11 +108,14 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                CrewInventorySnapshot.ApplyToRosterKerbal(pcm.name, original);
+                // The spawn-failure rollback writer: restores the prior node, null included.
+                CrewInventorySnapshot.WriteRosterPrior(pcm.name, prior);
             }
 
-            InGameAssert.AreEqual(originalCount, CrewInventorySnapshot.CountStoredParts(pcm.InventoryNode),
-                "roster inventory after restoring the captured original");
+            ConfigNode restored = CrewInventorySnapshot.ReadRosterPrior(pcm.name);
+            InGameAssert.AreEqual(prior == null, restored == null, "rollback preserved a null prior");
+            InGameAssert.AreEqual(priorCount, CrewInventorySnapshot.CountStoredParts(restored),
+                "roster inventory after rolling back to the prior state");
         }
     }
 }

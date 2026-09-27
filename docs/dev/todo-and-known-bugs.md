@@ -496,7 +496,10 @@ Fix: `CrewInventorySnapshot`. The single seam every recorded snapshot passes thr
 INVENTORY { ... } } }` child under the VESSEL node, one entry per crew member in the shape stock
 persists: a loaded EVA kerbal's own `ModuleInventoryPart` first, then a live
 `KerbalInventoryScenario` instance (stock only writes it back to the roster on save), then the
-roster node; crewless vessels get no node. It is not a schema change (no generation bump): stock
+roster's backing field `ProtoCrewMember.inventoryNode`, read by reflection because the
+`InventoryNode` getter writes a default inventory when it is null; a null field records NO entry
+(the capture never mutates the roster, and the restore leaves that kerbal alone). Crewless vessels
+get no node. It is not a schema change (no generation bump): stock
 `ProtoVessel` ignores unknown VESSEL children, and the node rides with the snapshot through the
 `_vessel.craft` sidecar, `DeepClone`, the optimizer split (end half) and merge (absorbed end wins),
 and every snapshot refresh (the end snapshot and its inventories are always the same moment). The
@@ -505,8 +508,11 @@ on the FINAL spawn copy (after dead, excluded, duplicate and swapped crew are se
 `ProtoVessel` construction: every kerbal still seated gets the recorded inventory on his roster
 entry, and any live `KerbalInventoryScenario` instance is dropped (as stock does after an EVA
 board) so it neither shows nor saves back the old contents; the node is stripped from the spawn
-copy. Logged: capture rate-limited per vessel, one Info line per spawn with
-`seated / restored / noEntry / applyFailed / unseated`.
+copy. Each restored kerbal's prior roster inventory (a live instance's contents, else the backing
+field, null included) is kept, and the spawn-failure paths (null `vesselRef`, exception) roll it
+back with `CrewInventorySnapshot.RollbackRestoreLive`. Logged: capture rate-limited per vessel,
+one Info line per spawn with `seated / restored / noEntry / applyFailed / unseated`, one Info
+line per rollback.
 
 Decisions:
 - Stand-ins: the inventory follows the SEAT. The capture-time reverse map

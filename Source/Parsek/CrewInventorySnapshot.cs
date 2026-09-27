@@ -22,6 +22,12 @@ namespace Parsek
         public int ApplyFailed;
         /// <summary>Recorded entries whose kerbal is not seated in the spawn snapshot.</summary>
         public int Unseated;
+        /// <summary>
+        /// Each restored kerbal's roster inventory as it was BEFORE the restore (the node may
+        /// be null: the roster held no inventory yet). <see cref="CrewInventorySnapshot.RollbackRestore"/>
+        /// writes these back when the spawn fails after the restore ran.
+        /// </summary>
+        public List<KeyValuePair<string, ConfigNode>> Priors;
     }
 
     /// <summary>
@@ -198,7 +204,24 @@ namespace Parsek
             Func<string, ConfigNode, bool> applyInventory,
             string context)
         {
-            var result = new CrewInventoryRestoreResult();
+            return RestoreForSpawn(spawnNode, null, applyInventory, context);
+        }
+
+        /// <summary>
+        /// <see cref="RestoreForSpawn(ConfigNode, Func{string, ConfigNode, bool}, string)"/> that
+        /// also records each restored kerbal's prior roster inventory through
+        /// <paramref name="readPrior"/> (read before applying) for <see cref="RollbackRestore"/>.
+        /// </summary>
+        internal static CrewInventoryRestoreResult RestoreForSpawn(
+            ConfigNode spawnNode,
+            Func<string, ConfigNode> readPrior,
+            Func<string, ConfigNode, bool> applyInventory,
+            string context)
+        {
+            var result = new CrewInventoryRestoreResult
+            {
+                Priors = new List<KeyValuePair<string, ConfigNode>>()
+            };
             if (spawnNode == null)
                 return result;
 
@@ -236,7 +259,11 @@ namespace Parsek
                 bool applied = false;
                 try
                 {
+                    // Read the prior state BEFORE applying, so a failed spawn can put it back.
+                    ConfigNode prior = readPrior != null ? readPrior(name) : null;
                     applied = applyInventory != null && applyInventory(name, inventory.CreateCopy());
+                    if (applied)
+                        result.Priors.Add(new KeyValuePair<string, ConfigNode>(name, prior));
                 }
                 catch (Exception ex)
                 {
@@ -271,7 +298,50 @@ namespace Parsek
         /// </summary>
         internal static CrewInventoryRestoreResult RestoreForSpawnLive(ConfigNode spawnNode, string context)
         {
-            return RestoreForSpawn(spawnNode, ApplyToRosterKerbal, context);
+            return RestoreForSpawn(spawnNode, ReadRosterPrior, ApplyToRosterKerbal, context);
+        }
+
+        /// <summary>
+        /// Puts every restored kerbal's pre-restore roster inventory back through
+        /// <paramref name="writePrior"/> (name, prior node or null). Called on the spawn
+        /// primitives' failure paths after <see cref="RestoreForSpawn"/> ran, so a spawn
+        /// that never produced a vessel does not leave the recorded inventory on the
+        /// roster. Returns the number of kerbals rolled back.
+        /// </summary>
+        internal static int RollbackRestore(
+            CrewInventoryRestoreResult result,
+            Func<string, ConfigNode, bool> writePrior,
+            string context)
+        {
+            if (result.Priors == null || result.Priors.Count == 0 || writePrior == null)
+                return 0;
+
+            int rolledBack = 0;
+            int failed = 0;
+            for (int i = 0; i < result.Priors.Count; i++)
+            {
+                bool ok = false;
+                try
+                {
+                    ok = writePrior(result.Priors[i].Key, result.Priors[i].Value);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"RollbackRestore: '{result.Priors[i].Key}' threw {ex.GetType().Name}: {ex.Message}");
+                }
+                if (ok) rolledBack++; else failed++;
+            }
+            ParsekLog.Info(Tag,
+                $"RollbackRestore: spawn failed after the crew inventory restore; rolled back " +
+                $"{rolledBack} kerbal(s), failed={failed} ({context ?? "no-context"})");
+            return rolledBack;
+        }
+
+        /// <summary>Live rollback entry point: <see cref="RollbackRestore"/> with the roster writer.</summary>
+        internal static int RollbackRestoreLive(CrewInventoryRestoreResult result, string context)
+        {
+            return RollbackRestore(result, WriteRosterPrior, context);
         }
 
         /// <summary>
@@ -350,10 +420,28 @@ namespace Parsek
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static ConfigNode CaptureOne(Vessel vessel, ProtoCrewMember pcm, out bool liveModule)
         {
-            liveModule = false;
-            if (pcm.type == ProtoCrewMember.KerbalType.Tourist)
-                return new ConfigNode(InventoryNodeName); // stock never gives tourists an inventory
+            ConfigNode liveNode = ReadLiveModuleInventory(vessel, pcm);
+            liveModule = liveNode != null;
+            return SelectCapturedInventory(liveNode, ReadRosterBackingField(pcm));
+        }
 
+        /// <summary>
+        /// Pure capture decision: a live module's saved node wins; otherwise a COPY of the
+        /// roster's backing node; a null backing node (the kerbal never had an inventory
+        /// materialized) records NO entry, so the restore leaves that kerbal alone. The
+        /// capture never reads <c>ProtoCrewMember.InventoryNode</c>, whose getter writes a
+        /// default inventory onto the roster when the backing field is null.
+        /// </summary>
+        internal static ConfigNode SelectCapturedInventory(ConfigNode liveModuleNode, ConfigNode rosterBackingNode)
+        {
+            if (liveModuleNode != null)
+                return liveModuleNode;
+            return rosterBackingNode != null ? rosterBackingNode.CreateCopy() : null;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static ConfigNode ReadLiveModuleInventory(Vessel vessel, ProtoCrewMember pcm)
+        {
             if (vessel.loaded && vessel.isEVA && vessel.parts != null)
             {
                 for (int p = 0; p < vessel.parts.Count; p++)
@@ -366,27 +454,107 @@ namespace Parsek
                     {
                         var node = new ConfigNode(InventoryNodeName);
                         module.Save(node);
-                        liveModule = true;
                         return node;
                     }
                 }
             }
 
+            return ReadScenarioInstanceInventory(pcm);
+        }
+
+        /// <summary>
+        /// A live <c>KerbalInventoryScenario</c> instance's contents, or null when none
+        /// exists. The instance check comes first so <c>KerbalInventoryModule</c>'s getter
+        /// (which would create an instance) only ever returns the existing one.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static ConfigNode ReadScenarioInstanceInventory(ProtoCrewMember pcm)
+        {
             KerbalInventoryScenario scenario = KerbalInventoryScenario.Instance;
-            if (scenario != null && scenario.ContainsCrew(pcm.name))
+            if (scenario == null || !scenario.ContainsCrew(pcm.name))
+                return null;
+            ModuleInventoryPart module = pcm.KerbalInventoryModule;
+            if (module == null)
+                return null;
+            var node = new ConfigNode(InventoryNodeName);
+            module.Save(node);
+            return node;
+        }
+
+        // ProtoCrewMember's private backing field behind InventoryNode (KSP 1.12.5,
+        // decompiled: private ConfigNode inventoryNode). Read directly because the property
+        // getter lazily runs SetDefaultInventory, which would mutate the roster on every
+        // snapshot refresh; written directly on rollback so a prior null is restored as null.
+        private static System.Reflection.FieldInfo inventoryBackingField;
+        private static bool inventoryBackingFieldResolved;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static System.Reflection.FieldInfo ResolveInventoryBackingField()
+        {
+            if (!inventoryBackingFieldResolved)
             {
-                ModuleInventoryPart module = pcm.KerbalInventoryModule;
-                if (module != null)
+                inventoryBackingFieldResolved = true;
+                inventoryBackingField = HarmonyLib.AccessTools.Field(typeof(ProtoCrewMember), "inventoryNode");
+                if (inventoryBackingField == null || inventoryBackingField.FieldType != typeof(ConfigNode))
                 {
-                    var node = new ConfigNode(InventoryNodeName);
-                    module.Save(node);
-                    liveModule = true;
-                    return node;
+                    inventoryBackingField = null;
+                    ParsekLog.Warn(Tag,
+                        "ProtoCrewMember.inventoryNode field not found; crew inventories are not " +
+                        "captured from the roster and a failed spawn cannot roll one back");
                 }
             }
+            return inventoryBackingField;
+        }
 
-            ConfigNode stored = pcm.InventoryNode;
-            return stored != null ? stored.CreateCopy() : null;
+        /// <summary>The roster's stored inventory without the lazy default (null when none).</summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static ConfigNode ReadRosterBackingField(ProtoCrewMember pcm)
+        {
+            System.Reflection.FieldInfo field = ResolveInventoryBackingField();
+            if (field == null || pcm == null)
+                return null;
+            return field.GetValue(pcm) as ConfigNode;
+        }
+
+        /// <summary>
+        /// Prior-state reader for the restore: a live instance's contents (the authoritative
+        /// current state, which the applier drops), else a copy of the backing node, else
+        /// null. Never runs the lazy default.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static ConfigNode ReadRosterPrior(string name)
+        {
+            KerbalRoster roster = HighLogic.CurrentGame?.CrewRoster;
+            ProtoCrewMember pcm = roster != null ? roster[name] : null;
+            if (pcm == null)
+                return null;
+            ConfigNode live = ReadScenarioInstanceInventory(pcm);
+            if (live != null)
+                return live;
+            ConfigNode backing = ReadRosterBackingField(pcm);
+            return backing != null ? backing.CreateCopy() : null;
+        }
+
+        /// <summary>
+        /// Rollback writer: sets the backing field to <paramref name="prior"/> (null allowed)
+        /// and drops any live instance so it rebuilds from the restored field.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static bool WriteRosterPrior(string name, ConfigNode prior)
+        {
+            KerbalRoster roster = HighLogic.CurrentGame?.CrewRoster;
+            ProtoCrewMember pcm = roster != null ? roster[name] : null;
+            System.Reflection.FieldInfo field = ResolveInventoryBackingField();
+            if (pcm == null || field == null)
+                return false;
+            field.SetValue(pcm, prior);
+            KerbalInventoryScenario scenario = KerbalInventoryScenario.Instance;
+            if (scenario != null && scenario.ContainsCrew(name))
+                scenario.RemoveKerbalInventoryInstance(name);
+            ParsekLog.Verbose(Tag,
+                $"WriteRosterPrior: '{name}' roster inventory rolled back (null={prior == null}, " +
+                $"storedParts={CountStoredParts(prior)})");
+            return true;
         }
 
         /// <summary>

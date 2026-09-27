@@ -362,6 +362,130 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Capture decision (no roster mutation)
+
+        [Fact]
+        public void SelectCapturedInventory_NullBackingField_NoEntry()
+        {
+            // The kerbal never had an inventory materialized: the capture must record
+            // nothing (never the InventoryNode getter's lazy default).
+            Assert.Null(CrewInventorySnapshot.SelectCapturedInventory(null, null));
+        }
+
+        [Fact]
+        public void SelectCapturedInventory_BackingField_IsCopied_SourceUntouched()
+        {
+            ConfigNode backing = Inventory("evaChute");
+
+            ConfigNode captured = CrewInventorySnapshot.SelectCapturedInventory(null, backing);
+            captured.GetNode("STOREDPARTS").AddNode("STOREDPART").AddValue("partName", "mutated");
+
+            Assert.NotSame(backing, captured);
+            Assert.Equal(new[] { "evaChute" }, StoredPartNames(backing));
+        }
+
+        [Fact]
+        public void SelectCapturedInventory_LiveModuleWinsOverBackingField()
+        {
+            ConfigNode live = Inventory("cargoContainer");
+
+            ConfigNode captured = CrewInventorySnapshot.SelectCapturedInventory(live, Inventory("evaChute"));
+
+            Assert.Equal(new[] { "cargoContainer" }, StoredPartNames(captured));
+        }
+
+        [Fact]
+        public void CaptureWithANullBackingKerbal_RecordsNoEntry_AndTheRestoreLeavesHimAlone()
+        {
+            // Seam walk of the capture: Jeb has a stored inventory, Bill's backing field is null.
+            var backingByKerbal = new Dictionary<string, ConfigNode>
+            {
+                { "Jebediah Kerman", Inventory("evaChute") },
+                { "Bill Kerman", null },
+            };
+            var entries = new List<KeyValuePair<string, ConfigNode>>();
+            foreach (var kvp in backingByKerbal)
+            {
+                ConfigNode inv = CrewInventorySnapshot.SelectCapturedInventory(null, kvp.Value);
+                if (inv != null)
+                    entries.Add(new KeyValuePair<string, ConfigNode>(kvp.Key, inv));
+            }
+            ConfigNode snap = new VesselSnapshotBuilder()
+                .AddPart("mk1-3pod", crew: "Jebediah Kerman")
+                .AddPart("mk1-3pod", crew: "Bill Kerman")
+                .Build();
+            CrewInventorySnapshot.WriteToSnapshot(snap, entries);
+
+            var applied = new List<string>();
+            CrewInventoryRestoreResult result = CrewInventorySnapshot.RestoreForSpawn(
+                snap, (name, inv) => { applied.Add(name); return true; }, "test");
+
+            Assert.Null(backingByKerbal["Bill Kerman"]);
+            Assert.Equal(new[] { "Jebediah Kerman" }, applied);
+            Assert.Equal(1, result.NoEntry);
+        }
+
+        #endregion
+
+        #region Rollback on a failed spawn
+
+        [Fact]
+        public void RollbackRestore_WritesEachPriorBack_IncludingANullPrior()
+        {
+            ConfigNode spawnNode = CrewedSnapshotWithInventory();
+            var roster = new Dictionary<string, ConfigNode>
+            {
+                { "Jebediah Kerman", Inventory("cargoContainer") },
+                { "Bill Kerman", null }, // no stored inventory before the spawn
+            };
+
+            CrewInventoryRestoreResult result = CrewInventorySnapshot.RestoreForSpawn(
+                spawnNode,
+                name => roster[name] != null ? roster[name].CreateCopy() : null,
+                (name, inv) => { roster[name] = inv; return true; },
+                "test");
+            Assert.Equal(2, result.Priors.Count);
+            Assert.Equal(2, CrewInventorySnapshot.CountStoredParts(roster["Jebediah Kerman"]));
+
+            int rolledBack = CrewInventorySnapshot.RollbackRestore(result,
+                (name, prior) => { roster[name] = prior; return true; }, "RespawnVessel null vesselRef");
+
+            Assert.Equal(2, rolledBack);
+            Assert.Equal(new[] { "cargoContainer" }, StoredPartNames(roster["Jebediah Kerman"]));
+            Assert.Null(roster["Bill Kerman"]);
+            Assert.Contains(logLines, l => l.Contains("[CrewInventory]")
+                && l.Contains("RollbackRestore: spawn failed after the crew inventory restore; rolled back 2 kerbal(s), failed=0")
+                && l.Contains("RespawnVessel null vesselRef"));
+        }
+
+        [Fact]
+        public void RollbackRestore_OnlyKerbalsThatWereApplied()
+        {
+            ConfigNode spawnNode = CrewedSnapshotWithInventory();
+            CrewInventoryRestoreResult result = CrewInventorySnapshot.RestoreForSpawn(
+                spawnNode, name => Inventory(), (name, inv) => name == "Bill Kerman", "test");
+            var rolled = new List<string>();
+
+            CrewInventorySnapshot.RollbackRestore(result, (name, prior) => { rolled.Add(name); return true; }, "test");
+
+            Assert.Equal(new[] { "Bill Kerman" }, rolled);
+        }
+
+        [Fact]
+        public void RollbackRestore_NoRestoreRan_IsANoOp()
+        {
+            int calls = 0;
+
+            int rolledBack = CrewInventorySnapshot.RollbackRestore(default(CrewInventoryRestoreResult),
+                (name, prior) => { calls++; return true; }, "test");
+
+            Assert.Equal(0, rolledBack);
+            Assert.Equal(0, calls);
+            Assert.DoesNotContain(logLines, l => l.Contains("RollbackRestore"));
+        }
+
+        #endregion
+
         #region Stand-ins
 
         [Fact]
