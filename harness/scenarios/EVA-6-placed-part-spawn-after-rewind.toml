@@ -381,10 +381,13 @@ allowedAnomalies = []
 [expectations.recordings]
 count = { min = 11, max = 11 }
 
-# REPORT-ONLY: the produced save holds the two spawned vessels, once each, and the
+# The produced save holds the two spawned vessels, once each, and the
 # fixture's capsule (`#autoLOC_501232`, kept as committed history since PR #1891).
+# ARMED 2026-09-27 off `2026-09-27_1026` (PASS attempt 1), the first reading on a DLL
+# carrying #1891: every name once. The earlier readings (`2026-09-26_2058` / `_2106`)
+# predate #1891 and read the capsule 0, the defect #1891 fixed.
 [expectations.recordings.structure]
-gating      = false
+gating      = true
 vesselNames = { "Grand Slam Passive Seismometer" = 1, "Jebediah Kerman" = 1, "#autoLOC_501232" = 1 }
 
 [expectations.logContracts]

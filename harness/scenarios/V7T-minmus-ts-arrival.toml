@@ -56,6 +56,11 @@ id = "V7T-minmus-ts-arrival"
 # finding read against a contract that moved underneath it. Arm this pair only once the
 # lane can go green on its own terms.
 #
+# 2026-09-27: IT DID. `2026-09-27_1230` PASS attempt 1 (automation DLL built from origin/main
+# 6437750ba), mapRenderTracing armed and the TS tracer writing, zero `icon-off-orbit` raises,
+# every save facet as before. Both save blocks are ARMED off that run. Why the raise stopped
+# is not established (todo MOON-LOOP-FINDINGS, finding 1).
+#
 # =====================================================================================
 # READING LEDGER (2026-08-08, two flights): **FLOWN, RED BY FINDING.**
 #
@@ -242,19 +247,18 @@ allowedAnomalies = []
 count = { min = 9, max = 9 }
 
 [expectations.rewind]
-# DECLARED, REPORT-ONLY (no `gating`), and LEFT THAT WAY BY THE 2026-08-08 ARMING SWEEP
-# even though both flights measured every window met (rewindPoints 0, supersedeRows 0,
-# tombstones 0, rewindRetirements 0). See the POSTURE note in the header: the three
-# green moon lanes were armed off their own reading runs; this lane is red by finding,
-# and arming a second gate on a verdict that already carries one is not the discipline
-# these blocks exist to follow.
+gating = true
+# ARMED 2026-09-27 off `2026-09-27_1230` (PASS attempt 1, rewindPoints 0, supersedeRows 0,
+# tombstones 0). The 2026-08-08 sweep left it report-only because the lane was then red by
+# finding; it now flies green with no expectedFail.
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]
-# DECLARED, REPORT-ONLY, same reason and the same measurement (committedTrees 1,
-# trees 1 on both flights); `trees` keeps the duplicate-writer hazard width.
+gating = true
+# ARMED 2026-09-27 off the same run (committedTrees 1, trees 1, as on both earlier
+# flights); `trees` keeps the duplicate-writer hazard width.
 committedTrees = { min = 1, max = 1 }
 trees          = { min = 1, max = 2 }
 

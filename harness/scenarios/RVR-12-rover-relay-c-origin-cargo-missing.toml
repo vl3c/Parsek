@@ -172,7 +172,10 @@ forbidden = [
   "BLOCKED kind=DestinationFull",
 ]
 
+# ARMED 2026-09-27 off the reading run `2026-09-27_1203` (PASS attempt 1, automation DLL built
+# from origin/main 6437750ba): every window met.
 [expectations.recordings.structure]
+gating = true
 trees          = { min = 3, max = 3 }
 committedTrees = { min = 3, max = 3 }
 recordings     = { min = 10, max = 12 }
@@ -185,8 +188,8 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 # window read exactly as declared - count=1 dormant=0 stops=2 sourceRefs=3
 # completedCycles=0 skippedCycles=1 statuses={Paused:1}; measured-only
 # holdKinds={OriginLacksCargo:1} - so the arming moved NO number. Any report-only
-# wording below is the authoring record. `recordings.structure` above stays a
-# report-only reading. ARMED RE-FLIGHT `2026-09-10_2125` (same DLL): PASS attempt 1,
+# wording below is the authoring record. `recordings.structure` above was a
+# report-only reading until 2026-09-27. ARMED RE-FLIGHT `2026-09-10_2125` (same DLL): PASS attempt 1,
 # saveParse gating PASS, armed ['routes'], no mismatch, every routes and structure facet
 # identical to the reading. The windows gate through the routes evaluator paths already
 # inverted live (RVR-7 skippedCycles, RVR-20 completedCycles, V18T statuses); the one

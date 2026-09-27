@@ -426,12 +426,12 @@ forbidden = [
   "routecommand rejected",
 ]
 
+# ARMED 2026-09-27 off the reading run `2026-09-27_1142` (PASS attempt 1, automation DLL built
+# from origin/main 6437750ba): every window met.
 [expectations.recordings.structure]
-# STILL REPORT-ONLY: NO `gating` KEY, deliberately. The standing arming rule
-# (`harness/lib/saveparse.py` -> `ARMED_ALLOWLIST`) is that a block is armed only after a
-# report-only READING run whose facets match the declared windows, and this spec has now
-# had exactly ONE (`2026-09-02_2244`), which read every value below. Arming is the
-# separate per-scenario operator decision that reading unlocks; it has not been taken.
+gating = true
+# AUTHORING RECORD: the block landed report-only and waited for a reading on current
+# code; it was armed 2026-09-27 (the line above the header).
 # The numbers were MEASURED off the committed fixture bytes by
 # `saveparse.observed_structure_facets` and re-asserted in `harness/lib` by
 # `RECORDED_FIXTURES`, and the flight confirmed them on the PRODUCED save too - the two
@@ -458,7 +458,7 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 # measured-only connectionKinds={DockingPort:2} originBodies={Kerbin:1}
 # destinationBodies={Kerbin:2} - the shape of the 2026-09-02 reading, so the arming
 # moved NO number. The report-only wording below is the authoring record.
-# `recordings.structure` above stays a report-only reading (it matched too: trees 3,
+# `recordings.structure` above was a report-only reading until 2026-09-27 (it matched too: trees 3,
 # committedTrees 3, recordings 9, Landed 5, Docked 2, Dock 2, Undock 2). ARMED
 # RE-FLIGHT in the 2026-09-11 closing round (same DLL): `2026-09-11_0300`, PASS attempt
 # 1, wall 48 s. saveParse gating PASS, armed ['routes'], no mismatch; every routes and

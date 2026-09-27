@@ -145,7 +145,10 @@ forbidden = [
   "SOI change boundary suppressed in tree mode: Pol to \\w+",
 ]
 
+# ARMED 2026-09-27 off the reading run `2026-09-25_2346` (PASS attempt 1): rewindPoints 0,
+# supersedeRows 0, tombstones 0 - an orbit mission authors nothing durable.
 [expectations.rewind]
+gating = true
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
