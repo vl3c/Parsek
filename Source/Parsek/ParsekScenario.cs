@@ -1143,7 +1143,6 @@ namespace Parsek
                 pendingStandalone: null,
                 pendingSplitRecorder: null,
                 pendingSplitInProgress: false,
-                chain: null,
                 currentUT: Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
                 loadedScene: HighLogic.LoadedScene);
         }
@@ -2524,12 +2523,6 @@ namespace Parsek
             treeNode.AddValue("isActive", "True");
 
             // Persist recorder state needed to resume after quickload.
-            // NOTE: BoundaryAnchor is a TrajectoryPoint struct with lat/lon/alt/rotation/
-            // velocity, and serializing just the UT is insufficient to reconstruct it on
-            // restore — RestoreActiveTreeFromPending explicitly leaves BoundaryAnchor
-            // unset. Either serialize the full TrajectoryPoint or don't write anything;
-            // we chose the latter because a missing anchor just produces one extra
-            // boundary point on the next chain continuation, which is benign.
             //
             // In outsider state (#266), recorder is null — there's no live rewind save
             // filename to persist. The tree's root recording still has rewindSave from
@@ -6047,7 +6040,6 @@ namespace Parsek
                 // pass after this scene-load OnLoad), so there is no in-flight payload state
                 // to lose, but a small set of [NonSerialized] mitigation flags
                 // (FilesDirty / SidecarLoadFailed / SidecarLoadFailureReason /
-                // ContinuationBoundaryIndex / Pre-Continuation snapshots /
                 // Pre-ReFly anchor trajectory) may already be set
                 // by earlier load-time code paths and the refresh must not wipe them. The
                 // structural fields (trajectory, orbit segments, track sections, terminal
@@ -6107,9 +6099,7 @@ namespace Parsek
                     : PendingTreeState.Limbo;
                 RecordingStore.StashPendingTree(tree, stashState);
 
-                // Read resume hints for the restore coroutine (rewind save filename only;
-                // BoundaryAnchor can't round-trip because we only have the UT, not the
-                // full TrajectoryPoint state — restore leaves it unset).
+                // Read resume hints for the restore coroutine (rewind save filename only).
                 pendingActiveTreeResumeRewindSave = treeNodes[t].GetValue("resumeRewindSave");
 
                 ParsekLog.Info("Scenario",
@@ -6752,8 +6742,6 @@ namespace Parsek
             {
                 var rec = recordings[i];
                 if (rec == null || !rec.IsTreeRecording) continue;
-
-                RecordingStore.RollbackContinuationData(rec);
 
                 rec.VesselSpawned = false;
                 rec.SpawnAttempts = 0;

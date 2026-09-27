@@ -56,7 +56,7 @@ saves. Cheats are process-static, never saved.
 | EnableCommNet | only read in `GhostCommNetRelay` (dead code, todo GUI-D3); ghosts CommNet-inert in every setting | OK in effect; ruling already pending under GUI-D3. If the relay is ever wired: null-guard `HighLogic.CurrentGame` and re-evaluate on difficulty change |
 | AllowOtherLaunchSites (MH) | launch-site capture exists; alt-site replay/spawn with the setting off untested (registry D17 unflown) | CHECK (low) |
 | AutoHireCrews | stock hires before flight; Parsek reservations hire replacements | CHECK (low): confirm the auto-hire path emits the same hire event Parsek's ledger captures |
-| persistKerbalInventories | not examined against inventory-carrying recordings / logistics pickups | CHECK (low) |
+| persistKerbalInventories | traced 2026-09-27: a spawned-at-end vessel gave each kerbal his current roster inventory (duplicated or lost cargo; the flag widens the duplication). Fixed by capturing crew inventories with the snapshot and restoring them at spawn (todo KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); logistics pickups walk part modules only, unaffected | FIXED |
 | AllowStockVessels | craft browser only | N/A |
 
 ### 2.3 Advanced (AdvancedParams) and CommNet (CommNetParams)
