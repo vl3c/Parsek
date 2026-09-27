@@ -1251,6 +1251,16 @@ _(unreleased — entries accumulate here per commit)_
   vessels. Vessels of the rewound flight, and of any recording that replays, are removed and
   spawned again as before.
 
+- **Rewinding a relaunch of a craft no longer deletes the earlier launch of that craft.** A
+  rewind removes the rewound flight's own vessel from the save it goes back to, and it found
+  that vessel by name. Launching a craft again gives the new vessel the same name, so rewinding
+  the second flight also removed the first one (for example the first Kerbal X, still landed
+  where you left it), and nothing brought it back. The rewind now also checks the vessel's
+  launch identity: a vessel with the craft's name from a different launch stays where it was.
+  When a recording has no launch identity, or the save does not hold the rewound flight's own
+  vessel, the name decides as before. A flight renamed in the recordings table after it was
+  flown now also has its own vessel removed on its rewind.
+
 - **After a revert or a rewind, debris and recovered vessels keep the ending they recorded.**
   Reverting a flight or rewinding to an earlier point used to wipe the "destroyed" or
   "recovered" ending from committed recordings that Parsek had marked as handled, which hit
