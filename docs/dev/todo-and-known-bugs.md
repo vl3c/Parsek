@@ -435,9 +435,13 @@ Owner rulings (2026-09-26):
   split (`ResolveSplitHandoffUT`; a breakup-continuous parent that flies on keeps its row);
   the child's own row decides the rest (respawn, permanent, recovered, still aboard). Log
   `Reservation bounded by split handoff`. Cells: `KerbalDeathRespawnTests.StagedFlight_*`.
-  OPEN (trace item G6, pre-existing merge behaviour, not fixed): while a respawn is still
+  ~~OPEN (trace item G6, pre-existing merge behaviour, not fixed): while a respawn is still
   pending, a kerbal who also has a LATER flight reads Reserved with a stand-in for the whole
-  merged range (including the dead / missing window) instead of Lost.
+  merged range (including the dead / missing window) instead of Lost.~~ FIXED 2026-09-27,
+  branch `kss2-career` (KSP-SETTINGS-FOLLOWUPS-2026-09-27 item 2): the loss is decided against
+  the walk clock (`KerbalsModule.IsLossHoldAt`), so before the respawn he reads Lost until the
+  respawn date with no stand-in, and from the respawn to the later flight's end the merged
+  hold is an ordinary reservation with a stand-in.
 - ~~S9 (Q3). Parsek is inert (no recording, ghosts or rewind; one log line) in `MISSION`,
   `MISSION_BUILDER`, `SCENARIO` and `SCENARIO_NON_RESUMABLE` games.~~ FIXED 2026-09-26,
   branch `kss-modes`: one pure predicate `ParsekGameModeGate` (`IsActiveMode` true only for
@@ -482,6 +486,19 @@ KSP-SETTINGS-AUDIT-2026-09-26 above (investigations in the session scratchpad, n
 - ~~1. A recovery / termination stamped every earlier same-vessel segment of the pending tree
   and the commit paid the recovery funds twice.~~ FIXED 2026-09-27: see
   RECOVERY-STAMPS-EARLIER-SEGMENTS-OF-THE-SAME-VESSEL below (the Re-Fly sibling edge stays open).
+- ~~2. G6: a respawn-on death merged with a LATER flight of the same kerbal that outlasts the
+  respawn read as an ordinary hold, so over the dead window (and before the death after a
+  rewind) the kerbal read Reserved on the later flight and a free stand-in covered his seat.~~
+  FIXED 2026-09-27: `KerbalsModule.IsLossHoldAt(r, walkClockUT)` decides the loss in
+  `PostWalk` (no slot, no stand-in while the clock is before `DeathRespawnUT`; unknown clock
+  fails closed), the walk records it on the rebuilt reservation (`LossAtWalkClock`) so
+  `IsLossHold` and its readers (Kerbals window, stock-screen marks, crew dialog) keep their
+  signatures, the Lost date reads `DeathRespawnUT` (`KerbalsModule.LossRespawnUT`,
+  `KerbalsPresentation.FormatLostUntilDate`, `ExplainKerbalReservation`), and
+  `ComputeNextReleaseUT` also returns the respawn so crossing it recalculates. Log `Death
+  hold: '<name>' lost until the respawn although a later flight extends the hold`. Cells:
+  `KerbalDeathRespawnTests.G6_*`, `IsLossHoldAt_Cases`,
+  `ComputeNextReleaseUT_IncludesARespawnInsideAnExtendedHold`.
 
 Handled on other branches (not here): Set Orbit / Set Position teleports inside a live
 recording (teleport seam), the launch-site tag on recordings, retirement of flights ending at

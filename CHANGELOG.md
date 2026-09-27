@@ -1215,6 +1215,14 @@ _(unreleased — entries accumulate here per commit)_
   the recovery payout again. Only the leg the vessel was actually flying at the recovery is
   marked now, so the payout is booked once; a flight that shed only debris is still marked as
   before.
+- **A kerbal who died and respawns reads Lost until his respawn even when he flies again
+  later.** With crew respawn on, a kerbal killed on a recorded flight who was then flown again
+  on a flight ending after his respawn read as reserved for that later flight over the whole
+  time, including while stock still had him dead or missing, and a free stand-in took his seat
+  there (also before the death after a rewind). He now reads Lost until the respawn date, with
+  no stand-in, exactly as with the death alone; from the respawn on the later flight holds him
+  as usual and a stand-in covers his seat, which now appears at the respawn without waiting for
+  a scene change.
 - **Career ledger follows non-Normal difficulty settings (science gain, declined contracts,
   zero starting pools).** Four gaps found by the stock-settings audit, each invisible on the
   Normal preset every test save uses:
