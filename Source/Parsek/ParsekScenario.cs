@@ -7684,7 +7684,7 @@ namespace Parsek
                     int snapshotsNulled = AutoCommitTreeGhostOnly(pt);
                     CommitPendingTreeAsApplied(pt);
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
-                    ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
+                    ScreenMessages.PostScreenMessage("[Parsek] Tree recording merged to timeline", 5f);
                     RecordingStore.RunOptimizationPass();
                     // snapshotsNulled is the fidelity fact this line exists to carry: it
                     // is the number of full-fidelity VesselSnapshots this branch DESTROYED

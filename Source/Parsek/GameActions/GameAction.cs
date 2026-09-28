@@ -437,6 +437,29 @@ namespace Parsek
     }
 
     /// <summary>
+    /// Why the recalculation walk left a row not counted (<see cref="GameAction.Effective"/>
+    /// false). Runtime only: stamped by the walk at the same sites that clear
+    /// <see cref="GameAction.Effective"/>, reset with it, never serialized. The Timeline's
+    /// row hover reads it to say why a greyed row paid or charged nothing.
+    /// </summary>
+    public enum GameActionNotCountedReason
+    {
+        None = 0,
+        /// <summary>A contract completion after the contract was already credited.</summary>
+        ContractAlreadyCompleted,
+        /// <summary>A contract completion after the contract's deadline already failed it.</summary>
+        ContractDeadlinePassed,
+        /// <summary>A contract completion after an explicit fail or cancel resolved it.</summary>
+        ContractAlreadyResolved,
+        /// <summary>A contract fail or cancel after the contract had already ended.</summary>
+        ContractOutcomeAfterEnd,
+        /// <summary>A milestone already achieved earlier in the walk.</summary>
+        MilestoneAlreadyAchieved,
+        /// <summary>A facility repair of a building the walk already has intact.</summary>
+        FacilityAlreadyIntact
+    }
+
+    /// <summary>
     /// Union type for all game actions on the ledger timeline.
     /// Uses a single class with nullable/sentinel fields — the <see cref="Type"/> field
     /// discriminates which fields are populated. Simpler serialization than an inheritance hierarchy.
@@ -476,6 +499,13 @@ namespace Parsek
         /// NOT serialized — recomputed from scratch on every recalculation walk.
         /// </summary>
         public bool Effective = true;
+
+        /// <summary>
+        /// Why the walk left this row not counted; <see cref="GameActionNotCountedReason.None"/>
+        /// on a counted row. Set by the same module sites that clear <see cref="Effective"/>,
+        /// reset with it by <c>RecalculationEngine.ResetDerivedFields</c>. NOT serialized.
+        /// </summary>
+        public GameActionNotCountedReason NotCountedReason;
 
         // ---- Science fields ----
 

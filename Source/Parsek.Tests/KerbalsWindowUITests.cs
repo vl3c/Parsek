@@ -633,7 +633,7 @@ namespace Parsek.Tests
             // His own name is not repeated ("Reserved for Jebediah Kerman" on his own row).
             Assert.Equal("Reserved until D18230", jeb.StatusText);
             Assert.Equal(
-                "Held by the committed flight Jumping Flea, which ends with this kerbal "
+                "Held on timeline by the flight Jumping Flea, which ends with this kerbal "
                 + "recovered. " + KerbalsPresentation.FormatReservationReleaseRule("D18230"),
                 jeb.StatusTooltipText);
             Assert.Equal("Free again from D18230, when that flight ends.",
@@ -661,7 +661,7 @@ namespace Parsek.Tests
             KerbalsPresentation.RosterRow bill = Find(set, "Bill Kerman");
             Assert.Equal("Reserved: aboard Kerbal X #2", bill.StatusText);
             Assert.Equal(
-                "Held by the committed flight Kerbal X #2, which ends with this kerbal "
+                "Held on timeline by the flight Kerbal X #2, which ends with this kerbal "
                 + "aboard Kerbal X #2. " + KerbalsPresentation.ReservationHoldRule,
                 bill.StatusTooltipText);
         }
@@ -681,7 +681,7 @@ namespace Parsek.Tests
 
             KerbalsPresentation.RosterRow jeb = Find(set, "Jebediah Kerman");
             Assert.Equal("Reserved", jeb.StatusText);
-            Assert.Equal("Held by a committed flight. "
+            Assert.Equal("Held by a flight on timeline. "
                          + KerbalsPresentation.ReservationHoldRule,
                 jeb.StatusTooltipText);
         }
@@ -728,7 +728,7 @@ namespace Parsek.Tests
             KerbalsPresentation.RosterRow lars = Find(set, "Lars Kerman");
             Assert.Equal("Reserved for Jebediah Kerman", lars.StatusText);
             // A finite hold: the hover says when it ends.
-            Assert.Equal("Held by a committed flight flown in Jebediah Kerman's seat. "
+            Assert.Equal("Held by a flight on timeline flown in Jebediah Kerman's seat. "
                          + KerbalsPresentation.FormatReservationReleaseRule("D4200"),
                 lars.StatusTooltipText);
         }
@@ -1866,7 +1866,7 @@ namespace Parsek.Tests
                 {
                     case KerbalsPresentation.RosterStatus.Lost:
                         // No death row to reach: the Re-Fly way back is never offered.
-                        Assert.Equal("Lost on a committed flight.", tip);
+                        Assert.Equal("Lost on a flight on timeline.", tip);
                         break;
                     case KerbalsPresentation.RosterStatus.Reserved:
                         Assert.EndsWith(KerbalsPresentation.ReservationHoldRule, tip);
