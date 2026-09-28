@@ -517,6 +517,7 @@ namespace Parsek
             for (int i = 0; i < sorted.Count; i++)
             {
                 sorted[i].Effective = true;
+                sorted[i].NotCountedReason = GameActionNotCountedReason.None;
                 sorted[i].EffectiveScience = 0f;
                 sorted[i].Affordable = false;
                 // Cleared alongside Affordable: the pair is what the unaffordable-re-lock

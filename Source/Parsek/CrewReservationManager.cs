@@ -402,11 +402,11 @@ namespace Parsek
             if (swaps == null || swaps.Count == 0) return null;
             if (swaps.Count == 1)
             {
-                return swaps[0].Key + " is reserved by a committed flight; "
+                return swaps[0].Key + " is reserved by timeline; "
                        + swaps[0].Value + " takes the seat.";
             }
             return swaps.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                   + " kerbals are reserved by committed flights; their stand-ins take the seats.";
+                   + " kerbals are reserved by timeline; their stand-ins take the seats.";
         }
 
         /// <summary>

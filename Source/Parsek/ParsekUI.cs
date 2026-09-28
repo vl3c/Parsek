@@ -945,7 +945,7 @@ namespace Parsek
             {
                 if (GUILayout.Button(new GUIContent(
                     GetKerbalsMainButtonLabel(),
-                    "Who is reserved, flying or retired in your timeline.")))
+                    "Who is reserved, flying or retired on timeline.")))
                 {
                     kerbalsUI.IsOpen = !kerbalsUI.IsOpen;
                     ParsekLog.Verbose("UI", $"Kerbals window toggled: {(kerbalsUI.IsOpen ? "open" : "closed")}");

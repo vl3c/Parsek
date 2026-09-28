@@ -243,7 +243,9 @@ namespace Parsek.Patches
             return true;
         }
 
-        private static IEnumerable<string> ActiveStrategyIds()
+        /// <summary>The ids stock has active now (the test seam when set); empty when
+        /// stock's strategy list is unreadable.</summary>
+        internal static IEnumerable<string> ActiveStrategyIds()
         {
             var seam = ActiveStrategyIdsProviderForTesting;
             if (seam != null) return seam();
