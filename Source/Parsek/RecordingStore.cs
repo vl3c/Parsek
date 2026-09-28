@@ -5250,7 +5250,7 @@ namespace Parsek
                     CommittedRecordings,
                     object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements))
             {
-                reason = "Recording was rewound out of the active timeline";
+                reason = "Recording was rewound out of timeline";
                 return false;
             }
 

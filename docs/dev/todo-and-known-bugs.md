@@ -124,6 +124,30 @@ read as a background vessel), the cleanup sites that null the field when the lat
 removed. The switch-segment subtree walk now finds branches by parent id (fixed above); the rest
 are unaudited for impact. Fix direction: the same parent-id lookup where a walk needs every child.
 
+## ~~TIMELINE-ROW-HOVERS: the Timeline explains every row, past and future~~ [DONE 2026-09-28, branch `timeline-row-hovers`, owner direction]
+
+**In gameplay terms.** The Timeline is the Parsek window that explains every element; the
+stock screens explain their blocks. Before this, a row's description had no hover at all (only
+its buttons did). Hovering a row now explains it in the bottom help line: a future row names
+the stock control it holds (the same predicate the click-block reads, so it never names a hold
+stock does not enforce), a contract accept names its deadline / advance / rewards / agent, a
+contract end names its flight and the rest of its rewards or penalty, a launch names its crew,
+how it ends and its mission, a greyed row says why it did not count, and the "now" divider
+says the rows below hold stock controls until their date. The same change replaces "your
+timeline" / "the timeline" / "committed" with "timeline" in Parsek's own windows.
+
+**Fix.** `Timeline/TimelineRowHover.cs` (pure builders + `TimelineRowHoverTracker`),
+`ReservationExplanation.ForTimelineRow`, `GameAction.NotCountedReason` (runtime only, not a
+schema change), `TimelineEntry.Action` / `PairedContractComplete`. Contract of record:
+`design-gui-inventory.md` 3.3 "Row hover". Tests: `TimelineRowHoverTests`,
+`TooltipEchoBudgetTests.TimelineRowHovers_FitTheTimelineStrip`.
+
+**Not done (by choice).** Tech rows do not list the parts they unlock (the part list needs
+`PartLoader`, a live-scene dependency); a facility repair row claims no hold (the repair block
+depends on the building being destroyed at click time, which a row cannot know); a future
+contract accept's hover (hold plus terms) is longer than one strip line and scrolls in the
+marquee.
+
 ## ~~GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight~~ [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. FIXED 2026-09-28, branch `gs8-watch-hold`]
 
 **In gameplay terms.** The player watches a replayed Kerbal X to the end of its flight. At

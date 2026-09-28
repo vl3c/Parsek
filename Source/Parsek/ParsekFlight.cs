@@ -13492,9 +13492,9 @@ namespace Parsek
 
             Log($"CommitTreeFlight: committed tree \"{treeName}\" — {spawnCount} vessel(s) spawned");
             if (spawnCount > 0)
-                ParsekLog.ScreenMessage($"Tree committed to timeline! {spawnCount} vessel(s) spawned.", 3f);
+                ParsekLog.ScreenMessage($"Tree merged to timeline! {spawnCount} vessel(s) spawned.", 3f);
             else
-                ParsekLog.ScreenMessage("Tree committed to timeline!", 3f);
+                ParsekLog.ScreenMessage("Tree merged to timeline!", 3f);
 
             // M6 Record-Supply-Run helper: one-time non-blocking prompt when
             // this commit produced an eligible route candidate. Covers the

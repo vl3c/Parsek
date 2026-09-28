@@ -755,6 +755,7 @@ namespace Parsek
             // accept it closes; each re-accept carries its own deadline.
             var contractAcceptHistory = GameActionDisplay.BuildContractAcceptHistory(ledgerActions);
             int contractExpiredRows = 0;
+            var completesByContract = BuildContractCompleteIndex(ledgerActions);
             int facilityBuildingRowsCompacted;
             List<GameAction> compactedActions =
                 CompactFacilityBuildingActions(ledgerActions, out facilityBuildingRowsCompacted);
@@ -866,7 +867,11 @@ namespace Parsek
                     MilestoneRepAwarded = action.MilestoneRepAwarded,
                     MilestoneScienceAwarded = action.MilestoneScienceAwarded,
                     CareerCategory = careerCategory,
-                    CareerSubjectId = TimelineCareerCategories.ResolveSubjectId(action, careerCategory)
+                    CareerSubjectId = TimelineCareerCategories.ResolveSubjectId(action, careerCategory),
+                    Action = action,
+                    PairedContractComplete = action.Type == GameActionType.ContractAccept
+                        ? FindPairedContractComplete(completesByContract, action)
+                        : null
                 });
                 count++;
             }
@@ -912,6 +917,58 @@ namespace Parsek
                     $"none={categoryCounts[(int)TimelineCareerCategory.None]}");
 
             return count;
+        }
+
+        /// <summary>
+        /// Every ContractComplete row of the ledger, by contract id, UT ascending. Rows with
+        /// no contract id carry no identity to pair on and are left out.
+        /// </summary>
+        internal static Dictionary<string, List<GameAction>> BuildContractCompleteIndex(
+            IReadOnlyList<GameAction> actions)
+        {
+            var byContract = new Dictionary<string, List<GameAction>>(StringComparer.Ordinal);
+            if (actions == null) return byContract;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                GameAction a = actions[i];
+                if (a == null || a.Type != GameActionType.ContractComplete
+                    || string.IsNullOrEmpty(a.ContractId))
+                    continue;
+                List<GameAction> list;
+                if (!byContract.TryGetValue(a.ContractId, out list))
+                {
+                    list = new List<GameAction>();
+                    byContract[a.ContractId] = list;
+                }
+                list.Add(a);
+            }
+            foreach (var kv in byContract)
+                kv.Value.Sort((x, y) => x.UT.CompareTo(y.UT));
+            return byContract;
+        }
+
+        /// <summary>
+        /// The first ContractComplete row of <paramref name="accept"/>'s contract at or after
+        /// the accept, or null. A counted completion is preferred over a not-counted one at
+        /// any later UT, so a re-accepted contract's hover does not name the rewards of a
+        /// duplicate completion the walk zeroed.
+        /// </summary>
+        internal static GameAction FindPairedContractComplete(
+            Dictionary<string, List<GameAction>> completesByContract, GameAction accept)
+        {
+            if (completesByContract == null || accept == null || string.IsNullOrEmpty(accept.ContractId))
+                return null;
+            List<GameAction> list;
+            if (!completesByContract.TryGetValue(accept.ContractId, out list)) return null;
+            GameAction firstAny = null;
+            for (int i = 0; i < list.Count; i++)
+            {
+                GameAction c = list[i];
+                if (c.UT < accept.UT) continue;
+                if (c.Effective) return c;
+                if (firstAny == null) firstAny = c;
+            }
+            return firstAny;
         }
 
         /// <summary>
@@ -967,6 +1024,7 @@ namespace Parsek
                     FacilityId = a.FacilityId,
                     FacilityCost = a.FacilityCost,
                     Effective = a.Effective,
+                    NotCountedReason = a.NotCountedReason,
                 };
                 anchors[key] = anchor;
                 result.Add(anchor);

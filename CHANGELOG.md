@@ -10,6 +10,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Timeline rows explain themselves on hover.** Hovering a row's description in the
+  Timeline now explains it in the window's bottom help line. A future row that holds a stock
+  control names it, from the same check the stock screen's block uses: `Holds Research in R&D
+  until Y1, D06, 14:05.`, `Holds Accept and Decline in Mission Control until ...`, `Holds
+  Cancel in Mission Control ...`, `Holds Upgrade on this facility ...`, `Holds Hire in the
+  Astronaut Complex ...`, the Administration strategy button the strategy shows now (Activate
+  while it is inactive, Deactivate while it is active), and a part purchase. A
+  contract accept names its deadline, advance, rewards (from its completion) and agent; a
+  contract completion or failure names the flight and the rep, science or penalty the row
+  text leaves out. A launch names its crew, how the launched vessel ends and its mission
+  (`Crew: Jebediah, Bill, Bob. Ends landed at Midlands on Mun. Mission: Mun Landing.`). A
+  greyed row says why it did not count (`Not counted: already completed earlier on
+  timeline, so no reward was paid.`), and the "now" divider says the rows below happen on
+  their date and hold stock controls until then. The text is built only for the hovered
+  row.
 - **Dev: the automated tests can press Stash, and a lane re-flies a stashed slot whose flight went EVA.** A new test command, `StashSlot`, presses the Recordings table's per-row Stash button (the same handler) and checks that the slot now shows as an Unfinished Flight. `RF-20-stashed-eva-slot-refly` (flown green 2026-09-27) uses it: a staged orbital flight where a kerbal steps out and back in is committed, the crewed stage (a stable orbit, so not an Unfinished Flight on its own) is stashed, re-flown from the separation and merged, and the merge must replace the old flight including the kerbal's EVA and close the slot
 - **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
 
@@ -2132,6 +2147,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Parsek's own windows say "timeline", not "your timeline", "the timeline" or
+  "committed".** The Kerbals launcher hover, the Kerbals window's Reserved and Lost hovers
+  (`Held on timeline by the flight ...`, `Lost on a flight on timeline.`), the reserved-crew
+  swap message (`Jebediah Kerman is reserved by timeline; Debwig Kerman takes the seat.`),
+  the Re-Fly merge and seal dialogs, the warp-to-time rewind confirmation, the dormant-route
+  delete dialog and help, the Logistics near-miss fold, the fast-forward refusal and the
+  merge screen messages (`Tree merged to timeline!`) now use the same word as the stock
+  screens.
 - **The reservation explanations on the stock screens are one short sentence.** Every
   hover, button tooltip, refused-click dialog and row label now reads like "Researched on
   Y1, D06, 14:05, blocked by timeline until then." or, for a kerbal, "Reserved by timeline

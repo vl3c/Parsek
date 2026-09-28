@@ -396,7 +396,7 @@ stands out from every sub-window title (2026-09-22, owner review round 1).
 | `Timeline` | `Every recorded flight and career event on one clock.` | `:794` | none | `timelineUI.IsOpen` `:798` |
 | `Missions` | `Your missions, and the recordings they are built from.` | `:806` | none | `ToggleRecordingsWindow()` `:809` |
 | `Logistics` | `Supply routes that repeat a delivery you already flew.` | `:885` | none | `logisticsUI.IsOpen` `:889`; tinted red when `LogisticsButtonState.AnyRouteHardBroken` (`UI/LogisticsButtonState.cs:27`), else cyan while a route prompt pends (`:874-884`, broken outranks hint) |
-| `Kerbals` | `Who is reserved, flying or retired in your timeline.` | `:914` | `IsVisible(MainButtonKerbals)` `:904` | `kerbalsUI.IsOpen` `:918` |
+| `Kerbals` | `Who is reserved, flying or retired on timeline.` | `:914` | `IsVisible(MainButtonKerbals)` `:904` | `kerbalsUI.IsOpen` `:918` |
 | `Gloops Flight Recorder` | `Record a ghost-only flight that your career ignores.` | `:943` | `IsVisible(MainButtonGloops)` `:941` - **never true** (`UI/UiComplexityMode.cs:140-143`, short-circuit `:162`) | would flip `gloopsUI.IsOpen` `:947` |
 | `Settings` | `Recording, looping, ghost and diagnostic options.` | `:955` | none | `ToggleSettingsWindow()` `:958` |
 
@@ -618,6 +618,28 @@ more right-aligned action buttons. Row colour is one of six cached styles (`:126
 strikethrough when `!IsEffective`, dim when future, blue when `IsPlayerAction`, else green /
 red / white.
 
+Row hover (2026-09-28, `timeline-row-hovers`): the description label carries a tooltip that
+the single-line echo strip shows, and only the row hovered on the last Repaint gets one
+(`TimelineRowHoverTracker`: the row index whose rect held the mouse is published at the end of
+the Repaint pass, the text is memoized per `TimelineEntry` and rebuilt when the row crosses
+now, the memo clears on every cache rebuild; the label stays ONE control either way). The text
+is `TimelineRowHover.Compose` of three parts: the walk's not-counted reason on a grey row
+(`GameAction.NotCountedReason`, runtime only, stamped at the `ContractsModule` /
+`MilestonesModule` / `FundsModule` repair sites that clear `Effective` and reset with it in
+`RecalculationEngine.ResetDerivedFields`); on a future row, the stock control it holds
+(`ReservationExplanation.ForTimelineRow`: the click-block predicates over
+`CommittedFutureIndexCache.Current`, `Holds <control> until <row date>.`; a repair row never
+claims one, a part purchase reads `StockUiPartPurchase.DecideLive`, a strategy names only the
+button stock shows now - Activate while inactive, Deactivate while active - from
+`StrategyReservationGate.ActiveStrategyIds`); then the row kind's
+details (contract accept: deadline, advance, the rewards of the first counted completion
+`TimelineBuilder.FindPairedContractComplete` stamps on `TimelineEntry.PairedContractComplete`,
+the snapshot agent; contract end: flight, rep / science or penalty; launch: crew from the
+snapshot, `ResolveLaunchEnd` over the same launch's chain and tree, the original mission's
+name). The "now" divider label hovers `NowDividerTooltip`. Budget: the literal floor is 19,
+and `TooltipEchoBudgetTests.TimelineRowHovers_FitTheTimelineStrip` pins each builder's worst
+case; a future accept (hold plus terms) is the one composition that runs into the marquee.
+
 Row text for career rows: a contract row (Accept / Complete / Fail / Cancel) names the
 contract - its own `ContractTitle`, else the title of the same contract's accept in the ELS
 (`GameActionDisplay.BuildContractAcceptIndex`), else the humanized contract type, else
@@ -823,7 +845,7 @@ modes not because the gate says keep but because nothing asks - the two census t
 byte-identical at 58 nodes each.
 
 Six bubbles inside one scroll view (`:541-554`). Only THREE are caret disclosures with a count
-badge - Dormant Routes (`:675`), `Recently committed trees not yet eligible` (`:777`) and
+badge - Dormant Routes (`:675`), `Recently merged trees not yet eligible` (`:777`) and
 `Dismissed` (`:844`); Active, Paused and Candidates are drawn unconditionally with a plain
 centred title (`:544-545`). Per-ROW expand is separate (`:979`, `:1487`).
 
