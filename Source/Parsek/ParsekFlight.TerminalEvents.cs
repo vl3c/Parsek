@@ -577,8 +577,7 @@ namespace Parsek
             {
                 bool activeDestroyed = recorder == null || !recorder.IsRecording
                     || recorder.VesselDestroyedDuringRecording;
-                if (RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
-                    activeTree.ActiveRecordingId, activeDestroyed))
+                if (RecordingTree.AreAllLeavesTerminal(activeTree, activeDestroyed))
                 {
                     treeDestructionDialogPending = true;
                     ParsekLog.Info("Flight",

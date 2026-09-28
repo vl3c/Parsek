@@ -210,7 +210,8 @@ namespace Parsek
                 // Conversely, a tree child that IS the leaf for its vessel should spawn. (#227)
                 bool hasSamePidContinuation = HasSamePidTreeContinuation(rec, recordings);
                 bool isTreeLeaf = isTreeChild && !hasSamePidContinuation
-                    && string.IsNullOrEmpty(rec.ChildBranchPointId);
+                    && (string.IsNullOrEmpty(rec.ChildBranchPointId)
+                        || IsBreakupContinuousSpawnLeaf(rec));
 
                 // RecordingStart — only for true launches and EVAs.
                 // Skip: optimizer-split segments (ChainIndex > 0) and tree branch children
@@ -553,6 +554,22 @@ namespace Parsek
                     return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// A recording with a child branch point but no same-PID continuation (checked by the
+        /// caller) is still its vessel's leaf when it kept flying past the split: the
+        /// breakup-continuous shape. Mirrors the spawn gate's effective-leaf test
+        /// (<c>GhostPlaybackLogic.ShouldSpawnAtRecordingEnd</c>: non-debris with a
+        /// spawnable terminal), so a parent absorbed by a dock (terminal Docked) stays out.
+        /// </summary>
+        internal static bool IsBreakupContinuousSpawnLeaf(Recording rec)
+        {
+            return rec != null
+                && !string.IsNullOrEmpty(rec.ChildBranchPointId)
+                && !rec.IsDebris
+                && rec.TerminalStateValue.HasValue
+                && GhostPlaybackLogic.IsSpawnableTerminal(rec.TerminalStateValue.Value);
         }
 
         // ---- Game Action Collector ----

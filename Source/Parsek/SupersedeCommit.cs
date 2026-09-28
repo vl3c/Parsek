@@ -1534,6 +1534,7 @@ namespace Parsek
             // exclusion-safe.
             const double UtSlackSeconds = 0.001;
             double cutoffWithSlack = cutoffSource + UtSlackSeconds;
+            int debrisOnlyExcludedCount = 0;
 
             for (int i = 0; i < tree.BranchPoints.Count; i++)
             {
@@ -1562,6 +1563,14 @@ namespace Parsek
                     lineageExcludedCount++;
                     continue;
                 }
+                // Owner ruling 2026-09-28: a staging that dropped only debris leaves nothing
+                // re-flyable, so it does not seal the slot (same shape the classifier's
+                // downstream check ignores).
+                if (UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch(bp, rec, tree))
+                {
+                    debrisOnlyExcludedCount++;
+                    continue;
+                }
 
                 matchedCount++;
                 if (firstBpId == null)
@@ -1570,6 +1579,12 @@ namespace Parsek
                     firstBpType = bp.Type;
                 }
             }
+
+            if (debrisOnlyExcludedCount > 0)
+                ParsekLog.Verbose("Supersede",
+                    $"StructuralMutation scan: rec={rec?.RecordingId ?? "<null>"} ignored " +
+                    $"{debrisOnlyExcludedCount.ToString(CultureInfo.InvariantCulture)} debris-only staging branch point(s) " +
+                    $"matched={matchedCount.ToString(CultureInfo.InvariantCulture)}");
 
             return matchedCount > 0;
         }
