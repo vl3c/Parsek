@@ -1,4 +1,4 @@
-# In-game test category inventory (all 122 categories)
+# In-game test category inventory (all 123 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -120,6 +120,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6, H44 (TRACKSTATION slice, flown 2026-08-28, executes 9 of 25 - the WHOLE TS slice, zero run-time skips) | B |
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the map cell wants ghost map vessels, which no unattended FLIGHT batch arms). NOT an LT-2 constituent: its SPACECENTER slice measured the same skip on the census | B |
 | `GhostPlayback` | 42 | 41 | 1 | 1 | 1 | 12 | S1.4 | B |
+| `GhostReapplyFrame` | 1 | 1 | 0 | 0 | 0 | 1 | NOT DRIVEN (GHOST-SURFACE-HEIGHT-FLICKER-ON-PORTRAIT-FRAMES, 2026-09-28, branch `ghost-ground-flicker`). One FLIGHT cell that parks a probe below PQS at the active vessel's ground track through the production surface-positioning path, renders a throwaway camera between Update and LateUpdate on alternate frames (what the stock crew-portrait coroutine does) and asserts the probe draws at the same terrain-clamped altitude every frame. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips without a ParsekFlight instance, an active vessel over PQS terrain, or a vessel within 2 km of its ground track. NEVER FLOWN. Bucket **B** until a lane with a landed or low active vessel drives it | B |
 | `GhostVisuals` | 4 | 4 | 3 | 3 | 0 | 0 | H15 | A |
 | `GuiMock` | 4 | 0 | 4 | 0 | 0 | 4 | NOT DRIVEN (P1 of the GUI state gallery, 2026-09-22). Four SPACECENTER cells (five until the 2026-09-27 removal of the Career State window took its apply cell) proving the one thing no headless cell can reach: that a mocked view model, installed into a real window, is actually DRAWN, that the cache suppression holds across a live `onVesselChange` and a live ledger-invalidate dispatch, that a `SaveGame` attempt is refused while a scope is live, and that every declared suppression site is inert with no scope. Its OWN category for the standing reason - a cell added to an existing category moves a `BATCH_COMPLETE` tally committed specs pin - and it RE-OPENS the driven axis at 113 of 114, deliberately: P1 ships no lane (the gallery lanes and the `GalleryRun` batch verb are P2), so there is nothing to claim the row with yet and claiming it from an unrelated census lane would be a tally nobody measured. NEVER FLOWN - every pin in the file is a prediction, and each failure message prints what it measured so the first flight corrects a pin rather than guessing at one. The self-skip column is 5: every cell degrades to `InGameAssert.Skip` naming the missing context (no live `ParsekUI`, a window hidden by the current complexity mode, a state absent from the catalogue) rather than failing on a host it cannot use. Bucket **C** until P2's lane drives it | C |
 | `GuiTree` | 1 | 1 | 1 | 1 | 0 | 1 | GUI-1-census-ksc (one ordinary `RunTests category="GuiTree"` step added 2026-09-11, and LIVE-PROVEN the same day: reading run `2026-09-11_0548`, PASS attempt 1, 96 s wall, every verifier PASS or REPORT, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree scene=SPACECENTER` matched verbatim and now pinned WHOLE off that run. THREE EXECUTIONS READ THE IDENTICAL LINE - runs `2026-09-10_2255` and attempt 2 `_2256` first, inside a lane that read INVALID on one unrelated seam step, then `_0548` under a verdict - with the run-time self-skip NOT firing on any of them (`repaintPasses=5`, so its probe window saw a Repaint pass well inside the 240-frame budget). The lane is the KSC GUI census, so the batch runs at SPACECENTER, where the attributes derive total=1 = 0 scene-skipped + 0 batch-skipped + 1 executable - measured exactly. It draws its own probe window, so no host fixture is at stake and the census lane was the cheapest carrier rather than a considered host choice; the flights confirm that reading, since the probe drew on the one host that was tried. PROMOTED to bucket **A** by the reading run, on the promotion rule below - the tally is pinned WHOLE *and* the lane drives the category at its own boot; GUI-1 is an ordinary single-category lane, so it joins A1's path rather than A3's. The self-skip column stays 1: the cell can still give up if no Repaint arrives, and the skip is what it falls back to) | A |
@@ -216,8 +217,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **122 categories / 657 declarations**. Buckets **A 92 categories
-(366 declarations)**, **B 29 categories (287 declarations)**, **C 1 category (4
+Totals, re-derived: **123 categories / 658 declarations**. Buckets **A 92 categories
+(366 declarations)**, **B 30 categories (288 declarations)**, **C 1 category (4
 declarations)** - the C row is `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes).
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
@@ -331,10 +332,12 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **120 of 122 categories**, covering **652 of 657
+Driven by a committed spec: **120 of 123 categories**, covering **652 of 658
 declarations** (re-derived mechanically the same way: count the table rows whose
-Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 657 declarations in
-122 categories over `Source/Parsek`. The 2026-09-27 auto-hire live check opened a 122nd row,
+Driven-by cell is not `-` or NOT DRIVEN, and sum their Decls column - `hlib` reads 658 declarations in
+123 categories over `Source/Parsek`. The 2026-09-28 surface-ghost flicker fix
+(GHOST-SURFACE-HEIGHT-FLICKER-ON-PORTRAIT-FRAMES) opened a 123rd row, `GhostReapplyFrame`, UNCLAIMED
+(one FLIGHT cell, no lane yet). The 2026-09-27 auto-hire live check opened a 122nd row,
 `AutoHireReservation`, already driven by AH-1 (not yet flown). The 2026-09-27 chain-state removal deleted
 `ContinuationIntegrity` (2 cells, bucket A via LT-1) with the recording fields it checked. The 2026-09-27 crew inventory capture / restore
 (KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN) opened a row, `KerbalInventorySpawn`, UNCLAIMED
@@ -1105,7 +1108,7 @@ drive WHOLE: `Contracts` (2 of 2, LT-3), `RouteLiveAnchor` (1 of 1, LT-4) and
 to be read against, and LT-1 flew its own 30-constituent pin green the same evening
 (`2026-09-07_2030`, 292 s).
 
-### Bucket B - wireable, but needs something first (29 categories, 287 declarations)
+### Bucket B - wireable, but needs something first (30 categories, 288 declarations)
 
 Not one list but seven reasons, and the reason is what decides whether it is worth
 doing. (Seven since 2026-09-10, when the GUI-tree dump spike added B7; B7 is RETIRED as of

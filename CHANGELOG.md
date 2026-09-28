@@ -1223,6 +1223,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Ghosts on the ground no longer jump up and down while crew portraits are showing.** A replayed
+  EVA kerbal or a Breaking Ground part he placed, recorded standing slightly below the terrain height
+  KSP reports, is lifted just clear of the ground as it replays. On the frames where stock redrew a
+  crew portrait (about eight times a second), that lift was skipped and the ghost drew at its
+  recorded height, so it flickered between the two, about a metre apart. Every frame now shows the
+  same height. The log line `Ghost camera pre-cull before LateUpdate: kept N reapply entries for
+  LateUpdate` marks the frames that used to flicker.
 - **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
   earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
   the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,
