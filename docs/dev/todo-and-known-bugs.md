@@ -103,10 +103,16 @@ do not end re-flyability at the earlier split; a controllable child still does.
 `UnfinishedFlightClassifier.HasBlockingDownstreamBranch` checks every branch point the walked tip
 parents at or after the rewind point's own branch (by parent id, so an earlier controllable split
 overwritten by a later debris staging still blocks) and ignores the two non-blocking shapes
-(`IsNonBlockingDownstreamBranch`). Site B-1's auto-seal reads the same verdict. Design:
+(`IsNonBlockingDownstreamBranch`, which needs at least one recorded child, all debris). Follow-up
+ruling 2026-09-28 (the review found Site B-1 still sealing through the structural-mutation gate):
+a debris-only staging DURING a Re-Fly does not seal the slot either;
+`SupersedeCommit.HasReFlySessionStructuralMutation` skips the same shape. Design:
 `docs/parsek-rewind-to-separation-design.md` section 1.7. Tests: five cells in
 `SwitchContinuationTerminalWalkTests` (debris-only qualifies, controllable child rejects, Launch
-qualifies, overwritten controllable split rejects, a pre-rewind branch is not downstream).
+qualifies, overwritten controllable split rejects, a pre-rewind branch is not downstream), two in
+`SupersedeCommitTests` (debris-only session staging is not a mutation, controllable still is) and
+the edge cells in `BreakupContinuousLeafTests` (Breakup type, same-pid debris, missing / no child,
+no tree, missing rewind branch).
 
 ## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
 

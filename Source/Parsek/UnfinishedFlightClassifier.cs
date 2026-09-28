@@ -226,6 +226,7 @@ namespace Parsek
                     LogVerdict(false, recId, reason,
                         WithBranchSide(
                             $"chainTipChildBp={chainTip.ChildBranchPointId} matchedRpBp={rp.BranchPointId ?? "<none>"} " +
+                            $"blockingBp={blockingBpId ?? chainTip.ChildBranchPointId} " +
                             $"downstreamRp={hasResolvedDownstreamRp} walkStop={walk.StopReason ?? "<none>"}",
                             branchSide));
                     return false;
@@ -825,8 +826,10 @@ namespace Parsek
         /// id, not only the tip's <c>ChildBranchPointId</c>, because a later staging overwrites
         /// that link; one before the rewind point's own branch is not downstream and is skipped.
         /// Non-blocking (owner ruling 2026-09-28): a post-switch Launch branch, and a
-        /// Breakup / JointBreak whose children are all debris with another pid and which has no
-        /// rewind point of its own. Anything unresolvable blocks, as before.
+        /// Breakup / JointBreak with at least one recorded child, all of them debris with another
+        /// pid, and no rewind point of its own. Anything unresolvable or childless blocks, as
+        /// before. The same shape does not count as a structural mutation at a Re-Fly merge
+        /// (<c>SupersedeCommit.HasReFlySessionStructuralMutation</c>).
         /// </summary>
         internal static bool HasBlockingDownstreamBranch(
             Recording rec,
@@ -899,7 +902,10 @@ namespace Parsek
                 return true;
             if (bp.Type != BranchPointType.Breakup && bp.Type != BranchPointType.JointBreak)
                 return false;
-            if (bp.ChildRecordingIds == null || tree?.Recordings == null)
+            // At least one recorded child, all debris: an empty branch has not shown that
+            // it dropped only debris, so it keeps blocking as before.
+            if (bp.ChildRecordingIds == null || bp.ChildRecordingIds.Count == 0
+                || tree?.Recordings == null)
                 return false;
             for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
             {

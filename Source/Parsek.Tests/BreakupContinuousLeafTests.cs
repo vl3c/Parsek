@@ -759,7 +759,68 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region MissionCrossTreeDock journey
+        #region UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch edges
+
+        [Fact]
+        public void IsNonBlockingDownstreamBranch_Edges()
+        {
+            var tree = StagedThenSwitchedTree();
+            var ra = tree.Recordings["RA"];
+            var bp = tree.BranchPoints[0];
+
+            // RB is a controllable child: blocks.
+            Assert.False(UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch(bp, ra, tree));
+
+            // Only the debris child: non-blocking, for Breakup as for JointBreak.
+            bp.ChildRecordingIds.Remove("RB");
+            Assert.True(UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch(bp, ra, tree));
+            bp.Type = BranchPointType.Breakup;
+            Assert.True(UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch(bp, ra, tree));
+
+            // A debris child sharing the parent's pid is a continuation: blocks.
+            tree.Recordings["D"].VesselPersistentId = 100;
+            Assert.False(UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch(bp, ra, tree));
+            tree.Recordings["D"].VesselPersistentId = 300;
+
+            // A child missing from the tree cannot be shown to be debris: blocks.
+            bp.ChildRecordingIds.Add("missing");
+            Assert.False(UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch(bp, ra, tree));
+
+            // No recorded child at all: blocks, as before.
+            bp.ChildRecordingIds.Clear();
+            Assert.False(UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch(bp, ra, tree));
+
+            // Other types block; Launch never does.
+            bp.Type = BranchPointType.Undock;
+            Assert.False(UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch(bp, ra, tree));
+            bp.Type = BranchPointType.Launch;
+            Assert.True(UnfinishedFlightClassifier.IsNonBlockingDownstreamBranch(bp, ra, tree));
+        }
+
+        [Fact]
+        public void HasBlockingDownstreamBranch_NoTree_FallsBackToTheChildLink()
+        {
+            var rec = MakeRecording("X", 100, 0, 10, childBpId: "bp-any");
+            Assert.True(UnfinishedFlightClassifier.HasBlockingDownstreamBranch(
+                rec, rec, "bp-rp", null, out string blocking));
+            Assert.Equal("bp-any", blocking);
+        }
+
+        [Fact]
+        public void HasBlockingDownstreamBranch_RewindBranchMissing_EveryParentedBranchCounts()
+        {
+            // The rewind point's branch is not in the tree: fail closed, every branch the
+            // tip parents is treated as downstream.
+            var tree = StagedThenSwitchedTree();
+            var ra = tree.Recordings["RA"];
+            Assert.True(UnfinishedFlightClassifier.HasBlockingDownstreamBranch(
+                ra, ra, "bp-not-in-tree", tree, out string blocking));
+            Assert.Equal("bp-stage", blocking);
+        }
+
+        #endregion
+
+        #region MissionCrossTreeDock journey        #region MissionCrossTreeDock journey
 
         static RecordingTree ControllerTreeWithLaunchBranch(double stackEndUT)
         {
