@@ -15,7 +15,8 @@ _(unreleased — entries accumulate here per commit)_
   control names it, from the same check the stock screen's block uses: `Holds Research in R&D
   until Y1, D06, 14:05.`, `Holds Accept and Decline in Mission Control until ...`, `Holds
   Cancel in Mission Control ...`, `Holds Upgrade on this facility ...`, `Holds Hire in the
-  Astronaut Complex ...`, the Administration strategy buttons, and a part purchase. A
+  Astronaut Complex ...`, the Administration strategy button the strategy shows now (Activate
+  while it is inactive, Deactivate while it is active), and a part purchase. A
   contract accept names its deadline, advance, rewards (from its completion) and agent; a
   contract completion or failure names the flight and the rep, science or penalty the row
   text leaves out. A launch names its crew, how the launched vessel ends and its mission

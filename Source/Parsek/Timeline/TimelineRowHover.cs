@@ -44,7 +44,7 @@ namespace Parsek
                 case GameActionNotCountedReason.MilestoneAlreadyAchieved:
                     return "Not counted: already achieved earlier on timeline, so no reward was paid.";
                 case GameActionNotCountedReason.FacilityAlreadyIntact:
-                    return "Not counted: already repaired earlier on timeline, so nothing was charged.";
+                    return "Not counted: the building was not damaged at that point on timeline, so nothing was charged.";
                 default:
                     return null;
             }

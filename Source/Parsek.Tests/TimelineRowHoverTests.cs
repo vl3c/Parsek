@@ -68,7 +68,7 @@ namespace Parsek.Tests
                 ReservationExplanation.ForTimelineRow(Row(complete), index, 500, Fmt));
             Assert.Equal("Holds Upgrade on this facility until D6.", ReservationExplanation.ForTimelineRow(Row(upgrade), index, 500, Fmt));
             Assert.Equal("Holds Hire in the Astronaut Complex until D6.", ReservationExplanation.ForTimelineRow(Row(hire), index, 500, Fmt));
-            Assert.Equal("Holds Activate and Deactivate in Administration until D6.",
+            Assert.Equal("Holds Activate in Administration until D6.",
                 ReservationExplanation.ForTimelineRow(Row(activate), index, 500, Fmt));
             Assert.Equal("Holds Deactivate in Administration until D6.",
                 ReservationExplanation.ForTimelineRow(Row(deactivate), index, 500, Fmt));
@@ -77,6 +77,35 @@ namespace Parsek.Tests
             Assert.Null(ReservationExplanation.ForTimelineRow(Row(part), index, 500, Fmt, p => false));
             Assert.Equal("Holds Purchase for this part until D6.",
                 ReservationExplanation.ForTimelineRow(Row(part), index, 500, Fmt, p => p == "mk1pod.v2"));
+        }
+
+        // catches: a strategy hover naming a button stock does not show: an inactive
+        // strategy offers only Activate, an active one only Deactivate.
+        [Fact]
+        public void ForTimelineRow_StrategyNamesOnlyTheButtonStockShowsNow()
+        {
+            var activate = new GameAction { UT = 600, Type = GameActionType.StrategyActivate, StrategyId = "S1" };
+            var deactivate = new GameAction { UT = 700, Type = GameActionType.StrategyDeactivate, StrategyId = "S2" };
+            var index = Index(activate, deactivate);
+            Func<string, bool> none = id => false;
+            Func<string, bool> all = id => true;
+
+            Assert.Equal("Holds Activate in Administration until D6.",
+                ReservationExplanation.ForTimelineRow(Row(activate), index, 500, Fmt, null, none));
+            // Active now (e.g. a re-activation after a committed deactivation): Deactivate,
+            // which IsDeactivationBlocked refuses while the row is ahead.
+            Assert.True(StrategyReservationPredicates.IsDeactivationBlocked(index, "S1", 500));
+            Assert.Equal("Holds Deactivate in Administration until D6.",
+                ReservationExplanation.ForTimelineRow(Row(activate), index, 500, Fmt, null, all));
+            Assert.DoesNotContain("Activate and Deactivate",
+                ReservationExplanation.ForTimelineRow(Row(activate), index, 500, Fmt, null, all));
+
+            Assert.Equal("Holds Deactivate in Administration until D7.",
+                ReservationExplanation.ForTimelineRow(Row(deactivate), index, 500, Fmt, null, all));
+            Assert.Null(ReservationExplanation.ForTimelineRow(Row(deactivate), index, 500, Fmt, null, none));
+            // Unknown state: the row's own button.
+            Assert.Equal("Holds Deactivate in Administration until D7.",
+                ReservationExplanation.ForTimelineRow(Row(deactivate), index, 500, Fmt));
         }
 
         // catches: the hover claiming a hold the click-block predicate does not enforce

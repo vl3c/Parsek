@@ -629,7 +629,9 @@ is `TimelineRowHover.Compose` of three parts: the walk's not-counted reason on a
 `RecalculationEngine.ResetDerivedFields`); on a future row, the stock control it holds
 (`ReservationExplanation.ForTimelineRow`: the click-block predicates over
 `CommittedFutureIndexCache.Current`, `Holds <control> until <row date>.`; a repair row never
-claims one, a part purchase reads `StockUiPartPurchase.DecideLive`); then the row kind's
+claims one, a part purchase reads `StockUiPartPurchase.DecideLive`, a strategy names only the
+button stock shows now - Activate while inactive, Deactivate while active - from
+`StrategyReservationGate.ActiveStrategyIds`); then the row kind's
 details (contract accept: deadline, advance, the rewards of the first counted completion
 `TimelineBuilder.FindPairedContractComplete` stamps on `TimelineEntry.PairedContractComplete`,
 the snapshot agent; contract end: flight, rep / science or penalty; launch: crew from the
@@ -843,7 +845,7 @@ modes not because the gate says keep but because nothing asks - the two census t
 byte-identical at 58 nodes each.
 
 Six bubbles inside one scroll view (`:541-554`). Only THREE are caret disclosures with a count
-badge - Dormant Routes (`:675`), `Recently committed trees not yet eligible` (`:777`) and
+badge - Dormant Routes (`:675`), `Recently merged trees not yet eligible` (`:777`) and
 `Dismissed` (`:844`); Active, Paused and Candidates are drawn unconditionally with a plain
 centred title (`:544-545`). Per-ROW expand is separate (`:979`, `:1487`).
 

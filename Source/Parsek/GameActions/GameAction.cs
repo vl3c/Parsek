@@ -455,7 +455,8 @@ namespace Parsek
         ContractOutcomeAfterEnd,
         /// <summary>A milestone already achieved earlier in the walk.</summary>
         MilestoneAlreadyAchieved,
-        /// <summary>A facility repair of a building the walk already has intact.</summary>
+        /// <summary>A facility repair of a building the walk has intact at that point (never
+        /// destroyed, or already repaired).</summary>
         FacilityAlreadyIntact
     }
 

@@ -115,19 +115,25 @@ namespace Parsek
         /// row's time column shows a countdown, not a date. A part purchase depends on live
         /// stock state (difficulty, already purchased), so the caller passes the live
         /// decision as <paramref name="partPurchaseBlocked"/>; null reads no part hold. A
-        /// facility repair's block depends on the building being destroyed NOW, which the
-        /// row cannot know, so a repair row never claims one.
+        /// strategy's Administration buttons depend on whether stock has it active now
+        /// (<paramref name="strategyActiveNow"/>): an inactive strategy offers only Activate,
+        /// an active one only Deactivate; null reads it as unknown, which names Activate for
+        /// an activation row and Deactivate for a deactivation row. A facility repair's
+        /// block depends on the building being destroyed NOW, which the row cannot know, so
+        /// a repair row never claims one.
         /// </summary>
         internal static string ForTimelineRow(
             TimelineEntry entry, CommittedFutureIndex index, double currentUT,
-            Func<double, string> formatDate, Func<string, bool> partPurchaseBlocked = null)
+            Func<double, string> formatDate, Func<string, bool> partPurchaseBlocked = null,
+            Func<string, bool> strategyActiveNow = null)
         {
             if (entry == null || entry.Action == null || index == null) return null;
             if (!CommittedFutureIndex.IsFuture(entry.UT, currentUT)) return null;
             CommittedFutureKind kind;
             string key;
             if (!CommittedFutureIndex.TryClassify(entry.Action, out kind, out key)) return null;
-            string control = TimelineHeldControl(kind, key, index, currentUT, partPurchaseBlocked);
+            string control = TimelineHeldControl(
+                kind, key, index, currentUT, partPurchaseBlocked, strategyActiveNow);
             if (control == null) return null;
             return TimelineHoldsPrefix + control + " until " + FormatDate(entry.UT, formatDate) + ".";
         }
@@ -138,7 +144,7 @@ namespace Parsek
         /// <summary>The stock control a future row of (kind, key) holds now, or null.</summary>
         internal static string TimelineHeldControl(
             CommittedFutureKind kind, string key, CommittedFutureIndex index, double currentUT,
-            Func<string, bool> partPurchaseBlocked)
+            Func<string, bool> partPurchaseBlocked, Func<string, bool> strategyActiveNow = null)
         {
             switch (kind)
             {
@@ -160,15 +166,24 @@ namespace Parsek
                     return StockUiReservationPredicates.IsKerbalHireBlocked(index, key, currentUT)
                         ? "Hire in the Astronaut Complex" : null;
                 case CommittedFutureKind.StrategyActivate:
-                    // EvaluateActivation's first refusal (FutureActivation) plus the
-                    // deactivation refusal, which any future row of the strategy raises.
+                {
+                    // Stock offers Activate on an inactive strategy and Deactivate on an
+                    // active one, so the hold names the button the player can see: an active
+                    // strategy's refused Deactivate (any future row of it raises that), else
+                    // EvaluateActivation's first refusal (FutureActivation).
                     if (index == null
                         || index.FirstFuture(CommittedFutureKind.StrategyActivate, key, currentUT) == null)
                         return null;
-                    return StrategyReservationPredicates.IsDeactivationBlocked(index, key, currentUT)
-                        ? "Activate and Deactivate in Administration"
-                        : "Activate in Administration";
+                    bool active = strategyActiveNow != null && strategyActiveNow(key);
+                    if (active)
+                        return StrategyReservationPredicates.IsDeactivationBlocked(index, key, currentUT)
+                            ? "Deactivate in Administration" : null;
+                    return "Activate in Administration";
+                }
                 case CommittedFutureKind.StrategyDeactivate:
+                    // Deactivate is refused only on the player path, and only an active
+                    // strategy offers it; a strategy known inactive now holds nothing here.
+                    if (strategyActiveNow != null && !strategyActiveNow(key)) return null;
                     return StrategyReservationPredicates.IsDeactivationBlocked(index, key, currentUT)
                         ? "Deactivate in Administration" : null;
                 case CommittedFutureKind.PartPurchase:

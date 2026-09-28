@@ -2394,7 +2394,8 @@ namespace Parsek
                         CommittedFutureIndexCache.Current,
                         CommittedFutureIndexCache.CurrentUT(),
                         ReservationExplanation.DefaultDateFormatter,
-                        IsPartPurchaseBlockedLive);
+                        IsPartPurchaseBlockedLive,
+                        IsStrategyActiveNowLive);
                 details = BuildRowHoverDetails(entry);
             }
             catch (Exception ex)
@@ -2445,6 +2446,22 @@ namespace Parsek
                 default:
                     return null;
             }
+        }
+
+        /// <summary>Whether stock has the strategy active now (the Administration gate's own
+        /// read, <c>StrategyReservationGate.ActiveStrategyIds</c>).</summary>
+        private static bool IsStrategyActiveNowLive(string strategyId)
+        {
+            if (string.IsNullOrEmpty(strategyId)) return false;
+            try
+            {
+                foreach (string id in Parsek.Patches.StrategyReservationGate.ActiveStrategyIds())
+                    if (string.Equals(id, strategyId, StringComparison.Ordinal)) return true;
+            }
+            catch (Exception)
+            {
+            }
+            return false;
         }
 
         /// <summary>The live part-purchase decision (<c>StockUiPartPurchase.DecideLive</c>).</summary>
