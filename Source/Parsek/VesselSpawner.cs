@@ -2016,11 +2016,12 @@ namespace Parsek
                 body.Radius,
                 SpawnCollisionDetector.DefaultWalkbackStepMeters,
                 (lat, lon, alt) => body.GetWorldSurfacePosition(lat, lon, alt),
-                worldPos =>
+                (worldPos, candidateUT) =>
                 {
                     var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
                         worldPos, spawnBounds, 5f, skipActive, exemptVesselPid,
-                        spawningRecording: rec, site: "end-of-recording-walkback");
+                        spawningRecording: rec, site: "end-of-recording-walkback",
+                        candidateUT: candidateUT);
                     return ov;
                 });
 

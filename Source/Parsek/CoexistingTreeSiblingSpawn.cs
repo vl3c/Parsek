@@ -15,6 +15,11 @@ namespace Parsek
         NotCoexisting = 2,
         /// <summary>Same-tree sibling spawn that no longer sits where its recording left it (moved, nudged, or walked back).</summary>
         Displaced = 3,
+        /// <summary>
+        /// Walkback candidate: at the candidate's recorded UT the sibling was not yet standing at
+        /// its spot (not placed yet, still driving there) or no longer existed.
+        /// </summary>
+        NotAtSpotAtCandidateUT = 4,
     }
 
     /// <summary>
@@ -32,11 +37,17 @@ namespace Parsek
     ///
     /// <para>The exemption is narrow: the blocker must be positively identified as a sibling's
     /// SPAWN through <see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/> (launch Guid
-    /// gated, so a relaunch of the same craft that reuses the baked pid never matches), the two
-    /// recordings' recorded existence must overlap in time, and the blocker must still stand
-    /// within <see cref="PlacementToleranceMeters"/> (horizontal) of the spot its recording
-    /// spawned it at. The player's own craft, another tree's spawn, and a sibling the player has
-    /// since driven elsewhere all keep blocking.</para>
+    /// gated, so a relaunch of the same craft that reuses the baked pid never matches), and it must
+    /// still stand within <see cref="PlacementToleranceMeters"/> (horizontal) of the spot its
+    /// recording spawned it at. The player's own craft, another tree's spawn, and a sibling the
+    /// player has since driven elsewhere all keep blocking.</para>
+    ///
+    /// <para>The time gate differs by site. At an end-of-recording spawn (no candidate UT) it asks
+    /// whether the two recordings' existence overlapped; spawnable leaves persist past their end,
+    /// so for two spawnable leaves that always holds and the gate is defensive only. At a walkback
+    /// candidate (a point earlier on the spawning vessel's own trajectory, with its recorded UT) it
+    /// asks whether the sibling was already standing at its spot AT THAT UT: a rover that drove
+    /// through a spot where a part was placed later must not be walked back into that part.</para>
     /// </summary>
     internal static class CoexistingTreeSiblingSpawn
     {
@@ -112,12 +123,63 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when <paramref name="sibling"/> stood at its spawn spot at <paramref name="ut"/>:
+        /// it had arrived there (<paramref name="siblingArrivalUT"/>, see
+        /// <see cref="SiblingArrivalAtSpotUT"/>) and had not yet ended, unless its terminal
+        /// persists past its recorded end.
+        /// </summary>
+        internal static bool SiblingAtSpotAtUT(Recording sibling, double ut, double siblingArrivalUT)
+        {
+            if (sibling == null || double.IsNaN(ut) || double.IsNaN(siblingArrivalUT)) return false;
+            if (ut < siblingArrivalUT) return false;
+            return PersistsPastEnd(sibling) || ut <= sibling.EndUT;
+        }
+
+        /// <summary>
+        /// Earliest recorded UT from which <paramref name="sibling"/> stayed within
+        /// <paramref name="toleranceMeters"/> (horizontal) of (<paramref name="spotLat"/>,
+        /// <paramref name="spotLon"/>) on <paramref name="spotBody"/> to the end of its trajectory:
+        /// the placement UT for a placed part, the parking UT for a vehicle. Walks the flat points
+        /// back from the last one and stops at the first point that is elsewhere, on another body,
+        /// or inside a non-Absolute track section (Relative points carry anchor-local metres, not
+        /// lat/lon). PositiveInfinity when even the last point is not at the spot.
+        /// </summary>
+        internal static double SiblingArrivalAtSpotUT(
+            Recording sibling, string spotBody, double spotLat, double spotLon,
+            double bodyRadius, double toleranceMeters)
+        {
+            if (sibling == null || sibling.Points == null || sibling.Points.Count == 0
+                || string.IsNullOrEmpty(spotBody))
+                return double.PositiveInfinity;
+            double arrival = double.PositiveInfinity;
+            for (int i = sibling.Points.Count - 1; i >= 0; i--)
+            {
+                TrajectoryPoint pt = sibling.Points[i];
+                if (!string.Equals(pt.bodyName, spotBody, StringComparison.Ordinal)) break;
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(sibling.TrackSections, pt.ut);
+                if (sectionIdx >= 0
+                    && sibling.TrackSections[sectionIdx].referenceFrame != ReferenceFrame.Absolute)
+                    break;
+                double d = SpawnCollisionDetector.SurfaceDistance(
+                    pt.latitude, pt.longitude, spotLat, spotLon, bodyRadius);
+                if (d > toleranceMeters) break;
+                arrival = pt.ut;
+            }
+            return arrival;
+        }
+
+        /// <summary>
         /// Pure verdict for an overlap between <paramref name="spawning"/>'s spawn and the live
         /// spawn of <paramref name="sibling"/>, which stands
         /// <paramref name="siblingDisplacementMeters"/> (horizontal) from its recorded spawn spot.
+        /// <paramref name="candidateUT"/> is NaN at the end-of-recording spawn position (the time
+        /// gate is recorded-interval overlap) and the recorded UT of the candidate during a
+        /// walkback (the time gate is "the sibling stood at its spot at that UT", from
+        /// <paramref name="siblingArrivalUT"/>).
         /// </summary>
         internal static TreeSiblingOverlapVerdict Classify(
-            Recording spawning, Recording sibling, double siblingDisplacementMeters, double toleranceMeters)
+            Recording spawning, Recording sibling, double siblingDisplacementMeters, double toleranceMeters,
+            double candidateUT = double.NaN, double siblingArrivalUT = double.NaN)
         {
             if (spawning == null || sibling == null) return TreeSiblingOverlapVerdict.NotTreeSibling;
             if (string.IsNullOrEmpty(spawning.TreeId)
@@ -126,8 +188,15 @@ namespace Parsek
             if (ReferenceEquals(spawning, sibling)
                 || string.Equals(spawning.RecordingId, sibling.RecordingId, StringComparison.Ordinal))
                 return TreeSiblingOverlapVerdict.NotTreeSibling;
-            if (!RecordedIntervalsCoexist(spawning, sibling))
-                return TreeSiblingOverlapVerdict.NotCoexisting;
+            if (double.IsNaN(candidateUT))
+            {
+                if (!RecordedIntervalsCoexist(spawning, sibling))
+                    return TreeSiblingOverlapVerdict.NotCoexisting;
+            }
+            else if (!SiblingAtSpotAtUT(sibling, candidateUT, siblingArrivalUT))
+            {
+                return TreeSiblingOverlapVerdict.NotAtSpotAtCandidateUT;
+            }
             if (double.IsNaN(siblingDisplacementMeters) || siblingDisplacementMeters > toleranceMeters)
                 return TreeSiblingOverlapVerdict.Displaced;
             return TreeSiblingOverlapVerdict.Exempt;
@@ -141,41 +210,59 @@ namespace Parsek
         internal static double SiblingDisplacementMeters(
             Recording sibling, string candidateBodyName, double candidateLat, double candidateLon, double bodyRadius)
         {
-            if (sibling == null) return double.PositiveInfinity;
-            TrajectoryPoint? lastPt = sibling.Points != null && sibling.Points.Count > 0
-                ? (TrajectoryPoint?)sibling.Points[sibling.Points.Count - 1]
-                : null;
-            VesselSpawner.SpawnCoordinateSource source = VesselSpawner.SelectSpawnCoordinates(
-                sibling, lastPt, out string bodyName, out double lat, out double lon, out _);
-            if (source == VesselSpawner.SpawnCoordinateSource.None) return double.PositiveInfinity;
+            if (!TryGetSiblingSpawnSpot(sibling, out string bodyName, out double lat, out double lon))
+                return double.PositiveInfinity;
             if (string.IsNullOrEmpty(candidateBodyName)
                 || !string.Equals(bodyName, candidateBodyName, StringComparison.Ordinal))
                 return double.PositiveInfinity;
             return SpawnCollisionDetector.SurfaceDistance(lat, lon, candidateLat, candidateLon, bodyRadius);
         }
 
+        private static bool TryGetSiblingSpawnSpot(
+            Recording sibling, out string bodyName, out double lat, out double lon)
+        {
+            bodyName = null; lat = 0; lon = 0;
+            if (sibling == null) return false;
+            TrajectoryPoint? lastPt = sibling.Points != null && sibling.Points.Count > 0
+                ? (TrajectoryPoint?)sibling.Points[sibling.Points.Count - 1]
+                : null;
+            VesselSpawner.SpawnCoordinateSource source = VesselSpawner.SelectSpawnCoordinates(
+                sibling, lastPt, out bodyName, out lat, out lon, out _);
+            return source != VesselSpawner.SpawnCoordinateSource.None;
+        }
+
         /// <summary>
         /// Pure core of the exemption: finds the sibling in <paramref name="treeRecordings"/>,
         /// measures its displacement, classifies. <paramref name="sibling"/> is null when the
-        /// candidate is not a sibling spawn at all.
+        /// candidate is not a sibling spawn at all. <paramref name="candidateUT"/>: see
+        /// <see cref="Classify"/>.
         /// </summary>
         internal static TreeSiblingOverlapVerdict Evaluate(
             IEnumerable<Recording> treeRecordings, Recording spawning,
             uint candidatePid, string candidateGuid,
             string candidateBodyName, double candidateLat, double candidateLon, double bodyRadius,
-            out Recording sibling, out double displacementMeters)
+            out Recording sibling, out double displacementMeters, double candidateUT = double.NaN)
         {
             displacementMeters = double.PositiveInfinity;
             sibling = FindSiblingSpawnSource(treeRecordings, spawning, candidatePid, candidateGuid);
             if (sibling == null) return TreeSiblingOverlapVerdict.NotTreeSibling;
             displacementMeters = SiblingDisplacementMeters(
                 sibling, candidateBodyName, candidateLat, candidateLon, bodyRadius);
-            return Classify(spawning, sibling, displacementMeters, PlacementToleranceMeters);
+            double arrivalUT = double.NaN;
+            if (!double.IsNaN(candidateUT)
+                && TryGetSiblingSpawnSpot(sibling, out string spotBody, out double spotLat, out double spotLon))
+            {
+                arrivalUT = SiblingArrivalAtSpotUT(
+                    sibling, spotBody, spotLat, spotLon, bodyRadius, PlacementToleranceMeters);
+            }
+            return Classify(spawning, sibling, displacementMeters, PlacementToleranceMeters,
+                candidateUT, arrivalUT);
         }
 
         /// <summary>
         /// Live wrapper: resolves <paramref name="spawning"/>'s committed tree and decides whether
-        /// the candidate vessel is an exempt co-existing sibling spawn. Logs one Info line per
+        /// the candidate vessel is an exempt co-existing sibling spawn (<paramref name="candidateUT"/>
+        /// NaN at the end-of-recording position, the candidate's recorded UT during a walkback). Logs one Info line per
         /// (spawning recording, candidate) pair and verdict, rate-limited so walkback sub-steps and
         /// per-frame blocked rechecks do not spam; logs nothing for a candidate that is not a
         /// sibling spawn.
@@ -183,7 +270,7 @@ namespace Parsek
         internal static bool IsExemptBlocker(
             Recording spawning, uint candidatePid, string candidateGuid, string candidateName,
             string candidateBodyName, double candidateLat, double candidateLon, double bodyRadius,
-            string site)
+            string site, double candidateUT = double.NaN)
         {
             if (spawning == null || string.IsNullOrEmpty(spawning.TreeId) || candidatePid == 0)
                 return false;
@@ -194,7 +281,7 @@ namespace Parsek
             TreeSiblingOverlapVerdict verdict = Evaluate(
                 tree.Recordings.Values, spawning, candidatePid, candidateGuid,
                 candidateBodyName, candidateLat, candidateLon, bodyRadius,
-                out Recording sibling, out double displacement);
+                out Recording sibling, out double displacement, candidateUT);
             if (verdict == TreeSiblingOverlapVerdict.NotTreeSibling)
                 return false;
 
@@ -204,7 +291,7 @@ namespace Parsek
                 : displacement.ToString("F2", IC) + "m";
             string message = string.Format(IC,
                 "{0} spawn: site={1} tree={2} spawning='{3}' rec={4} blocker='{5}' pid={6} siblingRec={7} " +
-                "verdict={8} displacement={9} tolerance={10}m",
+                "verdict={8} displacement={9} tolerance={10}m candidateUT={11}",
                 exempt ? ExemptLogLiteral : NotExemptLogLiteral,
                 site ?? "?",
                 spawning.TreeId,
@@ -215,7 +302,8 @@ namespace Parsek
                 sibling != null ? sibling.RecordingId : "?",
                 verdict,
                 displacementText,
-                PlacementToleranceMeters.ToString("F1", IC));
+                PlacementToleranceMeters.ToString("F1", IC),
+                double.IsNaN(candidateUT) ? "end" : candidateUT.ToString("F2", IC));
             ParsekLog.InfoRateLimited(Tag,
                 "tree-sibling-" + verdict + "-" + spawning.RecordingId + "-" + candidatePid.ToString(IC),
                 message);

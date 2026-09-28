@@ -1228,10 +1228,13 @@ _(unreleased — entries accumulate here per commit)_
   Central Station), only the first part to finish replaying became a real vessel: every later
   part found the earlier one inside its spawn-collision box, waited, then gave up with "Manual
   placement required", and its ghost vanished. The rover and the kerbal ending among the parts
-  would have hit the same wall. A spawn now ignores a vessel Parsek spawned from another member
-  of the same committed flight that stood beside it in the recording and still stands where it
-  was put; the player's own craft, another flight's spawn and a member since moved elsewhere
-  still block. At the Space Center the same members are no longer nudged 15 m apart.
+  would have hit the same wall. A spawn at a member's recorded end spot now ignores a vessel
+  Parsek spawned from another member of the same committed flight that still stands where it was
+  put; the player's own craft, another flight's spawn and a member since moved elsewhere still
+  block. When a spawn has to step back along its own path, a member counts only if it was
+  already standing there at that moment of the recording, so a rover is never placed inside a
+  part set down later where it once drove. At the Space Center the same members are no longer
+  nudged 15 m apart.
 - **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
   earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
   the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,

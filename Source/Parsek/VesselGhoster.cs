@@ -860,11 +860,12 @@ namespace Parsek
                     walkbackBody.Radius,
                     SpawnCollisionDetector.DefaultWalkbackStepMeters,
                     (lat, lon, alt) => walkbackBody.GetWorldSurfacePosition(lat, lon, alt),
-                    pos =>
+                    (pos, candidateUT) =>
                     {
                         var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
                             pos, spawnBounds, SpawnCollisionPadding,
-                            spawningRecording: tipRecording, site: "chain-tip-walkback");
+                            spawningRecording: tipRecording, site: "chain-tip-walkback",
+                            candidateUT: candidateUT);
                         return ov;
                     });
 
@@ -904,11 +905,12 @@ namespace Parsek
                             ? body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
                             : Vector3d.zero;
                     },
-                    pos =>
+                    (pos, candidateUT) =>
                     {
                         var (ov, _, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
                             pos, spawnBounds, SpawnCollisionPadding,
-                            spawningRecording: tipRecording, site: "chain-tip-walkback");
+                            spawningRecording: tipRecording, site: "chain-tip-walkback",
+                            candidateUT: candidateUT);
                         return ov;
                     });
 

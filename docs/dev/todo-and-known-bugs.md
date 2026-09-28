@@ -43,30 +43,41 @@ cluster spawned there would scatter.
 **Fix.** `CoexistingTreeSiblingSpawn` (pure `Evaluate` / `Classify`, live `IsExemptBlocker`):
 an overlap does not block when the blocker is positively the SPAWN of another recording of the
 spawning recording's committed tree (`VesselLaunchIdentity.LiveVesselIsRecordedSpawn`, so a
-relaunch reusing the preserved baked pid with a different launch Guid never matches), the two
-recordings' recorded existence overlaps in time (a leaf with a Landed / Splashed / Orbiting /
-SubOrbital terminal persists past its trimmed end), and the blocker stands within 3 m
-horizontally of the spot its own spawn used (the landed spawn lifts a vessel recorded below the
-PQS floor, +2.4 m on the RTG, so height is not compared). Every flight overlap site passes the
-spawning recording (`VesselGhoster` chain tip / blocked recheck / both walkbacks,
-`VesselSpawner.CheckSpawnCollisions` / post-recovery recheck / walkback) and the Space Center
-de-overlap gather drops such siblings. The player's craft, another tree's spawn, a sibling
-moved away, and the recording's own earlier spawn still block. Order does not matter: the time
-check is symmetric, so a later member spawned first exempts the earlier one too. Tracking
-Station spawns reach the same `CheckSpawnCollisions`, where nothing is loaded. Log, one Info per
-(spawning recording, blocker, verdict) and 5 s: `Overlap exempt: co-existing tree sibling spawn:
-site=... tree=... spawning='...' rec=... blocker='...' pid=... siblingRec=... verdict=Exempt`;
-a same-tree sibling that still blocks logs `Overlap not exempt: tree sibling spawn: ...
-verdict=Displaced|NotCoexisting`. Tests: `CoexistingTreeSiblingSpawnTests` (the operator's RTG
-and panel, the mirror order, the four still-blocking cases, the tolerance edge, the snapshot
-spot, the live wrapper's log and a source wiring check of every call site).
+relaunch reusing the preserved baked pid with a different launch Guid never matches), the
+blocker stands within 3 m horizontally of the spot its own spawn used (the landed spawn lifts a
+vessel recorded below the PQS floor, +2.4 m on the RTG, so height is not compared), and a time
+gate that depends on the site:
+- At the end-of-recording position (chain tip, blocked recheck, `CheckSpawnCollisions` and its
+  post-recovery recheck, the Space Center de-overlap) the gate is recorded-interval overlap with
+  a Landed / Splashed / Orbiting / SubOrbital leaf persisting past its trimmed end. Every
+  spawnable leaf persists, so there the gate always passes for two spawnable leaves and is
+  defensive only; identity and position do the work. Order does not matter: a later member
+  spawned first exempts the earlier one too.
+- At a walkback candidate (both `VesselGhoster` walkbacks and `TryWalkbackForEndOfRecordingSpawn`)
+  the walkback now hands the candidate's recorded UT (interpolated per sub-step) to the check,
+  and the sibling counts only if it already stood at its spot at that UT: from its arrival (the
+  earliest point of its trailing run within 3 m of the spot, Absolute sections only; the
+  placement UT for a part, the parking UT for a vehicle) and not after a non-persisting end. A
+  rover that drove through a spot where a part was placed later is not walked back into that
+  part when a foreign vessel blocks its parking spot (verdict `NotAtSpotAtCandidateUT`).
+
+The player's craft, another tree's spawn, a sibling moved away, and the recording's own earlier
+spawn still block. Tracking Station spawns reach the same `CheckSpawnCollisions`, where nothing
+is loaded. Log, one Info per (spawning recording, blocker, verdict) and 5 s: `Overlap exempt:
+co-existing tree sibling spawn: site=... tree=... spawning='...' rec=... blocker='...' pid=...
+siblingRec=... verdict=Exempt ... candidateUT=<end|UT>`; a same-tree sibling that still blocks
+logs `Overlap not exempt: tree sibling spawn: ... verdict=Displaced|NotCoexisting|NotAtSpotAtCandidateUT`.
+Tests: `CoexistingTreeSiblingSpawnTests` (the operator's RTG and panel, the mirror order, the
+still-blocking cases, the tolerance edge, the snapshot spot, the drive-through rover walkback,
+the arrival derivation, the live wrapper's log and a source wiring check of every call site,
+including that each walkback passes its candidate UT).
 
 **Checked, not changed.** `RecordingOptimizer.TrimBoringTail` cut each member to about 13 s
 after its placement (RTG `from endUT=337.5 to 133.4`). That is the intended tail trim for a
 stationary landed leaf ("the ghost finishes quickly and the real vessel spawns promptly"): the
 member spawns at its unchanged terminal spot while the kerbal's ghost still places later parts,
 and ghosts are not physical, so the early real part disturbs nothing. The trimmed end is also
-why the co-existence check extends a persisting terminal past `EndUT`. Not live-proven yet.
+why the end-of-recording gate extends a persisting terminal past `EndUT`. Not live-proven yet.
 
 ## ~~GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight~~ [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. FIXED 2026-09-28, branch `gs8-watch-hold`]
 

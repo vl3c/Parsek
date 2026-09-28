@@ -517,9 +517,13 @@ retirement applies to it like to any vessel: a part left on the pad is retired, 
 picked-up member ends `Disassembled` and is never spawned. Members of one cluster stand a few metres
 apart, well inside the spawn-collision box (12.6 m for one part), so the spawn collision check and
 the Space Center landed de-overlap ignore a vessel Parsek spawned from another member of the same
-committed tree that stood beside this one in the recording and still stands where it was put
-(`CoexistingTreeSiblingSpawn`; the same rule lets the kerbal and the rover that end among the parts
-spawn there). Without it only the first member of a cluster spawns.
+committed tree that still stands where its spawn put it (`CoexistingTreeSiblingSpawn`; the same rule
+lets the kerbal and the rover that end among the parts spawn there). Without it only the first
+member of a cluster spawns. At a member's recorded end spot the rule's time gate (recorded
+existence overlaps, persisting terminals running past their trimmed end) always passes for two
+spawnable leaves; at a walkback candidate it is real: the other member counts only if it already
+stood at its spot at the candidate's recorded UT, so a vehicle stepping back along its own path is
+never placed inside a part set down there after it drove through.
 
 **The ghost.** The member's ghost is the placed part standing where it was placed: visible from the
 placement UT (the Placed event), hidden at the pick-up (the Removed event), and gone when the recording

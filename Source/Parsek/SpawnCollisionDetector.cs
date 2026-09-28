@@ -574,6 +574,21 @@ namespace Parsek
             Func<TrajectoryPoint, Vector3d> pointToWorldPos,
             Func<Vector3d, bool> isOverlapping)
         {
+            return WalkbackAlongTrajectory(points, spawnBounds, padding, pointToWorldPos,
+                (worldPos, ut) => isOverlapping(worldPos));
+        }
+
+        /// <summary>
+        /// <see cref="WalkbackAlongTrajectory(List{TrajectoryPoint}, Bounds, float, Func{TrajectoryPoint, Vector3d}, Func{Vector3d, bool})"/>
+        /// whose overlap predicate also receives the candidate's recorded UT.
+        /// </summary>
+        internal static int WalkbackAlongTrajectory(
+            List<TrajectoryPoint> points,
+            Bounds spawnBounds,
+            float padding,
+            Func<TrajectoryPoint, Vector3d> pointToWorldPos,
+            Func<Vector3d, double, bool> isOverlappingAtUT)
+        {
             if (points == null || points.Count == 0)
             {
                 ParsekLog.Verbose(Tag, "WalkbackAlongTrajectory: null or empty trajectory — returning -1");
@@ -589,7 +604,7 @@ namespace Parsek
             for (int i = points.Count - 1; i >= 0; i--)
             {
                 Vector3d worldPos = pointToWorldPos(points[i]);
-                bool overlaps = isOverlapping(worldPos);
+                bool overlaps = isOverlappingAtUT(worldPos, points[i].ut);
 
                 ParsekLog.Verbose(Tag,
                     string.Format(IC,
@@ -668,6 +683,22 @@ namespace Parsek
                 Func<double, double, double, Vector3d> latLonAltToWorldPos,
                 Func<Vector3d, bool> isOverlapping)
         {
+            return WalkbackAlongTrajectorySubdivided(points, bodyRadius, stepMeters,
+                latLonAltToWorldPos, (worldPos, ut) => isOverlapping(worldPos));
+        }
+
+        /// <summary>
+        /// Subdivided walkback whose overlap predicate also receives the candidate's recorded UT
+        /// (linearly interpolated between the segment's points like its position).
+        /// </summary>
+        internal static (bool found, double lat, double lon, double alt, Vector3d worldPos)
+            WalkbackAlongTrajectorySubdivided(
+                List<TrajectoryPoint> points,
+                double bodyRadius,
+                float stepMeters,
+                Func<double, double, double, Vector3d> latLonAltToWorldPos,
+                Func<Vector3d, double, bool> isOverlapping)
+        {
             var result = WalkbackAlongTrajectorySubdividedDetailed(
                 points,
                 bodyRadius,
@@ -687,6 +718,24 @@ namespace Parsek
                 float stepMeters,
                 Func<double, double, double, Vector3d> latLonAltToWorldPos,
                 Func<Vector3d, bool> isOverlapping)
+        {
+            return WalkbackAlongTrajectorySubdividedDetailed(points, bodyRadius, stepMeters,
+                latLonAltToWorldPos, (worldPos, ut) => isOverlapping(worldPos));
+        }
+
+        /// <summary>
+        /// Subdivided walkback whose overlap predicate also receives the candidate's recorded UT
+        /// (linearly interpolated between the segment's points like its position), so a
+        /// time-dependent exemption (<see cref="CoexistingTreeSiblingSpawn"/>) is judged at the
+        /// moment the spawning vessel stood at the candidate.
+        /// </summary>
+        internal static (bool found, TrajectoryPoint point, Vector3d worldPos)
+            WalkbackAlongTrajectorySubdividedDetailed(
+                List<TrajectoryPoint> points,
+                double bodyRadius,
+                float stepMeters,
+                Func<double, double, double, Vector3d> latLonAltToWorldPos,
+                Func<Vector3d, double, bool> isOverlapping)
         {
             if (points == null || points.Count == 0)
             {
@@ -708,7 +757,7 @@ namespace Parsek
             int last = points.Count - 1;
             var lastPt = points[last];
             Vector3d lastWorldPos = latLonAltToWorldPos(lastPt.latitude, lastPt.longitude, lastPt.altitude);
-            if (!isOverlapping(lastWorldPos))
+            if (!isOverlapping(lastWorldPos, lastPt.ut))
             {
                 ParsekLog.Info(Tag,
                     string.Format(IC,
@@ -755,9 +804,10 @@ namespace Parsek
                     double lat = segEnd.latitude + (segStart.latitude - segEnd.latitude) * t;
                     double lon = segEnd.longitude + (segStart.longitude - segEnd.longitude) * t;
                     double alt = segEnd.altitude + (segStart.altitude - segEnd.altitude) * t;
+                    double ut = segEnd.ut + (segStart.ut - segEnd.ut) * t;
                     Vector3d worldPos = latLonAltToWorldPos(lat, lon, alt);
                     totalSubStepsChecked++;
-                    bool overlaps = isOverlapping(worldPos);
+                    bool overlaps = isOverlapping(worldPos, ut);
 
                     if (!overlaps)
                     {
@@ -959,11 +1009,14 @@ namespace Parsek
         /// types are filtered per the existing semantics. When <paramref name="spawningRecording"/>
         /// is given, a hit on a live vessel Parsek spawned from another member of the same
         /// committed tree that co-existed with it at its recorded spot is filtered too
-        /// (<see cref="CoexistingTreeSiblingSpawn"/>).</para>
+        /// (<see cref="CoexistingTreeSiblingSpawn"/>). A walkback passes the candidate's recorded
+        /// UT as <paramref name="candidateUT"/> so a sibling counts only if it already stood at its
+        /// spot at that UT; NaN means the end-of-recording position.</para>
         /// </summary>
         internal static (bool overlap, float closestDistance, string blockerName, Vessel blockerVessel) CheckOverlapAgainstLoadedVessels(
             Vector3d spawnWorldPos, Bounds spawnBounds, float padding, bool skipActiveVessel = true,
-            uint exemptVesselPid = 0, Recording spawningRecording = null, string site = null)
+            uint exemptVesselPid = 0, Recording spawningRecording = null, string site = null,
+            double candidateUT = double.NaN)
         {
             // Compute the surface-aligned rotation for the spawn box. spawnBounds is in
             // vessel-local space, where the vessel's local Y axis points along the surface
@@ -1076,7 +1129,8 @@ namespace Parsek
                         other.latitude,
                         other.longitude,
                         other.mainBody.Radius,
-                        site ?? "flight-overlap"))
+                        site ?? "flight-overlap",
+                        candidateUT))
                 {
                     filteredHits++;
                     continue;

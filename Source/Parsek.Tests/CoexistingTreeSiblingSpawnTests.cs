@@ -181,17 +181,144 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SiblingThatNeverCoexisted_StillBlocks()
+        public void EndOfRecordingGate_IsDefensiveOnlyForSpawnableLeaves()
         {
-            // A sibling whose vessel did not outlive its recording (no persisting terminal) and
-            // ended before the spawning member started never stood beside it.
+            // At the end-of-recording position (no candidate UT) the time gate is recorded-interval
+            // overlap. Every spawnable leaf persists past its end, so two of them always overlap:
+            // the RTG ended (trimmed) before the panel was even placed and still passes.
+            Assert.True(CoexistingTreeSiblingSpawn.RecordedIntervalsCoexist(Panel(), Rtg()));
+            // The gate only bites on a recording that did not persist, which never has a live
+            // spawn; it is kept so the predicate stays correct if that ever changes.
             Recording early = Rtg();
             early.TerminalStateValue = null;
             early.ExplicitEndUT = 130.0;
-            Recording late = Panel();
             Assert.Equal(TreeSiblingOverlapVerdict.NotCoexisting,
-                CoexistingTreeSiblingSpawn.Classify(late, early, 0.0,
+                CoexistingTreeSiblingSpawn.Classify(Panel(), early, 0.0,
                     CoexistingTreeSiblingSpawn.PlacementToleranceMeters));
+        }
+
+        // -- Walkback: the sibling must already stand at its spot at the candidate UT ---------
+
+        private const uint RoverPid = 1234567u;
+        private const string RoverGuid = "cb932f9b6a224c929c20adf1236ccc47";
+        private const uint PartPid = 7654321u;
+        private const string PartGuid = "abcdefabcdefabcdefabcdefabcdef01";
+
+        private static TrajectoryPoint NorthPoint(double ut, double metersNorth) =>
+            new TrajectoryPoint
+            {
+                ut = ut, latitude = RtgLat + metersNorth * MetersToDegLat, longitude = RtgLon,
+                altitude = 64.34, bodyName = "Kerbin",
+            };
+
+        // A rover drives north through the point 20 m short of where it parks (at UT 150), parks
+        // at UT 180 and sits there to UT 300.
+        private static Recording DriveThroughRover() => new Recording
+        {
+            RecordingId = "rover", TreeId = TreeId, VesselName = "rover science",
+            VesselPersistentId = RoverPid, RecordedVesselGuid = RoverGuid,
+            TerminalStateValue = TerminalState.Landed,
+            Points = new List<TrajectoryPoint>
+            {
+                NorthPoint(100, -100), NorthPoint(150, -20), NorthPoint(180, 0), NorthPoint(300, 0),
+            },
+        };
+
+        // A part placed at that drive-through spot LATER (UT 200), already spawned there.
+        private static Recording PartPlacedLater() => new Recording
+        {
+            RecordingId = "part", TreeId = TreeId, VesselName = "Grand Slam Passive Seismometer",
+            VesselPersistentId = PartPid, RecordedVesselGuid = PartGuid,
+            TerminalStateValue = TerminalState.Landed,
+            SpawnedVesselPersistentId = 99887766u, VesselSpawned = true,
+            Points = new List<TrajectoryPoint> { NorthPoint(200, -20), NorthPoint(213, -20) },
+        };
+
+        [Fact]
+        public void WalkbackCandidateBeforeThePartWasPlaced_StillBlocks()
+        {
+            var tree = new List<Recording> { DriveThroughRover(), PartPlacedLater() };
+            double partLat = RtgLat - 20.0 * MetersToDegLat;
+            Assert.Equal(TreeSiblingOverlapVerdict.NotAtSpotAtCandidateUT,
+                CoexistingTreeSiblingSpawn.Evaluate(tree, tree[0], 99887766u, PartGuid,
+                    "Kerbin", partLat, RtgLon, KerbinRadius, out _, out _, candidateUT: 160.0));
+        }
+
+        [Fact]
+        public void WalkbackCandidateAfterThePartWasPlaced_IsExempt()
+        {
+            var tree = new List<Recording> { DriveThroughRover(), PartPlacedLater() };
+            double partLat = RtgLat - 20.0 * MetersToDegLat;
+            Assert.Equal(TreeSiblingOverlapVerdict.Exempt,
+                CoexistingTreeSiblingSpawn.Evaluate(tree, tree[0], 99887766u, PartGuid,
+                    "Kerbin", partLat, RtgLon, KerbinRadius, out _, out _, candidateUT: 250.0));
+        }
+
+        [Fact]
+        public void RoverWalkback_DoesNotStopInsideAPartPlacedThereLater()
+        {
+            // A foreign vessel blocks the rover's parking spot. Walking back, the first candidate
+            // clear of it (about 12.9 m back, UT ~161) still overlaps the part's box; the part was
+            // only placed at UT 200, so the rover never stood there beside it and the walkback
+            // must go on past the part's box instead of spawning the rover inside it.
+            var tree = new List<Recording> { DriveThroughRover(), PartPlacedLater() };
+            Recording rover = tree[0];
+            const double box = 12.6; // 2 x (1.25 m part half-extent + 5 m padding)
+            double partNorth = -20.0;
+            double partLat = RtgLat + partNorth * MetersToDegLat;
+
+            var result = SpawnCollisionDetector.WalkbackAlongTrajectorySubdividedDetailed(
+                rover.Points,
+                KerbinRadius,
+                SpawnCollisionDetector.DefaultWalkbackStepMeters,
+                (lat, lon, alt) => new Vector3d((lat - RtgLat) / MetersToDegLat, 0, 0),
+                (pos, candidateUT) =>
+                {
+                    double north = pos.x;
+                    bool foreign = Math.Abs(north - 0.0) < box;
+                    bool part = Math.Abs(north - partNorth) < box
+                        && CoexistingTreeSiblingSpawn.Evaluate(tree, rover, 99887766u, PartGuid,
+                                "Kerbin", partLat, RtgLon, KerbinRadius, out _, out _, candidateUT)
+                            != TreeSiblingOverlapVerdict.Exempt;
+                    return foreign || part;
+                });
+
+            Assert.True(result.found);
+            double foundNorth = (result.point.latitude - RtgLat) / MetersToDegLat;
+            Assert.True(foundNorth <= partNorth - box,
+                "walkback stopped at " + foundNorth.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                + " m, inside the part's box");
+        }
+
+        [Fact]
+        public void SiblingArrival_PlacedPartIsItsFirstPoint_ParkedVehicleIsItsParkingPoint()
+        {
+            double partLat = RtgLat - 20.0 * MetersToDegLat;
+            Assert.Equal(200.0, CoexistingTreeSiblingSpawn.SiblingArrivalAtSpotUT(
+                PartPlacedLater(), "Kerbin", partLat, RtgLon, KerbinRadius, 3.0));
+            Assert.Equal(180.0, CoexistingTreeSiblingSpawn.SiblingArrivalAtSpotUT(
+                DriveThroughRover(), "Kerbin", RtgLat, RtgLon, KerbinRadius, 3.0));
+        }
+
+        [Fact]
+        public void SiblingArrival_StopsAtRelativeSectionsAndOffSpotEnds()
+        {
+            Recording part = PartPlacedLater();
+            part.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative, startUT = 195.0, endUT = 205.0,
+            });
+            part.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute, startUT = 205.0, endUT = 213.0,
+            });
+            double partLat = RtgLat - 20.0 * MetersToDegLat;
+            // The UT-200 point sits in a Relative section (anchor-local metres), so only 213 counts.
+            Assert.Equal(213.0, CoexistingTreeSiblingSpawn.SiblingArrivalAtSpotUT(
+                part, "Kerbin", partLat, RtgLon, KerbinRadius, 3.0));
+            // Spot not where the trajectory ends: never arrived.
+            Assert.Equal(double.PositiveInfinity, CoexistingTreeSiblingSpawn.SiblingArrivalAtSpotUT(
+                PartPlacedLater(), "Kerbin", RtgLat, RtgLon, KerbinRadius, 3.0));
         }
 
         [Fact]
@@ -368,8 +495,17 @@ namespace Parsek.Tests
             List<string> calls = CallArgumentLists(
                 ReadSource(file), "SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels");
             Assert.Equal(expectedSites, calls.Count);
+            int walkbackSites = 0;
             foreach (string args in calls)
+            {
                 Assert.Contains("spawningRecording:", args);
+                if (args.Contains("walkback"))
+                {
+                    walkbackSites++;
+                    Assert.Contains("candidateUT: candidateUT", args);
+                }
+            }
+            Assert.Equal(file == "VesselGhoster.cs" ? 2 : 1, walkbackSites);
         }
 
         [Fact]
