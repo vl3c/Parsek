@@ -1145,6 +1145,7 @@ namespace Parsek.Tests
             var bp = new BranchPoint
             {
                 Id = "bp1",
+                UT = 200, // the root ends at the undock
                 Type = BranchPointType.Undock,
                 ChildRecordingIds = new List<string> { "child-debris", "child-main" }
             };
@@ -1545,6 +1546,7 @@ namespace Parsek.Tests
             var bp = new BranchPoint
             {
                 Id = "bp1",
+                UT = 200, // the root ends at the undock
                 Type = BranchPointType.Undock,
                 ChildRecordingIds = new List<string> { "child-debris", "child-main" }
             };
