@@ -1241,6 +1241,13 @@ _(unreleased — entries accumulate here per commit)_
   contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
   the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
   it now reads "expired" / "Expired on".
+- **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
+  earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
+  the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,
+  dropped minutes before, and held on it instead. The end-of-flight watch now switches to a
+  different vessel only when the watched flight really ended at the split. It still does that for
+  a stage that exploded as it decoupled, and a crash breakup still holds on the wreck as before.
+  GS-8 (the Kerbal X zone round trip) flies green again.
 - **A Re-Fly that brings back a vessel you recovered now takes the recovery money back.** If
   you flew, landed and recovered a vessel, then re-flew an earlier separation whose rewind
   point still had that vessel in the world, the vessel came back and its recovery funds stayed
