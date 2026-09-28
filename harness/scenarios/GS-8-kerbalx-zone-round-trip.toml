@@ -147,6 +147,16 @@ id = "GS-8-kerbalx-zone-round-trip"
 #     iteration-order change would red this lane (a false negative, never a false
 #     pass), and `Mesh torn down` on its per-index key stays the safe witness.
 # =====================================================================================
+# ROUND 3, 2026-09-27/28. `2026-09-27_2029` red PARSEK-FAIL(expectations) on exactly the
+# watched-ending token: the end-of-flight watch auto-followed the Kerbal X to the probe
+# child of the DECOUPLE split at ~UT 146 because the coalescer stamps ChildBranchPointId on
+# the focused recording, which keeps flying (todo GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD).
+# Fixed in GhostPlaybackLogic (RecordingContinuedPastBranchPoint); re-flight
+# `2026-09-28_1732` PASS attempt 1 (672 s) read `FindNextWatchTarget: rec 'Kerbal X' ...
+# continued past branch ... bpUT=146.66 recEndUT=298.08`, `Watch hold started for #0: 3s
+# terminal=SubOrbital` and the Kerbal X `watch hold expired`; `rewind` and
+# `recordings.structure` armed off it.
+# =====================================================================================
 tier = "nightly"
 description = "Zone round trip: staged Kerbal X ascent with a longer core burn, committed, Rewound-to-Launch, replayed UNWATCHED past the 120 km visual range from a pad watcher (Visual->Beyond transition, mesh torn down), then WATCHED late so the render reference re-centres on the ghost (visuals rebuilt, Beyond->Physics), with the ghost-lifecycle balance holding across the round trip."
 instanceProfile = "stock-minimal"
@@ -286,15 +296,24 @@ gating = true
 spawned = { min = 8 }
 requireBalanced = true
 
+# ARMED 2026-09-28 (branch `gs8-watch-hold`) off the reading `2026-09-28_1732` on the
+# GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix (PASS attempt 1, automation DLL sha256
+# `5566489f...`): supersedeRows 0, tombstones 0 (rewindPoints 1, unpinned); both bounds
+# inverted offline against that save each red on exactly their window.
 [expectations.rewind]
+gating        = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
-# REPORT-ONLY, re-pinned to the measurement: all three flights (`_1225`, `_1239`,
+# Re-pinned to the measurement: all three flights (`_1225`, `_1239`,
 # `_1249`) parsed branchPoints={JointBreak: 5} (three drops + the core discard + one
 # more the longer burn adds) and terminalStates={SubOrbital: 2, Destroyed: 6} (the
 # pod and the probe suborbital, the six boosters destroyed on unload).
+# ARMED 2026-09-28 (branch `gs8-watch-hold`) off `2026-09-28_1732` (PASS attempt 1),
+# which read the same shape: trees 1, committedTrees 1, recordings 8, JointBreak 5,
+# SubOrbital 2, Destroyed 6; its 8 bounds inverted offline each red on exactly their window.
 [expectations.recordings.structure]
+gating         = true
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8 }
