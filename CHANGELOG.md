@@ -1223,6 +1223,26 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel that dropped a stage and kept flying is no longer treated as if its flight ended at
+  the staging.** Every staging or decouple of the vessel you are flying is recorded as a branch
+  that the vessel flies straight past, but several places read any branch as "this vessel's
+  flight ended here". Fixed:
+  - A station you docked to, when the docked craft later dropped a stage that crashed, was no
+    longer hidden during the replay (and at the end of the replay it was handed the dropped
+    stage).
+  - After switching away from a staged rocket and reloading, the rocket stopped being recorded
+    in the background, and a crash of the vessel you switched to could close the whole flight
+    while the rocket was still flying.
+  - Switching back to a staged rocket started a new flight instead of continuing its own.
+  - Going on EVA from a staged rocket you had switched back to did not record the EVA.
+  - The staged rocket was left out of the merge dialog's keep / discard choices when you were
+    flying another vessel of the same flight.
+  - A staged flight had no phase label in the recordings list, the Timeline had no "appears"
+    row for it, and the Missions event list had no row for how it ended.
+  - A replayed vessel that staged and was later flown again could drop out of the CommNet relay
+    network between its recording's end and the later flight.
+  - A scoped Discard of a switched-to flight that staged twice missed the first stage.
+  - The Missions partner journey could jump onto an unrelated vessel you switched to.
 - **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
   earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
   the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,

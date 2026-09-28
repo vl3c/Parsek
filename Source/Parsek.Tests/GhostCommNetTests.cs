@@ -957,6 +957,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ApplyContinuationHold_BreakupContinuousTip_IsTheSpawnOwnerAndHolds()
+        {
+            // The superseded tip staged a descent stage mid-flight (its ChildBranchPointId is a
+            // JointBreak whose only child is debris with another pid) and kept flying to its
+            // own terminal: the spawn gate treats it as its vessel's leaf, so the hold must too.
+            // Mirror: a same-PID child of that branch point continues the vessel, no hold.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                Recording tip = Rec("bcTip", 42, GuidA, 100, 200);
+                tip.TreeId = "bc-tree";
+                tip.ChildBranchPointId = "bc-stage";
+                tip.TerminalSpawnSupersededByRecordingId = "bcNext";
+                Recording debris = Rec("bcDebris", 77, GuidB, 150, 160, TerminalState.Destroyed);
+                debris.TreeId = "bc-tree";
+                debris.IsDebris = true;
+                debris.ParentBranchPointId = "bc-stage";
+                var tree = new RecordingTree { Id = "bc-tree", RootRecordingId = "bcTip" };
+                tree.Recordings["bcTip"] = tip;
+                tree.Recordings["bcDebris"] = debris;
+                tree.BranchPoints.Add(new BranchPoint
+                {
+                    Id = "bc-stage",
+                    Type = BranchPointType.JointBreak,
+                    UT = 150,
+                    ParentRecordingIds = new List<string> { "bcTip" },
+                    ChildRecordingIds = new List<string> { "bcDebris" },
+                });
+                RecordingStore.CommittedTrees.Add(tree);
+                var committed = new List<Recording> { tip, debris, Rec("bcNext", 42, GuidA, 800, 900) };
+
+                var input = InWindowInput();
+                GhostCommNetMath.ApplyContinuationHold(ref input, tip, committed, null, false,
+                    r => false, "FLIGHT", null, null);
+                Assert.True(input.HasContinuationHold);
+                Assert.Equal(800.0, input.ContinuationHoldUntilUT, 6);
+
+                Recording same = Rec("bcSame", 42, GuidA, 150, 300);
+                same.TreeId = "bc-tree";
+                same.ParentBranchPointId = "bc-stage";
+                tree.Recordings["bcSame"] = same;
+                tree.BranchPoints[0].ChildRecordingIds.Add("bcSame");
+                input = InWindowInput();
+                GhostCommNetMath.ApplyContinuationHold(ref input, tip, committed, null, false,
+                    r => false, "FLIGHT", null, null);
+                Assert.False(input.HasContinuationHold);
+                Assert.Contains(logLines, l => l.Contains("Continuation hold: key=bcTip")
+                    && l.Contains("terminal spawn not owned by a continuation"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
         public void ApplyContinuationHold_ChainIntermediateLink_UsesItsChainClaims()
         {
             // The walker's second intermediate-link clause: a recording of the chain's vessel

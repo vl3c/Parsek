@@ -440,10 +440,99 @@ namespace Parsek
             return rec != null
                 && rec.VesselPersistentId != 0
                 && rec.TerminalStateValue == null
-                && !HasNextChainSegment(rec)
-                && rec.ChildBranchPointId == null
+                && IsVesselLineEnd(rec)
                 && rec.RecordingId != ActiveRecordingId
                 && !SharesVesselPidWithActiveRecording(rec);
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> is where its vessel's line ends in this tree, so
+        /// it is a leaf for every "is this vessel still going / where did it end" question:
+        /// no later chain segment continues it, and either it has no <c>ChildBranchPointId</c>
+        /// or that branch point is in the tree, is a Breakup / JointBreak / Launch branch, and
+        /// none of its children shares the recording's vessel PID. The last case is the breakup-continuous
+        /// parent (<c>ParsekFlight.WireBreakupIntoTree</c>: a focused breakup or decouple
+        /// stamps the branch on a recording that keeps sampling to its own terminal, and the
+        /// children are the stages and debris it dropped) and the parent of a post-switch
+        /// Launch branch, which keeps recording in the background. A split that closes its
+        /// parent leaves a same-PID child, and a merge continues the vessel in the merged
+        /// child even when that child took the partner's PID. Reads no UTs, so it holds on a live
+        /// tree whose recorder has not flushed yet. An unresolvable branch point answers
+        /// false (not a line end), as before.
+        /// </summary>
+        internal bool IsVesselLineEnd(Recording rec)
+        {
+            return IsVesselLineEnd(rec, Recordings, BranchPoints);
+        }
+
+        internal static bool IsVesselLineEnd(
+            Recording rec,
+            Dictionary<string, Recording> recordings,
+            IList<BranchPoint> branchPoints)
+        {
+            if (rec == null)
+                return false;
+            if (HasNextChainSegment(rec, recordings))
+                return false;
+            if (rec.ChildBranchPointId == null)
+                return true;
+            return ChildBranchLeavesVesselLineOpen(rec, recordings, branchPoints);
+        }
+
+        /// <summary>
+        /// Branch types whose writer can leave the parent recording running past the split:
+        /// the crash coalescer's Breakup and JointBreak (<c>ParsekFlight.WireBreakupIntoTree</c>)
+        /// and the post-switch Launch branch. Undock / EVA close their parent into a same-PID
+        /// child, Dock / Board absorb it into the merged child, and a switch continuation's
+        /// child is the same vessel.
+        /// </summary>
+        internal static bool BranchTypeCanLeaveParentRecording(BranchPointType type)
+        {
+            return type == BranchPointType.Breakup
+                || type == BranchPointType.JointBreak
+                || type == BranchPointType.Launch;
+        }
+
+        /// <summary>
+        /// The branch-point half of <see cref="IsVesselLineEnd(Recording)"/>, ignoring chain
+        /// segments: true when <paramref name="rec"/>'s child branch point is in the tree, is a
+        /// type that can leave its parent running (<see cref="BranchTypeCanLeaveParentRecording"/>),
+        /// and has no child sharing the recording's vessel PID.
+        /// </summary>
+        internal static bool ChildBranchLeavesVesselLineOpen(
+            Recording rec,
+            Dictionary<string, Recording> recordings,
+            IList<BranchPoint> branchPoints)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ChildBranchPointId)
+                || rec.VesselPersistentId == 0 || branchPoints == null)
+                return false;
+
+            BranchPoint bp = null;
+            for (int i = 0; i < branchPoints.Count; i++)
+            {
+                if (branchPoints[i] != null && branchPoints[i].Id == rec.ChildBranchPointId)
+                {
+                    bp = branchPoints[i];
+                    break;
+                }
+            }
+            if (bp == null || !BranchTypeCanLeaveParentRecording(bp.Type))
+                return false;
+
+            if (bp.ChildRecordingIds != null && recordings != null)
+            {
+                for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                {
+                    string childId = bp.ChildRecordingIds[c];
+                    if (childId != null
+                        && recordings.TryGetValue(childId, out Recording child)
+                        && child != null
+                        && child.VesselPersistentId == rec.VesselPersistentId)
+                        return false;
+                }
+            }
+            return true;
         }
 
         private bool SharesVesselPidWithActiveRecording(Recording rec)
@@ -463,13 +552,18 @@ namespace Parsek
             return rec.VesselPersistentId == activeRec.VesselPersistentId;
         }
 
-        private bool HasNextChainSegment(Recording rec)
+        internal bool HasNextChainSegment(Recording rec)
         {
-            if (rec == null || string.IsNullOrEmpty(rec.ChainId))
+            return HasNextChainSegment(rec, Recordings);
+        }
+
+        internal static bool HasNextChainSegment(Recording rec, Dictionary<string, Recording> recordings)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId) || recordings == null)
                 return false;
 
             int nextIdx = rec.ChainIndex + 1;
-            foreach (var other in Recordings.Values)
+            foreach (var other in recordings.Values)
             {
                 if (other.ChainId == rec.ChainId
                     && other.ChainIndex == nextIdx
@@ -747,14 +841,16 @@ namespace Parsek
 
         /// <summary>
         /// Identifies spawnable leaf recordings: no children, not terminal
-        /// (Destroyed/Recovered/Docked/Boarded), has vessel snapshot.
+        /// (Destroyed/Recovered/Docked/Boarded), has vessel snapshot. A recording whose
+        /// child branch point leaves its vessel line open (breakup-continuous, see
+        /// <see cref="IsVesselLineEnd(Recording)"/>) counts as a leaf.
         /// </summary>
         public List<Recording> GetSpawnableLeaves()
         {
             var leaves = new List<Recording>();
             foreach (var rec in Recordings.Values)
             {
-                if (IsSpawnableLeaf(rec))
+                if (IsLeafForLeafQueries(rec) && IsSpawnableLeafIgnoringBranch(rec))
                     leaves.Add(rec);
             }
             return leaves;
@@ -762,17 +858,28 @@ namespace Parsek
 
         /// <summary>
         /// Identifies ALL leaf recordings (including destroyed/recovered).
-        /// A leaf is any recording with ChildBranchPointId == null.
+        /// A leaf is any recording with ChildBranchPointId == null, plus a recording whose
+        /// child branch point leaves its vessel line open (breakup-continuous, see
+        /// <see cref="IsVesselLineEnd(Recording)"/>).
         /// </summary>
         public List<Recording> GetAllLeaves()
         {
             var leaves = new List<Recording>();
             foreach (var rec in Recordings.Values)
             {
-                if (rec.ChildBranchPointId == null)
+                if (IsLeafForLeafQueries(rec))
                     leaves.Add(rec);
             }
             return leaves;
+        }
+
+        // Chain-segment handling for a null ChildBranchPointId is left to the callers, as
+        // before; a recording that carries a branch point is a leaf only when that branch
+        // leaves its vessel line open and no later chain segment continues it.
+        private bool IsLeafForLeafQueries(Recording rec)
+        {
+            return rec != null
+                && (rec.ChildBranchPointId == null || IsVesselLineEnd(rec));
         }
 
         /// <summary>
@@ -780,12 +887,19 @@ namespace Parsek
         /// 1. No children (ChildBranchPointId is null)
         /// 2. Terminal state allows spawning (not Destroyed/Recovered/Docked/Boarded/Disassembled)
         /// 3. Has a vessel snapshot
+        /// Tree-free: a breakup-continuous recording needs its tree, see
+        /// <see cref="GetSpawnableLeaves"/>.
         /// </summary>
         internal static bool IsSpawnableLeaf(Recording rec)
         {
             if (rec.ChildBranchPointId != null)
                 return false;
 
+            return IsSpawnableLeafIgnoringBranch(rec);
+        }
+
+        private static bool IsSpawnableLeafIgnoringBranch(Recording rec)
+        {
             if (rec.TerminalStateValue.HasValue)
             {
                 var ts = rec.TerminalStateValue.Value;
@@ -968,6 +1082,16 @@ namespace Parsek
             return !double.IsNaN(value) && !double.IsInfinity(value);
         }
 
+        private static bool IsLeafForDestructionGate(
+            Recording rec,
+            Dictionary<string, Recording> recordings,
+            IList<BranchPoint> branchPoints)
+        {
+            if (rec.ChildBranchPointId == null)
+                return true;
+            return branchPoints != null && IsVesselLineEnd(rec, recordings, branchPoints);
+        }
+
         static bool IsNonSpawnableTerminal(TerminalState terminalState)
         {
             return terminalState == TerminalState.Destroyed
@@ -983,15 +1107,27 @@ namespace Parsek
         /// Pure decision method: checks whether all leaf recordings in a tree have
         /// non-spawnable terminal states (Destroyed, Recovered, Docked, Boarded,
         /// Disassembled).
-        /// A recording is a leaf if it has no ChildBranchPointId.
+        /// A recording is a leaf if it has no ChildBranchPointId, or (given the branch
+        /// points) its child branch point leaves its vessel line open.
         /// Leaves with null TerminalStateValue are considered NOT terminal (still active).
         /// If activeRecordingId is non-null, the active recording is treated as alive
         /// unless activeVesselDestroyed is true.
         /// </summary>
+        internal static bool AreAllLeavesTerminal(RecordingTree tree, bool activeVesselDestroyed)
+        {
+            return AreAllLeavesTerminal(
+                tree.Recordings, tree.ActiveRecordingId, activeVesselDestroyed, tree.BranchPoints);
+        }
+
+        /// <param name="branchPoints">The tree's branch points. With them, a recording whose
+        /// child branch point leaves its vessel line open (breakup-continuous, see
+        /// <see cref="IsVesselLineEnd(Recording)"/>) is a leaf; without them every recording
+        /// with a <c>ChildBranchPointId</c> is skipped.</param>
         internal static bool AreAllLeavesTerminal(
             Dictionary<string, Recording> recordings,
             string activeRecordingId,
-            bool activeVesselDestroyed)
+            bool activeVesselDestroyed,
+            IList<BranchPoint> branchPoints = null)
         {
             int total = 0;
             int terminalCount = 0;
@@ -1007,7 +1143,7 @@ namespace Parsek
                 var rec = kvp.Value;
 
                 // Skip non-leaf recordings (they branched into children)
-                if (rec.ChildBranchPointId != null)
+                if (!IsLeafForDestructionGate(rec, recordings, branchPoints))
                     continue;
 
                 total++;
@@ -1060,16 +1196,23 @@ namespace Parsek
         /// should keep waiting for a debris-only fallback owner; it does NOT make the tree
         /// merge-ready on its own.
         /// </summary>
+        internal static bool AreAllActiveCrashBlockersDebris(RecordingTree tree)
+        {
+            return AreAllActiveCrashBlockersDebris(
+                tree.Recordings, tree.ActiveRecordingId, tree.BranchPoints);
+        }
+
         internal static bool AreAllActiveCrashBlockersDebris(
             Dictionary<string, Recording> recordings,
-            string activeRecordingId)
+            string activeRecordingId,
+            IList<BranchPoint> branchPoints = null)
         {
             bool sawBlockingLeaf = false;
 
             foreach (var kvp in recordings)
             {
                 var rec = kvp.Value;
-                if (rec.ChildBranchPointId != null)
+                if (!IsLeafForDestructionGate(rec, recordings, branchPoints))
                     continue;
 
                 bool isActiveRecording = activeRecordingId != null && rec.RecordingId == activeRecordingId;

@@ -746,7 +746,19 @@ namespace Parsek
                     && string.IsNullOrEmpty(child.EvaCrewName))
                     firstControlled = child;
             }
-            // No pid match: the partner is presumed still aboard the continuing stack.
+            // No pid match: the partner is presumed still aboard the continuing stack. When
+            // this recording flew past the branch point with no same-PID child (a post-switch
+            // Launch branch, or a breakup / decouple the stack kept flying through), the stack
+            // continues in THIS recording and a controlled child is a different vessel.
+            if (firstControlled != null
+                && GhostPlaybackLogic.RecordingContinuesPastChildBranch(rec, tree))
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("Mission",
+                        $"CrossTreeDock: journey stays on rec={rec.RecordingId}: continued past " +
+                        $"bp={bp.Id} type={bp.Type}, not following controlled child={firstControlled.RecordingId}");
+                return null;
+            }
             return firstControlled;
         }
 

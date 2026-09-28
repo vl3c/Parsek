@@ -1703,7 +1703,7 @@ namespace Parsek
         /// <paramref name="collectDetail"/> it also records how each kerbal's history
         /// ENDS (for the foreign-join rule) and the ground parts the kerbal placed
         /// (<see cref="BranchPointType.GroundPartPlaced"/> children, found by parent
-        /// id like <c>RecordingStore.EnqueueGroundPartPlacedChildren</c>).
+        /// id like <c>RecordingStore.EnqueueParentedBranchChildren</c>).
         /// </summary>
         private static void AddOwnEvaKerbals(
             RecordingTree tree, BranchPoint evaBp, Recording vessel,
@@ -2445,7 +2445,7 @@ namespace Parsek
                     // Ground parts an EVA kerbal in the closure placed hang off a
                     // GroundPartPlaced point the (still recording) kerbal does NOT
                     // reference through ChildBranchPointId, so they are found by parent
-                    // id (RecordingStore.EnqueueGroundPartPlacedChildren's pattern).
+                    // id (RecordingStore.EnqueueParentedBranchChildren's pattern).
                     EnqueueGroundPartPlacedChildrenForClosure(
                         currentRec, recById, queue, result, ref placedPartsAdded);
 

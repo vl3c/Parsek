@@ -383,7 +383,9 @@ namespace Parsek
         // ---- terminal rows (design 7.1 step 4) ----
 
         // One row per line end that the tree already states: a leaf recording carrying a terminal
-        // verdict. Docked / Boarded terminals are DELIBERATELY skipped - that line ended by being
+        // verdict. A recording whose child branch point has no same-PID child is its vessel's line
+        // end too (a staged or broken-up vessel that kept flying, RecordingTree.IsVesselLineEnd).
+        // Docked / Boarded terminals are DELIBERATELY skipped - that line ended by being
         // absorbed into a merge, and the merge already has its own row; emitting both would say
         // the same event twice under two different verbs.
         private static void AddTerminalRows(RecordingTree tree, List<MissionEventRow> rows)
@@ -391,8 +393,9 @@ namespace Parsek
             foreach (KeyValuePair<string, Recording> entry in tree.Recordings)
             {
                 Recording rec = entry.Value;
-                if (rec == null || rec.IsDebris || !string.IsNullOrEmpty(rec.ChildBranchPointId)
-                    || !rec.TerminalStateValue.HasValue)
+                if (rec == null || rec.IsDebris || !rec.TerminalStateValue.HasValue)
+                    continue;
+                if (!string.IsNullOrEmpty(rec.ChildBranchPointId) && !tree.IsVesselLineEnd(rec))
                     continue;
                 TerminalState state = rec.TerminalStateValue.Value;
                 if (state == TerminalState.Docked || state == TerminalState.Boarded)

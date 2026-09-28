@@ -3380,10 +3380,12 @@ namespace Parsek
                     continue;
                 if (!tree.Recordings.TryGetValue(id, out Recording rec) || rec == null)
                     continue;
-                // A ground part placed by this recording's kerbal hangs off a
-                // GroundPartPlaced point the (still recording) parent does NOT
-                // reference through ChildBranchPointId, so it is found by parent id.
-                EnqueueGroundPartPlacedChildren(tree, id, ids, queue);
+                // A branch point the (still recording) parent does NOT reference
+                // through ChildBranchPointId is found by parent id: a ground part
+                // placed by this recording's kerbal (GroundPartPlaced), and an
+                // earlier breakup or decouple of a breakup-continuous recording
+                // whose ChildBranchPointId a later split overwrote.
+                EnqueueParentedBranchChildren(tree, id, ids, queue);
                 if (string.IsNullOrEmpty(rec.ChildBranchPointId))
                     continue;
                 BranchPoint bp = FindSwitchSegmentBranchPointById(tree, rec.ChildBranchPointId);
@@ -3401,14 +3403,14 @@ namespace Parsek
             return ids;
         }
 
-        private static void EnqueueGroundPartPlacedChildren(
+        internal static void EnqueueParentedBranchChildren(
             RecordingTree tree, string parentId, HashSet<string> ids, Queue<string> queue)
         {
             if (tree.BranchPoints == null) return;
             for (int b = 0; b < tree.BranchPoints.Count; b++)
             {
                 BranchPoint bp = tree.BranchPoints[b];
-                if (bp == null || bp.Type != BranchPointType.GroundPartPlaced) continue;
+                if (bp == null) continue;
                 if (bp.ParentRecordingIds == null || !bp.ParentRecordingIds.Contains(parentId)) continue;
                 if (bp.ChildRecordingIds == null) continue;
                 for (int i = 0; i < bp.ChildRecordingIds.Count; i++)

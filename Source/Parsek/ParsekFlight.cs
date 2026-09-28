@@ -3343,12 +3343,10 @@ namespace Parsek
                 bool activeDestroyed = recorder == null || !recorder.IsRecording
                     || recorder.VesselDestroyedDuringRecording;
                 bool allLeavesTerminal = RecordingTree.AreAllLeavesTerminal(
-                    activeTree.Recordings,
-                    activeTree.ActiveRecordingId,
+                    activeTree,
                     activeDestroyed);
                 bool onlyDebrisBlockersRemain = RecordingTree.AreAllActiveCrashBlockersDebris(
-                    activeTree.Recordings,
-                    activeTree.ActiveRecordingId);
+                    activeTree);
                 bool pendingCrashResolution = !ignorePendingCrashWait
                     && HasPendingPostDestructionCrashResolution(
                         activeDestroyed,
@@ -3896,7 +3894,8 @@ namespace Parsek
             ApplyFinalSegmentPhaseFromCapture(
                 treeRec,
                 tree.ActiveRecordingId,
-                rec.CaptureAtStop);
+                rec.CaptureAtStop,
+                tree);
 
             // Set IsRecording = false to prevent dangling active state
             rec.IsRecording = false;
@@ -3927,9 +3926,10 @@ namespace Parsek
         internal static bool ApplyFinalSegmentPhaseFromCapture(
             Recording treeRec,
             string activeRecordingId,
-            Recording captureAtStop)
+            Recording captureAtStop,
+            RecordingTree treeContext = null)
         {
-            if (!ShouldApplyFinalSegmentPhaseFromCapture(treeRec, activeRecordingId, captureAtStop))
+            if (!ShouldApplyFinalSegmentPhaseFromCapture(treeRec, activeRecordingId, captureAtStop, treeContext))
                 return false;
 
             return SetFinalSegmentPhase(
@@ -3943,24 +3943,33 @@ namespace Parsek
         internal static bool ShouldApplyFinalSegmentPhaseFromCapture(
             Recording treeRec,
             string activeRecordingId,
-            Recording captureAtStop)
+            Recording captureAtStop,
+            RecordingTree treeContext = null)
         {
             return treeRec != null
                 && captureAtStop != null
                 && !string.IsNullOrEmpty(captureAtStop.SegmentPhase)
-                && ShouldAllowFinalEndpointSegmentPhase(treeRec, activeRecordingId);
+                && ShouldAllowFinalEndpointSegmentPhase(treeRec, activeRecordingId, treeContext);
         }
 
+        /// <param name="treeContext">The recording's tree. With it, a recording whose child
+        /// branch point leaves its vessel line open (a breakup-continuous flight that staged
+        /// and kept flying) is still the endpoint row; without it any child branch point
+        /// refuses.</param>
         internal static bool ShouldAllowFinalEndpointSegmentPhase(
             Recording rec,
-            string activeRecordingId)
+            string activeRecordingId,
+            RecordingTree treeContext = null)
         {
             if (rec == null)
                 return false;
             if (string.IsNullOrEmpty(activeRecordingId)
                 || !string.Equals(activeRecordingId, rec.RecordingId, StringComparison.Ordinal))
                 return false;
-            if (!string.IsNullOrEmpty(rec.ChildBranchPointId))
+            if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
+                && (treeContext == null
+                    || !RecordingTree.ChildBranchLeavesVesselLineOpen(
+                        rec, treeContext.Recordings, treeContext.BranchPoints)))
                 return false;
             if (HasCommittedChainSegmentOwnership(rec))
                 return false;
@@ -5970,12 +5979,19 @@ namespace Parsek
                 return;
             }
 
-            if (!string.IsNullOrEmpty(parentRecording.ChildBranchPointId))
+            if (BackgroundParentAlreadySplit(parentRecording, activeTree))
             {
                 ParsekLog.Warn("Flight",
                     $"CreateSplitBranchFromBackgroundParent: parent recording '{parentRecordingId}' " +
                     $"already has child branch '{parentRecording.ChildBranchPointId}' - aborting");
                 return;
+            }
+            if (!string.IsNullOrEmpty(parentRecording.ChildBranchPointId))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"CreateSplitBranchFromBackgroundParent: parent recording '{parentRecordingId}' " +
+                    $"carries child branch '{parentRecording.ChildBranchPointId}' with no same-PID child " +
+                    "(breakup-continuous) - splitting it; the new branch point takes the link");
             }
 
             string mappedParentRecordingId = null;
@@ -7915,6 +7931,22 @@ namespace Parsek
             return $"({value.x.ToString("F2", ic)}," +
                    $"{value.y.ToString("F2", ic)}," +
                    $"{value.z.ToString("F2", ic)})";
+        }
+
+        /// <summary>
+        /// True when a background parent must not be split again: it carries a child branch
+        /// point that already continued its vessel (a same-PID child, or a merge). A
+        /// breakup-continuous parent (a decouple or breakup whose children are only the stages
+        /// and debris it dropped) is still its vessel's line and may be split, as the
+        /// foreground <c>CreateSplitBranch</c> already does.
+        /// </summary>
+        internal static bool BackgroundParentAlreadySplit(Recording parentRecording, RecordingTree tree)
+        {
+            if (parentRecording == null || string.IsNullOrEmpty(parentRecording.ChildBranchPointId))
+                return false;
+            return tree == null
+                || !RecordingTree.ChildBranchLeavesVesselLineOpen(
+                    parentRecording, tree.Recordings, tree.BranchPoints);
         }
 
         /// <summary>
@@ -14712,7 +14744,10 @@ namespace Parsek
             {
                 var rec = kvp.Value;
                 bool isActiveRec = rec.RecordingId == activeRecId;
-                if (rec.ChildBranchPointId != null && !isActiveRec) continue;
+                if (rec.ChildBranchPointId != null && !isActiveRec
+                    && !RecordingTree.ChildBranchLeavesVesselLineOpen(
+                        rec, activeTree.Recordings, activeTree.BranchPoints))
+                    continue;
                 if (rec.VesselPersistentId == 0) continue;
 
                 Vessel v = FlightRecorder.FindVesselByPid(rec.VesselPersistentId);
@@ -15877,7 +15912,7 @@ namespace Parsek
             Vessel finalizeVessel)
         {
             string activeRecordingId = treeContext?.ActiveRecordingId;
-            if (!ShouldAllowFinalEndpointSegmentPhase(rec, activeRecordingId))
+            if (!ShouldAllowFinalEndpointSegmentPhase(rec, activeRecordingId, treeContext))
                 return false;
 
             if (!TryResolveFinalEndpointSegmentPhase(
