@@ -15,6 +15,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## STOCK-SCREEN-CENSUS-FUNDS-GUARD-CLAMPS: the census career's funds guard clamps both ways, and an allowed upgrade does not move the walk target [FILED 2026-09-28 from KB-4 `2026-09-28_2031`, branch `kb4-block-proof`. OPEN, not investigated, not gated]
+
+On `stock-screen-census` the funds patch clamps at load (`PatchFunds: GUARDED DRAWDOWN
+clamped resource=Funds running=244370.5 live=465808 wouldBeTarget=244370.5 clampedTo=465808`,
+also in KB-3's `2026-09-27_1240`), and the lanes then read live funds 236416.75. KB-4's
+allowed in-lane Administration upgrade (150000, one `FacilityUpgrade` KSC row, ledger 26 -> 27)
+is followed by `GUARDED UPLIFT clamped resource=Funds running=465808 live=86416.75
+wouldBeTarget=236416.75 clampedTo=86416.75 ... ledger may be missing a spending channel`, the
+same on the next scene loads (and a `Held your funds at the spent value` screen message). So
+the walk target after the upgrade still reads the pre-upgrade pool. The guard keeps the live
+value correct (86416.75, the stock debit), so no lane gates on it. Unknown whether this is
+the fixture (its ledger seed disagrees with its save pools: `running` 244370.5 vs `live`
+465808 at load) or a walk that does not charge a present-day upgrade on this host. Next
+step: read `FundsModule` over the census ledger headless (the committed rows plus one
+KSC FacilityUpgrade at UT 473) and compare the walk's running total with the save's pool.
+
 ## ~~GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight~~ [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. FIXED 2026-09-28, branch `gs8-watch-hold`]
 
 **In gameplay terms.** The player watches a replayed Kerbal X to the end of its flight. At
@@ -333,7 +349,18 @@ the same frame. A row the Active rebuild itself lists for the contract is alive 
 frame, so the assertion still catches the product defect it exists for. Re-fly
 `2026-09-27_1235` PASS 10 / 0 / 2.
 
-## H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE: two StockUiOverlay cells never run on `career-earned-ksc` [FILED 2026-09-27. OPEN, fixture gap, not a defect]
+## ~~H45-HOST-LACKS-ACTIVE-CONTRACT-AND-RESEARCHABLE-NODE: two StockUiOverlay cells never run on `career-earned-ksc`~~ [FILED 2026-09-27. CLOSED 2026-09-28, branch `kb4-block-proof`]
+
+**Resolution.** Half fixture, half test. H45 moved to `career-earned-pad`, the same career
+with the D8 splice's one Active contract (no new fixture; the pad craft is harmless under
+its `scene=spacecenter` boot). The researchable-node skip was NOT a fixture gap: the tree has
+researchable tier-1 nodes, and the cell read `RDNode.state` before stock's first
+`UpdateGraphics` (the R&D canvas was up 36 ms). Fixed test-only: the cell waits for the
+tree's states, and (found on its first execution, `2026-09-28_2034`, `passed=11 failed=1`)
+takes its stock-colour baseline on the selected node's panel rather than with no node
+selected. Re-fly `2026-09-28_2105`: `total=12 passed=12 failed=0 skipped=0`, pinned whole.
+
+Original filing:
 
 On H45's host both skip at run time (`RUNTIME_SKIPS` 2, run `2026-09-27_1235`):
 `MissionControlActiveRowLabelAndCancelBlockedWithReason` ("needs a career host with an

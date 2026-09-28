@@ -150,25 +150,53 @@ tier = "nightly"
 # FADED. Both skips are declared in `IngameBatchWiringGroupTests.RUNTIME_SKIPS` (2) and
 # the line is pinned WHOLE; the id has left INTERIM_PIN_IDS. The facility-menu cell (PR 7)
 # and the contract-slot cell (PR 4) both passed on their first execution anywhere.
-description = "LIVE-PROVEN 2026-09-27 (run 2026-09-27_1235, PASS attempt 1, total=12 passed=10 failed=0 skipped=2): the in-game StockUiOverlay category unattended on a career host with contracts on offer, twelve cells - Parsek's annotations on the live stock R&D, Astronaut Complex, Mission Control and KSC facility menu screens, all on stock mechanisms (tinted R&D node, stock tooltip / description / detail text, row labels on the Available and Active tabs, greyed Research / hire / dismiss / Accept / Decline / Cancel / facility Upgrade, the contract-slot Accept block, Decline and Cancel backstops) and nothing left behind on close. Two cells skip on this host: the Active-contract Cancel cell (no Active contract) and the R&D Research-button cell (no RESEARCHABLE node)."
+#
+# -------------------------------------------------------------------------------------
+# BOTH HOST SKIPS CLOSED (2026-09-28, branch `kb4-block-proof`). The host moved to
+# career-earned-pad (its one Active contract; see [fixture]), and the R&D Research-button
+# cell got two TEST-ONLY fixes. (1) It picked a node in the first frames after R&D opened,
+# when stock had not yet set any RDNode.state (the enum has no 0 member), so every node read
+# neither RESEARCHABLE nor HIDDEN: it now waits for the tree's states. (2) Its first execution
+# anywhere, `2026-09-28_2034` (PARSEK-FAIL attempt 1, `total=12 passed=11 failed=1
+# skipped=0`), failed `Research graphic count should be unchanged once the committed row is
+# gone`: the stock-colour baseline was taken with NO node selected, and the action button
+# gains a graphic when stock shows a node's panel (Parsek's grey pass wrote 2 of 2 graphics,
+# its lift wrote the same 2 of 3). The baseline is now the same node's panel before the
+# committed row goes in. Re-fly `2026-09-28_2105`, on an automation DLL carrying both fixes
+# (sha256 381c0c4e...): `total=12 passed=12 failed=0 skipped=0`; its PARSEK-FAIL was the old
+# 10 / 2 pin alone, and the line is now pinned WHOLE.
+description = "LIVE-PROVEN 2026-09-28 (run 2026-09-28_2105, total=12 passed=12 failed=0 skipped=0; first 2026-09-27_1235, 10 passed and 2 host skips): the in-game StockUiOverlay category unattended on a career host with contracts on offer, twelve cells - Parsek's annotations on the live stock R&D, Astronaut Complex, Mission Control and KSC facility menu screens, all on stock mechanisms (tinted R&D node, stock tooltip / description / detail text, row labels on the Available and Active tabs, greyed Research / hire / dismiss / Accept / Decline / Cancel / facility Upgrade, the contract-slot Accept block, Decline and Cancel backstops) and nothing left behind on close. Every cell runs on this host (career-earned-pad since 2026-09-28)."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45"]
 
 [fixture]
-# career-earned-ksc (career-contract-pad until 2026-09-08), and BOTH properties are
-# load-bearing. CAREER: the seven Astronaut Complex and Mission Control cells skip
+# career-earned-pad since 2026-09-28 (career-earned-ksc until then, career-contract-pad
+# until 2026-09-08). THE HOST MOVE CLOSED THE ACTIVE-CONTRACT GAP WITH NO NEW FIXTURE:
+# career-earned-pad is the SAME career as career-earned-ksc (both built from
+# C2CareerPostFix) plus the pad craft and the D8 splice, which re-states ONE Offered
+# contract (the decoupler test 07c8e34d) as Active with a PAST accept row (UT 360) and no
+# committed resolution, exactly what `MissionControlActiveRowLabelAndCancelBlockedWithReason`
+# needs (it adds and removes its own committed completion). The pad craft is harmless: the
+# boot is `scene=spacecenter`. The other skip was NOT a fixture gap: the host's tech tree
+# has researchable tier-1 nodes (only `start` researched; GUI-28 reads engineering101's
+# Research button interactable on the same tree), and `RnDResearchButtonDisabledShowsItsReason`
+# read RDNode.state in the first frames after R&D opened, before stock's first
+# UpdateGraphics set any state (the R&D canvas was up 36 ms). Fixed test-only: the cell now
+# waits for the tree's states (the start node reads RESEARCHED) before picking a node.
+#
+# BOTH properties below are load-bearing. CAREER: the seven Astronaut Complex and Mission Control cells skip
 # outright on a non-career mode ("Astronaut Complex annotation verification is
 # career-only") and the three R&D cells on SANDBOX ("R&D annotation verification needs a
 # tech-research-capable mode"),
 # so the whole batch would be vacuous on any SANDBOX host including the wave's
 # gloops-airshow. CONTRACTS ON OFFER: three of the four Mission Control cells need an Offered
-# contract row to decorate; this fixture carries nine, the old host carried none in
+# contract row to decorate; this fixture carries eight (and one Active), the first host carried none in
 # front of the screen (its one contract is Active, spliced for L5).
 #
 # It boots via `LoadGame scene=spacecenter` (the R12 argument H34 also uses).
 # Its activeVessel would otherwise take the Focusable route into FLIGHT, where
 # all twelve SPACECENTER-scoped declarations scene-skip and the batch is empty.
-saveTemplate = "fixtures/saves/career-earned-ksc"
+saveTemplate = "fixtures/saves/career-earned-pad"
 injectedRecordings = "none"
 craft = []
 
@@ -209,9 +237,8 @@ count = { min = 2, max = 2 }
 #    `RuntimeTests.cs`, the six R&D / Astronaut Complex cells in
 #    `InGameTests/StockUiStockDecorationTests.cs`, the facility menu cell in
 #    `InGameTests/StockUiFacilityMenuTests.cs`). The ATTRIBUTE FLOOR for `skipped` is
-#    0 at SPACECENTER; the Active-contract Cancel cell and the R&D Research-button cell
-#    skip at runtime on this host (RUNTIME_SKIPS 2).
-#  - passed=10 / skipped=2 are the measured split of `2026-09-27_1235`; the guards are
+#    0 at SPACECENTER, and on this host none skips at run time (no RUNTIME_SKIPS entry).
+#  - passed=12 / skipped=0 are the measured split of `2026-09-28_2105`; the guards are
 #    runtime facts on this host, so a changed split is a changed host or a changed cell.
 #  - failed=0 is the ASSERTION.
 #  - scene=SPACECENTER is LOAD-BEARING and is the B10 fail-open guard: a boot that lost
@@ -223,7 +250,9 @@ count = { min = 2, max = 2 }
 #  - 2026-09-25 (PR 4): total=11, the contract-slot Accept cell added.
 #  - 2026-09-25 (PR 7): total=12, the KSC facility menu cell added.
 #  - 2026-09-27: pinned WHOLE off `2026-09-27_1235` (10 passed, 2 runtime host skips).
-required  = ["BATCH_COMPLETE v1 total=12 passed=10 failed=0 skipped=2 category=StockUiOverlay scene=SPACECENTER"]
+#  - 2026-09-28: re-pinned WHOLE off `2026-09-28_2105` (12 passed, 0 skipped) after the host
+#    move to career-earned-pad and the R&D cell's two test-only fixes (see the header).
+required  = ["BATCH_COMPLETE v1 total=12 passed=12 failed=0 skipped=0 category=StockUiOverlay scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

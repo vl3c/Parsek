@@ -2055,6 +2055,20 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "5436a7e8840b4c5885afcbaedc9dc037"],
             "schemaGeneration": 4,
         },
+        # k2-held-kerbal-pad is career-earned-pad plus a crewless rover clone on the
+        # runway at VESSEL index 0 (harness/tools/build_k2_held_kerbal_pad.py, the KB-5
+        # host). No recording changes, so career-earned-pad pins verbatim.
+        "k2-held-kerbal-pad": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 8,
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
+                             "5436a7e8840b4c5885afcbaedc9dc037"],
+            "schemaGeneration": 4,
+        },
         # career-earned-ksc is the SAME career as career-earned-pad minus the spliced
         # pad craft (harness/tools/build_career_earned_ksc.py copies the xUnit base
         # C2CareerPostFix with only the rewindSave / Parsek/Saves hygiene edits), so its
