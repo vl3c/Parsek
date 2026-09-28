@@ -56,7 +56,10 @@ logged `continued past branch ... not following a different-vessel child`, so th
 on the watched vessel's own ending. Mirror, unchanged: a recording that ENDED at the split
 (parent destroyed at or within window + slack of the decouple) still retargets to the child
 or waits for it, a same-PID continuation is still followed whatever the end UT, and a crash
-Breakup still never falls back (#321). GS-7 (crash watch hold) is outside the change: its
+Breakup still never falls back (#321). The same gate also covers the post-switch Launch branch
+point (`ParsekFlight` ~10640, parent = the previously active recording): when that recording
+kept recording in the background past the switch, its watched ending no longer jumps to the
+vessel launched at the switch. That is the same wrong-vessel jump and is intended. GS-7 (crash watch hold) is outside the change: its
 watched Kerbal X reads `childBpId=null` in `2026-09-27_2016`. Tests:
 `WatchContinuedPastBranchTests` (GS-8 shape on all three readers, the four mirror cases, the
 predicate's window); three older fallback tests now give their branch point the UT the root
@@ -345,7 +348,7 @@ with one Offered contract accepted and one tier-1 node left unresearched after i
 (`start`) - or `stock-screen-census`, if it carries both (not checked). Not fixed now:
 a new or re-harvested fixture moves H45's host and every lane pinned to it.
 
-## SAVE-BLOCKS-AWAITING-READINGS: 30 report-only save-structure blocks on 24 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
+## SAVE-BLOCKS-AWAITING-READINGS: 28 report-only save-structure blocks on 23 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
 
 The operator's 2026-09-27 arming pass armed every report-only `rewind` /
 `recordings.structure` / `recordings.points` block that had a matching reading on current
@@ -354,7 +357,7 @@ same day off its green re-fly `2026-09-27_1310`. These remain report-only, and e
 needs a reading flight on current code (or a decision) before it can be armed:
 
 - No reading on file anywhere: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`;
-  CL-3, GS-1, GS-2, GS-3 `structure`; GS-7, GS-8, V3C, V3F, V3R both blocks; RF-2, RF-3,
+  CL-3, GS-1, GS-2, GS-3 `structure`; GS-7, V3C, V3F, V3R both blocks; RF-2, RF-3,
   RF-12L `rewind`.
 - Readings only before the 2026-09-23 rewind fixes (#1788 and after): GS-9 both
   (`2026-09-11_0109`), RF-1 and RF-9 `structure` (`2026-09-15_1542` / `_1546`).
@@ -362,8 +365,11 @@ needs a reading flight on current code (or a decision) before it can be armed:
   `max = 0` (`2026-09-15_1553`, before #1788); the window needs a decision under the
   rewind-point-survives ruling, not just a flight.
 
+GS-8 both blocks armed 2026-09-28 off `2026-09-28_1732` (branch `gs8-watch-hold`, after the
+GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix).
+
 Cheapest next flights (proposed 2026-09-27, deferred by the supervisor): GS-9, GS-8 (nightly,
-about 6-8 min each), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,
+about 6-8 min each; GS-8 now flown), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,
 V3F, V3R. The long harvest missions (B17, V3C, B23-B30, RF-2, RF-3, RF-12L) are not proposed.
 
 ---

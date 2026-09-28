@@ -11360,6 +11360,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "V23T-mun-landing-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
+                       # GS-8 both blocks: armed 2026-09-28 (branch `gs8-watch-hold`) off
+                       # `2026-09-28_1732`, the first green reading after the
+                       # GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix; all 10 bounds
+                       # inverted offline, each red on exactly its window.
+                       "GS-8-kerbalx-zone-round-trip.toml",
                        # B17: rewind (all max 0 - a clean single-launch flight
                        # authors no RP/supersede/tombstone) + structure (the
                        # exact two-recording committed topology) armed
