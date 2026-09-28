@@ -16785,8 +16785,16 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
 
         errors = hlib.validate_ui_action_step(
             2, {"op": "mock", "window": "kerbals",
-                "mockState": "career.banner.divergent"})
+                "mockState": "structure.route.pickup"})
         self.assertTrue(any("mock-state-window-mismatch" in e for e in errors), errors)
+
+        # The Career window was removed 2026-09-27: no table may still offer it, so a
+        # `window=career` step is refused pre-launch by the closed window row (the
+        # spec-level VERB_SCOPED_CLOSED_ARGS check) rather than after a boot.
+        self.assertNotIn("career", hlib.UIACTION_WINDOW_VALUES)
+        self.assertNotIn("career", hlib.UIACTION_MOCKABLE_WINDOWS)
+        self.assertNotIn("career", hlib.UIACTION_WINDOW_TABS)
+        self.assertNotIn("career", hlib.UIACTION_EXPAND_PREFIXES)
 
         self.assertEqual([], hlib.validate_ui_action_step(
             3, {"op": "mock", "window": "kerbals",
@@ -17841,21 +17849,18 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                 self.assertTrue(any("silently ignored" in e for e in errors), errors)
 
     def test_uiaction_tab_is_validated_against_that_windows_own_vocabulary(self):
-        # The typo class this exists for: `tab = "recordings"` on the career window is a
+        # The typo class this exists for: `tab = "recordings"` on the kerbals window is a
         # real tab NAME on a DIFFERENT window, so a flat closed-value set over the union
         # of every tab token would pass it and the spec would cost a boot to fix.
         self.assertEqual([], hlib.validate_ui_action_step(
-            0, {"op": "tab", "window": "career", "tab": "strategies"}))
-        # A tab the Career window no longer has (its Facilities / Milestones history moved
-        # to the Timeline) is refused before a boot, though the TIMELINE still has both.
-        errors = hlib.validate_ui_action_step(
-            0, {"op": "tab", "window": "career", "tab": "facilities"})
-        self.assertTrue(any("not a tab of window" in e for e in errors), errors)
+            0, {"op": "tab", "window": "timeline", "tab": "strategies"}))
         self.assertEqual([], hlib.validate_ui_action_step(
             0, {"op": "tab", "window": "timeline", "tab": "facilities"}))
         errors = hlib.validate_ui_action_step(
-            0, {"op": "tab", "window": "career", "tab": "recordings"})
+            0, {"op": "tab", "window": "kerbals", "tab": "recordings"})
         self.assertTrue(any("not a tab of window" in e for e in errors), errors)
+        # The removed Career window has no tab vocabulary left to validate against.
+        self.assertNotIn("career", hlib.UIACTION_WINDOW_TABS)
 
     def test_uiaction_tab_on_an_untabbed_window_names_the_tabbed_ones(self):
         errors = hlib.validate_ui_action_step(

@@ -358,7 +358,16 @@ As implemented (PR 2b for Decline, PR 3 for Cancel), following the hook correcti
 
 ### 8.1 The Career window becomes redundant
 
-The window is `UI/CareerStateWindowUI.cs`, PR #1796, inventory section 3.5.
+**DONE 2026-09-27 (owner decision, branch `remove-career-window`): the window is removed.** Its
+one unique fact, the slots the committed future reserves, moved into the EXISTING hover of the
+Timeline's `Contracts` and `Strategies` view buttons in Career mode (`CareerSlotSummary`,
+contracts through the shared `ContractSlotReservation` forecast, strategies through the moved
+peak walk): `Contract slots: 4 of 7 free now (2 active, 1 reserved for later).` The deadline
+of a contract the timeline accepts later was dropped as not important. GUI-15 was repointed to
+the Timeline's Contracts view and its hover; GUI-1 / GUI-5 / GUI-6 dropped their Career
+captures (GUI-8 and GUI-14 had none left). The table below is the analysis that decided it.
+
+The window was `UI/CareerStateWindowUI.cs`, PR #1796, inventory section 3.5.
 - It is read-only, Advanced-only, and shown in Career games in the KSC and FLIGHT scenes.
 - It has two tabs, Contracts and Strategies. Each tab shows:
   - `Active now: N of M slots`
@@ -371,7 +380,7 @@ The window is `UI/CareerStateWindowUI.cs`, PR #1796, inventory section 3.5.
 |---|---|---|---|
 | `Active now: 2 of 3 slots` (contracts) | **yes**: `MissionControl.textMCStats` (`#autoLOC_468173`), orange when full | the Accept reason names a held slot (C2) | no |
 | Active contract rows | **yes**: Active tab | - | accept rows |
-| `Accepted` date | no | no | **yes** |
+| `Accepted` date | **yes** (corrected 2026-09-27): the Mission Control detail panel shows `Accepted: Year 1, Day 1` | - | **yes** |
 | `Deadline` + `(in 12d)` | **yes**: detail panel (`PrintDate` / `PrintDateDeltaCompact` on `DateDeadline`) | - | no |
 | `Timeline end` on an active contract | no | **new**: the Active-row annotation (section 5) | **yes**: dated rows, future dimmed |
 | Pending fold: contracts the future accepts | only while still Offered | the accept mark + Accept / Decline blocks | **yes**, including contracts no longer offered |
@@ -474,7 +483,7 @@ Each step is one PR; each pairs a mark with its block.
    - a `KspStatePatcher` strategy-state patch
    - correct the design-doc claim
    - **Status: done in PR 5** (branch `stock-ui-strategies`). `StrategyReservationPredicates.cs` (activation / slot-peak / deactivation predicates), `ReservationExplanation.StrategyActivation` / `StrategySlot` / `StrategyDeactivation`, `Patches/StrategyReservationPatch.cs` (a `Strategy.CanBeActivated` postfix; the deactivation refusal on the player path only, as an `Administration.SetSelectedStrategy` postfix plus a `BtnInputAccept` backstop, never on `CanBeDeactivated`), `GameActions/StrategyStatePatcher.cs` (the state patch, last in `PatchAll`). Cells: `StrategyReservationTests.cs`. The design doc's UT=0 claim is corrected (the reputation-reservation note, Layer 3, and the Strategies Module's 11.3 / 11.6 / 11.7 subsections).
-6. **Retire the Career window** (section 8.1).
+6. **Retire the Career window** (section 8.1). **Done 2026-09-27.**
 7. **VAB/SPH crew dialog: show marked** (section 5). Then re-rule the Kerbals window's Basic visibility (D3).
    - **Status: done in PR 6** (branch `stock-ui-crew-dialog`, stacked on PR 2a). `CrewDialogFilterPatch` (the hiding prefix) is deleted. Mark: a postfix on `BaseCrewAssignmentDialog.AddAvailItem(ProtoCrewMember, out CrewListItem, UIList, ButtonTypes)` (the 3-argument overload forwards to it; `CrewAssignmentDialog` overrides neither) applies stock's `crew.inactive` look member for member and `SetButtonEnabled(false, title, why)`. Refresh: a postfix on the private `CreateAvailList(VesselCrewManifest)` re-derives every available row per build (grey it, or restore a look Parsek set, from captured stock state) and logs the pass. Rows are instantiated per build and destroyed by `scrollListAvail.Clear(destroyElements: true)`, and no backstop reads a row's look, so a stale look cannot unlock anything. Predicate: `KerbalsModule.ShouldFilterFromCrewDialog`, exactly what the old filter hid by. Text: the Astronaut Complex's held / lost explanation, or a new retired-stand-in text (`ReservationExplanation.KerbalRetiredStandIn`). Seat paths:
      - drag: the inactive look turns dragging off; a `DropOnCrewList` prefix refuses a drop from the available list.
@@ -525,7 +534,7 @@ Each step is one PR; each pairs a mark with its block.
 | D3 | Kerbals window back to Advanced once the crew dialog shows reserved kerbals | **open**; out of this program's scope (Parsek's own windows); recommended |
 | D4 | Part purchases: block, or dedupe in the ledger | owner-ruled 2026-09-25: **block** with an explanation at the stock control, like tech research (T1). Dedupe rejected: "we can't hide decisions from the player"; whether a purchase is a duplicate depends on WHEN it was made, and the ledger is a recalculated, append-only action log. P1 is in scope (section 10 step 9) |
 | D5 | Prefer making duplicates harmless in the walk over blocking wherever possible (P1, F3, the S1 setup cost) | owner-ruled 2026-09-25: **rejected** as a general preference. the double penalties (7.5) stay separate ledger bugs outside this program; F3 was later ruled a control block (2026-09-26) |
-| D6 | Retire the Career window after the section 8.1 conditions | **open**; out of this program's scope (Parsek's own windows); recommended |
+| D6 | Retire the Career window after the section 8.1 conditions | **decided 2026-09-27 (owner): removed**; the reserved-slot counts moved into the Timeline's Contracts / Strategies button hovers (section 8.1) |
 | D7 | Block Decline on committed accepts; block Cancel when a committed row later resolves the contract | owner-ruled 2026-09-25: approved. Decline is blocked on committed accepts; Cancel is blocked only when a committed row later completes, fails or cancels the contract (section 7) |
 | S1 | Strategies in scope | owner-ruled 2026-09-25: in scope. Block via `CanBeActivated`, a deactivate refusal on the player path only (never the stock auto-expiry), and a `KspStatePatcher` strategy-state patch (section 10 step 5) |
 

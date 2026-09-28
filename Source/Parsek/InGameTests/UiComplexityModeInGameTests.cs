@@ -147,43 +147,50 @@ namespace Parsek.InGameTests
             }
 
             UiComplexityMode originalMode = ParsekUI.AppliedUiComplexityMode;
-            CareerStateWindowUI career = ui.GetCareerStateUI();
-            int originalTab = career.SelectedTabForTesting;
-            bool originalOpen = career.IsOpen;
+            // The Gloops window: gated (in the close set), and unlike Real Spawn Control it
+            // never closes itself in FLIGHT, so the close asserted below is the mode's.
+            GloopsRecorderUI gloops = ui.GetGloopsUI();
+            UnityEngine.Rect originalRect = gloops.WindowRectForTesting;
+            bool originalOpen = gloops.IsOpen;
 
             try
             {
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
                 yield return WaitForAppliedMode(UiComplexityMode.Advanced);
 
-                // A distinguishable bit of state: the LAST tab, which is never the default.
-                int markerTab = CareerStateWindowUI.TabCountForTesting - 1;
-                career.IsOpen = true;
-                career.SelectedTabForTesting = markerTab;
+                // A distinguishable bit of state: a window position no default seed picks.
+                const float markerX = 123f;
+                const float markerY = 97f;
+                gloops.IsOpen = true;
+                gloops.WindowRectForTesting = new UnityEngine.Rect(markerX, markerY, 280f, 230f);
                 yield return null;
 
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
                 yield return WaitForAppliedMode(UiComplexityMode.Basic);
-                InGameAssert.IsFalse(career.IsOpen,
-                    "the Career window must be force-closed on entering Basic");
+                InGameAssert.IsFalse(gloops.IsOpen,
+                    "the Gloops window must be force-closed on entering Basic");
 
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
                 yield return WaitForAppliedMode(UiComplexityMode.Advanced);
 
                 // Reopening is the player's act; the mode never reopens a window for them.
-                career.IsOpen = true;
+                gloops.IsOpen = true;
                 yield return null;
 
-                InGameAssert.AreEqual(markerTab, career.SelectedTabForTesting,
-                    "the Career window's tab selection must survive the Basic round trip "
-                    + "(the close handler only clears IsOpen and releases the lock)");
+                UnityEngine.Rect after = gloops.WindowRectForTesting;
+                InGameAssert.IsTrue(UnityEngine.Mathf.Approximately(after.x, markerX)
+                                    && UnityEngine.Mathf.Approximately(after.y, markerY),
+                    "the Gloops window's position must survive the Basic round trip (the "
+                    + "close handler only clears IsOpen and releases the lock); read "
+                    + after.x.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + ","
+                    + after.y.ToString("F0", System.Globalization.CultureInfo.InvariantCulture));
                 ParsekLog.Info("TestRunner",
-                    $"UiComplexityMode: round trip preserved Career tab={career.SelectedTabForTesting}");
+                    "UiComplexityMode: round trip preserved Gloops window position");
             }
             finally
             {
-                career.SelectedTabForTesting = originalTab;
-                career.IsOpen = originalOpen;
+                gloops.WindowRectForTesting = originalRect;
+                gloops.IsOpen = originalOpen;
                 RestoreMode(originalMode);
             }
         }
@@ -268,7 +275,6 @@ namespace Parsek.InGameTests
 
         private static void OpenEveryGatedWindow(ParsekUI ui)
         {
-            ui.GetCareerStateUI().IsOpen = true;
             ui.GetKerbalsUI().IsOpen = true;
             ui.GetGloopsUI().IsOpen = true;
             ui.GetSpawnControlUI().IsOpen = true;

@@ -61,14 +61,14 @@ namespace Parsek.Tests
             // A count FLOOR rather than an exact number: states are added by later
             // phases and a pinned total would be a merge conflict on every one. The
             // floor is what stops the loop below going vacuous.
-            // 36 as of the 2026-09-24 Career rework, which removed the seven Facilities /
-            // Milestones states with the two tabs they drew.
-            Assert.True(GuiMockCatalogue.All.Count >= 34,
-                "the P1 catalogue is ~36 states across three windows; found "
+            // 27 as of the 2026-09-27 removal of the Career window, which took its nine
+            // states with it.
+            Assert.True(GuiMockCatalogue.All.Count >= 25,
+                "the P1 catalogue is ~27 states across two windows; found "
                 + GuiMockCatalogue.All.Count);
 
             Assert.Equal(
-                new[] { "kerbals", "career", "structure" },
+                new[] { "kerbals", "structure" },
                 GuiMockCatalogue.SupportedWindows);
 
             foreach (string window in GuiMockCatalogue.SupportedWindows)
@@ -85,7 +85,6 @@ namespace Parsek.Tests
             // The gallery declares its own window constants so the UI layer does not
             // reach into the seam layer for a string; this is what keeps the two equal.
             Assert.Equal(TestCommandUiAction.KerbalsWindow, GuiMockSession.KerbalsWindow);
-            Assert.Equal(TestCommandUiAction.CareerWindow, GuiMockSession.CareerWindow);
             Assert.Equal(TestCommandUiAction.StructureWindow, GuiMockSession.StructureWindow);
 
             string[] seamWindows = TestCommandUiAction.Windows.Select(w => w.Name).ToArray();
@@ -155,7 +154,6 @@ namespace Parsek.Tests
                 // Exactly one carrier is populated: a payload with two would be a state
                 // the applier installs into one window and witnesses through another.
                 int carriers = (payload.Kerbals.HasValue ? 1 : 0)
-                               + (payload.Career.HasValue ? 1 : 0)
                                + (payload.Structure != null ? 1 : 0);
                 Assert.True(carriers == 1,
                     "state '" + state.Id + "' populated " + carriers + " payload carriers");
@@ -241,15 +239,18 @@ namespace Parsek.Tests
         [Fact]
         public void EveryMockableWindowIsRefusedInAModeThatHidesIt()
         {
-            // Basic HIDES the Career launcher and the mode switch force-closes it, so a
+            // A launcher Basic hides has its window force-closed by the mode switch, so a
             // Basic apply would photograph a window no player can open. Checked against the
             // PRODUCTION visibility predicate rather than a per-state pin, which is why
             // design 7.1's per-state Mode field was dropped. Kerbals draws in Basic since
-            // the 2026-09-22 owner re-ruling, so it is mockable in both modes.
+            // the 2026-09-22 owner re-ruling, so it is mockable in both modes, and its
+            // launcher surface is the one the predicate reads.
+            UiSurface kerbalsSurface;
+            Assert.True(GuiMockCatalogue.TryGetLauncherSurface(
+                GuiMockSession.KerbalsWindow, out kerbalsSurface));
+            Assert.Equal(UiSurface.MainButtonKerbals, kerbalsSurface);
             Assert.True(GuiMockCatalogue.IsMockableInMode(
                 GuiMockSession.KerbalsWindow, UiComplexityMode.Basic));
-            Assert.False(GuiMockCatalogue.IsMockableInMode(
-                GuiMockSession.CareerWindow, UiComplexityMode.Basic));
             foreach (string window in GuiMockCatalogue.SupportedWindows)
             {
                 Assert.True(GuiMockCatalogue.IsMockableInMode(
@@ -283,11 +284,6 @@ namespace Parsek.Tests
                     Assert.NotSame(a.Kerbals.Value.Flights, b.Kerbals.Value.Flights);
                     Assert.NotSame(a.Kerbals.Value.Roster.Involved,
                                    b.Kerbals.Value.Roster.Involved);
-                }
-                if (a.Career.HasValue)
-                {
-                    Assert.NotSame(a.Career.Value.Contracts.CurrentRows,
-                                   b.Career.Value.Contracts.CurrentRows);
                 }
             }
         }
@@ -443,114 +439,6 @@ namespace Parsek.Tests
                 .Single(r => r.Status == KerbalsPresentation.RosterStatus.StandIn);
         }
 
-        [Fact]
-        public void TheDivergentCareerBannerStateActuallyDiverges()
-        {
-            GuiMockPayload payload = GuiMockCatalogue.ById("career.banner.divergent").Build();
-            CareerStateWindowUI.CareerStateViewModel vm = payload.Career.Value;
-            Assert.True(vm.HasDivergence,
-                "the banner's whole point is the divergence tail; the real VM walk decides "
-                + "it, so a state that does not diverge photographs the ordinary banner");
-            Assert.True(vm.TerminalUT > vm.LiveUT);
-            Assert.True(vm.Contracts.ProjectedRows.Count > vm.Contracts.CurrentRows.Count);
-            Assert.Contains(vm.Contracts.ProjectedRows, r => r.IsPendingAccept);
-        }
-
-        [Fact]
-        public void TheClosingContractStateTagsAllFourClosingCauses()
-        {
-            GuiMockPayload payload = GuiMockCatalogue.ById("career.contracts.closing").Build();
-            CareerStateWindowUI.ContractsTabVM tab = payload.Career.Value.Contracts;
-            // Completed / failed / expired / cancelled after live UT each carry their own
-            // outcome on the CURRENT row - the classification is the ledger walk's, not
-            // this test's - so a future failure never reads like a completion, and a
-            // deadline running out never reads like a failure.
-            Assert.Equal(4, tab.CurrentRows.Count(r => r.IsClosingByTimelineEnd));
-            Assert.Equal(
-                new[]
-                {
-                    CareerStateWindowUI.TimelineEndKind.Cancelled,
-                    CareerStateWindowUI.TimelineEndKind.Completed,
-                    CareerStateWindowUI.TimelineEndKind.Expired,
-                    CareerStateWindowUI.TimelineEndKind.Failed,
-                },
-                tab.CurrentRows.Select(r => r.EndKind).OrderBy(k => k.ToString()).ToArray());
-            foreach (CareerStateWindowUI.ContractRow row in tab.CurrentRows)
-                Assert.NotEqual("",
-                    CareerStateWindowUI.FormatContractRow_TimelineEnd(row, ut => "D"));
-        }
-
-        [Fact]
-        public void TheSlotStatesDrawARaisedLimitAndTheDivergentOneAPendingFold()
-        {
-            // The two FacilityUpgrade states exist for the slot limit the upgrade raises,
-            // which the window prints only in the heading line - so that is what they must
-            // produce, from the real walk and the real formatter.
-            CareerStateWindowUI.ContractsTabVM full =
-                GuiMockCatalogue.ById("career.contracts.slots-full")
-                    .Build().Career.Value.Contracts;
-            Assert.True(full.MissionControlLevel > 1);
-            Assert.True(full.CurrentMaxSlots > LedgerOrchestrator.GetContractSlots(1));
-            Assert.Equal(full.CurrentMaxSlots, full.CurrentActive);
-            Assert.Equal(CareerStateWindowUI.FormatSlotHeading(full.Slots), full.GroupHeadingText);
-            Assert.Equal("0 of 7 slots free (7 active)", full.GroupHeadingText);
-
-            CareerStateWindowUI.StrategiesTabVM admin =
-                GuiMockCatalogue.ById("career.strategies.admin-above-one")
-                    .Build().Career.Value.Strategies;
-            Assert.True(admin.AdminLevel > 1);
-            Assert.Equal("2 of 5 slots free (3 active)", admin.GroupHeadingText);
-
-            CareerStateWindowUI.ContractsTabVM divergent =
-                GuiMockCatalogue.ById("career.banner.divergent")
-                    .Build().Career.Value.Contracts;
-            Assert.NotEmpty(divergent.PendingRows);
-            Assert.Equal("Accepted later by your recorded flights (" + divergent.PendingRows.Count + ")",
-                divergent.PendingFoldText);
-            // The divergent picture carries a reservation: one of its current contracts
-            // completes before the first later accept, which takes that slot.
-            Assert.Equal("3 of 7 slots free (3 active, 1 reserved for later)",
-                divergent.GroupHeadingText);
-        }
-
-        [Fact]
-        public void EveryCareerStateFitsItsOwnSlotLimits()
-        {
-            // catches: a synthetic ledger holding more contracts or strategies than its
-            // Mission Control / Administration level allows. The heading then read
-            // "Active now: 3 of 2 slots" in the first census capture of the mocked fold -
-            // a picture no career can produce.
-            foreach (GuiMockState state in GuiMockCatalogue.ForWindow(GuiMockSession.CareerWindow))
-            {
-                CareerStateWindowUI.CareerStateViewModel vm = state.Build().Career.Value;
-                // The peak the recorded future holds at once, too: a mocked future that
-                // over-books its own building is a picture no career can produce.
-                Assert.True(vm.Contracts.CurrentActive <= vm.Contracts.CurrentMaxSlots
-                            && vm.Contracts.ProjectedActive <= vm.Contracts.ProjectedMaxSlots
-                            && vm.Contracts.Slots.PeakNeed <= vm.Contracts.CurrentMaxSlots,
-                    state.Id + ": " + vm.Contracts.GroupHeadingText + " / " + vm.Contracts.PendingFoldText);
-                Assert.True(vm.Strategies.CurrentActive <= vm.Strategies.CurrentMaxSlots
-                            && vm.Strategies.ProjectedActive <= vm.Strategies.ProjectedMaxSlots
-                            && vm.Strategies.Slots.PeakNeed <= vm.Strategies.CurrentMaxSlots,
-                    state.Id + ": " + vm.Strategies.GroupHeadingText + " / " + vm.Strategies.PendingFoldText);
-            }
-        }
-
-        [Fact]
-        public void TheStrategyStateProducesAFlowCell()
-        {
-            CareerStateWindowUI.StrategiesTabVM tab =
-                GuiMockCatalogue.ById("career.strategies.active-rows")
-                    .Build().Career.Value.Strategies;
-            Assert.NotEmpty(tab.CurrentRows);
-            string flow = CareerStateWindowUI.FormatStrategyRow_Flow(tab.CurrentRows[0]);
-            // The Flow column has no picture at all in the census; assert the real
-            // formatter produced its three parts rather than pinning the whole string.
-            Assert.Contains("->", flow, StringComparison.Ordinal);
-            Assert.Contains("@", flow, StringComparison.Ordinal);
-            Assert.Contains("%", flow, StringComparison.Ordinal);
-        }
-
         // NOTE: the "every structure step label is in the shared vocabulary" cell that
         // used to live here is GONE, and its removal is the point rather than a loss. It
         // asserted that a step's Label came from MissionCompositionBuilder's branch-event
@@ -599,12 +487,17 @@ namespace Parsek.Tests
             {
                 System.Threading.Thread.CurrentThread.CurrentCulture =
                     CultureInfo.GetCultureInfo("de-DE");
-                CareerStateWindowUI.StrategiesTabVM tab =
-                    GuiMockCatalogue.ById("career.strategies.active-rows")
-                        .Build().Career.Value.Strategies;
-                string flow = CareerStateWindowUI.FormatStrategyRow_Flow(tab.CurrentRows[0]);
-                Assert.DoesNotContain(",", flow, StringComparison.Ordinal);
-                Assert.Contains(".", flow, StringComparison.Ordinal);
+                var decimalComma = new Regex(@"\d,\d", RegexOptions.CultureInvariant);
+                foreach (GuiMockState state in GuiMockCatalogue.All)
+                {
+                    foreach (string witness in GuiMockWitness.Expected(
+                                 state.Build(), state.Tab, state.Covers))
+                    {
+                        Assert.False(decimalComma.IsMatch(witness),
+                            "state '" + state.Id + "' witness '" + witness
+                            + "' carries a culture-formatted decimal");
+                    }
+                }
             }
             finally
             {

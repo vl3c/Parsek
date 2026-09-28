@@ -192,7 +192,7 @@ namespace Parsek
 
         // Read-only test seam for the transient tab selection (section 4.1/4.1a guards).
         // Settable so an in-game test can restore the tab it moved (mirrors
-        // CareerStateWindowUI's accessor); `selectedTab` is transient either way.
+        // KerbalsWindowUI's accessor); `selectedTab` is transient either way.
         internal int SelectedTabForTesting
         {
             get { return selectedTab; }
@@ -702,7 +702,7 @@ namespace Parsek
         private GUIStyle colHdrCellContainerStyle;
 
         // Tab-bar button style: the selected tab looks pressed (onNormal/onHover background
-        // copied from GUI.skin.button.active). Mirrors KerbalsWindowUI / CareerStateWindowUI.
+        // copied from GUI.skin.button.active). Mirrors KerbalsWindowUI.
         private GUIStyle toggleButtonStyle;
 
         // Window drag tracking for position logging
@@ -1064,7 +1064,7 @@ namespace Parsek
             };
 
             // Tab-bar button: selected tab looks pressed via onNormal/onHover background copied
-            // from GUI.skin.button.active.background (matches KerbalsWindowUI / CareerStateWindowUI).
+            // from GUI.skin.button.active.background (matches KerbalsWindowUI).
             toggleButtonStyle = new GUIStyle(GUI.skin.button)
             {
                 fontStyle = FontStyle.Bold,

@@ -48,7 +48,6 @@ namespace Parsek.Tests
                 case UiSurface.MainButtonLogistics: return "Logistics";
                 case UiSurface.MainButtonKerbals: return "Kerbals";
                 case UiSurface.MainButtonSettings: return "Settings";
-                case UiSurface.MainButtonCareer: return "Career";
                 case UiSurface.MainButtonSpawnControl: return "Spawn";
                 case UiSurface.MainButtonGloops: return "Gloops";
                 default:
