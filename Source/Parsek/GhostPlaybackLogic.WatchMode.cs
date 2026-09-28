@@ -182,6 +182,9 @@ namespace Parsek
             if (pidMatchFound || branchPoint.Type == BranchPointType.Breakup)
                 return -1;
 
+            if (RecordingContinuedPastBranchPoint(currentRec, branchPoint))
+                return -1;
+
             for (int i = 0; i < branchPoint.ChildRecordingIds.Count; i++)
             {
                 int childIndex = FindRecordingIndexById(committed, branchPoint.ChildRecordingIds[i]);
@@ -591,11 +594,61 @@ namespace Parsek
                             "has no same-PID continuation — preserving live vessel context");
                     }
                     if (fallbackIdx >= 0)
+                    {
+                        if (RecordingContinuedPastBranchPoint(currentRec, bp))
+                        {
+                            LogContinuedPastBranchPointSkip("FindNextWatchTarget", currentRec, bp);
+                            return -1;
+                        }
                         return fallbackIdx;
+                    }
                 }
             }
 
             return -1;
+        }
+
+        /// <summary>
+        /// Slack past the branch point's coalesce window within which a recording still
+        /// counts as having ended AT the split (frame and deferred-split jitter).
+        /// </summary>
+        internal const double WatchSplitEndSlackSeconds = 1.0;
+
+        /// <summary>
+        /// True when <paramref name="rec"/> kept recording past <paramref name="bp"/>.
+        /// A focused-vessel breakup or decouple (<c>ParsekFlight.WireBreakupIntoTree</c>)
+        /// stamps <c>ChildBranchPointId</c> on a recording that keeps sampling after the
+        /// split and reaches its own terminal later, while a split that closes its parent
+        /// (<c>CreateSplitBranch</c>, <c>BackgroundRecorder.CloseParentRecording</c>) trims
+        /// the parent to the branch UT. So <c>ChildBranchPointId</c> alone does not say the
+        /// flight ended at that branch, and a different-vessel child of it is not where the
+        /// watched flight went. Unknown UTs answer false (the old ended-at-split reading).
+        /// </summary>
+        internal static bool RecordingContinuedPastBranchPoint(Recording rec, BranchPoint bp)
+        {
+            if (rec == null || bp == null || double.IsNaN(bp.UT) || double.IsInfinity(bp.UT))
+                return false;
+
+            double coalesce = double.IsNaN(bp.CoalesceWindow) || bp.CoalesceWindow < 0.0
+                ? 0.0
+                : bp.CoalesceWindow;
+            double endUT = rec.EndUT;
+            if (double.IsNaN(endUT) || double.IsInfinity(endUT))
+                return false;
+
+            return endUT > bp.UT + coalesce + WatchSplitEndSlackSeconds;
+        }
+
+        private static void LogContinuedPastBranchPointSkip(string site, Recording rec, BranchPoint bp)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.VerboseRateLimited("Watch",
+                "continued-past-branch-" + site + "-" + rec.RecordingId,
+                site + ": rec '" + rec.VesselName + "' (" + rec.RecordingId + ") continued past branch "
+                    + bp.Id + " type=" + bp.Type
+                    + " bpUT=" + bp.UT.ToString("F2", ic)
+                    + " recEndUT=" + rec.EndUT.ToString("F2", ic)
+                    + " - no same-PID continuation, not following a different-vessel child");
         }
 
         /// <summary>
@@ -744,6 +797,12 @@ namespace Parsek
                         return false;
                     if (sawActiveFallback)
                         return false;
+                    if (!double.IsNaN(fallbackActivationUT)
+                        && RecordingContinuedPastBranchPoint(currentRec, bp))
+                    {
+                        LogContinuedPastBranchPointSkip("TryGetPendingWatchActivationUT", currentRec, bp);
+                        return false;
+                    }
                     if (!double.IsNaN(fallbackActivationUT))
                     {
                         activationUT = fallbackActivationUT;

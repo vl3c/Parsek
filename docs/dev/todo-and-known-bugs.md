@@ -15,6 +15,57 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight~~ [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. FIXED 2026-09-28, branch `gs8-watch-hold`]
+
+**In gameplay terms.** The player watches a replayed Kerbal X to the end of its flight. At
+the moment its recording ends, the camera does not hold on the Kerbal X (the 3 s end hold,
+then back to the player's vessel); it jumps to the probe-cored core stage the rocket dropped
+about 150 s EARLIER, holds 3 s on that, and exits. Nothing is lost or mis-recorded: the save
+is correct, only the camera goes to the wrong ghost for the last 3 seconds.
+
+**Evidence.** GS-8's one failing expectation was the required
+`phase=MeshDestroyed ... vessel=Kerbal X reason=watch hold expired`. The log of `_2029` read
+`FindNextWatchTarget: currentIndex=0 ... childBpId=6200c1cd...`, `found target at index 7`,
+`Auto-following: #0 "Kerbal X" -> #7 "Kerbal X Probe"`, then `Watch hold started for #7: 3s
+terminal=SubOrbital` and the probe's `watch hold expired`. The produced save: the Kerbal X
+recording `526d008e...` runs to `explicitEndUT = 297.64` with its own SubOrbital terminal,
+yet carries `childBranchPointId = 6200c1cd...`, the JointBreak / DECOUPLE branch point at
+`ut = 146.44` whose only child is the probe `517ffd5a...` (non-debris, parent-anchored,
+`explicitEndUT = 297.70`, so its ghost was still live when the Kerbal X ended).
+
+**Cause (confirmed from log and source).** The core discard went through the crash
+coalescer: `ProcessBreakupEvent: controlled child created ... Kerbal X Probe` then
+`ProcessBreakupEvent: JointBreak attached to tree ... parentRec=526d008e..., bpId=6200c1cd...`.
+`ParsekFlight.WireBreakupIntoTree` stamps `ChildBranchPointId` on the FOCUSED recording, which
+keeps sampling past the split (the breakup-continuous design `DebrisParentStateGate` and
+`GhostPlaybackLogic.IsEffectiveLeafForVessel` already document); only the splits that close
+their parent (`CreateSplitBranch`, `BackgroundRecorder.CloseParentRecording`) trim it to the
+branch UT. `GhostPlaybackLogic.FindNextWatchTarget` case 2 read every `ChildBranchPointId` as
+"the flight ended here": with no same-PID child it fell back (non-Breakup branch, #321) to
+the first active non-debris child, the probe. Every live caller (`ParsekPlaybackPolicy`'s
+completion and mid-chain auto-follow, `WatchModeController.ProcessWatchEndHoldTimer`, the
+hold extension through `TryGetPendingWatchActivationUT`) goes through these pure functions.
+Why the 2026-09-08 greens held on the Kerbal X is not established (those results are gone);
+any run where the probe's ghost outlives the parent's end reaches the fallback.
+
+**Fix.** `GhostPlaybackLogic.RecordingContinuedPastBranchPoint`: the recording's `EndUT` lies
+past `bp.UT + CoalesceWindow + 1 s`. When there is no same-PID continuation and that holds,
+the different-vessel fallback is refused in all three readers of the branch
+(`FindNextWatchTarget`, `TryGetPendingWatchActivationUT`, `ResolveEffectiveTreeWatchTargetIndex`),
+logged `continued past branch ... not following a different-vessel child`, so the watch holds
+on the watched vessel's own ending. Mirror, unchanged: a recording that ENDED at the split
+(parent destroyed at or within window + slack of the decouple) still retargets to the child
+or waits for it, a same-PID continuation is still followed whatever the end UT, and a crash
+Breakup still never falls back (#321). The same gate also covers the post-switch Launch branch
+point (`ParsekFlight` ~10640, parent = the previously active recording): when that recording
+kept recording in the background past the switch, its watched ending no longer jumps to the
+vessel launched at the switch. That is the same wrong-vessel jump and is intended. GS-7 (crash watch hold) is outside the change: its
+watched Kerbal X reads `childBpId=null` in `2026-09-27_2016`. Tests:
+`WatchContinuedPastBranchTests` (GS-8 shape on all three readers, the four mirror cases, the
+predicate's window); three older fallback tests now give their branch point the UT the root
+ends at, the shape they describe. Re-flight: see the GS-8 spec's STATUS section.
+
+
 ## ~~RF-20-FIRST-FLIGHT-SPEC-RELOAD-BEFORE-COMMIT-SAVE: RF-20's first flight reloaded a pre-commit persistent.sfs~~ [FILED AND CLOSED 2026-09-27, branch `stashslot-live-refly`. LANE SPEC DEFECT, not a Parsek defect]
 
 Run `2026-09-27_1827` classified PARSEK-FAIL: the tree commits on arrival at the Space Center, after the scene exit has saved, so the lane's reload read a pre-commit `persistent.sfs` and `TryRestoreActiveTreeNode` resumed the tree as a live recording; with nothing committed, `StashSlot` correctly answered `stash-refused tip-unresolvable`. Loading an older save is intended to restore it that way (a player only meets it after a crash at the KSC before the next save, and the tree resumes rather than being lost). Fix: a `SaveGame persistent` step after `ExitToSpaceCenter`, the order RF-13H already uses. Re-flown: `_1832` reading run, `_1838` PASS.
@@ -297,7 +348,7 @@ with one Offered contract accepted and one tier-1 node left unresearched after i
 (`start`) - or `stock-screen-census`, if it carries both (not checked). Not fixed now:
 a new or re-harvested fixture moves H45's host and every lane pinned to it.
 
-## SAVE-BLOCKS-AWAITING-READINGS: 30 report-only save-structure blocks on 24 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
+## SAVE-BLOCKS-AWAITING-READINGS: 28 report-only save-structure blocks on 23 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
 
 The operator's 2026-09-27 arming pass armed every report-only `rewind` /
 `recordings.structure` / `recordings.points` block that had a matching reading on current
@@ -306,7 +357,7 @@ same day off its green re-fly `2026-09-27_1310`. These remain report-only, and e
 needs a reading flight on current code (or a decision) before it can be armed:
 
 - No reading on file anywhere: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`;
-  CL-3, GS-1, GS-2, GS-3 `structure`; GS-7, GS-8, V3C, V3F, V3R both blocks; RF-2, RF-3,
+  CL-3, GS-1, GS-2, GS-3 `structure`; GS-7, V3C, V3F, V3R both blocks; RF-2, RF-3,
   RF-12L `rewind`.
 - Readings only before the 2026-09-23 rewind fixes (#1788 and after): GS-9 both
   (`2026-09-11_0109`), RF-1 and RF-9 `structure` (`2026-09-15_1542` / `_1546`).
@@ -314,8 +365,11 @@ needs a reading flight on current code (or a decision) before it can be armed:
   `max = 0` (`2026-09-15_1553`, before #1788); the window needs a decision under the
   rewind-point-survives ruling, not just a flight.
 
+GS-8 both blocks armed 2026-09-28 off `2026-09-28_1732` (branch `gs8-watch-hold`, after the
+GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix).
+
 Cheapest next flights (proposed 2026-09-27, deferred by the supervisor): GS-9, GS-8 (nightly,
-about 6-8 min each), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,
+about 6-8 min each; GS-8 now flown), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,
 V3F, V3R. The long harvest missions (B17, V3C, B23-B30, RF-2, RF-3, RF-12L) are not proposed.
 
 ---
