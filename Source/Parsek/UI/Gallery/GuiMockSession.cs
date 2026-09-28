@@ -60,28 +60,9 @@ namespace Parsek.UI.Gallery
         // equal to the seam's own constant, so the two cannot drift.
 
         internal const string KerbalsWindow = "kerbals";
-        internal const string CareerWindow = "career";
         internal const string StructureWindow = "structure";
 
         // ----- the suppression sites (design 7.4) -----
-
-        /// <summary>Career State's <c>ShouldRebuildCachedVM</c>. Without it the UT-text
-        /// compare rebuilds the mocked VM within one game-second.</summary>
-        internal static readonly GuiMockSuppressionSite CareerVmRebuild =
-            new GuiMockSuppressionSite { Site = "career-vm-rebuild", Window = CareerWindow };
-
-        /// <summary>
-        /// Career State's explicit <c>InvalidateCache</c>, reached from
-        /// <c>LedgerOrchestrator.OnTimelineDataChanged</c> through
-        /// <c>ParsekUI.OnTimelineDataChanged</c>.
-        ///
-        /// <para>The OTHER writer of that window's cached VM, and the one the first build
-        /// missed: suppressing the rebuild PREDICATE alone let any ledger write null the
-        /// mocked VM, after which the predicate answered "do not rebuild" and the draw
-        /// dereferenced a null Nullable every frame.</para>
-        /// </summary>
-        internal static readonly GuiMockSuppressionSite CareerInvalidate =
-            new GuiMockSuppressionSite { Site = "career-invalidate", Window = CareerWindow };
 
         /// <summary>Kerbals' explicit <c>InvalidateCache</c> (the timeline hook).</summary>
         internal static readonly GuiMockSuppressionSite KerbalsInvalidate =
@@ -100,8 +81,6 @@ namespace Parsek.UI.Gallery
         /// locally instead of photographing a clobbered mock.</summary>
         internal static readonly GuiMockSuppressionSite[] SuppressionSites =
         {
-            CareerVmRebuild,
-            CareerInvalidate,
             KerbalsInvalidate,
             KerbalsLiveCrew,
         };

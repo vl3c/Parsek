@@ -171,8 +171,8 @@ namespace Parsek.Tests
         {
             Assert.Equal("mock-kerbals-roster-lost-advanced",
                 TestCommandUiMock.DeriveLabel("mock", "kerbals.roster.lost", false));
-            Assert.Equal("mock-career-banner-divergent-basic",
-                TestCommandUiMock.DeriveLabel("mock", "career.banner.divergent", true));
+            Assert.Equal("mock-structure-route-pickup-basic",
+                TestCommandUiMock.DeriveLabel("mock", "structure.route.pickup", true));
             // The default host is what makes a mocked capture file under the mirror's
             // `mock` dataset rather than under a real fixture's name.
             Assert.Equal("mock", TestCommandUiMock.DefaultLabelPrefix);
@@ -315,12 +315,12 @@ namespace Parsek.Tests
         {
             var ids = new List<string> { "a.b.c", "d.e.f" };
             var map = TestCommandUiMock.BuildDescribePayload(
-                    "gui-mock/1", ids, "kerbals,career", "kerbals,career,structure", null)
+                    "gui-mock/1", ids, "kerbals", "kerbals,structure", null)
                 .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
             Assert.Equal("gui-mock/1", map["catalogue"]);
             Assert.Equal("2", map["states"]);
-            Assert.Equal("kerbals,career", map["windows"]);
-            Assert.Equal("kerbals,career,structure", map["supported"]);
+            Assert.Equal("kerbals", map["windows"]);
+            Assert.Equal("kerbals,structure", map["supported"]);
             Assert.Equal("-", map["live"]);
             Assert.Equal("a.b.c", map["s0"]);
             Assert.Equal("d.e.f", map["s1"]);

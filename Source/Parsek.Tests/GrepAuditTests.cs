@@ -389,7 +389,7 @@ namespace Parsek.Tests
         {
             "GuiMockSession", "GuiMockCatalogue", "GuiMockState", "GuiMockPayload",
             "GuiMockStructure", "GuiMockWitness", "GuiMockSuppressionSite",
-            "GuiMockKerbalsStates", "GuiMockCareerStates", "GuiMockStructureStates",
+            "GuiMockKerbalsStates", "GuiMockStructureStates",
             "MissionInputs", "RosterInputs", "RouteShape", "FlightShape",
 
             "TestCommandUiMock", "TestCommandUiAction", "TestCommandUiState",
@@ -399,7 +399,7 @@ namespace Parsek.Tests
             "GuiTreeDumpPollOutcome", "ParsedCommand", "DeferralBudget",
             "ParsekTestCommandAddon", "MockIntent",
 
-            "KerbalsWindowUI", "KerbalsPresentation", "CareerStateWindowUI",
+            "KerbalsWindowUI", "KerbalsPresentation",
             "StructureListWindowUI", "ParsekUI", "UiComplexityMode", "UiSurface",
             "UiSurfaceVisibility",
 

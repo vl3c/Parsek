@@ -2106,6 +2106,13 @@ panel; reserved kerbals greyed in both crew lists. The findings, none fixed here
    this slot`) over stock's own on all ten inactive strategies. Section 4 S1 says an overflow at
    now is stock's own check; whether the Parsek reason should then stand aside is for the
    overlay program to rule.
+   Follow-up (branch `overlay-gaps`): with stock-first in place the selected strategy showed
+   only stock's slot reason and nothing said the committed timeline activates it later. The
+   `CanBeActivated` postfix now appends the committed activation fact after stock's reason
+   when stock refuses and a committed StrategyActivate of THAT strategy is ahead
+   (`StrategyReservationPredicates.AppendCommittedActivationToStockReason`); stock's refusal
+   stays the block. Wording since the owner's 2026-09-27 rule: stock's reason, then
+  `Activated on DATE, blocked by timeline until then.`
 
 Two kerbal-side readings the same captures show, outside the overlay code:
 
@@ -2368,7 +2375,51 @@ pairing rule):
   T2; the Career window already skips it). The index is built from the effective ledger on
   its own cache cycle, not from the walk, so reading the walk's `Effective` there is not a
   trivially safe change; left for the overlay program.
-- K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.
+- ~~K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.~~
+  Fixed (branch `overlay-gaps`) as a block at the stock controls, not a flight fix. Predicate
+  `StockUiFlightCrewDecoration.IsMoveRefused`: the crew dialog's
+  (`KerbalsModule.ShouldFilterFromCrewDialog`, live Re-Fly carve-out included) narrowed to a
+  kerbal a committed flight holds now (`ReservedActive`: on-flight or lost; a retired stand-in
+  is not held, his flights are over) aboard a vessel that continues no committed flight (a
+  Parsek-spawned or adopted vessel, `CrewReservationManager.ActiveVesselIsParsekSpawned`, is
+  exempt, the flight-ready swap's own exemption), and never while a Re-Fly session is active
+  (design 3.3.1: the origin's rows stay effective until the merge, and the crew dialog's
+  pid-only carve-out misses a decoupled / undocked child or a dock that keeps the other pid,
+  so the whole block stands down for the session; review blocker on PR #1917). Marks: `KerbalPortrait.Update` postfix greys
+  the portrait EVA button with the reason in stock's `evaTooltip` (after stock's own locked
+  reason when stock also refuses); `CrewHatchDialog.CreateList` postfix greys the hatch row's
+  EVA and Transfer with the reason in a stock tooltip and the status on the row's name label.
+  Backstops, same text via `CommittedActionDialog`: prefixes on `FlightEVA.spawnEVA` (returns
+  null, stock's own no-EVA result) and `CrewTransfer.Create` (no transfer host), the only stock
+  entry points (whole-assembly IL scan). Code: `StockUiFlightCrewDecoration.cs`,
+  `Patches/FlightCrewReservationPatches.cs`; cells `StockUiFlightCrewTests`. Not covered:
+  boarding from EVA (`KerbalEVA.BoardPart`) is left alone, because refusing it would strand an
+  already-EVA held kerbal in the open and the EVA itself is refused; docking a vessel that
+  carries a held kerbal is not a crew move. Not proven in game: no committed fixture boots a
+  held kerbal aboard a live non-continuation vessel (on `career-earned-pad` the flight-ready
+  swap takes Jeb out of the only vessel first); see the overlay-gaps PR notes for the smallest
+  fixture that would.
+- ~~Mission Control read "fails" / "Fails on" for a committed ContractFail row that is the
+  deadline running out, where the Timeline reads "Expired" and the Career window "expires".~~
+  Fixed (branch `overlay-gaps`): `CommittedFutureIndex.Build` stamps a fail row
+  `DeadlineExpiry` through the Timeline's own test (`GameActionDisplay.IsExpiredContractFail`
+  against the accept the fail closes, `FindAcceptForOutcome`), and
+  `ReservationExplanation.ContractResolution` reads "Expired" for it (the owner's 2026-09-27
+  participle wording), so the Active-row label, the detail panel and the Cancel refusal say
+  "expired" / "Expired on".
+- ~~The reservation text was fact + "fixed once committed" rule + way out, said "your
+  committed timeline", and a greyed stock button (Research, Accept / Decline / Cancel,
+  Administration Accept / Cancel) had no hover saying why.~~ Owner wording and coverage
+  rules of 2026-09-27, applied (branch `overlay-gaps`): one sentence per text
+  (`<Participle> on <date and time>, blocked by timeline until then.`; kerbals `Reserved by
+  timeline for 'Flight' until <date>.`), never "committed" / "your timeline" / "the timeline"
+  (pinned by `ReservationExplanationTests`), and every Parsek-greyed stock button carries the
+  reason in a stock tooltip (`StockUiReasonTooltip`); the facility menu also shows it in its
+  description. Final strings and the per-screen matrix: reference sections 6.1 and 6.2. Left
+  without text: the slot-refused Mission Control rows (no row mark by design, C2) and the
+  crew portrait element (its EVA button carries it). The Lost text no longer names the Re-Fly
+  way back on stock screens (the owner dropped every way-out sentence); the Kerbals window
+  keeps it.
 
 **Defects in the existing PR #721 layer:**
 - ~~The Mission Control badges are lost on a tab switch.~~ Fixed by PR 2b: the badge is gone;
@@ -3973,7 +4024,30 @@ sequence), which is also what a player does. Fix direction if it matters: have `
 tree, exactly as `MissionsWindowUI`'s GoTo path already does ("Calling the same idempotent static
 the draw and ParsekScenario.OnLoad both call is not a second seam").
 
-## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is OPEN]
+## ~~CAREER-WINDOW-REMOVED-2026-09-27: the Career State window is removed; its reserved-slot counts moved into the Timeline's Contracts / Strategies button hovers~~ [DONE 2026-09-27, branch `remove-career-window`, owner decision]
+
+Owner decision 2026-09-27: the Career window was redundant. Stock Mission Control and
+Administration carry Parsek's reservation overlays (active counts, deadlines, accept dates,
+the `- completes Y1 D7` labels, strategy effects and end dates) and the Timeline's Career
+category views carry the dated past and future. The only facts shown nowhere else were the
+"reserved for later" slot counts (kept) and the deadline of a contract the timeline accepts
+later (dropped: not important). **Fix:** `CareerSlotSummary` (the slot walk moved out of the
+window, not forked: contracts read the shared `ContractSlotReservation` forecast the C2
+accept block reads, live `ForecastNow()` first and the pure ledger forecast as fallback;
+strategies keep the peak walk) feeds one sentence appended to the EXISTING hover of the
+Timeline's `Contracts` and `Strategies` view buttons, Career mode only, free first:
+`Contract slots: 4 of 7 free now (2 active, 1 reserved for later).` /
+`... no slot limit (2 active).` Budgeted by `TooltipEchoBudgetTests.CareerSlotHovers_FitTheTimelineStrip`.
+Deleted: `UI/CareerStateWindowUI.cs`, `UI/Gallery/GuiMockCareerStates.cs`, the launcher,
+`UiSurface.MainButtonCareer`, the host draw calls, the seam's `window=career` (tabs, the
+`pending:` expand prefix, the mock arm) and its hlib mirrors, the career mock suppression
+sites and the Career in-game mock cell. `SpaceBeforeCapitals` moved to
+`GameActionDisplay`. GUI-15 is repointed to the Timeline's Contracts view and its hover;
+GUI-1 / GUI-5 / GUI-6 dropped their Career captures. The open residue of
+CAREER-STATE-VIEW-2026-09-24, CAREER-WINDOW-ROUND3-2026-09-22 and the census items about
+the Career window's folds and divergence banner is MOOT with the window.
+
+## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27 except item 3]
 
 Done: tabs Contracts and Strategies only (Facilities and Milestones removed with their VM,
 draw code, gallery states and tests; the Timeline's Career view owns that history); ONE
@@ -4036,7 +4110,7 @@ Open residue:
    (`ParsekTestCommandAddon.UiAction.cs`), which sets `IsOpen` in any game mode and which
    GUI-6 uses for its Sandbox banner capture; both are automation-only.
 
-## CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is OPEN]
+## ~~CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open~~ [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27]
 
 Done on the branch (owner-approved review items 1-8): house dates with a relative deadline
 tail; expanding name column in every table; milestone titles via the Timeline humanizer and
@@ -4547,8 +4621,9 @@ GUI-STATE-COVERAGE-RESIDUE-2026-09-21 (which records that window's zero-candidat
 branch as dead) seen from the other side, and it NEEDS the same thing: a FLIGHT fixture
 with a spawnable committed recording close to the active vessel.
 
-**4. THE CAREER `Pending in timeline` FOLD NEEDS A DIVERGING CAREER, NOT A LONG ONE**
-(`GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER`). MEASURED by GUI-24's first
+**4. ~~THE CAREER `Pending in timeline` FOLD NEEDS A DIVERGING CAREER, NOT A LONG ONE~~**
+(`GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER`). MOOT 2026-09-27: the Career
+window was removed (CAREER-WINDOW-REMOVED-2026-09-27). MEASURED by GUI-24's first
 flight (`2026-09-21_2252`) rather than derived. `op=expand window=career key=none` ran
 correctly and answered `state=false expanded=0 total=2`, and the two captures beside it
 showed NO FOLD: `CareerStateWindowUI` draws `Pending in timeline (N)` only in the `else`
@@ -4696,8 +4771,9 @@ the in-game `StrategyLifecycle` category, and an in-game batch captures and REST
 photographed. **Fix:** a fixture with a strategy-activation ledger row, built by
 construction the way `career-contract-pad` was.
 
-**6. The Career State window's DIVERGENCE banner and its two `Pending in timeline` folds
-have no HOST.** The banner's `(timeline ends at UT N)` form and the split
+**6. ~~The Career State window's DIVERGENCE banner and its two `Pending in timeline` folds
+have no HOST.~~** MOOT 2026-09-27: the Career window was removed
+(CAREER-WINDOW-REMOVED-2026-09-27). The banner's `(timeline ends at UT N)` form and the split
 `Active now (N)` + `Pending in timeline (K)` layout need committed actions in the FUTURE of
 the live clock, i.e. a rewind. **The SEAM half is no longer missing:** this item was filed
 saying `career` had no `op=expand` route, and the wave-6 seam additions that landed the

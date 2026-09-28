@@ -35,8 +35,15 @@ tier = "operator"
 # gained its Milestones view (`cek-timeline-milestones-advanced`), which is where this
 # host's five milestone credits now read.
 #
+# 2026-09-27: the Career State window was REMOVED (owner decision). Its three captures
+# (Contracts, empty Strategies, active Strategies) went with it; the one fact only it
+# showed - the slots the committed future reserves - is now the last sentence of the
+# Timeline's Contracts and Strategies button hovers, which this lane reads from the dumps
+# of the two Career-view captures (`cek-timeline-contracts-advanced`, new, and
+# `cek-timeline-strategies-advanced`) and from the `Career slot hover rebuilt` line.
+#
 # WHAT IT PHOTOGRAPHS (17 PNGs, each with a `<label>.gui.json` dump beside it): both
-# Career State tabs, both Kerbals tabs, five Timeline views, the Missions tab
+# Kerbals tabs, seven Timeline views, the Missions tab
 # collapsed and expanded, the Recordings tab, one ATTEMPTED populated tooltip echo strip
 # (measured: the cursor lands, the hover does not paint - see the FLOWN block below), and
 # the Basic forms of the main and Timeline windows - every one of them over a career with
@@ -50,12 +57,12 @@ tier = "operator"
 # and the op logs an Info line at every move naming both points, so a run whose captures
 # look wrong is readable back against "someone was using the mouse".
 #
-# THE `Career` LAUNCHER IS THE HOVER TARGET rather than a Career-window control, and that
-# is deliberate: the main window's echo strip is one of the two-line variants (inventory
-# section 7), the launcher's tooltip ("Contracts and strategies you hold along the
-# timeline.") is a fixed literal, and the control exists in Advanced on every host - so the
-# capture is about the STRIP's layout and not about whatever row a save happened to put
-# under the cursor.
+# THE `Kerbals` LAUNCHER IS THE HOVER TARGET (the `Career` launcher it replaced went with
+# the Career window on 2026-09-27), and that is deliberate: the main window's echo strip is
+# one of the two-line variants (inventory section 7), the launcher's tooltip ("Who is
+# reserved, flying or retired in your timeline.") is a fixed literal, and the control exists
+# in both modes on every host - so the capture is about the STRIP's layout and not about
+# whatever row a save happened to put under the cursor.
 #
 # `op=open window=main` FIRST IS A PRECONDITION (the settle for a non-`main` `open` /
 # `rect` refuses while the host's `showUI` is false). `scene = "spacecenter"` is passed
@@ -68,13 +75,11 @@ tier = "operator"
 # `ANALYZER_REPORT_ONLY_ALLOWLIST` stays as it is.
 #
 # WHAT THIS LANE CANNOT PHOTOGRAPH:
-#   - the Career Facilities tab's UPGRADED rows. Section 6.1 names `career-earned-ksc` for
-#     them and that is WRONG, measured off the save: every one of its ten
-#     `ScenarioUpgradeableFacilities` entries reads `lvl = 0`. So the Facilities capture
-#     below is the all-level-0 form (which is itself unphotographed and worth having), and
-#     the upgraded form still needs a fixture that does not exist. Section 6.1 is corrected
-#     in this PR rather than left to mislead the next author.
-#   - the Career Strategies tab POPULATED, from the fixture alone. Section 6.1 names
+#   - UPGRADED facility rows. Section 6.1 names `career-earned-ksc` for them and that is
+#     WRONG, measured off the save: every one of its ten `ScenarioUpgradeableFacilities`
+#     entries reads `lvl = 0`, so the upgraded form still needs a fixture that does not
+#     exist.
+#   - a POPULATED strategy row, from the fixture alone. Section 6.1 names
 #     `strategy-career` for the `Flow` cell, and that is also wrong off the bytes: that
 #     fixture's `STRATEGIES` node is EMPTY by construction - it seeds `rep = 25` so that
 #     `L3`'s in-game cell can ACTIVATE `LeadershipInitiative` at run time, and the
@@ -129,8 +134,8 @@ tier = "operator"
 # measured the date clipping that moved the two date columns to 130 px.
 # THE STRATEGY BLOCK (2026-09-24). The last block before FlushAndQuit activates one
 # stock strategy through the Administration building's own call and photographs what the
-# owner had never seen: the Career window's Strategies tab with a row in it, and the
-# Timeline's Career > Strategies view with the activation row. It runs LAST, after the
+# owner had never seen: the Timeline's Career > Strategies view with the activation row
+# (and, since 2026-09-27, the Strategies button hover reading one slot active). It runs LAST, after the
 # Basic pass, so every capture above it keeps the fixture's own career and reads exactly
 # as it did on the flights recorded here.
 #   - `KscAction action=activate-strategy strategy=OutsourcedResearchCfg` is the seam's
@@ -153,7 +158,7 @@ tier = "operator"
 # Career tab reads `Active now: 1 of 1 slot` (since 2026-09-25 `0 of 1 slot free (1 active)`) over `Outsourced R&D | Y1, D01, 00:07 |
 # Funds -> Science @ 5.0%`; the Timeline reads `Activate: Outsourced R&D (5 % Funds->
 # Science)`. The seam line reads `factor=0.05 slots=1/1 setupFunds=76100 fundsDelta=-76100`.
-description = "GUI census wave 2, the populated career host: photograph both Career State tabs, both Kerbals tabs, five Timeline views (the four filter modes plus the Milestones career view) and the Missions and Recordings tabs over a committed EARNED career with fifteen ledger actions, real milestone rewards, non-round pools and nine OFFERED (not accepted) contracts, plus one attempt at a populated tooltip echo strip; then activate one stock strategy (Outsourced R&D) through the seam and photograph the Career Strategies tab and the Timeline Strategies view with it."
+description = "GUI census wave 2, the populated career host: photograph both Kerbals tabs, six Timeline views (the four filter modes plus the Contracts and Milestones career views, whose dumps carry the Contracts button's slot-count hover) and the Missions and Recordings tabs over a committed EARNED career with fifteen ledger actions, real milestone rewards, non-round pools and nine OFFERED (not accepted) contracts, plus one attempt at a populated tooltip echo strip; then activate one stock strategy (Outsourced R&D) through the seam and photograph the Timeline Strategies view with it."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "career", "GUI-5", "pending-operator"]
 
@@ -179,28 +184,13 @@ steps = [
 
   # THE TOOLTIP ECHO STRIP, taken while the main window is the only thing on screen.
   # `op=find` records one in-memory GUI tree, matches by the words a reviewer can read and
-  # answers a centre; `${findcareer.cx}` / `${findcareer.cy}` carry that centre into the
+  # answers a centre; `${findkerbals.cx}` / `${findkerbals.cy}` carry that centre into the
   # pointer step, so nothing here is a hard-coded coordinate.
-  { cmd = "UiAction", args = { op = "find", window = "main", text = "Career" }, label = "findcareer", expect = "OK" },
-  { cmd = "UiAction", args = { op = "pointer", x = "${findcareer.cx}", y = "${findcareer.cy}" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "cek-main-tooltip-career-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "cek-main-tooltip-career-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "find", window = "main", text = "Kerbals" }, label = "findkerbals", expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", x = "${findkerbals.cx}", y = "${findkerbals.cy}" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-main-tooltip-kerbals-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-main-tooltip-kerbals-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
-
-  # --- Career State, both tabs, over an EARNED career. Both read the one-line empty
-  # state: the nine CONTRACT nodes are all Offered and no strategy is active. ---
-  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "cek-career-contracts-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "cek-career-contracts-advanced" }, expect = "OK" },
-  # The EMPTY Strategies tab, and the label says so: this fixture activates no strategy and
-  # neither does any committed one (see the header).
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "cek-career-strategies-empty-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "cek-career-strategies-empty-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
 
   # --- Kerbals, both tabs, on a career with a real roster ---
   { cmd = "UiAction", args = { op = "open", window = "kerbals" }, expect = "OK" },
@@ -240,6 +230,12 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "refly" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "cek-timeline-refly-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "cek-timeline-refly-advanced" }, expect = "OK" },
+  # The Timeline's Contracts career view: the dated contract rows, and the Contracts
+  # button whose hover now carries the slot counts the Career window used to show (the
+  # dump's `tooltip` key on that button; nine OFFERED contracts hold no slot).
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "contracts" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-timeline-contracts-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-timeline-contracts-advanced" }, expect = "OK" },
   # The Timeline's Milestones career view: where the milestone credits the Career window's
   # old Milestones tab listed now read, dated, over this host's earned career.
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "milestones" }, expect = "OK" },
@@ -266,8 +262,8 @@ steps = [
   { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
 
   # --- Basic pass ---
-  # Basic drops the Kerbals and Career launchers, so the two main-window captures side by
-  # side ARE the career-surface mode diff on a career host.
+  # Basic drops the Real Spawn Control launcher (flight-only, so absent here anyway); the
+  # two main-window captures side by side are the Space Center mode diff.
   { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "cek-main-basic" }, expect = "OK" },
@@ -288,17 +284,10 @@ steps = [
   { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
 
   # ================== THE STRATEGY BLOCK (see the header) ==================
-  # One real activation, then the two views of it. KscAction defers
+  # One real activation, then the Timeline view of it. KscAction defers
   # `administration-not-ready` for the frame or two the hidden Administration screen takes
   # to wake, inside the verb's default 60 s budget.
   { cmd = "KscAction", args = { action = "activate-strategy", strategy = "OutsourcedResearchCfg" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "cek-career-strategies-active-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "cek-career-strategies-active-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "strategies" }, expect = "OK" },
@@ -323,15 +312,14 @@ allowedAnomalies = []
 # This lane's OWN seam records only, the GUI-1 discipline.
 required = [
   # --- describe echoes, in step order ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,kerbals",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=12 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,timeline",
   # --- the hover pair: the control was resolved by TEXT, and the cursor landed on it ---
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction find window=main text=Career ctrl=\\w+ match=\\w+ matches=[0-9]+ rect=",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction find window=main text=Kerbals ctrl=\\w+ match=\\w+ matches=[0-9]+ rect=",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=false via=",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=true via=",
   # --- the bulk expansion ---
@@ -344,9 +332,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=cek-main-advanced",
   # --- every dump, each pinning the arm-time funnel reading for its own frame ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-main-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-main-tooltip-career-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-contracts-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-strategies-empty-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-main-tooltip-kerbals-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-roster-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-roster-expanded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-outcomes-advanced .*patched=17/17",
@@ -354,7 +340,13 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-details-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-rewindff-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-refly-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-contracts-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-milestones-advanced .*patched=17/17",
+  # --- the slot counts the Career window used to show, now in the Timeline hovers: on
+  # this host no contract is accepted, so both pools are all free before the strategy
+  # block, and one strategy slot is held after it ---
+  "\\[Parsek\\]\\[VERBOSE\\]\\[Timeline\\] Career slot hover rebuilt .*contractsHover='Only contract rows, past and future\\. Contract slots: [0-9]+ of [0-9]+ free now \\(0 active\\)\\.'",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[Timeline\\] Career slot hover rebuilt .*strategiesHover='Only strategy rows, past and future\\. Strategy slots: 0 of 1 free now \\(1 active\\)\\.'",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-missions-missions-collapsed-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-missions-missions-expanded-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-missions-recordings-expanded-advanced .*patched=17/17",
@@ -365,8 +357,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] kscaction action=activate-strategy target=OutsourcedResearchCfg applied=true manifestKind=strategy-activate observedAfter=factor=[0-9.]+ slots=1/1 ",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] kscaction hidden Administration screen released \\(kscaction-complete\\)",
   "\\[Parsek\\]\\[INFO\\]\\[GameStateRecorder\\] Game state: StrategyActivated 'OutsourcedResearchCfg'",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,career",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-strategies-active-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-strategies-advanced .*patched=17/17",
 ]
 # EMPTY, the census host decision: a career's cold-OnLoad ERROR surface (ledger recalc over
@@ -375,7 +365,7 @@ required = [
 forbidden = []
 
 [runtime]
-# 19 captures and 19 dumps (17 before the strategy block), one in-memory `op=find` capture, two OS-cursor moves, about 55
+# 17 captures and 17 dumps (16 before the strategy block), one in-memory `op=find` capture, two OS-cursor moves, about 55
 # single-phase UI ops, and a cold load of a vessel-less career with a 15-action ledger.
 # Sized off GUI-1's MEASURED 96 s for 22 captures plus 22 dumps plus an in-game batch on a
 # 42 MB career; this lane is smaller and drives no batch. Generous rather than tight because

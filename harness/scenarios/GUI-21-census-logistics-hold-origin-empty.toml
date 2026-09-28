@@ -122,10 +122,10 @@ tier = "operator"
 #      Basic only, and GLOOPS recording (`WouldRefuseModeChange` -> `IsGloopsRecordingNow()`,
 #      `:705-708`), not a flight recording. The preamble still sits after `StopRecording` /
 #      `DiscardTree` because that reads best, but the placement is not load-bearing.
-#   2. `windows=12` IS SCENE-INDEPENDENT: the echo prints `windows={Int(rows.Count)}` over
+#   2. `windows=11` IS SCENE-INDEPENDENT: the echo prints `windows={Int(rows.Count)}` over
 #      the whole window TABLE (`ParsekTestCommandAddon.UiAction.cs:835`, rows built at
 #      `:796-821`), not the scene-available subset. GUI-2 and GUI-6 already pin
-#      `scene=FLIGHT ... windows=12`.
+#      `scene=FLIGHT ... windows=11`.
 #
 # THE WINDOW DOES NOT FIT THIS INSTANCE, the GUI-1 / GUI-13 residue: `MinWindowWidth` is
 # 1410 px against the profile's 1280x720 screen and `op=rect` clamps to that floor, so the
@@ -265,8 +265,8 @@ required  = [
   "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ BLOCKED kind=OriginLacksCargo reason=source:90564594:B:LiquidFuel shortfall=154\\.39",
   "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 BLOCKED cycle consumed the armed pause",
   "reason=blocked-then-paused",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,logistics",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=logistics key=all state=true changed=[1-9][0-9]* expanded=[1-9][0-9]* total=[1-9][0-9]*",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=rvr10-logistics-hold-origin-empty-advanced",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=rvr10-logistics-hold-origin-empty-advanced .*patched=17/17",

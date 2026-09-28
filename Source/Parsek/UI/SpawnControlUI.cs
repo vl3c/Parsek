@@ -31,7 +31,7 @@ namespace Parsek
         }
 
         private bool spawnControlWindowHasInputLock;
-        // Internal: see CareerStateWindowUI.CareerStateInputLockId (design 7.2 close set).
+        // Internal so the design-7.2 close set (ParsekUI.BuildGatedWindowCloseSet) can name it.
         internal const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
 
         // Spawn Control sort state
@@ -231,7 +231,7 @@ namespace Parsek
 
         /// <summary>
         /// Whether this window currently holds its KSP input lock (diagnostic read for the
-        /// design-7.2 close handler; see CareerStateWindowUI.HasInputLock).
+        /// design-7.2 close handler; see ParsekUI.BuildGatedWindowCloseSet).
         /// </summary>
         internal bool HasInputLock => spawnControlWindowHasInputLock;
 

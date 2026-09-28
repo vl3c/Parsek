@@ -92,6 +92,30 @@ namespace Parsek.Patches
             return true;
         }
 
+        /// <summary>
+        /// Stock refuses the activation for its own reason: returns stock's reason with the
+        /// committed activation fact appended when the committed timeline activates this
+        /// strategy later, else stock's reason unchanged (and during a replay / state patch).
+        /// </summary>
+        internal static string AppendCommittedActivationFact(string strategyId, string stockReason)
+        {
+            if (string.IsNullOrEmpty(strategyId) || GameStateRecorder.IsReplayingActions) return stockReason;
+            var index = CommittedFutureIndexCache.Current;
+            double nowUT = CommittedFutureIndexCache.CurrentUT();
+            var entry = index != null
+                ? index.FirstFuture(CommittedFutureKind.StrategyActivate, strategyId, nowUT)
+                : null;
+            if (entry == null) return stockReason;
+            string composed = StrategyReservationPredicates.AppendCommittedActivationToStockReason(
+                stockReason, entry, ReservationExplanation.DefaultDateFormatter);
+            ParsekLog.VerboseRateLimited(Tag, "activation-stock-refuses-committed|" + strategyId,
+                "activation refused by stock strategy=" + strategyId
+                + " - stock's reason kept first, committed activation fact appended (committedUT="
+                + entry.UT.ToString("F0", CultureInfo.InvariantCulture)
+                + " nowUT=" + nowUT.ToString("F0", CultureInfo.InvariantCulture) + ")");
+            return composed;
+        }
+
         /// <summary>The player-path deactivation refusal, or false when allowed or when
         /// stock's own <c>CanBeDeactivated</c> already refuses it (the same stock-first
         /// precedence as the activation).</summary>
@@ -668,6 +692,13 @@ namespace Parsek.Patches
             {
                 if (StrategyReservationGate.IsProbingStock) return;
                 string id = __instance?.Config?.Name;
+                if (!__result)
+                {
+                    // Stock-first: stock's refusal and reason stand; Parsek only adds the
+                    // committed activation fact after stock's reason.
+                    reason = StrategyReservationGate.AppendCommittedActivationFact(id, reason);
+                    return;
+                }
                 ReservationText text;
                 if (!StrategyReservationGate.TryRefuseActivation(id, __result, out text)) return;
                 __result = false;
@@ -767,7 +798,8 @@ namespace Parsek.Patches
                 }
                 StockUiAdministrationDecoration.RefreshButtonLook(
                     __instance.btnAcceptCancel, parsekBlocked, id,
-                    strategy.IsActive ? AdministrationButtonBackstopPatch.CancelState : AdministrationButtonBackstopPatch.AcceptState);
+                    strategy.IsActive ? AdministrationButtonBackstopPatch.CancelState : AdministrationButtonBackstopPatch.AcceptState,
+                    parsekBlocked ? text.Body : null);
             }
             catch (Exception ex)
             {
@@ -818,7 +850,8 @@ namespace Parsek.Patches
                 ReservationText text;
                 bool parsekBlocked = StrategyReservationGate.TryRefuseActivation(id, out text);
                 StockUiAdministrationDecoration.RefreshButtonLook(
-                    __instance.btnAcceptCancel, parsekBlocked, id, AdministrationButtonBackstopPatch.AcceptState);
+                    __instance.btnAcceptCancel, parsekBlocked, id, AdministrationButtonBackstopPatch.AcceptState,
+                    parsekBlocked ? text.Body : null);
             }
             catch (Exception ex)
             {

@@ -140,7 +140,7 @@ namespace Parsek
             return isPlayerAction ? TimelineSourceToggle.Actions : TimelineSourceToggle.Events;
         }
 
-        private const float DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth;
+        internal const float DefaultWindowWidth = 820f;
         // The filter area is three rows (DrawFilterBar, DrawTimeRangeFilterBar). Every
         // button in them has one width, the cell of a six-cell grid over the window
         // (FilterRowCellWidth), and every row is left-aligned: a row of fewer than six
@@ -180,6 +180,16 @@ namespace Parsek
         // Archive header toggle can change it while this cache is warm and nothing else
         // would mark it dirty.
         private bool cachedTimelineShowedArchived;
+
+        // The Career-mode slot counts the Contracts and Strategies category buttons append
+        // to their hover (CareerSlotSummary). Rebuilt on ledger invalidation, time moving
+        // backwards, or a new game minute (the counts move when a recorded accept /
+        // activation or a deadline passes), and only while the Career category row draws.
+        private CareerSlotSummary.Snapshot? careerSlotSnapshot;
+        private double careerSlotSnapshotUT;
+        private bool careerSlotSnapshotDirty = true;
+        private string contractsToggleTooltip = ContractsToggleTooltip;
+        private string strategiesToggleTooltip = StrategiesToggleTooltip;
 
         // Filter state
         private TimelineTierFilterMode tierFilterMode = TimelineTierFilterMode.Overview;
@@ -642,6 +652,7 @@ namespace Parsek
             committedIndexById = null;
             rewindSaveExistsByRecordingId = null;
             warpResolveDirty = true;
+            careerSlotSnapshotDirty = true;
             ParsekLog.Verbose("Timeline", "Cache invalidated");
         }
 
@@ -1233,15 +1244,14 @@ namespace Parsek
         /// game mode shows, in <see cref="TimelineCareerCategories.Ordered"/> order.</summary>
         private void DrawCategoryToggles(Game.Modes? gameMode, float btnW)
         {
+            RefreshCareerSlotTooltips(gameMode);
             if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Contracts, gameMode))
                 DrawCategoryToggle(TimelineCareerCategory.Contracts,
-                    new GUIContent("Contracts",
-                        "Only contract rows: accepted, completed, failed and cancelled, past and future."),
+                    new GUIContent("Contracts", contractsToggleTooltip),
                     btnW);
             if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Strategies, gameMode))
                 DrawCategoryToggle(TimelineCareerCategory.Strategies,
-                    new GUIContent("Strategies",
-                        "Only strategy rows: each strategy activated or deactivated, past and future."),
+                    new GUIContent("Strategies", strategiesToggleTooltip),
                     btnW);
             if (TimelineCareerCategories.IsAvailableInMode(TimelineCareerCategory.Facilities, gameMode))
                 DrawCategoryToggle(TimelineCareerCategory.Facilities,
@@ -1258,6 +1268,98 @@ namespace Parsek
                     new GUIContent("Tech",
                         "Only tech rows: each technology you unlocked, past and future."),
                     btnW);
+        }
+
+        /// <summary>The Contracts button's hover before its slot sentence.</summary>
+        internal const string ContractsToggleTooltip = "Only contract rows, past and future.";
+
+        /// <summary>The Strategies button's hover before its slot sentence.</summary>
+        internal const string StrategiesToggleTooltip = "Only strategy rows, past and future.";
+
+        /// <summary>Game seconds per slot-count refresh: the counts move only when a
+        /// recorded accept / activation or a deadline passes, and a minute is the finest
+        /// unit the player's clock shows.</summary>
+        internal const double CareerSlotRefreshSeconds = 60.0;
+
+        /// <summary>
+        /// A category button's hover: its own sentence, then the slot sentence when there
+        /// is one. A null or empty <paramref name="slotSentence"/> leaves the base text.
+        /// </summary>
+        internal static string BuildCategoryTooltip(string baseTooltip, string slotSentence)
+        {
+            if (string.IsNullOrEmpty(slotSentence)) return baseTooltip;
+            return baseTooltip + " " + slotSentence;
+        }
+
+        /// <summary>
+        /// Whether the cached slot counts must be rebuilt: never built, invalidated by a
+        /// ledger change, the clock moved backwards (a rewind), or a new game minute began.
+        /// </summary>
+        internal static bool ShouldRebuildCareerSlots(bool dirty, bool missing,
+                                                      double builtUT, double liveUT)
+        {
+            if (dirty || missing) return true;
+            if (liveUT < builtUT) return true;
+            return Math.Floor(liveUT / CareerSlotRefreshSeconds)
+                != Math.Floor(builtUT / CareerSlotRefreshSeconds);
+        }
+
+        /// <summary>
+        /// The two hover texts for a game mode and a snapshot: Career gets the slot
+        /// sentences (<see cref="CareerSlotSummary.FormatSlotSentence"/>); any other mode,
+        /// or no snapshot, the bare base texts.
+        /// </summary>
+        internal static void ComposeCareerSlotTooltips(Game.Modes? gameMode,
+            CareerSlotSummary.Snapshot? snapshot,
+            out string contractsTooltip, out string strategiesTooltip)
+        {
+            if (gameMode != Game.Modes.CAREER || !snapshot.HasValue)
+            {
+                contractsTooltip = ContractsToggleTooltip;
+                strategiesTooltip = StrategiesToggleTooltip;
+                return;
+            }
+            contractsTooltip = BuildCategoryTooltip(ContractsToggleTooltip,
+                CareerSlotSummary.FormatSlotSentence(
+                    CareerSlotSummary.SlotKind.Contracts, snapshot.Value.Contracts));
+            strategiesTooltip = BuildCategoryTooltip(StrategiesToggleTooltip,
+                CareerSlotSummary.FormatSlotSentence(
+                    CareerSlotSummary.SlotKind.Strategies, snapshot.Value.Strategies));
+        }
+
+        // Career mode only: contracts and strategies exist nowhere else. Reads the
+        // effective ledger and the live Mission Control forecast (the one the accept block
+        // reads), so the hover and the block agree.
+        private void RefreshCareerSlotTooltips(Game.Modes? gameMode)
+        {
+            if (gameMode != Game.Modes.CAREER)
+            {
+                ComposeCareerSlotTooltips(gameMode, null,
+                    out contractsToggleTooltip, out strategiesToggleTooltip);
+                return;
+            }
+            double liveUT = Planetarium.GetUniversalTime();
+            if (!ShouldRebuildCareerSlots(careerSlotSnapshotDirty, !careerSlotSnapshot.HasValue,
+                    careerSlotSnapshotUT, liveUT))
+                return;
+
+            careerSlotSnapshot = CareerSlotSummary.Build(
+                EffectiveState.ComputeELS(),
+                liveUT,
+                CommittedFutureIndexCache.IsAutoAcceptContractSnapshot,
+                ContractSlotReservation.ForecastNow());
+            careerSlotSnapshotUT = liveUT;
+            careerSlotSnapshotDirty = false;
+            ComposeCareerSlotTooltips(gameMode, careerSlotSnapshot,
+                out contractsToggleTooltip, out strategiesToggleTooltip);
+            // The counts are in the key, so a CHANGED count logs at once and only an
+            // unchanged rebuild (a new game minute) is throttled.
+            ParsekLog.VerboseRateLimited("Timeline",
+                "career-slot-hover|" + contractsToggleTooltip + "|" + strategiesToggleTooltip,
+                "Career slot hover rebuilt "
+                + CareerSlotSummary.FormatSnapshotForLog(careerSlotSnapshot.Value, liveUT)
+                + " contractsHover='" + contractsToggleTooltip + "'"
+                + " strategiesHover='" + strategiesToggleTooltip + "'");
         }
 
         private void DrawCategoryToggle(TimelineCareerCategory category, GUIContent content, float btnW)

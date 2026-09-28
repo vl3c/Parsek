@@ -1869,8 +1869,9 @@ to apply a mode the save does not carry and no way around `ShouldRefuseModeChang
 
 **The window vocabulary is a table, in the main window's own button order** (so a describe
 payload reads down the same list a reviewer sees on screen): `main`, `missions`,
-`timeline`, `kerbals`, `career`, `logistics`, `structure`, `settings`, `spawncontrol`,
-`gloops`, `testrunner`, and LAST `testrunnerglobal`, which is last because it is the one
+`timeline`, `kerbals`, `logistics`, `structure`, `settings`, `spawncontrol`,
+`gloops`, `testrunner`, and LAST `testrunnerglobal` (`career` was removed 2026-09-27 with
+the Career State window, so every `describe` reads `windows=11`), which is last because it is the one
 window the main window has no button for at all. `main` is in it because every sub-window draw in both hosts sits
 inside the host's `showUI` gate, so a sub-window with `IsOpen = true` and the main window
 hidden is invisible - `op=open window=main` is the first step of any census, and the only
@@ -1914,8 +1915,8 @@ mutually exclusive, which is the same thing as tabs for a census; the five Caree
 are appended after `refly` so the first four indices never moved, and a category the loaded
 GAME mode does not draw - Contracts / Strategies in Science, all five in Sandbox - is
 `REJECTED tab-hidden-in-game-mode window=timeline tab=<t> gameMode=<mode>` pre-call),
-`kerbals` (`roster`, `outcomes`), `career` (`contracts`, `strategies`; `facilities` and
-`milestones` were removed 2026-09-24 with those tabs). Settings has six SECTIONS that all draw in one
+`kerbals` (`roster`, `outcomes`); the `career` window's two tabs went with the window
+on 2026-09-27. Settings has six SECTIONS that all draw in one
 pass, three of them Basic-hidden, so the Advanced/Basic capture PAIR is its section
 coverage; Logistics' Active / Paused / Dormant / Candidate bubbles are expand-collapse
 rather than a selector. `op=tab` on either is `REJECTED window-has-no-tabs`, deliberately
@@ -2970,7 +2971,7 @@ the coarse `driver-verdict-mismatch` and an operator cannot tell a spelling prob
 missing step. `route-action-refused` stays unmapped on purpose - it is a POST-ACT ERROR, so
 claiming a refusal subkind would name a refusal that never happened.
 
-**THE CAREER WINDOW JOINED `op=expand`** with a `pending:` prefix over its two
+**THE CAREER WINDOW JOINED `op=expand`** (REMOVED 2026-09-27 with the window; the paragraph is the record) with a `pending:` prefix over its two
 `Accepted later` / `Activated later` folds. ONE prefix because the window keeps ONE fold collection, and
 the wire VALUES are the TAB (`pending:contracts` / `pending:strategies`) rather than the
 dotted production key (`Contracts.Pending`) the set is keyed by: a spec author already knows
@@ -3098,7 +3099,7 @@ uiaction mock window=kerbals mockState=kerbals.roster.lost applied=true
          mode=advanced frame=184122
 uiaction mock mockState=none cleared=true window=kerbals state=kerbals.roster.lost
 uiaction mock describe=true catalogue=gui-mock/1 states=46
-         windows=kerbals,career,structure supported=kerbals,career,structure
+         windows=kerbals,structure supported=kerbals,structure
          live=- s0=... s1=...
 ```
 
@@ -3129,8 +3130,9 @@ classifying it, and mirrored by `hlib.UIACTION_MOCK_REFUSALS`:
 `mock-scope-broken` is deliberately not folded into `mock-not-applied`: not-applied means
 the frame never drew the model, while this means it was there and went AWAY, which sends an
 author to a MISSING SUPPRESSION SITE rather than to the state or the lane. The case is real
-rather than defensive - Career State's cached view model has two writers, and suppressing
-only the rebuild predicate left the other one able to null a mocked VM mid-scope.
+rather than defensive - the (since removed) Career State window's cached view model had two
+writers, and suppressing only the rebuild predicate left the other one able to null a mocked
+VM mid-scope.
 
 **Three OTHER verbs refuse while a scope is live**, all answering
 `save-refused-gui-mock`: `SaveGame`, `LoadGame` and `RunTests`. Uniform on purpose - a test
@@ -3142,7 +3144,8 @@ will not get. It is lane hygiene either way: nothing injected is read by a save 
 persists a setting, so `op=mock` adds nothing to that row - and it genuinely persists
 nothing, which is the whole crash-safety argument.
 
-**Supported windows in P1:** `kerbals`, `career`, `structure` (43 states). Any other window
+**Supported windows:** `kerbals`, `structure` (`career` and its states were removed
+2026-09-27 with the window). Any other window
 answers `mock-window-unsupported` NAMING the supported set, because a phase adds windows and
 the refusal has to say what this build carries rather than what the design plans.
 

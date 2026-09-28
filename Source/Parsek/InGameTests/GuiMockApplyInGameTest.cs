@@ -62,15 +62,6 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GuiMock", Scene = GameScenes.SPACECENTER,
-            Description = "The same for Career State, whose cached view model has TWO "
-                + "writers - so this is also the live proof that the ledger-invalidate "
-                + "suppression holds and the scope is not marked broken")]
-        public IEnumerator Apply_MakesTheRealDrawCodeRenderTheMockedCareerRows()
-        {
-            yield return DriveOneState("career.banner.divergent");
-        }
-
-        [InGameTest(Category = "GuiMock", Scene = GameScenes.SPACECENTER,
             Description = "The same for the Structure List, whose rows are real-builder "
                 + "output over detached inputs - so this is the live proof that a "
                 + "builder-produced Event / Status / Location cell draws verbatim")]
@@ -138,8 +129,8 @@ namespace Parsek.InGameTests
                     "site " + site.Site + " suppressed with NO scope live");
             }
 
-            // And the two windows really do rebuild: invalidate, draw a frame, and the
-            // caches come back non-null off live data.
+            // And the window really does rebuild: invalidate, draw a frame, and the
+            // cache comes back non-null off live data.
             ParsekUI ui = ParsekUI.ActiveInstance;
             if (ui == null)
             {
@@ -147,19 +138,14 @@ namespace Parsek.InGameTests
                 yield break;
             }
             KerbalsWindowUI kerbals = ui.GetKerbalsUI();
-            CareerStateWindowUI career = ui.GetCareerStateUI();
             bool kerbalsWasOpen = kerbals.IsOpen;
-            bool careerWasOpen = career.IsOpen;
             kerbals.IsOpen = true;
-            career.IsOpen = true;
             kerbals.InvalidateCache();
-            career.InvalidateCache();
             for (int i = 0; i < DrawFrames; i++) yield return null;
             InGameAssert.IsTrue(kerbals.CachedViewModelForTesting != null,
                 "the Kerbals window did not rebuild its view model after an "
                 + "un-suppressed invalidate");
             kerbals.IsOpen = kerbalsWasOpen;
-            career.IsOpen = careerWasOpen;
         }
 
         /// <summary>
@@ -184,8 +170,8 @@ namespace Parsek.InGameTests
             if (!GuiMockCatalogue.IsMockableInMode(state.Window,
                                                    ParsekUI.AppliedUiComplexityMode))
             {
-                // Basic hides the Kerbals and Career launchers, so the batch's own mode
-                // decides whether this cell can run at all. A SKIP naming the mode is the
+                // A launcher Basic hides takes its window off screen, so the batch's own
+                // mode decides whether this cell can run at all. A SKIP naming the mode is the
                 // honest answer, per the FLIGHT-test rule.
                 InGameAssert.Skip("window " + state.Window + " is hidden in the current "
                                   + "complexity mode; run this batch in Advanced");
@@ -214,9 +200,8 @@ namespace Parsek.InGameTests
                 // event dispatch, not across a direct call.
                 GameEvents.onVesselChange.Fire(FlightGlobals.ActiveVessel);
                 // The ledger hook, fired through its own delegate - which is how
-                // ParsekUI.OnTimelineDataChanged reaches BOTH windows' InvalidateCache.
-                // This is the event that broke a Career scope before the
-                // career-invalidate suppression existed.
+                // ParsekUI.OnTimelineDataChanged reaches the Kerbals window's
+                // InvalidateCache (the kerbals-invalidate suppression site).
                 Action timelineHook = LedgerOrchestrator.OnTimelineDataChanged;
                 if (timelineHook != null) timelineHook();
                 yield return null;
@@ -288,23 +273,6 @@ namespace Parsek.InGameTests
                     w.IsOpen = wasOpen;
                 };
             }
-            if (string.Equals(state.Window, GuiMockSession.CareerWindow,
-                              StringComparison.Ordinal))
-            {
-                CareerStateWindowUI w = ui.GetCareerStateUI();
-                bool wasOpen = w.IsOpen;
-                int wasTab = w.SelectedTabForTesting;
-                w.IsOpen = true;
-                w.SelectedTabForTesting = TabIndexOf(state.Tab);
-                w.CachedVMForTesting = payload.Career;
-                return () =>
-                {
-                    w.CachedVMForTesting = null;
-                    w.SelectedTabForTesting = wasTab;
-                    w.IsOpen = wasOpen;
-                };
-            }
-
             StructureListWindowUI s = ui.GetStructureListUI();
             StructureListWindowUI.GalleryTargetSnapshot prev = s.CaptureGalleryTarget();
             s.OpenWithGallerySteps(payload.Structure.RouteMode, payload.Structure.Title,
@@ -312,25 +280,11 @@ namespace Parsek.InGameTests
             return () => s.RestoreGalleryTarget(prev);
         }
 
-        private static int TabIndexOf(string tab)
-        {
-            switch (tab)
-            {
-                case "strategies": return 1;
-                case "facilities": return 2;
-                case "milestones": return 3;
-                default: return 0;
-            }
-        }
-
         private static int WindowIdOf(ParsekUI ui, string window)
         {
             if (string.Equals(window, GuiMockSession.KerbalsWindow,
                               StringComparison.Ordinal))
                 return KerbalsWindowUI.WindowIdKey.GetHashCode();
-            if (string.Equals(window, GuiMockSession.CareerWindow,
-                              StringComparison.Ordinal))
-                return CareerStateWindowUI.WindowIdKey.GetHashCode();
             return StructureListWindowUI.WindowIdKey.GetHashCode();
         }
 

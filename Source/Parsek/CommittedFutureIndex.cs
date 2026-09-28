@@ -78,6 +78,12 @@ namespace Parsek
         /// contract list when the slot reason is rendered
         /// (<see cref="ContractSlotReservation.WithStarvedAcceptAgent"/>).</summary>
         internal readonly string AgentTitle;
+        /// <summary>ContractFail only: true when the fail is the contract's deadline running
+        /// out (stock's <c>DeadlineExpired</c> fires the same fail event), judged against the
+        /// accept it closes with the Timeline's own test
+        /// (<c>GameActionDisplay.IsExpiredContractFail</c>), so Mission Control says "expires"
+        /// where the Timeline says "Expired".</summary>
+        internal readonly bool DeadlineExpiry;
 
         internal CommittedFutureEntry(
             CommittedFutureKind kind,
@@ -91,7 +97,8 @@ namespace Parsek
             bool fromMilestoneFallback = false,
             double deadlineUT = double.NaN,
             bool autoAccept = false,
-            string agentTitle = null)
+            string agentTitle = null,
+            bool deadlineExpiry = false)
         {
             Kind = kind;
             Key = key ?? "";
@@ -105,6 +112,7 @@ namespace Parsek
             DeadlineUT = deadlineUT;
             AutoAccept = autoAccept;
             AgentTitle = string.IsNullOrEmpty(agentTitle) ? null : agentTitle;
+            DeadlineExpiry = deadlineExpiry;
         }
 
         /// <summary>A copy of this entry carrying <paramref name="agentTitle"/> as its agent.</summary>
@@ -112,7 +120,7 @@ namespace Parsek
         {
             return new CommittedFutureEntry(
                 Kind, Key, UT, RecordingId, RecordingName, FacilityToLevel, Amount, Title,
-                FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle);
+                FromMilestoneFallback, DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry);
         }
     }
 
@@ -284,6 +292,9 @@ namespace Parsek
             var nameCache = new Dictionary<string, string>(StringComparer.Ordinal);
             int skippedUncommitted = 0;
             int entries = 0;
+            // Every accept of the effective ledger, by contract: a fail row is an expiry when
+            // it closes an accept whose deadline it reached (the Timeline's test and input).
+            Dictionary<string, List<GameAction>> acceptHistory = null;
 
             if (effectiveActions != null)
             {
@@ -326,6 +337,14 @@ namespace Parsek
                         default: amount = 0f; break;
                     }
                     bool isAccept = kind == CommittedFutureKind.ContractAccept;
+                    bool expiry = false;
+                    if (kind == CommittedFutureKind.ContractFail)
+                    {
+                        if (acceptHistory == null)
+                            acceptHistory = GameActionDisplay.BuildContractAcceptHistory(effectiveActions);
+                        expiry = GameActionDisplay.IsExpiredContractFail(
+                            a, GameActionDisplay.FindAcceptForOutcome(acceptHistory, a));
+                    }
                     index.Add(new CommittedFutureEntry(
                         kind, key, a.UT, a.RecordingId, name,
                         facilityToLevel: kind == CommittedFutureKind.FacilityUpgrade ? a.ToLevel : 0,
@@ -333,7 +352,8 @@ namespace Parsek
                         title: a.ContractTitle,
                         deadlineUT: isAccept ? a.DeadlineUT : double.NaN,
                         autoAccept: isAccept && isAutoAcceptContract != null && isAutoAcceptContract(key),
-                        agentTitle: isAccept && contractAgentTitle != null ? contractAgentTitle(key) : null));
+                        agentTitle: isAccept && contractAgentTitle != null ? contractAgentTitle(key) : null,
+                        deadlineExpiry: expiry));
                     entries++;
                 }
             }

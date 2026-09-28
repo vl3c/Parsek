@@ -465,5 +465,78 @@ namespace Parsek.Tests
             Assert.Equal(TimelineWindowUI.TimelineSourceToggle.Recordings,
                 TimelineWindowUI.ResolveSourceToggle(death.Source, death.IsPlayerAction));
         }
+
+        // ---- The shared humanizer and facility-name helpers ----
+
+        [Fact]
+        public void SpaceBeforeCapitals_ExpandsPascalCase()
+        {
+            // Regression: fails if the helper loses words or inserts extra spaces
+            // between consecutive words in a PascalCase identifier.
+            Assert.Equal("First Mun Flyby", GameActionDisplay.SpaceBeforeCapitals("FirstMunFlyby"));
+            Assert.Equal("First Launch", GameActionDisplay.SpaceBeforeCapitals("FirstLaunch"));
+        }
+
+        [Fact]
+        public void SpaceBeforeCapitals_PreservesAcronymsAndNullInput()
+        {
+            // Regression: fails if runs of consecutive capitals collapse (VAB becomes
+            // "V A B") or if null / empty input throws.
+            Assert.Equal("VAB", GameActionDisplay.SpaceBeforeCapitals("VAB"));
+            Assert.Equal("SPH", GameActionDisplay.SpaceBeforeCapitals("SPH"));
+            Assert.Null(GameActionDisplay.SpaceBeforeCapitals(null));
+            Assert.Equal("", GameActionDisplay.SpaceBeforeCapitals(""));
+        }
+
+        [Theory]
+        [InlineData("SpaceCenter/LaunchPad/Facility/LaunchPadMedium/ksp_pad_launchPad", "LaunchPad")]
+        [InlineData("SpaceCenter/VehicleAssemblyBuilding/Facility/mainBuilding", "VehicleAssemblyBuilding")]
+        [InlineData("SpaceCenter/Runway", "Runway")]
+        [InlineData("Runway", "Runway")]
+        [InlineData("", "")]
+        [InlineData(null, "")]
+        public void FacilityIdForBuilding_ReducesABuildingIdToItsFacility(string buildingId, string expected)
+        {
+            Assert.Equal(expected, FacilityDisplayNames.FacilityIdForBuilding(buildingId));
+        }
+
+        [Fact]
+        public void FacilityNames_ComeFromTheStockLookup()
+        {
+            FacilityDisplayNames.FacilityNameLookupForTesting =
+                id => id == "LaunchPad" ? "Launchpad" : null;
+            Assert.Equal("Launchpad", FacilityDisplayNames.ResolveFacilityDisplayName("LaunchPad"));
+            // No stock answer -> the humanized id, with stock's lowercase conjunction.
+            Assert.Equal("Research and Development",
+                FacilityDisplayNames.ResolveFacilityDisplayName("ResearchAndDevelopment"));
+        }
+
+        [Fact]
+        public void ResolveFacilityDisplayName_IgnoresAnUnresolvedLocalizationTag()
+        {
+            FacilityDisplayNames.FacilityNameLookupForTesting = id => "#autoLOC_6001646";
+            Assert.Equal("Research and Development",
+                FacilityDisplayNames.ResolveFacilityDisplayName("ResearchAndDevelopment"));
+        }
+
+        [Theory]
+        [InlineData("ResearchAndDevelopment", "Research and Development")]
+        [InlineData("VehicleAssemblyBuilding", "Vehicle Assembly Building")]
+        [InlineData("MissionControl", "Mission Control")]
+        public void HumanizeFacilityId_SplitsPascalCaseWithALowercaseAnd(string id, string expected)
+        {
+            Assert.Equal(expected, FacilityDisplayNames.HumanizeFacilityId(id));
+        }
+
+        [Fact]
+        public void IsDeadlineExpiryFail_UsesTheLedgersDeadlineTest()
+        {
+            Assert.True(ContractsModule.IsDeadlineExpiryFail(400.0, 400.0, 100.0));
+            Assert.True(ContractsModule.IsDeadlineExpiryFail(401.0, 400.0, 100.0));
+            Assert.False(ContractsModule.IsDeadlineExpiryFail(399.0, 400.0, 100.0));
+            // Open-ended and implausible deadlines never expire.
+            Assert.False(ContractsModule.IsDeadlineExpiryFail(1e9, double.NaN, 100.0));
+            Assert.False(ContractsModule.IsDeadlineExpiryFail(1e9, 50.0, 100.0));
+        }
     }
 }

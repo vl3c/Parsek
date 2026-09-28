@@ -73,7 +73,7 @@ namespace Parsek.InGameTests
                 controller.techTree.RefreshUI();
                 InGameAssert.IsTrue(IsRdNodeMarked(node),
                     $"R&D node '{techId}' annotation should survive RDTechTree.RefreshUI (tint={node.graphics.GetIconColor()})");
-                InGameAssert.AreEqual(1, CountOccurrences(RdNodeTooltipText(node), ReservationExplanation.TimelineRule),
+                InGameAssert.AreEqual(1, CountOccurrences(RdNodeTooltipText(node), ReservationExplanation.BlockedByTimeline),
                     "The stock tooltip should carry the explanation exactly once after a refresh");
 
                 RemoveCommittedOverlayFixture(recordingId, recording);
@@ -82,7 +82,7 @@ namespace Parsek.InGameTests
                 NotifyTimelineDataChangedForOverlayTest();
                 yield return WaitUntilTrue(
                     () => !StockUiRnDDecoration.SameRgb(node.graphics.GetIconColor(), StockUiRnDDecoration.MarkTint)
-                        && !RdNodeTooltipText(node).Contains(ReservationExplanation.TimelineRule),
+                        && !RdNodeTooltipText(node).Contains(ReservationExplanation.BlockedByTimeline),
                     $"R&D node '{techId}' tint and tooltip explanation should clear once the committed row is gone (state={node.state})",
                     5f);
             }
@@ -136,14 +136,14 @@ namespace Parsek.InGameTests
                     $"The Research button for committed node '{techId}' should be non-interactable");
                 AssertButtonLooksDisabled(controller.actionButton.Button, "Research", "after selecting the committed node");
                 string description = RdPanelDescription(controller);
-                InGameAssert.IsTrue(description.Contains(ReservationExplanation.TimelineRule),
+                InGameAssert.IsTrue(description.Contains(ReservationExplanation.BlockedByTimeline),
                     $"The side-panel description should carry the reason beside the disabled button; got '{description}'");
 
                 // Stock's refresh re-enables Research in UpdatePanel; the block must come back.
                 controller.techTree.RefreshUI();
                 InGameAssert.IsFalse(controller.actionButton.Button.interactable,
                     "The Research button should stay disabled through RDTechTree.RefreshUI");
-                InGameAssert.AreEqual(1, CountOccurrences(RdPanelDescription(controller), ReservationExplanation.TimelineRule),
+                InGameAssert.AreEqual(1, CountOccurrences(RdPanelDescription(controller), ReservationExplanation.BlockedByTimeline),
                     "The side-panel reason should appear exactly once after a refresh");
 
                 RemoveCommittedOverlayFixture(recordingId, recording);
@@ -152,7 +152,7 @@ namespace Parsek.InGameTests
                 NotifyTimelineDataChangedForOverlayTest();
                 yield return WaitUntilTrue(
                     () => controller.actionButton.Button.interactable
-                        && !RdPanelDescription(controller).Contains(ReservationExplanation.TimelineRule),
+                        && !RdPanelDescription(controller).Contains(ReservationExplanation.BlockedByTimeline),
                     "The Research button should re-enable and the reason clear once the committed row is gone", 5f);
                 AssertButtonColorsRestored(controller.actionButton.Button, actionColorsBefore, "Research",
                     "once the committed row is gone");
@@ -295,25 +295,25 @@ namespace Parsek.InGameTests
                     "The future-hire applicant's hire button should be locked (stock SetButtonEnabled(false))");
                 InGameAssert.IsFalse(reservedRow.MouseoverEnabled,
                     "The reserved kerbal's dismiss button should be locked (stock SetButtonEnabled(false))");
-                AssertTooltipCarries(futureRow, ReservationExplanation.TimelineRule, "future-hire applicant");
-                AssertTooltipCarries(reservedRow, ReservationExplanation.CrewRule, "reserved kerbal");
+                AssertTooltipCarries(futureRow, ReservationExplanation.BlockedByTimeline, "future-hire applicant");
+                AssertTooltipCarries(reservedRow, ReservationExplanation.ReservedByTimeline, "reserved kerbal");
 
                 // Stock re-unlocks every applicant here; the hire lock must come back.
                 AstronautUpdateCrewCountsMethod.Invoke(complex, null);
                 futureRow = FindAstronautRow(fx.FutureName);
                 InGameAssert.IsFalse(futureRow.MouseoverEnabled,
                     "The hire lock should survive UpdateCrewCounts re-unlocking the applicants");
-                AssertTooltipCarries(futureRow, ReservationExplanation.TimelineRule, "future-hire applicant after UpdateCrewCounts");
+                AssertTooltipCarries(futureRow, ReservationExplanation.BlockedByTimeline, "future-hire applicant after UpdateCrewCounts");
 
                 fx.ReleaseReservations();
                 NotifyTimelineDataChangedForOverlayTest();
                 yield return WaitUntilTrue(
                     () => FindAstronautRow(fx.ReservedName) != null
                         && FindAstronautRow(fx.ReservedName).MouseoverEnabled
-                        && !TooltipText(FindAstronautRow(fx.ReservedName)).Contains(ReservationExplanation.CrewRule),
+                        && !TooltipText(FindAstronautRow(fx.ReservedName)).Contains(ReservationExplanation.ReservedByTimeline),
                     "The dismiss button should unlock and the reason clear once the reservation is gone", 8f);
                 futureRow = FindAstronautRow(fx.FutureName);
-                InGameAssert.IsFalse(TooltipText(futureRow).Contains(ReservationExplanation.TimelineRule),
+                InGameAssert.IsFalse(TooltipText(futureRow).Contains(ReservationExplanation.BlockedByTimeline),
                     "The hire reason should clear from the stock tooltip once the committed hire is gone");
                 if (underCrewLimit)
                     InGameAssert.IsTrue(futureRow.MouseoverEnabled,
@@ -431,7 +431,7 @@ namespace Parsek.InGameTests
         {
             return node != null && node.graphics != null
                 && StockUiRnDDecoration.SameRgb(node.graphics.GetIconColor(), StockUiRnDDecoration.MarkTint)
-                && RdNodeTooltipText(node).Contains(ReservationExplanation.TimelineRule);
+                && RdNodeTooltipText(node).Contains(ReservationExplanation.BlockedByTimeline);
         }
 
         private static string RdPanelDescription(RDController controller)

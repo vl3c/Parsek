@@ -7,9 +7,11 @@ namespace Parsek
 {
     /// <summary>
     /// The text that explains one reservation: a short <see cref="Title"/> (a status in the
-    /// Kerbals window's words, for a label or a tooltip header) and a <see cref="Body"/>
-    /// made of the fact, the append-only rule and when the item frees up. The body is what
-    /// both the hover and the refused-click dialog show, so they say the same thing.
+    /// Kerbals window's words, for a label or a tooltip header) and a <see cref="Body"/>, the
+    /// one sentence both the hover and the refused-click dialog show, so they say the same
+    /// thing. Since the owner's 2026-09-27 wording the whole sentence is the
+    /// <see cref="Fact"/>; <see cref="Rule"/> and <see cref="WayOut"/> are kept for the
+    /// composition only and are empty for every builder.
     /// </summary>
     internal struct ReservationText
     {
@@ -58,26 +60,30 @@ namespace Parsek
     }
 
     /// <summary>
-    /// One pure builder per reservation kind (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md,
-    /// section 6): the fact, the rule that committed history is fixed, and WHEN the item
-    /// frees up. There is no un-commit path to offer (owner ruling D2), so the way out is a
-    /// date or, for kerbals, the event that ends the hold. Dates go through an injectable
-    /// formatter; production passes <see cref="DefaultDateFormatter"/>
-    /// (<c>KerbalsWindowUI.FormatRowDate</c>, i.e. <c>KSPUtil.PrintDateCompact</c>).
-    /// Crew wording follows the Kerbals window (one crew vocabulary).
+    /// One pure builder per reservation kind
+    /// (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md, section 6). Owner
+    /// wording of 2026-09-27: the sentence starts with the participle, then the exact date
+    /// and time (the compact date with hour and minute), then "blocked by timeline until
+    /// then."; a kerbal reads "Reserved by timeline for 'Flight' until DATE.". No
+    /// append-only rule sentence, no way-out sentence, and never "committed", "your
+    /// timeline" or "the timeline" (the committed flight's name may appear). Dates go
+    /// through an injectable formatter; production passes <see cref="DefaultDateFormatter"/>
+    /// (<c>KerbalsWindowUI.FormatRowDate</c>, i.e. <c>KSPUtil.PrintDateCompact</c> with the
+    /// time of day). Crew wording follows the Kerbals window (one crew vocabulary).
     /// </summary>
     internal static class ReservationExplanation
     {
-        /// <summary>The append-only rule every non-crew kind states.</summary>
-        internal const string TimelineRule =
-            "Parsek's timeline is fixed once committed, so this cannot happen earlier or twice.";
+        /// <summary>The closing clause of every dated block (a marker the in-game cells read).</summary>
+        internal const string BlockedByTimeline = "blocked by timeline";
 
-        /// <summary>The rule a kerbal held by a committed flight states.</summary>
-        internal const string CrewRule =
-            "A kerbal on a committed flight cannot be used or risked before it ends.";
+        /// <summary>The closing clause of a dated block: the item happens on that date.</summary>
+        internal const string BlockedUntilThen = ", " + BlockedByTimeline + " until then.";
 
-        /// <summary>The rule a kerbal lost on a committed flight states.</summary>
-        internal const string LostRule = "That flight is fixed history.";
+        /// <summary>The closing clause of a block with no end date to name.</summary>
+        internal const string BlockedEnd = ", " + BlockedByTimeline + ".";
+
+        /// <summary>The opening of every held-kerbal sentence (a marker the in-game cells read).</summary>
+        internal const string ReservedByTimeline = "Reserved by timeline";
 
         /// <summary>The production date formatter.</summary>
         internal static readonly Func<double, string> DefaultDateFormatter = ut => KerbalsWindowUI.FormatRowDate(ut);
@@ -90,291 +96,174 @@ namespace Parsek
             return "UT " + ut.ToString("F0", CultureInfo.InvariantCulture);
         }
 
-        /// <summary><c>by the committed flight 'X'</c> when the row has a flight name,
-        /// else <c>on your committed timeline</c>.</summary>
-        internal static string SourcePhrase(string recordingName)
+        /// <summary><c>&lt;Participle&gt; on &lt;date&gt;, blocked by timeline until then.</c>
+        /// with the title <c>&lt;Participle&gt; on &lt;date&gt;</c>.</summary>
+        private static ReservationText Dated(string participle, double ut, Func<double, string> formatDate)
         {
-            return string.IsNullOrEmpty(recordingName)
-                ? "on your committed timeline"
-                : "by the committed flight '" + recordingName + "'";
+            string head = participle + " on " + FormatDate(ut, formatDate);
+            return new ReservationText { Title = head, Fact = head + BlockedUntilThen };
         }
 
-        /// <summary>
-        /// A part entry purchase the committed timeline makes later (P1): the greyed
-        /// purchase button's tooltip text and every purchase refusal read this text.
-        /// </summary>
+        /// <summary>A part entry purchase timeline makes later (P1).</summary>
         internal static ReservationText PartPurchase(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
-            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
-            return new ReservationText
-            {
-                Title = "Purchased on " + date,
-                Fact = "Purchased on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
-                Rule = TimelineRule,
-                WayOut = "It becomes available on that date."
-            };
+            return Dated("Purchased", entry != null ? entry.UT : 0.0, formatDate);
         }
 
         internal static ReservationText Tech(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
-            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
-            return new ReservationText
-            {
-                Title = "Researched on " + date,
-                Fact = "Researched on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
-                Rule = TimelineRule,
-                WayOut = "It unlocks on that date."
-            };
+            return Dated("Researched", entry != null ? entry.UT : 0.0, formatDate);
         }
 
         /// <summary>The accept explanation; the Decline refusal and the Mission Control
         /// detail panel read the same text.</summary>
         internal static ReservationText ContractAccept(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
-            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
-            return new ReservationText
-            {
-                Title = "Accepted on " + date,
-                Fact = "Accepted on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
-                Rule = TimelineRule,
-                WayOut = "It becomes active on that date."
-            };
+            return Dated("Accepted", entry != null ? entry.UT : 0.0, formatDate);
         }
 
         /// <summary>
-        /// The explanation for an Active contract the committed timeline resolves later
-        /// (owner ruling D7, section 7.3): the Cancel refusal, the Mission Control detail
-        /// panel and the Active-row label read the same text. The verb follows the
-        /// committed row's kind (completes / fails / cancelled, the Timeline's contract
-        /// verbs); any other kind reads as a completion.
+        /// An Active contract timeline resolves later (owner ruling D7, section 7.3): the
+        /// Cancel refusal, the Mission Control detail panel and the Active-row label read the
+        /// same text. The participle follows the row's kind: Completed / Failed / Cancelled,
+        /// and Expired for a fail that is the deadline running out (the Timeline's
+        /// "Expired"); any other kind reads as a completion.
         /// </summary>
         internal static ReservationText ContractResolution(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
-            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
-            string verb;
-            string wayOut;
+            string participle;
             switch (entry != null ? entry.Kind : CommittedFutureKind.ContractComplete)
             {
                 case CommittedFutureKind.ContractFail:
-                    verb = "Fails";
-                    wayOut = "It fails and frees its slot on that date.";
+                    participle = entry.DeadlineExpiry ? "Expired" : "Failed";
                     break;
                 case CommittedFutureKind.ContractCancel:
-                    verb = "Cancelled";
-                    wayOut = "It is cancelled and frees its slot on that date.";
+                    participle = "Cancelled";
                     break;
                 default:
-                    verb = "Completes";
-                    wayOut = "It completes and frees its slot on that date.";
+                    participle = "Completed";
                     break;
             }
-            return new ReservationText
-            {
-                Title = verb + " on " + date,
-                Fact = verb + " on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
-                Rule = TimelineRule,
-                WayOut = wayOut
-            };
+            return Dated(participle, entry != null ? entry.UT : 0.0, formatDate);
         }
 
-        /// <summary>The way out of a slot-refused accept.</summary>
-        internal const string ContractSlotWayOut = "A slot frees when one of your active contracts ends.";
-
         /// <summary>
-        /// Accepting a contract now would leave no Mission Control slot for a committed
-        /// accept (section 4 "C2"). <paramref name="starvedAccept"/> is the earliest
-        /// committed accept that would find no slot; its flight, contract title and agent are
-        /// named when the row carries them (several offers can share one title, and the
-        /// agent is what Mission Control shows beside each). The Mission Control detail
-        /// panel, the Accept backstop and Contract Configurator's refusal all read this text.
+        /// Accepting a contract now would leave no Mission Control slot for a contract
+        /// timeline accepts later (section 4 "C2"). <paramref name="starvedAccept"/> is the
+        /// earliest such accept; its title and agent are named when the row carries them
+        /// (several offers can share one title, and the agent is what Mission Control shows
+        /// beside each). The detail panel, the Accept backstop and Contract Configurator's
+        /// refusal all read this text.
         /// </summary>
         internal static ReservationText ContractSlot(CommittedFutureEntry starvedAccept, Func<double, string> formatDate)
         {
             string date = FormatDate(starvedAccept != null ? starvedAccept.UT : 0.0, formatDate);
-            string who;
-            if (starvedAccept != null && starvedAccept.RecordingName != null)
-                who = "The committed flight '" + starvedAccept.RecordingName + "'";
-            else if (starvedAccept != null && starvedAccept.RecordingId == null)
-                who = "Your committed timeline";
-            else
-                who = "A committed flight";
             string what = starvedAccept != null && starvedAccept.Title != null
-                ? "the contract '" + starvedAccept.Title + "'"
+                ? "'" + starvedAccept.Title + "'"
                 : "a contract";
             if (starvedAccept != null && starvedAccept.AgentTitle != null)
-                what += " from " + starvedAccept.AgentTitle;
+                what += " (" + starvedAccept.AgentTitle + ")";
             return new ReservationText
             {
-                Title = "Slot needed on " + date,
-                Fact = who + " accepts " + what + " on " + date + " and needs this slot.",
-                Rule = TimelineRule,
-                WayOut = ContractSlotWayOut
+                Title = "Slot needed from " + date,
+                Fact = "Slot needed from " + date + " for " + what + BlockedEnd
             };
         }
 
         /// <summary>
-        /// The facility-upgrade explanation over every committed upgrade of the facility
-        /// still ahead (UT ascending). The block lifts once the clock passes the last one,
-        /// so every date is listed.
+        /// The facility-upgrade explanation over every upgrade of the facility timeline makes
+        /// later (UT ascending). The block lifts once the clock passes the last one, so every
+        /// date is listed.
         /// </summary>
         internal static ReservationText FacilityUpgrade(
             IReadOnlyList<CommittedFutureEntry> futureUpgrades, Func<double, string> formatDate)
         {
             if (futureUpgrades == null || futureUpgrades.Count == 0)
-            {
-                return new ReservationText
-                {
-                    Title = "Upgraded on your committed timeline",
-                    Fact = "Upgraded on your committed timeline.",
-                    Rule = TimelineRule,
-                    WayOut = null
-                };
-            }
+                return new ReservationText { Title = "Upgraded later", Fact = "Upgraded later" + BlockedEnd };
 
             var first = futureUpgrades[0];
             string firstDate = FormatDate(first.UT, formatDate);
-            if (futureUpgrades.Count == 1)
-            {
-                return new ReservationText
-                {
-                    Title = "Upgraded on " + firstDate,
-                    Fact = "Upgraded" + LevelPhrase(first) + " on " + firstDate + " "
-                           + SourcePhrase(first.RecordingName) + ".",
-                    Rule = TimelineRule,
-                    WayOut = "The upgrade happens on that date."
-                };
-            }
-
-            // Several committed upgrades: name the flight only when one flight made them all.
-            string sharedName = first.RecordingName;
-            for (int i = 1; i < futureUpgrades.Count; i++)
-            {
-                if (!string.Equals(futureUpgrades[i].RecordingName, sharedName, StringComparison.Ordinal))
-                {
-                    sharedName = null;
-                    break;
-                }
-            }
-
             var parts = new List<string>();
             for (int i = 0; i < futureUpgrades.Count; i++)
-                parts.Add(LevelPhrase(futureUpgrades[i]).TrimStart() + " on " + FormatDate(futureUpgrades[i].UT, formatDate));
-            string joined = parts.Count == 2
-                ? parts[0] + " and " + parts[1]
-                : string.Join(", ", parts.GetRange(0, parts.Count - 1).ToArray()) + " and " + parts[parts.Count - 1];
-
+                parts.Add(LevelPhrase(futureUpgrades[i]) + "on " + FormatDate(futureUpgrades[i].UT, formatDate));
             return new ReservationText
             {
                 Title = "Upgraded on " + firstDate,
-                Fact = "Upgraded " + joined + " " + SourcePhrase(sharedName) + ".",
-                Rule = TimelineRule,
-                WayOut = "The upgrades happen on those dates."
+                Fact = "Upgraded " + JoinAnd(parts) + BlockedUntilThen
             };
         }
 
         /// <summary>
-        /// The facility-repair explanation over the committed future repairs that already
-        /// cover the facility's current destruction (UT ascending, one per destroyed
-        /// building). Stock repairs a facility's buildings together, so the rows usually
-        /// share one date; distinct dates are all listed, because the block lifts only once
-        /// the clock passes the last one.
+        /// The facility-repair explanation over the repairs timeline makes later that already
+        /// cover the facility's current destruction (UT ascending, one per destroyed building).
+        /// Stock repairs a facility's buildings together, so the rows usually share one date;
+        /// distinct dates are all listed, because the block lifts only once the clock passes
+        /// the last one.
         /// </summary>
         internal static ReservationText FacilityRepair(
             IReadOnlyList<CommittedFutureEntry> coveringRepairs, Func<double, string> formatDate)
         {
             if (coveringRepairs == null || coveringRepairs.Count == 0)
-            {
-                return new ReservationText
-                {
-                    Title = "Repaired on your committed timeline",
-                    Fact = "Repaired on your committed timeline.",
-                    Rule = TimelineRule,
-                    WayOut = null
-                };
-            }
+                return new ReservationText { Title = "Repaired later", Fact = "Repaired later" + BlockedEnd };
 
             var dates = new List<string>();
-            string sharedName = coveringRepairs[0].RecordingName;
             for (int i = 0; i < coveringRepairs.Count; i++)
             {
                 string date = FormatDate(coveringRepairs[i].UT, formatDate);
                 if (!dates.Contains(date)) dates.Add(date);
-                if (!string.Equals(coveringRepairs[i].RecordingName, sharedName, StringComparison.Ordinal))
-                    sharedName = null;
             }
-
-            if (dates.Count == 1)
-            {
-                return new ReservationText
-                {
-                    Title = "Repaired on " + dates[0],
-                    Fact = "Repaired on " + dates[0] + " " + SourcePhrase(sharedName) + ".",
-                    Rule = TimelineRule,
-                    WayOut = "The repair happens on that date."
-                };
-            }
-
-            string joined = dates.Count == 2
-                ? dates[0] + " and " + dates[1]
-                : string.Join(", ", dates.GetRange(0, dates.Count - 1).ToArray()) + " and " + dates[dates.Count - 1];
             return new ReservationText
             {
                 Title = "Repaired on " + dates[0],
-                Fact = "Repaired on " + joined + " " + SourcePhrase(sharedName) + ".",
-                Rule = TimelineRule,
-                WayOut = "The repairs happen on those dates."
+                Fact = "Repaired on " + JoinAnd(dates) + BlockedUntilThen
             };
         }
 
         private static string LevelPhrase(CommittedFutureEntry entry)
         {
             return entry != null && entry.FacilityToLevel > 0
-                ? " to level " + entry.FacilityToLevel.ToString(CultureInfo.InvariantCulture)
+                ? "to level " + entry.FacilityToLevel.ToString(CultureInfo.InvariantCulture) + " "
                 : "";
         }
 
-        /// <summary>
-        /// Activating a strategy the committed timeline activates later. The Administration
-        /// reason field and the refused-click dialog both show this.
-        /// </summary>
-        internal static ReservationText StrategyActivation(CommittedFutureEntry entry, Func<double, string> formatDate)
+        private static string JoinAnd(List<string> parts)
         {
-            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
-            return new ReservationText
-            {
-                Title = "Activated on " + date,
-                Fact = "Activated on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
-                Rule = TimelineRule,
-                WayOut = "It becomes active on that date."
-            };
+            if (parts.Count == 1) return parts[0];
+            if (parts.Count == 2) return parts[0] + " and " + parts[1];
+            return string.Join(", ", parts.GetRange(0, parts.Count - 1).ToArray()) + " and " + parts[parts.Count - 1];
         }
 
         /// <summary>
-        /// Activating a strategy now would leave no free slot for a committed activation.
-        /// <paramref name="committedTitle"/> names the strategy that activation switches on,
-        /// or null when it is unknown.
+        /// Activating a strategy timeline activates later. The Administration reason field
+        /// and the refused-click dialog both show this; when stock itself refuses, this
+        /// sentence follows stock's reason.
+        /// </summary>
+        internal static ReservationText StrategyActivation(CommittedFutureEntry entry, Func<double, string> formatDate)
+        {
+            return Dated("Activated", entry != null ? entry.UT : 0.0, formatDate);
+        }
+
+        /// <summary>
+        /// Activating a strategy now would leave no free slot for an activation timeline makes
+        /// later. <paramref name="committedTitle"/> names the strategy that activation switches
+        /// on, or null when it is unknown.
         /// </summary>
         internal static ReservationText StrategySlot(
             CommittedFutureEntry entry, string committedTitle, Func<double, string> formatDate)
         {
             string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
-            string what = string.IsNullOrEmpty(committedTitle)
-                ? "A committed activation"
-                : "A committed activation of '" + committedTitle + "'";
+            string what = string.IsNullOrEmpty(committedTitle) ? "a strategy" : "'" + committedTitle + "'";
             return new ReservationText
             {
-                Title = "Slot needed on " + date,
-                Fact = what + " on " + date + " needs this slot.",
-                Rule = TimelineRule,
-                WayOut = "A slot frees when one of your active strategies ends."
+                Title = "Slot needed from " + date,
+                Fact = "Slot needed from " + date + " for " + what + BlockedEnd
             };
         }
 
         /// <summary>
-        /// Activating a strategy now would make stock's conflict rule refuse a committed
-        /// activation of another strategy. The way-out line is given only when the committed
-        /// timeline also deactivates that strategy (<paramref name="conflictEnd"/>); otherwise
-        /// nothing honest can be said about when it frees.
+        /// Activating a strategy now would make stock's conflict rule refuse an activation of
+        /// another strategy timeline makes later. The end date is given only when timeline
+        /// also deactivates that strategy (<paramref name="conflictEnd"/>).
         /// </summary>
         internal static ReservationText StrategyConflict(
             CommittedFutureEntry committedActivation, CommittedFutureEntry conflictEnd,
@@ -384,84 +273,47 @@ namespace Parsek
             string name = !string.IsNullOrEmpty(otherTitle)
                 ? otherTitle
                 : (committedActivation != null ? committedActivation.Key : "another strategy");
+            string span = conflictEnd != null
+                ? " from " + date + " until " + FormatDate(conflictEnd.UT, formatDate)
+                : " from " + date;
             return new ReservationText
             {
                 Title = "Conflicts with '" + name + "'",
-                Fact = "Conflicts with '" + name + "', which is activated on " + date + " "
-                       + SourcePhrase(committedActivation?.RecordingName) + ".",
-                Rule = TimelineRule,
-                WayOut = conflictEnd != null
-                    ? "The conflict ends when '" + name + "' is deactivated on "
-                      + FormatDate(conflictEnd.UT, formatDate) + "."
-                    : null
+                Fact = "Conflicts with '" + name + "'" + span + BlockedEnd
             };
         }
 
         /// <summary>
-        /// Deactivating a strategy the committed timeline changes later.
-        /// <paramref name="entry"/> is the strategy's earliest committed row still ahead:
-        /// a deactivation (it stays active until then) or a re-activation.
+        /// Deactivating a strategy timeline changes later. <paramref name="entry"/> is the
+        /// strategy's earliest row still ahead: a deactivation (it stays active until then) or
+        /// a re-activation.
         /// </summary>
         internal static ReservationText StrategyDeactivation(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
-            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
-            string source = SourcePhrase(entry?.RecordingName);
-            if (entry != null && entry.Kind == CommittedFutureKind.StrategyActivate)
-            {
-                return new ReservationText
-                {
-                    Title = "Activated again on " + date,
-                    Fact = "Activated again on " + date + " " + source + ".",
-                    Rule = TimelineRule,
-                    WayOut = "It can be deactivated after that date."
-                };
-            }
-            return new ReservationText
-            {
-                Title = "Deactivated on " + date,
-                Fact = "Deactivated on " + date + " " + source + ".",
-                Rule = TimelineRule,
-                WayOut = "It stays active until that date."
-            };
+            bool again = entry != null && entry.Kind == CommittedFutureKind.StrategyActivate;
+            return Dated(again ? "Activated again" : "Deactivated", entry != null ? entry.UT : 0.0, formatDate);
         }
 
         internal static ReservationText KerbalHire(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
-            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
-            return new ReservationText
-            {
-                Title = "Hired on " + date,
-                Fact = "Hired on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
-                Rule = TimelineRule,
-                WayOut = "They join the roster on that date."
-            };
+            return Dated("Hired", entry != null ? entry.UT : 0.0, formatDate);
         }
 
         /// <summary>
-        /// A committed dismissal (<c>CrewRemoved</c>). Worded "Dismissed", not "Retired":
-        /// the Kerbals window's <c>Retired</c> is a stand-in whose seat went back to its
-        /// owner, a different state.
+        /// A dismissal timeline makes later (<c>CrewRemoved</c>). Worded "Dismissed", not
+        /// "Retired": the Kerbals window's <c>Retired</c> is a stand-in whose seat went back
+        /// to its owner, a different state.
         /// </summary>
         internal static ReservationText KerbalRetire(CommittedFutureEntry entry, Func<double, string> formatDate)
         {
-            string date = FormatDate(entry != null ? entry.UT : 0.0, formatDate);
-            return new ReservationText
-            {
-                Title = "Dismissed on " + date,
-                Fact = "Dismissed on " + date + " " + SourcePhrase(entry?.RecordingName) + ".",
-                Rule = TimelineRule,
-                WayOut = "They leave the roster on that date."
-            };
+            return Dated("Dismissed", entry != null ? entry.UT : 0.0, formatDate);
         }
 
         /// <summary>
-        /// A kerbal a committed flight holds. The way out is when the hold ends:
-        /// <list type="bullet">
-        /// <item>a finite hold (a Recovered flight, or an aboard hold bounded by a
-        /// recovery): <c>Free after &lt;date&gt;.</c></item>
-        /// <item>an aboard / unknown flight: <c>Free once 'X' is recovered.</c></item>
-        /// </list>
-        /// A looped segment never holds anyone open-ended: the loop is visual only
+        /// A kerbal a flight on timeline holds: <c>Reserved by timeline for 'X' until DATE.</c>
+        /// A finite hold names its end; an open-ended one (aboard / unknown) ends when the
+        /// flight's vessel is recovered. A stand-in held in another kerbal's seat names that
+        /// seat. A looped segment never holds anyone open-ended: the loop is visual only
         /// (design 12.7, operator ruling 2026-09-27).
         /// </summary>
         internal static ReservationText KerbalOnFlight(KerbalHold hold, Func<double, string> formatDate)
@@ -469,46 +321,43 @@ namespace Parsek
             bool forSomeoneElse = !string.IsNullOrEmpty(hold.SlotOwner)
                 && !string.Equals(hold.SlotOwner, hold.KerbalName, StringComparison.Ordinal);
             bool finite = !double.IsNaN(hold.ReleaseUT) && !double.IsInfinity(hold.ReleaseUT);
-            string flightRef = string.IsNullOrEmpty(hold.FlightName) ? null : "'" + hold.FlightName + "'";
 
             string title;
             if (forSomeoneElse) title = "Reserved for " + hold.SlotOwner;
             else if (finite) title = "Reserved until " + FormatDate(hold.ReleaseUT, formatDate);
             else title = "Reserved";
 
-            string seat = forSomeoneElse ? " in " + hold.SlotOwner + "'s seat" : "";
-            string fact = flightRef != null
-                ? "Flies " + flightRef + seat + " on your committed timeline."
-                : "Flies a committed flight" + seat + " on your timeline.";
-
-            string wayOut;
+            var sb = new StringBuilder(ReservedByTimeline);
+            if (!string.IsNullOrEmpty(hold.FlightName)) sb.Append(" for '").Append(hold.FlightName).Append('\'');
+            if (forSomeoneElse) sb.Append(" in ").Append(hold.SlotOwner).Append("'s seat");
             if (finite)
-            {
-                wayOut = "Free after " + FormatDate(hold.ReleaseUT, formatDate) + ".";
-            }
+                sb.Append(" until ").Append(FormatDate(hold.ReleaseUT, formatDate)).Append('.');
             else
-            {
-                wayOut = flightRef != null
-                    ? "Free once " + flightRef + " is recovered."
-                    : "Free once that flight's vessel is recovered.";
-            }
+                sb.Append(string.IsNullOrEmpty(hold.FlightName)
+                    ? " until that flight is recovered."
+                    : " until it is recovered.");
 
-            return new ReservationText
-            {
-                Title = title,
-                Fact = fact,
-                Rule = CrewRule,
-                WayOut = wayOut
-            };
+            return new ReservationText { Title = title, Fact = sb.ToString() };
+        }
+
+        /// <summary>
+        /// An active stand-in covering the seat of a kerbal timeline holds (the Kerbals
+        /// window's <c>Stand-in for &lt;owner&gt;</c>): <c>Standing in for OWNER, reserved by
+        /// timeline for 'X'.</c> <paramref name="ownerFlightName"/> is the flight that holds
+        /// the owner, or null.
+        /// </summary>
+        internal static string StandingIn(string owner, string ownerFlightName)
+        {
+            return "Standing in for " + owner + ", reserved by timeline"
+                + (string.IsNullOrEmpty(ownerFlightName) ? "" : " for '" + ownerFlightName + "'")
+                + ".";
         }
 
         /// <summary>
         /// A retired stand-in (the Kerbals window's <c>Retired</c>): he stood in for a
-        /// reserved owner on a committed flight, and that owner is free again
-        /// (<c>KerbalsModule.ComputeRetiredSet</c>: displaced, flew a committed recording,
-        /// not reserved now). <c>KerbalsModule.ShouldFilterFromCrewDialog</c> keeps him off
-        /// new crews. No player action is known to bring him back, so there is no way-out
-        /// sentence rather than an invented one.
+        /// reserved owner on a flight on timeline, and that owner is free again
+        /// (<c>KerbalsModule.ComputeRetiredSet</c>). <c>KerbalsModule.ShouldFilterFromCrewDialog</c>
+        /// keeps him off new crews.
         /// </summary>
         internal static ReservationText KerbalRetiredStandIn(string slotOwner)
         {
@@ -516,40 +365,33 @@ namespace Parsek
             return new ReservationText
             {
                 Title = "Retired",
-                Fact = hasOwner
-                    ? "Stood in for " + slotOwner + " on a committed flight."
-                    : "Stood in for a reserved kerbal on a committed flight.",
-                Rule = (hasOwner ? slotOwner + " is" : "That kerbal is")
-                       + " free again, so Parsek has retired this stand-in and they cannot join a new crew."
+                Fact = "Retired after standing in for " + (hasOwner ? slotOwner : "a reserved kerbal")
+                       + ", kept off new crews by timeline."
             };
         }
 
         /// <summary>
-        /// A kerbal a committed flight killed. The way back is the Kerbals window's own
-        /// (<see cref="KerbalsPresentation.LostReFlyRemedy"/>): a Re-Fly merge tombstones
-        /// the death row, which is what releases the permanent reservation. When the
-        /// death's stock crew respawn is pending (owner ruling S8), the title and rule name
-        /// the day the kerbal is back (<paramref name="respawnUT"/>, NaN for a permanent
-        /// death).
+        /// A kerbal a flight on timeline killed: <c>Lost on 'X' on DATE.</c> When the death's
+        /// stock crew respawn is pending (owner ruling S8), the sentence names the day he is
+        /// back (<paramref name="respawnUT"/>, NaN for a permanent death). NaN
+        /// <paramref name="deathUT"/> or a null flight name drops that part.
         /// </summary>
         internal static ReservationText KerbalLost(
-            string flightName, double respawnUT = double.NaN, Func<double, string> formatDate = null,
-            bool offerReFlyRemedy = false)
+            string flightName, double deathUT = double.NaN, double respawnUT = double.NaN,
+            Func<double, string> formatDate = null)
         {
             bool respawns = !double.IsNaN(respawnUT) && !double.IsInfinity(respawnUT);
+            bool dated = !double.IsNaN(deathUT) && !double.IsInfinity(deathUT);
             string respawnDate = respawns ? FormatDate(respawnUT, formatDate) : null;
+            var sb = new StringBuilder("Lost");
+            if (!string.IsNullOrEmpty(flightName)) sb.Append(" on '").Append(flightName).Append('\'');
+            if (dated) sb.Append(" on ").Append(FormatDate(deathUT, formatDate));
+            if (respawns) sb.Append(", back on ").Append(respawnDate);
+            sb.Append('.');
             return new ReservationText
             {
                 Title = respawns ? "Lost until " + respawnDate : "Lost",
-                Fact = string.IsNullOrEmpty(flightName)
-                    ? "Lost on a committed flight."
-                    : "Lost on the committed flight '" + flightName + "'.",
-                Rule = respawns
-                    ? LostRule + " " + KerbalsPresentation.FormatLostRespawnRule(respawnDate)
-                    : LostRule,
-                // Owner ruling 2026-09-27: the Re-Fly way back is named only when an
-                // open Re-Fly would actually reach this loss.
-                WayOut = offerReFlyRemedy ? KerbalsPresentation.LostReFlyRemedy : null
+                Fact = sb.ToString()
             };
         }
     }

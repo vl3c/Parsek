@@ -11,7 +11,7 @@ namespace Parsek.TestCommands
     ///
     /// <para>WHY A HANDLE AND NOT FOUR SWITCHES. The first draft had four parallel switches
     /// over the same eleven window names - read/write open, read/write tab, read/write rect
-    /// - so a mapping error (the kerbals arm reaching the career window's field) lived in
+    /// - so a mapping error (the kerbals arm reaching another window's field) lived in
     /// ONE of eight arms while the other seven stayed right, and the whole xUnit suite
     /// passed either way: the pure half never touches a live window, so nothing could
     /// witness it. Collapsing them into one row per window makes that class of error a
@@ -1049,16 +1049,6 @@ namespace Parsek.TestCommands
                                   KerbalsWindowUI.MinWindowWidth,
                                   KerbalsWindowUI.MinWindowHeight,
                                   () => KerbalsWindowUI.WindowIdKey.GetHashCode());
-                }
-                case TestCommandUiAction.CareerWindow:
-                {
-                    CareerStateWindowUI w = ui.GetCareerStateUI();
-                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
-                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
-                                  () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i,
-                                  CareerStateWindowUI.MinWindowWidth,
-                                  CareerStateWindowUI.MinWindowHeight,
-                                  () => CareerStateWindowUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.LogisticsWindow:
                 {

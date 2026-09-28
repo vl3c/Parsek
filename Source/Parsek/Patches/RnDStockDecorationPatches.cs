@@ -130,6 +130,7 @@ namespace Parsek.Patches
                 // Every UpdatePanel re-derives the greyed look from this node's block, so a
                 // node shown after a blocked one gets its stock look back.
                 StockUiRnDDecoration.SyncActionButtonGreyed(__instance, disabledByParsek);
+                StockUiRnDDecoration.SyncActionButtonReason(__instance, disabledByParsek);
             }
             catch (Exception ex)
             {

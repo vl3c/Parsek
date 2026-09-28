@@ -20855,7 +20855,7 @@ namespace Parsek.InGameTests
                 StockUiDecoration d = MissionControlStockUi.DecideNow(contract);
                 InGameAssert.AreEqual(StockUiDecorationKind.ContractSlot, d.Kind, "the decision should be the slot block");
                 InGameAssert.IsFalse(d.Marked, "a slot refusal is not a row mark");
-                InGameAssert.IsTrue(!string.IsNullOrEmpty(d.Why) && d.Why.Contains(ReservationExplanation.ContractSlotWayOut),
+                InGameAssert.IsTrue(!string.IsNullOrEmpty(d.Why) && d.Why.StartsWith("Slot needed from "),
                     "the slot refusal should say when a slot frees; why=\"" + d.Why + "\"");
                 AssertMissionControlPanelSlotBlocked(mc, contract, d.Why, "after selecting the row");
 
@@ -20931,7 +20931,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
-            Description = "Stock-UI overlays PR 3 (C4): an Active contract the committed timeline completes later carries 'completes <date>' (date only) on its own stock row label (surviving a tab switch), selecting it greys out Cancel and appends the why, and Contract.Cancel is refused with the same text; removing the committed completion lifts all three. Needs a career host with an Active contract and skips without one: it changes no stock contract state (the only mutation is a committed ledger fixture row it removes again), because a SPACECENTER batch restores persistent.sfs on disk only.")]
+            Description = "Stock-UI overlays PR 3 (C4): an Active contract the committed timeline completes later carries 'completed <date>' (date only) on its own stock row label (surviving a tab switch), selecting it greys out Cancel and appends the why, and Contract.Cancel is refused with the same text; removing the committed completion lifts all three. Needs a career host with an Active contract and skips without one: it changes no stock contract state (the only mutation is a committed ledger fixture row it removes again), because a SPACECENTER batch restores persistent.sfs on disk only.")]
         public IEnumerator MissionControlActiveRowLabelAndCancelBlockedWithReason()
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
@@ -21005,7 +21005,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(SelectMissionControlRowForTest(mc, key, out Contract contract),
                     "the Active row should be selectable (MissionSelection payload)");
                 string why = MissionControlStockUi.DecideNow(contract).Why;
-                InGameAssert.IsTrue(!string.IsNullOrEmpty(why) && why.StartsWith("Completes on ", System.StringComparison.Ordinal),
+                InGameAssert.IsTrue(!string.IsNullOrEmpty(why) && why.StartsWith("Completed on ", System.StringComparison.Ordinal),
                     $"the decision should carry the committed-completion explanation; why=\"{why}\"");
                 AssertMissionControlCancelBlocked(mc, why, "after selecting the row");
 
@@ -21870,7 +21870,7 @@ namespace Parsek.InGameTests
             string label = row.title != null ? row.title.text : "";
             InGameAssert.IsTrue(label.StartsWith(MissionControlStockAnnotation.StockDefaultLabel(contractTitle), System.StringComparison.Ordinal),
                 $"the row label should keep stock's full coloured title; label=\"{label}\"");
-            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusMarker + "completes "),
+            InGameAssert.IsTrue(label.Contains(MissionControlStockAnnotation.RowStatusMarker + "completed "),
                 $"the row label should say when the committed timeline completes it; label=\"{label}\"");
             AssertMissionControlRowStatusIsShort(label);
         }

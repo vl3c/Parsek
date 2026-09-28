@@ -1243,6 +1243,24 @@ _(unreleased — entries accumulate here per commit)_
     network between its recording's end and the later flight.
   - A scoped Discard of a switched-to flight that staged twice missed the first stage.
   - The Missions partner journey could jump onto an unrelated vessel you switched to.
+- **A kerbal held by a committed flight can no longer be taken out on EVA or transferred in
+  flight.** A kerbal a committed flight still needs, who is aboard a live vessel that is not
+  the continuation of a committed flight (for example a craft a rewind left flying), could be
+  sent on EVA or moved to another part with no warning; when the committed flight later
+  spawned, his seat in it came out empty. The crew portrait's EVA button and the hatch
+  dialog's EVA and Transfer buttons are now greyed for him with the reason in their tooltip
+  (the hatch row also shows his status), and stock's EVA and transfer entry points refuse
+  him with the same text. Kerbals aboard a vessel Parsek spawned or adopted for a committed
+  flight fly on as before, a retired stand-in is not held, and nothing is blocked while a
+  Re-Fly is in progress (its crew may EVA and transfer from any vessel of the re-fly).
+- **Administration now says when a strategy stock refuses is activated later.** With every
+  strategy slot in use, the strategy the committed timeline activates later showed only
+  stock's "cannot support more than N active strategies"; the committed activation date now
+  follows stock's reason on its own line. Stock's refusal still decides.
+- **Mission Control says "expired" for a committed contract deadline expiry.** An Active
+  contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
+  the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
+  it now reads "expired" / "Expired on".
 - **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
   earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
   the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,
@@ -2107,6 +2125,31 @@ _(unreleased — entries accumulate here per commit)_
   changes, because there the two answers were already the same.
 
 ### Changed
+
+- **The reservation explanations on the stock screens are one short sentence.** Every
+  hover, button tooltip, refused-click dialog and row label now reads like "Researched on
+  Y1, D06, 14:05, blocked by timeline until then." or, for a kerbal, "Reserved by timeline
+  for 'Mun Lander' until Y1, D09, 18:40."; the "fixed once committed" rule and the way-out
+  sentence are gone, and no text says "your timeline" or "committed". A contract row now
+  reads "- completed / failed / expired / cancelled <date>".
+- **Every button Parsek greys on a stock screen now says why on hover.** Research and
+  Purchase-all in R&D, Accept / Decline / Cancel in Mission Control, Accept / Cancel in
+  Administration carry the reason in a stock tooltip, and the KSC facility menu shows the
+  facility's reason in its description as well as on Upgrade / Repair.
+- **The Career window is gone; its slot counts are in the Timeline's Contracts and Strategies
+  button hovers.** Everything the Career window showed is on screens you already use: stock
+  Mission Control and Administration carry Parsek's marks (what is active, when a contract
+  completes or a strategy ends), and the Timeline's Career view lists every dated contract and
+  strategy event, past and future. The one thing only the Career window said, how many slots
+  your recorded flights still need later, now ends the hover of the Timeline's Contracts and
+  Strategies buttons in Career mode, free first: "Contract slots: 4 of 7 free now (2 active,
+  1 reserved for later)." (or "no slot limit" at a fully upgraded building). The numbers are
+  the same Mission Control forecast that refuses an accept which would leave a committed one
+  without a slot. The main window no longer has a Career button.
+  Dev: `UiAction window=career` and its `pending:` expand keys, the `career` mock states and
+  the Career in-game mock cell are removed; `GUI-15-census-career-contracts` now photographs
+  the Timeline's Contracts view and its hover, and GUI-1 / GUI-5 / GUI-6 drop their Career
+  captures (every census `describe` now reads `windows=11`).
 
 - **Re-Fly is for vessel separations only: EVA kerbals no longer appear in Unfinished Flights and
   cannot be re-flown.** Rewind Points are made when a vessel stages, decouples or undocks into two

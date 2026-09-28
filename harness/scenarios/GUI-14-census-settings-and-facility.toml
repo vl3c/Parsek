@@ -12,9 +12,11 @@ tier = "operator"
 # Timeline's Facilities view (`fc-timeline-facilities-*`), the post-upgrade Milestones
 # capture is dropped (the reading it recorded - an upgrade is not a milestone - holds in
 # the Timeline too, where the two are separate categories), and so is the Career
-# min-size capture (GUI-15 takes the window's drag floor on its populated Contracts tab).
-# The paragraphs below that describe the Career captures are the record of the flights
-# that took them.
+# min-size capture.
+# 2026-09-27: the Career State window was REMOVED (owner decision); its reserved-slot
+# counts moved into the Timeline's Contracts / Strategies button hovers. The paragraphs
+# below that describe the Career captures are the record of the flights that took them,
+# and name a window, a class and a `window=career` token that no longer exist.
 #
 # 2026-09-26: THE WIPE BUTTONS ARE GONE. The Settings Data Management section (`Wipe All
 # Recordings` / `Wipe All Milestones`) was removed by the operator ruling that recordings
@@ -228,9 +230,9 @@ count = { min = 0, max = 0 }
 # openWindows=<names>` pinned as a literal is an EXACT claim, since a third open window
 # would move the count.
 required = [
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,settings",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,settings",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
   # --- the upgrade itself, the two lines L1 pins ---
   "kscaction action=upgrade-facility .* applied=true",
   "Game state: FacilityUpgraded",

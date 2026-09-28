@@ -5,8 +5,8 @@ namespace Parsek
 {
     /// <summary>
     /// The one place a ledger facility id becomes the name the player reads: the Timeline's
-    /// facility rows, and the facility id the Career State window reads slot-limit levels
-    /// by.
+    /// facility rows, and the facility id the career slot counts read slot-limit levels
+    /// by (CareerSlotSummary).
     ///
     /// A ledger facility id comes in three shapes: an upgrade carries the facility's own id
     /// (<c>SpaceCenter/LaunchPad</c>), a destruction or repair the id of ONE of its
@@ -90,7 +90,7 @@ namespace Parsek
         /// </summary>
         internal static string HumanizeFacilityId(string facilityId)
         {
-            string spaced = CareerStateWindowUI.SpaceBeforeCapitals(facilityId);
+            string spaced = GameActionDisplay.SpaceBeforeCapitals(facilityId);
             if (string.IsNullOrEmpty(spaced)) return spaced;
             return spaced.Replace(" And ", " and ");
         }
