@@ -173,13 +173,6 @@ namespace Parsek.TestCommands
         internal const string RosterKeyPrefix = "roster";
         internal const string FlightsKeyPrefix = "flights";
 
-        /// <summary>The Career window's two <c>Accepted later</c> / <c>Activated later</c> folds. ONE prefix
-        /// because the window keeps ONE fold collection; the wire VALUES are the tab the
-        /// fold belongs to (<c>contracts</c> / <c>strategies</c>), which is what a spec
-        /// author already knows, rather than the dotted production key
-        /// (<c>Contracts.Pending</c>) that the collection is keyed by.</summary>
-        internal const string PendingKeyPrefix = "pending";
-
         /// <summary>Both test-runner windows' category folds. ONE prefix shared by the two
         /// windows because it names the same collection shape in both - each window keeps
         /// its OWN set, and the window= arg is what says which.</summary>
@@ -191,40 +184,6 @@ namespace Parsek.TestCommands
         };
 
         private static readonly string[] LogisticsExpandPrefixes = new[] { RowKeyPrefix };
-
-        // The Career window's fold set is INVERTED like the Missions window's collapsedLegs
-        // (membership means FOLDED), and the op always speaks "expanded", so the applier
-        // owns the flip. Its two keys are the only foldable state in that window, and both
-        // folds only draw on a career whose recorded timeline adds rows after now.
-        private static readonly string[] CareerExpandPrefixes = new[] { PendingKeyPrefix };
-
-        /// <summary>The two wire values <c>pending:</c> takes: the TAB whose pending fold to
-        /// drive. Kept beside the prefix rather than derived from the window's own dotted
-        /// keys because the mapping is the point - see
-        /// <see cref="CareerFoldKeyFor"/>.</summary>
-        internal static readonly string[] CareerPendingFoldValues = new[]
-        {
-            "contracts", "strategies",
-        };
-
-        /// <summary>
-        /// The window's own fold key for a <c>pending:</c> wire value, or null for an
-        /// unknown one (which the enumeration-membership check rejects first).
-        ///
-        /// <para>Two names for one fold, and the mapping is deliberate: the wire says the
-        /// TAB, which is what a spec author and a capture label already name, and the
-        /// production collection is keyed by a dotted string that is an implementation
-        /// detail of that window. The constants are referenced rather than copied, so a
-        /// rename on the window side is a compile error here.</para>
-        /// </summary>
-        internal static string CareerFoldKeyFor(string value)
-        {
-            if (value == "contracts")
-                return CareerStateWindowUI.GroupKey_ContractsPending;
-            if (value == "strategies")
-                return CareerStateWindowUI.GroupKey_StrategiesPending;
-            return null;
-        }
 
         // The Kerbals window keeps one expansion set per TAB, so it takes one prefix per
         // tab rather than one for the whole window: `roster:` drives a Roster row's
@@ -248,7 +207,6 @@ namespace Parsek.TestCommands
         internal static string ExpandableWindowNames =>
             TestCommandUiAction.MissionsWindow + "," + TestCommandUiAction.LogisticsWindow
             + "," + TestCommandUiAction.KerbalsWindow
-            + "," + TestCommandUiAction.CareerWindow
             + "," + TestCommandUiAction.TestRunnerWindow
             + "," + TestCommandUiAction.TestRunnerGlobalWindow;
 
@@ -259,7 +217,6 @@ namespace Parsek.TestCommands
             if (window == TestCommandUiAction.MissionsWindow) return MissionsExpandPrefixes;
             if (window == TestCommandUiAction.LogisticsWindow) return LogisticsExpandPrefixes;
             if (window == TestCommandUiAction.KerbalsWindow) return KerbalsExpandPrefixes;
-            if (window == TestCommandUiAction.CareerWindow) return CareerExpandPrefixes;
             if (window == TestCommandUiAction.TestRunnerWindow) return TestRunnerExpandPrefixes;
             if (window == TestCommandUiAction.TestRunnerGlobalWindow) return TestRunnerExpandPrefixes;
             return null;

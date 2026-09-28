@@ -15,7 +15,7 @@ namespace Parsek.TestCommands
     /// <para><b>ONE RESOLVER ROW PER WINDOW, for the reason
     /// <c>ResolveWindowHandle</c>'s own header gives.</b> The first draft of that resolver
     /// was four parallel switches over the same window names, so a mapping error - the
-    /// kerbals arm reaching the career window's field - lived in ONE of eight arms while
+    /// kerbals arm reaching another window's field - lived in ONE of eight arms while
     /// the other seven stayed right and the whole xUnit suite passed either way. The mock
     /// arms below are the same shape: one row per window carrying its install AND its
     /// restore, built together so they cannot describe different members.</para>
@@ -300,10 +300,10 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            // The complexity mode decides whether this window can be ON SCREEN at all.
-            // Basic hides the Kerbals and Career launchers and the mode switch
-            // force-closes both, so a Basic apply would photograph a window no player can
-            // open. Checked against the PRODUCTION predicate rather than a per-state pin.
+            // The complexity mode decides whether this window can be ON SCREEN at all:
+            // a launcher Basic hides has its window force-closed by the mode switch, so a
+            // Basic apply would photograph a window no player can open. Checked against
+            // the PRODUCTION predicate rather than a per-state pin.
             UiComplexityMode appliedMode = ParsekUI.AppliedUiComplexityMode;
             if (!GuiMockCatalogue.IsMockableInMode(spec.Name, appliedMode))
             {
@@ -815,9 +815,6 @@ namespace Parsek.TestCommands
                     case GuiMockSession.KerbalsWindow:
                         InstallKerbalsMock(ui, state, payload, undo);
                         break;
-                    case GuiMockSession.CareerWindow:
-                        InstallCareerMock(ui, payload, undo);
-                        break;
                     case GuiMockSession.StructureWindow:
                         InstallStructureMock(ui, payload, undo);
                         break;
@@ -876,17 +873,6 @@ namespace Parsek.TestCommands
                 if (!w.SetRosterExpandedForTesting(key, true)) continue;
                 undo.Add(() => w.SetRosterExpandedForTesting(key, false));
             }
-        }
-
-        private static void InstallCareerMock(ParsekUI ui, GuiMockPayload payload,
-                                              List<Action> undo)
-        {
-            CareerStateWindowUI w = ui.GetCareerStateUI();
-            w.CachedVMForTesting = payload.Career;
-            // NULL for the Kerbals reason: a suppressed ledger invalidation was deferred,
-            // not dropped, and the draw always rebuilds a null cache (which is now the
-            // FIRST thing ShouldRebuildCachedVM checks).
-            undo.Add(() => { w.CachedVMForTesting = null; });
         }
 
         private static void InstallStructureMock(ParsekUI ui, GuiMockPayload payload,

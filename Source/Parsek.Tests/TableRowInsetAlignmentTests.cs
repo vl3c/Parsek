@@ -15,9 +15,8 @@ namespace Parsek.Tests
     /// window's rects out of the IMGUI tree dumps. Real Spawn Control drew its header
     /// directly in the window and its rows inside a scroll view plus a
     /// <c>GUI.skin.box</c> group, so every cell sat 8px left of its header and the
-    /// expanding Craft column was 16px narrower than its header cell. Career State
-    /// (header outside the body box) and the Structure window (header pinned outside
-    /// the scroll view) were off by 4px the same way. Logistics was the only aligned
+    /// expanding Craft column was 16px narrower than its header cell. The Structure
+    /// window (header pinned outside the scroll view) was off by 4px the same way. Logistics was the only aligned
     /// table, because its header row and its body rows are siblings inside one box.</para>
     ///
     /// <para><b>The fix these cells pin.</b> Both rows open with an EXPLICIT shared
@@ -67,7 +66,6 @@ namespace Parsek.Tests
                 { "DrawRewindColumnButton(", "ColW_Rewind" },
             };
 
-        private static readonly string[] CareerCellStyles = { "cellStyle", "alertStyle", "nameCellStyle" };
         private static readonly string[] KerbalsCellStyles =
         {
             "cellPlainStyle", "cellGrayStyle", "cellDeadStyle", "cellRecoveredStyle",
@@ -93,26 +91,10 @@ namespace Parsek.Tests
                 HeaderPinnedOutsideScrollView = true,
                 BoxedTableMethod = "DrawStepTable",
             },
-            new TableSite
-            {
-                File = Path.Combine("UI", "CareerStateWindowUI.cs"),
-                HeaderMethod = "DrawContractsColumnHeader",
-                RowMethod = "DrawContractRow",
-                HeaderPinnedOutsideScrollView = false,
-                CellStyles = CareerCellStyles,
-            },
-            new TableSite
-            {
-                File = Path.Combine("UI", "CareerStateWindowUI.cs"),
-                HeaderMethod = "DrawStrategiesColumnHeader",
-                RowMethod = "DrawStrategyRow",
-                HeaderPinnedOutsideScrollView = false,
-                CellStyles = CareerCellStyles,
-            },
             // The Kerbals window's two tabs, rebuilt as column tables 2026-09-15. Both
             // headers are drawn INSIDE the window scroll view that holds their rows, so
-            // like Career's two they take the body row container rather than the
-            // gutter-reserving header variant.
+            // they take the body row container rather than the gutter-reserving header
+            // variant.
             new TableSite
             {
                 File = Path.Combine("UI", "KerbalsWindowUI.cs"),
@@ -222,7 +204,6 @@ namespace Parsek.Tests
                      {
                          Path.Combine("UI", "SpawnControlUI.cs"),
                          Path.Combine("UI", "StructureListWindowUI.cs"),
-                         Path.Combine("UI", "CareerStateWindowUI.cs"),
                          Path.Combine("UI", "KerbalsWindowUI.cs"),
                          Path.Combine("UI", "RecordingsTableUI.cs"),
                      })
@@ -311,9 +292,9 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The same rule for the Career and Kerbals tables, whose body cells are TINTED
-        /// (an overdue deadline, a lost kerbal) and include label-styled BUTTONS (the
-        /// Career name links, the Kerbals Last-flight and Flights cells): every
+        /// The same rule for the Kerbals tables, whose body cells are TINTED (a lost
+        /// kerbal) and include label-styled BUTTONS (the Last-flight and Flights
+        /// cells): every
         /// <c>GUILayout.Label</c> / <c>Button</c> / <c>Toggle</c> in the row method draws
         /// with one of the window's cell style fields (directly, or through a local picked
         /// by a selector method whose every return names one), never a bare skin style,
@@ -387,29 +368,19 @@ namespace Parsek.Tests
                     }
                 }
             }
-            Assert.Equal(4, checkedSites);
+            Assert.Equal(2, checkedSites);
         }
 
         /// <summary>
-        /// The other text drawn INSIDE those two windows' table bodies - the Kerbals
-        /// fold rows (plain-kerbals fold, each Flights group) and Career's grey "none
-        /// active now" line above pending rows - sits under the first column too, so it
-        /// is built on the shared cell style as well.
+        /// The other text drawn INSIDE the Kerbals table bodies - the fold rows
+        /// (plain-kerbals fold, each Flights group) - sits under the first column too, so
+        /// it is built on the shared cell style as well.
         /// </summary>
         [Fact]
         public void TintedTableBodyFoldAndEmptyLinesUseTheSharedCellStyle()
         {
             string kerbals = ReadPreparedSource(Path.Combine("UI", "KerbalsWindowUI.cs"));
             Assert.Matches(@"\bgroupHeaderStyle\s*=\s*new GUIStyle\(\s*tableCell\b", kerbals);
-            string career = ReadPreparedSource(Path.Combine("UI", "CareerStateWindowUI.cs"));
-            Assert.Matches(@"\bgrayCellStyle\s*=\s*new GUIStyle\(\s*tableCell\b", career);
-            foreach (string tab in new[] { "DrawContractsTab", "DrawStrategiesTab" })
-            {
-                string body = MethodBody(career, tab, "CareerStateWindowUI.cs");
-                int box = body.IndexOf("GetTableBodyBoxStyle()", StringComparison.Ordinal);
-                Assert.True(box > 0, tab + ": no body box.");
-                Assert.Contains("grayCellStyle", body.Substring(box));
-            }
         }
 
         /// <summary>

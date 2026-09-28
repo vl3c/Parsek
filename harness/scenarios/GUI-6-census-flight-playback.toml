@@ -46,12 +46,11 @@ tier = "operator"
 #   - the Recordings tab IN FLIGHT, which is where its `Watch` column exists at all
 #     (inventory section 6.1's first row: the column is flight-only and GUI-2 never
 #     selected the tab), over 243 rows;
-#   - the Missions tab, the Timeline, both Kerbals tabs and the Career Contracts tab in
-#     FLIGHT. `ParsekFlight.OnGUI` and `ParsekKSC.OnGUI` draw the same classes, so these
+#   - the Missions tab, the Timeline and both Kerbals tabs in FLIGHT. `ParsekFlight.OnGUI` and `ParsekKSC.OnGUI` draw the same classes, so these
 #     are the CHROME-over-a-live-scene forms, which is the diff a reviewer wants against
 #     GUI-4 / GUI-5's KSC captures of the same windows;
-#   - the Career window's SANDBOX-mode banner and empty states (this host is SANDBOX), one
-#     of the four otherwise-dark mode banners section 6.1 lists;
+#   - (until 2026-09-27) the Career window's SANDBOX-mode banner; the window was removed
+#     that day and its capture with it (18 PNGs since);
 #   - the MAP VIEW with ghost map markers, through the M-A7 `EnterMapView` verb. Section 6.3
 #     records that ghost map markers in either scene need "the existing EnterMapView verb
 #     plus a full-screen capture", and `CaptureScreenshot` grabs the framebuffer, so this is
@@ -156,8 +155,8 @@ tier = "operator"
 # measured on, and a failure here still harvests all fourteen captures before it.
 #
 # ADDED 2026-09-21, THE FOUR TIMELINE TABS IN THE FLIGHT SCENE (4 more captures, 15 -> 19
-# PNGs; the step list below is the authority - 19 `CaptureScreenshot` steps and 19
-# `DumpGuiTree` steps), off a state-coverage audit of every capture this census had taken.
+# PNGs; the step list below is the authority - 18 `CaptureScreenshot` steps and 18
+# `DumpGuiTree` steps since the Career capture went on 2026-09-27), off a state-coverage audit of every capture this census had taken.
 # The audit's measured finding: of the Timeline window's four tabs, only `overview` had
 # ever been photographed in FLIGHT. The TABS are not flight-only - all four exist at the
 # Space Center and GUI-1 photographs them there - but the `W` (Watch) button column draws
@@ -183,7 +182,7 @@ tier = "operator"
 # `op=open window=spawncontrol` into an ERROR and reds the lane. Guessing a UT is a
 # fishing expedition dressed as a step. The multi-row picture is filed as needing a
 # MEASUREMENT first (GUI-CENSUS-SPAWN-CONTROL-MULTI-ROW-NEEDS-A-MEASURED-UT).
-description = "GUI census wave 2, the flight scene mid-playback: photograph the main window's flight status with active ghosts, the Gloops recorder, the flight-only Watch column on the Recordings tab, the shared windows over a live scene, the sandbox Career banner, the map view with ghost markers, the watch-mode overlay and Real Spawn Control over the 243-ghost part-showcase corpus, then the Kerbals Roster tab either side of a real EvaExit so the live-crew cache refresh has a picture."
+description = "GUI census wave 2, the flight scene mid-playback: photograph the main window's flight status with active ghosts, the Gloops recorder, the flight-only Watch column on the Recordings tab, the shared windows over a live scene, the map view with ghost markers, the watch-mode overlay and Real Spawn Control over the 243-ghost part-showcase corpus, then the Kerbals Roster tab either side of a real EvaExit so the live-crew cache refresh has a picture."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "playback", "GUI-6", "pending-operator"]
 
@@ -247,7 +246,7 @@ steps = [
   { cmd = "DumpGuiTree", args = { label = "play-timeline-overview-flight-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
 
-  # --- Kerbals and Career in FLIGHT (both are section 6.1 rows) ---
+  # --- Kerbals in FLIGHT (a section 6.1 row) ---
   { cmd = "UiAction", args = { op = "open", window = "kerbals" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "kerbals", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
@@ -258,15 +257,6 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "play-kerbals-outcomes-flight-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "play-kerbals-outcomes-flight-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
-
-  # The SANDBOX-mode banner and empty state, which no career host can show.
-  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "play-career-contracts-sandbox-flight-advanced" }, expect = "OK" },
-  { cmd = "DumpGuiTree", args = { label = "play-career-contracts-sandbox-flight-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
 
   # --- the MAP VIEW, with ghost markers (inventory section 6.3) ---
   # `CaptureScreenshot` grabs the framebuffer, so the marker layer lands in the PNG; the
@@ -279,8 +269,8 @@ steps = [
   { cmd = "ExitMapView", expect = "OK", budget = 120 },
 
   # --- Basic pass, taken BEFORE the two speculative steps so its picture is clean ---
-  # Basic drops the Real Spawn Control, Kerbals and Career launchers, so the two flight
-  # main-window captures side by side are the mode diff over a live scene.
+  # Basic drops the Real Spawn Control launcher, so the two flight main-window captures
+  # side by side are the mode diff over a live scene.
   { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "play-main-ghosts-basic" }, expect = "OK" },
@@ -408,17 +398,16 @@ required = [
   # --- describe echoes, in step order. `scene=FLIGHT` on every one is the load-bearing
   # half: it proves the census really ran in flight rather than in a scene that settled
   # somewhere else, which is exactly the surprise the B10 defect was.
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,gloops",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,missions",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,timeline",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,kerbals",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,career",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=12 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,gloops",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=11 open=1 openWindows=main",
   # --- THE TWO FLIGHT-ONLY WINDOWS, which appear in no other committed lane's log except
   # GUI-2's (and `spawncontrol` there only as a refusal). This is the line that says Real
   # Spawn Control DREW on this host, which is the whole question the lane asks.
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=12 open=2 openWindows=main,spawncontrol",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,spawncontrol",
   # --- the negative dialog assertion (see the header) ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
   # --- one capture, proving the write-and-settle path end to end ---
@@ -431,7 +420,6 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-timeline-overview-flight-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-kerbals-roster-flight-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-kerbals-outcomes-flight-advanced .*patched=17/17",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-career-contracts-sandbox-flight-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-mapview-ghostmarkers-advanced .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-main-ghosts-basic .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-main-watchmode-advanced .*patched=17/17",
@@ -456,7 +444,7 @@ required = [
 forbidden = []
 
 [runtime]
-# 19 captures and 19 dumps, a TimeJump, a map-view round trip, a watch-mode entry, one
+# 18 captures and 18 dumps, a TimeJump, a map-view round trip, a watch-mode entry, one
 # EvaExit and about 50 single-phase UI ops, over a corpus of 243 injected recordings whose
 # ghosts are all playing. LT-5 measured the same host and the same jump at 72 s wall for a two-category
 # in-game batch; GUI-1 measured 22 captures plus 22 dumps at 96 s. 1200 s is roughly ten

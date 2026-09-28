@@ -54,7 +54,7 @@ namespace Parsek.Tests
         // Kerbals left the set with the 2026-09-22 owner re-ruling: it draws in Basic.
         private static readonly string[] ExpectedCloseSet =
         {
-            "CareerState", "GloopsRecorder", "SpawnControl", "TestRunner", "GroupPicker"
+            "GloopsRecorder", "SpawnControl", "TestRunner", "GroupPicker"
         };
 
         // ------------------------------------------------------------------
@@ -87,11 +87,11 @@ namespace Parsek.Tests
                     Assert.NotNull(target.CloseAndReleaseLock);
                 }
 
-                // The four windows own a distinct KSP input lock; the group picker owns none
+                // The three windows own a distinct KSP input lock; the group picker owns none
                 // (edge case 4: a reachability rule, not a lock rule).
                 string[] lockOwners = set.Where(t => t.OwnsInputLock).Select(t => t.Name).ToArray();
                 Assert.Equal(
-                    new[] { "CareerState", "GloopsRecorder", "SpawnControl", "TestRunner" },
+                    new[] { "GloopsRecorder", "SpawnControl", "TestRunner" },
                     lockOwners);
                 // The Kerbals window is visible in Basic, so nothing may close it on the switch.
                 Assert.DoesNotContain(KerbalsWindowUI.KerbalsInputLockId,
@@ -174,14 +174,14 @@ namespace Parsek.Tests
                 RecordingsTableUI table = ui.GetRecordingsTableUI();
                 timeline.IsOpen = true;
                 table.IsOpen = true;
-                ui.GetCareerStateUI().IsOpen = true;
+                ui.GetSpawnControlUI().IsOpen = true;
                 ui.GetKerbalsUI().IsOpen = true;
 
                 // Advanced -> Basic: the gated window goes, the kept ones stay.
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
                 ParsekUI.ApplyPendingUiComplexityModeIfAny();
 
-                Assert.False(ui.GetCareerStateUI().IsOpen);
+                Assert.False(ui.GetSpawnControlUI().IsOpen);
                 Assert.True(ui.GetKerbalsUI().IsOpen,
                     "Kerbals draws in Basic (owner re-ruling 2026-09-22) and must survive the switch");
                 Assert.True(timeline.IsOpen, "Timeline is not gated and must survive the switch to Basic");
@@ -221,20 +221,20 @@ namespace Parsek.Tests
             var ui = new ParsekUI(UIMode.KSC);
             try
             {
-                CareerStateWindowUI career = ui.GetCareerStateUI();
-                career.IsOpen = true;
-                career.SelectedTabForTesting = CareerStateWindowUI.TabCountForTesting - 1;
-                int expectedTab = career.SelectedTabForTesting;
+                SpawnControlUI spawn = ui.GetSpawnControlUI();
+                spawn.IsOpen = true;
+                spawn.SortColumnIndexForTesting = (int)SpawnControlSortColumn.SpawnTime;
+                int expectedSort = spawn.SortColumnIndexForTesting;
 
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Basic);
                 ParsekUI.ApplyPendingUiComplexityModeIfAny();
-                Assert.False(career.IsOpen);
+                Assert.False(spawn.IsOpen);
 
                 ParsekUI.SetUiComplexityMode(UiComplexityMode.Advanced);
                 ParsekUI.ApplyPendingUiComplexityModeIfAny();
-                career.IsOpen = true;
+                spawn.IsOpen = true;
 
-                Assert.Equal(expectedTab, career.SelectedTabForTesting);
+                Assert.Equal(expectedSort, spawn.SortColumnIndexForTesting);
             }
             finally
             {
@@ -609,7 +609,6 @@ namespace Parsek.Tests
 
         private static void OpenEveryGatedSurface(ParsekUI ui)
         {
-            ui.GetCareerStateUI().IsOpen = true;
             ui.GetGloopsUI().IsOpen = true;
             ui.GetSpawnControlUI().IsOpen = true;
             ui.GetTestRunnerUI().IsOpen = true;

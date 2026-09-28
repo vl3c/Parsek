@@ -3932,7 +3932,30 @@ sequence), which is also what a player does. Fix direction if it matters: have `
 tree, exactly as `MissionsWindowUI`'s GoTo path already does ("Calling the same idempotent static
 the draw and ParsekScenario.OnLoad both call is not a second seam").
 
-## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is OPEN]
+## ~~CAREER-WINDOW-REMOVED-2026-09-27: the Career State window is removed; its reserved-slot counts moved into the Timeline's Contracts / Strategies button hovers~~ [DONE 2026-09-27, branch `remove-career-window`, owner decision]
+
+Owner decision 2026-09-27: the Career window was redundant. Stock Mission Control and
+Administration carry Parsek's reservation overlays (active counts, deadlines, accept dates,
+the `- completes Y1 D7` labels, strategy effects and end dates) and the Timeline's Career
+category views carry the dated past and future. The only facts shown nowhere else were the
+"reserved for later" slot counts (kept) and the deadline of a contract the timeline accepts
+later (dropped: not important). **Fix:** `CareerSlotSummary` (the slot walk moved out of the
+window, not forked: contracts read the shared `ContractSlotReservation` forecast the C2
+accept block reads, live `ForecastNow()` first and the pure ledger forecast as fallback;
+strategies keep the peak walk) feeds one sentence appended to the EXISTING hover of the
+Timeline's `Contracts` and `Strategies` view buttons, Career mode only, free first:
+`Contract slots: 4 of 7 free now (2 active, 1 reserved for later).` /
+`... no slot limit (2 active).` Budgeted by `TooltipEchoBudgetTests.CareerSlotHovers_FitTheTimelineStrip`.
+Deleted: `UI/CareerStateWindowUI.cs`, `UI/Gallery/GuiMockCareerStates.cs`, the launcher,
+`UiSurface.MainButtonCareer`, the host draw calls, the seam's `window=career` (tabs, the
+`pending:` expand prefix, the mock arm) and its hlib mirrors, the career mock suppression
+sites and the Career in-game mock cell. `SpaceBeforeCapitals` moved to
+`GameActionDisplay`. GUI-15 is repointed to the Timeline's Contracts view and its hover;
+GUI-1 / GUI-5 / GUI-6 dropped their Career captures. The open residue of
+CAREER-STATE-VIEW-2026-09-24, CAREER-WINDOW-ROUND3-2026-09-22 and the census items about
+the Career window's folds and divergence banner is MOOT with the window.
+
+## CAREER-STATE-VIEW-2026-09-24: the Career window became the state view of contracts and strategies (PR 4 of the career-vs-timeline plan) [FILED 2026-09-24 with branch `career-state-view`. DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27 except item 3]
 
 Done: tabs Contracts and Strategies only (Facilities and Milestones removed with their VM,
 draw code, gallery states and tests; the Timeline's Career view owns that history); ONE
@@ -3995,7 +4018,7 @@ Open residue:
    (`ParsekTestCommandAddon.UiAction.cs`), which sets `IsOpen` in any game mode and which
    GUI-6 uses for its Sandbox banner capture; both are automation-only.
 
-## CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is OPEN]
+## ~~CAREER-WINDOW-ROUND3-2026-09-22: the Career window rebuild (dates, Timeline-end column, mode-appropriate tabs) and what it leaves open~~ [FILED 2026-09-22 with branch `ui-career-round3`. Items 1 to 8 of the career-window review are DONE on that branch; the residue below is MOOT since CAREER-WINDOW-REMOVED-2026-09-27]
 
 Done on the branch (owner-approved review items 1-8): house dates with a relative deadline
 tail; expanding name column in every table; milestone titles via the Timeline humanizer and
@@ -4506,8 +4529,9 @@ GUI-STATE-COVERAGE-RESIDUE-2026-09-21 (which records that window's zero-candidat
 branch as dead) seen from the other side, and it NEEDS the same thing: a FLIGHT fixture
 with a spawnable committed recording close to the active vessel.
 
-**4. THE CAREER `Pending in timeline` FOLD NEEDS A DIVERGING CAREER, NOT A LONG ONE**
-(`GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER`). MEASURED by GUI-24's first
+**4. ~~THE CAREER `Pending in timeline` FOLD NEEDS A DIVERGING CAREER, NOT A LONG ONE~~**
+(`GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER`). MOOT 2026-09-27: the Career
+window was removed (CAREER-WINDOW-REMOVED-2026-09-27). MEASURED by GUI-24's first
 flight (`2026-09-21_2252`) rather than derived. `op=expand window=career key=none` ran
 correctly and answered `state=false expanded=0 total=2`, and the two captures beside it
 showed NO FOLD: `CareerStateWindowUI` draws `Pending in timeline (N)` only in the `else`
@@ -4655,8 +4679,9 @@ the in-game `StrategyLifecycle` category, and an in-game batch captures and REST
 photographed. **Fix:** a fixture with a strategy-activation ledger row, built by
 construction the way `career-contract-pad` was.
 
-**6. The Career State window's DIVERGENCE banner and its two `Pending in timeline` folds
-have no HOST.** The banner's `(timeline ends at UT N)` form and the split
+**6. ~~The Career State window's DIVERGENCE banner and its two `Pending in timeline` folds
+have no HOST.~~** MOOT 2026-09-27: the Career window was removed
+(CAREER-WINDOW-REMOVED-2026-09-27). The banner's `(timeline ends at UT N)` form and the split
 `Active now (N)` + `Pending in timeline (K)` layout need committed actions in the FUTURE of
 the live clock, i.e. a rewind. **The SEAM half is no longer missing:** this item was filed
 saying `career` had no `op=expand` route, and the wave-6 seam additions that landed the

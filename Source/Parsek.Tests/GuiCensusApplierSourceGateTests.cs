@@ -56,7 +56,6 @@ namespace Parsek.Tests
                 { "RosterKeyPrefix", TestCommandUiState.RosterKeyPrefix },
                 { "FlightsKeyPrefix", TestCommandUiState.FlightsKeyPrefix },
                 { "CategoryKeyPrefix", TestCommandUiState.CategoryKeyPrefix },
-                { "PendingKeyPrefix", TestCommandUiState.PendingKeyPrefix },
             };
 
         [Fact]
@@ -73,7 +72,6 @@ namespace Parsek.Tests
             foreach (string window in new[] { TestCommandUiAction.MissionsWindow,
                                               TestCommandUiAction.LogisticsWindow,
                                               TestCommandUiAction.KerbalsWindow,
-                                              TestCommandUiAction.CareerWindow,
                                               TestCommandUiAction.TestRunnerWindow,
                                               TestCommandUiAction.TestRunnerGlobalWindow })
             {
@@ -141,7 +139,6 @@ namespace Parsek.Tests
                 { "TimelineWindow", TestCommandUiAction.TimelineWindow },
                 { "SettingsWindow", TestCommandUiAction.SettingsWindow },
                 { "KerbalsWindow", TestCommandUiAction.KerbalsWindow },
-                { "CareerWindow", TestCommandUiAction.CareerWindow },
                 { "TestRunnerWindow", TestCommandUiAction.TestRunnerWindow },
                 { "TestRunnerGlobalWindow", TestCommandUiAction.TestRunnerGlobalWindow },
             };
@@ -312,7 +309,6 @@ namespace Parsek.Tests
                 case "MissionsWindow": return TestCommandUiAction.MissionsWindow;
                 case "TimelineWindow": return TestCommandUiAction.TimelineWindow;
                 case "KerbalsWindow": return TestCommandUiAction.KerbalsWindow;
-                case "CareerWindow": return TestCommandUiAction.CareerWindow;
                 case "LogisticsWindow": return TestCommandUiAction.LogisticsWindow;
                 case "StructureWindow": return TestCommandUiAction.StructureWindow;
                 case "SettingsWindow": return TestCommandUiAction.SettingsWindow;

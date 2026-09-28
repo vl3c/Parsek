@@ -77,10 +77,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CareerWindowAndTimeline_NameAStrategyIdentically()
+        public void Timeline_NamesAStrategyThroughTheSharedResolver()
         {
-            CareerStateWindowUI.StrategyTitleLookupForTesting = id => id == "OutsourcedResearchCfg" ? "Outsourced R&D" : null;
-            Assert.Same(StrategyDisplayNames.TitleLookupForTesting, CareerStateWindowUI.StrategyTitleLookupForTesting);
+            StrategyDisplayNames.TitleLookupForTesting = id => id == "OutsourcedResearchCfg" ? "Outsourced R&D" : null;
             Assert.Equal("Outsourced R&D", TimelineEntryDisplay.HumanizeStrategyId("OutsourcedResearchCfg"));
             Assert.Equal("Unknown Mod", TimelineEntryDisplay.HumanizeStrategyId("UnknownModCfg"));
         }

@@ -2440,7 +2440,7 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     "warp")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
-    "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
+    "main", "missions", "timeline", "kerbals", "logistics", "structure",
     "settings", "spawncontrol", "gloops", "testrunner",
     # LAST, because it is the one window the main window has no button for: the global
     # Ctrl+Shift+T runner (TestRunnerShortcut), a separate MonoBehaviour that carries the
@@ -2512,8 +2512,9 @@ UIACTION_MOCK_REFUSALS: Tuple[str, ...] = (
     "mock-refused-recording",
     "mock-refused-session-live",
     # The CURRENT complexity mode hides the window's launcher, so no player can have it on
-    # screen: Basic hides the Career State launcher and the mode switch force-closes it
-    # (the Kerbals window draws in both modes since the 2026-09-22 owner re-ruling).
+    # screen: a launcher Basic hides has its window force-closed by the mode switch. No
+    # mockable window's launcher is hidden today (the Kerbals window draws in both modes
+    # since the 2026-09-22 owner re-ruling); the token stays for the next one.
     # Refused rather than drawn - the one thing this feature may not do is put an
     # impossible picture on the mirror.
     "mock-refused-mode",
@@ -2533,7 +2534,7 @@ SAVEGAME_REFUSED_GUI_MOCK_REASON = "save-refused-gui-mock"
 # The windows the P1 applier has an injection seam and a builder family for, mirroring
 # GuiMockCatalogue.SupportedWindows. `op=mock` on any other window answers
 # mock-window-unsupported after a boot, so the validator refuses it here instead.
-UIACTION_MOCKABLE_WINDOWS: Tuple[str, ...] = ("kerbals", "career", "structure")
+UIACTION_MOCKABLE_WINDOWS: Tuple[str, ...] = ("kerbals", "structure")
 
 # `op=playback`'s OPTIONAL recording selector, and `op=picker window=missions`'s. OPEN
 # valued (a RecordingId is a save-specific generated token, plus the picker's own `first`
@@ -2586,18 +2587,6 @@ UIACTION_EXPAND_PREFIXES: Dict[str, Tuple[str, ...]] = {
     "missions": ("group", "chain", "vessel", "leg", "digest"),
     "logistics": ("row",),
     "kerbals": ("roster", "flights"),
-    # The Career window's two `Accepted later` / `Activated later` folds, under ONE prefix because the
-    # window keeps ONE fold collection. The wire VALUES are the TAB the fold belongs to
-    # (`pending:contracts` / `pending:strategies`), not the dotted
-    # production key (`Contracts.Pending`) the collection is keyed by: a spec author
-    # already knows the tab, and the dotted form is an implementation detail of that
-    # window. INVERTED on the production side (membership means FOLDED), and the window's
-    # own setter does the flip - the wire speaks "expanded" on every row of this map. The
-    # folds only DRAW when a tab has pending rows, which needs a career whose recorded
-    # timeline accepts / activates something after now, so on any other save the op
-    # answers OK over a fold nothing is drawing (the residue recorded for op=expand
-    # generally).
-    "career": ("pending",),
     "testrunner": ("category",),
     "testrunnerglobal": ("category",),
 }
@@ -2813,11 +2802,6 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
     "timeline": ("overview", "details", "rewindff", "refly",
                  "contracts", "strategies", "facilities", "milestones", "tech"),
     "kerbals": ("roster", "outcomes"),
-    # The Career window's two tabs. Its Facilities and Milestones tabs were removed
-    # 2026-09-24 (the Timeline's Career view owns that history, under the Timeline's own
-    # `facilities` / `milestones` tokens above), so a `window=career` step naming either
-    # is a pre-launch error rather than a boot spent learning `tab-unknown`.
-    "career": ("contracts", "strategies"),
 }
 
 # The ops that REQUIRE a `window=` arg, mirroring TestCommandUiAction.OpNeedsWindow -

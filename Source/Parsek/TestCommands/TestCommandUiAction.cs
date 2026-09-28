@@ -309,7 +309,6 @@ namespace Parsek.TestCommands
         internal const string MissionsWindow = "missions";
         internal const string TimelineWindow = "timeline";
         internal const string KerbalsWindow = "kerbals";
-        internal const string CareerWindow = "career";
         internal const string LogisticsWindow = "logistics";
         internal const string StructureWindow = "structure";
         internal const string SettingsWindow = "settings";
@@ -644,11 +643,6 @@ namespace Parsek.TestCommands
                 "contracts", "strategies", "facilities", "milestones", "tech"),
 
             NewSpec(KerbalsWindow, true, true, "roster", "outcomes"),
-
-            // The Career window's two tabs; positions ARE CareerStateWindowUI.TabContracts /
-            // TabStrategies. Its Facilities and Milestones tabs were removed 2026-09-24 (the
-            // Timeline's Career view owns that history), so their tokens went with them.
-            NewSpec(CareerWindow, true, true, "contracts", "strategies"),
 
             // LogisticsWindowUI. NO tabs: its Active / Paused / Dormant / Candidates /
             // Near-miss / Dismissed bubbles are EXPAND-COLLAPSE sections drawn in one

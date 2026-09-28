@@ -4,6 +4,12 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the GUI census gets from ~166 photographed states to ~450, and the owner-facing iteration loop built on top of that.*
 
+**Amendment 2026-09-27:** the Career State window was removed (owner decision), and with it
+the `career` mock window, `GuiMockCareerStates.cs`, its two suppression sites
+(`career-vm-rebuild`, `career-invalidate`), the Career in-game apply cell and
+`GuiMockCareerIdShapeTests`. The catalogue now covers Kerbals and Structure List (27 states,
+four `GuiMock` cells). The Career passages below are the record of the design and its bugs.
+
 **Status:** P1 + P1b BUILT, NEVER RUN IN KSP (2026-09-22). The `op=mock` primitive, the
 compiled catalogue (43 states across Kerbals / Career State / Structure List), the session
 and its four cache suppressions, the dump's `mock` provenance block, the completeness guard

@@ -95,9 +95,12 @@ tier = "operator"
 # `Mission Control L1 - slots 0/2 now, 0/2 at timeline end`, so the same-as-projected arm
 # draws and the fold does not exist to collapse. A capture of the ordinary tab under a
 # label claiming a collapsed fold is the exact false reading the census exists to prevent,
-# so the two steps are GONE rather than relabelled - GUI-1 already photographs both tabs
-# in their resting form on this host. Filed as
-# GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER.
+# so the two steps are GONE rather than relabelled. Filed as
+# GUI-CENSUS-CAREER-PENDING-FOLD-NEEDS-A-DIVERGING-CAREER, which is moot since the Career
+# State window was removed on 2026-09-27 (owner decision): `window=career` is no longer a
+# seam window, and the one fact that window alone showed - the slots the committed
+# future reserves - is the last sentence of this window's own Contracts and Strategies
+# button hovers, which STATE 9-11 below photographs (the dumps carry the tooltip).
 description = "GUI census wave 6: the Timeline window's scalar view state - each source toggle off, the archive filter on, Custom selected with its sliders (at full range and over Last Day), two lit time-range presets, a scrolled entry list, the Career view's contracts / milestones / tech categories (one under a This Year range) and the window at its minimum width - on the dense operator-local census host."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "timeline", "career", "GUI-24", "pending-operator"]
@@ -243,8 +246,8 @@ allowedAnomalies = []
 # the offset to its own content), so its line regexes the value instead of pinning 600.
 # Pinning 600 would pin the host's row count.
 required = [
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=12 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
 
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=srcActions want=false after=false changed=true frames=[0-9]+",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction state window=timeline key=srcEvents want=false after=false changed=true frames=[0-9]+",
