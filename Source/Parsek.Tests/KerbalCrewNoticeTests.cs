@@ -75,11 +75,11 @@ namespace Parsek.Tests
 
         [Theory]
         [InlineData((int)KerbalReservationKind.ReservedActive,
-            "This kerbal is reserved by a committed flight on your timeline.")]
+            "Reserved by timeline.")]
         [InlineData((int)KerbalReservationKind.ReservedRetired,
-            "This retired stand-in flew a committed flight on your timeline.")]
+            "Retired after standing in on a flight on timeline, blocked by timeline.")]
         [InlineData((int)KerbalReservationKind.NotManaged,
-            "Parsek keeps this kerbal as a stand-in for a kerbal a committed flight holds.")]
+            "Kept as a stand-in for a reserved kerbal, blocked by timeline.")]
         public void DismissalBlock_ReasonUsesTheKerbalsWindowVocabulary(int kind, string expected)
         {
             Assert.Equal(expected,
@@ -91,11 +91,11 @@ namespace Parsek.Tests
         [Fact]
         public void DismissalBlock_AReturnedOwnerIsToldHeFlewACommittedFlight()
         {
-            Assert.Equal("This kerbal flew a committed flight on your timeline.",
+            Assert.Equal("Flew a flight on timeline, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, true));
-            Assert.Equal("Parsek keeps this kerbal as a stand-in for a kerbal a committed flight holds.",
+            Assert.Equal("Kept as a stand-in for a reserved kerbal, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, false));
-            Assert.Equal("This kerbal is reserved by a committed flight on your timeline.",
+            Assert.Equal("Reserved by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.ReservedActive, true));
         }
 
@@ -104,21 +104,20 @@ namespace Parsek.Tests
         [Fact]
         public void DismissalBlock_AnActiveStandInNamesTheOwnerHeCovers()
         {
-            const string expected = "Standing in for Bill Kerman, who is held by a committed flight. "
-                + "Dismissing them would leave that seat without a kerbal.";
+            const string expected = "Standing in for Bill Kerman, reserved by timeline.";
             Assert.Equal(expected,
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, false, "Bill Kerman"));
             Assert.Equal(expected,
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, "Bill Kerman"));
             // A returned owner and the reserved / retired kinds ignore the owner argument.
-            Assert.Equal("This kerbal flew a committed flight on your timeline.",
+            Assert.Equal("Flew a flight on timeline, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, true, "Bill Kerman"));
-            Assert.Equal("This kerbal is reserved by a committed flight on your timeline.",
+            Assert.Equal("Reserved by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.ReservedActive, "Bill Kerman"));
-            Assert.Equal("This retired stand-in flew a committed flight on your timeline.",
+            Assert.Equal("Retired after standing in on a flight on timeline, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.ReservedRetired, "Bill Kerman"));
             // Unknown owner: the owner-less line, no dangling name.
-            Assert.Equal("Parsek keeps this kerbal as a stand-in for a kerbal a committed flight holds.",
+            Assert.Equal("Kept as a stand-in for a reserved kerbal, blocked by timeline.",
                 KerbalDismissalPatch.DescribeDismissalBlock(KerbalReservationKind.NotManaged, ""));
             foreach (char c in expected)
                 Assert.True(c < 128, "ASCII only");

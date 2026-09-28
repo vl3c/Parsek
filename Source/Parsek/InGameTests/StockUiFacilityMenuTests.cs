@@ -73,7 +73,7 @@ namespace Parsek.InGameTests
                     InGameAssert.IsFalse(state.Tooltip.RequireInteractable,
                         "The tooltip must show on a non-interactable button (RequireInteractable=false)");
                     string tipText = state.Tooltip.textString ?? "";
-                    InGameAssert.IsTrue(tipText.Replace('\n', ' ').Contains(ReservationExplanation.TimelineRule),
+                    InGameAssert.IsTrue(tipText.Replace('\n', ' ').Contains(ReservationExplanation.BlockedByTimeline),
                         $"The stock tooltip should carry the explanation; got '{tipText}'");
                     if (state.TooltipOwned)
                     {
@@ -93,8 +93,11 @@ namespace Parsek.InGameTests
                 // Stock's own refresh (the structure collapse / repair path) re-enables Upgrade.
                 FacilityMenuUpgradeBlockPatch.ResolveTargetMethodForTesting().Invoke(menu, null);
                 InGameAssert.IsFalse(upgrade.interactable, "Upgrade should stay disabled through a stock OnFacilityValuesModified");
-                InGameAssert.AreEqual(1, CountOccurrences(FacilityMenuReasonText(menu), ReservationExplanation.TimelineRule),
-                    "The reason should appear exactly once after a stock refresh");
+                // Once on the button's tooltip and once in the facility's description (the
+                // element state), or once in the description when no tooltip prefab exists.
+                int expectedCount = state != null && state.Tooltip != null && state.Tooltip.prefab != null ? 2 : 1;
+                InGameAssert.AreEqual(expectedCount, CountOccurrences(FacilityMenuReasonText(menu), ReservationExplanation.BlockedByTimeline),
+                    "The reason should appear once per surface after a stock refresh");
 
                 // Menus are per facility: another facility's menu carries none of it.
                 otherMenu = KSCFacilityContextMenu.Create(other, OnFacilityMenuTestDismiss);
@@ -110,7 +113,7 @@ namespace Parsek.InGameTests
                     $"Upgrade on the other facility '{other.Facility.id}' should stay interactable");
                 InGameAssert.IsNull(StockUiFacilityDecoration.StateOf(otherMenu),
                     "Parsek should not have touched the other facility's menu");
-                InGameAssert.IsFalse(FacilityMenuReasonText(otherMenu).Contains(ReservationExplanation.TimelineRule),
+                InGameAssert.IsFalse(FacilityMenuReasonText(otherMenu).Contains(ReservationExplanation.BlockedByTimeline),
                     "The other facility's menu should carry no explanation");
                 DismissFacilityMenuForTest(otherMenu);
                 otherMenu = null;
@@ -122,7 +125,7 @@ namespace Parsek.InGameTests
                 NotifyTimelineDataChangedForOverlayTest();
                 yield return WaitUntilTrue(
                     () => upgrade.interactable
-                        && !FacilityMenuReasonText(openMenu).Contains(ReservationExplanation.TimelineRule),
+                        && !FacilityMenuReasonText(openMenu).Contains(ReservationExplanation.BlockedByTimeline),
                     $"Upgrade on '{facilityId}' should come back and the reason clear once the committed row is gone", 5f);
                 if (state != null && state.TooltipOwned && state.Tooltip != null)
                     InGameAssert.IsFalse(state.Tooltip.enabled, "Parsek's tooltip should be disabled once the block lifts");
@@ -235,7 +238,7 @@ namespace Parsek.InGameTests
             if (!FacilityMenuFilled(menu)) return false;
             Button upgrade = StockUiFacilityDecoration.UpgradeButtonOf(menu);
             return upgrade != null && !upgrade.interactable
-                && FacilityMenuReasonText(menu).Contains(ReservationExplanation.TimelineRule);
+                && FacilityMenuReasonText(menu).Contains(ReservationExplanation.BlockedByTimeline);
         }
 
         /// <summary>The explanation text the menu shows: the enabled Upgrade tooltip plus the

@@ -211,8 +211,7 @@ namespace Parsek.Tests
                 buildings, replaying: false, formatDate: Date);
             Assert.True(d.Marked && d.Blocked);
             Assert.Equal(StockUiDecorationKind.FacilityRepair, d.Kind);
-            Assert.Equal("Repaired on UT80000 on your committed timeline. "
-                         + ReservationExplanation.TimelineRule + " The repair happens on that date.", d.Why);
+            Assert.Equal("Repaired on UT80000, blocked by timeline until then.", d.Why);
 
             // The census Upgrade block on the same menu is untouched by the variant.
             Assert.True(StockUiDecorationQuery.ForFacilityMenu(index, Now, StockScreenRepairFixture.Facility,

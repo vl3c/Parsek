@@ -182,9 +182,9 @@ namespace Parsek
 
         /// <summary>
         /// The row status: the Timeline verb and a date-only compact date, e.g.
-        /// <c>accepted Y1 D3</c> or <c>completes Y2 D114</c>. The verb is the reservation
-        /// title's first word (<see cref="ReservationExplanation"/>: Accepted / Completes /
-        /// Fails / Cancelled), lower-cased. The date is <paramref name="formatRowDate"/> of
+        /// <c>accepted Y1 D3</c> or <c>completed Y2 D114</c>. The verb is the reservation
+        /// title's first word (<see cref="ReservationExplanation"/>: Accepted / Completed /
+        /// Failed / Expired / Cancelled), lower-cased. The date is <paramref name="formatRowDate"/> of
         /// the decoration's UT (production: <see cref="MissionControlStockUi.RowDateFormatter"/>,
         /// stock's date without the time of day), else the title's own date.
         /// </summary>
@@ -211,7 +211,7 @@ namespace Parsek
                 if (head.Length > 0)
                     return char.ToLowerInvariant(head[0]) + head.Substring(1);
             }
-            return decoration.Kind == StockUiDecorationKind.ContractResolution ? "completes" : "accepted";
+            return decoration.Kind == StockUiDecorationKind.ContractResolution ? "completed" : "accepted";
         }
 
         /// <summary>The date part of a reservation title (<c>Accepted on X</c> is <c>X</c>), or null.</summary>
