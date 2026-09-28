@@ -1223,6 +1223,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A cluster of ground parts an EVA kerbal placed now spawns whole after a rewind.** When a
+  kerbal set out a Breaking Ground cluster a few metres apart (RTG, solar panels, experiments,
+  Central Station), only the first part to finish replaying became a real vessel: every later
+  part found the earlier one inside its spawn-collision box, waited, then gave up with "Manual
+  placement required", and its ghost vanished. The rover and the kerbal ending among the parts
+  would have hit the same wall. A spawn now ignores a vessel Parsek spawned from another member
+  of the same committed flight that stood beside it in the recording and still stands where it
+  was put; the player's own craft, another flight's spawn and a member since moved elsewhere
+  still block. At the Space Center the same members are no longer nudged 15 m apart.
 - **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
   earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
   the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,

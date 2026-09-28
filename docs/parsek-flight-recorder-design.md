@@ -514,7 +514,12 @@ and never a recovery (no funds, science or reputation), and the part really is b
 finalizes `Landed` with a snapshot and is a spawnable leaf, so after a rewind it comes back as a real
 vessel at its recorded end pose like any other vessel the tree leaves behind (the KSC exclusion-zone
 retirement applies to it like to any vessel: a part left on the pad is retired, not spawned). A
-picked-up member ends `Disassembled` and is never spawned.
+picked-up member ends `Disassembled` and is never spawned. Members of one cluster stand a few metres
+apart, well inside the spawn-collision box (12.6 m for one part), so the spawn collision check and
+the Space Center landed de-overlap ignore a vessel Parsek spawned from another member of the same
+committed tree that stood beside this one in the recording and still stands where it was put
+(`CoexistingTreeSiblingSpawn`; the same rule lets the kerbal and the rover that end among the parts
+spawn there). Without it only the first member of a cluster spawns.
 
 **The ghost.** The member's ghost is the placed part standing where it was placed: visible from the
 placement UT (the Placed event), hidden at the pick-up (the Removed event), and gone when the recording

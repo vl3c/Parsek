@@ -2138,9 +2138,11 @@ namespace Parsek
                         // and VesselPersistentId is the craft-baked pid shared by every
                         // delivery of this craft — excluding it would wrongly drop sibling
                         // deliveries we must de-overlap against. Nudge clear of ALL existing
-                        // same-body landed vessels.
+                        // same-body landed vessels except spawns of other members of THIS
+                        // committed tree that stood beside this one in the recording (a
+                        // placed-part cluster): those positions are the recorded layout.
                         var existingLanded = VesselSpawner.GatherExistingLandedVesselPositions(
-                            body, 0u);
+                            body, 0u, rec);
                         var deOverlap = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
                             spawnLat,
                             spawnLon,

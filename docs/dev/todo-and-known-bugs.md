@@ -15,6 +15,59 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING: after a rewind, a ground-part cluster spawns only its first member~~ [FILED 2026-09-28 from the operator's collected log `logs/2026-09-28_2231_deployables` (tree 'rover science', DLL = origin/main `235503259`). FIXED 2026-09-28, branch `placed-part-cluster-spawn`]
+
+**In gameplay terms.** An EVA kerbal set out a Breaking Ground cluster (RTG, three solar
+panels, seismometer, Central Station, goo, ion, weather, dish, ground anchor) a few metres
+apart near KSC, the flight was committed and rewound. On replay the ghost kerbal placed every
+part, but only the RTG became a real vessel; the other ten ghosts vanished and nothing spawned.
+
+**Fingerprint.** `[SpawnCollision] Spawn overlaps with Mini-NUK-PD Radioisotope Thermoelectric
+Generator (pid=502661026) via part 'DeployedRTG' at 2.9m`, `Spawn blocked: vessel=OX-Stat-PD
+Photovoltaic Panel overlaps with ...`, `Chain tip spawn blocked by collision`, then after 5 s
+`[WARN][SpawnCollision] Trajectory walkback EXHAUSTED: vessel=... entire trajectory overlaps
+with Mini-NUK-PD ... Manual placement required.` for 10 of 11 members.
+
+**Cause.** `SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels` runs `Physics.OverlapBox`
+with the snapshot bounds (one part = the 2.5 m default cube, `DefaultPartHalfExtent = 1.25`)
+grown by `SpawnCollisionPadding = 5 m` on every side: a 12.6 m cube (`halfExtents=(6.3,6.3,6.3)`
+in the log). Any loaded vessel within about 6 m blocks, so a sibling part 2.9 m away always
+does. The walkback cannot help a stationary member: its whole trajectory sits at the spot. The
+first member spawned only because nothing was there yet. The overlap is not a real collision:
+stock physics placed both parts there, at the same time, in the recording. The rover and the
+EVA kerbal (Bob) end among the parts at UT 337.5 and reach the same check (the operator left
+before that UT). The Space Center path has the twin: `ParsekKSC`'s landed de-overlap nudges a
+new surface spawn 15 m (`DefaultLandedSpawnSeparationMeters`) clear of every landed proto, so a
+cluster spawned there would scatter.
+
+**Fix.** `CoexistingTreeSiblingSpawn` (pure `Evaluate` / `Classify`, live `IsExemptBlocker`):
+an overlap does not block when the blocker is positively the SPAWN of another recording of the
+spawning recording's committed tree (`VesselLaunchIdentity.LiveVesselIsRecordedSpawn`, so a
+relaunch reusing the preserved baked pid with a different launch Guid never matches), the two
+recordings' recorded existence overlaps in time (a leaf with a Landed / Splashed / Orbiting /
+SubOrbital terminal persists past its trimmed end), and the blocker stands within 3 m
+horizontally of the spot its own spawn used (the landed spawn lifts a vessel recorded below the
+PQS floor, +2.4 m on the RTG, so height is not compared). Every flight overlap site passes the
+spawning recording (`VesselGhoster` chain tip / blocked recheck / both walkbacks,
+`VesselSpawner.CheckSpawnCollisions` / post-recovery recheck / walkback) and the Space Center
+de-overlap gather drops such siblings. The player's craft, another tree's spawn, a sibling
+moved away, and the recording's own earlier spawn still block. Order does not matter: the time
+check is symmetric, so a later member spawned first exempts the earlier one too. Tracking
+Station spawns reach the same `CheckSpawnCollisions`, where nothing is loaded. Log, one Info per
+(spawning recording, blocker, verdict) and 5 s: `Overlap exempt: co-existing tree sibling spawn:
+site=... tree=... spawning='...' rec=... blocker='...' pid=... siblingRec=... verdict=Exempt`;
+a same-tree sibling that still blocks logs `Overlap not exempt: tree sibling spawn: ...
+verdict=Displaced|NotCoexisting`. Tests: `CoexistingTreeSiblingSpawnTests` (the operator's RTG
+and panel, the mirror order, the four still-blocking cases, the tolerance edge, the snapshot
+spot, the live wrapper's log and a source wiring check of every call site).
+
+**Checked, not changed.** `RecordingOptimizer.TrimBoringTail` cut each member to about 13 s
+after its placement (RTG `from endUT=337.5 to 133.4`). That is the intended tail trim for a
+stationary landed leaf ("the ghost finishes quickly and the real vessel spawns promptly"): the
+member spawns at its unchanged terminal spot while the kerbal's ghost still places later parts,
+and ghosts are not physical, so the early real part disturbs nothing. The trimmed end is also
+why the co-existence check extends a persisting terminal past `EndUT`. Not live-proven yet.
+
 ## ~~GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight~~ [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. FIXED 2026-09-28, branch `gs8-watch-hold`]
 
 **In gameplay terms.** The player watches a replayed Kerbal X to the end of its flight. At

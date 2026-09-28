@@ -956,11 +956,14 @@ namespace Parsek
         /// (same helper KSP uses in <c>Vessel.CheckGroundCollision</c>). Hits
         /// without a Part owner (terrain, buildings, runway mesh colliders) are
         /// ignored. Hits on the active vessel / exempt vessel / skipped vessel
-        /// types are filtered per the existing semantics.</para>
+        /// types are filtered per the existing semantics. When <paramref name="spawningRecording"/>
+        /// is given, a hit on a live vessel Parsek spawned from another member of the same
+        /// committed tree that co-existed with it at its recorded spot is filtered too
+        /// (<see cref="CoexistingTreeSiblingSpawn"/>).</para>
         /// </summary>
         internal static (bool overlap, float closestDistance, string blockerName, Vessel blockerVessel) CheckOverlapAgainstLoadedVessels(
             Vector3d spawnWorldPos, Bounds spawnBounds, float padding, bool skipActiveVessel = true,
-            uint exemptVesselPid = 0)
+            uint exemptVesselPid = 0, Recording spawningRecording = null, string site = null)
         {
             // Compute the surface-aligned rotation for the spawn box. spawnBounds is in
             // vessel-local space, where the vessel's local Y axis points along the surface
@@ -1058,6 +1061,23 @@ namespace Parsek
                         ParsekLog.VerboseRateLimited(Tag, "overlap-skiptype-" + other.persistentId,
                             string.Format(IC, "Skipping {0} vessel '{1}' in overlap check",
                                 other.vesselType, Recording.ResolveLocalizedName(other.vesselName)));
+                    filteredHits++;
+                    continue;
+                }
+
+                if (spawningRecording != null
+                    && other.mainBody != null
+                    && CoexistingTreeSiblingSpawn.IsExemptBlocker(
+                        spawningRecording,
+                        other.persistentId,
+                        other.id.ToString("N", IC),
+                        Recording.ResolveLocalizedName(other.vesselName),
+                        other.mainBody.name,
+                        other.latitude,
+                        other.longitude,
+                        other.mainBody.Radius,
+                        site ?? "flight-overlap"))
+                {
                     filteredHits++;
                     continue;
                 }
