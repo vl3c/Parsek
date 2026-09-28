@@ -201,7 +201,26 @@ namespace Parsek
                     rec,
                     chainTip.ChildBranchPointId);
 
-                if (!destroyedTerminal || hasResolvedDownstreamRp)
+                // Owner ruling 2026-09-28: a debris-only staging the vessel flew past, and the
+                // post-switch Launch branch a switch-away stamps on it, leave nothing re-flyable
+                // downstream, so they do not end the Unfinished Flight at the earlier split.
+                string blockingBpId = null;
+                bool downstreamBlocks = !destroyedTerminal
+                    && !hasResolvedDownstreamRp
+                    && HasBlockingDownstreamBranch(
+                        rec,
+                        chainTip,
+                        rp.BranchPointId,
+                        EffectiveState.ResolveOwningTree(chainTip, treeContext),
+                        out blockingBpId);
+                if (!destroyedTerminal && !hasResolvedDownstreamRp && !downstreamBlocks)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"TryQualify: rec={recId} downstream bp={chainTip.ChildBranchPointId} ignored " +
+                        "(debris-only staging or post-switch Launch; nothing re-flyable downstream)");
+                }
+
+                if (downstreamBlocks || hasResolvedDownstreamRp)
                 {
                     reason = "downstreamBp";
                     LogVerdict(false, recId, reason,
@@ -798,6 +817,100 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when a branch point the walked tip is a parent of (other than the rewind point's
+        /// own) ends re-flyability at the earlier split. Every such branch is checked by parent
+        /// id, not only the tip's <c>ChildBranchPointId</c>, because a later staging overwrites
+        /// that link; one before the rewind point's own branch is not downstream and is skipped.
+        /// Non-blocking (owner ruling 2026-09-28): a post-switch Launch branch, and a
+        /// Breakup / JointBreak whose children are all debris with another pid and which has no
+        /// rewind point of its own. Anything unresolvable blocks, as before.
+        /// </summary>
+        internal static bool HasBlockingDownstreamBranch(
+            Recording rec,
+            Recording chainTip,
+            string rewindBranchPointId,
+            RecordingTree tree,
+            out string blockingBranchPointId)
+        {
+            blockingBranchPointId = null;
+            if (chainTip == null || tree?.BranchPoints == null)
+            {
+                blockingBranchPointId = chainTip?.ChildBranchPointId;
+                return !string.IsNullOrEmpty(blockingBranchPointId);
+            }
+
+            double rewindUT = double.NegativeInfinity;
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                BranchPoint candidate = tree.BranchPoints[b];
+                if (candidate != null
+                    && string.Equals(candidate.Id, rewindBranchPointId, StringComparison.Ordinal))
+                {
+                    rewindUT = candidate.UT;
+                    break;
+                }
+            }
+
+            bool sawChildLink = false;
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                BranchPoint bp = tree.BranchPoints[b];
+                if (bp == null || string.Equals(bp.Id, rewindBranchPointId, StringComparison.Ordinal))
+                    continue;
+                bool isChildLink = string.Equals(bp.Id, chainTip.ChildBranchPointId, StringComparison.Ordinal);
+                bool isParent = bp.ParentRecordingIds != null
+                    && bp.ParentRecordingIds.Contains(chainTip.RecordingId);
+                if (!isChildLink && !isParent)
+                    continue;
+                if (isChildLink)
+                    sawChildLink = true;
+                // Only a branch at or after the rewind point is downstream of it.
+                if (!isChildLink && bp.UT < rewindUT)
+                    continue;
+                if (bp.Type == BranchPointType.GroundPartPlaced)
+                    continue;
+                if (!IsNonBlockingDownstreamBranch(bp, chainTip, tree)
+                    || (rec != null && HasResolvedRewindPointForBranch(rec, bp.Id)))
+                {
+                    blockingBranchPointId = bp.Id;
+                    return true;
+                }
+            }
+
+            // A dangling child link (branch point missing from the tree) blocks, as before.
+            if (!sawChildLink && !string.IsNullOrEmpty(chainTip.ChildBranchPointId)
+                && !string.Equals(chainTip.ChildBranchPointId, rewindBranchPointId, StringComparison.Ordinal))
+            {
+                blockingBranchPointId = chainTip.ChildBranchPointId;
+                return true;
+            }
+            return false;
+        }
+
+        internal static bool IsNonBlockingDownstreamBranch(
+            BranchPoint bp, Recording chainTip, RecordingTree tree)
+        {
+            if (bp == null || chainTip == null)
+                return false;
+            if (bp.Type == BranchPointType.Launch)
+                return true;
+            if (bp.Type != BranchPointType.Breakup && bp.Type != BranchPointType.JointBreak)
+                return false;
+            if (bp.ChildRecordingIds == null || tree?.Recordings == null)
+                return false;
+            for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+            {
+                if (bp.ChildRecordingIds[c] == null
+                    || !tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out Recording child)
+                    || child == null
+                    || !child.IsDebris
+                    || child.VesselPersistentId == chainTip.VesselPersistentId)
+                    return false;
+            }
+            return true;
         }
 
         private static bool HasResolvedRewindPointForBranch(

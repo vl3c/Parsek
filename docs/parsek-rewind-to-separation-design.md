@@ -113,6 +113,15 @@ Rewind and strip need nothing special: at the rewind point the kerbal is aboard 
 
 A kerbal-free probe slot (no EVA possible) walks exactly as before. A kerbal who re-boards the vessel AFTER it docked with something cannot be reached: the walk already stopped at the `Dock` (`downstreamBp`).
 
+### 1.7 Debris-only staging and a switch-away do not end a slot (owner ruling 2026-09-28)
+
+The walk still stops at every `JointBreak` / `Breakup` / `Launch` branch point, but `UnfinishedFlightClassifier.HasBlockingDownstreamBranch` no longer reads each of them as `downstreamBp`. Two branch points leave nothing re-flyable downstream and do not block:
+
+1. A `Breakup` / `JointBreak` whose children are ALL debris with another pid and which has no Rewind Point of its own: a spent stage dropped by a vessel that kept flying (the crash coalescer's breakup-continuous shape, where the parent keeps recording past the split).
+2. A post-switch `Launch` branch point: the stamp the recorder leaves on a vessel the player switched away from while idle.
+
+Every branch point the walked tip is a parent of, at or after the Rewind Point's own branch point, is checked by parent id, not only the tip's `ChildBranchPointId`: a later staging overwrites that link, so an earlier controllable split (a probe core dropped before the debris) still blocks. A controllable child, a same-vessel child, any other branch type, a resolved downstream Rewind Point, or an unresolvable branch point still blocks, as before. A non-blocking downstream branch logs `[UnfinishedFlights] ... downstream bp=<id> ignored`. The same rule reaches Site B-1: a Re-Fly that only drops debris no longer seals the slot as `classifierClosed:downstreamBp`.
+
 ## 2. Design Philosophy
 
 These principles governed every design and implementation decision. They are listed up front because they inform every section that follows.

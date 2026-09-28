@@ -1243,6 +1243,12 @@ _(unreleased — entries accumulate here per commit)_
     network between its recording's end and the later flight.
   - A scoped Discard of a switched-to flight that staged twice missed the first stage.
   - The Missions partner journey could jump onto an unrelated vessel you switched to.
+- **Dropping a spent stage, or switching away, no longer takes away a Re-Fly.** A vessel you
+  separated from at a rewind point stopped being offered as an Unfinished Flight once it later
+  dropped a stage that was only debris, or once you switched away from it while not recording,
+  even though nothing re-flyable happened after the separation. Both now keep the flight
+  re-flyable (and a Re-Fly that only drops debris no longer seals itself). Dropping a stage with
+  a probe core or crew still ends it, as before.
 - **A kerbal held by a committed flight can no longer be taken out on EVA or transferred in
   flight.** A kerbal a committed flight still needs, who is aboard a live vessel that is not
   the continuation of a committed flight (for example a craft a rewind left flying), could be

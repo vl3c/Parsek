@@ -84,9 +84,10 @@ moves, cleanup nulling, `VesselSpawner` / `ParsekKSC` post-gate coordinate picks
 `ParsekFlight.TerminalOrbit`, `FindPreferredChildRecording`, `BackgroundRecorder.CheckDebrisTTL`,
 `EffectiveState` slot walks (they hop only closing switch / own-EVA / Board types), `SupersedeCommit`,
 `MergeDialog.IsTerminalLinkedToParentBranch`, `RecordingOptimizer.CanAutoMerge`,
-`UnfinishedFlightClassifier` rewind-point lookup and shape gates. Open questions filed below.
+`UnfinishedFlightClassifier` rewind-point lookup and shape gates. Follow-ups filed below; the
+`downstreamBp` one was ruled and fixed on the same branch.
 
-## UF-DOWNSTREAM-BP-ON-DEBRIS-OR-LAUNCH: does a debris-only staging or a post-switch Launch branch end re-flyability of an earlier split? [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, needs an owner ruling]
+## ~~UF-DOWNSTREAM-BP-ON-DEBRIS-OR-LAUNCH: does a debris-only staging or a post-switch Launch branch end re-flyability of an earlier split?~~ [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OWNER RULING 2026-09-28 (interview): neither ends it. FIXED 2026-09-28, branch `breakup-continuous-leaf-audit`]
 
 `UnfinishedFlightClassifier.TryQualify` rejects `downstreamBp` when the walked tip's
 `ChildBranchPointId` differs from the rewind point's branch and the terminal is not Destroyed. A
@@ -95,9 +96,19 @@ away from while idle (post-switch Launch branch stamped on it), is therefore no 
 Unfinished Flight at the earlier split, although nothing re-flyable happened downstream. For a
 real controllable split the rule is intended. If ruled wrong: block only when the downstream branch
 has a same-PID child, a non-debris child, or a resolved rewind point; excluding Launch settles
-that half outright. Not changed in `breakup-continuous-leaf-audit`.
+that half outright.
 
-## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low]
+**Ruling and fix.** Owner ruling 2026-09-28: a debris-only staging and a post-switch Launch branch
+do not end re-flyability at the earlier split; a controllable child still does.
+`UnfinishedFlightClassifier.HasBlockingDownstreamBranch` checks every branch point the walked tip
+parents at or after the rewind point's own branch (by parent id, so an earlier controllable split
+overwritten by a later debris staging still blocks) and ignores the two non-blocking shapes
+(`IsNonBlockingDownstreamBranch`). Site B-1's auto-seal reads the same verdict. Design:
+`docs/parsek-rewind-to-separation-design.md` section 1.7. Tests: five cells in
+`SwitchContinuationTerminalWalkTests` (debris-only qualifies, controllable child rejects, Launch
+qualifies, overwritten controllable split rejects, a pre-rewind branch is not downstream).
+
+## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
 
 `WireBreakupIntoTree`, `CreateSplitBranch` and the switch-continuation creator all overwrite
 `ChildBranchPointId`; the earlier branch still lists the recording in `ParentRecordingIds`. Walks
