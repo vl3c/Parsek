@@ -34,7 +34,7 @@ namespace Parsek.Tests
         public void SwapMessage_OneSwapNamesBothKerbals()
         {
             Assert.Equal(
-                "Jebediah Kerman is reserved by a committed flight; Debwig Kerman takes the seat.",
+                "Jebediah Kerman is reserved by timeline; Debwig Kerman takes the seat.",
                 CrewReservationManager.FormatReservedCrewSwapMessage(
                     Swaps("Jebediah Kerman", "Debwig Kerman")));
         }
@@ -43,7 +43,7 @@ namespace Parsek.Tests
         public void SwapMessage_SeveralSwapsAreCountedInOneMessage()
         {
             Assert.Equal(
-                "3 kerbals are reserved by committed flights; their stand-ins take the seats.",
+                "3 kerbals are reserved by timeline; their stand-ins take the seats.",
                 CrewReservationManager.FormatReservedCrewSwapMessage(Swaps(
                     "Bill Kerman", "Jane Kerman",
                     "Bob Kerman", "Sizon Kerman",

@@ -667,6 +667,21 @@ namespace Parsek
             {
                 visited.Add(current.RecordingId);
 
+                // Breakup-continuous: the recording flew past its split and no child carries
+                // its PID, so the vessel ends in this recording; its children are the stages
+                // and debris it dropped, not where the vessel went.
+                BranchPoint continuedPast;
+                if (GhostPlaybackLogic.TryGetContinuedPastChildBranch(current, tree, out continuedPast))
+                {
+                    ParsekLog.VerboseOnChange(Tag,
+                        identity: string.Format(ic, "walk-continued|{0}", rec.RecordingId),
+                        stateKey: string.Format(ic, "{0}|{1}", current.RecordingId, continuedPast.Id),
+                        message: string.Format(ic,
+                            "WalkToLeaf: rec={0} continued past bp={1} type={2} with no same-PID child - stopping here",
+                            current.RecordingId, continuedPast.Id, continuedPast.Type));
+                    break;
+                }
+
                 BranchPoint bp = null;
                 for (int i = 0; i < tree.BranchPoints.Count; i++)
                 {
@@ -874,8 +889,10 @@ namespace Parsek
             foreach (var kvp in tree.Recordings)
             {
                 var rec = kvp.Value;
-                // Only check leaves (no child branch point)
-                if (rec.ChildBranchPointId != null)
+                // Only check leaves: no child branch point, or one the recording flew past
+                // with no same-PID continuation (its own terminal is the vessel's ending).
+                if (rec.ChildBranchPointId != null
+                    && !GhostPlaybackLogic.RecordingContinuesPastChildBranch(rec, tree))
                     continue;
 
                 if (!rec.TerminalStateValue.HasValue)

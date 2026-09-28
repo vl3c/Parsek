@@ -10,6 +10,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Timeline rows explain themselves on hover.** Hovering a row's description in the
+  Timeline now explains it in the window's bottom help line. A future row that holds a stock
+  control names it, from the same check the stock screen's block uses: `Holds Research in R&D
+  until Y1, D06, 14:05.`, `Holds Accept and Decline in Mission Control until ...`, `Holds
+  Cancel in Mission Control ...`, `Holds Upgrade on this facility ...`, `Holds Hire in the
+  Astronaut Complex ...`, the Administration strategy button the strategy shows now (Activate
+  while it is inactive, Deactivate while it is active), and a part purchase. A
+  contract accept names its deadline, advance, rewards (from its completion) and agent; a
+  contract completion or failure names the flight and the rep, science or penalty the row
+  text leaves out. A launch names its crew, how the launched vessel ends and its mission
+  (`Crew: Jebediah, Bill, Bob. Ends landed at Midlands on Mun. Mission: Mun Landing.`). A
+  greyed row says why it did not count (`Not counted: already completed earlier on
+  timeline, so no reward was paid.`), and the "now" divider says the rows below happen on
+  their date and hold stock controls until then. The text is built only for the hovered
+  row.
 - **Dev: the automated tests can press Stash, and a lane re-flies a stashed slot whose flight went EVA.** A new test command, `StashSlot`, presses the Recordings table's per-row Stash button (the same handler) and checks that the slot now shows as an Unfinished Flight. `RF-20-stashed-eva-slot-refly` (flown green 2026-09-27) uses it: a staged orbital flight where a kerbal steps out and back in is committed, the crewed stage (a stable orbit, so not an Unfinished Flight on its own) is stashed, re-flown from the separation and merged, and the merge must replace the old flight including the kerbal's EVA and close the slot
 - **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
 
@@ -1224,6 +1239,32 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A vessel that dropped a stage and kept flying is no longer treated as if its flight ended at
+  the staging.** Every staging or decouple of the vessel you are flying is recorded as a branch
+  that the vessel flies straight past, but several places read any branch as "this vessel's
+  flight ended here". Fixed:
+  - A station you docked to, when the docked craft later dropped a stage that crashed, was no
+    longer hidden during the replay (and at the end of the replay it was handed the dropped
+    stage).
+  - After switching away from a staged rocket and reloading, the rocket stopped being recorded
+    in the background, and a crash of the vessel you switched to could close the whole flight
+    while the rocket was still flying.
+  - Switching back to a staged rocket started a new flight instead of continuing its own.
+  - Going on EVA from a staged rocket you had switched back to did not record the EVA.
+  - The staged rocket was left out of the merge dialog's keep / discard choices when you were
+    flying another vessel of the same flight.
+  - A staged flight had no phase label in the recordings list, the Timeline had no "appears"
+    row for it, and the Missions event list had no row for how it ended.
+  - A replayed vessel that staged and was later flown again could drop out of the CommNet relay
+    network between its recording's end and the later flight.
+  - A scoped Discard of a switched-to flight that staged twice missed the first stage.
+  - The Missions partner journey could jump onto an unrelated vessel you switched to.
+- **Dropping a spent stage, or switching away, no longer takes away a Re-Fly.** A vessel you
+  separated from at a rewind point stopped being offered as an Unfinished Flight once it later
+  dropped a stage that was only debris, or once you switched away from it while not recording,
+  even though nothing re-flyable happened after the separation. Both now keep the flight
+  re-flyable (and a Re-Fly that only drops debris no longer seals itself). Dropping a stage with
+  a probe core or crew still ends it, as before.
 - **A kerbal held by a committed flight can no longer be taken out on EVA or transferred in
   flight.** A kerbal a committed flight still needs, who is aboard a live vessel that is not
   the continuation of a committed flight (for example a craft a rewind left flying), could be
@@ -2107,6 +2148,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Parsek's own windows say "timeline", not "your timeline", "the timeline" or
+  "committed".** The Kerbals launcher hover, the Kerbals window's Reserved and Lost hovers
+  (`Held on timeline by the flight ...`, `Lost on a flight on timeline.`), the reserved-crew
+  swap message (`Jebediah Kerman is reserved by timeline; Debwig Kerman takes the seat.`),
+  the Re-Fly merge and seal dialogs, the warp-to-time rewind confirmation, the dormant-route
+  delete dialog and help, the Logistics near-miss fold, the fast-forward refusal and the
+  merge screen messages (`Tree merged to timeline!`) now use the same word as the stock
+  screens.
 - **The reservation explanations on the stock screens are one short sentence.** Every
   hover, button tooltip, refused-click dialog and row label now reads like "Researched on
   Y1, D06, 14:05, blocked by timeline until then." or, for a kerbal, "Reserved by timeline

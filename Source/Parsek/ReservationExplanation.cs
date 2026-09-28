@@ -104,6 +104,96 @@ namespace Parsek
             return new ReservationText { Title = head, Fact = head + BlockedUntilThen };
         }
 
+        /// <summary>
+        /// The Timeline row hover's hold sentence for a FUTURE ledger row that holds a stock
+        /// control: <c>Holds &lt;control&gt; until &lt;row date&gt;.</c>, or null when the row is
+        /// not ahead of <paramref name="currentUT"/> or holds nothing. Every "holds" answer is
+        /// the click-block predicate itself over the same <see cref="CommittedFutureIndex"/>
+        /// the blocks read (<see cref="StockUiReservationPredicates"/>,
+        /// <see cref="StrategyReservationPredicates"/>), so the Timeline never names a hold
+        /// stock does not enforce. The row's own date is repeated because the first future
+        /// row's time column shows a countdown, not a date. A part purchase depends on live
+        /// stock state (difficulty, already purchased), so the caller passes the live
+        /// decision as <paramref name="partPurchaseBlocked"/>; null reads no part hold. A
+        /// strategy's Administration buttons depend on whether stock has it active now
+        /// (<paramref name="strategyActiveNow"/>): an inactive strategy offers only Activate,
+        /// an active one only Deactivate; null reads it as unknown, which names Activate for
+        /// an activation row and Deactivate for a deactivation row. A facility repair's
+        /// block depends on the building being destroyed NOW, which the row cannot know, so
+        /// a repair row never claims one.
+        /// </summary>
+        internal static string ForTimelineRow(
+            TimelineEntry entry, CommittedFutureIndex index, double currentUT,
+            Func<double, string> formatDate, Func<string, bool> partPurchaseBlocked = null,
+            Func<string, bool> strategyActiveNow = null)
+        {
+            if (entry == null || entry.Action == null || index == null) return null;
+            if (!CommittedFutureIndex.IsFuture(entry.UT, currentUT)) return null;
+            CommittedFutureKind kind;
+            string key;
+            if (!CommittedFutureIndex.TryClassify(entry.Action, out kind, out key)) return null;
+            string control = TimelineHeldControl(
+                kind, key, index, currentUT, partPurchaseBlocked, strategyActiveNow);
+            if (control == null) return null;
+            return TimelineHoldsPrefix + control + " until " + FormatDate(entry.UT, formatDate) + ".";
+        }
+
+        /// <summary>The opening of every Timeline hold sentence.</summary>
+        internal const string TimelineHoldsPrefix = "Holds ";
+
+        /// <summary>The stock control a future row of (kind, key) holds now, or null.</summary>
+        internal static string TimelineHeldControl(
+            CommittedFutureKind kind, string key, CommittedFutureIndex index, double currentUT,
+            Func<string, bool> partPurchaseBlocked, Func<string, bool> strategyActiveNow = null)
+        {
+            switch (kind)
+            {
+                case CommittedFutureKind.TechResearch:
+                    return StockUiReservationPredicates.IsTechResearchBlocked(index, key, currentUT)
+                        ? "Research in R&D" : null;
+                case CommittedFutureKind.ContractAccept:
+                    return StockUiReservationPredicates.IsContractAcceptBlocked(index, key, currentUT)
+                        ? "Accept and Decline in Mission Control" : null;
+                case CommittedFutureKind.ContractComplete:
+                case CommittedFutureKind.ContractFail:
+                case CommittedFutureKind.ContractCancel:
+                    return StockUiReservationPredicates.IsContractCancelBlocked(index, key, currentUT)
+                        ? "Cancel in Mission Control" : null;
+                case CommittedFutureKind.FacilityUpgrade:
+                    return StockUiReservationPredicates.IsFacilityUpgradeBlocked(index, key, currentUT)
+                        ? "Upgrade on this facility" : null;
+                case CommittedFutureKind.KerbalHire:
+                    return StockUiReservationPredicates.IsKerbalHireBlocked(index, key, currentUT)
+                        ? "Hire in the Astronaut Complex" : null;
+                case CommittedFutureKind.StrategyActivate:
+                {
+                    // Stock offers Activate on an inactive strategy and Deactivate on an
+                    // active one, so the hold names the button the player can see: an active
+                    // strategy's refused Deactivate (any future row of it raises that), else
+                    // EvaluateActivation's first refusal (FutureActivation).
+                    if (index == null
+                        || index.FirstFuture(CommittedFutureKind.StrategyActivate, key, currentUT) == null)
+                        return null;
+                    bool active = strategyActiveNow != null && strategyActiveNow(key);
+                    if (active)
+                        return StrategyReservationPredicates.IsDeactivationBlocked(index, key, currentUT)
+                            ? "Deactivate in Administration" : null;
+                    return "Activate in Administration";
+                }
+                case CommittedFutureKind.StrategyDeactivate:
+                    // Deactivate is refused only on the player path, and only an active
+                    // strategy offers it; a strategy known inactive now holds nothing here.
+                    if (strategyActiveNow != null && !strategyActiveNow(key)) return null;
+                    return StrategyReservationPredicates.IsDeactivationBlocked(index, key, currentUT)
+                        ? "Deactivate in Administration" : null;
+                case CommittedFutureKind.PartPurchase:
+                    return partPurchaseBlocked != null && partPurchaseBlocked(key)
+                        ? "Purchase for this part" : null;
+                default:
+                    return null;
+            }
+        }
+
         /// <summary>A part entry purchase timeline makes later (P1).</summary>
         internal static ReservationText PartPurchase(CommittedFutureEntry entry, Func<double, string> formatDate)
         {

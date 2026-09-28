@@ -559,6 +559,7 @@ namespace Parsek
             if (!ShouldChargeFacilityRepair(destroyedBefore))
             {
                 action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.FacilityAlreadyIntact;
                 action.Affordable = true;
                 UncountPrePassSpending((double)action.FacilityCost);
                 ParsekLog.Info(Tag,

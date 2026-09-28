@@ -482,8 +482,12 @@ namespace Parsek.Tests
             Assert.Equal(2, decisions.Count);
             Assert.True(decisions["active"]);
             Assert.False(decisions["debris"]);
+            // The breakup-continuous active recording is a leaf of the tree now
+            // (RecordingTree.IsVesselLineEnd), so the leaf pass covers it before the
+            // #271 active-nonleaf fallback would.
             Assert.Contains(logLines, l =>
-                l.Contains("active-nonleaf='active'") &&
+                l.Contains("leaf='active'") &&
+                !l.Contains("active-nonleaf") &&
                 l.Contains("canPersist=True"));
         }
 

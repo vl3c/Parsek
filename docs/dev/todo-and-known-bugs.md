@@ -31,6 +31,139 @@ the fixture (its ledger seed disagrees with its save pools: `running` 244370.5 v
 step: read `FundsModule` over the census ledger headless (the committed rows plus one
 KSC FacilityUpgrade at UT 473) and compare the walk's running total with the save's pool.
 
+## ~~BREAKUP-CONTINUOUS-LEAF-READERS: readers that took any `ChildBranchPointId` as "the vessel's flight ended here"~~ [FOUND 2026-09-28 by the audit that followed GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD; FIXED 2026-09-28, branch `breakup-continuous-leaf-audit`]
+
+**In gameplay terms.** Every staging or decouple of the focused vessel goes through the crash
+coalescer, and `ParsekFlight.WireBreakupIntoTree` stamps that branch on a recording that keeps
+flying to its own terminal (children: the different-PID stages and debris it dropped). The
+post-switch Launch branch has the same shape. Splits that close their parent (`CreateSplitBranch`
+Undock / EVA, `BackgroundRecorder.CloseParentRecording`) leave a same-PID child; Dock / Board
+continue the vessel in the merged child. Readers that treated any branch as "ended here" lost the
+staged vessel: see the CHANGELOG entry for the player-visible list.
+
+**Fix.** Two predicates, chosen by whether the reader can trust UTs:
+- `RecordingTree.IsVesselLineEnd` / `ChildBranchLeavesVesselLineOpen` (live-safe, reads no UTs):
+  the branch is a Breakup / JointBreak / Launch (`BranchTypeCanLeaveParentRecording`), no child
+  shares the PID, the recording was not closed AT the branch (`ExplicitEndUT <= bp.UT`, which
+  `BackgroundRecorder.CloseParentRecording` writes synchronously; its "parent vessel destroyed"
+  path leaves no same-PID child and no terminal, and the PR review showed such a parent would
+  otherwise re-enter the BackgroundMap, get stretched to commit UT and respawn), and no later chain
+  segment continues the recording. Used on live trees, where the recorder may not have flushed
+  the parent's points yet. `MissionEventDigest` opts out of the closed-at-branch refusal
+  (`allowClosedAtBranch`) because it already reads the recording's own terminal.
+- `GhostPlaybackLogic.RecordingContinuesPastChildBranch` (committed trees): the same shape plus
+  PR #1918's `RecordingContinuedPastBranchPoint` end-UT test, for readers that must still follow a
+  child when the parent ended AT the split (a crash breakup).
+
+**Audit (every `ChildBranchPointId` read in `Source/Parsek`, re-derived from callers).** WRONG and
+fixed, each with tests both ways (`BreakupContinuousLeafTests`, one CommNet cell in
+`GhostCommNetTests`):
+- `GhostChainWalker.IsTreeFullyTerminated`: dock claim, then the merged craft staged a stage that
+  crashed; the tree read fully terminated and the station's claim was dropped (the #174 hypothesis,
+  reproduced).
+- `GhostChainWalker.WalkToLeaf`: same tree, the chain tip fell back to the dropped debris.
+- `RecordingTree.IsBackgroundMapEligible`: after a switch away and a reload, the staged rocket left
+  the BackgroundMap and stopped recording.
+- `RecordingTree.AreAllLeavesTerminal` / `AreAllActiveCrashBlockersDebris`: a crash of the switched-to
+  vessel could finalize the tree while the staged rocket still flew (tree overloads added).
+- `RecordingTree.GetSpawnableLeaves` / `GetAllLeaves`: the staged rocket missed pre-switch commit
+  adoption and the merge dialog's vessel decisions (`BuildDefaultVesselDecisions`).
+- `SwitchSegmentBuilder` resolver + creator: Switch-To back onto a staged rocket started a standalone
+  segment (`no-terminal-leaf`) instead of continuing it. The attached continuation overwrites the
+  parent's staging link; a scoped Discard now restores it from the latest surviving Breakup /
+  JointBreak / Launch branch that lists the parent (`FindOverwrittenContinuingBranchPointId`)
+  instead of nulling it.
+- `ParsekFlight.CreateSplitBranchFromBackgroundParent`: EVA from a switched-back staged rocket aborted
+  "already has child branch" (guard extracted as `BackgroundParentAlreadySplit`).
+- `ParsekFlight.ShouldAllowFinalEndpointSegmentPhase`: staged flights got no final SegmentPhase.
+- `ParsekFlight.StashActiveTreeAsPendingLimbo`: the #268 pre-capture skipped a non-active staged rocket
+  (not unit-testable; inline in the live scene path).
+- `RecordingStore.CollectSwitchSegmentSubtreeRecordingIds`: a later staging overwrote the link to an
+  earlier one, so scoped Discard missed the first stage's children; it now walks every branch point
+  that lists the recording as a parent (`EnqueueParentedBranchChildren`).
+- `MissionEventDigest.AddTerminalRows`: every staged main vessel lost its terminal row.
+- `TimelineBuilder` (`isTreeLeaf`): a tree child that staged had no VesselSpawn row
+  (`IsBreakupContinuousSpawnLeaf` mirrors the spawn gate).
+- `MissionCrossTreeDock.FindBranchSuccessor`: a post-switch Launch branch walked the partner journey
+  onto the unrelated switched-to vessel.
+- `GhostCommNetMath.ApplyContinuationHold`: a superseded breakup-continuous tip lost its CommNet hold.
+
+Already handled (IsEffectiveLeafForVessel or an equivalent): `ShouldSpawnAtRecordingEnd`,
+`IsFinalSpawnSegment`, `RecordingVisualClassifier`, `ShouldEnsureActiveRecordingTerminalState`,
+`FinalizeIndividualRecording`, `IsCommittedSpawnedRecordingRestorable`,
+`ShouldRefreshActiveEffectiveLeafSnapshot`, `ParsekScenario.IsTerminalEventTarget`,
+`RecordingOptimizer.TailTrim.IsLeafRecording`, `KerbalsModule.ResolveSplitHandoffUT`,
+`TimelineBuilder.HasSamePidTreeContinuation`, `EffectiveState.ComputeSubtreeClosureInternal`, and the
+watch readers (PR #1918). Correct as written (copies, serialization, topology walks, fences, conservative
+refusals): the codec, `Recording` / `SessionMerger` / `RecordingOptimizer` copies, optimizer / splitter BP
+moves, cleanup nulling, `VesselSpawner` / `ParsekKSC` post-gate coordinate picks, `AnchorDetector`,
+`ParsekFlight.TerminalOrbit`, `FindPreferredChildRecording`, `BackgroundRecorder.CheckDebrisTTL`,
+`EffectiveState` slot walks (they hop only closing switch / own-EVA / Board types), `SupersedeCommit`,
+`MergeDialog.IsTerminalLinkedToParentBranch`, `RecordingOptimizer.CanAutoMerge`,
+`UnfinishedFlightClassifier` rewind-point lookup and shape gates. Follow-ups filed below; the
+`downstreamBp` one was ruled and fixed on the same branch.
+
+## ~~UF-DOWNSTREAM-BP-ON-DEBRIS-OR-LAUNCH: does a debris-only staging or a post-switch Launch branch end re-flyability of an earlier split?~~ [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OWNER RULING 2026-09-28 (interview): neither ends it. FIXED 2026-09-28, branch `breakup-continuous-leaf-audit`]
+
+`UnfinishedFlightClassifier.TryQualify` rejects `downstreamBp` when the walked tip's
+`ChildBranchPointId` differs from the rewind point's branch and the terminal is not Destroyed. A
+slot vessel that later dropped only debris (JointBreak with debris children), or that was switched
+away from while idle (post-switch Launch branch stamped on it), is therefore no longer an
+Unfinished Flight at the earlier split, although nothing re-flyable happened downstream. For a
+real controllable split the rule is intended. If ruled wrong: block only when the downstream branch
+has a same-PID child, a non-debris child, or a resolved rewind point; excluding Launch settles
+that half outright.
+
+**Ruling and fix.** Owner ruling 2026-09-28: a debris-only staging and a post-switch Launch branch
+do not end re-flyability at the earlier split; a controllable child still does.
+`UnfinishedFlightClassifier.HasBlockingDownstreamBranch` checks every branch point the walked tip
+parents at or after the rewind point's own branch (by parent id, so an earlier controllable split
+overwritten by a later debris staging still blocks) and ignores the two non-blocking shapes
+(`IsNonBlockingDownstreamBranch`, which needs at least one recorded child, all debris). Follow-up
+ruling 2026-09-28 (the review found Site B-1 still sealing through the structural-mutation gate):
+a debris-only staging DURING a Re-Fly does not seal the slot either;
+`SupersedeCommit.HasReFlySessionStructuralMutation` skips the same shape. Design:
+`docs/parsek-rewind-to-separation-design.md` section 1.7. Tests: five cells in
+`SwitchContinuationTerminalWalkTests` (debris-only qualifies, controllable child rejects, Launch
+qualifies, overwritten controllable split rejects, a pre-rewind branch is not downstream), two in
+`SupersedeCommitTests` (debris-only session staging is not a mutation, controllable still is) and
+the edge cells in `BreakupContinuousLeafTests` (Breakup type, same-pid debris, missing / no child,
+no tree, missing rewind branch).
+
+## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
+
+`WireBreakupIntoTree`, `CreateSplitBranch` and the switch-continuation creator all overwrite
+`ChildBranchPointId`; the earlier branch still lists the recording in `ParentRecordingIds`. Walks
+that follow only `ChildBranchPointId` lose the earlier branch's children: `AnchorDetector`'s
+replay-point affinity (rank only), `GhostChainWalker.TraceLineagePids` (a dropped probe's pid could
+read as a background vessel), the cleanup sites that null the field when the latest branch is
+removed. The switch-segment subtree walk now finds branches by parent id (fixed above); the rest
+are unaudited for impact. Fix direction: the same parent-id lookup where a walk needs every child.
+
+## ~~TIMELINE-ROW-HOVERS: the Timeline explains every row, past and future~~ [DONE 2026-09-28, branch `timeline-row-hovers`, owner direction]
+
+**In gameplay terms.** The Timeline is the Parsek window that explains every element; the
+stock screens explain their blocks. Before this, a row's description had no hover at all (only
+its buttons did). Hovering a row now explains it in the bottom help line: a future row names
+the stock control it holds (the same predicate the click-block reads, so it never names a hold
+stock does not enforce), a contract accept names its deadline / advance / rewards / agent, a
+contract end names its flight and the rest of its rewards or penalty, a launch names its crew,
+how it ends and its mission, a greyed row says why it did not count, and the "now" divider
+says the rows below hold stock controls until their date. The same change replaces "your
+timeline" / "the timeline" / "committed" with "timeline" in Parsek's own windows.
+
+**Fix.** `Timeline/TimelineRowHover.cs` (pure builders + `TimelineRowHoverTracker`),
+`ReservationExplanation.ForTimelineRow`, `GameAction.NotCountedReason` (runtime only, not a
+schema change), `TimelineEntry.Action` / `PairedContractComplete`. Contract of record:
+`design-gui-inventory.md` 3.3 "Row hover". Tests: `TimelineRowHoverTests`,
+`TooltipEchoBudgetTests.TimelineRowHovers_FitTheTimelineStrip`.
+
+**Not done (by choice).** Tech rows do not list the parts they unlock (the part list needs
+`PartLoader`, a live-scene dependency); a facility repair row claims no hold (the repair block
+depends on the building being destroyed at click time, which a row cannot know); a future
+contract accept's hover (hold plus terms) is longer than one strip line and scrolls in the
+marquee.
+
 ## ~~GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight~~ [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. FIXED 2026-09-28, branch `gs8-watch-hold`]
 
 **In gameplay terms.** The player watches a replayed Kerbal X to the end of its flight. At

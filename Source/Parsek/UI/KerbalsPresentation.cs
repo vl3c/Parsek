@@ -1148,7 +1148,7 @@ namespace Parsek
         /// exists, so the walk keeps it at every game time and drops it only when the
         /// flight leaves the committed set (<c>KerbalReservationReleaseTests</c>).</summary>
         internal const string ReservationHoldRule =
-            "Passing time does not release it; it lasts while that flight stays in the timeline.";
+            "Passing time does not release it; it lasts while that flight stays on timeline.";
 
         /// <summary>The release rule a FINITE reservation hover ends with: the kerbal is
         /// free again once game time reaches the Recovered flight's end.</summary>
@@ -1227,7 +1227,7 @@ namespace Parsek
                     string lost = death.HasValue
                         ? "Lost on " + death.Value.MissionText + " (launched "
                           + death.Value.DateText + ")."
-                        : "Lost on a committed flight.";
+                        : "Lost on a flight on timeline.";
                     if (!string.IsNullOrEmpty(releaseDateText))
                         lost += " " + FormatLostRespawnRule(releaseDateText);
                     // The way back is offered only when an open Re-Fly would reach this
@@ -1240,12 +1240,12 @@ namespace Parsek
                 case RosterStatus.Reserved:
                 {
                     if (IsForSomeoneElse(name, slotOwnerName))
-                        return "Held by a committed flight flown in " + slotOwnerName
+                        return "Held by a flight on timeline flown in " + slotOwnerName
                                + "'s seat. " + rule;
                     if (!hold.HasValue)
-                        return "Held by a committed flight. " + rule;
+                        return "Held by a flight on timeline. " + rule;
                     FlightRow h = hold.Value;
-                    string lead = "Held by the committed flight " + h.MissionText;
+                    string lead = "Held on timeline by the flight " + h.MissionText;
                     switch (h.EndState)
                     {
                         case KerbalEndState.Aboard:

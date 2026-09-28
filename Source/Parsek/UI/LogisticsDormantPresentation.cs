@@ -74,7 +74,7 @@ namespace Parsek
         {
             string name = string.IsNullOrEmpty(displayName) ? "<unnamed>" : displayName;
             return $"Delete dormant route '{name}'?\n\n" +
-                "It will never re-materialize when the timeline reaches its creation point. " +
+                "It will never re-materialize when timeline reaches its creation point. " +
                 "This cannot be undone.";
         }
     }
