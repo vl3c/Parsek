@@ -15,7 +15,7 @@ namespace Parsek.Tests
     public class TestCommandEvaGroundScienceTests
     {
         [Fact]
-        public void TryParseAction_AcceptsExactlyTheThreeTokens()
+        public void TryParseAction_AcceptsExactlyTheFourTokens()
         {
             Assert.True(TestCommandEvaGroundScience.TryParseAction("place", out var a));
             Assert.Equal(EvaGroundScienceAction.Place, a);
@@ -24,6 +24,9 @@ namespace Parsek.Tests
             Assert.True(TestCommandEvaGroundScience.TryParseAction("take", out a));
             Assert.Equal(EvaGroundScienceAction.Take, a);
             Assert.False(TestCommandEvaGroundScience.TryParseAction("Take", out _));
+            Assert.True(TestCommandEvaGroundScience.TryParseAction("step", out a));
+            Assert.Equal(EvaGroundScienceAction.Step, a);
+            Assert.False(TestCommandEvaGroundScience.TryParseAction("walk", out _));
             Assert.False(TestCommandEvaGroundScience.TryParseAction("Place", out _));
             Assert.False(TestCommandEvaGroundScience.TryParseAction("remove", out _));
             Assert.False(TestCommandEvaGroundScience.TryParseAction("", out _));
@@ -218,7 +221,8 @@ namespace Parsek.Tests
         public void ActionToken_RoundTripsThroughTryParseAction()
         {
             foreach (EvaGroundScienceAction action in new[]
-                { EvaGroundScienceAction.Place, EvaGroundScienceAction.Pickup, EvaGroundScienceAction.Take })
+                { EvaGroundScienceAction.Place, EvaGroundScienceAction.Pickup, EvaGroundScienceAction.Take,
+                  EvaGroundScienceAction.Step })
             {
                 string token = TestCommandEvaGroundScience.ActionToken(action);
                 Assert.True(TestCommandEvaGroundScience.TryParseAction(token, out var parsed));
@@ -284,6 +288,67 @@ namespace Parsek.Tests
                 TestCommandEvaGroundScience.ChooseTakeSource(null, "DeployedRTG", 5.0).Decision);
             Assert.Equal(GroundTakeSourceDecision.NotStored,
                 TestCommandEvaGroundScience.ChooseTakeSource(cands, null, 5.0).Decision);
+        }
+
+        [Fact]
+        public void TryParseStepArgs_AcceptsAPidAndABoundedInvariantDistance()
+        {
+            Assert.True(TestCommandEvaGroundScience.TryParseStepArgs("2708531065", "4.5",
+                out uint pid, out double dist, out string err));
+            Assert.Equal(2708531065u, pid);
+            Assert.Equal(4.5, dist);
+            Assert.Null(err);
+            Assert.True(TestCommandEvaGroundScience.TryParseStepArgs("1", "30", out _, out dist, out _));
+            Assert.Equal(TestCommandEvaGroundScience.MaxStepDistanceMeters, dist);
+
+            foreach (string badAnchor in new[] { null, "", "0", "-5", "abc", "2708531065.0", "99999999999" })
+            {
+                Assert.False(TestCommandEvaGroundScience.TryParseStepArgs(badAnchor, "4", out _, out _, out err));
+                Assert.Equal("step-anchor-invalid", err);
+            }
+            foreach (string badDistance in new[] { null, "", "0", "-1", "30.01", "4,5", "NaN", "1e2" })
+            {
+                Assert.False(TestCommandEvaGroundScience.TryParseStepArgs("7", badDistance, out _, out dist, out err));
+                Assert.Equal("step-distance-invalid", err);
+                Assert.Equal(0.0, dist);
+            }
+        }
+
+        [Fact]
+        public void StepHorizontalOffset_KeepsTheKerbalsBearingAndRescalesIt()
+        {
+            TestCommandEvaGroundScience.StepHorizontalOffset(0.6, 0.8, 5.0, 1, 0, out double ox, out double oz);
+            Assert.Equal(3.0, ox, 9);
+            Assert.Equal(4.0, oz, 9);
+            // A kerbal already farther out comes IN to the requested distance.
+            TestCommandEvaGroundScience.StepHorizontalOffset(-12.0, 0.0, 4.0, 1, 0, out ox, out oz);
+            Assert.Equal(-4.0, ox, 9);
+            Assert.Equal(0.0, oz, 9);
+            // Straight above the anchor: the fallback bearing, normalized.
+            TestCommandEvaGroundScience.StepHorizontalOffset(0.0, 0.0, 2.0, 0.0, -3.0, out ox, out oz);
+            Assert.Equal(0.0, ox, 9);
+            Assert.Equal(-2.0, oz, 9);
+            // Both degenerate: +x.
+            TestCommandEvaGroundScience.StepHorizontalOffset(0.0, 0.0, 2.0, 0.0, 0.0, out ox, out oz);
+            Assert.Equal(2.0, ox, 9);
+            Assert.Equal(0.0, oz, 9);
+        }
+
+        [Fact]
+        public void DecideStepCompletion_NeedsLandedAtTheDistanceForTheSettleWindow()
+        {
+            int settle = TestCommandEvaGroundScience.SettleFrames;
+            double tol = TestCommandEvaGroundScience.StepToleranceMeters;
+            Assert.Equal(GroundScienceCompletionDecision.CompleteOk,
+                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, 4.0 + tol, 4.0, settle));
+            Assert.Equal(GroundScienceCompletionDecision.StillWaiting,
+                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, 4.0 + tol + 0.01, 4.0, settle));
+            Assert.Equal(GroundScienceCompletionDecision.StillWaiting,
+                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, false, 4.0, 4.0, settle));
+            Assert.Equal(GroundScienceCompletionDecision.StillWaiting,
+                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, 4.0, 4.0, settle - 1));
+            Assert.Equal(GroundScienceCompletionDecision.Timeout,
+                TestCommandEvaGroundScience.DecideStepCompletion(120, 120, false, 4.0, 4.0, 0));
         }
 
         [Fact]

@@ -3544,7 +3544,8 @@ kRPC 0.5.4 has no inventory or construction API, so nothing unattended could rea
 The verb drives the stock player actions that make stock fire those events. It fires no
 GameEvent itself.
 
-**Grammar.** `cmd=EvaGroundScience action=<place|pickup|take> part=<name> [faceAway=true]`.
+**Grammar.** `cmd=EvaGroundScience action=<place|pickup|take> part=<name> [faceAway=true]`, or
+`cmd=EvaGroundScience action=step anchor=<vessel pid> distance=<metres>` (no `part`).
 `part` is the cfg part name (underscores become the runtime dots).
 
 **Place** (decompiled KSP 1.12.5). The inventory PAW slot icon calls
@@ -3593,6 +3594,20 @@ sourceInventory=<slots>`; payload `action=take part partPid vesselPid=<source ve
 presses=0 distance`. No GameEvent is involved and the recorder records nothing for a take.
 Pure half `TestCommandEvaGroundScience.ChooseTakeSource` / `DecideTakeCompletion`.
 
+**Step** (added 2026-09-29 for EVA-10). A kerbal off a Mun lander's ladder stands ON the
+lander, where every placement preview hits its hull (EVA-10's first flights: `placement-timeout
+... reTurns=8`). The verb sets the EVA kerbal down on the terrain at `distance` metres
+(horizontal, `(0, 30]`, InvariantCulture) from the loaded anchor vessel's origin, straight out
+along his own horizontal bearing from it (an anchor-local east/north basis; no bearing falls
+back to the anchor's right axis): `IgnoreGForces(240)`, `SetPosition` at the PQS
+`TerrainAltitude` + 0.5 m, `SetWorldVelocity(zero)`, then gravity settles him. KSP has no walk
+API a seam can drive, so this is a teleport; a lane runs it BEFORE `StartRecording` so no
+recorded trajectory carries the jump. Logs `evagroundscience step start ... from=<m> to=<m>
+lat= lon= terrain= situation=` and, once he is landed within 1.5 m of the requested distance for
+30 frames, `evagroundscience step complete kerbal=<name> anchor=<name> horizontal=<m>
+situation=<sit>`. Pure half `TryParseStepArgs` / `StepHorizontalOffset` /
+`DecideStepCompletion`.
+
 **Phases.** TWO-PHASE on a 120 s budget (the EvaExit size), NOT a `DEFERRED_SEAM_VERB`;
 `RequiresFlight` plus the EVA family's `not-eva` defer. hlib tail role world-mutating,
 post-mission role `outcome`.
@@ -3600,10 +3615,11 @@ post-mission role `outcome`.
 **Refusals.** REJECTED `bad-action`, `missing-part`, `not-eva`, `no-inventory`,
 `part-not-in-inventory`, `not-deployable`, `no-ground-part`, `no-retrieve-event`,
 `out-of-range`, `inventory-full`, and for a take `not-stored-nearby`, `over-capacity`,
-`no-stored-snapshot`, `take-store-refused`; ERROR `place-gate-timeout`, `inventory-window-timeout`,
+`no-stored-snapshot`, `take-store-refused`, and for a step `step-anchor-invalid`,
+`step-distance-invalid`, `step-anchor-not-loaded`, `step-body-mismatch`; ERROR `place-gate-timeout`, `inventory-window-timeout`,
 `placement-mode-refused`, `key-injection-unavailable`, `placement-not-accepted`,
 `placement-timeout`, `preview-timeout`, `placed-vessel-timeout`, `pickup-threw`,
-`pickup-timeout`, `take-threw`, `take-timeout`, `kerbal-lost`, each with an
+`pickup-timeout`, `take-threw`, `take-timeout`, `step-threw`, `step-timeout`, `kerbal-lost`, each with an
 `evagroundscience failed reason=` Error line.
 
 **Known product consequence.** The recorder keys the Placed event to the placed part's pid,

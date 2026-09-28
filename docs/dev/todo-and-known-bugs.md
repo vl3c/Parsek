@@ -55,9 +55,12 @@ landed crewed vessel off the pad is a one-kerbal Kerbal X capsule
 (`kerbin-splashdown-recorded`, `mun-landing-recorded`); `duna-one-recorded` has two crew and
 an EVA kerbal but is on Duna; nothing else lands crew off the pad.
 
-**The Mun reach risk (EVA-10).** The lander's pod sits about 4 m above the ground (VESSEL
-`hgt = 4.18`), at the edge of stock's `EVA_INVENTORY_RANGE = 5`. If EVA-10's first reading
-refuses `take ... reason=out-of-range`, the Mun lane needs the same fixture as below.
+**The Mun geometry (EVA-10).** Its first flights (`2026-09-28_2048`, `_2053_a2`) left Jeb
+standing ON the lander after the ladder release, where every placement preview hit its hull;
+the lane now runs `EvaGroundScience action=step distance=4.5` off the lander first. The pod
+sits about 4 m above the ground (VESSEL `hgt = 4.18`), so from 4.5 m out it is ~4.4 m away,
+inside stock's `EVA_INVENTORY_RANGE = 5` but not by much. If a reading refuses `take ...
+reason=out-of-range`, the Mun lane needs the same fixture as below.
 
 **Costed plan.** One forge flight builds a recorded host with a ground-level container: a
 small crewed rover (Mk1 lander can or Mk2 pod on wheels) carrying two stock inventory
@@ -80,6 +83,33 @@ fixture must be a reproducible harvest with a builder and pins (the `refly-a-rec
 precedent requires a clean seed session), and an operator-local fixture may only assert that
 a window drew, which none of these lanes needs. Nothing from that save is committed or
 staged.
+
+## HARNESS-BOOT-DISCARD-RACES-COMMITTED-SPAWNED-RESTORE: a recorded-fixture lane's boot `DiscardTree` can be undone by the 1 Hz restore retry [FILED 2026-09-29 from EVA-6's `2026-09-28_2059` attempt 1 (INVALID, passed on retry), branch `deployables-lanes`]
+
+**Evidence.** On `kerbin-splashdown-recorded` the boot promotes the committed Kerbal X tip
+(`TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Kerbal X' ... via
+ResumeActiveRecording`), and every EVA-6 / EVA-7 / EVA-8 / EVA-9 lane stops and discards it
+(`StopRecording`, `DiscardTree`). In `_2059` the discard at 23:59:55.078 was followed 28 ms
+later by the SAME restore line again, so the tree was live when the kerbal's `StartRecording`
+ran and it was refused (`StartRecording: refused to bind recorder to invalid active tree head
+(reason=active-recording-id-missing ...)`). The green `2026-09-27_1815` run shows one restore
+only.
+
+**Cause (from source).** `ParsekFlight.HandleMissedVesselSwitchRecovery` retries
+`TryRestoreCommittedTreeForSpawnedActiveVessel` once a second whenever there is no active
+tree and no recorder (`ShouldAttemptCommittedSpawnedRestoreInUpdate`,
+`CommittedSpawnedRestoreRetryIntervalSeconds = 1`). `DiscardTree` leaves exactly that state
+while the capsule, a committed tip, is still the active vessel, so the retry re-adopts it
+whenever its timer is due; whether it is due depends on where the boot left
+`nextCommittedSpawnedRestoreRetryAt` (the green run's boot left the recorder not live at
+`OnFlightReady`, the red one left it live).
+
+**Why no spec change.** No preamble ordering avoids it: the capsule stays the active vessel
+until `EvaExit`, and discarding after the exit would discard a live tree the EVA has already
+branched. A deterministic fix is seam-side: make the `DiscardTree` verb push
+`nextCommittedSpawnedRestoreRetryAt` out for the rest of the scene (or until the next
+`StartRecording`), with a pure cell for the decision. Until then these lanes carry `retry
+policy = "once"`, which absorbed it in `_2059`.
 
 ## DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST: no committed science or career fixture can place a powered Breaking Ground cluster [FILED 2026-09-28, branch `deployables-lanes`]
 

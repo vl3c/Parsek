@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -17,6 +18,13 @@ namespace Parsek.TestCommands
         /// next part of a multi-part cluster (one Breaking Ground part fills most of a
         /// kerbal's 40 L).</summary>
         Take,
+
+        /// <summary>Move the EVA kerbal onto the ground at a set horizontal distance from an
+        /// anchor vessel, along his current bearing from it: the few steps a player walks
+        /// off a lander before placing, so the placement preview clears its hull and legs.
+        /// Driven as a short teleport to the terrain (see the applier); lanes run it BEFORE
+        /// StartRecording, so no recorded trajectory carries the jump.</summary>
+        Step,
     }
 
     /// <summary>One stored part a take could come from: a container slot on a loaded
@@ -102,6 +110,24 @@ namespace Parsek.TestCommands
         internal const string PlaceToken = "place";
         internal const string PickupToken = "pickup";
         internal const string TakeToken = "take";
+        internal const string StepToken = "step";
+
+        /// <summary>Step only: the anchor vessel's persistentId.</summary>
+        internal const string AnchorArg = "anchor";
+
+        /// <summary>Step only: the horizontal distance, in metres, from the anchor.</summary>
+        internal const string DistanceArg = "distance";
+
+        /// <summary>Upper bound on a step: a few strides off a lander, never a relocation.</summary>
+        internal const double MaxStepDistanceMeters = 30.0;
+
+        /// <summary>Height above the PQS terrain the kerbal is set down at; he settles by
+        /// gravity from there (PQS height ignores surface colliders by a few centimetres).</summary>
+        internal const double StepLiftMeters = 0.5;
+
+        /// <summary>How far the settled kerbal's horizontal distance from the anchor may
+        /// sit from the requested one (a landing kerbal slides a little).</summary>
+        internal const double StepToleranceMeters = 1.5;
 
         /// <summary>Optional <c>faceAway=true</c> on place: turn the kerbal away from the
         /// nearest other loaded vessel first (a kerbal just off a ladder faces the hull, and
@@ -136,7 +162,83 @@ namespace Parsek.TestCommands
                 action = EvaGroundScienceAction.Take;
                 return true;
             }
+            if (raw == StepToken)
+            {
+                action = EvaGroundScienceAction.Step;
+                return true;
+            }
             return false;
+        }
+
+        /// <summary>Parses the step's <c>anchor=</c> (a non-zero uint pid) and
+        /// <c>distance=</c> (InvariantCulture, finite, in (0, <see cref="MaxStepDistanceMeters"/>]).
+        /// Returns false with the refusal reason in <paramref name="error"/>.</summary>
+        internal static bool TryParseStepArgs(string anchorRaw, string distanceRaw,
+            out uint anchorPid, out double distance, out string error)
+        {
+            anchorPid = 0;
+            distance = 0;
+            error = null;
+            if (string.IsNullOrEmpty(anchorRaw)
+                || !uint.TryParse(anchorRaw, NumberStyles.None, CultureInfo.InvariantCulture, out anchorPid)
+                || anchorPid == 0)
+            {
+                error = "step-anchor-invalid";
+                return false;
+            }
+            if (string.IsNullOrEmpty(distanceRaw)
+                || !double.TryParse(distanceRaw, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out distance)
+                || double.IsNaN(distance) || double.IsInfinity(distance)
+                || distance <= 0 || distance > MaxStepDistanceMeters)
+            {
+                error = "step-distance-invalid";
+                distance = 0;
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The horizontal offset from the anchor to set the kerbal down at: his current
+        /// horizontal offset (<paramref name="dx"/>, <paramref name="dz"/>, in any horizontal
+        /// basis) rescaled to <paramref name="distance"/>, so he moves straight out along
+        /// his own bearing. A kerbal directly above the anchor (no bearing) goes along
+        /// (<paramref name="fallbackX"/>, <paramref name="fallbackZ"/>), or +x when that is
+        /// degenerate too.
+        /// </summary>
+        internal static void StepHorizontalOffset(double dx, double dz, double distance,
+            double fallbackX, double fallbackZ, out double ox, out double oz)
+        {
+            double len = Math.Sqrt(dx * dx + dz * dz);
+            if (len < 1e-3)
+            {
+                dx = fallbackX;
+                dz = fallbackZ;
+                len = Math.Sqrt(dx * dx + dz * dz);
+                if (len < 1e-6)
+                {
+                    dx = 1.0;
+                    dz = 0.0;
+                    len = 1.0;
+                }
+            }
+            ox = dx / len * distance;
+            oz = dz / len * distance;
+        }
+
+        /// <summary>A step completes once the kerbal is landed within
+        /// <see cref="StepToleranceMeters"/> of the requested horizontal distance, held for
+        /// the settle window.</summary>
+        internal static GroundScienceCompletionDecision DecideStepCompletion(
+            double elapsed, double budget, bool landed, double horizontalDistance,
+            double requestedDistance, int settledFrames)
+        {
+            bool atDistance = Math.Abs(horizontalDistance - requestedDistance) <= StepToleranceMeters;
+            if (landed && atDistance && settledFrames >= SettleFrames)
+                return GroundScienceCompletionDecision.CompleteOk;
+            return elapsed >= budget
+                ? GroundScienceCompletionDecision.Timeout
+                : GroundScienceCompletionDecision.StillWaiting;
         }
 
         /// <summary>The wire token for an action (the inverse of <see cref="TryParseAction"/>).</summary>
@@ -146,6 +248,7 @@ namespace Parsek.TestCommands
             {
                 case EvaGroundScienceAction.Pickup: return PickupToken;
                 case EvaGroundScienceAction.Take: return TakeToken;
+                case EvaGroundScienceAction.Step: return StepToken;
                 default: return PlaceToken;
             }
         }

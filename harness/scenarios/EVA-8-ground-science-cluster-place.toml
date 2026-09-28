@@ -1,10 +1,11 @@
 schema = 1
 id = "EVA-8-ground-science-cluster-place"
-# NIGHTLY (seam lane on a recorded fixture). NEVER FLOWN: authored 2026-09-28 off the
+# NIGHTLY (seam lane on a recorded fixture). LIVE-PROVEN 2026-09-28: authored off the
 # operator's manual run `logs/2026-09-28_2231_deployables` (Sandbox, KSP 1.12.5, tree
 # 'rover science': Bob Kerman placed an eleven-part Breaking Ground cluster from a rover's
-# containers beside the KSC). Every token below is a prediction from the emitting source
-# and from that run's log; the first reading run decides what is kept.
+# containers beside the KSC), every token predicted from the emitting source and that log,
+# and the first flight `2026-09-28_2043` (integration DLL: origin/main + #1920 + #1921 +
+# #1923) PASSED attempt 1 with every token as written.
 #
 # WHAT IT PROVES. A multi-part Breaking Ground CLUSTER placed by one EVA kerbal records as
 # one tree member PER PLACED PART (BranchPointType.GroundPartPlaced,
