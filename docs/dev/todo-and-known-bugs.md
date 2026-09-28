@@ -15,6 +15,112 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## KSC-DE-OVERLAP-MOVES-PLACED-PARTS-OFF-THEIR-SPOT: a ground part spawned from the Space Center lands 15 m from where it was placed [FILED 2026-09-28 from EVA-6's green run, branch `deployables-lanes`]
+
+**In gameplay terms.** A kerbal places a Breaking Ground part a metre or two from his landed
+capsule, the flight is committed, and after a rewind the Space Center spawns the part back
+at the end of its recording - 15 m away from where he set it down. The kerbal (when his
+recording is not an EVA branch) moves the same way.
+
+**Evidence.** EVA-6's green run `2026-09-27_1815` (Parsek-eva-harness-hardening/harness/
+results/..._shots/KSP.log, lines 14529 / 14557): `[KSCSpawn] De-overlap for #10 "Grand Slam
+Passive Seismometer": nudged 15.0m (existing landed=2, nearest now=15.7m, min=15m)` and the
+same for `#9 "Jebediah Kerman"`. EVA-6 never forbade the line, so the lane stayed green.
+
+**Cause (from source).** `ParsekKSC` (the landed-delivery de-overlap before the snapshot
+apply, `SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn` with
+`DefaultLandedSpawnSeparationMeters = 15`) nudges every non-EVA surface-terminal spawn clear
+of EVERY existing same-body landed vessel. It exists for repeated deliveries of one craft to
+one base (#duplicate-stack); a placed part standing beside the vessel it came from is the
+opposite case. Fix PR #1920 (PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING) exempts co-existing
+same-tree SIBLING spawns there, but not a pre-existing real vessel such as the capsule, so a
+single placed part next to its capsule is still moved.
+
+**Fix direction (needs a ruling).** Exempt a placed-part member (`GroundPartPlacement.
+IsPlacedPartMember`) whose recorded endpoint is within a few metres of an existing landed
+vessel that stood there when it was placed, or skip the de-overlap for ground parts outright
+(a ground part is a static single-part vessel, it cannot explode on load the way two stacked
+rovers do). Lane: EVA-10 already reads the nudge lines; forbid them there once ruled.
+
+## GROUND-SCIENCE-CLUSTER-FIVE-PART-HOST: no committed fixture can host a cluster with three or more experiments inside stock inventory limits [FILED 2026-09-28, branch `deployables-lanes`]
+
+**Why.** A stock EVA kerbal carries 2 slots / 40 L / 0.065 t
+(`GameData/Squad/Parts/Prebuilt/kerbalEVA.cfg`) and every Breaking Ground part is 25-35 L
+(`SquadExpansion/Serenity/Parts/DeployedScience/*.cfg`), so one kerbal carries ONE part at a
+time; a cluster is carried in containers and taken out one by one (the operator's run did
+exactly this from a rover). EVA-8 / EVA-9 / EVA-10 use the only container their hosts have,
+the landed Kerbal X's Mk1-3 pod (3 slots / 200 L), plus the kerbal's own slot: 4 parts,
+Central Station + RTG + TWO experiments. Surveyed 2026-09-28: every committed fixture's
+landed crewed vessel off the pad is a one-kerbal Kerbal X capsule
+(`kerbin-splashdown-recorded`, `mun-landing-recorded`); `duna-one-recorded` has two crew and
+an EVA kerbal but is on Duna; nothing else lands crew off the pad.
+
+**The Mun reach risk (EVA-10).** The lander's pod sits about 4 m above the ground (VESSEL
+`hgt = 4.18`), at the edge of stock's `EVA_INVENTORY_RANGE = 5`. If EVA-10's first reading
+refuses `take ... reason=out-of-range`, the Mun lane needs the same fixture as below.
+
+**Costed plan.** One forge flight builds a recorded host with a ground-level container: a
+small crewed rover (Mk1 lander can or Mk2 pod on wheels) carrying two stock inventory
+containers (`ConformalStorageUnit`, 3 slots / 300 L each) is launched from the runway with
+`LaunchFromEditor`, driven by a new kRPC mission shell (`wheel_throttle` / `wheel_steering`,
+about 150 lines plus its schema TOML and mlib tests) 300 m off the runway end so the KSC
+exclusion zone cannot retire what it leaves, stopped, and harvested `--keep-parsek` as
+`kerbin-rover-containers-recorded` with a builder under `harness/tools/` and a
+`RECORDED_FIXTURES` pin. Its containers then take `[[fixture.partInventory]]` (6 slots:
+CS + RTG + solar + seismic + Go-ob + ion/weather), and EVA-8/9's recipe runs unchanged with
+two more takes. Estimate: one flight for the shell, one harvest, about half a session of
+authoring. A Mun variant needs the same rover landed on the Mun (a B13-style delivery), which
+is a second, longer forge flight; defer it until the Kerbin one has flown.
+
+**The operator's own save is not the host (decided 2026-09-28).** `logs/2026-09-28_2231_
+deployables` is a post-replay state: ten of its eleven members were refused by the defect
+(PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING), the rover and Bob were abandoned, and no clean
+post-commit / pre-rewind save survives (the quicksave `1.sfs` is post-replay too). A committed
+fixture must be a reproducible harvest with a builder and pins (the `refly-a-recorded`
+precedent requires a clean seed session), and an operator-local fixture may only assert that
+a window drew, which none of these lanes needs. Nothing from that save is committed or
+staged.
+
+## DEPLOYED-SCIENCE-FLOW-LANE-NEEDS-A-HOST: no committed science or career fixture can place a powered Breaking Ground cluster [FILED 2026-09-28, branch `deployables-lanes`]
+
+**What is wanted.** A lane that places a powered cluster (Central Station + RTG or solar +
+experiments), warps while it transmits, and checks the ledger rows: every deployed subject
+is an UNTAGGED row even with a live recorder (todo DEPLOYED-SCIENCE-IS-ALWAYS-UNTAGGED,
+`GameStateRecorder.IsDeployedScienceSubjectId`, `TryRecordKscScienceSubject`), survives a
+Re-Fly (never tombstoned), and is dropped by a Revert with the other untagged post-launch rows.
+Sandbox (every EVA-* host) awards no science, so it cannot host it.
+
+**Survey (2026-09-28).** SCIENCE / CAREER fixtures: `fresh-science` (SCIENCE_SANDBOX, no
+vessels), `career-*-pad` (one PRELAUNCH vessel on the pad), `career-earned-*`,
+`rover-route-career` (probe-only rovers), `strategy-career`, `stock-screen-census*`. In every
+one the R&D tree holds only `start` (no `spaceExploration`, `electrics`, `electronics`,
+`miniaturization`, `experimentalElectrics`, the nodes the eight deployables require), so
+stock drops the parts from a crew inventory CSV silently, and none has a crewed vessel off
+the pad. A cluster placed ON the pad is fine for science (nothing spawns), but it still needs
+the tech.
+
+**Costed plan.** (1) A builder `harness/tools/build_science_bg_pad.py` derives
+`science-bg-pad` from `career-science-pad` offline: R&D `Tech` nodes for the five nodes
+above (stock's own `state = Available` + `part = ...` entries, read from a stock
+tech-tree save rather than hand-written), plus `[[fixture.crewInventory]]` /
+`[[fixture.partInventory]]` for the parts (the pad pod must carry an inventory; a Mk1-3 pod
+does). About 200 lines with its test and README row. (2) Lane: boot, EvaExit, place the four
+parts beside the pod, board, `WarpToUT` about 10 game minutes (ten 60 s transmissions),
+`SaveGame`, then the ledger: `[expectations.ledger]` / oracle rows for the deployed subject
+ids with an empty recording tag, and the log line of the untagged route. Estimate: one
+reading flight after the builder; no product change expected.
+
+## HARNESS-README-SAVEPATCH-SURFACES-STALE: harness/README.md does not describe the 2026-09-28 savepatch changes [FILED 2026-09-28, branch `deployables-lanes`]
+
+Two savepatch changes landed with the ground-science cluster lanes without their
+`harness/README.md` paragraphs: `[[fixture.liveState]] remove` now RE-POINTS `activeVessel`
+after removing an earlier vessel (only the focused vessel itself is refused; the README's
+liveState paragraph, around line 1368, still says a removal at or before `activeVessel` is
+REFUSED), and the new `[[fixture.partInventory]]` surface (a FLIGHTSTATE container part's
+`inventory` CSV, contract in `harness/lib/savepatch.py`) has no README row beside
+`[[fixture.crewInventory]]`. The code comments in `savepatch.py` are the authority until the
+README is brought in line.
+
 ## ~~GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD: at the end of a watched replay the camera jumps to a stage the rocket dropped mid-flight~~ [FILED 2026-09-27 from run `2026-09-27_2029` (PARSEK-FAIL(expectation), automation DLL sha256 `f747fdee...`, origin/main `1329091f8`), branch `arm-batch2`. FIXED 2026-09-28, branch `gs8-watch-hold`]
 
 **In gameplay terms.** The player watches a replayed Kerbal X to the end of its flight. At

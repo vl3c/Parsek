@@ -3,7 +3,7 @@ using System.Globalization;
 
 namespace Parsek.TestCommands
 {
-    /// <summary>The two stock player actions <c>EvaGroundScience</c> drives.</summary>
+    /// <summary>The three stock player actions <c>EvaGroundScience</c> drives.</summary>
     internal enum EvaGroundScienceAction
     {
         /// <summary>Place a ground-deployable part from the EVA kerbal's inventory.</summary>
@@ -11,6 +11,45 @@ namespace Parsek.TestCommands
 
         /// <summary>Pick a deployed ground part back up into the kerbal's inventory.</summary>
         Pickup,
+
+        /// <summary>Move a stored part from a nearby vessel's inventory container into the
+        /// EVA kerbal's inventory: the inventory window drag a player makes to carry the
+        /// next part of a multi-part cluster (one Breaking Ground part fills most of a
+        /// kerbal's 40 L).</summary>
+        Take,
+    }
+
+    /// <summary>One stored part a take could come from: a container slot on a loaded
+    /// vessel, with the kerbal's distance to that container's part.</summary>
+    internal struct GroundTakeCandidate
+    {
+        public int ContainerIndex;
+        public int Slot;
+        public string PartName;
+        public double DistanceMeters;
+    }
+
+    /// <summary>The pure take-source verdict.</summary>
+    internal enum GroundTakeSourceDecision
+    {
+        /// <summary><see cref="GroundTakeSourceChoice.Candidate"/> names the source.</summary>
+        Found,
+
+        /// <summary>No loaded container stores the part.</summary>
+        NotStored,
+
+        /// <summary>A container stores it, but none within stock's EVA inventory reach.</summary>
+        OutOfRange,
+    }
+
+    internal struct GroundTakeSourceChoice
+    {
+        public GroundTakeSourceDecision Decision;
+        public GroundTakeCandidate Candidate;
+
+        /// <summary>The nearest container holding the part, in range or not (for the
+        /// out-of-range refusal line); <see cref="double.MaxValue"/> when none.</summary>
+        public double NearestDistanceMeters;
     }
 
     /// <summary>Per-poll decision while the placement preview is live.</summary>
@@ -62,6 +101,7 @@ namespace Parsek.TestCommands
         internal const string PartArg = "part";
         internal const string PlaceToken = "place";
         internal const string PickupToken = "pickup";
+        internal const string TakeToken = "take";
 
         /// <summary>Optional <c>faceAway=true</c> on place: turn the kerbal away from the
         /// nearest other loaded vessel first (a kerbal just off a ladder faces the hull, and
@@ -91,7 +131,84 @@ namespace Parsek.TestCommands
                 action = EvaGroundScienceAction.Pickup;
                 return true;
             }
+            if (raw == TakeToken)
+            {
+                action = EvaGroundScienceAction.Take;
+                return true;
+            }
             return false;
+        }
+
+        /// <summary>The wire token for an action (the inverse of <see cref="TryParseAction"/>).</summary>
+        internal static string ActionToken(EvaGroundScienceAction action)
+        {
+            switch (action)
+            {
+                case EvaGroundScienceAction.Pickup: return PickupToken;
+                case EvaGroundScienceAction.Take: return TakeToken;
+                default: return PlaceToken;
+            }
+        }
+
+        /// <summary>
+        /// Chooses the container slot a take moves the part out of: among candidates
+        /// storing <paramref name="partName"/> (ordinal) within
+        /// <paramref name="reachMeters"/> (stock's <c>GameSettings.EVA_INVENTORY_RANGE</c>,
+        /// the distance at which a kerbal can open a container's inventory), the NEAREST
+        /// container, and inside it the LOWEST slot. Ties on distance keep the lower
+        /// container index, so the choice is deterministic.
+        /// </summary>
+        internal static GroundTakeSourceChoice ChooseTakeSource(
+            IEnumerable<GroundTakeCandidate> candidates, string partName, double reachMeters)
+        {
+            var choice = new GroundTakeSourceChoice
+            {
+                Decision = GroundTakeSourceDecision.NotStored,
+                NearestDistanceMeters = double.MaxValue,
+            };
+            if (candidates == null || string.IsNullOrEmpty(partName)) return choice;
+            bool found = false;
+            GroundTakeCandidate best = default(GroundTakeCandidate);
+            foreach (GroundTakeCandidate c in candidates)
+            {
+                if (c.PartName != partName) continue;
+                if (c.DistanceMeters < choice.NearestDistanceMeters)
+                    choice.NearestDistanceMeters = c.DistanceMeters;
+                if (c.DistanceMeters > reachMeters) continue;
+                bool better = !found
+                    || c.DistanceMeters < best.DistanceMeters
+                    || (c.DistanceMeters == best.DistanceMeters
+                        && (c.ContainerIndex < best.ContainerIndex
+                            || (c.ContainerIndex == best.ContainerIndex && c.Slot < best.Slot)));
+                if (better)
+                {
+                    best = c;
+                    found = true;
+                }
+            }
+            if (found)
+            {
+                choice.Decision = GroundTakeSourceDecision.Found;
+                choice.Candidate = best;
+            }
+            else if (choice.NearestDistanceMeters < double.MaxValue)
+            {
+                choice.Decision = GroundTakeSourceDecision.OutOfRange;
+            }
+            return choice;
+        }
+
+        /// <summary>A take completes once the kerbal's inventory holds the part AND the
+        /// source slot no longer does, held for the settle window.</summary>
+        internal static GroundScienceCompletionDecision DecideTakeCompletion(
+            double elapsed, double budget, bool kerbalHoldsPart, bool sourceSlotCleared,
+            int settledFrames)
+        {
+            if (kerbalHoldsPart && sourceSlotCleared && settledFrames >= SettleFrames)
+                return GroundScienceCompletionDecision.CompleteOk;
+            return elapsed >= budget
+                ? GroundScienceCompletionDecision.Timeout
+                : GroundScienceCompletionDecision.StillWaiting;
         }
 
         /// <summary>KSP's runtime part names use dots where the cfg used underscores.</summary>
@@ -230,8 +347,7 @@ namespace Parsek.TestCommands
             int slot, int presses, double distanceMeters)
             => new List<KeyValuePair<string, string>>
             {
-                new KeyValuePair<string, string>("action",
-                    action == EvaGroundScienceAction.Place ? PlaceToken : PickupToken),
+                new KeyValuePair<string, string>("action", ActionToken(action)),
                 new KeyValuePair<string, string>("part", partName ?? string.Empty),
                 new KeyValuePair<string, string>("partPid",
                     partPid.ToString(CultureInfo.InvariantCulture)),

@@ -15,6 +15,14 @@
 //   PICKUP - the ground part's own "Pick Up" KSPEvent (ModuleGroundPart.RetrievePart),
 //            invoked through its BaseEvent exactly as the PAW button does. Stock fires
 //            onGroundSciencePartRemoved from inside it and then kills the ground vessel.
+//   TAKE   - the inventory window drag from a nearby container into the kerbal's own
+//            inventory: the two calls stock's UIPartActionInventorySlot makes at the ends
+//            of that drag, ClearPartAtSlot on the source slot and StoreCargoPartAtSlot on
+//            the destination slot (here with the source's own stored ProtoPartSnapshot, so
+//            the part keeps its identity). Gated by stock's own limits: the container must
+//            be within GameSettings.EVA_INVENTORY_RANGE and the kerbal's inventory must
+//            have a free slot and HasCapacity for the part (40 L / 0.065 t on a stock
+//            kerbal), so a take never carries more than a player could.
 //
 // The seam fires NO GameEvent itself: the recorder witness is whatever stock fires.
 // Private stock fields (selectedPart, partFullyCreated, placementonTerrain,
@@ -151,6 +159,9 @@ namespace Parsek.TestCommands
         private Vector3 groundSciHeadingBodyLocal;
         private bool groundSciHeadingChosen;
         private int groundSciHeadingHolds;
+        // Take only: the container the part comes out of and its slot.
+        private ModuleInventoryPart groundSciTakeSource;
+        private int groundSciTakeSourceSlot;
 
         private void EvaGroundScienceImpl(ParsedCommand cmd)
         {
@@ -210,13 +221,176 @@ namespace Parsek.TestCommands
             groundSciHeadingBodyLocal = Vector3.zero;
             groundSciHeadingChosen = false;
             groundSciHeadingHolds = 0;
+            groundSciTakeSource = null;
+            groundSciTakeSourceSlot = -1;
             EvaJumpKeyPressInjection.Remove();
             EvaJumpKeyPressInjection.AnsweredCount = 0;
 
             if (action == EvaGroundScienceAction.Place)
                 StartGroundPlace(active, inv, part);
+            else if (action == EvaGroundScienceAction.Take)
+                StartGroundTake(active, inv, part);
             else
                 StartGroundPickup(active, inv, part);
+        }
+
+        private void StartGroundTake(Vessel active, ModuleInventoryPart inv, string part)
+        {
+            // Every loaded container slot storing the part, with the kerbal's distance to
+            // the container's part (the nearest point of its colliders when it has any,
+            // so a tall part is measured to its surface rather than its origin).
+            var containers = new List<ModuleInventoryPart>();
+            var candidates = new List<GroundTakeCandidate>();
+            foreach (Vessel v in FlightGlobals.VesselsLoaded)
+            {
+                if (v == null || v == active || v.isEVA || v.parts == null) continue;
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p == null) continue;
+                    ModuleInventoryPart src = p.FindModuleImplementing<ModuleInventoryPart>();
+                    if (src == null || src.storedParts == null) continue;
+                    double d = DistanceToPart(p, active.transform.position);
+                    int containerIndex = containers.Count;
+                    containers.Add(src);
+                    foreach (var kv in InventorySlotNames(src))
+                        candidates.Add(new GroundTakeCandidate
+                        {
+                            ContainerIndex = containerIndex,
+                            Slot = kv.Key,
+                            PartName = kv.Value,
+                            DistanceMeters = d,
+                        });
+                }
+            }
+            double reach = GameSettings.EVA_INVENTORY_RANGE;
+            GroundTakeSourceChoice choice = TestCommandEvaGroundScience.ChooseTakeSource(candidates, part, reach);
+            if (choice.Decision == GroundTakeSourceDecision.NotStored)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=not-stored-nearby part={part} "
+                    + $"containers={containers.Count}");
+                SetExecResult("REJECTED", null, "not-stored-nearby");
+                return;
+            }
+            if (choice.Decision == GroundTakeSourceDecision.OutOfRange)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=out-of-range part={part} "
+                    + $"distance={choice.NearestDistanceMeters.ToString("F2", CultureInfo.InvariantCulture)} "
+                    + $"range={reach.ToString("F2", CultureInfo.InvariantCulture)}");
+                SetExecResult("REJECTED", null, "out-of-range");
+                return;
+            }
+            ModuleInventoryPart source = containers[choice.Candidate.ContainerIndex];
+            int sourceSlot = choice.Candidate.Slot;
+            int destSlot = inv.FirstEmptySlot();
+            if (destSlot < 0)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=inventory-full part={part} "
+                    + $"inventory={DescribeInventory(inv)}");
+                SetExecResult("REJECTED", null, "inventory-full");
+                return;
+            }
+            AvailablePart info = PartLoader.getPartInfoByName(part);
+            if (info == null || info.partPrefab == null || !inv.HasCapacity(info.partPrefab))
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=over-capacity part={part} "
+                    + $"inventory={DescribeInventory(inv)}");
+                SetExecResult("REJECTED", null, "over-capacity");
+                return;
+            }
+            StoredPart stored = source.storedParts.ContainsKey(sourceSlot) ? source.storedParts[sourceSlot] : null;
+            if (stored == null || stored.snapshot == null)
+            {
+                ParsekLog.Warn(Tag, $"evagroundscience refused reason=no-stored-snapshot part={part} slot={sourceSlot}");
+                SetExecResult("REJECTED", null, "no-stored-snapshot");
+                return;
+            }
+
+            groundSciSlot = destSlot;
+            groundSciTakeSource = source;
+            groundSciTakeSourceSlot = sourceSlot;
+            groundSciDistance = choice.Candidate.DistanceMeters;
+            groundSciTarget = source.part != null ? source.part.vessel : null;
+            groundSciTargetVesselPid = groundSciTarget != null ? groundSciTarget.persistentId : 0u;
+            ProtoPartSnapshot snapshot = stored.snapshot;
+            groundSciTargetPartPid = snapshot.persistentId;
+            string sourceName = groundSciTarget != null ? groundSciTarget.vesselName : "<none>";
+            string sourcePart = source.part != null && source.part.partInfo != null ? source.part.partInfo.name : "<none>";
+            ParsekLog.Info(Tag, $"evagroundscience take start kerbal={active.vesselName} part={part} "
+                + $"source={sourceName} sourcePart={sourcePart} sourceSlot={sourceSlot} "
+                + $"sourceInventory={DescribeInventory(source)} kerbalSlot={destSlot} "
+                + $"inventory={DescribeInventory(inv)} "
+                + $"distance={groundSciDistance.ToString("F2", CultureInfo.InvariantCulture)} "
+                + $"range={reach.ToString("F2", CultureInfo.InvariantCulture)}");
+            try
+            {
+                // Stock's drag order: the source slot is emptied when the part is picked
+                // up, then the held part is stored into the clicked destination slot.
+                source.ClearPartAtSlot(sourceSlot);
+                if (!inv.StoreCargoPartAtSlot(snapshot, destSlot))
+                {
+                    // Put it back rather than lose it; the refusal is the verdict.
+                    source.StoreCargoPartAtSlot(snapshot, sourceSlot);
+                    ParsekLog.Warn(Tag, $"evagroundscience refused reason=take-store-refused part={part} "
+                        + $"kerbalSlot={destSlot} inventory={DescribeInventory(inv)}");
+                    SetExecResult("REJECTED", null, "take-store-refused");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag, $"evagroundscience take threw: {ex.GetType().Name}: {ex.Message}");
+                SetExecResult("ERROR", null, "take-threw");
+                return;
+            }
+            SetExecResult(PendingVerdict, null, null);
+        }
+
+        private static double DistanceToPart(Part p, Vector3 from)
+        {
+            double best = Vector3d.Distance(p.transform.position, from);
+            Collider[] colliders = p.GetComponentsInChildren<Collider>(false);
+            if (colliders == null) return best;
+            for (int i = 0; i < colliders.Length; i++)
+            {
+                Collider c = colliders[i];
+                if (c == null || !c.enabled || c.isTrigger) continue;
+                // Part transforms nest (a child part hangs under its parent's transform),
+                // so keep only this part's own colliders, never its children's.
+                if (c.GetComponentInParent<Part>() != p) continue;
+                double d = Vector3d.Distance(c.ClosestPoint(from), from);
+                if (d < best) best = d;
+            }
+            return best;
+        }
+
+        private void TryCompleteGroundTake(double now)
+        {
+            double elapsed = now - completionStartedAt;
+            double budget = DeferralBudget.BudgetSeconds("EvaGroundScience");
+            ModuleInventoryPart inv = groundSciInventory;
+            ModuleInventoryPart src = groundSciTakeSource;
+            bool holds = inv != null && TestCommandEvaGroundScience.FindSlotHolding(
+                InventorySlotNames(inv), groundSciPart) >= 0;
+            bool cleared = src == null || src.IsSlotEmpty(groundSciTakeSourceSlot);
+            groundSciSettledFrames = holds && cleared ? groundSciSettledFrames + 1 : 0;
+            GroundScienceCompletionDecision done = TestCommandEvaGroundScience.DecideTakeCompletion(
+                elapsed, budget, holds, cleared, groundSciSettledFrames);
+            if (done == GroundScienceCompletionDecision.StillWaiting) return;
+            if (done == GroundScienceCompletionDecision.Timeout)
+            {
+                FinishGroundScience("ERROR", null, "take-timeout", elapsed,
+                    $"kerbalHoldsPart={Bool(holds)} sourceSlotCleared={Bool(cleared)} "
+                    + $"inventory={(inv != null ? DescribeInventory(inv) : "<none>")}");
+                return;
+            }
+            ParsekLog.Info(Tag, $"evagroundscience take complete part={groundSciPart} "
+                + $"partPid={groundSciTargetPartPid} sourceVesselPid={groundSciTargetVesselPid} "
+                + $"kerbalSlot={groundSciSlot} inventory={DescribeInventory(inv)} "
+                + $"sourceInventory={(src != null ? DescribeInventory(src) : "<none>")}");
+            FinishGroundScience("OK", TestCommandEvaGroundScience.BuildCompletePayload(
+                EvaGroundScienceAction.Take, groundSciPart, groundSciTargetPartPid, groundSciTargetVesselPid,
+                groundSciSlot, 0, groundSciDistance), null, elapsed);
         }
 
         private void StartGroundPlace(Vessel active, ModuleInventoryPart inv, string part)
@@ -325,6 +499,8 @@ namespace Parsek.TestCommands
         {
             if (groundSciAction == EvaGroundScienceAction.Place)
                 TryCompleteGroundPlace(now);
+            else if (groundSciAction == EvaGroundScienceAction.Take)
+                TryCompleteGroundTake(now);
             else
                 TryCompleteGroundPickup(now);
         }

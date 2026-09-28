@@ -15,12 +15,15 @@ namespace Parsek.Tests
     public class TestCommandEvaGroundScienceTests
     {
         [Fact]
-        public void TryParseAction_AcceptsExactlyTheTwoTokens()
+        public void TryParseAction_AcceptsExactlyTheThreeTokens()
         {
             Assert.True(TestCommandEvaGroundScience.TryParseAction("place", out var a));
             Assert.Equal(EvaGroundScienceAction.Place, a);
             Assert.True(TestCommandEvaGroundScience.TryParseAction("pickup", out a));
             Assert.Equal(EvaGroundScienceAction.Pickup, a);
+            Assert.True(TestCommandEvaGroundScience.TryParseAction("take", out a));
+            Assert.Equal(EvaGroundScienceAction.Take, a);
+            Assert.False(TestCommandEvaGroundScience.TryParseAction("Take", out _));
             Assert.False(TestCommandEvaGroundScience.TryParseAction("Place", out _));
             Assert.False(TestCommandEvaGroundScience.TryParseAction("remove", out _));
             Assert.False(TestCommandEvaGroundScience.TryParseAction("", out _));
@@ -212,6 +215,96 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ActionToken_RoundTripsThroughTryParseAction()
+        {
+            foreach (EvaGroundScienceAction action in new[]
+                { EvaGroundScienceAction.Place, EvaGroundScienceAction.Pickup, EvaGroundScienceAction.Take })
+            {
+                string token = TestCommandEvaGroundScience.ActionToken(action);
+                Assert.True(TestCommandEvaGroundScience.TryParseAction(token, out var parsed));
+                Assert.Equal(action, parsed);
+            }
+        }
+
+        private static GroundTakeCandidate Cand(int container, int slot, string part, double dist)
+            => new GroundTakeCandidate { ContainerIndex = container, Slot = slot, PartName = part, DistanceMeters = dist };
+
+        [Fact]
+        public void ChooseTakeSource_NearestContainerInReachThenLowestSlot()
+        {
+            var cands = new List<GroundTakeCandidate>
+            {
+                Cand(0, 2, "DeployedRTG", 3.0),
+                Cand(0, 1, "DeployedRTG", 3.0),
+                Cand(1, 0, "DeployedRTG", 1.5),
+                Cand(1, 1, "DeployedSeismicSensor", 1.5),
+                Cand(2, 0, "DeployedRTG", 9.0),
+            };
+            GroundTakeSourceChoice c = TestCommandEvaGroundScience.ChooseTakeSource(cands, "DeployedRTG", 5.0);
+            Assert.Equal(GroundTakeSourceDecision.Found, c.Decision);
+            Assert.Equal(1, c.Candidate.ContainerIndex);
+            Assert.Equal(0, c.Candidate.Slot);
+            Assert.Equal(1.5, c.NearestDistanceMeters);
+
+            // Same distance: lower container, then lower slot, independent of input order.
+            cands.RemoveAt(2);
+            c = TestCommandEvaGroundScience.ChooseTakeSource(cands, "DeployedRTG", 5.0);
+            Assert.Equal(0, c.Candidate.ContainerIndex);
+            Assert.Equal(1, c.Candidate.Slot);
+            cands.Reverse();
+            c = TestCommandEvaGroundScience.ChooseTakeSource(cands, "DeployedRTG", 5.0);
+            Assert.Equal(0, c.Candidate.ContainerIndex);
+            Assert.Equal(1, c.Candidate.Slot);
+        }
+
+        [Fact]
+        public void ChooseTakeSource_TellsNotStoredFromOutOfReach()
+        {
+            var cands = new List<GroundTakeCandidate>
+            {
+                Cand(0, 0, "DeployedRTG", 6.25),
+                Cand(1, 0, "evaChute", 0.5),
+            };
+            GroundTakeSourceChoice far = TestCommandEvaGroundScience.ChooseTakeSource(cands, "DeployedRTG", 5.0);
+            Assert.Equal(GroundTakeSourceDecision.OutOfRange, far.Decision);
+            Assert.Equal(6.25, far.NearestDistanceMeters);
+
+            // Reach is inclusive: exactly at the range is still a take.
+            Assert.Equal(GroundTakeSourceDecision.Found,
+                TestCommandEvaGroundScience.ChooseTakeSource(cands, "DeployedRTG", 6.25).Decision);
+
+            GroundTakeSourceChoice none = TestCommandEvaGroundScience.ChooseTakeSource(cands, "DeployedGoExOb", 5.0);
+            Assert.Equal(GroundTakeSourceDecision.NotStored, none.Decision);
+            Assert.Equal(double.MaxValue, none.NearestDistanceMeters);
+
+            // Ordinal part-name match, and the degenerate inputs.
+            Assert.Equal(GroundTakeSourceDecision.NotStored,
+                TestCommandEvaGroundScience.ChooseTakeSource(cands, "deployedrtg", 5.0).Decision);
+            Assert.Equal(GroundTakeSourceDecision.NotStored,
+                TestCommandEvaGroundScience.ChooseTakeSource(null, "DeployedRTG", 5.0).Decision);
+            Assert.Equal(GroundTakeSourceDecision.NotStored,
+                TestCommandEvaGroundScience.ChooseTakeSource(cands, null, 5.0).Decision);
+        }
+
+        [Fact]
+        public void DecideTakeCompletion_NeedsThePartMovedBothWaysForTheSettleWindow()
+        {
+            int settle = TestCommandEvaGroundScience.SettleFrames;
+            Assert.Equal(GroundScienceCompletionDecision.CompleteOk,
+                TestCommandEvaGroundScience.DecideTakeCompletion(1, 120, true, true, settle));
+            // A copy (kerbal holds it, the container still does) is not a take.
+            Assert.Equal(GroundScienceCompletionDecision.StillWaiting,
+                TestCommandEvaGroundScience.DecideTakeCompletion(1, 120, true, false, settle));
+            // A loss (container emptied, kerbal does not hold it) is not a take either.
+            Assert.Equal(GroundScienceCompletionDecision.StillWaiting,
+                TestCommandEvaGroundScience.DecideTakeCompletion(1, 120, false, true, settle));
+            Assert.Equal(GroundScienceCompletionDecision.StillWaiting,
+                TestCommandEvaGroundScience.DecideTakeCompletion(1, 120, true, true, settle - 1));
+            Assert.Equal(GroundScienceCompletionDecision.Timeout,
+                TestCommandEvaGroundScience.DecideTakeCompletion(120, 120, true, false, 0));
+        }
+
+        [Fact]
         public void BuildCompletePayload_IsInvariantAndOrdered()
         {
             CultureInfo saved = Thread.CurrentThread.CurrentCulture;
@@ -229,6 +322,11 @@ namespace Parsek.Tests
                     EvaGroundScienceAction.Pickup, null, 0, 0, -1, 0, 0);
                 Assert.Equal("pickup", q[0].Value);
                 Assert.Equal(string.Empty, q[1].Value);
+                var t = TestCommandEvaGroundScience.BuildCompletePayload(
+                    EvaGroundScienceAction.Take, "DeployedRTG", 7u, 2708531065u, 0, 0, 2.5);
+                Assert.Equal("take", t[0].Value);
+                Assert.Equal("2708531065", t[3].Value);
+                Assert.Equal("2.50", t[6].Value);
             }
             finally
             {

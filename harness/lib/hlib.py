@@ -5776,6 +5776,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # `[[fixture.crewInventory]]` - a roster kerbal's personal inventory, written in
     # stock's own compact CSV form (coverage wave 10). Same module, same reason.
     errors.extend(savepatch.validate_crew_inventory(fixture))
+    # `[[fixture.partInventory]]` - a FLIGHTSTATE container part's stored parts, in
+    # the same compact CSV form (the ground-science cluster lanes, 2026-09-28).
+    errors.extend(savepatch.validate_part_inventory(fixture))
 
     driver = spec.get("driver", {}) or {}
     kind = driver.get("kind")

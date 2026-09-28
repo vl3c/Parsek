@@ -1,0 +1,177 @@
+schema = 1
+id = "EVA-8-ground-science-cluster-place"
+# NIGHTLY (seam lane on a recorded fixture). NEVER FLOWN: authored 2026-09-28 off the
+# operator's manual run `logs/2026-09-28_2231_deployables` (Sandbox, KSP 1.12.5, tree
+# 'rover science': Bob Kerman placed an eleven-part Breaking Ground cluster from a rover's
+# containers beside the KSC). Every token below is a prediction from the emitting source
+# and from that run's log; the first reading run decides what is kept.
+#
+# WHAT IT PROVES. A multi-part Breaking Ground CLUSTER placed by one EVA kerbal records as
+# one tree member PER PLACED PART (BranchPointType.GroundPartPlaced,
+# docs/parsek-flight-recorder-design.md section 4.11), each with its own
+# `InventoryPartPlaced`, and every member left standing finalizes Landed as a leaf. A part
+# picked up and placed again records the pick-up on its first member (ONE
+# `InventoryPartRemoved`, Disassembled) and the re-placement as a NEW member. EVA-5 proves
+# one part placed and picked up on the pad; EVA-6 one part left standing off the pad. This
+# is the first lane with SIBLING members, the shape the operator's defects live on
+# (EVA-9 is the spawn half).
+#
+# THE CARRY LIMIT, and why the lane takes parts from a container. A stock EVA kerbal's
+# inventory is 2 slots, 40 L and 0.065 t (GameData/Squad/Parts/Prebuilt/kerbalEVA.cfg);
+# every deployable is 25-35 L (SquadExpansion/Serenity/Parts/DeployedScience: Central
+# Station 35, RTG 25, seismometer 25, Go-ob 25, solar panel 25, ion 35, weather 35, dish 25),
+# so a kerbal carries ONE at a time, exactly as the operator's Bob did (he walked back to
+# the rover's containers between placements). The host capsule is a Mk1-3 pod, whose own
+# inventory is 3 slots / 200 L (Squad/Parts/Command/Mk1-3Pod/mk1-3.cfg). So Jeb leaves the
+# pod carrying the Central Station, the pod holds the RTG, the seismometer and the Go-ob,
+# and the new `EvaGroundScience action=take` step moves each into his inventory before he
+# places it - stock's own two inventory calls, gated by stock's own
+# GameSettings.EVA_INVENTORY_RANGE and HasCapacity (a take never carries more than a player
+# could). Four parts is the most this host holds inside stock limits (1 on the kerbal + 3
+# in the pod): Central Station + RTG power + TWO experiments. A cluster with three or more
+# experiments needs a host with more container slots (todo
+# GROUND-SCIENCE-CLUSTER-FIVE-PART-HOST).
+#
+# HOST: `kerbin-splashdown-recorded` (EVA-6's host; its header is the authority for the
+# landed-capsule site, 1,690 km from the pad, and for the boot hygiene reused verbatim).
+# Off the pad on purpose: nothing here spawns, but EVA-9 re-flies this chain to the spawn,
+# and a part placed inside the 50 m KSC exclusion zone is retired rather than spawned.
+#
+# NO BOARDING. The recording starts on the kerbal after he is out (EVA-6's reason: the
+# capsule is the fixture's committed tip, which the recorder promotes, and a promotion
+# captures no rewind save), so the capsule is not a member of this tree and a board would
+# be a board into a vessel the tree does not carry. The board-merge path is EVA-5's.
+#
+# PATCHES. `[[fixture.crewInventory]]` (EVA-5's surface) gives Jeb the Central Station
+# alone; `[[fixture.partInventory]]` (new, harness/lib/savepatch.py) seeds the capsule's
+# pod container in the same compact CSV form stock's own ModuleInventoryPart.OnLoad reads.
+# The `place start ... inventory=` and `take start ... sourceInventory=` lines are the
+# proof both patches landed (stock silently drops an unavailable name).
+#
+# PLACEMENT GEOMETRY RISK. `faceAway=true` turns the kerbal away from the NEAREST other
+# vessel, which after the first placement is a placed part rather than the pod; the heading
+# ladder then fans out on a blocked preview. The pod and the placed parts all sit within a
+# few metres, so a placement timeout on this lane reads first as that geometry (todo
+# EVA-GROUND-SCIENCE-PLACEMENT-TIMEOUT-FLAKE), not as a recorder defect.
+tier = "nightly"
+description = "Ground-science CLUSTER placement on kerbin-splashdown-recorded: Jeb steps out of his landed capsule carrying a Central Station, places it, then takes the RTG, the seismometer and the Go-ob one at a time out of the capsule's own inventory (EvaGroundScience action=take, inside stock's EVA reach and the kerbal's 40 L) and places each; he picks the seismometer back up and places it again; commit. Every placement is its own GroundPartPlaced tree member with its own InventoryPartPlaced, every part left standing finalizes Landed as a leaf, the picked-up seismometer ends Disassembled with ONE InventoryPartRemoved, and the re-placement is a NEW member."
+instanceProfile = "stock-minimal"
+tags = ["eva", "inventory", "ground-science", "breaking-ground", "cluster", "EVA-8"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/kerbin-splashdown-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.crewInventory]]
+kerbal    = "Jebediah Kerman"
+inventory = "DeployedCentralStation"
+
+[[fixture.partInventory]]
+pid       = 2708531065
+part      = "mk1-3pod"
+inventory = "DeployedRTG,DeployedSeismicSensor,DeployedGoExOb"
+
+[driver]
+kind = "seam"
+steps = [
+  # ACT 0: EVA-6's boot hygiene (stop + discard the promoted committed-tip continuation).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva8-boot" },                     expect = "OK" },
+  # ACT 1: out of the capsule, recording on the kerbal, the controller first.
+  { cmd = "EvaExit",    args = { release = "true" },                         expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                  expect = "OK", budget = 180 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedCentralStation", faceAway = "true" }, expect = "OK", budget = 120 },
+  # ACT 2: one part at a time out of the pod's container, each placed before the next.
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedRTG" },                                expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedRTG", faceAway = "true" },             expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedSeismicSensor" },                      expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" },   expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "take",  part = "DeployedGoExOb" },                             expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedGoExOb", faceAway = "true" },          expect = "OK", budget = 120 },
+  # ACT 3: pick the seismometer back up and place it again (a NEW member).
+  { cmd = "EvaGroundScience", args = { action = "pickup", part = "DeployedSeismicSensor" },                     expect = "OK", budget = 120 },
+  { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedSeismicSensor", faceAway = "true" },   expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "CommitTree",                                                      expect = "OK", budget = 120 },
+  # CommitTree auto-resumes a recorder on the still-active vessel (H58 flight 1).
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "c0",        expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva8-commit-count-${c0.count}" }, expect = "OK" },
+  { cmd = "SaveGame",                                                        expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# EVA-5's D7 cell, on sibling members (EVA-5 keeps the claim's history).
+D7  = ["inventory-place-remove"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's nine, plus the kerbal (the rewindable root), plus five placed members:
+# Central Station, RTG, seismometer (picked up), Go-ob, seismometer (re-placed).
+count = { min = 15, max = 15 }
+
+[expectations.logContracts]
+required = [
+  "evaexit complete",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # Both patches landed: Jeb carries the controller, the pod holds the other three.
+  "evagroundscience place start kerbal=Jebediah Kerman part=DeployedCentralStation slot=0 inventory=0:DeployedCentralStation",
+  "evagroundscience take start kerbal=Jebediah Kerman part=DeployedRTG source=[^\\r\\n]* sourcePart=mk1-3pod sourceSlot=0 sourceInventory=0:DeployedRTG,1:DeployedSeismicSensor,2:DeployedGoExOb kerbalSlot=0 inventory=<empty> ",
+  "evagroundscience take complete part=DeployedRTG [^\\r\\n]*kerbalSlot=0 inventory=0:DeployedRTG sourceInventory=1:DeployedSeismicSensor,2:DeployedGoExOb",
+  "evagroundscience take complete part=DeployedSeismicSensor [^\\r\\n]*sourceInventory=2:DeployedGoExOb",
+  "evagroundscience take complete part=DeployedGoExOb [^\\r\\n]*sourceInventory=<empty>",
+  # One member per placement, each with its own Placed event keyed to its own part pid.
+  "Ground part placed: tree member created part='DeployedCentralStation' vesselPid=[0-9]+ partPid=([0-9]+) rec=([0-9a-f]+) parentRec=[0-9a-f]+ bp=[0-9a-f]+ ut=[0-9.]+ snapshot=True[\\s\\S]*Part event captured: InventoryPartPlaced 'DeployedCentralStation' pid=\\1 via onDeployGroundPart rec=\\2",
+  "Ground part placed: tree member created part='DeployedRTG' vesselPid=[0-9]+ partPid=([0-9]+) rec=([0-9a-f]+) parentRec=[0-9a-f]+ bp=[0-9a-f]+ ut=[0-9.]+ snapshot=True[\\s\\S]*Part event captured: InventoryPartPlaced 'DeployedRTG' pid=\\1 via onDeployGroundPart rec=\\2",
+  "Ground part placed: tree member created part='DeployedGoExOb' vesselPid=[0-9]+ partPid=([0-9]+) rec=([0-9a-f]+) parentRec=[0-9a-f]+ bp=[0-9a-f]+ ut=[0-9.]+ snapshot=True[\\s\\S]*Part event captured: InventoryPartPlaced 'DeployedGoExOb' pid=\\1 via onDeployGroundPart rec=\\2",
+  # All members share ONE parent: the kerbal's recording keeps recording across them.
+  "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*parentRec=([0-9a-f]+) [\\s\\S]*Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*parentRec=\\1 [\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*parentRec=\\1 [\\s\\S]*Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*parentRec=\\1 [\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*parentRec=\\1 ",
+  # THE PICK-UP: the FIRST seismometer member gets the one Removed and the Disassembled stamp.
+  "Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=([0-9]+) partPid=([0-9]+) rec=([0-9a-f]+) [\\s\\S]*evagroundscience pickup start kerbal=Jebediah Kerman part=DeployedSeismicSensor partPid=\\2 vesselPid=\\1 [\\s\\S]*Part event captured: InventoryPartRemoved 'DeployedSeismicSensor' pid=\\2 via onGroundSciencePartRemoved rec=\\3[\\s\\S]*Recording terminal: kind=Disassembled reason=ground-part-retrieved vessel='[^'\\r\\n]*' pid=\\1 parts=1 rec=\\3 ",
+  "repeat pick-up signal for part='DeployedSeismicSensor' [^\\r\\n]*deduplicated",
+  # THE RE-PLACEMENT: after the pick-up, a second seismometer member with a NEW rec id.
+  "Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=[0-9]+ partPid=([0-9]+) rec=(?!\\1)([0-9a-f]+) [^\\r\\n]*snapshot=True[\\s\\S]*Part event captured: InventoryPartPlaced 'DeployedSeismicSensor' pid=\\2 via onDeployGroundPart rec=\\3",
+  "committree committed=true",
+  # Every member left standing finalizes Landed as a leaf (read at the commit).
+  "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*FinalizeTreeRecordings: rec='\\1' vessel='[^'\\r\\n]*' points=[0-9]+ orbitSegs=0 terminal=Landed [^\\r\\n]*leaf=True",
+  "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*FinalizeTreeRecordings: rec='\\1' vessel='[^'\\r\\n]*' points=[0-9]+ orbitSegs=0 terminal=Landed [^\\r\\n]*leaf=True",
+  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*FinalizeTreeRecordings: rec='\\1' vessel='[^'\\r\\n]*' points=[0-9]+ orbitSegs=0 terminal=Landed [^\\r\\n]*leaf=True",
+  "evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*FinalizeTreeRecordings: rec='\\1' vessel='[^'\\r\\n]*' points=[0-9]+ orbitSegs=0 terminal=Landed [^\\r\\n]*leaf=True",
+  "MISSIONMARK label=eva8-commit-count-15(?:\\s|$)",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "evagroundscience failed",
+  "evagroundscience refused",
+  "Ground part placement not recorded",
+  "Ground part placement dropped",
+  # ONE Removed capture per pick-up, and this lane picks up once.
+  "Part event captured: InventoryPartRemoved[^\\r\\n]*[\\s\\S]*Part event captured: InventoryPartRemoved",
+  # A take is never recorded as a part event on anything.
+  "Part event captured: InventoryPart(?:Placed|Removed) '[^'\\r\\n]*' pid=[0-9]+ via (?!onDeployGroundPart|onGroundSciencePartRemoved)",
+]
+
+[runtime]
+# 300 LoadGame + 120 EvaExit + 180 StartRecording + 5 x 120 place + 120 pickup + 3 x 120
+# take + 120 CommitTree + 120 SaveGame + the single-phase verbs + margin.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

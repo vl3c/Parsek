@@ -3544,7 +3544,7 @@ kRPC 0.5.4 has no inventory or construction API, so nothing unattended could rea
 The verb drives the stock player actions that make stock fire those events. It fires no
 GameEvent itself.
 
-**Grammar.** `cmd=EvaGroundScience action=<place|pickup> part=<name> [faceAway=true]`.
+**Grammar.** `cmd=EvaGroundScience action=<place|pickup|take> part=<name> [faceAway=true]`.
 `part` is the cfg part name (underscores become the runtime dots).
 
 **Place** (decompiled KSP 1.12.5). The inventory PAW slot icon calls
@@ -3575,16 +3575,36 @@ the PAW button does. Stock fires `onGroundSciencePartRemoved` inside it (and aga
 `OnRetractCompleted`), then kills the ground vessel. OK once the vessel is gone and the
 inventory holds the part again, held 30 frames.
 
+**Take** (added 2026-09-28 for the ground-science cluster lanes EVA-8 / EVA-9 / EVA-10). A
+stock kerbal carries 2 slots / 40 L / 0.065 t and every Breaking Ground part is 25-35 L, so a
+cluster rides in a container and the kerbal takes each part out before placing it. The verb
+moves the part named `part` from the NEAREST loaded non-EVA vessel's `ModuleInventoryPart`
+slot holding it (lowest slot on a tie) into the kerbal's first empty slot, through the two
+calls stock's `UIPartActionInventorySlot` makes at the ends of that drag: `ClearPartAtSlot` on
+the source, then `StoreCargoPartAtSlot` on the kerbal with the source's own stored
+`ProtoPartSnapshot` (so the part keeps its identity; a refused store puts it back). Gated by
+stock's own limits: the container part (measured to the nearest point of its colliders) must
+be within `GameSettings.EVA_INVENTORY_RANGE` (5 m in `settings.cfg`), and the kerbal needs a
+free slot and `HasCapacity` for the part's prefab. Logs `evagroundscience take start ...
+source=<vessel> sourcePart=<part> sourceSlot=<i> sourceInventory=<slots> kerbalSlot=<j>
+inventory=<slots> distance=<m> range=<m>` and, once the kerbal holds the part and the source
+slot is empty for 30 frames, `evagroundscience take complete ... inventory=<slots>
+sourceInventory=<slots>`; payload `action=take part partPid vesselPid=<source vessel> slot
+presses=0 distance`. No GameEvent is involved and the recorder records nothing for a take.
+Pure half `TestCommandEvaGroundScience.ChooseTakeSource` / `DecideTakeCompletion`.
+
 **Phases.** TWO-PHASE on a 120 s budget (the EvaExit size), NOT a `DEFERRED_SEAM_VERB`;
 `RequiresFlight` plus the EVA family's `not-eva` defer. hlib tail role world-mutating,
 post-mission role `outcome`.
 
 **Refusals.** REJECTED `bad-action`, `missing-part`, `not-eva`, `no-inventory`,
 `part-not-in-inventory`, `not-deployable`, `no-ground-part`, `no-retrieve-event`,
-`out-of-range`, `inventory-full`; ERROR `place-gate-timeout`, `inventory-window-timeout`,
+`out-of-range`, `inventory-full`, and for a take `not-stored-nearby`, `over-capacity`,
+`no-stored-snapshot`, `take-store-refused`; ERROR `place-gate-timeout`, `inventory-window-timeout`,
 `placement-mode-refused`, `key-injection-unavailable`, `placement-not-accepted`,
 `placement-timeout`, `preview-timeout`, `placed-vessel-timeout`, `pickup-threw`,
-`pickup-timeout`, `kerbal-lost`, each with an `evagroundscience failed reason=` Error line.
+`pickup-timeout`, `take-threw`, `take-timeout`, `kerbal-lost`, each with an
+`evagroundscience failed reason=` Error line.
 
 **Known product consequence.** The recorder keys the Placed event to the placed part's pid,
 which is its OWN vessel, so the kerbal's recording carries a pid its snapshot lacks
