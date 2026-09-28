@@ -19,17 +19,23 @@ tier = "operator"
 # `Parsek/GameState/ledger.pgld`, which carries exactly TWO `type = 5` (contract accept)
 # rows and NO terminal row of any kind - asserted by its builder's `--check` and wired
 # through `CareerContractPadFixtureDriftTests`. So the Contracts view lists two dated
-# accept rows, and the Contracts hover counts both as active against Mission Control
-# L1's two slots (the 2026-09-25 flight of the old window read `0 of 2 slots free
-# (2 active)` off the same shared forecast). Nothing in the recorded future accepts a
-# contract, so no slot is reserved and the reserved clause is absent - the zero-reserved
-# form; the reserved form is unit-proven (`CareerSlotSummaryTests`).
+# accept rows. The hover's counts are NOT the ledger's, and that is by design: they are
+# the LIVE Mission Control forecast (`ContractSlotReservation.ForecastNow()`, the one the
+# accept block reads), which counts stock's own active contracts - and this fixture's
+# stock `CONTRACTS` node is EMPTY by assertion. So the first flight (`2026-09-27_2121`)
+# MEASURED `Contract slots: 2 of 2 free now (0 active).` with `source=live`, beside two
+# ledger accept rows; the ledger fallback is used only when stock's contract state is
+# unreadable. Nothing in the recorded future accepts a contract, so no slot is reserved
+# and the reserved clause is absent - the zero-reserved form; the reserved form is
+# unit-proven (`CareerSlotSummaryTests`).
 #
-# THE HOVER CAPTURE IS AN ATTEMPT, and the lane says so rather than claiming a picture.
-# `op=pointer` lands the OS cursor on the control, but IMGUI's hover has not painted on any
-# census flight (GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: `Event.current`'s mouse
-# position never follows the cursor). `focus=true nudge=true` are the strongest settings
-# the op has. The COUNTS do not depend on it: the tree dump records every control's
+# THE HOVER CAPTURE IS NOT A GATE. On the first flight (`2026-09-27_2121`) it PAINTED: the
+# echo strip of `cc-timeline-contracts-hover-advanced.png` reads the whole hover, although
+# the pointer step's own read-back said `tooltip=-` (the park step read it a moment later,
+# `tooltipFrame=5947`). On the second (`_2126`) it did not paint, and the pointer answer
+# says `via=find-product` rather than `via=active` - the known intermittent
+# GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT - so the pointer pin regexes both
+# `via=` spellings. The COUNTS do not depend on it: the tree dump records every control's
 # GUIContent tooltip, so `cc-timeline-contracts-advanced.gui.json` carries the whole hover
 # text on the `Contracts` node whether or not the strip painted, and the log line below
 # pins the same string.
@@ -112,9 +118,8 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # This lane's OWN seam records, the ONE production line that says the ledger sidecar
 # loaded at all (its README: "Its `Accept:` line is what says the sidecar loaded at all"),
-# and the hover rebuild line that carries the slot counts verbatim. The limit is pinned
-# (Mission Control L1, two slots); the active count is one or two, because the fixture's
-# second contract carries a UT-100 deadline and a slow boot can pass it.
+# and the hover rebuild line that carries the slot counts verbatim, pinned WHOLE off the
+# first flight (`2026-09-27_2121`, see the header for why the live count is 0 active).
 #
 # The describe echoes are the in-run mapping check: `open=<n> openWindows=<names>`
 # pinned as a literal is an EXACT claim, since a third open window would move the count.
@@ -122,9 +127,9 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
   "Accept:",
-  "\\[Parsek\\]\\[VERBOSE\\]\\[Timeline\\] Career slot hover rebuilt .*contractSlots=active=[12]/limit=2/.*contractsHover='Only contract rows, past and future\\. Contract slots: [0-9]+ of 2 free now \\([12] active\\)\\.' strategiesHover='Only strategy rows, past and future\\. Strategy slots: 1 of 1 free now \\(0 active\\)\\.'",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[Timeline\\] Career slot hover rebuilt liveUT=[0-9]+ contractSlots=active=0/limit=2/peak=0/reserved=0/free=2/source=live strategySlots=active=0/limit=1/peak=0/reserved=0/free=1 missionControl=L1 administration=L1 contractsHover='Only contract rows, past and future\\. Contract slots: 2 of 2 free now \\(0 active\\)\\.' strategiesHover='Only strategy rows, past and future\\. Strategy slots: 1 of 1 free now \\(0 active\\)\\.'",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction find window=timeline text=Contracts ctrl=\\w+ match=exact matches=[0-9]+ rect=",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=false via=\\w+ frames=[0-9]+ focus=true nudge=(true|false) fgOutcome=(already|direct|attached|refused|no-window) fg=(true|false) tooltip=",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=false via=[a-z-]+ frames=[0-9]+ focus=true nudge=(true|false) fgOutcome=(already|direct|attached|refused|no-window) fg=(true|false) tooltip=",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=true via=",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=cc-timeline-contracts-advanced",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cc-main-advanced .*patched=17/17",
