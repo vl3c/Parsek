@@ -2236,7 +2236,10 @@ pairing rule):
   kerbal a committed flight holds now (`ReservedActive`: on-flight or lost; a retired stand-in
   is not held, his flights are over) aboard a vessel that continues no committed flight (a
   Parsek-spawned or adopted vessel, `CrewReservationManager.ActiveVesselIsParsekSpawned`, is
-  exempt, the flight-ready swap's own exemption). Marks: `KerbalPortrait.Update` postfix greys
+  exempt, the flight-ready swap's own exemption), and never while a Re-Fly session is active
+  (design 3.3.1: the origin's rows stay effective until the merge, and the crew dialog's
+  pid-only carve-out misses a decoupled / undocked child or a dock that keeps the other pid,
+  so the whole block stands down for the session; review blocker on PR #1917). Marks: `KerbalPortrait.Update` postfix greys
   the portrait EVA button with the reason in stock's `evaTooltip` (after stock's own locked
   reason when stock also refuses); `CrewHatchDialog.CreateList` postfix greys the hatch row's
   EVA and Transfer with the reason in a stock tooltip and the status on the row's name label.

@@ -1231,7 +1231,8 @@ _(unreleased — entries accumulate here per commit)_
   dialog's EVA and Transfer buttons are now greyed for him with the reason in their tooltip
   (the hatch row also shows his status), and stock's EVA and transfer entry points refuse
   him with the same text. Kerbals aboard a vessel Parsek spawned or adopted for a committed
-  flight fly on as before, and a retired stand-in is not held.
+  flight fly on as before, a retired stand-in is not held, and nothing is blocked while a
+  Re-Fly is in progress (its crew may EVA and transfer from any vessel of the re-fly).
 - **Administration now says when a strategy stock refuses is activated later.** With every
   strategy slot in use, the strategy the committed timeline activates later showed only
   stock's "cannot support more than N active strategies"; the committed activation date now

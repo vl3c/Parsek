@@ -39,6 +39,13 @@ namespace Parsek
     /// adopted vessel (<c>CrewReservationManager.ActiveVesselIsParsekSpawned</c>, the same
     /// exemption the flight-ready crew swap applies). Flying on from a committed flight's
     /// end is how a hold ends (recovery from a vessel continuing that flight).</item>
+    /// <item>never while a Re-Fly session is active (design section 3.3.1: EVA and transfer
+    /// are not blocked during a re-fly). The origin flight's rows stay effective until the
+    /// merge, so the re-fly crew read as held; the crew dialog's carve-out
+    /// (<c>CrewReservationManager.IsLiveReFlyCrew</c>) only recognises the provisional
+    /// vessel by its pid, which a decoupled / undocked child or a dock that keeps the other
+    /// pid does not share. The whole block stands down for the session instead of trying
+    /// to scope the re-fly's live tree; the merge settles the holds.</item>
     /// </list></para>
     ///
     /// <para>Controls, stock mechanisms only (owner ruling D1): the portrait EVA button is
@@ -74,9 +81,11 @@ namespace Parsek
         /// is true when the kerbal is aboard a Parsek-spawned or adopted vessel.
         /// </summary>
         internal static bool IsMoveRefused(
-            bool refusedByCrewDialog, KerbalReservationKind kind, bool vesselContinuesCommittedFlight)
+            bool refusedByCrewDialog, KerbalReservationKind kind, bool vesselContinuesCommittedFlight,
+            bool reFlySessionActive = false)
         {
-            return refusedByCrewDialog
+            return !reFlySessionActive
+                && refusedByCrewDialog
                 && kind == KerbalReservationKind.ReservedActive
                 && !vesselContinuesCommittedFlight;
         }
@@ -95,9 +104,10 @@ namespace Parsek
             CommittedFutureIndex index,
             AstronautComplexContext context,
             Func<double, string> formatDate,
-            string tab = CrewHatchTab)
+            string tab = CrewHatchTab,
+            bool reFlySessionActive = false)
         {
-            bool refused = IsMoveRefused(refusedByCrewDialog, kind, vesselContinuesCommittedFlight);
+            bool refused = IsMoveRefused(refusedByCrewDialog, kind, vesselContinuesCommittedFlight, reFlySessionActive);
             var d = StockUiCrewDialogDecoration.Decide(
                 kerbalName, refused, refused ? kind : KerbalReservationKind.NotManaged,
                 index, context, formatDate);
@@ -135,6 +145,32 @@ namespace Parsek
         /// <summary>Test seam for the vessel-continuation check. Null in production (the ERS).</summary>
         internal static Func<uint, string, bool> VesselContinuesProviderForTesting;
 
+        /// <summary>Test seam for "a Re-Fly session is active". Null in production (the
+        /// scenario's <c>ActiveReFlySessionMarker</c>).</summary>
+        internal static Func<bool> ReFlySessionActiveProviderForTesting;
+
+        // The last stand-down state logged, so the per-hover decision logs transitions only.
+        private static bool? lastReFlyStandDown;
+
+        /// <summary>True while a Re-Fly session is active; logs only when that changes.</summary>
+        internal static bool ReFlySessionActive()
+        {
+            var seam = ReFlySessionActiveProviderForTesting;
+            bool active = seam != null
+                ? seam()
+                : ParsekScenario.Instance?.ActiveReFlySessionMarker != null;
+            if (lastReFlyStandDown != active)
+            {
+                lastReFlyStandDown = active;
+                if (active)
+                    ParsekLog.Info(BlockTag, "Re-Fly session active: EVA and crew transfer are not blocked "
+                        + "until it ends (design 3.3.1; the merge settles the holds)");
+                else
+                    ParsekLog.Verbose(BlockTag, "No Re-Fly session: EVA and crew transfer of held kerbals are blocked again");
+            }
+            return active;
+        }
+
         /// <summary>
         /// True when the vessel (pid + launch guid) is a Parsek-spawned or adopted vessel of a
         /// committed flight, judged over the Effective Recording Set.
@@ -158,14 +194,16 @@ namespace Parsek
             var kind = refusedByDialog && kerbals != null
                 ? kerbals.GetReservationKind(kerbalName)
                 : KerbalReservationKind.NotManaged;
+            bool reFly = refusedByDialog && kind == KerbalReservationKind.ReservedActive && ReFlySessionActive();
             bool continues = refusedByDialog
                 && kind == KerbalReservationKind.ReservedActive
+                && !reFly
                 && VesselContinuesCommittedFlight(vesselPid, vesselGuid);
-            bool refused = IsMoveRefused(refusedByDialog, kind, continues);
+            bool refused = IsMoveRefused(refusedByDialog, kind, continues, reFly);
             return Decide(kerbalName, refusedByDialog, kind, continues,
                 refused ? CommittedFutureIndexCache.Current : null,
                 refused ? StockUiOverlayController.BuildLiveAstronautContext(null) : null,
-                ReservationExplanation.DefaultDateFormatter, tab);
+                ReservationExplanation.DefaultDateFormatter, tab, reFly);
         }
 
         /// <summary>
@@ -391,6 +429,8 @@ namespace Parsek
         {
             portraitStates = new ConditionalWeakTable<KerbalPortrait, PortraitState>();
             VesselContinuesProviderForTesting = null;
+            ReFlySessionActiveProviderForTesting = null;
+            lastReFlyStandDown = null;
         }
     }
 }

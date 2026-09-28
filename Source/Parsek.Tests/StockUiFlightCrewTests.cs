@@ -289,6 +289,59 @@ namespace Parsek.Tests
             Assert.Empty(dialogReasons);
         }
 
+        /// <summary>
+        /// Review blocker on PR #1917: during a Re-Fly the origin flight's rows stay effective,
+        /// so the re-fly crew read ReservedActive, and the crew dialog's carve-out only knows
+        /// the provisional vessel by its pid. A crewed child that decoupled or undocked (a new
+        /// pid) must still be free to EVA and transfer (design 3.3.1): the block stands down
+        /// for the whole session. Provisional pid 100, a marker naming it, active vessel 200.
+        /// </summary>
+        [Fact]
+        public void ReFlySession_KerbalAboardAVesselThatIsNotTheProvisional_IsNotRefused()
+        {
+            SeedHeldKerbals();
+            var provisional = MakeRecording("Re-Fly", new[] { "Jeb" }, TerminalState.Landed, 1000);
+            provisional.RecordingId = "rec-refly-provisional";
+            provisional.VesselPersistentId = 100;
+            provisional.MergeState = MergeState.NotCommitted;
+            RecordingStore.AddRecordingWithTreeForTesting(provisional);
+            // Jeb is held before the session starts.
+            Assert.True(StockUiFlightCrewDecoration.DescribeCurrent("Jeb", 200, null).Blocked);
+
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    SessionId = "sess-1",
+                    ActiveReFlyRecordingId = "rec-refly-provisional",
+                    OriginChildRecordingId = "rec-origin"
+                }
+            });
+            logLines.Clear();
+
+            Assert.Equal(KerbalReservationKind.ReservedActive, LedgerOrchestrator.Kerbals.GetReservationKind("Jeb"));
+            var d = StockUiFlightCrewDecoration.DescribeCurrent("Jeb", 200, null);
+            Assert.False(d.Blocked);
+            Assert.False(d.Marked);
+            Assert.True(StockUiFlightCrewDecoration.ShouldAllowMove("Jeb", 200, null, FlightCrewMove.Eva, "test"));
+            Assert.True(StockUiFlightCrewDecoration.ShouldAllowMove("Jeb", 200, null, FlightCrewMove.Transfer, "test"));
+            Assert.Empty(dialogReasons);
+            // The stand-down is logged once for the session, not per decision.
+            Assert.Single(logLines, l => l.Contains("[CrewMove]") && l.Contains("Re-Fly session active"));
+
+            // Session over: the block comes back, logged once.
+            ParsekScenario.ResetInstanceForTesting();
+            Assert.True(StockUiFlightCrewDecoration.DescribeCurrent("Jeb", 200, null).Blocked);
+            Assert.Single(logLines, l => l.Contains("[CrewMove]") && l.Contains("No Re-Fly session"));
+        }
+
+        [Fact]
+        public void IsMoveRefused_NeverDuringAReFlySession()
+        {
+            Assert.False(StockUiFlightCrewDecoration.IsMoveRefused(true, KerbalReservationKind.ReservedActive, false, true));
+            Assert.True(StockUiFlightCrewDecoration.IsMoveRefused(true, KerbalReservationKind.ReservedActive, false, false));
+        }
+
         [Fact]
         public void Backstops_NoCrewOrNoLedger_Allow_WithNoDialog()
         {
