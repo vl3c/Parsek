@@ -314,6 +314,8 @@ The fact + rule + way-out composition above is retired. Every player-facing rese
 | Flight crew hatch dialog (K2) | the row's own name label `Name (Reserved until ...)` | EVA / Transfer: greyed, the reason on a stock tooltip |
 | Flight crew portrait (K2) | none: the portrait's crew tooltip is stock's `TooltipController_CrewAC`, not annotated | EVA: greyed, the reason in stock's own `evaTooltip` |
 
+Live reading: `GUI-28-census-stock-screens` run `2026-09-28_1827` (PASS) shows the new sentence on the R&D, Mission Control, Administration, facility-menu and Astronaut Complex captures, the button tooltips logged per surface, and Administration's selected Outsourced R&D reading stock's "cannot support more than 1 active strategies" followed by `Activated on Y1, D08, 02:26, blocked by timeline until then.` (gap 2).
+
 Left without text: the Mission Control slot-refused rows (no row mark by design, C2); the portrait element (only its EVA button speaks). `StockUiReasonTooltip` needs a stock tooltip prefab: on an install with none it logs one Warn and the button keeps only its greyed look, with the reason still on the element.
 
 ## 7. Decision analysis: Decline and Cancel on contracts the committed future relies on
