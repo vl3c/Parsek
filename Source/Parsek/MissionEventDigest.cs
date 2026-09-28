@@ -395,7 +395,9 @@ namespace Parsek
                 Recording rec = entry.Value;
                 if (rec == null || rec.IsDebris || !rec.TerminalStateValue.HasValue)
                     continue;
-                if (!string.IsNullOrEmpty(rec.ChildBranchPointId) && !tree.IsVesselLineEnd(rec))
+                if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
+                    && !RecordingTree.IsVesselLineEnd(
+                        rec, tree.Recordings, tree.BranchPoints, allowClosedAtBranch: true))
                     continue;
                 TerminalState state = rec.TerminalStateValue.Value;
                 if (state == TerminalState.Docked || state == TerminalState.Boarded)

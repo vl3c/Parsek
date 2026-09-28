@@ -3093,8 +3093,13 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
                         && sessionAuthoredBpIds.Contains(rec.ChildBranchPointId))
                     {
-                        rec.ChildBranchPointId = null;
+                        string removedBpId = rec.ChildBranchPointId;
+                        rec.ChildBranchPointId = FindOverwrittenContinuingBranchPointId(segmentTree, rec);
                         rec.MarkFilesDirty();
+                        if (rec.ChildBranchPointId != null)
+                            ParsekLog.Info("SwitchSegment",
+                                $"Discard: restored rec={rec.RecordingId} childBranchPointId={rec.ChildBranchPointId} " +
+                                $"(the removed session branch {removedBpId} had overwritten it)");
                     }
                 }
             }
@@ -3401,6 +3406,30 @@ namespace Parsek
             }
 
             return ids;
+        }
+
+        /// <summary>
+        /// The branch point a later split overwrote on <paramref name="rec"/>: the latest
+        /// surviving Breakup / JointBreak / Launch branch that still lists the recording as a
+        /// parent (a breakup-continuous recording keeps flying past those, so a switch
+        /// continuation attached under it replaced the link). Null when there is none.
+        /// </summary>
+        internal static string FindOverwrittenContinuingBranchPointId(RecordingTree tree, Recording rec)
+        {
+            if (tree?.BranchPoints == null || rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return null;
+            BranchPoint best = null;
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                BranchPoint bp = tree.BranchPoints[b];
+                if (bp == null || bp.ParentRecordingIds == null
+                    || !RecordingTree.BranchTypeCanLeaveParentRecording(bp.Type)
+                    || !bp.ParentRecordingIds.Contains(rec.RecordingId))
+                    continue;
+                if (best == null || bp.UT > best.UT)
+                    best = bp;
+            }
+            return best?.Id;
         }
 
         internal static void EnqueueParentedBranchChildren(

@@ -465,10 +465,15 @@ namespace Parsek
             return IsVesselLineEnd(rec, Recordings, BranchPoints);
         }
 
+        /// <param name="allowClosedAtBranch">True for a committed reader that already knows
+        /// the recording's own terminal: a recording closed AT its split with no same-PID child
+        /// still ended its vessel there. Live readers leave it false, since such a recording
+        /// may carry no terminal at all.</param>
         internal static bool IsVesselLineEnd(
             Recording rec,
             Dictionary<string, Recording> recordings,
-            IList<BranchPoint> branchPoints)
+            IList<BranchPoint> branchPoints,
+            bool allowClosedAtBranch = false)
         {
             if (rec == null)
                 return false;
@@ -476,7 +481,7 @@ namespace Parsek
                 return false;
             if (rec.ChildBranchPointId == null)
                 return true;
-            return ChildBranchLeavesVesselLineOpen(rec, recordings, branchPoints);
+            return ChildBranchLeavesVesselLineOpen(rec, recordings, branchPoints, allowClosedAtBranch);
         }
 
         /// <summary>
@@ -497,12 +502,14 @@ namespace Parsek
         /// The branch-point half of <see cref="IsVesselLineEnd(Recording)"/>, ignoring chain
         /// segments: true when <paramref name="rec"/>'s child branch point is in the tree, is a
         /// type that can leave its parent running (<see cref="BranchTypeCanLeaveParentRecording"/>),
-        /// and has no child sharing the recording's vessel PID.
+        /// the recording was not closed at it (explicit end at or before the branch UT), and no
+        /// child shares the recording's vessel PID.
         /// </summary>
         internal static bool ChildBranchLeavesVesselLineOpen(
             Recording rec,
             Dictionary<string, Recording> recordings,
-            IList<BranchPoint> branchPoints)
+            IList<BranchPoint> branchPoints,
+            bool allowClosedAtBranch = false)
         {
             if (rec == null || string.IsNullOrEmpty(rec.ChildBranchPointId)
                 || rec.VesselPersistentId == 0 || branchPoints == null)
@@ -518,6 +525,14 @@ namespace Parsek
                 }
             }
             if (bp == null || !BranchTypeCanLeaveParentRecording(bp.Type))
+                return false;
+
+            // Closed AT the split: BackgroundRecorder.CloseParentRecording writes
+            // ExplicitEndUT = branch UT synchronously, and its "parent vessel destroyed" path
+            // adds no same-PID child and stamps no terminal. A recording that keeps flying past
+            // the branch never has an explicit end at or before it.
+            if (!allowClosedAtBranch
+                && !double.IsNaN(rec.ExplicitEndUT) && rec.ExplicitEndUT <= bp.UT)
                 return false;
 
             if (bp.ChildRecordingIds != null && recordings != null)

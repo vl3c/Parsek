@@ -28,8 +28,13 @@ staged vessel: see the CHANGELOG entry for the player-visible list.
 **Fix.** Two predicates, chosen by whether the reader can trust UTs:
 - `RecordingTree.IsVesselLineEnd` / `ChildBranchLeavesVesselLineOpen` (live-safe, reads no UTs):
   the branch is a Breakup / JointBreak / Launch (`BranchTypeCanLeaveParentRecording`), no child
-  shares the PID, and no later chain segment continues the recording. Used on live trees, where
-  the recorder may not have flushed the parent's points yet.
+  shares the PID, the recording was not closed AT the branch (`ExplicitEndUT <= bp.UT`, which
+  `BackgroundRecorder.CloseParentRecording` writes synchronously; its "parent vessel destroyed"
+  path leaves no same-PID child and no terminal, and the PR review showed such a parent would
+  otherwise re-enter the BackgroundMap, get stretched to commit UT and respawn), and no later chain
+  segment continues the recording. Used on live trees, where the recorder may not have flushed
+  the parent's points yet. `MissionEventDigest` opts out of the closed-at-branch refusal
+  (`allowClosedAtBranch`) because it already reads the recording's own terminal.
 - `GhostPlaybackLogic.RecordingContinuesPastChildBranch` (committed trees): the same shape plus
   PR #1918's `RecordingContinuedPastBranchPoint` end-UT test, for readers that must still follow a
   child when the parent ended AT the split (a crash breakup).
@@ -48,7 +53,10 @@ fixed, each with tests both ways (`BreakupContinuousLeafTests`, one CommNet cell
 - `RecordingTree.GetSpawnableLeaves` / `GetAllLeaves`: the staged rocket missed pre-switch commit
   adoption and the merge dialog's vessel decisions (`BuildDefaultVesselDecisions`).
 - `SwitchSegmentBuilder` resolver + creator: Switch-To back onto a staged rocket started a standalone
-  segment (`no-terminal-leaf`) instead of continuing it.
+  segment (`no-terminal-leaf`) instead of continuing it. The attached continuation overwrites the
+  parent's staging link; a scoped Discard now restores it from the latest surviving Breakup /
+  JointBreak / Launch branch that lists the parent (`FindOverwrittenContinuingBranchPointId`)
+  instead of nulling it.
 - `ParsekFlight.CreateSplitBranchFromBackgroundParent`: EVA from a switched-back staged rocket aborted
   "already has child branch" (guard extracted as `BackgroundParentAlreadySplit`).
 - `ParsekFlight.ShouldAllowFinalEndpointSegmentPhase`: staged flights got no final SegmentPhase.

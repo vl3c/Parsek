@@ -255,9 +255,54 @@ namespace Parsek.Tests
             return MakeTree("tree-undock", new[] { p, c, o }, new[] { undock });
         }
 
+        /// <summary>
+        /// BackgroundRecorder's decouple with the parent destroyed in the same frame:
+        /// CloseParentRecording set ExplicitEndUT = branch UT, no same-PID continuation was
+        /// created and nothing stamped a terminal. P (pid 500) ended at bp-j.
+        /// </summary>
+        static RecordingTree ClosedAtSplitNoContinuationTree()
+        {
+            var p = MakeRecording("P", 500, 1000, 1100, childBpId: "bp-j");
+            p.VesselSnapshot = new ConfigNode("VESSEL");
+            var f1 = MakeRecording("F1", 501, 1100, 1150, terminal: TerminalState.Destroyed, parentBpId: "bp-j");
+            var f2 = MakeRecording("F2", 502, 1100, 1150, terminal: TerminalState.Destroyed, parentBpId: "bp-j");
+            var r = MakeRecording("R", 100, 1000, 1300);
+            var j = MakeBranchPoint("bp-j", BranchPointType.JointBreak, 1100, 0,
+                new[] { "P" }, new[] { "F1", "F2" });
+            var tree = MakeTree("tree-closed", new[] { r, p, f1, f2 }, new[] { j });
+            tree.ActiveRecordingId = "R";
+            return tree;
+        }
+
         #endregion
 
         #region RecordingTree.IsVesselLineEnd
+
+        [Fact]
+        public void IsVesselLineEnd_ClosedAtSplitWithoutContinuation_False()
+        {
+            var tree = ClosedAtSplitNoContinuationTree();
+            var p = tree.Recordings["P"];
+
+            Assert.False(tree.IsVesselLineEnd(p));
+            // A committed reader that already holds the recording's terminal may opt in.
+            Assert.True(RecordingTree.IsVesselLineEnd(p, tree.Recordings, tree.BranchPoints,
+                allowClosedAtBranch: true));
+        }
+
+        [Fact]
+        public void LiveReaders_ClosedAtSplitWithoutContinuation_StayClosed()
+        {
+            var tree = ClosedAtSplitNoContinuationTree();
+
+            tree.RebuildBackgroundMap();
+            Assert.False(tree.BackgroundMap.ContainsKey(500));
+
+            Assert.True(RecordingTree.AreAllLeavesTerminal(tree, activeVesselDestroyed: true));
+            Assert.DoesNotContain(tree.GetSpawnableLeaves(), r => r.RecordingId == "P");
+            Assert.DoesNotContain(tree.GetAllLeaves(), r => r.RecordingId == "P");
+            Assert.True(ParsekFlight.BackgroundParentAlreadySplit(tree.Recordings["P"], tree));
+        }
 
         [Fact]
         public void IsVesselLineEnd_BreakupContinuousParent_True()
@@ -570,6 +615,24 @@ namespace Parsek.Tests
             Assert.Contains("S", ids);
             Assert.Contains("Q", ids);
             Assert.Contains("P", ids);
+        }
+
+        [Fact]
+        public void FindOverwrittenContinuingBranchPointId_RestoresLatestStaging_IgnoresOthers()
+        {
+            // RA staged twice (bp1 at 1100, bp2 at 1150), then a switch continuation overwrote
+            // its link. A GroundPartPlaced branch also lists RA but never carried the link.
+            var tree = StagedThenSwitchedTree();
+            var bp2 = MakeBranchPoint("bp-stage2", BranchPointType.JointBreak, 1150, 0,
+                new[] { "RA" }, new string[0]);
+            var ground = MakeBranchPoint("bp-ground", BranchPointType.GroundPartPlaced, 1180, 0,
+                new[] { "RA" }, new string[0]);
+            tree.BranchPoints.Add(bp2);
+            tree.BranchPoints.Add(ground);
+
+            Assert.Equal("bp-stage2",
+                RecordingStore.FindOverwrittenContinuingBranchPointId(tree, tree.Recordings["RA"]));
+            Assert.Null(RecordingStore.FindOverwrittenContinuingBranchPointId(tree, tree.Recordings["RB"]));
         }
 
         [Fact]
