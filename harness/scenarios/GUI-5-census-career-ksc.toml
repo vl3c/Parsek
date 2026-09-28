@@ -60,7 +60,7 @@ tier = "operator"
 # THE `Kerbals` LAUNCHER IS THE HOVER TARGET (the `Career` launcher it replaced went with
 # the Career window on 2026-09-27), and that is deliberate: the main window's echo strip is
 # one of the two-line variants (inventory section 7), the launcher's tooltip ("Who is
-# reserved, flying or retired in your timeline.") is a fixed literal, and the control exists
+# reserved, flying or retired on timeline.") is a fixed literal, and the control exists
 # in both modes on every host - so the capture is about the STRIP's layout and not about
 # whatever row a save happened to put under the cursor.
 #

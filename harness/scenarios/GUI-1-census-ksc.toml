@@ -351,7 +351,7 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
   # THE NEAR-MISS SUBSECTION, EXPANDED. The one line item this host buys that no other
-  # can: the collapsed header `Recently committed trees not yet eligible (N)` is already
+  # can: the collapsed header `Recently merged trees not yet eligible (N)` is already
   # in the capture above, and every one of the reject strings under it
   # (LogisticsRejectPresentation.DescribeNearMiss over RouteCreationFormatters) has been
   # dark in every census dump, because nothing ever expanded it. The key is the window's

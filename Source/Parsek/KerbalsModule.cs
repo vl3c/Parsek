@@ -2389,7 +2389,8 @@ namespace Parsek
                         continue;
                     if (CrewReservationManager.IsLiveReFlyCrew(pcm))
                     {
-                        ParsekLog.Verbose("ReFlySession",
+                        // Rate-limited per kerbal: a hovered re-fly portrait asks about once a second.
+                        ParsekLog.VerboseRateLimited("ReFlySession", "crew-dialog-carve-out|" + kerbalName,
                             $"Crew dialog carve-out: '{kerbalName}' is live re-fly crew — bypassing filter");
                         return false;
                     }

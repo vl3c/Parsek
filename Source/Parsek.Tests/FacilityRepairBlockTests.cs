@@ -83,8 +83,7 @@ namespace Parsek.Tests
             new List<FacilityRepairCapture.BuildingRepairInput> { B(PadBuilding, padDestroyed), B(PadTower, towerDestroyed) };
 
         private static string Expected(string date) =>
-            "Repaired on " + date + " on your committed timeline. " + ReservationExplanation.TimelineRule
-            + " The repair happens on that date.";
+            "Repaired on " + date + ", blocked by timeline until then.";
 
         // ---------------- index ----------------
 
@@ -186,8 +185,7 @@ namespace Parsek.Tests
             var index = CommittedFutureIndexCache.Current;
 
             var both = StockUiReservationPredicates.ExplainFacilityRepair(index, Pad(true, true), 500, Fmt);
-            Assert.Equal("Repaired on D10 and D20 on your committed timeline. " + ReservationExplanation.TimelineRule
-                + " The repairs happen on those dates.", both.Body);
+            Assert.Equal("Repaired on D10 and D20, blocked by timeline until then.", both.Body);
             // The pad is repaired by the walk at 1000; the tower is still covered.
             Assert.True(StockUiReservationPredicates.IsFacilityRepairBlocked(index, Pad(false, true), 1500));
             Assert.Equal(Expected("D20"),
@@ -199,9 +197,8 @@ namespace Parsek.Tests
         {
             var entry = new CommittedFutureEntry(CommittedFutureKind.FacilityRepair, PadBuilding, 1000, "rec-1", "Pad Fixer");
             var text = ReservationExplanation.FacilityRepair(new[] { entry }, Fmt);
-            Assert.Equal("Repaired on D10 by the committed flight 'Pad Fixer'. " + ReservationExplanation.TimelineRule
-                + " The repair happens on that date.", text.Body);
-            Assert.Equal("Repaired on your committed timeline. " + ReservationExplanation.TimelineRule,
+            Assert.Equal("Repaired on D10, blocked by timeline until then.", text.Body);
+            Assert.Equal("Repaired later, blocked by timeline.",
                 ReservationExplanation.FacilityRepair(new CommittedFutureEntry[0], Fmt).Body);
         }
 
@@ -244,7 +241,7 @@ namespace Parsek.Tests
             StockUiDecorationQuery.LogFacilityMenuRepair(d, false, true, "values modified");
             Assert.Contains(logLines, l => l.Contains("[VERBOSE][StockUiOverlay]")
                 && l.Contains("decorate screen=FacilityMenu tab=Repair item=SpaceCenter/LaunchPad kind=FacilityRepair "
-                    + "marked=true blocked=true why=\"Repaired on D10 on your committed timeline."));
+                    + "marked=true blocked=true why=\"Repaired on D10, blocked by timeline until then."));
 
             StockUiDecorationQuery.LogFacilityMenuRepair(
                 StockUiDecorationQuery.ForFacilityMenuRepair(index, 500, VabId, new[] { B(VabBuilding, false) }, false, Fmt),

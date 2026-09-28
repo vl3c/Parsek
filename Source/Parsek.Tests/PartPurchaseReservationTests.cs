@@ -206,19 +206,15 @@ namespace Parsek.Tests
             var text = StockUiReservationPredicates.ExplainPartPurchase(index, Booster, 100, Fmt);
 
             Assert.Equal("Purchased on D5", text.Title);
-            Assert.Equal(
-                "Purchased on D5 by the committed flight 'Pod Test'. " +
-                "Parsek's timeline is fixed once committed, so this cannot happen earlier or twice. " +
-                "It becomes available on that date.",
-                text.Body);
+            Assert.Equal("Purchased on D5, blocked by timeline until then.", text.Body);
         }
 
         [Fact]
-        public void Explanation_KscRow_SaysOnYourCommittedTimeline()
+        public void Explanation_KscRow_ReadsTheSameSentence()
         {
             var index = Index(Purchase(500, Pod, 1600f));
             var text = StockUiReservationPredicates.ExplainPartPurchase(index, Pod, 100, Fmt);
-            Assert.StartsWith("Purchased on D5 on your committed timeline.", text.Body);
+            Assert.Equal("Purchased on D5, blocked by timeline until then.", text.Body);
         }
 
         [Fact]
@@ -233,9 +229,8 @@ namespace Parsek.Tests
                 new[] { new KeyValuePair<string, ReservationText>("Pod", a) }));
 
             Assert.Equal(
-                "Pod: Purchased on D5 on your committed timeline.\n" +
-                "Booster: Purchased on D7 by the committed flight 'Flight B'.\n" +
-                ReservationExplanation.TimelineRule + " They become available on those dates.",
+                "Pod: Purchased on D5, blocked by timeline until then.\n" +
+                "Booster: Purchased on D7, blocked by timeline until then.",
                 StockUiPartPurchase.BuildPurchaseAllSkipReason(new[]
                 {
                     new KeyValuePair<string, ReservationText>("Pod", a),

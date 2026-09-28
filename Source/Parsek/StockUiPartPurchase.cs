@@ -243,23 +243,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The purchase-all dialog body: one line per skipped part (its title and the fact),
-        /// then the shared rule and the way out. A single skipped part gets the full body.
-        /// Pure.
+        /// The purchase-all dialog body: one line per skipped part, its title and the same
+        /// sentence its own tooltip shows. Pure.
         /// </summary>
         internal static string BuildPurchaseAllSkipReason(IList<KeyValuePair<string, ReservationText>> skipped)
         {
             if (skipped == null || skipped.Count == 0) return "";
-            if (skipped.Count == 1)
-                return skipped[0].Key + ": " + skipped[0].Value.Body;
             var sb = new StringBuilder();
             for (int i = 0; i < skipped.Count; i++)
             {
                 if (sb.Length > 0) sb.Append('\n');
-                sb.Append(skipped[i].Key).Append(": ").Append(skipped[i].Value.Fact);
+                sb.Append(skipped[i].Key).Append(": ").Append(skipped[i].Value.Body);
             }
-            sb.Append('\n').Append(ReservationExplanation.TimelineRule)
-              .Append(" They become available on those dates.");
             return sb.ToString();
         }
 

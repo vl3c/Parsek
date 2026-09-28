@@ -108,5 +108,17 @@ namespace Parsek
         /// <c>TimelineWindowUI.ScrollToCareerSubject</c> scrolls to. Null when None.
         /// </summary>
         public string CareerSubjectId;
+        /// <summary>
+        /// The ledger row this entry was built from (the compacted copy for a folded facility
+        /// row), or null on recording and legacy rows. Runtime only, like the entry itself:
+        /// the row hover reads the row's own fields (contract terms, the walk's not-counted
+        /// reason, the hold key) instead of re-deriving them from the display text.
+        /// </summary>
+        public GameAction Action;
+        /// <summary>
+        /// ContractAccept rows only: the first ContractComplete row of the same contract at or
+        /// after the accept, or null when the ledger has none yet. The hover names its rewards.
+        /// </summary>
+        public GameAction PairedContractComplete;
     }
 }

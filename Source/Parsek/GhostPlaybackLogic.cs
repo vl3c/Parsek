@@ -8742,6 +8742,64 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// True when <paramref name="rec"/> is the last recording of its vessel even though it
+        /// carries <c>ChildBranchPointId</c>: the branch point is in <paramref name="tree"/>, no
+        /// child of it shares the recording's vessel PID, and the recording kept recording past
+        /// the split (<see cref="RecordingContinuedPastBranchPoint"/>). That is the
+        /// breakup-continuous shape <c>ParsekFlight.WireBreakupIntoTree</c> writes for a focused
+        /// breakup or decouple, and the post-switch Launch branch whose parent kept recording in
+        /// the background. A split that closes its parent (same-PID child, or a parent trimmed to
+        /// the branch UT) answers false, as does any branch type other than Breakup /
+        /// JointBreak / Launch (<see cref="RecordingTree.BranchTypeCanLeaveParentRecording"/>)
+        /// and anything unresolvable.
+        /// </summary>
+        internal static bool RecordingContinuesPastChildBranch(Recording rec, RecordingTree tree)
+        {
+            BranchPoint bp;
+            return TryGetContinuedPastChildBranch(rec, tree, out bp);
+        }
+
+        internal static bool TryGetContinuedPastChildBranch(
+            Recording rec, RecordingTree tree, out BranchPoint childBranchPoint)
+        {
+            childBranchPoint = null;
+            if (rec == null || tree == null || tree.BranchPoints == null
+                || string.IsNullOrEmpty(rec.ChildBranchPointId)
+                || rec.VesselPersistentId == 0)
+                return false;
+
+            BranchPoint bp = null;
+            for (int b = 0; b < tree.BranchPoints.Count; b++)
+            {
+                if (tree.BranchPoints[b] != null && tree.BranchPoints[b].Id == rec.ChildBranchPointId)
+                {
+                    bp = tree.BranchPoints[b];
+                    break;
+                }
+            }
+            if (bp == null || !RecordingTree.BranchTypeCanLeaveParentRecording(bp.Type))
+                return false;
+
+            if (bp.ChildRecordingIds != null && tree.Recordings != null)
+            {
+                for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                {
+                    Recording childRec;
+                    if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out childRec)
+                        && childRec != null
+                        && childRec.VesselPersistentId == rec.VesselPersistentId)
+                        return false;
+                }
+            }
+
+            if (!RecordingContinuedPastBranchPoint(rec, bp))
+                return false;
+
+            childBranchPoint = bp;
+            return true;
+        }
+
         private static bool TryResolveTreeContext(
             Recording rec,
             RecordingTree treeContext,

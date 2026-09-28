@@ -876,7 +876,7 @@ namespace Parsek
         private int cachedDormantHeaderCount = -1;
         private bool cachedDormantHeaderExpanded;
         private const string DormantSectionTooltip =
-            "Routes created after the rewind point you rewound past. Each is dormant (not dispatching, not visible elsewhere) and reappears Paused when the re-flown timeline reaches its creation date. Delete removes one for good.";
+            "Routes created after the rewind point you rewound past. Each is dormant (not dispatching, not visible elsewhere) and reappears Paused when timeline reaches its creation date again. Delete removes one for good.";
 
         /// <summary>
         /// Draws the collapsed-by-default "Dormant Routes (N)" disclosure bubble
@@ -1006,8 +1006,8 @@ namespace Parsek
             GUILayout.Space(8f);
             if (GUILayout.Button(
                     new GUIContent(
-                        $"{arrow} Recently committed trees not yet eligible ({nearMisses.Count.ToString(CultureInfo.InvariantCulture)})",
-                        "Committed trees that are not Supply Run candidates yet, with the reason: not fully sealed, or sealed but the run does not match the dock-deliver-undock proof."),
+                        $"{arrow} Recently merged trees not yet eligible ({nearMisses.Count.ToString(CultureInfo.InvariantCulture)})",
+                        "Merged trees that are not Supply Run candidates yet, with the reason: not fully sealed, or sealed but the run does not match the dock-deliver-undock proof."),
                     GUI.skin.label, GUILayout.ExpandWidth(true)))
                 ToggleExpanded(NearMissSectionKey, "near-miss subsection");
             GUILayout.EndHorizontal();

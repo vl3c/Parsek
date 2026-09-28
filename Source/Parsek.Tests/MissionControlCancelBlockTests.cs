@@ -30,9 +30,6 @@ namespace Parsek.Tests
         private static readonly Func<double, string> Fmt =
             ut => "D" + ((long)(ut / 100.0)).ToString(CultureInfo.InvariantCulture);
 
-        private const string Rule =
-            "Parsek's timeline is fixed once committed, so this cannot happen earlier or twice.";
-
         public MissionControlCancelBlockTests()
         {
             ParsekLog.ResetTestOverrides();
@@ -127,9 +124,8 @@ namespace Parsek.Tests
             Assert.Equal(StockUiDecorationKind.ContractResolution, d.Kind);
             Assert.Equal("Active", d.Tab);
             Assert.Equal(500, d.UT);
-            Assert.Equal("Completes on D5", d.Title);
-            Assert.Equal("Completes on D5 by the committed flight 'Mun Lander 3'. " + Rule
-                + " It completes and frees its slot on that date.", d.Why);
+            Assert.Equal("Completed on D5", d.Title);
+            Assert.Equal("Completed on D5, blocked by timeline until then.", d.Why);
         }
 
         [Fact]
@@ -141,8 +137,8 @@ namespace Parsek.Tests
 
             Assert.True(StockUiReservationPredicates.IsContractCancelBlocked(index, "c1", 100));
             Assert.True(d.Blocked);
-            Assert.Equal("Fails on D5", d.Title);
-            Assert.Equal("Fails on D5 on your committed timeline. " + Rule + " It fails and frees its slot on that date.", d.Why);
+            Assert.Equal("Failed on D5", d.Title);
+            Assert.Equal("Failed on D5, blocked by timeline until then.", d.Why);
         }
 
         [Fact]
@@ -155,8 +151,7 @@ namespace Parsek.Tests
             Assert.True(StockUiReservationPredicates.IsContractCancelBlocked(index, "c1", 100));
             Assert.True(d.Blocked);
             Assert.Equal("Cancelled on D5", d.Title);
-            Assert.Equal("Cancelled on D5 by the committed flight 'Mun Lander 3'. " + Rule
-                + " It is cancelled and frees its slot on that date.", d.Why);
+            Assert.Equal("Cancelled on D5, blocked by timeline until then.", d.Why);
         }
 
         [Fact]
@@ -275,15 +270,80 @@ namespace Parsek.Tests
             var cancel = ReservationExplanation.ContractResolution(
                 new CommittedFutureEntry(CommittedFutureKind.ContractCancel, "k", 11400, null, null), Fmt);
 
-            Assert.Equal("Completes on D114", complete.Title);
-            Assert.Equal("Completes on D114 by the committed flight 'Mun Lander 3'. " + Rule
-                + " It completes and frees its slot on that date.", complete.Body);
-            Assert.Equal("Fails on D114 on your committed timeline. " + Rule
-                + " It fails and frees its slot on that date.", fail.Body);
-            Assert.Equal("Cancelled on D114 on your committed timeline. " + Rule
-                + " It is cancelled and frees its slot on that date.", cancel.Body);
+            Assert.Equal("Completed on D114", complete.Title);
+            Assert.Equal("Completed on D114, blocked by timeline until then.", complete.Body);
+            Assert.Equal("Failed on D114, blocked by timeline until then.", fail.Body);
+            Assert.Equal("Cancelled on D114, blocked by timeline until then.", cancel.Body);
             foreach (char c in complete.Body + fail.Body + cancel.Body + complete.Title + fail.Title + cancel.Title)
                 Assert.True(c < 128, "non-ASCII char " + (int)c);
+        }
+
+        // ---------------------------------------------------------------- expiry wording (gap 4)
+
+        [Fact]
+        public void CommittedFailAtOrAfterTheAcceptsDeadline_IsAnExpiry_InTheIndexAndTheText()
+        {
+            // Accepted at 10 with a deadline at 450; the committed fail row at 500 is the
+            // deadline running out (stock's DeadlineExpired fires the same fail event).
+            var index = Index(Accept(10, "c1", deadlineUT: 450), Fail(500, "c1", "rec"));
+
+            var fail = index.FirstFuture(CommittedFutureKind.ContractFail, "c1", 100);
+            Assert.NotNull(fail);
+            Assert.True(fail.DeadlineExpiry);
+            // The Timeline's own test agrees.
+            Assert.True(GameActionDisplay.IsExpiredContractFail(Fail(500, "c1", "rec"), Accept(10, "c1", deadlineUT: 450)));
+
+            var d = ActiveRow(index, "c1");
+            Assert.True(d.Blocked);
+            Assert.Equal("Expired on D5", d.Title);
+            Assert.Equal("Expired on D5, blocked by timeline until then.", d.Why);
+            Assert.Equal("expired D5", MissionControlStockAnnotation.RowStatus(d, Fmt));
+            Assert.Equal("<color=#fefa87>Survey</color> <color=#8fd3ff>- expired D5</color>",
+                MissionControlStockAnnotation.ComposeRowLabel("", "Survey", d));
+        }
+
+        [Fact]
+        public void CommittedFailBeforeTheDeadline_OrWithNoAccept_StaysAFailure()
+        {
+            var early = Index(Accept(10, "c1", deadlineUT: 900), Fail(500, "c1", "rec"));
+            Assert.False(early.FirstFuture(CommittedFutureKind.ContractFail, "c1", 100).DeadlineExpiry);
+            Assert.Equal("Failed on D5", ActiveRow(early, "c1").Title);
+
+            var openEnded = Index(Accept(10, "c1"), Fail(500, "c1", "rec"));
+            Assert.False(openEnded.FirstFuture(CommittedFutureKind.ContractFail, "c1", 100).DeadlineExpiry);
+
+            var noAccept = Index(Fail(500, "c1", "rec"));
+            Assert.False(noAccept.FirstFuture(CommittedFutureKind.ContractFail, "c1", 100).DeadlineExpiry);
+            Assert.Equal("failed D5", MissionControlStockAnnotation.RowStatus(ActiveRow(noAccept, "c1"), Fmt));
+        }
+
+        [Fact]
+        public void ExpiryJudgedAgainstTheAcceptTheFailCloses_NotAnEarlierOne()
+        {
+            // First accept (deadline 200) expired long ago; the contract was accepted again at
+            // 300 with a deadline at 900. A fail at 500 closes the SECOND accept: a failure.
+            var index = Index(
+                Accept(10, "c1", deadlineUT: 200), Fail(200, "c1", "rec"),
+                Accept(300, "c1", deadlineUT: 900), Fail(500, "c1", "rec"));
+            Assert.False(index.FirstFuture(CommittedFutureKind.ContractFail, "c1", 400).DeadlineExpiry);
+            Assert.True(index.AllEntries(CommittedFutureKind.ContractFail, "c1")[0].DeadlineExpiry);
+        }
+
+        [Fact]
+        public void ContractResolution_ExpiryText_IsPlainAscii_AndOnlyForAFail()
+        {
+            var expiry = ReservationExplanation.ContractResolution(
+                new CommittedFutureEntry(CommittedFutureKind.ContractFail, "k", 11400, null, null, deadlineExpiry: true), Fmt);
+            Assert.Equal("Expired on D114", expiry.Title);
+            foreach (char c in expiry.Body + expiry.Title)
+                Assert.True(c < 128, "non-ASCII char " + (int)c);
+            // The flag means nothing on another kind.
+            var complete = ReservationExplanation.ContractResolution(
+                new CommittedFutureEntry(CommittedFutureKind.ContractComplete, "k", 11400, null, null, deadlineExpiry: true), Fmt);
+            Assert.Equal("Completed on D114", complete.Title);
+            // A copy keeps the flag.
+            Assert.True(new CommittedFutureEntry(CommittedFutureKind.ContractFail, "k", 1, null, null, deadlineExpiry: true)
+                .WithAgentTitle("Agent").DeadlineExpiry);
         }
 
         [Fact]
@@ -293,7 +353,7 @@ namespace Parsek.Tests
 
             string label = MissionControlStockAnnotation.ComposeRowLabel("", "Explore the Mun", d);
 
-            Assert.Equal("<color=#fefa87>Explore the Mun</color> <color=#8fd3ff>- completes D5</color>",
+            Assert.Equal("<color=#fefa87>Explore the Mun</color> <color=#8fd3ff>- completed D5</color>",
                 label);
             Assert.Equal(label, MissionControlStockAnnotation.ComposeRowLabel(label, "Explore the Mun", d));
         }
@@ -328,7 +388,7 @@ namespace Parsek.Tests
             string openLabel = MissionControlStockUi.LabelForAddItem(open, "");
             MissionControlStockUi.EndRebuildPass();
 
-            Assert.StartsWith("<color=#fefa87>Resolved</color>" + MissionControlStockAnnotation.RowStatusMarker + "completes ",
+            Assert.StartsWith("<color=#fefa87>Resolved</color>" + MissionControlStockAnnotation.RowStatusMarker + "completed ",
                 resolvedLabel);
             Assert.EndsWith("</color>", resolvedLabel);
             Assert.DoesNotContain("committed timeline", resolvedLabel);

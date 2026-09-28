@@ -85,10 +85,27 @@ namespace Parsek.Patches
         {
             if (kerbals == null || string.IsNullOrEmpty(kerbalName)) return null;
             if (!kerbals.ShouldBlockDismissal(kerbalName)) return null;
+            string standInOwner = kerbals.FindActiveStandInOwner(kerbalName);
             return DescribeHeldKerbal(kerbals, kerbalName)
                 ?? DescribeDismissalBlock(kerbals.GetReservationKind(kerbalName),
                     kerbals.IsNamedByCommittedFlight(kerbalName),
-                    kerbals.FindActiveStandInOwner(kerbalName));
+                    standInOwner,
+                    HoldingFlightName(kerbals, standInOwner));
+        }
+
+        /// <summary>The display name of the flight on timeline that holds
+        /// <paramref name="kerbalName"/>, or null (not held, or the flight has no name).</summary>
+        internal static string HoldingFlightName(KerbalsModule kerbals, string kerbalName)
+        {
+            if (kerbals == null || string.IsNullOrEmpty(kerbalName)) return null;
+            if (kerbals.GetReservationKind(kerbalName) != KerbalReservationKind.ReservedActive) return null;
+            KerbalsModule.KerbalReservation reservation;
+            double release = kerbals.Reservations != null && kerbals.Reservations.TryGetValue(kerbalName, out reservation)
+                && reservation != null
+                ? reservation.ReservedUntilUT
+                : double.PositiveInfinity;
+            bool openEnded = double.IsPositiveInfinity(release) || double.IsNaN(release);
+            return CommittedFutureIndexCache.Current?.ResolveHoldAssignment(kerbalName, openEnded)?.RecordingName;
         }
 
         /// <summary>
@@ -107,8 +124,7 @@ namespace Parsek.Patches
                 kerbalName,
                 context.Reservation(kerbalName),
                 context.SlotOwner(kerbalName),
-                ReservationExplanation.DefaultDateFormatter,
-                context.LossReFlyReachable);
+                ReservationExplanation.DefaultDateFormatter);
             return text.Body;
         }
 
@@ -122,38 +138,39 @@ namespace Parsek.Patches
         /// (<c>KerbalsModule.FindActiveStandInOwner</c>), or null.
         /// </summary>
         internal static string DescribeDismissalBlock(
-            KerbalReservationKind kind, bool namedByCommittedFlight, string standInOwner = null)
+            KerbalReservationKind kind, bool namedByCommittedFlight, string standInOwner = null,
+            string ownerFlightName = null)
         {
             // A returned owner (his hold ended with his recovery) is no longer reserved,
-            // retired or a stand-in, but a committed flight still names him.
+            // retired or a stand-in, but a flight on timeline still names him.
             if (kind == KerbalReservationKind.NotManaged && namedByCommittedFlight)
-                return "This kerbal flew a committed flight on your timeline.";
-            return DescribeDismissalBlock(kind, standInOwner);
+                return "Flew a flight on timeline, blocked by timeline.";
+            return DescribeDismissalBlock(kind, standInOwner, ownerFlightName);
         }
 
-        internal static string DescribeDismissalBlock(KerbalReservationKind kind, string standInOwner = null)
+        internal static string DescribeDismissalBlock(
+            KerbalReservationKind kind, string standInOwner = null, string ownerFlightName = null)
         {
             switch (kind)
             {
                 case KerbalReservationKind.ReservedActive:
-                    return "This kerbal is reserved by a committed flight on your timeline.";
+                    return ReservationExplanation.ReservedByTimeline + ".";
                 case KerbalReservationKind.ReservedRetired:
-                    return "This retired stand-in flew a committed flight on your timeline.";
+                    return "Retired after standing in on a flight on timeline, blocked by timeline.";
                 default:
-                    return DescribeStandInDismissalBlock(standInOwner);
+                    return DescribeStandInDismissalBlock(standInOwner, ownerFlightName);
             }
         }
 
         /// <summary>The not-reserved, not-retired managed kind: a kerbal a slot chain lists.
-        /// Names the owner when he is the active stand-in (the Kerbals window's
-        /// <c>Stand-in for &lt;owner&gt;</c>); a chain member covering no seat now reads the
-        /// owner-less line.</summary>
-        internal static string DescribeStandInDismissalBlock(string standInOwner)
+        /// Names the owner (and the flight that holds him) when he is the active stand-in (the
+        /// Kerbals window's <c>Stand-in for &lt;owner&gt;</c>); a chain member covering no seat
+        /// now reads the owner-less line.</summary>
+        internal static string DescribeStandInDismissalBlock(string standInOwner, string ownerFlightName = null)
         {
             if (!string.IsNullOrEmpty(standInOwner))
-                return "Standing in for " + standInOwner + ", who is held by a committed flight. "
-                    + "Dismissing them would leave that seat without a kerbal.";
-            return "Parsek keeps this kerbal as a stand-in for a kerbal a committed flight holds.";
+                return ReservationExplanation.StandingIn(standInOwner, ownerFlightName);
+            return "Kept as a stand-in for a reserved kerbal, blocked by timeline.";
         }
     }
     /// <summary>

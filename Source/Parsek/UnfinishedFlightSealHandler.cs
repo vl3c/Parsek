@@ -217,7 +217,7 @@ namespace Parsek
 
             return
                 $"Seal \"{vesselName}\" ({terminal} at UT {ut})?\n\n" +
-                "This cannot be undone. After sealing, this entry is permanently merged to the timeline in its current state.\n\n" +
+                "This cannot be undone. After sealing, this entry is permanently merged to timeline in its current state.\n\n" +
                 "If you might want to re-fly this later, click Cancel.";
         }
 
