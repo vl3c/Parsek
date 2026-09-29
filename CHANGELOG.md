@@ -2162,7 +2162,13 @@ _(unreleased — entries accumulate here per commit)_
   Clone, Delete, "Warp to..." (now shown only while the mission loops), the Next launch
   column, the summary's `Loops ~P` and countdown pieces, and the greyed / `(partial)`
   styling of rows left out of a loop. Basic keeps Log, Watch, Rewind / Forward, Archive,
-  Re-Fly, the chapter headers, the Docked partner rows and `Looped by route`.
+  Re-Fly, the chapter headers, the Docked partner rows and `Looped by route`. Each mission's
+  bar is now a row of the table: its first line puts the mission's start time, start event,
+  outcome and end time under the column headings (with the Archive box), and its second line
+  is the summary on the left with the buttons on the right. The Next launch column is gone:
+  the countdown lives in the summary, and the warning its amber tint used to carry (a drifted
+  station, a refused arrival, a launch outside its alignment tolerance) is in the summary's
+  hover.
 - **Parsek's own windows say "timeline", not "your timeline", "the timeline" or
   "committed".** The Kerbals launcher hover, the Kerbals window's Reserved and Lost hovers
   (`Held on timeline by the flight ...`, `Lost on a flight on timeline.`), the reserved-crew

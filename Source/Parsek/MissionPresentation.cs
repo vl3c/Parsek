@@ -103,6 +103,15 @@ namespace Parsek
         internal const string NextLaunchTooltipContinuous =
             "Continuous: the loop has no window to line up with, so it relaunches on its own cadence.";
 
+        /// <summary>
+        /// The next-launch warning for a launch outside its alignment tolerance when no named
+        /// reason (station drift, arrival) is set. Until Missions Model 1 that case was an amber
+        /// tint on the Next launch cell with no words at all; the column is gone and the warning
+        /// rides the summary line's tooltip instead.
+        /// </summary>
+        internal const string NextLaunchToleranceWarning =
+            "The next launch misses its alignment tolerance; the replay may not line up.";
+
         // The state words BuildTMinusCellText emits; matched here so the tooltip picker never
         // needs to re-derive the state.
         internal const string NextLaunchTextNotAligned = "not aligned";
@@ -702,9 +711,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The "Next launch" cell tooltip: the state explanation for the two engine words, joined
-        /// with any amber reason(s) already carried by the cell. Null when there is nothing to
-        /// say (a blank cell, or a plain countdown with no amber). Pure.
+        /// The next-launch note: the state explanation for the two engine words, joined with any
+        /// warning. Null when there is nothing to say (no loop, or a plain countdown with no
+        /// warning). Since Missions Model 1 it is the tail of the summary line's tooltip
+        /// (<see cref="BuildSummaryTooltip"/>), not a cell's. Pure.
         /// </summary>
         internal static string BuildNextLaunchCellTooltip(string cellText, string amberReasons)
         {
@@ -720,6 +730,33 @@ namespace Parsek
             if (state != null)
                 return state;
             return hasAmber ? amberReasons : null;
+        }
+
+        /// <summary>
+        /// The mission summary line's tooltip: the detail fragments (span dates, vessel count,
+        /// roster) followed by the next-launch note when there is one, joined on ONE line with
+        /// <see cref="DetailFragmentSeparator"/> (the help strip it echoes in is one line tall).
+        /// Pure.
+        /// </summary>
+        internal static string BuildSummaryTooltip(string detailTooltip, string nextLaunchNote)
+        {
+            bool hasDetail = !string.IsNullOrEmpty(detailTooltip);
+            bool hasNote = !string.IsNullOrEmpty(nextLaunchNote);
+            if (hasDetail && hasNote)
+                return detailTooltip + DetailFragmentSeparator + nextLaunchNote;
+            return hasDetail ? detailTooltip : (hasNote ? nextLaunchNote : null);
+        }
+
+        /// <summary>
+        /// The mission bar's "Start event" value (Missions Model 1): the start event of the
+        /// mission's FIRST vessel row ("Launch" for an ordinary mission; whatever created the
+        /// first vessel otherwise). "" when there is no row. Pure.
+        /// </summary>
+        internal static string MissionStartEventText(IReadOnlyList<MissionVesselRow> vesselRows)
+        {
+            if (vesselRows == null || vesselRows.Count == 0 || vesselRows[0] == null)
+                return "";
+            return vesselRows[0].StartEvent ?? "";
         }
 
         // ===================== T1.6 - the loop-conflict outcome =====================

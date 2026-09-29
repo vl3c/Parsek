@@ -31,6 +31,13 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   excluded vessels, `(partial)`, the chapter `[~]` / dimming, partner-journey rows).
   `MissionsTabColumnSequenceTests` pins that the header and every row kind draw the same
   columns in both modes.
+- [x] The mission bar is a table row: line 1 = index, title, then the mission-level Start
+  time / Start event / End event / End time under their headings, a blank Re-Fly cell and the
+  Archive checkbox (`DrawMissionValueRow`); line 2 = the wrapping summary on the left and the
+  right-aligned buttons (`DrawMissionActionLine`). The `Next launch` column is deleted; its
+  amber warning reasons (plus a sentence for the tolerance-only case, which was tint alone)
+  ride the summary tooltip. Every countdown is amber now, so a warned launch no longer looks
+  different from a plain one until hovered - a candidate for the next iteration.
 
 ## KB-4-RND-PART-TOOLTIP-LOST: the R&D part tooltip closed between KB-4's hover and its capture [FILED 2026-09-29 from KB-4 `2026-09-29_1507`, branch `kb4-block-proof`. OPEN, not reproduced on the next flight]
 

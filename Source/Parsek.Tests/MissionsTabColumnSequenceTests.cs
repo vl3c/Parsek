@@ -64,6 +64,7 @@ namespace Parsek.Tests
         /// sit under the column headings.</summary>
         public static IEnumerable<object[]> RowMethods()
         {
+            yield return new object[] { "DrawMissionValueRow" };
             yield return new object[] { "DrawVesselRow" };
             yield return new object[] { "DrawCompositionRow" };
             yield return new object[] { "DrawChapterHeaderRow" };
@@ -89,6 +90,18 @@ namespace Parsek.Tests
                 + "column header (a column drawn in one mode on one side only shifts every "
                 + "column right of it). header=[" + string.Join(", ", header) + "] row=["
                 + string.Join(", ", actual) + "]");
+        }
+
+        // catches: the Next launch column coming back on one side only. Missions Model 1
+        // retired it (the countdown lives in the mission summary), so no width constant for it
+        // may survive anywhere in the file.
+        [Fact]
+        public void TheNextLaunchColumnIsGone()
+        {
+            string prepared = ReadPreparedSource();
+            Assert.DoesNotContain("ColW_TMinus", prepared);
+            Assert.DoesNotContain("DrawTMinusVesselCell", prepared);
+            Assert.DoesNotContain(AdvancedTag + "ColW_", string.Join(",", HeaderSequence(prepared)));
         }
 
         // The mutation this gate exists for, run against a synthetic pair so the cell above

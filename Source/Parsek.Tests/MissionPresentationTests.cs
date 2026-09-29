@@ -553,6 +553,50 @@ namespace Parsek.Tests
             Assert.Null(MissionPresentation.BuildNextLaunchCellTooltip("", null));
         }
 
+        // catches: the Next launch cell's warning being dropped when the column went away
+        // (Missions Model 1): it must ride the summary tooltip, after the detail, on ONE line.
+        [Fact]
+        public void BuildSummaryTooltip_AppendsTheNextLaunchNoteOnOneLine()
+        {
+            string sep = MissionPresentation.DetailFragmentSeparator;
+            Assert.Equal("Y1, D12 - 3 vessels" + sep + "station orbit drifted",
+                MissionPresentation.BuildSummaryTooltip("Y1, D12 - 3 vessels", "station orbit drifted"));
+            Assert.Equal("Y1, D12", MissionPresentation.BuildSummaryTooltip("Y1, D12", null));
+            Assert.Equal(MissionPresentation.NextLaunchToleranceWarning,
+                MissionPresentation.BuildSummaryTooltip(
+                    "", MissionPresentation.NextLaunchToleranceWarning));
+            Assert.Null(MissionPresentation.BuildSummaryTooltip(null, ""));
+            Assert.DoesNotContain("\n", MissionPresentation.BuildSummaryTooltip(
+                "a", MissionPresentation.NextLaunchTooltipNotAligned));
+        }
+
+        // The tolerance-only warning used to be an amber tint with no words; it is the one
+        // warning the tooltip spells itself, so pin that it says what it is about.
+        [Fact]
+        public void NextLaunchToleranceWarning_NamesTheLaunchAndTheTolerance()
+        {
+            Assert.Contains("next launch", MissionPresentation.NextLaunchToleranceWarning);
+            Assert.Contains("tolerance", MissionPresentation.NextLaunchToleranceWarning);
+            Assert.DoesNotContain("your timeline", MissionPresentation.NextLaunchToleranceWarning);
+            Assert.DoesNotContain("committed", MissionPresentation.NextLaunchToleranceWarning);
+        }
+
+        [Fact]
+        public void MissionStartEventText_IsTheFirstVesselRowsStartEvent()
+        {
+            Assert.Equal("", MissionPresentation.MissionStartEventText(null));
+            Assert.Equal("", MissionPresentation.MissionStartEventText(new List<MissionVesselRow>()));
+            Assert.Equal("Launch", MissionPresentation.MissionStartEventText(new List<MissionVesselRow>
+            {
+                new MissionVesselRow { StartEvent = "Launch" },
+                new MissionVesselRow { StartEvent = "Decoupled" },
+            }));
+            Assert.Equal("", MissionPresentation.MissionStartEventText(new List<MissionVesselRow>
+            {
+                new MissionVesselRow { StartEvent = null },
+            }));
+        }
+
         [Fact]
         public void IncludeCheckboxTooltip_SaysItIsLoopMembershipNotVisibility()
         {
