@@ -78,6 +78,26 @@ anchor released on every step after the first), two stumbles (the 1.95 m downhil
 Go-ob spot, and the last step back beside the capsule) were got up by `step ragdoll-recover ...
 event=On_recover_start`, no crash, all five placements and the pick-up completed, committed count 15.
 
+## STANDALONE-DIRECT-COMMIT-NOT-IN-SAVE: a standalone recording committed straight to the list is not written to the save, so the next load drops it [FILED 2026-09-29 from EVA-10 `2026-09-29_2012`, branch `deployables-lanes`. OPEN, not investigated, no product change]
+
+**In gameplay terms.** Unknown whether a player can reach it; the lane reaches it through the
+harness boot (LoadGame onto a committed tip, StopRecording, DiscardTree, then EvaExit).
+
+**Evidence** (`Parsek-deployables-integration/harness/results/2026-09-29_2012_EVA-10-..._shots/KSP.log`,
+integration DLL): after the boot's DiscardTree the lander is recorded standalone (`OnCrewOnEva:entry
+mode=sa ... rec=2bfddd8f|Kerbal X`), and between the EvaExit and the StartRecording that segment is committed directly
+(`RecordingStore.CommitRecordingDirect`: `Committed recording from Kerbal X (2 points). Total
+committed: 12`). The scene-exit commit then reads `Total committed: 18 recordings, 2 trees`, but the
+next load logs `savedRecNodes=0, savedTreeRecs=17, memoryRecordings=18` and the store holds 17
+(`eva10-commit-count-17`): the standalone recording belongs to no saved tree and apparently OnSave writes no
+standalone recording nodes (unverified; the `.prec` sidecar is presumably left on disk). Same shape on `_1937` (12 at the boot,
+18 after the commit).
+
+**Next step.** Read the always-tree commit contract for `CommitRecordingDirect` callers (is a
+standalone commit meant to be wrapped in a tree, or discarded?), then decide whether this is a lost
+recording or an expected discard of a 2-point preamble artifact. EVA-10's count window (17-18) and
+its ListHandles rows (rec11..rec16) are derived from this behaviour and move if it changes.
+
 ## IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: a tree committed in flight is never optimized (no boring-tail trim, no split / merge) until the next cold load [FILED 2026-09-29 from EVA-9 `2026-09-29_1528`, branch `deployables-lanes`. OPEN, product inconsistency, needs a ruling; no product change made]
 
 **In gameplay terms.** When a tree is committed WITHOUT leaving the flight scene - the
