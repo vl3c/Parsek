@@ -44,6 +44,8 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   (mission '<name>')` plus a `Go to` in the Re-Fly slot, and a new row of the same shape for a
   dock this mission recorded with another mission's vessel (`DrawRecordedDockPartnerRow`).
   `MissionEventDigest` stays as the partner-text / Go to source.
+- [x] The Log window (StructureListWindowUI) is titled `Parsek - Log: <mission or route name>`
+  (bare `Parsek - Log` untargeted); the seam window token stays `structure`.
 
 ## MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. OPEN, low, not player-visible]
 

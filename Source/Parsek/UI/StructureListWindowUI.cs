@@ -48,10 +48,12 @@ namespace Parsek
 
         private const string InputLockId = "Parsek_StructureListWindow";
 
-        // Current target + cached built step list (rebuilt when the target changes).
+        // Current target + cached built step list (rebuilt when the target changes). `title`
+        // is the TARGET's name (the mission or route); the window title is built from it by
+        // BuildWindowTitle.
         private TargetMode mode = TargetMode.None;
         private string targetId;
-        private string title = "Structure";
+        private string title = "";
         private List<StructureStep> steps = new List<StructureStep>();
 
         // Row-cell label: the shared table cell style (the boxed column header's own
@@ -83,6 +85,26 @@ namespace Parsek
         internal const float MinWindowWidth = 420f;
         internal const float MinWindowHeight = 160f;
 
+        /// <summary>The window title's fixed part: this window is the Log both the Missions
+        /// "Log" button and the Logistics "Log (Route)" / "Log (Mission)" buttons open. (Its
+        /// seam token stays <c>structure</c>, the name of the class it draws from.)</summary>
+        internal const string WindowTitlePrefix = "Parsek - Log";
+
+        /// <summary>
+        /// The window title for a target name: <c>"Parsek - Log: Kerbal X"</c> for a mission,
+        /// <c>"Parsek - Log: Mun Supply"</c> for a route, the bare <c>"Parsek - Log"</c> when
+        /// there is no name. Pure.
+        /// </summary>
+        internal static string BuildWindowTitle(string targetName)
+        {
+            return string.IsNullOrEmpty(targetName)
+                ? WindowTitlePrefix
+                : WindowTitlePrefix + ": " + targetName;
+        }
+
+        /// <summary>The title the window draws right now, for tests and the census.</summary>
+        internal string WindowTitleForTesting => BuildWindowTitle(title);
+
         public bool IsOpen
         {
             get { return isOpen; }
@@ -110,22 +132,24 @@ namespace Parsek
         {
             mode = TargetMode.Mission;
             targetId = treeId;
-            title = string.IsNullOrEmpty(displayTitle) ? "Mission structure" : displayTitle;
+            title = displayTitle ?? "";
             Rebuild();
             isOpen = true;
             ParsekLog.Info("UI",
-                $"Structure window opened: mode=Mission tree={treeId ?? "<null>"} steps={steps.Count}");
+                $"Structure window opened: mode=Mission tree={treeId ?? "<null>"} steps={steps.Count} " +
+                $"title='{BuildWindowTitle(title)}'");
         }
 
         internal void OpenForRoute(string routeId, string displayTitle)
         {
             mode = TargetMode.Route;
             targetId = routeId;
-            title = string.IsNullOrEmpty(displayTitle) ? "Route structure" : displayTitle;
+            title = displayTitle ?? "";
             Rebuild();
             isOpen = true;
             ParsekLog.Info("UI",
-                $"Structure window opened: mode=Route route={routeId ?? "<null>"} steps={steps.Count}");
+                $"Structure window opened: mode=Route route={routeId ?? "<null>"} steps={steps.Count} " +
+                $"title='{BuildWindowTitle(title)}'");
         }
 
         // ------------------------- the GUI state gallery seam -------------------------
@@ -164,7 +188,7 @@ namespace Parsek
         {
             mode = snapshot.Mode;
             targetId = snapshot.TargetId;
-            title = snapshot.Title ?? "Structure";
+            title = snapshot.Title ?? "";
             steps = snapshot.Steps ?? new List<StructureStep>();
             isOpen = snapshot.IsOpen;
         }
@@ -182,9 +206,7 @@ namespace Parsek
         {
             mode = routeMode ? TargetMode.Route : TargetMode.Mission;
             targetId = null;
-            title = string.IsNullOrEmpty(displayTitle)
-                ? (routeMode ? "Route structure" : "Mission structure")
-                : displayTitle;
+            title = displayTitle ?? "";
             steps = mockedSteps ?? new List<StructureStep>();
             isOpen = true;
         }
@@ -262,7 +284,7 @@ namespace Parsek
                     WindowIdKey.GetHashCode(),
                     windowRect,
                     DrawWindow,
-                    "Parsek - " + title,
+                    BuildWindowTitle(title),
                     opaqueWindowStyle,
                     GUILayout.Width(windowRect.width),
                     GUILayout.Height(windowRect.height)

@@ -346,7 +346,7 @@ removed 2026-09-27, so 13 remain) - the order
 | 5 | ~~`Parsek - Career State`~~ REMOVED 2026-09-27 | - | - | - (the `career` token is gone) | historical only |
 | 6 | `Parsek - Logistics` | `UI/LogisticsWindowUI.cs:444` | FLIGHT, SPACECENTER | `logistics` | `ksc-logistics-advanced/basic` |
 | 7 | Logistics round-trip link picker (`Link round-trip partner`) | `UI/LogisticsWindowUI.cs:1762` | as its host | excluded `TestCommandUiAction.cs:374-377`; reached by `op=picker picker=link` | `ib-logistics-linkpicker-advanced` (GUI-3, 198 nodes, `windows=4`) |
-| 8 | `Parsek - Structure` | `UI/StructureListWindowUI.cs:174` | FLIGHT, SPACECENTER | `structure` | `ksc-structure-advanced` (empty chrome) |
+| 8 | `Parsek - Log: <mission or route>` (bare `Parsek - Log` untargeted; was `Parsek - Structure` until 2026-09-29) | `UI/StructureListWindowUI.cs` (`BuildWindowTitle`) | FLIGHT, SPACECENTER | `structure` (the seam token keeps the class's name; an alias of the Log) | `ksc-structure-advanced` (empty chrome) |
 | 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs:128` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
 | 10 | `Real Spawn Control` | `UI/SpawnControlUI.cs:162` | FLIGHT only | `spawncontrol` | `play-spawncontrol-advanced` (GUI-6, 69 nodes, one candidate row) |
 | 11 | `Gloops Flight Recorder` | `UI/GloopsRecorderUI.cs:94` | FLIGHT only | `gloops` | `flight-gloops-advanced` |
@@ -920,10 +920,16 @@ a squeezed layout with a horizontal scrollbar and a Name column collapsed to 60 
 any populated route or candidate row, any of the three disclosures expanded, any detail panel,
 the link picker, any of the four dialogs.
 
-### 3.7 Parsek - Structure (the Log)
+### 3.7 Parsek - Log (the Structure window)
 
 Purpose: a read-only step list for one mission or one route. No sorting, no filters, no per-row
-controls (`UI/StructureListWindowUI.cs:14-16`).
+controls (`UI/StructureListWindowUI.cs:14-16`). Title (Missions Model 1, 2026-09-29):
+`Parsek - Log: <mission name>` from the Missions `Log` button and the Logistics `Log (Mission)`
+button, `Parsek - Log: <route name>` from `Log (Route)`, and the bare `Parsek - Log` when opened
+with no target (the census's empty chrome). It read `Parsek - <name>` before, with a
+`Mission structure` / `Route structure` fallback. The class, its log lines and the seam window
+token keep the name `structure` (`GuiCensusSeamVerbTests` pins the token), so `structure` is
+the seam's alias for the Log.
 
 Opened by `OpenForMission` (`:83`, from the Missions tab `Log` button) or `OpenForRoute`
 (`:94`, from the Logistics detail panel); one reusable instance, retargeted and rebuilt on each

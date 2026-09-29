@@ -2171,7 +2171,8 @@ _(unreleased — entries accumulate here per commit)_
   hover. The `Events (N)` list under each mission is gone: its one unique piece, naming the
   other mission a dock connects to with a Go to button, is on the Docked partner rows now
   (`Docked partner: CD (mission 'CD Freighter')` + Go to), including a row for a dock this
-  mission recorded with another mission's vessel.
+  mission recorded with another mission's vessel. The window the Missions `Log` and the
+  Logistics `Log (Route)` / `Log (Mission)` buttons open is titled `Parsek - Log: <name>`.
 - **Parsek's own windows say "timeline", not "your timeline", "the timeline" or
   "committed".** The Kerbals launcher hover, the Kerbals window's Reserved and Lost hovers
   (`Held on timeline by the flight ...`, `Lost on a flight on timeline.`), the reserved-crew

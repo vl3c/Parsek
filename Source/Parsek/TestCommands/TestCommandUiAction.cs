@@ -650,8 +650,9 @@ namespace Parsek.TestCommands
             // a WindowHasNoTabsReason rather than a silently ignored arg.
             NewSpec(LogisticsWindow, true, true),
 
-            // StructureListWindowUI. Opening it with no target shows the empty
-            // "Parsek - Structure" chrome; the populated forms are reached from a
+            // StructureListWindowUI, titled "Parsek - Log" (plus ": <mission or route>"
+            // once targeted) though its token stays `structure`. Opening it with no target
+            // shows the empty chrome; the populated forms are reached from a
             // Missions / Logistics row, which no seam op drives today (noted in the
             // census spec's header as a follow-up rather than faked here).
             NewSpec(StructureWindow, true, true),
