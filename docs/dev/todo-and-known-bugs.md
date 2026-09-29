@@ -1165,6 +1165,18 @@ Bugs (no ruling needed):
   recovery terminal update reads the pending tree, not the active one). In-session debris end
   by their 60 s TTL first, so the reachable case is a restored debris member: its TTL is set
   only at split time (`debrisTTLExpiry`) and is not restored.
+  LIVE PROOF 2026-09-29 (branch `settings-axis`, operator request for a game-settings test axis,
+  which supersedes the "no dedicated low-budget lane" half of S6): re-derived from a fresh
+  decompile (the only budget reader is the parameterless `FlightState()`, called by
+  `Game.Updated`, `FlightDriver.Start` and the `Game` constructor; it is a save-time filter that
+  removes only non-persistent Debris-typed vessels, oldest first) and flown as
+  `VB-1-ghost-vessel-budget` over a new per-run settings delta (`[runtime] kspSettings`). Its
+  first reading (`2026-09-29_1657`, budget 8, eight ghosts) logged the exclusion `8 -> 16` and
+  stock then dropped exactly the one debris that was a REAL excess (stock had spawned a second
+  asteroid, nine real vessels against eight), not nine. The same run found a test-runner-only
+  gap: INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS below (unregistered ghosts still count, and the
+  in-game `VesselBudget` cell skips in every Tracking Station batch). No product defect: with
+  the patch no real vessel is lost because of ghosts.
 
 Owner rulings (2026-09-26):
 
@@ -1291,6 +1303,37 @@ KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN); alternate launch sites with
 `AllowOtherLaunchSites` off.
 
 ---
+
+## INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS: an in-game batch in the Tracking Station orphans every ghost map vessel [FILED 2026-09-29 from VB-1's first reading run, branch `settings-axis`. OPEN; test runner only, no player path]
+
+Found by `VB-1-ghost-vessel-budget` reading `2026-09-29_1657` (its KSP.log). Before a batch,
+`InGameTestRunner.PerformBetweenRunCleanup` destroys the flight-scene ghosts through
+`ParsekFlight.DestroyAllTimelineGhosts` and then calls `GhostMapPresence.ResetBetweenTestRuns`,
+which CLEARS the ghost-map bookkeeping (`ghostMapVesselPids`, the per-index and per-chain maps)
+but never removes a ProtoVessel. In FLIGHT the destroy step has already removed the map vessels;
+in the TRACKING STATION there is no `ParsekFlight.Instance`, so every live ghost map vessel is
+left in `FlightGlobals.Vessels` unregistered (`PerformBetweenRunCleanup: end ... ghostsBefore=0
+mapPidsBefore=8 mapPidsAfter=0`), and the Tracking Station then builds a fresh set beside them.
+While orphaned they read as REAL vessels to every `IsGhostMapVessel` guard:
+
+- the two saves the batch writes at its start (the baseline `.bak` and the marker save) counted
+  them against the stock vessel budget and dropped all six real debris from each
+  (`[Flight Persistence]: Too many vessels in scene - skipping save for Kerbal X Debris` x6,
+  twice; no `FlightState vessel budget` line, because `FlightStateGhostBudgetPatch` counts
+  registered ghosts only), and `StripFromSave` cannot strip them, so those two saves would carry
+  `Ghost: ...` vessels (inferred, those files were not read; the batch revert restored the pre-batch bytes, so nothing leaked to the
+  produced save in that run);
+- the `VesselBudget` in-game cell (`FlightStateGhostBudgetInGameTest`) SKIPS in every Tracking
+  Station batch ("needs at least one ghost map vessel"): it runs after the clear and before the
+  rebuild, so the cell cannot pass unattended as written.
+
+Scope, re-derived from the caller set: `ResetBetweenTestRuns` has one caller
+(`PerformBetweenRunCleanup`, InGameTestRunner.cs:632), whose callers are the runner's batch
+entry points, the post-abort path and one runtime test; no player path reaches it. Fix
+direction (not done here): in the Tracking Station, remove the registered ghost ProtoVessels
+before clearing the bookkeeping (or let `ParsekTrackingStation` rebuild from a clean slate), and
+give the `VesselBudget` cell a wait for the rebuilt ghosts. VB-1 drops its RunTests step until
+then.
 
 ## KSP-SETTINGS-FOLLOWUPS-2026-09-27: fixes from the traces of the settings audit [FILED 2026-09-27, branch `kss2-career`]
 

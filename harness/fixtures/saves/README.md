@@ -630,6 +630,21 @@ launch nothing through kRPC. Host of `RF-16-hard-preset-refly-exit-merge` and
 `RF-17-hard-preset-refly-exit-discard` (two lanes, one leaf: neither harvests its produced
 save, so the shared staged directory is harmless).
 
+## career-pad-craft-hard (GAME Mode = CAREER, 1 VESSEL, derived from career-pad-craft)
+
+`career-pad-craft`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except eleven
+values in the top-level `PARAMETERS` node set to KSP 1.12.5's Hard preset (decompiled
+`GameParameters.SetDifficultyPresets`): `preset = Custom -> Hard`; `FLIGHT` `CanQuickLoad`,
+`CanRestart`, `CanLeaveToEditor` `True -> False`; `DIFFICULTY`
+`BypassEntryPurchaseAfterResearch` `True -> False` and `AllowOtherLaunchSites`
+`False -> True`; `CAREER` funds / rep / science gain `1 -> 0.6` and funds / rep loss
+`1 -> 2`. The source already carries every other Hard value (starting funds 10000, decline
+rep 3, no respawn, resource abundance 0.5, CommNet on), and the builder asserts each of them.
+The first career fixture that is not x1: the game-settings axis's Hard host. Built and
+drift-gated by `harness/tools/build_career_pad_craft_hard.py` (`--check`) and
+`harness/lib/test_career_pad_craft_hard.py`; no `AddOns` copy (seam-only lanes). Host of
+`HC-1-hard-career-ledger`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /

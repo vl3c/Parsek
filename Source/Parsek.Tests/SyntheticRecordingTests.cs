@@ -8622,6 +8622,103 @@ namespace Parsek.Tests
                 });
         }
 
+        // ----- vessel-budget (VB-1): ghost map vessels vs the stock save-time vessel budget -----
+        //
+        // The subject of lane VB-1, which proves live that Parsek's ghost map ProtoVessels do not
+        // count against GameSettings.MAX_VESSELS_BUDGET (Patches/FlightStateGhostBudgetPatch.cs;
+        // KSP-SETTINGS-AUDIT-2026-09-26 S5). Each copy is an uncrewed ProbeShip (one
+        // probeCoreSphere, type Probe) as its own committed single-recording tree on the
+        // ghost-commnet-relay orbit shape: ONE point plus ONE Kerbin-synchronous equatorial
+        // circular orbit segment, opening 1 s after the save's clock and running 100000 s. So in
+        // the Tracking Station every copy is inside its window and gets one ghost map ProtoVessel
+        // (a live, non-Debris, prst=True vessel in FlightGlobals.Vessels), and none ends during a
+        // lane, so nothing spawns and the host's real vessel count stays what its FLIGHTSTATE
+        // holds. The copies sit 360/N degrees apart so no two share a position. Host-agnostic:
+        // the clock is read off the target save and the orbit is Kerbin's, so the lane can pick a
+        // host for its real Debris vessels (VB-1 flies mun-orbit-recorded).
+
+        internal const int VesselBudgetGhostCount = 8;
+        internal const string VesselBudgetNamePrefix = "VB Probe ";
+        internal const string VesselBudgetRecordingIdPrefix = "vb-probe-";
+
+        internal static RecordingBuilder[] VesselBudgetPreset(double baseUT)
+        {
+            double start = baseUT + GhostCommNetRelayStartOffsetSeconds;
+            double end = start + GhostCommNetRelayWindowSeconds;
+            var copies = new RecordingBuilder[VesselBudgetGhostCount];
+            for (int i = 0; i < VesselBudgetGhostCount; i++)
+            {
+                string id = VesselBudgetRecordingIdPrefix + (i + 1).ToString(CultureInfo.InvariantCulture);
+                string name = VesselBudgetNamePrefix + (i + 1).ToString(CultureInfo.InvariantCulture);
+                double lon = Wrap180(GhostCommNetKscLon + i * (360.0 / VesselBudgetGhostCount));
+                copies[i] = GhostCommNetSynchronousRecording(
+                    id, name, start, end, lon,
+                    pid => VesselSnapshotBuilder.ProbeShip(name, pid),
+                    pid => VesselSnapshotBuilder.ProbeShip(name, pid),
+                    TerminalState.Orbiting);
+            }
+            return copies;
+        }
+
+        [Fact]
+        public void VesselBudget_PresetCopiesAreInWindowUncrewedNonDebrisGhosts()
+        {
+            const double baseUT = 21745.96;
+            RecordingBuilder[] preset = VesselBudgetPreset(baseUT);
+            Assert.Equal(VesselBudgetGhostCount, preset.Length);
+            var ids = new HashSet<string>();
+            var lons = new HashSet<long>();
+            for (int i = 0; i < preset.Length; i++)
+            {
+                string id = VesselBudgetRecordingIdPrefix + (i + 1).ToString(CultureInfo.InvariantCulture);
+                Recording rec = MaterializeSpawnSafetyRecording(preset[i], id);
+                Assert.True(ids.Add(rec.RecordingId));
+                Assert.Equal(VesselBudgetNamePrefix + (i + 1).ToString(CultureInfo.InvariantCulture),
+                    rec.VesselName);
+                Assert.False(rec.IsDebris);
+                Assert.True(rec.PlaybackEnabled);
+                Assert.False(rec.LoopPlayback);
+                Assert.Equal(baseUT + GhostCommNetRelayStartOffsetSeconds,
+                    GhostPlaybackEngine.ResolveGhostActivationStartUT(rec), 6);
+                Assert.True(rec.EndUT - baseUT > 90000.0, "the window must outlive any lane");
+                Assert.Empty(SnapshotCrew(rec.VesselSnapshot));
+                Assert.Equal("Probe", rec.VesselSnapshot.GetValue("type"));
+                Assert.True(GhostPlaybackEngine.HasRenderableGhostData(rec));
+
+                ConfigNode seg = preset[i].BuildTrajectoryNode().GetNode("ORBIT_SEGMENT");
+                double mna = double.Parse(seg.GetValue("mna"), CultureInfo.InvariantCulture);
+                Assert.True(lons.Add((long)Math.Round(mna * 1e6)), "two copies share a position");
+            }
+        }
+
+        /// <summary>
+        /// Injects ONLY <see cref="VesselBudgetPreset"/> (the <c>vessel-budget</c> preset behind
+        /// <c>VB-1-ghost-vessel-budget</c>): eight committed single-recording trees, no RewindPoint
+        /// sidecar. The host's FLIGHTSTATE is left as it is (the harness injects without a clean
+        /// start), which is where the lane's real Debris vessels live.
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [InjectTargetFact("vessel-budget-fixture")]
+        public void InjectVesselBudget()
+        {
+            InjectSingleSubjectPreset("vessel-budget-fixture",
+                (writer, baseUT) =>
+                {
+                    foreach (RecordingBuilder b in VesselBudgetPreset(baseUT))
+                        writer.AddRecordingAsTree(b);
+                },
+                content =>
+                {
+                    for (int i = 1; i <= VesselBudgetGhostCount; i++)
+                    {
+                        Assert.Contains("vesselName = " + VesselBudgetNamePrefix
+                            + i.ToString(CultureInfo.InvariantCulture), content);
+                        Assert.Contains(VesselBudgetRecordingIdPrefix
+                            + i.ToString(CultureInfo.InvariantCulture), content);
+                    }
+                });
+        }
+
         // ----- ghost-commnet-live (CN-2): relay, control point and occlusion around a LIVE probe -----
         //
         // The subject of lane CN-2, which proves design 15.6 on a REAL vessel's own CommNet node

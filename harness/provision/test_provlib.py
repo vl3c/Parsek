@@ -1687,6 +1687,19 @@ class ScreenRestoreMarkerProvisionTests(unittest.TestCase):
             os.path.abspath(__file__))), "lib"))
         import hlib
         self.assertEqual(provlib.KSP_SCREEN_RESTORE_MARKER, hlib.KSP_SCREEN_RESTORE_MARKER)
+        self.assertEqual(provlib.KSP_GAMEPLAY_RESTORE_MARKER, hlib.KSP_GAMEPLAY_RESTORE_MARKER)
+
+    def test_settings_deletes_a_leftover_gameplay_marker(self):
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as umbrella:
+            ctx = self._ctx(umbrella)
+            os.makedirs(ctx.instance_dir, exist_ok=True)
+            marker = os.path.join(ctx.instance_dir, provlib.KSP_GAMEPLAY_RESTORE_MARKER)
+            with open(marker, "w", encoding="utf-8") as fh:
+                fh.write("MAX_VESSELS_BUDGET = 250\n")
+            provision.phase_settings(ctx)
+            self.assertFalse(os.path.exists(marker))
 
 
 class LockTests(unittest.TestCase):

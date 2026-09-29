@@ -25,6 +25,18 @@ _(unreleased — entries accumulate here per commit)_
   timeline, so no reward was paid.`), and the "now" divider says the rows below happen on
   their date and hold stock controls until then. The text is built only for the hovered
   row.
+- **Dev: a game-settings test axis.** Every harness lane had run at the Normal preset with
+  the instance's `settings.cfg`; lanes can now fly at other stock settings. A spec may declare
+  `[runtime] kspSettings = { MAX_VESSELS_BUDGET = N, DECLUTTER_KSC = true|false }`: the run
+  patches just those values into the instance's `settings.cfg` for its own boot and puts them
+  back afterwards (restore marker, healed by the next run if a harness process dies; a delta
+  that cannot be applied, or a failed heal of a leftover marker, refuses the run pre-boot). A new `vessel-budget` injection preset
+  (eight in-window probe ghosts) and two lanes: `VB-1-ghost-vessel-budget` flies ghost map
+  vessels against a binding stock vessel budget in the Tracking Station, and
+  `HC-1-hard-career-ledger` runs LedgerGroundTruth, a record, a commit and a Rewind-to-Launch
+  on `career-pad-craft-hard`, the first career fixture at KSP's Hard preset (x0.6 gains, x2
+  losses, quickload and restart off), derived from `career-pad-craft` by a builder with a
+  byte-identity drift test.
 - **Dev: the automated tests can press Stash, and a lane re-flies a stashed slot whose flight went EVA.** A new test command, `StashSlot`, presses the Recordings table's per-row Stash button (the same handler) and checks that the slot now shows as an Unfinished Flight. `RF-20-stashed-eva-slot-refly` (flown green 2026-09-27) uses it: a staged orbital flight where a kerbal steps out and back in is committed, the crewed stage (a stable orbit, so not an Unfinished Flight on its own) is stashed, re-flown from the separation and merged, and the merge must replace the old flight including the kerbal's EVA and close the slot
 - **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
 
