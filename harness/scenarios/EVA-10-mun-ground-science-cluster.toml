@@ -66,7 +66,7 @@ id = "EVA-10-mun-ground-science-cluster"
 # THE #1920 WITNESS. The flight check pads a one-part vessel's bounds by 5 m per side
 # (`halfExtents=(6.3,6.3,6.3)`), so each later member's spawn finds its ~5 m neighbour inside
 # its box and must be exempted as a co-existing tree sibling (`Overlap exempt: co-existing
-# tree sibling spawn:` or `... original:`), required for the RTG and the Go-ob; walkback
+# tree sibling spawn:` or `... original:`), required for the RTG and the re-placed seismometer; walkback
 # exhaustion and abandoned spawns are forbidden. On a pre-#1920 DLL the later members are
 # blocked and their read-backs stay `false`. The lander stands ~19 m away, outside every
 # member's box, and is the active vessel (skipped by the check) after the reload. Jeb ends
@@ -993,18 +993,15 @@ D14 = ["mun", "sandbox", "scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Derived from `2026-09-29_1937` and `_2012`. The fixture's 8 recordings are split into 11 by
-# the cold boot's optimization pass (`Optimization pass: split 3 recording(s)`). The boot's
-# committed-tip re-adoption records the lander standalone (`mode=sa`) and the EvaExit commits
-# that 2-point segment straight to the committed list (`Committed recording from Kerbal X (2
-# points). Total committed: 12`), + this tree's 6 (Jeb and five placed members) = 18 in memory
-# at the commit (`Total committed: 18 recordings, 2 trees`). That standalone segment is in no
-# saved tree (`savedRecNodes=0, savedTreeRecs=17, memoryRecordings=18` on the next load), so
-# after the lane's in-session reloads the store holds 17 (`eva10-commit-count-17`) and this
-# tree's rows are rec11..rec16 in the ListHandles marks; its `.prec` sidecar may still sit on
-# disk, which is what this facet counts, hence 17-18. Todo
-# STANDALONE-DIRECT-COMMIT-NOT-IN-SAVE.
-count = { min = 17, max = 18 }
+# MEASURED, `2026-09-29_2018`: the produced save holds 19 `.prec` sidecars (this facet counts
+# them). The fixture's 8 recordings are split into 11 by the cold boot's optimization pass; the
+# boot's re-adopted lander is committed standalone as a 2-point segment (12); this tree adds 6
+# (Jeb and five placed members) = 18 in the store (`Total committed: 18 recordings, 2 trees`); the
+# 19th sidecar is not identified. `ListHandles kind=committed` lists 17 rows (tree members, the
+# standalone is in no tree): this tree's rows are rec11..rec16 in the marks. The standalone
+# segment also respawns a twin of the kept lander after the rewind, todo
+# REWIND-KEPT-VESSEL-RESPAWNED-BY-STANDALONE-SEGMENT.
+count = { min = 17, max = 19 }
 
 [expectations.logContracts]
 required = [
@@ -1058,7 +1055,10 @@ required = [
   # The fix's own witness (#1920) in FLIGHT: each later member spawned while an earlier
   # sibling stood inside its overlap box, and was exempted.
   "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
-  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
+  # The Go-ob spawns before the re-placed seismometer and its only earlier neighbour (the
+  # first seismometer) was picked up, so it spawns clear; the re-placed seismometer is the
+  # member that finds standing siblings (`_2018`: the Go-ob and the RTG, both exempted).
+  "evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*MISSIONMARK label=eva10-reloaded-count[\\s\\S]*Overlap exempt: co-existing tree sibling (?:spawn|original): site=[^\\r\\n]* rec=\\1 blocker=",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

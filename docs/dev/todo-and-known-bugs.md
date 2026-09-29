@@ -78,25 +78,32 @@ anchor released on every step after the first), two stumbles (the 1.95 m downhil
 Go-ob spot, and the last step back beside the capsule) were got up by `step ragdoll-recover ...
 event=On_recover_start`, no crash, all five placements and the pick-up completed, committed count 15.
 
-## STANDALONE-DIRECT-COMMIT-NOT-IN-SAVE: a standalone recording committed straight to the list is not written to the save, so the next load drops it [FILED 2026-09-29 from EVA-10 `2026-09-29_2012`, branch `deployables-lanes`. OPEN, not investigated, no product change]
+## REWIND-KEPT-VESSEL-RESPAWNED-BY-STANDALONE-SEGMENT: after a Rewind-to-Launch a standalone 2-point segment of the kept lander replays and spawns a second lander on top of it [FILED 2026-09-29 from EVA-10 `2026-09-29_2012` / `_2018`, branch `deployables-lanes`. OPEN, not investigated, no product change]
 
-**In gameplay terms.** Unknown whether a player can reach it; the lane reaches it through the
-harness boot (LoadGame onto a committed tip, StopRecording, DiscardTree, then EvaExit).
+**In gameplay terms.** After rewinding, the lander the rewind kept as history gets a twin
+spawned into the same spot; the two collide and shed parts. Reached here through the harness
+boot; unknown whether a player reaches the standalone segment that causes it.
 
-**Evidence** (`Parsek-deployables-integration/harness/results/2026-09-29_2012_EVA-10-..._shots/KSP.log`,
-integration DLL): after the boot's DiscardTree the lander is recorded standalone (`OnCrewOnEva:entry
-mode=sa ... rec=2bfddd8f|Kerbal X`), and between the EvaExit and the StartRecording that segment is committed directly
-(`RecordingStore.CommitRecordingDirect`: `Committed recording from Kerbal X (2 points). Total
-committed: 12`). The scene-exit commit then reads `Total committed: 18 recordings, 2 trees`, but the
-next load logs `savedRecNodes=0, savedTreeRecs=17, memoryRecordings=18` and the store holds 17
-(`eva10-commit-count-17`): the standalone recording belongs to no saved tree and apparently OnSave writes no
-standalone recording nodes (unverified; the `.prec` sidecar is presumably left on disk). Same shape on `_1937` (12 at the boot,
-18 after the commit).
+**Evidence** (`Parsek-deployables-integration/harness/results/2026-09-29_2018_EVA-10-..._shots/KSP.log`,
+integration DLL sha256 `528011dd...`): after the boot's StopRecording + DiscardTree the lander is
+recorded standalone (`mode=sa`) and committed straight to the list outside any tree
+(`RecordingStore.CommitRecordingDirect`: `Created recording: 2 points, 1 orbit segments from Kerbal X`,
+`Committed recording from Kerbal X (2 points). Total committed: 12`, rec `4d86f58c...`,
+startUT=23258.4 endUT=23258.5). The later Rewind-to-Launch keeps the lander (`Rewind strip scope:
+keep spawned pid=2708531065 of 'Kerbal X' ... as committed history (no recording that replays
+after adjustedUT=23248.6 re-produces it)`), yet after the reload into FLIGHT that standalone
+segment, which starts AFTER the rewind UT, replays and spawns `Vessel spawn for #11 (Kerbal X)
+pid=330096422 sit=LANDED` at the kept lander's exact lat/lon/alt; within 0.25 s seven
+`decouple-created` vessels appear (four from the twin), `Crew dedup: 'Jebediah Kerman' is already
+aboard "Kerbal X"`, and Jeb's own spawn is walked back off the twin. The keep scope evidently
+does not see standalone recordings. Also measured: `ListHandles kind=committed` lists 17 rows
+(tree members) while the store holds 18 (`memoryRecordings=18`), and the produced save holds 19
+`.prec` sidecars (the 19th not identified).
 
-**Next step.** Read the always-tree commit contract for `CommitRecordingDirect` callers (is a
-standalone commit meant to be wrapped in a tree, or discarded?), then decide whether this is a lost
-recording or an expected discard of a 2-point preamble artifact. EVA-10's count window (17-18) and
-its ListHandles rows (rec11..rec16) are derived from this behaviour and move if it changes.
+**Next step.** Check whether the rewind strip scope's "replays after adjustedUT" walk includes
+standalone committed recordings, and whether `CommitRecordingDirect` should ever commit outside a
+tree in always-tree mode. EVA-10 carries this: its count window and ListHandles rows are derived
+from it, and its lander twin is not forbidden yet (a forbid would red every flight until fixed).
 
 ## IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: a tree committed in flight is never optimized (no boring-tail trim, no split / merge) until the next cold load [FILED 2026-09-29 from EVA-9 `2026-09-29_1528`, branch `deployables-lanes`. OPEN, product inconsistency, needs a ruling; no product change made]
 
