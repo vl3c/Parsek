@@ -47,6 +47,15 @@ the localized text, which displays the same. One rate-limited Verbose line per s
 GUI-28 now requires it for the facility description, and the in-game `FacilityMenu` cell
 asserts the decorated text carries no `#autoLOC`. Unit tests:
 `StockUiTextLocalizationTests`, `StrategyReservationTests`.
+
+Live proof: `GUI-28-census-stock-screens` `2026-09-29_1742` PASS attempt 1 (automation DLL sha256
+`aa6d5ef3...`): `stk-facility-menu.png` shows "At the Tracking Station, all ongoing missions can
+be viewed and focused. Landed craft can be recovered from here as well." then the orange
+reason, and the Upgrade tooltip. The run's log names four resolved keys: the facility
+description (`#autoLOC_900122`) and the Mission Control Accept, Decline and Cancel button
+tooltips (`#autoLOC_900693`, `#autoLOC_900700`, `#autoLOC_7001222`), which carried the same
+raw-key defect on hover. No other `#autoLOC` in the log outside stock's own config loading.
+
 ---
 
 ## KB-4-RND-PART-TOOLTIP-LOST: the R&D part tooltip closed between KB-4's hover and its capture [FILED 2026-09-29 from KB-4 `2026-09-29_1507`, branch `kb4-block-proof`. OPEN, not reproduced on the next flight]
