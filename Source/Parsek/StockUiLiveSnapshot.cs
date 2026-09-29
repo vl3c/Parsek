@@ -175,5 +175,51 @@ namespace Parsek
             prop.SetValue(label, text, null);
             return true;
         }
+
+        /// <summary>Test seam for <see cref="ResolveStockKey"/>'s localizer; null in every
+        /// player build (the live KSP localizer is used).</summary>
+        internal static Func<string, string> LocalizerForTesting;
+
+        /// <summary>
+        /// Stock text as the player sees it, for composing Parsek text onto it. Stock
+        /// labels and tooltips often hold a bare localization key (the facility menu's
+        /// description is <c>"#autoLOC_900122"</c>): KSP's <c>TMP_Text.StringToCharArray</c>
+        /// runs <c>Localizer.Format</c> over the WHOLE text at render time, and the
+        /// localizer only replaces a text that is exactly one tag. Key plus an appended
+        /// line is no longer a tag, so it renders the raw key; every composer resolves a
+        /// '#'-prefixed stock text here first. Anything else, and a key the localizer does
+        /// not know, comes back unchanged. Logs once per site (rate-limited) when a key
+        /// was resolved.
+        /// </summary>
+        internal static string ResolveStockKey(string text, string site)
+        {
+            if (string.IsNullOrEmpty(text) || text[0] != '#') return text;
+            string where = string.IsNullOrEmpty(site) ? "stock text" : site;
+            string resolved;
+            try
+            {
+                resolved = LocalizerForTesting != null ? LocalizerForTesting(text) : ResolveKeyLiveCore(text);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.WarnRateLimited("StockUiOverlay", "stock-text-key-failed|" + where,
+                    where + ": stock text key '" + text + "' could not be localized ("
+                    + ex.GetType().Name + ": " + ex.Message + "); composing onto the raw key");
+                return text;
+            }
+            if (string.IsNullOrEmpty(resolved) || string.Equals(resolved, text, StringComparison.Ordinal))
+                return text;
+            ParsekLog.VerboseRateLimited("StockUiOverlay", "stock-text-key-resolved|" + where,
+                where + ": stock text was localization key '" + text
+                + "', localized before appending Parsek text");
+            return resolved;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string ResolveKeyLiveCore(string key)
+        {
+            if (KSP.Localization.Localizer.Instance == null) return key;
+            return KSP.Localization.Localizer.Format(key);
+        }
     }
 }

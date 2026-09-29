@@ -1246,6 +1246,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **The Space Center facility menu no longer shows `#autoLOC_900122` above Parsek's reason.**
+  When the committed timeline upgrades a facility later, Parsek adds the reason under the
+  facility's description in its Space Center menu. The description is a translation key that
+  the game only translates when the text is exactly that key, so adding a line to it made the
+  menu show the raw key instead of the description (for the Tracking Station, "At the Tracking
+  Station, all ongoing missions can be viewed and focused..."). Parsek now translates the game's
+  text before adding its line, on every stock text it adds to: the facility menu description
+  and button tooltips, the R&D node description and tooltip, the part tooltip, Mission Control
+  row labels and contract details, the Administration strategy reason and button tooltips, the
+  Astronaut Complex labels and tooltips, and the flight crew EVA and hatch tooltips.
 - **A vessel that dropped a stage and kept flying is no longer treated as if its flight ended at
   the staging.** Every staging or decouple of the vessel you are flying is recorded as a branch
   that the vessel flies straight past, but several places read any branch as "this vessel's

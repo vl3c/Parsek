@@ -223,6 +223,10 @@ required = [
   "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] MissionControl Cancel: reason shown on the disabled button's stock tooltip: Completed on [^\\r\\n]+, blocked by timeline until then\\.",
   "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] Administration cancel: reason shown on the disabled button's stock tooltip: Deactivated on [^\\r\\n]+, blocked by timeline until then\\.",
   "\\[Parsek\\]\\[VERBOSE\\]\\[StrategyReservation\\] activation refused by stock strategy=OutsourcedResearchCfg - stock's reason kept first, committed activation fact appended",
+  # --- stock-text-localize (2026-09-29): the facility description is the bare key
+  #     #autoLOC_900122 and stock localizes a text only when it is one whole tag, so Parsek
+  #     localizes it before appending (the menu used to show the raw key) ---
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] facility menu description: stock text was localization key '#autoLOC_[0-9]+', localized before appending Parsek text",
 ]
 # The K2 EVA / transfer patches must bind in the live game (no committed fixture boots a held
 # kerbal aboard a live vessel, so their controls are not photographed here).

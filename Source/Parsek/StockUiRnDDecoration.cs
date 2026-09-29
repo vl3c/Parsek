@@ -72,13 +72,17 @@ namespace Parsek
 
         /// <summary>
         /// Appends the explanation to a stock caption on its own line, in the stock reason
-        /// colour. Idempotent: a caption that already carries it is returned unchanged.
+        /// colour. Idempotent: a caption that already carries it is returned unchanged. A
+        /// stock text that is a localization key is localized first
+        /// (<see cref="StockUiText.ResolveStockKey"/>); <paramref name="site"/> names the
+        /// stock surface for that log line.
         /// </summary>
-        internal static string AppendReason(string stockText, string why)
+        internal static string AppendReason(string stockText, string why, string site = null)
         {
             if (string.IsNullOrEmpty(why)) return stockText;
             string line = "<color=" + ReasonColorHex + ">" + why + "</color>";
             if (string.IsNullOrEmpty(stockText)) return line;
+            stockText = StockUiText.ResolveStockKey(stockText, site);
             if (stockText.Contains(line)) return stockText;
             return stockText + "\n" + line;
         }
@@ -115,7 +119,7 @@ namespace Parsek
             string techId = TechIdOf(node);
             if (string.IsNullOrEmpty(techId)) return caption;
             var d = StockUiLiveSnapshot.Current.Tech(techId);
-            return d.Marked ? AppendReason(caption, d.Why) : caption;
+            return d.Marked ? AppendReason(caption, d.Why, "R&D node tooltip") : caption;
         }
 
         /// <summary>
@@ -209,7 +213,7 @@ namespace Parsek
             object description = StockUiText.LabelField(controller, typeof(RDController), "node_description");
             string text = StockUiText.Get(description);
             if (text == null) return;
-            StockUiText.Set(description, AppendReason(text, d.Why));
+            StockUiText.Set(description, AppendReason(text, d.Why, "R&D node description"));
         }
 
         /// <summary>

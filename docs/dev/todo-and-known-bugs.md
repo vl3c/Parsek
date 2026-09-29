@@ -15,6 +15,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~STOCK-TEXT-KEY-APPENDED-RAW: the facility menu showed `#autoLOC_900122` above Parsek's reason~~ [FILED AND FIXED 2026-09-29, branch `stock-text-localize`]
+
+The GUI-28 captures of the Tracking Station facility menu (the committed timeline upgrades it
+later) showed `#autoLOC_900122` on the description's first line, then Parsek's reason. An
+earlier review of those captures read the key line as stock's own text; the Sandbox census
+`GUI-30-census-stock-screens-sandbox` `2026-09-29_1511` (no Parsek marks,
+`sb-stock-facility-menu.png`) shows stock renders the English description there, so the key
+line was Parsek's.
+
+Root cause (decompiled, KSP 1.12.5): `KSCFacilityContextMenu.CreateWindowContent` sets
+`descriptionText.text = description`, which is `SpaceCenterBuilding.buildingDescription`, the
+bare key. KSP's `TMP_Text.StringToCharArray` runs `Localizer.Format(text)` over the WHOLE text
+at render time, and `Localizer.ReplaceSingleTagIfFound` replaces a text only when it is exactly
+one tag. `StockUiFacilityDecoration.AppendDescriptionReason` read the raw key back, appended
+its reason line, and wrote `key + "\n" + line`, which is no longer a tag and renders raw.
+
+Fix: one shared resolver, `StockUiText.ResolveStockKey(text, site)`, localizes a '#'-prefixed
+stock text (live `Localizer.Format` in a NoInlining core, `LocalizerForTesting` seam) before
+anything is appended; a key the localizer does not know, and every other text, comes back
+unchanged. Every composer that appends onto stock text routes through it:
+`StockUiRnDDecoration.AppendReason` (facility description, facility / hatch / Administration /
+R&D / Mission Control button tooltips through `ComposeTooltipText` and
+`StockUiReasonTooltip.Compose`, R&D node tooltip and description, part tooltip greyout
+message, portrait EVA tooltip), `StockUiAstronautDecoration.AppendTooltip` and
+`ComposeAssignedLabel`, `MissionControlStockAnnotation.ComposeRowLabel` and
+`ComposeDetailText` (only when appending), and
+`StrategyReservationPredicates.AppendCommittedActivationToStockReason`. `RemoveReason` leaves
+the localized text, which displays the same. One rate-limited Verbose line per site
+(`<site>: stock text was localization key '#...', localized before appending Parsek text`);
+GUI-28 now requires it for the facility description, and the in-game `FacilityMenu` cell
+asserts the decorated text carries no `#autoLOC`. Unit tests:
+`StockUiTextLocalizationTests`, `StrategyReservationTests`.
+
+Live proof: `GUI-28-census-stock-screens` `2026-09-29_1742` PASS attempt 1 (automation DLL sha256
+`aa6d5ef3...`): `stk-facility-menu.png` shows "At the Tracking Station, all ongoing missions can
+be viewed and focused. Landed craft can be recovered from here as well." then the orange
+reason, and the Upgrade tooltip. The run's log names four resolved keys: the facility
+description (`#autoLOC_900122`) and the Mission Control Accept, Decline and Cancel button
+tooltips (`#autoLOC_900693`, `#autoLOC_900700`, `#autoLOC_7001222`), which carried the same
+raw-key defect on hover. No other `#autoLOC` in the log outside stock's own config loading.
+
+---
+
 ## KB-4-RND-PART-TOOLTIP-LOST: the R&D part tooltip closed between KB-4's hover and its capture [FILED 2026-09-29 from KB-4 `2026-09-29_1507`, branch `kb4-block-proof`. OPEN, not reproduced on the next flight]
 
 `KB-4-ksc-click-blocks-remaining` `2026-09-29_1507` (automation DLL sha256 `caf7091b...`,
