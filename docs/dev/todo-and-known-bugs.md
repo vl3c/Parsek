@@ -531,29 +531,94 @@ with one Offered contract accepted and one tier-1 node left unresearched after i
 (`start`) - or `stock-screen-census`, if it carries both (not checked). Not fixed now:
 a new or re-harvested fixture moves H45's host and every lane pinned to it.
 
-## SAVE-BLOCKS-AWAITING-READINGS: 28 report-only save-structure blocks on 23 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`. OPEN]
+## ~~RF-LANES-RELOAD-A-PRE-COMMIT-SAVE: RF-1, RF-4 and RF-9 reload the game before the committed flight is saved~~ [FILED 2026-09-27, branch `arm-batch2`. LANE SPEC DEFECT, not a Parsek defect. FIXED AND RE-FLOWN GREEN 2026-09-29]
+
+All three lanes run `ExitToSpaceCenter` and then `LoadGame persistent` straight away. The
+tree commits on arrival at the Space Center, AFTER the exit's own persistent.sfs write, so
+the reload reads a save that still carries the flight as the ACTIVE tree:
+`TryRestoreActiveTreeNode: removed committed tree 'GS1 Auto-Chute Booster'`, the flight
+resumes in Limbo, the re-fly starts with `tree=<none> inPlaceContinuation=False`,
+`RestoreActiveTreeFromPending` waits 3 s for the capsule while the probe is active and
+gives up, and `AnswerMergeDialog` times out; the scene-exit auto-commit then discards the
+provisional as a zombie (`Marker invalid field=TreeId`, `Zombies discarded=1`). This is the
+same shape as RF-20-FIRST-FLIGHT-SPEC-RELOAD-BEFORE-COMMIT-SAVE, and loading an older save
+is meant to restore it that way. Runs on current main (DLL sha256 `f747fdee...`,
+origin/main `1329091f8`): RF-4 `2026-09-27_1943` (merge, seal and rewind-to-launch all
+failed; saveParse rewindPoints 1, supersedeRows 0), RF-1 `2026-09-27_1948` (its ARMED
+`rewind` block red: rewindPoints 0 < 1, supersedeRows 0 < 1), RF-9 `2026-09-27_1952`
+(merge committed with no supersede row; ARMED `rewind` red on supersedeRows and
+tombstones). The 2026-09-15 greens passed only because that build dropped the active node
+for an incompatible sidecar (`TryRestoreActiveTreeNode: dropped entire tree ...
+incompatible sidecar`) and so kept the committed copy. Fix (committed on `arm-batch2`): a
+`SaveGame persistent` step after `ExitToSpaceCenter` in all three specs, RF-13H's and
+RF-20's order, budgets re-derived. RF-9's `Inserted 12 transient state seed event(s)`
+token read 8 on `_1952`; check it on the re-flight before re-pinning.
+
+**Re-flown 2026-09-29** (automation DLL sha256 `ee677200...`, origin/main `8a5cc483f` merged): RF-4
+`2026-09-29_1516` and RF-1 `_1520` PASS attempt 1. RF-9 `_1523` met every save window but was
+PARSEK-FAIL(expectation) on the seed token alone, reading 8 again. Cause established: the
+four missing seeds are the four static solarPanels5 `DeployableExtended` seeds, which
+`4c13c13da` (2026-09-15, `PartStateSeeder.DeployableHasNoPoseAnimation`) deliberately stopped
+recording (`Built 8 ... engineSentinels=8 visualStates=0`; `2026-09-15_1546` read
+`visualStates=4`). An intended product change, so the token was re-pinned to 8, and
+`2026-09-29_1538` PASS attempt 1. All three armed `rewind` blocks met; RF-4 `rewind` and RF-1 /
+RF-9 `structure` armed off these readings (SAVE-BLOCKS-AWAITING-READINGS).
+
+## ~~CL-LANES-INJECTED-RP-IN-THE-FUTURE: CL-3 and CL-4 cannot Re-Fly since the future-rewind-point gate (#1788)~~ [FILED 2026-09-27, branch `arm-batch2`. LANE SPEC DEFECT, not a Parsek defect. FIXED AND RE-FLOWN GREEN 2026-09-29]
+
+`RewindCrewLossFixture` puts the split (and `rp_cl_root`) 60 s after the host save's UT
+(9.06 -> 69.06). Since RP-SURVIVES-REWIND-TO-LAUNCH a rewind point later than the clock is
+not invokable, so both lanes' mission `InvokeRewind` is refused
+`refly-gate This separation is in your future - Re-Fly opens once the clock reaches it` and
+the run is INVALID MISSION-FLAKE on both attempts: CL-3 `2026-09-27_1956` / `_1957_a2`,
+CL-4 `2026-09-27_1959` and its retry. Both lanes have ARMED `rewind` blocks, so both are
+broken on main. #1788 gave S4.1-S4.4 a `TimeJump 61 s` and missed these two. Fix
+(committed on `arm-batch2`): the same `TimeJump deltaSeconds=61.0` after the settings and
+before the mission phase (the clock lands just past the split and before the probe's
+split+40 and the pod's split+55 ends, so nothing materializes; the rewind lands on the
+quicksave's 9.06, so `clockRewound` stays about a minute), budgets 1800 -> 2400 and
+2100 -> 2700. A grep of every spec invoking a literal injected RP found no other lane
+without a jump or a flown ascent first. Re-flown 2026-09-29 (DLL `ee677200...`): CL-3
+`2026-09-29_1535` and CL-4 `_1536` PASS attempt 1, both armed `rewind` blocks met (supersedeRows 1,
+tombstones 2 on each); CL-3 `structure` armed off `_1535`.
+
+## SAVE-BLOCKS-AWAITING-READINGS: 19 report-only save-structure blocks on 17 specs still wait for a matching reading [FILED 2026-09-27 from the arming pass, branch `arm-save-checks`; BATCH 2 2026-09-27 / 2026-09-29, branch `arm-batch2`. OPEN]
 
 The operator's 2026-09-27 arming pass armed every report-only `rewind` /
-`recordings.structure` / `recordings.points` block that had a matching reading on current
-enough code (37 blocks; `autotest-status.md` header), and RVR-8 `structure` followed the
-same day off its green re-fly `2026-09-27_1310`. These remain report-only, and each
-needs a reading flight on current code (or a decision) before it can be armed:
+`recordings.structure` / `recordings.points` block that had a matching reading (37 blocks,
+then RVR-8 `structure`; GS-8 both followed on 2026-09-28 after its watch-hold fix). BATCH 2
+(branch `arm-batch2`) armed 15 more, each off its own PASS reading with every window met,
+and every bound inverted offline against that save red on exactly its window (80 of 80):
+- 2026-09-27, automation DLL sha256 `f747fdee...`: GS-1 / GS-2 / GS-3 `structure` (`_2000` /
+  `_2005` / `_2007`), GS-7 both (`_2016`), GS-9 both (`_2040`), V3F both (`_2048`), V3R both
+  (`_2104`), all `2026-09-27_`.
+- 2026-09-29, automation DLL sha256 `ee677200...` (origin/main `8a5cc483f` merged), after the
+  two lane-spec fixes (RF-LANES-RELOAD-A-PRE-COMMIT-SAVE, CL-LANES-INJECTED-RP-IN-THE-FUTURE):
+  RF-4 `rewind` (`_1516`), RF-1 `structure` (`_1520`), CL-3 `structure` (`_1535`), RF-9
+  `structure` (`_1538`), all `2026-09-29_`. The already-armed `rewind` blocks read green on
+  RF-1, RF-9, CL-3 and CL-4 (`_1536`).
 
-- No reading on file anywhere: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`;
-  CL-3, GS-1, GS-2, GS-3 `structure`; GS-7, V3C, V3F, V3R both blocks; RF-2, RF-3,
-  RF-12L `rewind`.
-- Readings only before the 2026-09-23 rewind fixes (#1788 and after): GS-9 both
-  (`2026-09-11_0109`), RF-1 and RF-9 `structure` (`2026-09-15_1542` / `_1546`).
-- A reading that contradicts the window: RF-4 `rewind` read rewindPoints 1 against
-  `max = 0` (`2026-09-15_1553`, before #1788); the window needs a decision under the
-  rewind-point-survives ruling, not just a flight.
+Re-derived from the specs with `saveparse.declared_structure_blocks` /
+`armed_structure_blocks` (rewind, structure, points, routes): 180 of 199 declared blocks
+armed across 107 specs. Also re-checked after the Re-Fly separations-only / session EVA /
+session undock changes (#1897, #1909, #1910): RF-13 `2026-09-27_2009` (supersedeRows 1,
+tombstones 2) and RF-12S `_2013` (5 / 12) still meet their armed windows; no committed
+fixture carries an EVA rewind point, so #1897 moved no armed window.
 
-GS-8 both blocks armed 2026-09-28 off `2026-09-28_1732` (branch `gs8-watch-hold`, after the
-GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix).
+**RF-4 `rewind` (answered).** Its only earlier reading `2026-09-15_1553` read rewindPoints 1
+against `max = 0`: a product defect since fixed by RP-SURVIVES-REWIND-TO-LAUNCH (#1788), not a
+legitimate leftover. The seal reaped the booster's point, then the Rewind-to-Launch reloaded a
+persistent.sfs written 17 ms before the reap. #1788 carries the in-memory list across the
+rewind, so a point reaped before the rewind stays reaped. In gameplay terms: once the player
+seals a re-flown booster, rewinding the whole flight to launch does not offer that
+separation's Re-Fly again. The supervisor agreed on 2026-09-27, and `2026-09-29_1516` read
+rewindPoints 0, so the block is armed.
 
-Cheapest next flights (proposed 2026-09-27, deferred by the supervisor): GS-9, GS-8 (nightly,
-about 6-8 min each; GS-8 now flown), RF-1, RF-4, RF-9, CL-3, GS-1, GS-2, GS-3 (about 3-5 min each), GS-7,
-V3F, V3R. The long harvest missions (B17, V3C, B23-B30, RF-2, RF-3, RF-12L) are not proposed.
+Still report-only, 19 blocks on 17 specs, none with a reading on current code:
+- The long harvest missions: B17 `points`; B23, B24, B25, B26, B28, B29, B30 `rewind`; V3C both.
+- RF-2, RF-3, RF-12L `rewind`.
+- Declared since #1902: EVA-7 `structure`, RF-16 `rewind`, RF-17 `rewind`, RF-20 both, RR-1
+  `structure`.
 
 ---
 

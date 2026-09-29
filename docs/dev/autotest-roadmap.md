@@ -6305,15 +6305,18 @@ Remaining fail-open surfaces, ranked:
    and rewind points off the produced save on every driver-valid run. It becomes a
    GATE per scenario when that scenario arms `gating = true` after its report-only
    readings are confirmed live. S4.1-rewind-merge is armed (runs `2026-07-31_1628`
-   read-only / `_1635` armed / `_1637` negative control). STATE 2026-09-27 (branch
-   `arm-save-checks`, the operator's arming pass, plus RVR-8 `structure` from
-   `arm-rvr8-structure`): 159 of the 189 declared blocks are armed
-   across 99 specs, the last 37 off matching readings (24 of them read by flights of current code that
-   day) with an offline one-window-at-a-time inversion against each produced save (172 of
-   172 red). What stays ADDRESSED-REPORT-ONLY is 30 blocks on 24 specs, listed in todo
-   SAVE-BLOCKS-AWAITING-READINGS: mostly long harvest missions (B17, B23-B30, V3C / V3F /
-   V3R), the GS / RF autopilot lanes whose last readings predate the 2026-09-23 rewind
-   fixes. RVR-8, whose first reading was red, was armed off its green re-fly `_1310`.
+   read-only / `_1635` armed / `_1637` negative control). STATE 2026-09-29 (branch
+   `arm-batch2`, re-derived from the specs with `saveparse.declared_structure_blocks` /
+   `armed_structure_blocks` over rewind + structure + points + routes): 180 of the 199
+   declared blocks are armed across 107 specs. The 2026-09-27 arming pass (`arm-save-checks`)
+   armed 37 off matching readings, then RVR-8 `structure` and GS-8 both followed their green
+   re-flies, and batch 2 armed 15 more (GS-1 / GS-2 / GS-3 `structure`; GS-7, GS-9, V3F,
+   V3R both; RF-4 `rewind`; RF-1, RF-9, CL-3 `structure`), each off its own PASS reading
+   with every bound inverted offline against that save and red on exactly its window.
+   What stays ADDRESSED-REPORT-ONLY is 19 blocks on 17 specs, listed in todo
+   SAVE-BLOCKS-AWAITING-READINGS: the long harvest missions (B17 `points`, B23-B30, V3C),
+   RF-2 / RF-3 / RF-12L `rewind`, and the blocks declared since #1902 (EVA-7, RF-16, RF-17,
+   RF-20, RR-1), none with a reading on current code.
 3. **Three expectation verifier families were declared and inert** (`route`,
    `rewind`, `loop`). PARTIALLY CLOSED by R9 2026-07-31: `rewind` is now evaluated
    AND ARMED on its one declarer - S4.1's asserts stopped being comments and became

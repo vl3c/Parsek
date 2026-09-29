@@ -11020,6 +11020,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
     # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+                       # CL-3 (on the line above) `recordings.structure`: armed 2026-09-29
+                       # (branch `arm-batch2`) off `2026-09-29_1535`, the first flight since
+                       # the TimeJump 61 fix (todo CL-LANES-INJECTED-RP-IN-THE-FUTURE); 5 of 5
+                       # bounds inverted offline, each red on exactly its window.
                        # CL-4: `rewind` armed 2026-09-09 off its own reading run
                        # `2026-09-09_1813_CL-4-refly-crew-standin` (supersedeRows 1, tombstones 1,
                        # CL-3's facets on CL-3's shape; rewindPoints unpinned, the RP is reaped);
@@ -11147,6 +11151,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # (rewindPoints inverted to {2,2}, red on exactly that facet).
                        # `rewindPoints = {1,1}` is the armed claim: the reaper declines
                        # only while a slot's effective tip is CommittedProvisional.
+                       # RF-1 `recordings.structure`: armed 2026-09-29 (branch `arm-batch2`)
+                       # off `2026-09-29_1520`, the first current-code reading after the
+                       # SaveGame-before-reload spec fix; 8 of 8 bounds inverted offline.
                        "RF-1-continuation-stays-open.toml",
                        # RF-10: `rewind` armed 2026-09-09 off its reading run. The
                        # safest arming in the program: the lane starts no recorder and
@@ -11161,6 +11168,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # then landed unchanged on run 2, which is the same two-sample
                        # standard; negative control inverted tombstones to {max = 0},
                        # the exact window the reading run refuted.
+                       # RF-9 `recordings.structure`: armed 2026-09-29 (branch `arm-batch2`)
+                       # off `2026-09-29_1538`, after the SaveGame-before-reload fix and the
+                       # 12 -> 8 transient-seed re-pin; 9 of 9 bounds inverted offline.
                        "RF-9-atmosphere-exit-split-stays-open.toml",
                        "V27M-rover-route-endpoint-substituted-map-lines.toml",  # routes, armed 2026-09-07 off `2026-09-07_1858`
                        "V14M-ike-player-loop.toml", "V14T-ike-ts-arrival.toml",
@@ -11363,6 +11373,23 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "V23T-mun-landing-ts-arrival.toml",
                        "GS-1-auto-chute-booster.toml", "GS-2-orbital-probe-deploy.toml",
                        "GS-3-switch-nudge-deployed.toml",
+                       # 2026-09-27 BATCH 2 (branch `arm-batch2`, the operator's arming
+                       # decision of 2026-09-27), each off its own reading on current main
+                       # (automation DLL sha256 f747fdee...), every window met, every bound
+                       # inverted offline against that produced save and red on exactly its
+                       # window. GS-1 / GS-2 / GS-3 `structure` joined their armed `rewind`
+                       # (`_2000` / `_2005` / `_2007`); GS-7 both blocks `_2016`; GS-9 both
+                       # `_2040`; V3F both `_2048`; V3R both `_2104` (all `2026-09-27_`).
+                       "GS-7-kerbalx-crash-watch-hold.toml",
+                       "GS-9-kerbalx-repeat-rewind.toml",
+                       "V3F-flight-arrival-faithful.toml",
+                       "V3R-flight-arrival-reaim.toml",
+                       # RF-4 `rewind`: armed 2026-09-29 (branch `arm-batch2`) off
+                       # `2026-09-29_1516`, its first current-code reading after the
+                       # SaveGame-before-reload spec fix (rewindPoints 0, supersedeRows 1,
+                       # tombstones 0); 3 of 3 bounds inverted offline, each red on exactly
+                       # its window.
+                       "RF-4-rewind-to-launch-after-merge.toml",
                        # GS-8 both blocks: armed 2026-09-28 (branch `gs8-watch-hold`) off
                        # `2026-09-28_1732`, the first green reading after the
                        # GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD fix; all 10 bounds
