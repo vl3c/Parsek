@@ -4240,11 +4240,11 @@ namespace Parsek
             string controlName = "MissionLoopPeriod_" + mission.Id;
 
             // Content-sized period cell: it sizes to whichever state renders (a wide read-only
-            // "~P (basis)" / "~P (basis, varies)" locked label, or a narrow editable value+unit). The
-            // caller emits a FlexibleSpace right after this cell to right-pin the Watch / Rewind
-            // buttons against the Archive checkbox, so a long scheduled label gets the whole middle of
-            // the header bar and renders on one line instead of wrapping inside a fixed-width box.
-            GUILayout.BeginHorizontal();
+            // "~P (basis)" / "~P (basis, varies)" locked label, or a narrow editable value+unit), so a
+            // long scheduled label renders on one line. ExpandWidth(false): a bare horizontal group
+            // stretches, and on the mission bar's second line it would take slack from the summary
+            // cell (the one expanding cell there) and open a gap before Watch.
+            GUILayout.BeginHorizontal(GUILayout.ExpandWidth(false));
 
             // Phase-locked + constrained (supported, P != MinCycleDuration): the cadence is
             // determined by physics (quantized to a multiple of P), not freely editable, so show the
