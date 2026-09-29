@@ -3621,12 +3621,20 @@ teleport of an anchored kerbal is pulled straight back by that joint (EVA-8
 `2026-09-29_1711_a2`: the first step, taken seconds after the ladder release, landed; every later
 step left him at the same 13.04 m for all three moves). The seam calls `RemoveRBAnchor` by
 reflection (`wasAnchored=` / `anchorReleased=` on the move line); stock re-anchors him at the
-new spot once he stands idle there. THE SET-DOWN HEIGHT is 0.5 m above the HIGHER of the
-target's PQS terrain and the kerbal's cached `Vessel.terrainAltitude` (`StepSetDownAltitude`):
-stock destroys a vessel that is not landed once its `altitude` reads below that cached value
-("crashed through terrain"), which right after a teleport is still the old spot's, so a target
-more than 0.5 m lower than the spot he left killed him (EVA-8 `2026-09-29_1729`: 151.02 m ->
-150.42 m). The move line carries `terrain=` and `setDownAlt=`. A set-down that drops him more
+new spot once he stands idle there. THE SET-DOWN HEIGHT puts his feet on the GROUND COLLIDER,
+not on the analytic PQS height (EVA-9 `2026-09-29_1931`: set 0.53 m over PQS 151.36 he ended
+half inside the ground; 1.93 m over PQS 150.42 elsewhere he fell and stumbled): a ray cast down
+onto layer 15 (the terrain collider the placement preview hits) at the target gives the ground,
+and the origin goes the kerbal's measured feet depth (origin to his lowest collider point,
+measured before the move) + 0.05 m above it (`StepSetDownAltitude`; a missed ray falls back to
+the PQS height, an unbelievable depth to a 0.5 m lift). CRASH GUARD: stock destroys a vessel that
+is not landed once its `altitude` reads below its cached `terrainAltitude` ("crashed through
+terrain"; EVA-8 `2026-09-29_1729`), so the origin is never set below the target's PQS height or
+the cached value + 0.05 m. The move line carries `terrain= setDownAlt= groundAlt= feetDepth=
+groundSource= crashGuard=`. Completion also requires his feet within 0.25 m of the ground
+collider under him (a landed kerbal outside that is moved again), logged once as
+`evagroundscience step ground kerbal=<name> feetClearance=<m> originClearance=<m>
+tolerance=0.25 groundSource=<raycast|pqs> ok=<bool>`. A set-down that drops him more
 than ~0.6 m lands faster than `stumbleThreshold` (3.5 m/s) and ragdolls him, and decompiled
 `KerbalEVA.CanRecover` lets the ACTIVE kerbal up only on a movement input (`tgtRpos != 0`), so
 he would lie there for good (EVA-8 `2026-09-29_1759`: the Go-ob place waited 120 s on

@@ -467,11 +467,14 @@ namespace Parsek.Tests
                     "evagroundscience step move kerbal=Jebediah Kerman move=2 collisionEnhancersSkipped=1 "
                     + "skipFrames=" + TestCommandEvaGroundScience.StepCollisionSkipFrames
                     + " method=anchor-release+rb-pose evaModule=true wasAnchored=true anchorReleased=true "
-                    + "rigidbodiesPosed=12 terrain=? setDownAlt=?",
+                    + "rigidbodiesPosed=12 terrain=? setDownAlt=? groundAlt=? feetDepth=? groundSource=? "
+                    + "crashGuard=false",
                     line);
-                Assert.EndsWith(" terrain=150.42 setDownAlt=151.52",
+                Assert.EndsWith(" terrain=150.42 setDownAlt=151.52 groundAlt=150.50 feetDepth=0.97 "
+                    + "groundSource=raycast crashGuard=true",
                     TestCommandEvaGroundScience.FormatStepMoveLine(
-                        "Jebediah Kerman", 1, 1, true, false, true, 1, 150.42, 151.52));
+                        "Jebediah Kerman", 1, 1, true, false, true, 1, 150.42, 151.52, 150.50, 0.97,
+                        "raycast", true));
                 // The lanes' pinned token still matches (EVA-8 / EVA-9 / EVA-10 require it on move 1).
                 string first = TestCommandEvaGroundScience.FormatStepMoveLine(
                     "Jebediah Kerman", 1, 1, true, false, false, 1);
@@ -512,22 +515,99 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void StepSetDownAltitude_ClearsTheHigherOfTheTargetAndTheCachedTerrain()
+        public void StepSetDownAltitude_PutsTheFeetOnTheGroundColliderAboveTheCrashGuard()
         {
+            double margin = TestCommandEvaGroundScience.StepSetDownMarginMeters;
+            double guard = TestCommandEvaGroundScience.StepCrashGuardMarginMeters;
             double lift = TestCommandEvaGroundScience.StepLiftMeters;
-            // Downhill (the EVA-8 death: 151.02 -> 150.42): lift above the OLD spot's terrain,
-            // so altitude never reads below the stale cached terrainAltitude.
-            Assert.Equal(151.02 + lift, TestCommandEvaGroundScience.StepSetDownAltitude(150.42, 151.02), 9);
-            Assert.True(TestCommandEvaGroundScience.StepSetDownAltitude(150.42, 151.02) > 151.02);
-            // Uphill: the target's own terrain is the floor.
-            Assert.Equal(151.12 + lift, TestCommandEvaGroundScience.StepSetDownAltitude(151.12, 150.64), 9);
-            // Unknown cached terrain (stock's -1, NaN, infinity): the target alone.
-            Assert.Equal(150.42 + lift, TestCommandEvaGroundScience.StepSetDownAltitude(150.42, -1.0), 9);
-            Assert.Equal(150.42 + lift, TestCommandEvaGroundScience.StepSetDownAltitude(150.42, double.NaN), 9);
-            Assert.Equal(150.42 + lift,
-                TestCommandEvaGroundScience.StepSetDownAltitude(150.42, double.PositiveInfinity), 9);
-            // Sea-level clamp (TerrainAltitude floors at 0 over water): still above it.
-            Assert.Equal(lift, TestCommandEvaGroundScience.StepSetDownAltitude(0.0, -1.0), 9);
+
+            // The ground collider, not the PQS height: EVA-9 `_1931`'s last step (PQS 151.36)
+            // with the collider higher than PQS lands the feet ON it, not 0.5 m inside it.
+            double alt = TestCommandEvaGroundScience.StepSetDownAltitude(
+                151.90, 151.36, 0.95, 151.30, out string src, out bool guarded);
+            Assert.Equal(151.90 + 0.95 + margin, alt, 9);
+            Assert.Equal(TestCommandEvaGroundScience.GroundSourceRaycast, src);
+            Assert.False(guarded);
+
+            // Downhill (EVA-8 `_1729`: PQS 150.42, the spot left cached 151.02): no drop from the
+            // old spot's height any more, only the crash guard's floor when the set-down would
+            // read below the cached terrain.
+            alt = TestCommandEvaGroundScience.StepSetDownAltitude(
+                150.45, 150.42, 0.40, 151.02, out src, out guarded);
+            Assert.Equal(151.02 + guard, alt, 9);
+            Assert.True(guarded);
+            alt = TestCommandEvaGroundScience.StepSetDownAltitude(
+                150.45, 150.42, 0.95, 151.02, out src, out guarded);
+            Assert.Equal(150.45 + 0.95 + margin, alt, 9);
+            Assert.False(guarded);
+
+            // The PQS height itself is a crash-guard floor.
+            alt = TestCommandEvaGroundScience.StepSetDownAltitude(
+                149.00, 150.42, 0.30, -1.0, out src, out guarded);
+            Assert.Equal(150.42 + guard, alt, 9);
+            Assert.True(guarded);
+
+            // No ground hit: the PQS height plus the depth.
+            alt = TestCommandEvaGroundScience.StepSetDownAltitude(
+                double.NaN, 150.42, 0.95, double.NaN, out src, out guarded);
+            Assert.Equal(150.42 + 0.95 + margin, alt, 9);
+            Assert.Equal(TestCommandEvaGroundScience.GroundSourcePqs, src);
+
+            // An unbelievable feet depth falls back to the plain lift.
+            foreach (double badDepth in new[] { double.NaN, -0.2, TestCommandEvaGroundScience.MaxFeetDepthMeters + 0.1 })
+            {
+                alt = TestCommandEvaGroundScience.StepSetDownAltitude(
+                    151.90, 151.36, badDepth, -1.0, out src, out guarded);
+                Assert.Equal(151.90 + lift, alt, 9);
+            }
+
+            // Unknown cached terrain values never act as a guard.
+            foreach (double cached in new[] { -1.0, double.NaN, double.PositiveInfinity })
+            {
+                alt = TestCommandEvaGroundScience.StepSetDownAltitude(
+                    151.90, 151.36, 0.95, cached, out src, out guarded);
+                Assert.Equal(151.90 + 0.95 + margin, alt, 9);
+                Assert.False(guarded);
+            }
+        }
+
+        [Fact]
+        public void GroundClearance_OkOnlyWithinTheToleranceAndLoggedInvariant()
+        {
+            double tol = TestCommandEvaGroundScience.StepGroundClearanceToleranceMeters;
+            Assert.True(TestCommandEvaGroundScience.IsGroundClearanceOk(0.02));
+            Assert.True(TestCommandEvaGroundScience.IsGroundClearanceOk(-tol));
+            Assert.True(TestCommandEvaGroundScience.IsGroundClearanceOk(tol));
+            // Half in the ground (the operator's EVA-9 observation) or still falling.
+            Assert.False(TestCommandEvaGroundScience.IsGroundClearanceOk(-0.5));
+            Assert.False(TestCommandEvaGroundScience.IsGroundClearanceOk(0.8));
+            Assert.False(TestCommandEvaGroundScience.IsGroundClearanceOk(double.NaN));
+
+            CultureInfo saved = Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+                Assert.Equal(
+                    "evagroundscience step ground kerbal=Jebediah Kerman feetClearance=0.03 originClearance=0.98 "
+                    + "tolerance=0.25 groundSource=raycast ok=true",
+                    TestCommandEvaGroundScience.FormatStepGroundLine("Jebediah Kerman", 0.03, 0.98, "raycast", true));
+                Assert.Equal(
+                    "evagroundscience step ground kerbal=Jebediah Kerman feetClearance=nan originClearance=nan "
+                    + "tolerance=0.25 groundSource=? ok=false",
+                    TestCommandEvaGroundScience.FormatStepGroundLine("Jebediah Kerman", double.NaN, double.NaN, null, false));
+            }
+            finally
+            {
+                Thread.CurrentThread.CurrentCulture = saved;
+            }
+
+            // A landed kerbal with his feet off the ground collider is moved again.
+            int wait = TestCommandEvaGroundScience.StepReapplyFrames;
+            Assert.True(TestCommandEvaGroundScience.ShouldReapplyStep(0.1, true, wait, 1));
+            Assert.False(TestCommandEvaGroundScience.ShouldReapplyStep(0.1, false, wait, 1));
+            Assert.False(TestCommandEvaGroundScience.ShouldReapplyStep(0.1, true, wait - 1, 1));
+            Assert.False(TestCommandEvaGroundScience.ShouldReapplyStep(0.1, true, wait,
+                TestCommandEvaGroundScience.MaxStepMoves));
         }
 
         [Fact]

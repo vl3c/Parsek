@@ -61,7 +61,18 @@ kerbal (one of several jointed bodies), which killed him on `_1807_a2`. Step com
 him standing; the seam runs stock's `On_recover_start` FSM event once he lies landed and still for
 0.5 s (`ShouldRecoverFromRagdoll`, xUnit-covered, at most 3) and never moves him while ragdolled.
 
-VERIFIED: EVA-8 `2026-09-29_1819` (automation DLL sha256 `707f46be...`, provisioned from this
+FIFTH CAUSE, found on the integration flights EVA-9 `2026-09-29_1931` / NEGCTL `_1944`: the
+set-down height was relative to the analytic PQS height, which is not the ground a kerbal stands
+on. The last step (bearing 270, 4 m) logged `terrain=151.36 setDownAlt=151.89` and completed
+LANDED, but his recorded standing altitude there is 152.0 (standing kerbals elsewhere read
+1.08-1.17 m above the verb's terrain value), so he ended about 0.5 m inside the ground (the
+operator watched it); the downhill step had the opposite error (`setDownAlt=152.35` over
+`terrain=150.42`, a fall and a stumble). The set-down now raycasts onto the ground collider
+(layer 15) at the target and puts his lowest collider point 0.05 m above it (the cached terrain
+and the PQS height kept only as a crash-guard floor), and completion requires his feet within
+0.25 m of the ground under him (`step ground ... ok=true`, required by the cluster lanes).
+
+VERIFIED (causes one to four): EVA-8 `2026-09-29_1819` (automation DLL sha256 `707f46be...`, provisioned from this
 branch) PASS attempt 1. All nine steps completed on their first move (`offTarget` 0.01-0.18 m, the
 anchor released on every step after the first), two stumbles (the 1.95 m downhill set-down to the
 Go-ob spot, and the last step back beside the capsule) were got up by `step ragdoll-recover ...

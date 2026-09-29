@@ -148,24 +148,84 @@ namespace Parsek.TestCommands
         /// </summary>
         internal const int StepCollisionSkipFrames = 5;
 
+        /// <summary>Height of the kerbal's lowest collider point above the ground collider
+        /// the step sets him down at (so he lands in a frame or two instead of dropping).</summary>
+        internal const double StepSetDownMarginMeters = 0.05;
+
+        /// <summary>Margin kept above the crash guard (see <see cref="StepSetDownAltitude"/>).</summary>
+        internal const double StepCrashGuardMarginMeters = 0.05;
+
+        /// <summary>How far the settled kerbal's lowest collider point may sit from the ground
+        /// collider under him (either side) for the step to count as done.</summary>
+        internal const double StepGroundClearanceToleranceMeters = 0.25;
+
+        /// <summary>Largest believable distance from the kerbal's origin down to his lowest
+        /// collider point; a measurement outside [0, this] is ignored.</summary>
+        internal const double MaxFeetDepthMeters = 2.5;
+
+        /// <summary>The ground a step used for the set-down.</summary>
+        internal const string GroundSourceRaycast = "raycast";
+        internal const string GroundSourcePqs = "pqs";
+
+        private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
+
         /// <summary>
-        /// The altitude to set the kerbal down at: <see cref="StepLiftMeters"/> above the
-        /// HIGHER of the target's PQS terrain and the vessel's cached
-        /// <c>terrainAltitude</c> (the terrain under the spot he is leaving). Decompiled
-        /// <c>Vessel</c> (KSP 1.12.5): a vessel that is not landed is destroyed ("crashed
-        /// through terrain") once its <c>altitude</c> reads below its <c>terrainAltitude</c>,
-        /// and right after a teleport that cached value is still the OLD spot's, so a spot
-        /// more than the lift lower than the one he left killed him (EVA-8
-        /// `2026-09-29_1729`: 151.02 m -> 150.42 m, a 0.60 m drop against a 0.5 m lift). A
-        /// cached value of -1 (stock's "unknown") or any non-finite value is ignored.
+        /// The altitude to set the kerbal's ORIGIN down at so his feet land on the ground.
+        /// <para><paramref name="groundAltitude"/> is the altitude of the ground COLLIDER at the
+        /// target (a raycast onto layer 15, the collider the placement preview lands on); NaN
+        /// when the ray missed, which falls back to the analytic PQS height
+        /// <paramref name="pqsTerrain"/>. The PQS height is not the ground a kerbal stands on:
+        /// in EVA-9 `2026-09-29_1931` the step set Jeb down 0.53 m over PQS 151.36 and he ended
+        /// half under the ground, while a set-down 1.93 m over PQS 150.42 ragdolled him.
+        /// <paramref name="feetDepth"/> is how far below his origin his lowest collider point
+        /// is, measured before the move; the origin goes that far plus
+        /// <see cref="StepSetDownMarginMeters"/> above the ground. An unbelievable depth falls
+        /// back to <see cref="StepLiftMeters"/>.</para>
+        /// <para>CRASH GUARD: a vessel that is not landed is destroyed once its altitude reads
+        /// below its terrain altitude (decompiled <c>Vessel</c>, KSP 1.12.5; EVA-8
+        /// `2026-09-29_1729`), so the origin is never set below the target's PQS height or the
+        /// vessel's cached <c>terrainAltitude</c> (stock's -1 "unknown" ignored) plus
+        /// <see cref="StepCrashGuardMarginMeters"/>.</para>
         /// </summary>
-        internal static double StepSetDownAltitude(double targetTerrain, double cachedTerrain)
+        internal static double StepSetDownAltitude(double groundAltitude, double pqsTerrain,
+            double feetDepth, double cachedTerrain, out string groundSource, out bool guarded)
         {
-            double floor = targetTerrain;
-            bool cachedKnown = !double.IsNaN(cachedTerrain) && !double.IsInfinity(cachedTerrain)
-                && cachedTerrain != -1.0;
-            if (cachedKnown && cachedTerrain > floor) floor = cachedTerrain;
-            return floor + StepLiftMeters;
+            bool groundKnown = IsFinite(groundAltitude);
+            groundSource = groundKnown ? GroundSourceRaycast : GroundSourcePqs;
+            double baseAlt = groundKnown ? groundAltitude : pqsTerrain;
+            bool depthKnown = IsFinite(feetDepth) && feetDepth >= 0.0 && feetDepth <= MaxFeetDepthMeters;
+            double alt = baseAlt + (depthKnown ? feetDepth + StepSetDownMarginMeters : StepLiftMeters);
+            double guard = double.NegativeInfinity;
+            if (IsFinite(pqsTerrain)) guard = pqsTerrain;
+            if (IsFinite(cachedTerrain) && cachedTerrain != -1.0 && cachedTerrain > guard)
+                guard = cachedTerrain;
+            guarded = false;
+            if (!double.IsNegativeInfinity(guard) && alt < guard + StepCrashGuardMarginMeters)
+            {
+                alt = guard + StepCrashGuardMarginMeters;
+                guarded = true;
+            }
+            return alt;
+        }
+
+        /// <summary>Is the settled kerbal's lowest collider point within
+        /// <see cref="StepGroundClearanceToleranceMeters"/> of the ground collider under him?
+        /// An unmeasured clearance (NaN) is not.</summary>
+        internal static bool IsGroundClearanceOk(double feetClearance)
+            => IsFinite(feetClearance) && Math.Abs(feetClearance) <= StepGroundClearanceToleranceMeters;
+
+        /// <summary>The grep-stable per-step ground line: where the settled kerbal's feet are
+        /// relative to the ground collider under him.</summary>
+        internal static string FormatStepGroundLine(string kerbalName, double feetClearance,
+            double originClearance, string groundSource, bool ok)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            return "evagroundscience step ground kerbal=" + (kerbalName ?? string.Empty)
+                + " feetClearance=" + (IsFinite(feetClearance) ? feetClearance.ToString("F2", ic) : "nan")
+                + " originClearance=" + (IsFinite(originClearance) ? originClearance.ToString("F2", ic) : "nan")
+                + " tolerance=" + StepGroundClearanceToleranceMeters.ToString("F2", ic)
+                + " groundSource=" + (groundSource ?? "?")
+                + " ok=" + (ok ? "true" : "false");
         }
 
         /// <summary>Stock's <c>KerbalEVA.recoverThreshold</c>: a ragdolled kerbal may get up
@@ -211,7 +271,9 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static string FormatStepMoveLine(string kerbalName, int move, int collisionEnhancers,
             bool evaModuleFound, bool wasAnchored, bool anchorReleased, int rigidbodiesPosed,
-            double targetTerrain = double.NaN, double setDownAltitude = double.NaN)
+            double targetTerrain = double.NaN, double setDownAltitude = double.NaN,
+            double groundAltitude = double.NaN, double feetDepth = double.NaN,
+            string groundSource = null, bool guarded = false)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return "evagroundscience step move kerbal=" + (kerbalName ?? string.Empty)
@@ -224,7 +286,11 @@ namespace Parsek.TestCommands
                 + " anchorReleased=" + (anchorReleased ? "true" : "false")
                 + " rigidbodiesPosed=" + rigidbodiesPosed.ToString(ic)
                 + " terrain=" + (double.IsNaN(targetTerrain) ? "?" : targetTerrain.ToString("F2", ic))
-                + " setDownAlt=" + (double.IsNaN(setDownAltitude) ? "?" : setDownAltitude.ToString("F2", ic));
+                + " setDownAlt=" + (double.IsNaN(setDownAltitude) ? "?" : setDownAltitude.ToString("F2", ic))
+                + " groundAlt=" + (double.IsNaN(groundAltitude) ? "?" : groundAltitude.ToString("F2", ic))
+                + " feetDepth=" + (double.IsNaN(feetDepth) ? "?" : feetDepth.ToString("F2", ic))
+                + " groundSource=" + (groundSource ?? "?")
+                + " crashGuard=" + (guarded ? "true" : "false");
         }
 
         /// <summary>Frames after a move before a kerbal still off target gets the move
@@ -241,10 +307,17 @@ namespace Parsek.TestCommands
         /// <see cref="MaxStepMoves"/> moves in all.
         /// </summary>
         internal static bool ShouldReapplyStep(double offTargetMeters, int framesSinceMove, int movesSoFar)
+            => ShouldReapplyStep(offTargetMeters, false, framesSinceMove, movesSoFar);
+
+        /// <summary>As above, also moving again a kerbal who landed on the spot but with his
+        /// feet off the ground collider (<paramref name="landedGroundOff"/>: landed and the
+        /// clearance outside tolerance), e.g. set down partly inside the ground.</summary>
+        internal static bool ShouldReapplyStep(double offTargetMeters, bool landedGroundOff,
+            int framesSinceMove, int movesSoFar)
         {
             if (movesSoFar >= MaxStepMoves) return false;
             if (framesSinceMove < StepReapplyFrames) return false;
-            return double.IsNaN(offTargetMeters) || offTargetMeters > StepToleranceMeters;
+            return double.IsNaN(offTargetMeters) || offTargetMeters > StepToleranceMeters || landedGroundOff;
         }
 
         /// <summary>Optional <c>faceAway=true</c> on place: turn the kerbal away from the

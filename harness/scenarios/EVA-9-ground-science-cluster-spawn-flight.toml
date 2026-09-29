@@ -26,8 +26,8 @@ id = "EVA-9-ground-science-cluster-spawn-flight"
 # lastInterestingUT=123.5`) because he kept recording for minutes, so they ended - and
 # spawned - one after another, each beside a sibling already standing. This lane now
 # reproduces THAT: each placement is a walk back to the pod, a take and a walk out to the
-# part's own spot (several seconds of 1x time per part), and about 40 s of idle after the
-# last one (160 MissionMarks), so every member records more than 30 s, TrimBoringTail cuts
+# part's own spot (several seconds of 1x time per part), and about 60 s of idle after the
+# last one (240 MissionMarks), so every member records more than 30 s, TrimBoringTail cuts
 # each to its own placement + ~10 s (required per member below), and the four ends are
 # staggered by the placement spacing.
 #
@@ -105,7 +105,7 @@ id = "EVA-9-ground-science-cluster-spawn-flight"
 # capsule as its committed tip within the same second, and the kerbal's StartRecording is
 # then refused `active-recording-id-missing` (INVALID, retried once).
 tier = "nightly"
-description = "Regression for PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING (fix #1920): on kerbin-splashdown-recorded (asteroid removed so the landed capsule is vessel 0) Jeb places a four-part Breaking Ground cluster on a 13 m ring round the capsule, neighbours ~4.5 m apart (Central Station from his own inventory, RTG / seismometer / Go-ob each taken out of the capsule's pod, action=step walking him between the pod and each part's own bearing) and idles ~40 s; he leaves for the Space Center, whose scene-exit auto-commit trims every member to a staggered end; back into FLIGHT, Rewind-to-Launch, SaveGame + LoadGame straight back into FLIGHT on the capsule, and 1x flight time crosses every end. Each later member spawns while an earlier sibling already stands inside its overlap box and is EXEMPTED (the fix's line per member), every member and the kerbal read back spawned with a pid, and nothing is refused (no walkback exhaustion, no abandoned spawn)."
+description = "Regression for PLACED-PART-CLUSTER-SPAWN-BLOCKED-BY-SIBLING (fix #1920): on kerbin-splashdown-recorded (asteroid removed so the landed capsule is vessel 0) Jeb places a four-part Breaking Ground cluster on a 13 m ring round the capsule, neighbours ~4.5 m apart (Central Station from his own inventory, RTG / seismometer / Go-ob each taken out of the capsule's pod, action=step walking him between the pod and each part's own bearing) and idles ~60 s; he leaves for the Space Center, whose scene-exit auto-commit trims every member to a staggered end; back into FLIGHT, Rewind-to-Launch, SaveGame + LoadGame straight back into FLIGHT on the capsule, and 1x flight time crosses every end. Each later member spawns while an earlier sibling already stands inside its overlap box and is EXEMPTED (the fix's line per member), every member and the kerbal read back spawned with a pid, and nothing is refused (no walkback exhaustion, no abandoned spawn)."
 instanceProfile = "stock-minimal"
 tags = ["eva", "inventory", "ground-science", "breaking-ground", "cluster", "rewind-to-launch", "spawn", "spawn-collision", "EVA-9"]
 
@@ -162,9 +162,92 @@ steps = [
   { cmd = "EvaGroundScience", args = { action = "place", part = "DeployedGoExOb", faceAway = "true" }, expect = "OK", budget = 120 },
   # Jeb walks back to the far side of the capsule, clear of every part.
   { cmd = "EvaGroundScience", args = { action = "step", anchor = "2708531065", distance = "4", bearing = "270" }, expect = "OK", budget = 120 },
-  # ~40 s of idle: every member records more than 30 s (MinDurationForTrimSeconds), so the
-  # scene-exit commit's optimization pass cuts each to its own placement + ~10 s.
+  # ~60 s of idle (240 steps): every member records well over 30 s (MinDurationForTrimSeconds)
+  # and past its last interesting moment + the 10 s buffer, so the scene-exit commit's
+  # optimization pass cuts each to a staggered end. NEGCTL `2026-09-29_1944` (40 s of idle, a
+  # stumble delaying the last placement): the Go-ob skipped `buffer-not-met` and the
+  # seismometer's last interesting moment came 33 s after its placement.
   { cmd = "RecordingState",                                                  expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
+  { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-idle" }, expect = "OK" },
@@ -353,7 +436,7 @@ steps = [
   { cmd = "ListHandles", args = { kind = "committed" }, label = "c1",        expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-reloaded-count-${c1.count}-a-${c1.rec9}-${c1.rec9spawned}-b-${c1.rec10}-${c1.rec10spawned}-c-${c1.rec11}-${c1.rec11spawned}-d-${c1.rec12}-${c1.rec12spawned}-e-${c1.rec13}-${c1.rec13spawned}" }, expect = "OK" },
   # ACT 3: 1x flight time past every member's end and the kerbal's (~0.25 s per step, 640
-  # steps, ~160 s: 15 s of rewind lead + ~30 s of walks and placements + 40 s of idle + margin).
+  # steps, ~160 s: 15 s of rewind lead + ~30 s of walks and placements + 60 s of idle + margin).
   { cmd = "MissionMark", args = { label = "eva9-flightwait" }, expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-flightwait" }, expect = "OK" },
   { cmd = "MissionMark", args = { label = "eva9-flightwait" }, expect = "OK" },
@@ -1025,6 +1108,9 @@ required = [
   # Every step move told the kerbal's CollisionEnhancer to skip its next frames (EVA-8
   # `2026-09-29_1618`: without it the anti-tunnelling guard put him straight back).
   "evagroundscience step move kerbal=Jebediah Kerman move=1 collisionEnhancersSkipped=[1-9][0-9]* skipFrames=[0-9]+ method=anchor-release\\+rb-pose ",
+  # Every settled step stands with its feet on the ground collider (the operator watched a
+  # step end half inside the ground on `_1931`): the set-down is a raycast onto layer 15.
+  "evagroundscience step ground kerbal=Jebediah Kerman feetClearance=-?[0-9.]+ [^\\r\\n]*groundSource=raycast ok=true",
   # THE LAYOUT: every spot at its own compass bearing from the capsule (the bearing arg
   # reached the DLL; a build without it would walk Jeb along his own bearing instead).
   "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=60\\.0",
@@ -1035,12 +1121,13 @@ required = [
   # THE COMMIT: the player's scene exit, whose auto-commit runs the optimization pass.
   "exittospacecenter complete scene=SPACECENTER",
   "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Jebediah Kerman' recordings=5 ",
-  # THE STAGGER: every member was long enough to trim, so it ends ~10 s after its own
-  # placement rather than at the commit.
+  # THE STAGGER: every member but the last was long enough to trim, so it ends ~10 s after
+  # its own placement (or its last settle) rather than at the commit.
   "Ground part placed: tree member created part='DeployedCentralStation' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
   "Ground part placed: tree member created part='DeployedRTG' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
   "Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
-  "Ground part placed: tree member created part='DeployedGoExOb' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*TrimBoringTail: trimmed '[^'\\r\\n]*' \\(\\1\\) from endUT=",
+  # Not required for the Go-ob, the LAST placement: its settle can outlast the buffer
+  # (NEGCTL `_1944`: `buffer-not-met`); ending at the commit it still spawns last.
   "MISSIONMARK label=eva9-commit-count-14(?:\\s|$)",
   "Rewind-to-Launch initiated to UT",
   "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
@@ -1065,6 +1152,9 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "evagroundscience failed",
   "evagroundscience refused",
+  # A step that settled off the ground, or fell back to the PQS height.
+  "evagroundscience step ground [^\\r\\n]*ok=false",
+  "evagroundscience step move [^\\r\\n]*groundSource=pqs",
   # A step set down lower than the stale cached terrain of the spot he left killed him (EVA-8 flight 1).
   "Vessel Jebediah Kerman crashed through terrain",
   "Ground part placement not recorded",
@@ -1087,7 +1177,7 @@ forbidden = [
 ]
 
 [runtime]
-# EVA-8's act budget (without the pick-up) + 7 steps + ~40 s of idle + 120 ExitToSpaceCenter
+# EVA-8's act budget (without the pick-up) + 7 steps + ~60 s of idle + 120 ExitToSpaceCenter
 # + 120 SaveGame + 300 LoadGame + 300 rewind + 120 SaveGame + 300 LoadGame + ~160 s of 1x
 # flight wait + 120 SaveGame + margin.
 budgetSeconds = 2700

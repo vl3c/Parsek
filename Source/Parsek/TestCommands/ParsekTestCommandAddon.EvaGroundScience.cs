@@ -184,6 +184,7 @@ namespace Parsek.TestCommands
         private int groundSciStepMoves;
         private int groundSciStepLastMoveFrame;
         private int groundSciStepRecovers;
+        private string groundSciStepGroundSource;
 
         private void EvaGroundScienceImpl(ParsedCommand cmd)
         {
@@ -272,6 +273,7 @@ namespace Parsek.TestCommands
             groundSciStepMoves = 0;
             groundSciStepLastMoveFrame = -1;
             groundSciStepRecovers = 0;
+            groundSciStepGroundSource = null;
             EvaJumpKeyPressInjection.Remove();
             EvaJumpKeyPressInjection.AnsweredCount = 0;
 
@@ -407,7 +409,11 @@ namespace Parsek.TestCommands
                     }
                 }
                 double terrain = body.TerrainAltitude(groundSciStepTargetLat, groundSciStepTargetLon, false);
-                double setDownAlt = TestCommandEvaGroundScience.StepSetDownAltitude(terrain, kerbal.terrainAltitude);
+                double feetDepth = MeasureKerbalFeetDepth(kerbal);
+                double groundAlt = RaycastGroundAltitude(body, groundSciStepTargetLat, groundSciStepTargetLon, terrain);
+                double setDownAlt = TestCommandEvaGroundScience.StepSetDownAltitude(
+                    groundAlt, terrain, feetDepth, kerbal.terrainAltitude, out string groundSource, out bool guarded);
+                groundSciStepGroundSource = groundSource;
                 Vector3d world = body.GetWorldSurfacePosition(groundSciStepTargetLat, groundSciStepTargetLon,
                     setDownAlt);
                 kerbal.IgnoreGForces(240);
@@ -435,7 +441,7 @@ namespace Parsek.TestCommands
                 groundSciSettledFrames = 0;
                 ParsekLog.Info(Tag, TestCommandEvaGroundScience.FormatStepMoveLine(
                     kerbal.vesselName, groundSciStepMoves, enhancers, eva != null, wasAnchored,
-                    anchorReleased, bodies, terrain, setDownAlt));
+                    anchorReleased, bodies, terrain, setDownAlt, groundAlt, feetDepth, groundSource, guarded));
                 return true;
             }
             catch (Exception ex)
@@ -443,6 +449,68 @@ namespace Parsek.TestCommands
                 ParsekLog.Error(Tag, $"evagroundscience step threw: {ex.GetType().Name}: {ex.Message}");
                 return false;
             }
+        }
+
+        // Layer 15 ("Local Scenery"): the PQS terrain colliders, the layer the placement
+        // preview's terrain ray hits (`hit=Kerbin Zp.../layer15`).
+        private const int GroundColliderLayerMask = 1 << 15;
+
+        /// <summary>How far below the kerbal's origin his lowest collider point is (his feet
+        /// while he stands upright), NaN when no usable collider is found.</summary>
+        private static double MeasureKerbalFeetDepth(Vessel kerbal)
+        {
+            if (kerbal == null || kerbal.mainBody == null) return double.NaN;
+            Vector3d pos = kerbal.transform.position;
+            Vector3d up = (pos - kerbal.mainBody.position).normalized;
+            Vector3 probe = (Vector3)(pos - up * 10.0);
+            double best = double.NaN;
+            foreach (Part p in kerbal.parts)
+            {
+                if (p == null) continue;
+                foreach (Collider col in p.GetComponentsInChildren<Collider>())
+                {
+                    if (col == null || !col.enabled || col.isTrigger || !col.gameObject.activeInHierarchy)
+                        continue;
+                    MeshCollider mesh = col as MeshCollider;
+                    if (mesh != null && !mesh.convex) continue;
+                    Vector3 cp = col.ClosestPoint(probe);
+                    double depth = Vector3d.Dot(pos - (Vector3d)cp, up);
+                    if (double.IsNaN(best) || depth > best) best = depth;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>Altitude of the ground collider straight below (lat, lon), from a ray cast
+        /// down from 30 m above the PQS height; NaN when nothing is hit.</summary>
+        private static double RaycastGroundAltitude(CelestialBody body, double lat, double lon, double pqsTerrain)
+        {
+            if (body == null) return double.NaN;
+            Vector3d origin = body.GetWorldSurfacePosition(lat, lon, pqsTerrain + 30.0);
+            Vector3d up = (origin - body.position).normalized;
+            RaycastHit hit;
+            if (!Physics.Raycast((Vector3)origin, -(Vector3)up, out hit, 60f, GroundColliderLayerMask,
+                    QueryTriggerInteraction.Ignore))
+                return double.NaN;
+            return body.GetAltitude(hit.point);
+        }
+
+        /// <summary>The kerbal's feet (lowest collider point) and origin heights above the
+        /// ground collider straight below him; NaN when the ray finds no ground.</summary>
+        private static void MeasureGroundClearance(Vessel kerbal, out double feetClearance, out double originClearance)
+        {
+            feetClearance = double.NaN;
+            originClearance = double.NaN;
+            if (kerbal == null || kerbal.mainBody == null) return;
+            Vector3d pos = kerbal.transform.position;
+            Vector3d up = (pos - kerbal.mainBody.position).normalized;
+            RaycastHit hit;
+            if (!Physics.Raycast((Vector3)(pos + up * 3.0), -(Vector3)up, out hit, 10f, GroundColliderLayerMask,
+                    QueryTriggerInteraction.Ignore))
+                return;
+            originClearance = Vector3d.Dot(pos - (Vector3d)hit.point, up);
+            double feetDepth = MeasureKerbalFeetDepth(kerbal);
+            if (!double.IsNaN(feetDepth)) feetClearance = originClearance - feetDepth;
         }
 
         /// <summary>The kerbal's horizontal distance from the step's target spot.</summary>
@@ -503,17 +571,22 @@ namespace Parsek.TestCommands
             }
             int framesSinceMove = groundSciStepLastMoveFrame < 0
                 ? int.MaxValue : Time.frameCount - groundSciStepLastMoveFrame;
+            MeasureGroundClearance(kerbal, out double feetClearance, out double originClearance);
+            bool groundOk = TestCommandEvaGroundScience.IsGroundClearanceOk(feetClearance);
             if (!ragdoll
-                && TestCommandEvaGroundScience.ShouldReapplyStep(offTarget, framesSinceMove, groundSciStepMoves))
+                && TestCommandEvaGroundScience.ShouldReapplyStep(
+                    offTarget, landed && !groundOk, framesSinceMove, groundSciStepMoves))
             {
                 ParsekLog.Info(Tag, $"evagroundscience step off-target kerbal={kerbal.vesselName} "
                     + $"offTarget={Fmt2(offTarget)} horizontal={Fmt2(horizontal)} landed={Bool(landed)} "
+                    + $"feetClearance={Fmt2(feetClearance)} "
                     + $"moves={groundSciStepMoves.ToString(CultureInfo.InvariantCulture)}: moving again");
                 if (!TryMoveKerbalToStepTarget(kerbal))
                     FinishGroundScience("ERROR", null, "step-threw", elapsed);
                 return;
             }
-            bool at = !double.IsNaN(offTarget) && offTarget <= TestCommandEvaGroundScience.StepToleranceMeters;
+            bool at = !double.IsNaN(offTarget) && offTarget <= TestCommandEvaGroundScience.StepToleranceMeters
+                && groundOk;
             // Standing, not just landed: a ragdolled kerbal is landed but cannot place.
             bool standing = landed && !ragdoll;
             groundSciSettledFrames = standing && at ? groundSciSettledFrames + 1 : 0;
@@ -523,6 +596,8 @@ namespace Parsek.TestCommands
             string h = Fmt2(horizontal);
             string off = Fmt2(offTarget);
             string moves = groundSciStepMoves.ToString(CultureInfo.InvariantCulture);
+            ParsekLog.Info(Tag, TestCommandEvaGroundScience.FormatStepGroundLine(
+                kerbal.vesselName, feetClearance, originClearance, groundSciStepGroundSource, groundOk));
             if (done == GroundScienceCompletionDecision.Timeout)
             {
                 FinishGroundScience("ERROR", null, "step-timeout", elapsed,

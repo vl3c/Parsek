@@ -185,6 +185,9 @@ required = [
   # 0.5 s idle); the move releases it (EVA-8 `2026-09-29_1711_a2`: every step after the first
   # was pulled straight back to 13.04 m).
   "evagroundscience step move kerbal=Jebediah Kerman move=1 [^\\r\\n]*method=anchor-release\\+rb-pose evaModule=true wasAnchored=true anchorReleased=true ",
+  # Every settled step stands with its feet on the ground collider (the operator watched a
+  # step end half inside the ground on `_1931`): the set-down is a raycast onto layer 15.
+  "evagroundscience step ground kerbal=Jebediah Kerman feetClearance=-?[0-9.]+ [^\\r\\n]*groundSource=raycast ok=true",
   # THE LAYOUT: every spot at its own compass bearing on the 13 m ring.
   "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=60\\.0",
   "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=13\\.00 [^\\r\\n]*bearing=80\\.0",
@@ -203,6 +206,9 @@ forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "evagroundscience failed",
   "evagroundscience refused",
+  # A step that settled off the ground, or fell back to the PQS height.
+  "evagroundscience step ground [^\\r\\n]*ok=false",
+  "evagroundscience step move [^\\r\\n]*groundSource=pqs",
   # A step set down lower than the stale cached terrain of the spot he left killed him (EVA-8 flight 1).
   "Vessel Jebediah Kerman crashed through terrain",
   "Ground part placement not recorded",
