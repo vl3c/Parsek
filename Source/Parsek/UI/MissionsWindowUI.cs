@@ -2705,9 +2705,13 @@ namespace Parsek
 
         private void DrawMissionValueCell(string value, float width)
         {
+            // The full value rides the tooltip only when the cell clips it; a tooltip that
+            // repeats a fully visible word would just echo it in the help strip.
             string text = value ?? "";
-            GUILayout.Label(new GUIContent(text, text.Length > 0 ? text : null),
-                compositionCellLabelNoWrap, GUILayout.Width(width));
+            var content = new GUIContent(text);
+            if (text.Length > 0 && compositionCellLabelNoWrap.CalcSize(content).x > width)
+                content.tooltip = text;
+            GUILayout.Label(content, compositionCellLabelNoWrap, GUILayout.Width(width));
         }
 
         // Line 2 of the mission bar: the summary on the left, the actions on the right.
