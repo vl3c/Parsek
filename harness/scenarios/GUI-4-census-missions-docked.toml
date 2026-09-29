@@ -160,11 +160,12 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "bd-missions-missions-collapsed-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bd-missions-missions-collapsed-advanced" }, expect = "OK" },
-  # All five of the window's independent expansion sets at once - group names, chain block
-  # ids, `missionId:headId` vessel rows, the INVERTED leg set and the mission-id digest
-  # set - each enumerated by the window class through the same flattened row model the
-  # draw walks. Over a DOCKED corpus that is what opens the per-vessel interval rows, the
-  # `Events (N)` digests and the partner-journey subtrees in one step.
+  # All four of the window's independent expansion sets at once - group names, chain block
+  # ids, `missionId:headId` vessel rows and the INVERTED leg set - each enumerated by the
+  # window class through the same flattened row model the draw walks. Over a DOCKED corpus
+  # that is what opens the per-vessel interval rows and the partner-journey subtrees in one
+  # step. (The `Events (N)` digests were opened here too until Missions Model 1 removed
+  # that foldout; their Go to now sits on the Docked partner rows.)
   { cmd = "UiAction", args = { op = "expand", window = "missions", key = "all" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "bd-missions-missions-expanded-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bd-missions-missions-expanded-advanced" }, expect = "OK" },

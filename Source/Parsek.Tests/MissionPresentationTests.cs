@@ -581,6 +581,79 @@ namespace Parsek.Tests
             Assert.DoesNotContain("committed", MissionPresentation.NextLaunchToleranceWarning);
         }
 
+        // ---- Docked partner rows (the Events foldout's cross-link, moved) ----
+
+        [Fact]
+        public void BuildDockedPartnerLabel_NamesTheVesselAndItsMission()
+        {
+            Assert.Equal("Docked partner: CD (mission 'CD Freighter')",
+                MissionPresentation.BuildDockedPartnerLabel("CD", "CD Freighter"));
+            Assert.Equal("Docked partner: CD", MissionPresentation.BuildDockedPartnerLabel("CD", null));
+            Assert.Equal("Docked partner: ?", MissionPresentation.BuildDockedPartnerLabel("", ""));
+            Assert.Equal("Docked partner: CD (mission 'CD Freighter')",
+                MissionPresentation.BuildRecordedDockPartnerLabel("CD (mission 'CD Freighter')"));
+            Assert.Equal("Docked partner: ?", MissionPresentation.BuildRecordedDockPartnerLabel(null));
+        }
+
+        // catches: the recorded-dock rows duplicating the foreign-link rows (a "Docked by"
+        // digest row already has its link's row), picking up a same-tree dock (no Go to, the
+        // player is already in that mission), or resurfacing the digest's other rows - the
+        // duplicate "launched" row among them.
+        [Fact]
+        public void SelectRecordedCrossMissionDocks_KeepsOnlyOwnedDocksWithAGoTo()
+        {
+            var digest = new List<MissionEventRow>
+            {
+                new MissionEventRow { UT = 1, Verb = MissionEventDigest.VerbLaunched, SubjectName = "A" },
+                new MissionEventRow { UT = 2, Verb = MissionEventDigest.VerbLaunched, SubjectName = "A" },
+                new MissionEventRow { UT = 3, Verb = MissionEventDigest.VerbDockedWith,
+                    PartnerText = "CD (mission 'CD Freighter')", GoToRecordingId = "rec-cd",
+                    SourceBranchPointId = "bp-1" },
+                new MissionEventRow { UT = 4, Verb = MissionEventDigest.VerbDockedWith,
+                    PartnerText = "B", GoToRecordingId = null, SourceBranchPointId = "bp-2" },
+                new MissionEventRow { UT = 5, Verb = MissionEventDigest.VerbDockedBy,
+                    PartnerText = "EF (mission 'EF')", GoToRecordingId = "rec-ef",
+                    SourceBranchPointId = "bp-3" },
+                new MissionEventRow { UT = 6, Verb = MissionEventDigest.VerbBoarded,
+                    PartnerText = "Jeb (mission 'J')", GoToRecordingId = "rec-j",
+                    SourceBranchPointId = "bp-4" },
+                new MissionEventRow { UT = 7, Verb = MissionEventDigest.VerbUndocked, SubjectName = "A" },
+            };
+            List<MissionEventRow> rows = MissionPresentation.SelectRecordedCrossMissionDocks(digest);
+            Assert.Equal(2, rows.Count);
+            Assert.Equal("rec-cd", rows[0].GoToRecordingId);
+            Assert.Equal("rec-j", rows[1].GoToRecordingId);
+            Assert.Equal("Docked", MissionPresentation.RecordedDockEventWord(rows[0].Verb));
+            Assert.Equal("Boarded", MissionPresentation.RecordedDockEventWord(rows[1].Verb));
+            Assert.Empty(MissionPresentation.SelectRecordedCrossMissionDocks(null));
+        }
+
+        [Fact]
+        public void FindDigestRowForBranchPoint_MatchesTheDockNotItsGapRow()
+        {
+            var digest = new List<MissionEventRow>
+            {
+                new MissionEventRow { Verb = MissionEventDigest.VerbGap, SourceBranchPointId = "bp-9",
+                    GapSeconds = 7200 },
+                new MissionEventRow { Verb = MissionEventDigest.VerbDockedBy, SourceBranchPointId = "bp-9",
+                    GoToRecordingId = "rec-x" },
+            };
+            Assert.True(MissionPresentation.FindDigestRowForBranchPoint(digest, "bp-9", out MissionEventRow row));
+            Assert.Equal("rec-x", row.GoToRecordingId);
+            Assert.False(MissionPresentation.FindDigestRowForBranchPoint(digest, "bp-1", out row));
+            Assert.Null(row.GoToRecordingId);
+            Assert.False(MissionPresentation.FindDigestRowForBranchPoint(null, "bp-9", out row));
+        }
+
+        [Fact]
+        public void BuildPartnerGoToTooltip_NamesTheMissionItOpens()
+        {
+            Assert.Equal("Show mission 'CD Freighter' in this list",
+                MissionPresentation.BuildPartnerGoToTooltip("CD Freighter", "CD"));
+            Assert.Contains("CD", MissionPresentation.BuildPartnerGoToTooltip(null, "CD"));
+            Assert.False(string.IsNullOrEmpty(MissionPresentation.BuildPartnerGoToTooltip(null, null)));
+        }
+
         [Fact]
         public void MissionStartEventText_IsTheFirstVesselRowsStartEvent()
         {

@@ -175,6 +175,7 @@ Click the "Missions" button in the main Parsek window to open the Missions windo
 - **Clone** a mission to make a differently-configured variant (different branches included, different loop settings) from the same tree; **Delete** removes a clone (a flight always keeps its first mission).
 - Looping, Clone, Delete, "Warp to..." and the include checkboxes are Advanced-mode controls. Basic shows each mission's flights, Watch, Rewind / Forward, Log and Archive, and no loop wording; a mission you looped in Advanced keeps looping.
 - **Log** opens a step-by-step run log (launch, staging, docks, deliveries, end) for the mission.
+- A dock with another mission's vessel shows as a **Docked partner** row naming that vessel and its mission; its **Go to** button scrolls the list to the other mission.
 
 Renaming a mission keeps its Recordings-tab group name in sync, and renaming the group renames the mission.
 

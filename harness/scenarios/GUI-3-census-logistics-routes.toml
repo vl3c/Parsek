@@ -40,9 +40,10 @@ tier = "operator"
 #     set the target and REBUILD before raising it. That closes
 #     GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET for the KSC half;
 #   - the Missions tab and the Recordings tab over a four-mission corpus, collapsed and
-#     then fully expanded (`op=expand window=missions key=all` drives all five of that
-#     window's independent sets - groups, chains, vessels, legs and the `Events (N)`
-#     digests - through their own production key enumerations);
+#     then fully expanded (`op=expand window=missions key=all` drives all four of that
+#     window's independent sets - groups, chains, vessels and legs; the `Events (N)`
+#     digests were a fifth until Missions Model 1 removed that foldout - through their own
+#     production key enumerations);
 #   - BOTH group-picker titles: `Manage Groups` (`recording=first`) and `Set Parent Group`
 #     (`group=Kerbal X #3`). Those are two of the three window hosts the seam's window
 #     table deliberately excludes, reached through their own production openers;
@@ -236,9 +237,9 @@ steps = [
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ib-missions-missions-collapsed-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ib-missions-missions-collapsed-advanced" }, expect = "OK" },
-  # All five of this window's independent expansion sets at once - group names, chain
-  # block ids, `missionId:headId` vessel rows, the INVERTED leg set and the mission-id
-  # digest set - each enumerated by the window class through the same flattened row model
+  # All four of this window's independent expansion sets at once - group names, chain
+  # block ids, `missionId:headId` vessel rows and the INVERTED leg set - each enumerated
+  # by the window class through the same flattened row model
   # the draw walks, which is what makes `key=all` agree with the tree the player sees.
   { cmd = "UiAction", args = { op = "expand", window = "missions", key = "all" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ib-missions-missions-expanded-advanced" }, expect = "OK" },

@@ -2168,7 +2168,10 @@ _(unreleased — entries accumulate here per commit)_
   is the summary on the left with the buttons on the right. The Next launch column is gone:
   the countdown lives in the summary, and the warning its amber tint used to carry (a drifted
   station, a refused arrival, a launch outside its alignment tolerance) is in the summary's
-  hover.
+  hover. The `Events (N)` list under each mission is gone: its one unique piece, naming the
+  other mission a dock connects to with a Go to button, is on the Docked partner rows now
+  (`Docked partner: CD (mission 'CD Freighter')` + Go to), including a row for a dock this
+  mission recorded with another mission's vessel.
 - **Parsek's own windows say "timeline", not "your timeline", "the timeline" or
   "committed".** The Kerbals launcher hover, the Kerbals window's Reserved and Lost hovers
   (`Held on timeline by the flight ...`, `Lost on a flight on timeline.`), the reserved-crew

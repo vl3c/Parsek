@@ -1841,8 +1841,8 @@ two-phase set after walking the MIRROR DIRECTION rather than by symmetry: a draw
 can LOWER its own flag UNPROMPTED, while nothing raises one WITHOUT A PLAYER CLICK. Draw
 paths DO raise open flags - the RouteRunPrompt banner's "Open Logistics" button inside
 `ParsekUI.DrawWindow` (`ParsekUI.cs:809`), `RecordingsTableUI.ShowMissionForRecording` /
-`ScrollToRecording` (`:467` / `:521`, reached from the Missions digest GoTo and the two
-Timeline GoTo buttons), and `StructureListWindowUI.OpenForMission` / `OpenForRoute`
+`ScrollToRecording` (`:467` / `:521`, reached from the Missions Docked partner rows' Go to
+and the two Timeline GoTo buttons), and `StructureListWindowUI.OpenForMission` / `OpenForRoute`
 (`:89` / `:100`, reached from the Missions "Log" and Logistics "Log (Route)" /
 "Log (Mission)" buttons) - but every one of those sites is a `GUILayout.Button` handler,
 and the seam synthesises no clicks. So no drawn frame in an unattended run raises a flag
@@ -2145,10 +2145,11 @@ click writes.
 THE KEY GRAMMAR IS NAMESPACED because the sets are. The Missions window alone keeps five
 independent collections with overlapping key shapes - `expandedGroups` (group NAMES),
 `expandedChains` (block ids), `expandedVessels` and `collapsedLegs` (both
-`missionId:headId`, identical in shape), and `digestExpanded` (mission ids) - so a flat key
-could not say which one it meant and two of them are indistinguishable. The wire key is
-`<prefix>:<value>` split at the FIRST colon (`group` / `chain` / `vessel` / `leg` /
-`digest` for the Missions window, which covers BOTH its tabs; `row` for Logistics, whose
+`missionId:headId`, identical in shape) - so a flat key could not say which one it meant
+and two of them are indistinguishable. The wire key is `<prefix>:<value>` split at the
+FIRST colon (`group` / `chain` / `vessel` / `leg` for the Missions window, which covers BOTH
+its tabs - a fifth, `digest`, keyed the Events foldout until Missions Model 1 removed that
+foldout on 2026-09-29, and is now REJECTED like any unknown prefix; `row` for Logistics, whose
 one set holds route ids, `cand:` keys and three fixed section keys; `roster` / `flights`
 for the Kerbals window, one per TAB; and `category` for BOTH test-runner windows, which
 keep one fold per in-game test category each - the prefix is shared because it names the
@@ -2589,8 +2590,8 @@ seam's resolver, so the id is single-sourced) plus `MainWindowIdForTesting` on b
 hosts; `MinWindowWidth` / `MinWindowHeight` widened from `private` to `internal` on the
 eight classes that have a resize clamp, so `op=rect`'s floor is read live rather than
 copied; the expansion accessors and key enumerations on `MissionsWindowUI`
-(`Set`/`Is`-VesselExpanded, the INVERTED leg pair, digest, and the three
-`Enumerate*ForTesting` walks over the SAME flattened row model the draw uses),
+(`Set`/`Is`-VesselExpanded, the INVERTED leg pair (the digest pair went with the Events
+foldout in Missions Model 1), and the `Enumerate*ForTesting` walks over the SAME flattened row model the draw uses),
 `RecordingsTableUI` (group / chain set+get, `EnumerateGroupNamesForTesting` through the
 production picker tree model, `EnumerateChainIdsForTesting` through ERS, and the two
 `TryOpenGroupPicker*ForTesting` wrappers that own the committed-list index convention) and

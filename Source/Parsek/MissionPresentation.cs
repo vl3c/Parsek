@@ -759,6 +759,109 @@ namespace Parsek
             return vesselRows[0].StartEvent ?? "";
         }
 
+        // ===================== Docked partner rows (Missions Model 1) =====================
+        //
+        // The Events foldout is gone; its one unique piece of content - naming the OTHER
+        // mission a dock connects to, with a "Go to" that opens it - lives on the Docked
+        // partner rows. The digest (MissionEventDigest) stays the source of that naming.
+
+        internal const string DockedPartnerPrefix = "Docked partner: ";
+
+        /// <summary>
+        /// The name cell of a Docked partner row for a dock another mission recorded onto this
+        /// mission's vessel: <c>"Docked partner: CD (mission 'CD Freighter')"</c>, or without
+        /// the mission when none names it. Pure.
+        /// </summary>
+        internal static string BuildDockedPartnerLabel(string partnerVesselName, string partnerMissionName)
+        {
+            string vessel = string.IsNullOrEmpty(partnerVesselName) ? "?" : partnerVesselName;
+            return string.IsNullOrEmpty(partnerMissionName)
+                ? DockedPartnerPrefix + vessel
+                : DockedPartnerPrefix + vessel + " (mission '" + partnerMissionName + "')";
+        }
+
+        /// <summary>
+        /// The name cell of a Docked partner row for a dock THIS mission recorded with another
+        /// mission's vessel. The digest's partner text already reads <c>"CD (mission 'CD
+        /// Freighter')"</c> across a mission boundary. Pure.
+        /// </summary>
+        internal static string BuildRecordedDockPartnerLabel(string digestPartnerText)
+        {
+            return string.IsNullOrEmpty(digestPartnerText)
+                ? DockedPartnerPrefix + "?"
+                : DockedPartnerPrefix + digestPartnerText;
+        }
+
+        /// <summary>The Start event word for a recorded dock row: "Boarded" for a boarding
+        /// merge, "Docked" otherwise (the same words a foreign link row shows). Pure.</summary>
+        internal static string RecordedDockEventWord(string digestVerb)
+        {
+            return string.Equals(digestVerb, MissionEventDigest.VerbBoarded, System.StringComparison.Ordinal)
+                ? "Boarded"
+                : "Docked";
+        }
+
+        /// <summary>
+        /// The digest rows that become Docked partner rows of their OWN: docks this mission's
+        /// tree recorded (verb "Docked with" / "Boarded") whose partner lives in another
+        /// mission, i.e. rows with a Go to target. Docks another mission recorded onto this
+        /// tree ("Docked by" / "Boarded by") are not selected - each already has a row, the
+        /// derived foreign link's. Every other digest row (launches, undocks, terminals, gaps)
+        /// is not drawn at all. Order kept (the digest is chronological). Pure.
+        /// </summary>
+        internal static List<MissionEventRow> SelectRecordedCrossMissionDocks(
+            IReadOnlyList<MissionEventRow> digest)
+        {
+            var result = new List<MissionEventRow>();
+            if (digest == null)
+                return result;
+            for (int i = 0; i < digest.Count; i++)
+            {
+                MissionEventRow row = digest[i];
+                bool owned = string.Equals(row.Verb, MissionEventDigest.VerbDockedWith, System.StringComparison.Ordinal)
+                    || string.Equals(row.Verb, MissionEventDigest.VerbBoarded, System.StringComparison.Ordinal);
+                if (owned && !string.IsNullOrEmpty(row.GoToRecordingId))
+                    result.Add(row);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The digest row a derived foreign dock link corresponds to: the one whose source
+        /// branch point IS the link (a foreign link's id is its claiming branch point's id).
+        /// False (and a default row) when the digest has none. Pure.
+        /// </summary>
+        internal static bool FindDigestRowForBranchPoint(
+            IReadOnlyList<MissionEventRow> digest, string branchPointId, out MissionEventRow row)
+        {
+            row = default(MissionEventRow);
+            if (digest == null || string.IsNullOrEmpty(branchPointId))
+                return false;
+            for (int i = 0; i < digest.Count; i++)
+            {
+                if (string.Equals(digest[i].SourceBranchPointId, branchPointId, System.StringComparison.Ordinal)
+                    && !string.Equals(digest[i].Verb, MissionEventDigest.VerbGap, System.StringComparison.Ordinal))
+                {
+                    row = digest[i];
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The Go to button's tooltip on a Docked partner row: the mission it opens when known,
+        /// else the partner it leads to. Pure.
+        /// </summary>
+        internal static string BuildPartnerGoToTooltip(string partnerMissionName, string partnerText)
+        {
+            if (!string.IsNullOrEmpty(partnerMissionName))
+                return "Show mission '" + partnerMissionName + "' in this list";
+            return string.IsNullOrEmpty(partnerText)
+                ? "Show the other side of this dock in this list"
+                : "Show the other side of this dock in this list: " + partnerText;
+        }
+
         // ===================== T1.6 - the loop-conflict outcome =====================
 
         /// <summary>

@@ -229,13 +229,6 @@ namespace Parsek.TestCommands
                         mw.EnumerateLegExpandKeysForTesting().Count
                             - mw.CollapsedLegCountForTesting),
                 });
-                sets.Add(new UiExpandSet
-                {
-                    Prefix = TestCommandUiState.DigestKeyPrefix,
-                    Enumerate = mw.EnumerateDigestKeysForTesting,
-                    Set = mw.SetDigestExpandedForTesting,
-                    Count = () => mw.ExpandedDigestCountForTesting,
-                });
                 return sets;
             }
             if (window == TestCommandUiAction.KerbalsWindow)

@@ -40,7 +40,7 @@ namespace Parsek.Tests
             {
                 { "DrawStartEventCell(", "ColW_StartEvent" },
                 { "DrawReFlyColumnCell(", "ColW_ReFly" },
-                { "DrawTMinusVesselCell(", "ColW_TMinus" },
+                { "DrawPartnerGoToCell(", "ColW_ReFly" },
             };
 
         private static readonly string[] GuardOpeners =
@@ -69,6 +69,7 @@ namespace Parsek.Tests
             yield return new object[] { "DrawCompositionRow" };
             yield return new object[] { "DrawChapterHeaderRow" };
             yield return new object[] { "DrawForeignDockLinkRows" };
+            yield return new object[] { "DrawRecordedDockPartnerRow" };
         }
 
         [Theory]
@@ -156,7 +157,7 @@ namespace Parsek.Tests
         /// helper-drawn columns, runs of one token collapsed (a cell drawn by one of several
         /// exclusive branches names its width once per branch). A helper method named in
         /// <paramref name="prepared"/> whose body draws several blank cells
-        /// (<c>DrawBlankDigestCells</c>) is expanded in place.
+        /// (<c>DrawBlankDataCells</c>) is expanded in place.
         /// </summary>
         private static List<string> ColumnSequence(string prepared, string span)
         {
@@ -212,7 +213,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>The helper that draws a row's run of blank data cells.</summary>
-        private const string BlankCellsHelper = "DrawBlankDigestCells";
+        private const string BlankCellsHelper = "DrawBlankDataCells";
 
         /// <summary>
         /// The ranges of every braced <c>else { ... }</c> whose column sequence equals that of

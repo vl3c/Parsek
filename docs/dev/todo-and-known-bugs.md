@@ -38,6 +38,26 @@ no loop word in Basic; ship a clean first version, photograph it, iterate.
   amber warning reasons (plus a sentence for the tolerance-only case, which was tint alone)
   ride the summary tooltip. Every countdown is amber now, so a warned launch no longer looks
   different from a plain one until hovered - a candidate for the next iteration.
+- [x] The `Events (N)` foldout is removed (`DrawEventDigestRows`, its expansion state and the
+  seam's `digest:` expand key with it; GUI-1 drops its `ksc-missions-missions-events-advanced`
+  capture). Its unique content moved onto the Docked partner rows: `Docked partner: <vessel>
+  (mission '<name>')` plus a `Go to` in the Re-Fly slot, and a new row of the same shape for a
+  dock this mission recorded with another mission's vessel (`DrawRecordedDockPartnerRow`).
+  `MissionEventDigest` stays as the partner-text / Go to source.
+
+## MISSION-EVENT-DIGEST-DUPLICATE-LAUNCHED-ROW: the digest builds a second "launched" row for one flight [FILED 2026-09-29 from MISSIONS-TAB-MODEL1. OPEN, low, not player-visible]
+
+`MissionEventDigest.AddLaunchRows` (`Source/Parsek/MissionEventDigest.cs`) emits one
+`Launched` row per recording with no incoming branch-point child edge. On the owner's
+screenshots the Events foldout showed two `launched` rows for one mission, most likely an
+optimizer continuation segment (a chain continuation is not a branch-point child) read as
+a second root. Since Missions Model 1 the digest is no longer drawn as a list: only its
+cross-tree merge rows (`Docked with` / `Boarded` with a Go to target, and the rows keyed by
+a foreign link's branch point) reach the screen, through the Docked partner rows, so the
+duplicate is not visible anywhere. The builder and its tests still produce it. Fix when a
+consumer of the launch rows returns: skip a recording whose chain predecessor exists
+(`ChainId` / `ChainIndex > 0`), or key launch rows on through-line heads rather than on
+branch-point roots. Not investigated further.
 
 ## KB-4-RND-PART-TOOLTIP-LOST: the R&D part tooltip closed between KB-4's hover and its capture [FILED 2026-09-29 from KB-4 `2026-09-29_1507`, branch `kb4-block-proof`. OPEN, not reproduced on the next flight]
 
