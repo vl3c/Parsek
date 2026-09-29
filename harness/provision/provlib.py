@@ -1381,6 +1381,11 @@ PROVISION_INCOMPLETE_MARKER = ".provision-incomplete"
 # re-exports this one name.
 KSP_SCREEN_RESTORE_MARKER = "settings.cfg.harness-screen-restore"
 
+# The harness's per-run KSP GAMEPLAY-settings restore marker (hlib, `[runtime]
+# kspSettings`: the stock vessel budget and KSC declutter a settings-axis lane
+# flies at). Same home and same SETTINGS-phase deletion as the screen marker.
+KSP_GAMEPLAY_RESTORE_MARKER = "settings.cfg.harness-gameplay-restore"
+
 # Top-level dev-install entries never copied verbatim into a fresh instance:
 #   GameData      -- built selectively (junction stock, copy dev-sourced, install
 #                    stack, delete MM cache); handled by the GameData builder.

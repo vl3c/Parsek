@@ -695,12 +695,29 @@ values = ["bbox-block", "trajectory-walkback", "terrain-correction",
 # across both transitions, ghosts replay after the launch, the ledger's action count is
 # unchanged by the walk, and the launch commits as a second tree. SE-1 adds no coverage
 # increment - the cell was already covered.
+#
+# THE GAME-SETTINGS AXIS (2026-09-29, branch `settings-axis`, operator request): every lane had
+# run at the Normal preset with the instance's settings.cfg. The axis lives in D14 rather than
+# a new dimension because its cells are environment settings like the modes above. Values are
+# added only as a lane claims them:
+#
+# `hard-preset` IS CLAIMED as "Parsek boots, recalculates the ledger with no hard divergence,
+# records, commits and rewinds to launch in a career at KSP's Hard preset (x0.6 gains, x2
+# losses, quickload / restart off)". DECLARER: HC-1-hard-career-ledger on the derived
+# `career-pad-craft-hard` (reading `2026-09-29_1821`, armed `_1831`, offline negative control
+# 9 of 9 seeds red). It claims no multiplier-scaled AMOUNT: nothing is earned or lost there.
+#
+# Proposed, NOT added until flown: `vessel-budget` ("ghost map vessels never cost a real vessel
+# its place under a binding stock MAX_VESSELS_BUDGET"), declarer VB-1-ghost-vessel-budget over
+# `[runtime] kspSettings`; and later cells such as `declutter-ksc`, `respawn-timer` and
+# `earth-calendar` from the KSP-SETTINGS-AUDIT list.
 values = ["kerbin", "mun", "minmus", "moho", "eve", "gilly", "duna", "ike", "dres",
           "jool", "laythe", "vall", "tylo", "bop", "pol", "eeloo",
           "atmosphere", "soi-count",
           "warp-1x", "warp-phys", "warp-rails", "warp-high",
           "scene-flight", "scene-map", "scene-ts", "scene-ksc", "scene-editor",
-          "career", "science-mode", "sandbox", "cold-load-ut0"]
+          "career", "science-mode", "sandbox", "cold-load-ut0",
+          "hard-preset"]
 
 [D15]  # UI surfaces (OUT OF SCOPE except the one honest automated cell)
 values = ["timeline-projection"]

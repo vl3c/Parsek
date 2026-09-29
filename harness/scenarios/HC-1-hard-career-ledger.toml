@@ -1,0 +1,103 @@
+schema = 1
+id = "HC-1-hard-career-ledger"
+tier = "nightly"
+# THE GAME-SETTINGS AXIS, SECOND LANE (operator request 2026-09-29): does Parsek run a
+# career under KSP's HARD preset? Every committed career fixture carried x1 multipliers and
+# quickload on, so no lane had ever loaded, recorded, committed, rewound or recalculated
+# the ledger in such a game.
+#
+# THE HOST. `career-pad-craft-hard`, derived by harness/tools/build_career_pad_craft_hard.py
+# from L2's host `career-pad-craft` (drift-gated by lib/test_career_pad_craft_hard.py):
+# preset Hard, funds / rep / science gain x0.6, funds / rep loss x2, CanQuickLoad /
+# CanRestart / CanLeaveToEditor off, entry purchase required, the rest of the Hard preset
+# already present in the source. Nothing else differs, so a delta against L2 is the Hard
+# values' alone.
+#
+# THE WALK. Boot the pad craft and run the LedgerGroundTruth category (recalc vs KSP's own
+# quicksave, NON-circular) on the Hard career; then record a short pad segment, commit it (a
+# real tree) and rewind to its launch with the Recordings-table R button (the owner ruling
+# 2026-09-26: Parsek's rewind IGNORES `CanQuickLoad`, which is off here). One RunTests step
+# per spec is the harness rule, and it must come FIRST: with a committed tree in FLIGHT the
+# recorder re-adopts it, and the category's cells skip while a live or pending tree exists;
+# after a plain Rewind-to-Launch the game is in the Space Center, where every cell
+# scene-skips. No `[expectations.ledger]` block: the seed+manifest oracle cannot model a
+# rewound career (validate_spec refuses the pairing).
+#
+# READING 1, `2026-09-29_1745`, PARSEK-FAIL on the first shape (batch AFTER the rewind):
+# record, commit and the rewind all ran (`Rewind-to-Launch initiated to UT 9.8...`,
+# `UT adjusted: 9.8 -> 0.0`, the Jumping Flea stripped) and the batch read
+# `total=3 passed=0 failed=0 skipped=3 ... scene=SPACECENTER`.
+# READING 2, `2026-09-29_1815` (+ `_1816_a2`), INVALID on the second shape (batch between the
+# commit and the rewind): the batch read `skipped=3 ... scene=FLIGHT` ("RecalculateAndPatch
+# would defer KSP singleton patching while a live/pending tree exists") and the rewind was
+# refused `recording-active` after it. Neither is a Hard-preset effect; both are lane order.
+# READING 3, `2026-09-29_1821`, PASS attempt 1 on this shape: `total=3 passed=2 failed=0
+# skipped=1 category=LedgerGroundTruth scene=FLIGHT` and `result: hardFailures=0 reportOnly=0
+# facetsCompared=7 strict=False` - field for field L2's reading on the x1 source host - then
+# `Rewind-to-Launch initiated to UT 11.5` and `Rewind: adjustedUT=0.0` with CanQuickLoad off,
+# one recording. The produced save still carries preset Hard, x0.6 / x2 and CanQuickLoad
+# False, so the game ran at those values. ARMED off it: the tally and the result line exact,
+# the count exact; armed flight `2026-09-29_1831` PASS attempt 1 on the exact pins; offline
+# negative control 9 of 9 red seeds red, the green log green. What this lane does NOT prove: any multiplier-scaled amount (nothing is
+# earned or lost here; S1's science stamp and S2's decline row have their own unit cells).
+description = "Parsek under KSP's Hard career preset: on career-pad-craft-hard (x0.6 gains, x2 losses, quickload / restart off) run LedgerGroundTruth (zero hard divergences), then record and commit a pad segment and rewind to its launch (which ignores CanQuickLoad by ruling)."
+instanceProfile = "stock-minimal"
+tags = ["settings-axis", "hard-preset", "ledger", "ingame-batch", "ground-truth", "rewind", "HC-1",
+        "flown", "armed"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-pad-craft-hard"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",       args = { category = "LedgerGroundTruth" },            expect = "OK", budget = 540 },
+  { cmd = "StartRecording",                                                       expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "CommitTree",                                                           expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "hc1-committed" },                   expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                     expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "hc1-rewound" },                     expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-flight", "hard-preset"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required  = [
+  "BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 category=LedgerGroundTruth scene=FLIGHT",
+  "result: hardFailures=0 reportOnly=0 facetsCompared=7 strict=False",
+  "\\[Rewind\\] Rewind-to-Launch initiated to UT ",
+  "\\[Rewind\\] Rewind: adjustedUT=0\\.0, rewindUT=",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]", "result: hardFailures=[1-9]"]
+
+[expectations.unityExceptions]
+maxTotal = 0
+
+[runtime]
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

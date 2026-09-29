@@ -174,3 +174,43 @@ the harness; Q5 UI_SCALE; Q6 cheat currency.
 - Harness: no per-scenario settings override; keys come from `[settings]` in
   `harness/provision/profiles/stock-minimal.toml:33` and `modded-compat.toml:50`.
 - Q4 follow-up ruling (2026-09-26): flip stock-minimal.toml and modded-compat.toml [settings] to player defaults MAX_VESSELS_BUDGET=250, DECLUTTER_KSC=True; re-fly the daily tier once; the ghost-count fix ships with unit + in-game tests, no dedicated low-budget lane.
+
+### S5 status (2026-09-29, branch `settings-axis`): re-derived, then flown
+
+Operator request 2026-09-29 (the game-settings test axis) superseded the "no dedicated lane"
+half of the Q4 ruling. Re-derivation from a fresh decompile (KSP 1.12.5 Assembly-CSharp):
+
+- The ONLY readers of `GameSettings.MAX_VESSELS_BUDGET` / `DECLUTTER_KSC` are the parameterless
+  `FlightState()` constructor, `GameSettings.SetDefaultValues` and the gameplay settings screen
+  (full IL scan). That constructor has three callers: `Game.Updated` (every save with a
+  planetarium: FLIGHT, TRACKSTATION, SPACECENTER), `FlightDriver.Start` and the `Game`
+  constructor. So the budget is a SAVE-TIME filter on what is written, never a live cull: a
+  pruned vessel stays in the scene and is gone on the next load of that save.
+- What it removes: walking the reversed vessel list from its oldest end, vessels with
+  `!isPersistent && !isCommandable` until `list.Count <= MAX_VESSELS_BUDGET`
+  (`isCommandable` = `vesselType > Debris`, IL verified). EVERY live non-dead vessel counts;
+  only Debris-typed, non-persistent ones can be removed. Ships, probes, relays, stations, EVA
+  kerbals, flags, asteroids are never removed. Declutter only FLAGS (`cln`) Debris landed at
+  KSC / a stock launch site, and stock deletes a flagged vessel (as a recovery) only when it
+  is unloaded in a game with currencies.
+- Ghost map vessels (GhostMapPresence.cs: `BuildGhostProtoVesselNode` sets the recording's own
+  type, `prst = True`, `cln = False`; debris recordings get no map ghost) exist in FLIGHT and
+  TRACKSTATION only, are live in `FlightGlobals.Vessels` when the constructor runs, and are
+  stripped later (`ParsekScenario.OnSave` -> `StripFromSave`, ParsekScenario.cs:1328).
+- Verdict: (c). Before `Patches/FlightStateGhostBudgetPatch.cs` ghosts counted in FLIGHT and
+  TRACKSTATION saves (never at the Space Center, which has none) and each one pushed one real
+  Debris vessel, oldest first, out of the written save once the scene held more vessels than
+  the budget; no commandable real vessel and no ghost was ever removed. With the patch every
+  REGISTERED ghost is added back to the budget for that one build, so they no longer count.
+  The residual gap: a ghost vessel that is live but not registered in `ghostMapVesselPids`
+  still counts; the one known producer is the in-game test runner in the Tracking Station
+  (todo INGAME-BATCH-TS-ORPHANS-GHOST-MAP-VESSELS), no player path.
+- Live: `VB-1-ghost-vessel-budget` reading `2026-09-29_1657` (budget 8, eight ghosts, eight
+  real vessels plus one asteroid stock spawned at the load) logged `excluded 8 ghost map
+  vessel(s) ... MAX_VESSELS_BUDGET 8 -> 16` and stock dropped exactly ONE debris, the real
+  excess (nine real against eight), not nine. The same run's in-game batch reproduced the
+  pre-fix world by accident: with the eight ghosts orphaned by the runner's cleanup, the next
+  two saves dropped all six debris. The armed lane flies at budget 10 (slack for the asteroid
+  spawner) and must drop nothing; see autotest-status for its runs.
+- Harness: a spec now declares a per-run delta, `[runtime] kspSettings`, so the line above
+  ("no per-scenario settings override") is no longer true.

@@ -25,6 +25,18 @@ _(unreleased — entries accumulate here per commit)_
   timeline, so no reward was paid.`), and the "now" divider says the rows below happen on
   their date and hold stock controls until then. The text is built only for the hovered
   row.
+- **Dev: a game-settings test axis.** Every harness lane had run at the Normal preset with
+  the instance's `settings.cfg`; lanes can now fly at other stock settings. A spec may declare
+  `[runtime] kspSettings = { MAX_VESSELS_BUDGET = N, DECLUTTER_KSC = true|false }`: the run
+  patches just those values into the instance's `settings.cfg` for its own boot and puts them
+  back afterwards (restore marker, healed by the next run if a harness process dies; a delta
+  that cannot be applied, or a failed heal of a leftover marker, refuses the run pre-boot). A new `vessel-budget` injection preset
+  (eight in-window probe ghosts) and two lanes: `VB-1-ghost-vessel-budget` flies ghost map
+  vessels against a binding stock vessel budget in the Tracking Station, and
+  `HC-1-hard-career-ledger` runs LedgerGroundTruth, a record, a commit and a Rewind-to-Launch
+  on `career-pad-craft-hard`, the first career fixture at KSP's Hard preset (x0.6 gains, x2
+  losses, quickload and restart off), derived from `career-pad-craft` by a builder with a
+  byte-identity drift test.
 - **Dev: the automated tests can press Stash, and a lane re-flies a stashed slot whose flight went EVA.** A new test command, `StashSlot`, presses the Recordings table's per-row Stash button (the same handler) and checks that the slot now shows as an Unfinished Flight. `RF-20-stashed-eva-slot-refly` (flown green 2026-09-27) uses it: a staged orbital flight where a kerbal steps out and back in is committed, the crewed stage (a stable orbit, so not an Unfinished Flight on its own) is stashed, re-flown from the separation and merged, and the merge must replace the old flight including the kerbal's EVA and close the slot
 - **Dev: a lane for rewinding a relaunch of a craft.** `RR-1-relaunch-rewind-keeps-earlier-launch` (never flown) relaunches the stock Kerbal X on `kerbin-splashdown-recorded`, whose earlier Kerbal X capsule is still landed, commits, rewinds that flight and checks the rewind keeps the earlier capsule while removing the relaunched vessel.
 
@@ -1255,6 +1267,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Setting up ground science next to a landed vessel no longer throws the flight away.** When
+  nothing in a flight moved more than 30 m, Parsek treats it as "idle on the pad" and discards
+  it on leaving the scene. A kerbal who stepped out of a landed capsule and placed a Breaking
+  Ground experiment, power, comms or Central Station part beside it counted as idle, so the
+  flight, the placed parts' recordings and its rewind point were all deleted. A flight in which
+  a kerbal placed any ground part is now never idle (log: `IsTreeIdleOnPad: not idle - tree has
+  N placed ground part(s)`). A plain EVA with nothing placed is still idle, as before.
+
+- **The Space Center facility menu no longer shows `#autoLOC_900122` above Parsek's reason.**
+  When the committed timeline upgrades a facility later, Parsek adds the reason under the
+  facility's description in its Space Center menu. The description is a translation key that
+  the game only translates when the text is exactly that key, so adding a line to it made the
+  menu show the raw key instead of the description (for the Tracking Station, "At the Tracking
+  Station, all ongoing missions can be viewed and focused..."). Parsek now translates the game's
+  text before adding its line, on every stock text it adds to: the facility menu description
+  and button tooltips, the R&D node description and tooltip, the part tooltip, Mission Control
+  row labels and contract details, the Administration strategy reason and button tooltips, the
+  Astronaut Complex labels and tooltips, and the flight crew EVA and hatch tooltips.
 - **A vessel that dropped a stage and kept flying is no longer treated as if its flight ended at
   the staging.** Every staging or decouple of the vessel you are flying is recorded as a branch
   that the vessel flies straight past, but several places read any branch as "this vessel's
@@ -1299,6 +1329,32 @@ _(unreleased — entries accumulate here per commit)_
   contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
   the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
   it now reads "expired" / "Expired on".
+- **Ghosts on the ground no longer jump up and down while crew portraits are showing.** A replayed
+  EVA kerbal or a Breaking Ground part he placed, recorded standing slightly below the terrain height
+  KSP reports, is lifted just clear of the ground as it replays. On the frames where stock redrew a
+  crew portrait (about eight times a second), that lift was skipped and the ghost drew at its
+  recorded height, so it flickered between the two, about a metre apart. Every frame now shows the
+  same height. The log line `Ghost camera pre-cull before LateUpdate: kept N reapply entries for
+  LateUpdate` marks the frames that used to flicker.
+- **A cluster of ground parts an EVA kerbal placed now spawns whole after a rewind.** When a
+  kerbal set out a Breaking Ground cluster a few metres apart (RTG, solar panels, experiments,
+  Central Station), only the first part to finish replaying became a real vessel: every later
+  part found the earlier one inside its spawn-collision box, waited, then gave up with "Manual
+  placement required", and its ghost vanished. The rover and the kerbal ending among the parts
+  would have hit the same wall. A spawn at a member's recorded end spot now ignores a vessel
+  Parsek spawned from another member of the same committed flight that still stands where it was
+  put; the player's own craft, another flight's spawn and a member since moved elsewhere still
+  block. When a spawn has to step back along its own path, a member counts only if it was
+  already standing there at that moment of the recording, so a rover is never placed inside a
+  part set down later where it once drove. At the Space Center the same members are no longer
+  nudged 15 m apart. A kerbal or a placed part is also no longer pushed off its spot by the
+  vessel it stood beside when that vessel was already standing there when the recording was
+  made and has not moved since, such as the landed capsule the kerbal climbed out of, recorded
+  in an earlier flight: after a rewind the Space Center used to move both the kerbal and his
+  seismometer 15 m away from it. Parsek knows the capsule was there from the capsule's own
+  saved flight, which was saved before the kerbal's and ended, standing on that spot, before
+  the kerbal got there. A vessel that arrived later, one moved since, or one Parsek has
+  no saved flight for still pushes, and a rover or other craft is still nudged clear as before.
 - **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
   earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
   the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,

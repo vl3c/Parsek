@@ -385,7 +385,7 @@ namespace Parsek
             if (string.IsNullOrEmpty(fact)) return stockReason;
             if (string.IsNullOrEmpty(stockReason)) return fact;
             if (stockReason.EndsWith(fact, StringComparison.Ordinal)) return stockReason;
-            return stockReason + "\n" + fact;
+            return StockUiText.ResolveStockKey(stockReason, "Administration strategy reason") + "\n" + fact;
         }
 
         internal static ReservationText ExplainDeactivation(
