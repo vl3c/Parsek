@@ -15,6 +15,28 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~IDLE-ON-PAD-DISCARDS-PLACED-GROUND-PARTS: a tree whose EVA kerbal placed ground parts within 30 m was auto-discarded as idle on pad~~ [FILED AND FIXED 2026-09-29 from the deployables flights `2026-09-29_1856` / `_1901` / `_1905` / `_1916` (EVA-9 / EVA-10), branch `placed-parts-not-idle`]
+
+`ParsekFlight.IsTreeIdleOnPad` (and its live-tree mirror `IsActiveTreeIdleOnPad`, read by
+`SceneExitInterceptor.TryAutoDiscardIdleActiveTree`) classified a tree idle when every recording
+stayed within 30 m of its start. In the lanes an EVA kerbal left a landed capsule and placed a
+Breaking Ground cluster within about 17 m, so the scene exit logged `IsTreeIdleOnPad: all 6
+recordings within 30m - idle on pad` then `Idle on pad at scene exit - auto-discarding tree` and
+deleted the tree, its four placed-part member vessels' recordings and its `parsek_rw_` rewind save.
+Callers re-derived from the full set: `ParsekScenario` scene-exit / OnLoad / pending-tree paths
+(three sites), `ParsekFlight.ShowPostDestructionTreeMergeDialog`, and the interceptor's live mirror.
+
+Fix: a tree carrying any `BranchPointType.GroundPartPlaced` branch point is never idle (the kerbal
+created vessels). One pure veto, `ParsekFlight.TreeHasPlacedGroundPartsForIdle` over
+`CountPlacedGroundParts`, runs first in all three discard predicates (`IsTreeIdleOnPad`, its live
+mirror `IsActiveTreeIdleOnPad`, and `IsTreePadFailure`, which shares the scene-exit discard at
+`ShowPostDestructionTreeMergeDialog`) and logs Info `IsTreeIdleOnPad: not idle - tree has N placed
+ground part(s) tree='<name>'` (or the `IsActiveTreeIdleOnPad:` / `IsTreePadFailure:` prefix). An EVA
+with no placement stays idle. Tests: `PlacedPartsNotIdleTests` (red on the pre-fix predicates).
+
+Left alone, noted for a decision: a flag planted within 30 m (a `FlagEvent` on the kerbal's
+recording, not a tree member) still reads idle and is discarded with the tree.
+
 ## ~~STOCK-TEXT-KEY-APPENDED-RAW: the facility menu showed `#autoLOC_900122` above Parsek's reason~~ [FILED AND FIXED 2026-09-29, branch `stock-text-localize`]
 
 The GUI-28 captures of the Tracking Station facility menu (the committed timeline upgrades it

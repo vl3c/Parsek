@@ -2455,6 +2455,9 @@ namespace Parsek
                 return false;
             }
 
+            if (TreeHasPlacedGroundPartsForIdle(activeTree, "IsActiveTreeIdleOnPad"))
+                return false;
+
             // Flush live recorder data into the tree so subsequent walks
             // over rec.TrackSections / rec.Points see the in-flight data.
             FlushRecorderIntoActiveTreeForSerialization();
@@ -20331,11 +20334,50 @@ namespace Parsek
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return false;
 
+            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreePadFailure"))
+                return false;
+
             foreach (var rec in tree.Recordings.Values)
             {
                 if (!IsPadFailure(rec))
                     return false;
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Counts the <see cref="BranchPointType.GroundPartPlaced"/> branch points of
+        /// <paramref name="tree"/>: each one is a vessel an EVA kerbal created by placing
+        /// a ground part (Breaking Ground science, deployables). Pure, null-safe.
+        /// </summary>
+        internal static int CountPlacedGroundParts(RecordingTree tree)
+        {
+            if (tree?.BranchPoints == null) return 0;
+            int count = 0;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                BranchPoint bp = tree.BranchPoints[i];
+                if (bp != null && bp.Type == BranchPointType.GroundPartPlaced)
+                    count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Idle-on-pad veto shared by <see cref="IsTreeIdleOnPad(RecordingTree)"/> and
+        /// <see cref="IsActiveTreeIdleOnPad"/>: a tree whose kerbal placed ground parts
+        /// created vessels, so it is player work even when nothing moved 30 m (a
+        /// science cluster set up beside a lander). Logs the veto; returns true when
+        /// the tree must not be classified idle.
+        /// </summary>
+        internal static bool TreeHasPlacedGroundPartsForIdle(RecordingTree tree, string caller)
+        {
+            int placed = CountPlacedGroundParts(tree);
+            if (placed <= 0) return false;
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "{0}: not idle - tree has {1} placed ground part(s) tree='{2}'",
+                    caller, placed, tree?.TreeName ?? "<unnamed>"));
             return true;
         }
 
@@ -20346,6 +20388,9 @@ namespace Parsek
         internal static bool IsTreeIdleOnPad(RecordingTree tree)
         {
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return false;
+
+            if (TreeHasPlacedGroundPartsForIdle(tree, "IsTreeIdleOnPad"))
                 return false;
 
             bool anyHasPoints = false;
