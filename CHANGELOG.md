@@ -1312,6 +1312,25 @@ _(unreleased — entries accumulate here per commit)_
   contract whose committed outcome is its deadline running out read "fails" / "Fails on" in
   the row label, the detail panel and the Cancel refusal, while the Timeline says "Expired";
   it now reads "expired" / "Expired on".
+- **A cluster of ground parts an EVA kerbal placed now spawns whole after a rewind.** When a
+  kerbal set out a Breaking Ground cluster a few metres apart (RTG, solar panels, experiments,
+  Central Station), only the first part to finish replaying became a real vessel: every later
+  part found the earlier one inside its spawn-collision box, waited, then gave up with "Manual
+  placement required", and its ghost vanished. The rover and the kerbal ending among the parts
+  would have hit the same wall. A spawn at a member's recorded end spot now ignores a vessel
+  Parsek spawned from another member of the same committed flight that still stands where it was
+  put; the player's own craft, another flight's spawn and a member since moved elsewhere still
+  block. When a spawn has to step back along its own path, a member counts only if it was
+  already standing there at that moment of the recording, so a rover is never placed inside a
+  part set down later where it once drove. At the Space Center the same members are no longer
+  nudged 15 m apart. A kerbal or a placed part is also no longer pushed off its spot by the
+  vessel it stood beside when that vessel was already standing there when the recording was
+  made and has not moved since, such as the landed capsule the kerbal climbed out of, recorded
+  in an earlier flight: after a rewind the Space Center used to move both the kerbal and his
+  seismometer 15 m away from it. Parsek knows the capsule was there from the capsule's own
+  saved flight, which was saved before the kerbal's and ended, standing on that spot, before
+  the kerbal got there. A vessel that arrived later, one moved since, or one Parsek has
+  no saved flight for still pushes, and a rover or other craft is still nudged clear as before.
 - **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
   earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
   the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,
