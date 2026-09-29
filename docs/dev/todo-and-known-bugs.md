@@ -306,7 +306,7 @@ about 150 s EARLIER, holds 3 s on that, and exits. Nothing is lost or mis-record
 is correct, only the camera goes to the wrong ghost for the last 3 seconds.
 
 **Evidence.** GS-8's one failing expectation was
-`logContracts.required not matched: phase=MeshDestroyed [^
+`logContracts.required not matched: phase=MeshDestroyed [^
 ]*vessel=Kerbal X reason=watch hold expired`.
 The log (`results/2026-09-27_2029_GS-8-kerbalx-zone-round-trip_shots/KSP.log`):
 - `PlaybackCompleted index=0 vessel=Kerbal X ghostWasActive=True pastEffectiveEnd=True ... watched=True`
