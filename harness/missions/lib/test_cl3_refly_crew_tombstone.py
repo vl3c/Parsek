@@ -1511,10 +1511,13 @@ class Cl3SpecStepListTests(unittest.TestCase):
         cls.spec = _read_spec()
 
     def test_the_step_shape_mirrors_r1_without_the_ascent(self):
+        # TimeJump 61 s before the mission (todo CL-LANES-INJECTED-RP-IN-THE-FUTURE):
+        # the injected rp_cl_root sits 60 s ahead of the host save's clock, and the
+        # future-rewind-point gate refuses InvokeRewind until the clock reaches it.
         self.assertEqual(
-            ["LoadGame", "SetSetting", None, "AnswerMergeDialog",
+            ["LoadGame", "SetSetting", "TimeJump", None, "AnswerMergeDialog",
              "RecordingState", "FlushAndQuit"], _cmds(self.spec))
-        self.assertEqual(2, _index_of_mission(self.spec))
+        self.assertEqual(3, _index_of_mission(self.spec))
 
     def test_the_steps_are_scoped_to_the_driver_table_not_the_params_sub_table(self):
         # THE TOML TRAP, pinned mechanically: a `steps` key written AFTER the
