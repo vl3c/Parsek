@@ -35,6 +35,8 @@ namespace Parsek.Tests
         {
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
@@ -42,6 +44,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             RecordingStore.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
             ParsekLog.ResetTestOverrides();
         }
 
@@ -453,6 +456,326 @@ namespace Parsek.Tests
             Assert.False(CoexistingTreeSiblingSpawn.IsExemptBlocker(
                 Panel(), RtgPid, RtgGuid, "Mini-NUK-PD Radioisotope Thermoelectric Generator",
                 "Kerbin", RtgLat, RtgLon, KerbinRadius, "chain-tip"));
+        }
+
+        // -- A vessel already standing there when the recording was made (ruling 2026-09-29) --
+        //
+        // Numbers are EVA-6's green run 2026-09-28_2101_a2 (kerbin-splashdown-recorded): the
+        // Kerbal X capsule landed in an EARLIER committed tree (c05c834c, three chain segments of
+        // one launch, the adoption stamp on the HEAD segment, the Landed leaf 77dc5686 ending at UT
+        // 1274.68). Jebediah left it, a recording was started on the kerbal (tree fd03bd24, the
+        // kerbal's own recording, no EVA branch), he placed a seismometer, the tree was committed,
+        // and after a rewind the Space Center spawned both 15 m from their spots ("De-overlap for #9
+        // \"Jebediah Kerman\": nudged 15.0m", the only blocker the live capsule).
+
+        private const string CapsuleTreeId = "c05c834cd2754892b4588e7ce9220c3f";
+        private const string JebTreeId = "fd03bd24fd774f0bbd40d1b673490566";
+        private const uint CapsulePid = 2708531065u;
+        private const string CapsuleGuid = "5493223fe49b42b181998849a9a2aefa";
+        private const double CapsuleLat = -0.12039427646756619;
+        private const double CapsuleLon = 86.6977045051095;
+        private const double LiveCapsuleLat = -0.12039477325647301;
+        private const double LiveCapsuleLon = 86.697704434225471;
+        private const string PlacedBpId = "456832faa84043269fb55605de5268cd";
+
+        private static Recording CapsuleSegment(string id, double startUT, double endUT,
+            double lat, double lon, double alt, TerminalState? terminal, uint spawnedPid)
+        {
+            return new Recording
+            {
+                RecordingId = id, TreeId = CapsuleTreeId, VesselName = "Kerbal X",
+                VesselPersistentId = CapsulePid, RecordedVesselGuid = CapsuleGuid,
+                ExplicitStartUT = startUT, ExplicitEndUT = endUT, TerminalStateValue = terminal,
+                SpawnedVesselPersistentId = spawnedPid, VesselSpawned = spawnedPid != 0,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = endUT, latitude = lat, longitude = lon, altitude = alt, bodyName = "Kerbin" },
+                },
+            };
+        }
+
+        // Head segment: carries the adoption stamp, ends mid-flight 70 km up.
+        private static Recording CapsuleHead() => CapsuleSegment(
+            "28b6e543d67c4d1c9e4763b451c01df5", 34.54, 212.20, -0.05, 20.0, 70000.0, null, CapsulePid);
+
+        private static Recording CapsuleMid() => CapsuleSegment(
+            "b8bee12bd86544a5b82ca91add7c1e5f", 212.20, 853.72, -0.1, 60.0, 90000.0, null, 0u);
+
+        private static Recording CapsuleLeaf(double endUT = 1274.6835614006252) => CapsuleSegment(
+            "77dc568671cd442bb682c549ca50b7a6", 853.72, endUT, CapsuleLat, CapsuleLon, 152.48,
+            TerminalState.Landed, 0u);
+
+        private static Recording Jeb() => new Recording
+        {
+            RecordingId = "818d9a8690e64413a5aa64ce827bfdfd", TreeId = JebTreeId, VesselName = "Jebediah Kerman",
+            VesselPersistentId = 715601038u, RecordedVesselGuid = "c0855845a7f44fe29802a1b0806861bb",
+            ExplicitStartUT = 1279.5235614006208, ExplicitEndUT = 1280.7035614006197,
+            TerminalStateValue = TerminalState.Landed, StartSituation = "EVA",
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 1280.70, latitude = -0.120551, longitude = 86.697712, altitude = 152.19, bodyName = "Kerbin" },
+            },
+        };
+
+        private static Recording Seismometer() => new Recording
+        {
+            RecordingId = "ad570ea403684d28be3fe769547cc094", TreeId = JebTreeId,
+            VesselName = "Grand Slam Passive Seismometer",
+            VesselPersistentId = 3696585714u, RecordedVesselGuid = "c56e235e71f74fa9a42e156bf58b30f7",
+            ExplicitStartUT = 1280.46356140062, ExplicitEndUT = 1282.3635614006182,
+            TerminalStateValue = TerminalState.Landed, ParentBranchPointId = PlacedBpId,
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 1282.36, latitude = -0.120634, longitude = 86.697718, altitude = 151.89, bodyName = "Kerbin" },
+            },
+        };
+
+        private static List<Recording> CapsuleTree() =>
+            new List<Recording> { CapsuleHead(), CapsuleMid(), CapsuleLeaf() };
+
+        private static RecordingTree JebTreeWith(params Recording[] members)
+        {
+            var tree = new RecordingTree { Id = JebTreeId, TreeName = "Jebediah Kerman" };
+            tree.BranchPoints.Add(new BranchPoint { Id = PlacedBpId, UT = 1280.46, Type = BranchPointType.GroundPartPlaced });
+            foreach (Recording r in members) tree.Recordings[r.RecordingId] = r;
+            return tree;
+        }
+
+        // Capsule tree committed first (index 0), the kerbal's tree second (index 1).
+        private static int CapsuleFirst(string treeId) =>
+            treeId == CapsuleTreeId ? 0 : treeId == JebTreeId ? 1 : -1;
+
+        private static TreeSiblingOverlapVerdict EvaluateCapsuleBlocker(
+            Recording spawning, bool kerbalOrPart, List<Recording> capsuleTree,
+            Func<string, int> order, uint pid = CapsulePid, string guid = CapsuleGuid,
+            double lat = LiveCapsuleLat, double lon = LiveCapsuleLon, double candidateUT = double.NaN)
+        {
+            return CoexistingTreeSiblingSpawn.EvaluateBlocker(
+                new List<Recording> { spawning }, capsuleTree, order, spawning, kerbalOrPart,
+                pid, guid, "Kerbin", lat, lon, KerbinRadius,
+                out _, out _, out _, candidateUT);
+        }
+
+        [Fact]
+        public void Eva6_KerbalBesideTheCapsuleOfAnEarlierTree_IsExempt()
+        {
+            Recording jeb = Jeb();
+            Assert.Equal(TreeSiblingOverlapVerdict.Exempt, CoexistingTreeSiblingSpawn.EvaluateBlocker(
+                new List<Recording> { jeb, Seismometer() }, CapsuleTree(), CapsuleFirst, jeb, true,
+                CapsulePid, CapsuleGuid, "Kerbin", LiveCapsuleLat, LiveCapsuleLon, KerbinRadius,
+                out Recording blocker, out OverlapBlockerKind kind, out double displacement));
+            // The adoption stamp sits on the head segment (ends 70 km up) and identifies the live
+            // capsule; the rule measures the vessel's LATEST segment, the Landed leaf.
+            Assert.Equal("77dc568671cd442bb682c549ca50b7a6", blocker.RecordingId);
+            Assert.Equal(OverlapBlockerKind.Spawn, kind);
+            Assert.True(displacement < 0.1, "live capsule should stand on its recorded spot, got " + displacement);
+        }
+
+        [Fact]
+        public void EarlierTreesCapsuleWithNoSpawnStamp_IsIdentifiedAsTheOriginal()
+        {
+            var capsule = new List<Recording> { CapsuleSegment(
+                "28b6e543d67c4d1c9e4763b451c01df5", 34.54, 212.20, -0.05, 20.0, 70000.0, null, 0u),
+                CapsuleMid(), CapsuleLeaf() };
+            Recording jeb = Jeb();
+            Assert.Equal(TreeSiblingOverlapVerdict.Exempt, CoexistingTreeSiblingSpawn.EvaluateBlocker(
+                new List<Recording> { jeb }, capsule, CapsuleFirst, jeb, true,
+                CapsulePid, CapsuleGuid, "Kerbin", LiveCapsuleLat, LiveCapsuleLon, KerbinRadius,
+                out _, out OverlapBlockerKind kind, out _));
+            Assert.Equal(OverlapBlockerKind.Original, kind);
+        }
+
+        [Fact]
+        public void Eva6_PlacedPartBesideTheCapsuleOfAnEarlierTree_IsExempt()
+        {
+            Assert.Equal(TreeSiblingOverlapVerdict.Exempt,
+                EvaluateCapsuleBlocker(Seismometer(), true, CapsuleTree(), CapsuleFirst));
+        }
+
+        [Fact]
+        public void CapsuleTreeCommittedAfterTheKerbalsTree_StillPushes()
+        {
+            // The capsule's history was recorded in a timeline flown after the kerbal's: it was not
+            // there when the kerbal's recording was made.
+            Assert.Equal(TreeSiblingOverlapVerdict.NotCommittedBefore,
+                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(),
+                    id => id == CapsuleTreeId ? 1 : id == JebTreeId ? 0 : -1));
+            Assert.Equal(TreeSiblingOverlapVerdict.NotCommittedBefore,
+                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), id => -1));
+        }
+
+        [Fact]
+        public void CapsuleThatArrivedAfterTheKerbalsRecordingEnded_StillPushes()
+        {
+            // The capsule's recorded history runs to UT 1290, past the kerbal's end (1280.70): at
+            // the kerbal's end it was not yet standing there (or was only a replay).
+            var capsule = new List<Recording> { CapsuleHead(), CapsuleMid(), CapsuleLeaf(endUT: 1290.0) };
+            Assert.Equal(TreeSiblingOverlapVerdict.NotStandingByThen,
+                EvaluateCapsuleBlocker(Jeb(), true, capsule, CapsuleFirst));
+        }
+
+        [Fact]
+        public void CapsuleWhoseHistoryDoesNotEndStanding_StillPushes()
+        {
+            // Only the flying head and mid segments committed: no evidence it ever stood there.
+            var capsule = new List<Recording> { CapsuleHead(), CapsuleMid() };
+            Assert.Equal(TreeSiblingOverlapVerdict.NotStandingByThen,
+                EvaluateCapsuleBlocker(Jeb(), true, capsule, CapsuleFirst));
+        }
+
+        [Fact]
+        public void CapsuleMovedSince_StillPushes()
+        {
+            Assert.Equal(TreeSiblingOverlapVerdict.Displaced,
+                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), CapsuleFirst,
+                    lat: CapsuleLat + 20.0 * MetersToDegLat, lon: CapsuleLon));
+        }
+
+        [Fact]
+        public void VehicleSpawningBesideAnEarlierTreesVessel_StillPushes()
+        {
+            // The ruling covers an EVA kerbal or a placed ground part; a vehicle keeps the
+            // duplicate-delivery de-overlap.
+            Assert.Equal(TreeSiblingOverlapVerdict.SpawningNotKerbalOrPlacedPart,
+                EvaluateCapsuleBlocker(Jeb(), false, CapsuleTree(), CapsuleFirst));
+        }
+
+        [Fact]
+        public void RelaunchOfTheSameCraft_OrUnknownGuid_IsNotTheRecordedCapsule()
+        {
+            // Same craft-baked pid, a different launch Guid: another launch, not the recorded one.
+            Assert.Equal(TreeSiblingOverlapVerdict.NotTreeSibling,
+                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), CapsuleFirst,
+                    guid: "11112222333344445555666677778888"));
+            // An unknown live Guid is not positive evidence in another tree (no pid-only fallback).
+            Assert.Equal(TreeSiblingOverlapVerdict.NotTreeSibling,
+                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), CapsuleFirst, guid: null));
+        }
+
+        [Fact]
+        public void OtherTreeWalkback_CountsTheCapsuleOnlyOnceItsHistoryHadEnded()
+        {
+            Assert.Equal(TreeSiblingOverlapVerdict.NotStandingByThen,
+                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), CapsuleFirst, candidateUT: 1270.0));
+            Assert.Equal(TreeSiblingOverlapVerdict.Exempt,
+                EvaluateCapsuleBlocker(Jeb(), true, CapsuleTree(), CapsuleFirst, candidateUT: 1279.9));
+        }
+
+        [Fact]
+        public void SameTreeOriginalVessel_WithoutAnySpawnStamp_IsExempt()
+        {
+            // The capsule is the recorded vessel of a same-tree member, still live, never stamped
+            // as a spawn: identified by a positive pid + launch Guid match.
+            Recording capsule = CapsuleLeaf();
+            capsule.TreeId = JebTreeId;
+            Recording seis = Seismometer();
+            Assert.Equal(TreeSiblingOverlapVerdict.Exempt, CoexistingTreeSiblingSpawn.EvaluateBlocker(
+                new List<Recording> { capsule, seis }, null, null, seis, false,
+                CapsulePid, CapsuleGuid, "Kerbin", LiveCapsuleLat, LiveCapsuleLon, KerbinRadius,
+                out _, out OverlapBlockerKind kind, out _));
+            Assert.Equal(OverlapBlockerKind.Original, kind);
+        }
+
+        [Fact]
+        public void SameTreeAdoptionStampOnTheHeadSegment_MeasuresTheLeaf()
+        {
+            // Same shape as the capsule tree, all in the spawning member's tree: before, the
+            // head segment's mid-flight end was the "spot" and the capsule read as Displaced.
+            var members = CapsuleTree();
+            foreach (Recording r in members) r.TreeId = JebTreeId;
+            Recording seis = Seismometer();
+            members.Add(seis);
+            Assert.Equal(TreeSiblingOverlapVerdict.Exempt,
+                CoexistingTreeSiblingSpawn.Evaluate(members, seis, CapsulePid, CapsuleGuid,
+                    "Kerbin", LiveCapsuleLat, LiveCapsuleLon, KerbinRadius, out Recording sibling, out _));
+            Assert.Equal("77dc568671cd442bb682c549ca50b7a6", sibling.RecordingId);
+        }
+
+        [Fact]
+        public void TheSpawningVesselsOwnEarlierSegment_IsNeverAnExemptBlocker()
+        {
+            // The spawning member is the capsule's leaf; the live capsule is its own launch (a
+            // duplicate of itself), whichever segment carries the stamp.
+            var members = CapsuleTree();
+            Recording leaf = members[2];
+            Assert.Equal(TreeSiblingOverlapVerdict.NotTreeSibling,
+                CoexistingTreeSiblingSpawn.Evaluate(members, leaf, CapsulePid, CapsuleGuid,
+                    "Kerbin", LiveCapsuleLat, LiveCapsuleLon, KerbinRadius, out _, out _));
+        }
+
+        [Fact]
+        public void KerbalOrPlacedPartMember_Scope()
+        {
+            RecordingTree tree = JebTreeWith(Jeb(), Seismometer());
+            Assert.True(CoexistingTreeSiblingSpawn.IsKerbalOrPlacedPartMember(tree, Jeb()));
+            Assert.True(CoexistingTreeSiblingSpawn.IsKerbalOrPlacedPartMember(tree, Seismometer()));
+            Assert.True(CoexistingTreeSiblingSpawn.IsKerbalOrPlacedPartMember(
+                tree, new Recording { EvaCrewName = "Bob Kerman" }));
+            var snapshotEva = new Recording { VesselSnapshot = new ConfigNode("VESSEL") };
+            snapshotEva.VesselSnapshot.AddValue("type", "EVA");
+            Assert.True(CoexistingTreeSiblingSpawn.IsKerbalOrPlacedPartMember(tree, snapshotEva));
+            Assert.False(CoexistingTreeSiblingSpawn.IsKerbalOrPlacedPartMember(tree, CapsuleLeaf()));
+            Assert.False(CoexistingTreeSiblingSpawn.IsKerbalOrPlacedPartMember(tree, null));
+        }
+
+        private static void CommitCapsuleThenJeb(bool capsuleFirst)
+        {
+            var capsuleTree = new RecordingTree { Id = CapsuleTreeId, TreeName = "Kerbal X" };
+            foreach (Recording r in CapsuleTree()) capsuleTree.Recordings[r.RecordingId] = r;
+            RecordingTree jebTree = JebTreeWith(Jeb(), Seismometer());
+            RecordingTree[] order = capsuleFirst
+                ? new[] { capsuleTree, jebTree }
+                : new[] { jebTree, capsuleTree };
+            foreach (RecordingTree t in order)
+            {
+                RecordingStore.AddCommittedTreeForTesting(t);
+                foreach (Recording r in t.Recordings.Values)
+                {
+                    r.MergeState = MergeState.Immutable;
+                    RecordingStore.AddCommittedInternal(r);
+                }
+            }
+            EffectiveState.ResetCachesForTesting();
+        }
+
+        [Fact]
+        public void IsExemptBlocker_Eva6Capsule_ExemptsAtTheSpaceCenterAndLogs()
+        {
+            CommitCapsuleThenJeb(capsuleFirst: true);
+            Recording seis = RecordingStore.CommittedTrees[1].Recordings["ad570ea403684d28be3fe769547cc094"];
+
+            Assert.Equal(OverlapExemptionScope.OtherTree, CoexistingTreeSiblingSpawn.ResolveExemption(
+                seis, CapsulePid, CapsuleGuid, "Kerbal X",
+                "Kerbin", LiveCapsuleLat, LiveCapsuleLon, KerbinRadius, "landed-de-overlap"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][SpawnCollision]")
+                && l.Contains("Overlap exempt: other-tree vessel standing there first:")
+                && l.Contains("site=landed-de-overlap")
+                && l.Contains("tree=" + JebTreeId)
+                && l.Contains("rec=ad570ea403684d28be3fe769547cc094")
+                && l.Contains("blocker='Kerbal X'")
+                && l.Contains("pid=2708531065")
+                && l.Contains("blockerKind=spawn")
+                && l.Contains("blockerTree=" + CapsuleTreeId)
+                && l.Contains("blockerRec=77dc568671cd442bb682c549ca50b7a6")
+                && l.Contains("blockerEndUT=1274.68")
+                && l.Contains("referenceUT=1282.36")
+                && l.Contains("verdict=Exempt"));
+        }
+
+        [Fact]
+        public void IsExemptBlocker_CapsuleCommittedLater_BlocksAndLogsReason()
+        {
+            CommitCapsuleThenJeb(capsuleFirst: false);
+            Recording seis = RecordingStore.CommittedTrees[0].Recordings["ad570ea403684d28be3fe769547cc094"];
+
+            Assert.False(CoexistingTreeSiblingSpawn.IsExemptBlocker(
+                seis, CapsulePid, CapsuleGuid, "Kerbal X",
+                "Kerbin", LiveCapsuleLat, LiveCapsuleLon, KerbinRadius, "end-of-recording"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][SpawnCollision]")
+                && l.Contains("Overlap not exempt: other-tree vessel:")
+                && l.Contains("verdict=NotCommittedBefore"));
         }
 
         // -- Wiring: every spawn-collision site hands over the spawning recording ------

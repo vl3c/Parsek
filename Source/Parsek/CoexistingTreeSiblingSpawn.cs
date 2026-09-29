@@ -20,6 +20,43 @@ namespace Parsek
         /// its spot (not placed yet, still driving there) or no longer existed.
         /// </summary>
         NotAtSpotAtCandidateUT = 4,
+        /// <summary>
+        /// Other-tree blocker whose committed tree was not committed before the spawning
+        /// recording's tree: it was not there when the spawning recording was made.
+        /// </summary>
+        NotCommittedBefore = 5,
+        /// <summary>
+        /// Other-tree blocker whose recorded history had not ended standing at its spot by the
+        /// spawning member's reference UT (its end, or the walkback candidate's UT): it arrived
+        /// later, or it was still a replay (a ghost) then, or its history does not end standing.
+        /// </summary>
+        NotStandingByThen = 6,
+        /// <summary>
+        /// Other-tree blocker, but the spawning member is neither an EVA kerbal nor a placed
+        /// ground part: the other-tree exemption does not apply, the de-overlap still pushes.
+        /// </summary>
+        SpawningNotKerbalOrPlacedPart = 7,
+    }
+
+    /// <summary>How a live blocker was identified as the vessel of a committed recording.</summary>
+    internal enum OverlapBlockerKind
+    {
+        None = 0,
+        /// <summary>
+        /// The vessel the recording's spawn stamp names: a Parsek spawn, or the recorded vessel
+        /// itself adopted as the spawn.
+        /// </summary>
+        Spawn = 1,
+        /// <summary>The recording's own recorded vessel, still live, with no spawn stamp.</summary>
+        Original = 2,
+    }
+
+    /// <summary>Which rule exempted a blocker, if any.</summary>
+    internal enum OverlapExemptionScope
+    {
+        None = 0,
+        SameTree = 1,
+        OtherTree = 2,
     }
 
     /// <summary>
@@ -36,11 +73,19 @@ namespace Parsek
     /// sits inside the box.</para>
     ///
     /// <para>The exemption is narrow: the blocker must be positively identified as a sibling's
-    /// SPAWN through <see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/> (launch Guid
-    /// gated, so a relaunch of the same craft that reuses the baked pid never matches), and it must
-    /// still stand within <see cref="PlacementToleranceMeters"/> (horizontal) of the spot its
-    /// recording spawned it at. The player's own craft, another tree's spawn, and a sibling the
-    /// player has since driven elsewhere all keep blocking.</para>
+    /// vessel - its SPAWN through <see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/>
+    /// (launch Guid gated, so a relaunch of the same craft that reuses the baked pid never
+    /// matches), or the sibling's own recorded vessel still live (a positive pid + launch Guid
+    /// match) - never a segment of the spawning member's own launch, and it must still stand within
+    /// <see cref="PlacementToleranceMeters"/> (horizontal) of the spot that vessel's latest
+    /// recorded segment ends at. The player's own unrecorded craft and a sibling the player has
+    /// since driven elsewhere keep blocking.</para>
+    ///
+    /// <para>A vessel of ANOTHER committed tree (the capsule an EVA kerbal left, recorded in an
+    /// earlier flight) is exempted only for an EVA kerbal or a placed ground part and only on
+    /// evidence from its own committed history that it was already standing there when the
+    /// spawning member was recorded and has not moved since (<see cref="ClassifyOtherTree"/>;
+    /// operator ruling 2026-09-29). A vessel that arrived later still pushes.</para>
     ///
     /// <para>The time gate differs by site. At an end-of-recording spawn (no candidate UT) it asks
     /// whether the two recordings' existence overlapped; spawnable leaves persist past their end,
@@ -68,6 +113,15 @@ namespace Parsek
 
         /// <summary>Grep-stable literal of the Info line logged when a same-tree sibling still blocks.</summary>
         internal const string NotExemptLogLiteral = "Overlap not exempt: tree sibling";
+
+        /// <summary>
+        /// Grep-stable literal of the Info line logged when a vessel of an EARLIER committed tree,
+        /// already standing there when the spawning member was recorded, is exempted.
+        /// </summary>
+        internal const string OtherTreeExemptLogLiteral = "Overlap exempt: other-tree vessel standing there first";
+
+        /// <summary>Grep-stable literal of the Info line logged when an other-tree vessel still blocks.</summary>
+        internal const string OtherTreeNotExemptLogLiteral = "Overlap not exempt: other-tree vessel";
 
         /// <summary>
         /// True when a recording's vessel stays in the world after its recorded end: a leaf whose
@@ -101,25 +155,6 @@ namespace Parsek
             double aEnd = PersistsPastEnd(a) ? double.PositiveInfinity : a.EndUT;
             double bEnd = PersistsPastEnd(b) ? double.PositiveInfinity : b.EndUT;
             return Math.Max(a.StartUT, b.StartUT) <= Math.Min(aEnd, bEnd);
-        }
-
-        /// <summary>
-        /// Returns the recording among <paramref name="treeRecordings"/> (other than
-        /// <paramref name="spawning"/>) whose spawned vessel IS the candidate
-        /// (<see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/>), or null.
-        /// </summary>
-        internal static Recording FindSiblingSpawnSource(
-            IEnumerable<Recording> treeRecordings, Recording spawning, uint candidatePid, string candidateGuid)
-        {
-            if (treeRecordings == null || spawning == null || candidatePid == 0) return null;
-            foreach (Recording r in treeRecordings)
-            {
-                if (r == null || ReferenceEquals(r, spawning)) continue;
-                if (string.Equals(r.RecordingId, spawning.RecordingId, StringComparison.Ordinal)) continue;
-                if (VesselLaunchIdentity.LiveVesselIsRecordedSpawn(r, candidatePid, candidateGuid))
-                    return r;
-            }
-            return null;
         }
 
         /// <summary>
@@ -232,10 +267,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure core of the exemption: finds the sibling in <paramref name="treeRecordings"/>,
-        /// measures its displacement, classifies. <paramref name="sibling"/> is null when the
-        /// candidate is not a sibling spawn at all. <paramref name="candidateUT"/>: see
-        /// <see cref="Classify"/>.
+        /// Pure core of the same-tree exemption (kept for its callers and tests): the blocker is
+        /// looked up among <paramref name="treeRecordings"/> only. See <see cref="EvaluateBlocker"/>.
         /// </summary>
         internal static TreeSiblingOverlapVerdict Evaluate(
             IEnumerable<Recording> treeRecordings, Recording spawning,
@@ -243,81 +276,339 @@ namespace Parsek
             string candidateBodyName, double candidateLat, double candidateLon, double bodyRadius,
             out Recording sibling, out double displacementMeters, double candidateUT = double.NaN)
         {
-            displacementMeters = double.PositiveInfinity;
-            sibling = FindSiblingSpawnSource(treeRecordings, spawning, candidatePid, candidateGuid);
-            if (sibling == null) return TreeSiblingOverlapVerdict.NotTreeSibling;
-            displacementMeters = SiblingDisplacementMeters(
-                sibling, candidateBodyName, candidateLat, candidateLon, bodyRadius);
-            double arrivalUT = double.NaN;
-            if (!double.IsNaN(candidateUT)
-                && TryGetSiblingSpawnSpot(sibling, out string spotBody, out double spotLat, out double spotLon))
-            {
-                arrivalUT = SiblingArrivalAtSpotUT(
-                    sibling, spotBody, spotLat, spotLon, bodyRadius, PlacementToleranceMeters);
-            }
-            return Classify(spawning, sibling, displacementMeters, PlacementToleranceMeters,
-                candidateUT, arrivalUT);
+            return EvaluateBlocker(
+                treeRecordings, null, null, spawning, false,
+                candidatePid, candidateGuid, candidateBodyName, candidateLat, candidateLon, bodyRadius,
+                out sibling, out _, out displacementMeters, candidateUT);
         }
 
         /// <summary>
-        /// Live wrapper: resolves <paramref name="spawning"/>'s committed tree and decides whether
-        /// the candidate vessel is an exempt co-existing sibling spawn (<paramref name="candidateUT"/>
-        /// NaN at the end-of-recording position, the candidate's recorded UT during a walkback). Logs one Info line per
-        /// (spawning recording, candidate) pair and verdict, rate-limited so walkback sub-steps and
-        /// per-frame blocked rechecks do not spam; logs nothing for a candidate that is not a
-        /// sibling spawn.
+        /// True only when both recordings carry the same vessel pid AND both launch Guids are
+        /// known and equal: the chain segments of one physical launch. Never degrades to a bare
+        /// pid match (the pid is craft-baked, so two launches of one craft share it).
         /// </summary>
+        internal static bool PositivelySameLaunch(Recording a, Recording b)
+        {
+            if (a == null || b == null) return false;
+            if (a.VesselPersistentId == 0 || a.VesselPersistentId != b.VesselPersistentId) return false;
+            string ga = VesselLaunchIdentity.NormalizeGuid(a.RecordedVesselGuid);
+            string gb = VesselLaunchIdentity.NormalizeGuid(b.RecordedVesselGuid);
+            return ga != null && gb != null && string.Equals(ga, gb, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// True when the live candidate is the vessel <paramref name="rec"/>'s spawn stamp names
+        /// (<see cref="VesselLaunchIdentity.LiveVesselIsRecordedSpawn"/>: a Parsek spawn, or the
+        /// recorded vessel itself adopted as the spawn). <paramref name="strict"/> (other trees)
+        /// accepts an adoption stamp only on a POSITIVE launch match (pid and both Guids known and
+        /// equal); the same tree keeps the predicate's behaviour (a Guid unknown on one side is not
+        /// conclusive).
+        /// </summary>
+        internal static bool MatchesSpawnStamp(
+            Recording rec, uint candidatePid, string candidateGuid, bool strict)
+        {
+            if (rec == null || candidatePid == 0) return false;
+            if (!VesselLaunchIdentity.LiveVesselIsRecordedSpawn(rec, candidatePid, candidateGuid)) return false;
+            bool adoptionStamp = rec.VesselPersistentId != 0
+                && rec.SpawnedVesselPersistentId == rec.VesselPersistentId;
+            return !strict || !adoptionStamp
+                || VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(rec, candidatePid, candidateGuid);
+        }
+
+        private static bool IsSpawningOwnLaunch(Recording spawning, Recording r)
+        {
+            if (ReferenceEquals(r, spawning)) return true;
+            if (string.Equals(r.RecordingId, spawning.RecordingId, StringComparison.Ordinal)) return true;
+            return PositivelySameLaunch(r, spawning);
+        }
+
+        private static bool IsLaterSegment(Recording candidate, Recording current)
+        {
+            if (candidate.EndUT > current.EndUT) return true;
+            return candidate.EndUT == current.EndUT && PersistsPastEnd(candidate) && !PersistsPastEnd(current);
+        }
+
+        /// <summary>
+        /// The UT by which an other-tree blocker must already have been standing: the walkback
+        /// candidate's recorded UT, else the spawning member's recorded end.
+        /// </summary>
+        internal static double OtherTreeReferenceUT(Recording spawning, double candidateUT)
+        {
+            if (!double.IsNaN(candidateUT)) return candidateUT;
+            return spawning != null ? spawning.EndUT : double.NaN;
+        }
+
+        /// <summary>
+        /// Pure verdict for an overlap between <paramref name="spawning"/>'s spawn and the live
+        /// vessel of <paramref name="blockerLatest"/> (that vessel's LATEST recorded segment),
+        /// which belongs to a different committed tree. Operator ruling 2026-09-29: an EVA kerbal
+        /// or a placed ground part is not pushed off its recorded spot by a vessel that was
+        /// already standing there when its recording was made and has not moved since; a vessel
+        /// that arrived later still pushes it. Parsek records no foreign vessel's position during
+        /// a recording, so "already standing there" is proven from the blocker's OWN committed
+        /// history, all of which is required:
+        /// <list type="bullet">
+        /// <item>the spawning member is an EVA kerbal or a placed ground part (the ruling's scope;
+        /// a vehicle keeps the #duplicate-stack de-overlap);</item>
+        /// <item>the blocker's tree was committed BEFORE the spawning member's tree, so it existed
+        /// when this recording was made rather than in a timeline recorded afterwards;</item>
+        /// <item>its latest segment is a leaf that persists standing (<see cref="PersistsPastEnd"/>)
+        /// and ended at or before the reference UT (<see cref="OtherTreeReferenceUT"/>): a history
+        /// still running then was a replay (a ghost, not a vessel), a later end is a later arrival;</item>
+        /// <item>it still stands within <paramref name="toleranceMeters"/> (horizontal) of that
+        /// leaf's spawn spot: it has not moved since.</item>
+        /// </list>
+        /// Tree commit indices are positions in the committed-tree list (-1 unknown).
+        /// </summary>
+        internal static TreeSiblingOverlapVerdict ClassifyOtherTree(
+            Recording spawning, bool spawningIsKerbalOrPlacedPart,
+            Recording blockerLatest, int spawningTreeIndex, int blockerTreeIndex,
+            double displacementMeters, double toleranceMeters, double candidateUT = double.NaN)
+        {
+            if (spawning == null || blockerLatest == null) return TreeSiblingOverlapVerdict.NotTreeSibling;
+            if (!spawningIsKerbalOrPlacedPart) return TreeSiblingOverlapVerdict.SpawningNotKerbalOrPlacedPart;
+            if (spawningTreeIndex < 0 || blockerTreeIndex < 0 || blockerTreeIndex >= spawningTreeIndex)
+                return TreeSiblingOverlapVerdict.NotCommittedBefore;
+            double referenceUT = OtherTreeReferenceUT(spawning, candidateUT);
+            if (double.IsNaN(referenceUT) || !PersistsPastEnd(blockerLatest) || blockerLatest.EndUT > referenceUT)
+                return TreeSiblingOverlapVerdict.NotStandingByThen;
+            if (double.IsNaN(displacementMeters) || displacementMeters > toleranceMeters)
+                return TreeSiblingOverlapVerdict.Displaced;
+            return TreeSiblingOverlapVerdict.Exempt;
+        }
+
+        /// <summary>
+        /// Pure core of both exemptions. Identifies the live candidate as the vessel of a
+        /// committed recording (the spawning member's own tree first, then
+        /// <paramref name="otherTreeRecordings"/>; never a segment of the spawning member's own
+        /// launch, which would be a duplicate of itself), moves to that vessel's LATEST
+        /// positively-same-launch segment (a chain's adoption stamp can sit on its head segment,
+        /// whose end is mid-flight), measures the candidate's displacement from that segment's
+        /// spawn spot, and classifies with <see cref="Classify"/> (same tree) or
+        /// <see cref="ClassifyOtherTree"/> (other tree, ordered by <paramref name="treeCommitIndex"/>).
+        /// <paramref name="blocker"/> is null when the candidate is no committed recording's vessel.
+        /// </summary>
+        internal static TreeSiblingOverlapVerdict EvaluateBlocker(
+            IEnumerable<Recording> sameTreeRecordings, IEnumerable<Recording> otherTreeRecordings,
+            Func<string, int> treeCommitIndex, Recording spawning, bool spawningIsKerbalOrPlacedPart,
+            uint candidatePid, string candidateGuid,
+            string candidateBodyName, double candidateLat, double candidateLon, double bodyRadius,
+            out Recording blocker, out OverlapBlockerKind kind, out double displacementMeters,
+            double candidateUT = double.NaN)
+        {
+            blocker = null;
+            kind = OverlapBlockerKind.None;
+            displacementMeters = double.PositiveInfinity;
+            if (spawning == null || candidatePid == 0) return TreeSiblingOverlapVerdict.NotTreeSibling;
+
+            var pool = new List<Recording>();
+            if (sameTreeRecordings != null)
+            {
+                foreach (Recording r in sameTreeRecordings)
+                {
+                    if (r == null || IsSpawningOwnLaunch(spawning, r)) continue;
+                    if (string.IsNullOrEmpty(spawning.TreeId)
+                        || !string.Equals(r.TreeId, spawning.TreeId, StringComparison.Ordinal))
+                        continue;
+                    pool.Add(r);
+                }
+            }
+            int sameTreeCount = pool.Count;
+            if (otherTreeRecordings != null)
+            {
+                foreach (Recording r in otherTreeRecordings)
+                {
+                    if (r == null || IsSpawningOwnLaunch(spawning, r)) continue;
+                    if (string.IsNullOrEmpty(r.TreeId)
+                        || string.Equals(r.TreeId, spawning.TreeId, StringComparison.Ordinal))
+                        continue;
+                    pool.Add(r);
+                }
+            }
+
+            // Spawn stamps first (the recording's own record of which live vessel is its vessel),
+            // then the recorded vessel itself still live with no stamp (positive pid + Guid).
+            Recording matched = null;
+            for (int i = 0; i < pool.Count && matched == null; i++)
+            {
+                if (MatchesSpawnStamp(pool[i], candidatePid, candidateGuid, strict: i >= sameTreeCount))
+                {
+                    matched = pool[i];
+                    kind = OverlapBlockerKind.Spawn;
+                }
+            }
+            for (int i = 0; i < pool.Count && matched == null; i++)
+            {
+                if (VesselLaunchIdentity.LiveVesselIsPositivelyRecordedLaunch(pool[i], candidatePid, candidateGuid))
+                {
+                    matched = pool[i];
+                    kind = OverlapBlockerKind.Original;
+                }
+            }
+            if (matched == null) return TreeSiblingOverlapVerdict.NotTreeSibling;
+
+            Recording latest = matched;
+            for (int i = 0; i < pool.Count; i++)
+            {
+                Recording r = pool[i];
+                if (ReferenceEquals(r, latest) || !PositivelySameLaunch(r, matched)) continue;
+                if (IsLaterSegment(r, latest)) latest = r;
+            }
+            blocker = latest;
+            displacementMeters = SiblingDisplacementMeters(
+                latest, candidateBodyName, candidateLat, candidateLon, bodyRadius);
+
+            bool sameTree = !string.IsNullOrEmpty(spawning.TreeId)
+                && string.Equals(latest.TreeId, spawning.TreeId, StringComparison.Ordinal);
+            if (sameTree)
+            {
+                double arrivalUT = double.NaN;
+                if (!double.IsNaN(candidateUT)
+                    && TryGetSiblingSpawnSpot(latest, out string spotBody, out double spotLat, out double spotLon))
+                {
+                    arrivalUT = SiblingArrivalAtSpotUT(
+                        latest, spotBody, spotLat, spotLon, bodyRadius, PlacementToleranceMeters);
+                }
+                return Classify(spawning, latest, displacementMeters, PlacementToleranceMeters,
+                    candidateUT, arrivalUT);
+            }
+
+            int spawningIdx = treeCommitIndex != null && !string.IsNullOrEmpty(spawning.TreeId)
+                ? treeCommitIndex(spawning.TreeId) : -1;
+            int blockerIdx = treeCommitIndex != null && !string.IsNullOrEmpty(latest.TreeId)
+                ? treeCommitIndex(latest.TreeId) : -1;
+            return ClassifyOtherTree(spawning, spawningIsKerbalOrPlacedPart, latest,
+                spawningIdx, blockerIdx, displacementMeters, PlacementToleranceMeters, candidateUT);
+        }
+
+        /// <summary>
+        /// True when <paramref name="rec"/> is an EVA kerbal (an EVA branch's
+        /// <see cref="Recording.EvaCrewName"/>, or a recording whose own vessel is a kerbal on EVA:
+        /// start situation EVA or snapshot <c>type = EVA</c>, as when recording started after the
+        /// kerbal left) or a placed ground part (<see cref="GroundPartPlacement.IsPlacedPartMember"/>).
+        /// The scope of the other-tree exemption.
+        /// </summary>
+        internal static bool IsKerbalOrPlacedPartMember(RecordingTree tree, Recording rec)
+        {
+            if (rec == null) return false;
+            if (!string.IsNullOrEmpty(rec.EvaCrewName)) return true;
+            if (string.Equals(rec.StartSituation, "EVA", StringComparison.OrdinalIgnoreCase)) return true;
+            string snapshotType = rec.VesselSnapshot != null ? rec.VesselSnapshot.GetValue("type") : null;
+            if (string.Equals(snapshotType, "EVA", StringComparison.Ordinal)) return true;
+            return GroundPartPlacement.IsPlacedPartMember(tree, rec);
+        }
+
+        /// <summary>Live wrapper, bool form of <see cref="ResolveExemption"/>.</summary>
         internal static bool IsExemptBlocker(
             Recording spawning, uint candidatePid, string candidateGuid, string candidateName,
             string candidateBodyName, double candidateLat, double candidateLon, double bodyRadius,
             string site, double candidateUT = double.NaN)
         {
-            if (spawning == null || string.IsNullOrEmpty(spawning.TreeId) || candidatePid == 0)
-                return false;
-
-            RecordingTree tree = FindCommittedTree(spawning.TreeId);
-            if (tree == null || tree.Recordings == null) return false;
-
-            TreeSiblingOverlapVerdict verdict = Evaluate(
-                tree.Recordings.Values, spawning, candidatePid, candidateGuid,
-                candidateBodyName, candidateLat, candidateLon, bodyRadius,
-                out Recording sibling, out double displacement, candidateUT);
-            if (verdict == TreeSiblingOverlapVerdict.NotTreeSibling)
-                return false;
-
-            bool exempt = verdict == TreeSiblingOverlapVerdict.Exempt;
-            string displacementText = double.IsInfinity(displacement)
-                ? "unknown"
-                : displacement.ToString("F2", IC) + "m";
-            string message = string.Format(IC,
-                "{0} spawn: site={1} tree={2} spawning='{3}' rec={4} blocker='{5}' pid={6} siblingRec={7} " +
-                "verdict={8} displacement={9} tolerance={10}m candidateUT={11}",
-                exempt ? ExemptLogLiteral : NotExemptLogLiteral,
-                site ?? "?",
-                spawning.TreeId,
-                Recording.ResolveLocalizedName(spawning.VesselName),
-                spawning.RecordingId,
-                candidateName ?? "?",
-                candidatePid,
-                sibling != null ? sibling.RecordingId : "?",
-                verdict,
-                displacementText,
-                PlacementToleranceMeters.ToString("F1", IC),
-                double.IsNaN(candidateUT) ? "end" : candidateUT.ToString("F2", IC));
-            ParsekLog.InfoRateLimited(Tag,
-                "tree-sibling-" + verdict + "-" + spawning.RecordingId + "-" + candidatePid.ToString(IC),
-                message);
-            return exempt;
+            return ResolveExemption(spawning, candidatePid, candidateGuid, candidateName,
+                candidateBodyName, candidateLat, candidateLon, bodyRadius, site, candidateUT)
+                != OverlapExemptionScope.None;
         }
 
-        private static RecordingTree FindCommittedTree(string treeId)
+        /// <summary>
+        /// Live wrapper: resolves <paramref name="spawning"/>'s committed tree, the effective
+        /// recordings of the other committed trees (<see cref="EffectiveState.ComputeERS"/>) and
+        /// the committed-tree order, and decides whether the candidate vessel is an exempt blocker
+        /// (<paramref name="candidateUT"/> NaN at the end-of-recording position, the candidate's
+        /// recorded UT during a walkback). Logs one Info line per (spawning recording, candidate)
+        /// pair and verdict, rate-limited so walkback sub-steps and per-frame blocked rechecks do
+        /// not spam; logs nothing for a candidate that is no committed recording's vessel.
+        /// </summary>
+        internal static OverlapExemptionScope ResolveExemption(
+            Recording spawning, uint candidatePid, string candidateGuid, string candidateName,
+            string candidateBodyName, double candidateLat, double candidateLon, double bodyRadius,
+            string site, double candidateUT = double.NaN)
         {
+            if (spawning == null || string.IsNullOrEmpty(spawning.TreeId) || candidatePid == 0)
+                return OverlapExemptionScope.None;
+
             List<RecordingTree> trees = RecordingStore.CommittedTrees;
-            if (trees == null) return null;
+            RecordingTree tree = FindCommittedTree(trees, spawning.TreeId, out _);
+            if (tree == null || tree.Recordings == null) return OverlapExemptionScope.None;
+
+            TreeSiblingOverlapVerdict verdict = EvaluateBlocker(
+                tree.Recordings.Values, EffectiveState.ComputeERS(),
+                treeId => { FindCommittedTree(trees, treeId, out int idx); return idx; },
+                spawning, IsKerbalOrPlacedPartMember(tree, spawning),
+                candidatePid, candidateGuid, candidateBodyName, candidateLat, candidateLon, bodyRadius,
+                out Recording blocker, out OverlapBlockerKind kind, out double displacement, candidateUT);
+            if (verdict == TreeSiblingOverlapVerdict.NotTreeSibling || blocker == null)
+                return OverlapExemptionScope.None;
+
+            bool exempt = verdict == TreeSiblingOverlapVerdict.Exempt;
+            bool sameTree = string.Equals(blocker.TreeId, spawning.TreeId, StringComparison.Ordinal);
+            string kindWord = kind == OverlapBlockerKind.Original ? "original" : "spawn";
+            string displacementText = double.IsInfinity(displacement) || double.IsNaN(displacement)
+                ? "unknown"
+                : displacement.ToString("F2", IC) + "m";
+            string candidateText = double.IsNaN(candidateUT) ? "end" : candidateUT.ToString("F2", IC);
+            string message;
+            if (sameTree)
+            {
+                message = string.Format(IC,
+                    "{0} {1}: site={2} tree={3} spawning='{4}' rec={5} blocker='{6}' pid={7} siblingRec={8} " +
+                    "verdict={9} displacement={10} tolerance={11}m candidateUT={12}",
+                    exempt ? ExemptLogLiteral : NotExemptLogLiteral,
+                    kindWord,
+                    site ?? "?",
+                    spawning.TreeId,
+                    Recording.ResolveLocalizedName(spawning.VesselName),
+                    spawning.RecordingId,
+                    candidateName ?? "?",
+                    candidatePid,
+                    blocker.RecordingId,
+                    verdict,
+                    displacementText,
+                    PlacementToleranceMeters.ToString("F1", IC),
+                    candidateText);
+            }
+            else
+            {
+                double referenceUT = OtherTreeReferenceUT(spawning, candidateUT);
+                message = string.Format(IC,
+                    "{0}: site={1} tree={2} spawning='{3}' rec={4} blocker='{5}' pid={6} blockerKind={7} " +
+                    "blockerTree={8} blockerRec={9} blockerEndUT={10} referenceUT={11} " +
+                    "verdict={12} displacement={13} tolerance={14}m candidateUT={15}",
+                    exempt ? OtherTreeExemptLogLiteral : OtherTreeNotExemptLogLiteral,
+                    site ?? "?",
+                    spawning.TreeId,
+                    Recording.ResolveLocalizedName(spawning.VesselName),
+                    spawning.RecordingId,
+                    candidateName ?? "?",
+                    candidatePid,
+                    kindWord,
+                    blocker.TreeId ?? "?",
+                    blocker.RecordingId,
+                    blocker.EndUT.ToString("F2", IC),
+                    double.IsNaN(referenceUT) ? "?" : referenceUT.ToString("F2", IC),
+                    verdict,
+                    displacementText,
+                    PlacementToleranceMeters.ToString("F1", IC),
+                    candidateText);
+            }
+            ParsekLog.InfoRateLimited(Tag,
+                (sameTree ? "tree-sibling-" : "other-tree-") + verdict + "-" + spawning.RecordingId + "-"
+                    + candidatePid.ToString(IC),
+                message);
+            if (!exempt) return OverlapExemptionScope.None;
+            return sameTree ? OverlapExemptionScope.SameTree : OverlapExemptionScope.OtherTree;
+        }
+
+        private static RecordingTree FindCommittedTree(List<RecordingTree> trees, string treeId, out int index)
+        {
+            index = -1;
+            if (trees == null || string.IsNullOrEmpty(treeId)) return null;
             for (int i = 0; i < trees.Count; i++)
             {
                 if (trees[i] != null && string.Equals(trees[i].Id, treeId, StringComparison.Ordinal))
+                {
+                    index = i;
                     return trees[i];
+                }
             }
             return null;
         }

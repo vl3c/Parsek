@@ -338,8 +338,10 @@ namespace Parsek
         ///
         /// Excludes: the recording's own already-adopted source vessel (<paramref name="excludePid"/>),
         /// ghost-map vessels, Debris/EVA/Flag/SpaceObject types, and (when
-        /// <paramref name="spawningRecording"/> is given) spawns of other members of the same
-        /// committed tree that stood beside it in the recording (<see cref="CoexistingTreeSiblingSpawn"/>). Only same-body surface
+        /// <paramref name="spawningRecording"/> is given) vessels of other members of the same
+        /// committed tree that stood beside it in the recording, and, for an EVA kerbal or placed
+        /// ground part, a vessel of an earlier committed tree already standing there when it was
+        /// recorded (<see cref="CoexistingTreeSiblingSpawn"/>). Only same-body surface
         /// vessels are returned — orbital/flying vessels do not constrain a ground footprint.
         /// </summary>
         internal static List<(double lat, double lon)> GatherExistingLandedVesselPositions(
@@ -352,6 +354,7 @@ namespace Parsek
             int loadedCount = 0;
             int protoCount = 0;
             int siblingCount = 0;
+            int otherTreeCount = 0;
             try
             {
                 var vessels = FlightGlobals.Vessels;
@@ -367,16 +370,13 @@ namespace Parsek
                         if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
                         if (SpawnCollisionDetector.ShouldSkipVesselType(v.vesselType)) continue;
                         if (spawningRecording != null
-                            && CoexistingTreeSiblingSpawn.IsExemptBlocker(
+                            && CountExemption(CoexistingTreeSiblingSpawn.ResolveExemption(
                                 spawningRecording, v.persistentId,
                                 v.id.ToString("N", CultureInfo.InvariantCulture),
                                 Recording.ResolveLocalizedName(v.vesselName),
                                 body.name, v.latitude, v.longitude, body.Radius,
-                                "landed-de-overlap"))
-                        {
-                            siblingCount++;
+                                "landed-de-overlap"), ref siblingCount, ref otherTreeCount))
                             continue;
-                        }
                         result.Add((v.latitude, v.longitude));
                         loadedCount++;
                     }
@@ -396,16 +396,13 @@ namespace Parsek
                         if (SpawnCollisionDetector.ShouldSkipVesselType(pv.vesselType)) continue;
                         if (!ProtoVesselIsOnSameBodySurface(pv, body)) continue;
                         if (spawningRecording != null
-                            && CoexistingTreeSiblingSpawn.IsExemptBlocker(
+                            && CountExemption(CoexistingTreeSiblingSpawn.ResolveExemption(
                                 spawningRecording, pv.persistentId,
                                 VesselLaunchIdentity.ReadLaunchGuid(pv),
                                 Recording.ResolveLocalizedName(pv.vesselName),
                                 body.name, pv.latitude, pv.longitude, body.Radius,
-                                "landed-de-overlap"))
-                        {
-                            siblingCount++;
+                                "landed-de-overlap"), ref siblingCount, ref otherTreeCount))
                             continue;
-                        }
                         result.Add((pv.latitude, pv.longitude));
                         protoCount++;
                     }
@@ -421,8 +418,16 @@ namespace Parsek
 
             ParsekLog.Verbose("Spawner",
                 $"GatherExistingLandedVesselPositions: body={body.name} excludePid={excludePid} " +
-                $"loaded={loadedCount} proto={protoCount} coexistingTreeSiblings={siblingCount} total={result.Count}");
+                $"loaded={loadedCount} proto={protoCount} coexistingTreeSiblings={siblingCount} otherTreeStanding={otherTreeCount} total={result.Count}");
             return result;
+        }
+
+        private static bool CountExemption(
+            OverlapExemptionScope scope, ref int sameTreeCount, ref int otherTreeCount)
+        {
+            if (scope == OverlapExemptionScope.SameTree) sameTreeCount++;
+            else if (scope == OverlapExemptionScope.OtherTree) otherTreeCount++;
+            return scope != OverlapExemptionScope.None;
         }
 
         /// <summary>

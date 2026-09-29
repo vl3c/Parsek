@@ -1293,7 +1293,14 @@ _(unreleased — entries accumulate here per commit)_
   block. When a spawn has to step back along its own path, a member counts only if it was
   already standing there at that moment of the recording, so a rover is never placed inside a
   part set down later where it once drove. At the Space Center the same members are no longer
-  nudged 15 m apart.
+  nudged 15 m apart. A kerbal or a placed part is also no longer pushed off its spot by the
+  vessel it stood beside when that vessel was already standing there when the recording was
+  made and has not moved since, such as the landed capsule the kerbal climbed out of, recorded
+  in an earlier flight: after a rewind the Space Center used to move both the kerbal and his
+  seismometer 15 m away from it. Parsek knows the capsule was there from the capsule's own
+  saved flight, which was saved before the kerbal's and ended, standing on that spot, before
+  the kerbal's recording did. A vessel that arrived later, one moved since, or one Parsek has
+  no saved flight for still pushes, and a rover or other craft is still nudged clear as before.
 - **Watching a replayed flight to its end now holds on that vessel, not on a stage it dropped
   earlier.** When a replayed rocket had decoupled a controllable stage (a probe core) earlier in
   the flight and kept flying, the camera at the end of the rocket's flight jumped to that stage,

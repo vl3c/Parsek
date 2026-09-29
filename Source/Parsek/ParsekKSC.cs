@@ -2138,9 +2138,12 @@ namespace Parsek
                         // and VesselPersistentId is the craft-baked pid shared by every
                         // delivery of this craft — excluding it would wrongly drop sibling
                         // deliveries we must de-overlap against. Nudge clear of ALL existing
-                        // same-body landed vessels except spawns of other members of THIS
+                        // same-body landed vessels except vessels of other members of THIS
                         // committed tree that stood beside this one in the recording (a
-                        // placed-part cluster): those positions are the recorded layout.
+                        // placed-part cluster): those positions are the recorded layout. An
+                        // EVA kerbal or placed part is also not pushed off its spot by a vessel
+                        // of an earlier committed tree (the capsule it came from) that already
+                        // stood there when it was recorded and has not moved since.
                         var existingLanded = VesselSpawner.GatherExistingLandedVesselPositions(
                             body, 0u, rec);
                         var deOverlap = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
