@@ -2793,11 +2793,14 @@ namespace Parsek
                 bool prevGuiEnabled = GUI.enabled;
                 if (missionRouteBound)
                     GUI.enabled = false;
+                // ExpandWidth(false) on both: a label and a toggle stretch by default, and on
+                // this line the slack belongs to the summary cell alone.
                 GUILayout.Label(new GUIContent("Loop", MissionPresentation.LoopToggleTooltip),
-                    missionHeaderInlineLabel);
+                    missionHeaderInlineLabel, GUILayout.ExpandWidth(false));
                 bool missionLoopDrawnEnabled = GUI.enabled;
                 bool loopNow = GUILayout.Toggle(mission.LoopPlayback,
-                    new GUIContent("", MissionPresentation.LoopToggleTooltip));
+                    new GUIContent("", MissionPresentation.LoopToggleTooltip),
+                    GUILayout.ExpandWidth(false));
                 // LoopToggleTooltip is the generic what-it-does sentence; when a supply
                 // route owns the schedule the carrier names the route instead.
                 DisabledHoverEcho.CarryLastControl(
@@ -2815,7 +2818,7 @@ namespace Parsek
                     ? bindingRoute.Name : "route";
                 GUILayout.Label(
                     new GUIContent("Looped by route", $"Looped by route: {routeName}"),
-                    missionHeaderInlineLabel);
+                    missionHeaderInlineLabel, GUILayout.ExpandWidth(false));
             }
 
             // Periodicity (the Phase-1 / Tier-1 solution) is computed once per mission by the draw
@@ -4241,10 +4244,12 @@ namespace Parsek
 
             // Content-sized period cell: it sizes to whichever state renders (a wide read-only
             // "~P (basis)" / "~P (basis, varies)" locked label, or a narrow editable value+unit), so a
-            // long scheduled label renders on one line. ExpandWidth(false): a bare horizontal group
-            // stretches, and on the mission bar's second line it would take slack from the summary
-            // cell (the one expanding cell there) and open a gap before Watch.
-            GUILayout.BeginHorizontal(GUILayout.ExpandWidth(false));
+            // long scheduled label renders on one line. NO wrapping horizontal group: the cell's
+            // controls are entries of the mission bar's second line directly. A nested group there
+            // took a share of the line's slack even with ExpandWidth(false) (measured in the
+            // GUI-17 dump: 186 px for a 90 px cell), opening a gap before Watch; every control
+            // below is fixed-width or ExpandWidth(false), so the summary cell is the one that
+            // stretches.
 
             // Phase-locked + constrained (supported, P != MinCycleDuration): the cadence is
             // determined by physics (quantized to a multiple of P), not freely editable, so show the
@@ -4406,8 +4411,6 @@ namespace Parsek
             }
             GUI.enabled = true;
             }
-
-            GUILayout.EndHorizontal();
         }
 
         // Commits the in-progress loop-period buffer to the mission (parse / clamp via
