@@ -29,9 +29,12 @@
 //            straight out along his own bearing (Vessel.SetPosition to the PQS terrain
 //            height plus a small lift, velocity zeroed, g-forces ignored for the move), then
 //            left to settle by gravity. KSP has no walk API a seam can drive, so the move is
-//            a teleport. Inside a live recording it leaves a jump in the kerbal's trajectory
-//            (the ghost slides between the two spots); no recorder path or analyzer rule
-//            treats a same-body position jump as a boundary or a defect.
+//            a teleport; each part's CollisionEnhancer skips its next frames first, or its
+//            anti-tunnelling linecast puts a standing kerbal straight back. Completion is the
+//            kerbal landed on the target spot (bounded re-moves while he is off it). Inside a
+//            live recording it leaves a jump in the kerbal's trajectory (the ghost slides
+//            between the two spots); no recorder path or analyzer rule treats a same-body
+//            position jump as a boundary or a defect.
 //
 // The seam fires NO GameEvent itself: the recorder witness is whatever stock fires.
 // Private stock fields (selectedPart, partFullyCreated, placementonTerrain,
@@ -174,6 +177,12 @@ namespace Parsek.TestCommands
         // Step only: the anchor vessel and the requested horizontal distance from it.
         private Vessel groundSciStepAnchor;
         private double groundSciStepDistance;
+        // Step only: the target spot on the body's grid (the floating origin moves world
+        // positions between frames), and the moves made toward it.
+        private double groundSciStepTargetLat;
+        private double groundSciStepTargetLon;
+        private int groundSciStepMoves;
+        private int groundSciStepLastMoveFrame;
 
         private void EvaGroundScienceImpl(ParsedCommand cmd)
         {
@@ -257,6 +266,10 @@ namespace Parsek.TestCommands
             groundSciTakeSourceSlot = -1;
             groundSciStepAnchor = null;
             groundSciStepDistance = stepDistance;
+            groundSciStepTargetLat = 0;
+            groundSciStepTargetLon = 0;
+            groundSciStepMoves = 0;
+            groundSciStepLastMoveFrame = -1;
             EvaJumpKeyPressInjection.Remove();
             EvaJumpKeyPressInjection.AnsweredCount = 0;
 
@@ -316,31 +329,86 @@ namespace Parsek.TestCommands
                 lon = body.GetLongitude(target);
             }
             double terrain = body.TerrainAltitude(lat, lon, false);
-            double alt = terrain + TestCommandEvaGroundScience.StepLiftMeters;
-            Vector3d world = body.GetWorldSurfacePosition(lat, lon, alt);
             double before = kerbalOffset.magnitude;
 
             groundSciStepAnchor = anchor;
+            groundSciStepTargetLat = lat;
+            groundSciStepTargetLon = lon;
             ParsekLog.Info(Tag, $"evagroundscience step start kerbal={kerbal.vesselName} anchor={anchor.vesselName} "
                 + $"anchorPid={anchorPid} from={before.ToString("F2", CultureInfo.InvariantCulture)} "
                 + $"to={distance.ToString("F2", CultureInfo.InvariantCulture)} "
                 + $"lat={lat.ToString("F6", CultureInfo.InvariantCulture)} lon={lon.ToString("F6", CultureInfo.InvariantCulture)} "
                 + $"terrain={terrain.ToString("F2", CultureInfo.InvariantCulture)} situation={kerbal.situation} "
                 + $"bearing={(hasBearing ? bearingDegrees.ToString("F1", CultureInfo.InvariantCulture) : "own")}");
-            try
+            if (!TryMoveKerbalToStepTarget(kerbal))
             {
-                kerbal.IgnoreGForces(240);
-                kerbal.SetPosition(world);
-                kerbal.SetWorldVelocity(Vector3d.zero);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Error(Tag, $"evagroundscience step threw: {ex.GetType().Name}: {ex.Message}");
                 SetExecResult("ERROR", null, "step-threw");
                 return;
             }
             SetExecResult(PendingVerdict, null, null);
         }
+
+        /// <summary>
+        /// One step move: tell every part's CollisionEnhancer to skip its next physics frames
+        /// (see <see cref="TestCommandEvaGroundScience.StepCollisionSkipFrames"/>: without
+        /// that, the anti-tunnelling linecast from the old spot to the new one hits the
+        /// ground a standing kerbal starts on and puts him straight back), then set him down
+        /// at the target's PQS terrain height plus the lift, velocity zeroed.
+        /// </summary>
+        private bool TryMoveKerbalToStepTarget(Vessel kerbal)
+        {
+            CelestialBody body = kerbal != null ? kerbal.mainBody : null;
+            if (body == null) return false;
+            try
+            {
+                int enhancers = 0;
+                foreach (Part p in kerbal.parts)
+                {
+                    if (p == null) continue;
+                    foreach (CollisionEnhancer ce in p.GetComponents<CollisionEnhancer>())
+                    {
+                        if (ce == null) continue;
+                        ce.framesToSkip = Math.Max(ce.framesToSkip,
+                            TestCommandEvaGroundScience.StepCollisionSkipFrames);
+                        enhancers++;
+                    }
+                }
+                double terrain = body.TerrainAltitude(groundSciStepTargetLat, groundSciStepTargetLon, false);
+                Vector3d world = body.GetWorldSurfacePosition(groundSciStepTargetLat, groundSciStepTargetLon,
+                    terrain + TestCommandEvaGroundScience.StepLiftMeters);
+                kerbal.IgnoreGForces(240);
+                kerbal.SetPosition(world);
+                kerbal.SetWorldVelocity(Vector3d.zero);
+                groundSciStepMoves++;
+                groundSciStepLastMoveFrame = Time.frameCount;
+                groundSciSettledFrames = 0;
+                ParsekLog.Info(Tag, $"evagroundscience step move kerbal={kerbal.vesselName} "
+                    + $"move={groundSciStepMoves.ToString(CultureInfo.InvariantCulture)} "
+                    + $"collisionEnhancersSkipped={enhancers.ToString(CultureInfo.InvariantCulture)} "
+                    + $"skipFrames={TestCommandEvaGroundScience.StepCollisionSkipFrames.ToString(CultureInfo.InvariantCulture)}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag, $"evagroundscience step threw: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>The kerbal's horizontal distance from the step's target spot.</summary>
+        private double StepOffTarget(Vessel kerbal)
+        {
+            CelestialBody body = kerbal != null ? kerbal.mainBody : null;
+            if (body == null) return double.NaN;
+            Vector3d pos = kerbal.transform.position;
+            Vector3d up = (pos - body.position).normalized;
+            Vector3d target = body.GetWorldSurfacePosition(groundSciStepTargetLat, groundSciStepTargetLon,
+                body.GetAltitude(pos));
+            return Vector3d.Exclude(up, pos - target).magnitude;
+        }
+
+        private static string Fmt2(double v)
+            => double.IsNaN(v) ? "nan" : v.ToString("F2", CultureInfo.InvariantCulture);
 
         private double StepHorizontalDistance(Vessel kerbal)
         {
@@ -362,23 +430,36 @@ namespace Parsek.TestCommands
                 return;
             }
             double horizontal = StepHorizontalDistance(kerbal);
+            double offTarget = StepOffTarget(kerbal);
             bool landed = kerbal.Landed;
-            bool at = !double.IsNaN(horizontal)
-                && Math.Abs(horizontal - groundSciStepDistance) <= TestCommandEvaGroundScience.StepToleranceMeters;
+            int framesSinceMove = groundSciStepLastMoveFrame < 0
+                ? int.MaxValue : Time.frameCount - groundSciStepLastMoveFrame;
+            if (TestCommandEvaGroundScience.ShouldReapplyStep(offTarget, framesSinceMove, groundSciStepMoves))
+            {
+                ParsekLog.Info(Tag, $"evagroundscience step off-target kerbal={kerbal.vesselName} "
+                    + $"offTarget={Fmt2(offTarget)} horizontal={Fmt2(horizontal)} landed={Bool(landed)} "
+                    + $"moves={groundSciStepMoves.ToString(CultureInfo.InvariantCulture)}: moving again");
+                if (!TryMoveKerbalToStepTarget(kerbal))
+                    FinishGroundScience("ERROR", null, "step-threw", elapsed);
+                return;
+            }
+            bool at = !double.IsNaN(offTarget) && offTarget <= TestCommandEvaGroundScience.StepToleranceMeters;
             groundSciSettledFrames = landed && at ? groundSciSettledFrames + 1 : 0;
             GroundScienceCompletionDecision done = TestCommandEvaGroundScience.DecideStepCompletion(
-                elapsed, budget, landed, double.IsNaN(horizontal) ? double.MaxValue : horizontal,
-                groundSciStepDistance, groundSciSettledFrames);
+                elapsed, budget, landed, offTarget, groundSciSettledFrames);
             if (done == GroundScienceCompletionDecision.StillWaiting) return;
-            string h = double.IsNaN(horizontal) ? "nan" : horizontal.ToString("F2", CultureInfo.InvariantCulture);
+            string h = Fmt2(horizontal);
+            string off = Fmt2(offTarget);
+            string moves = groundSciStepMoves.ToString(CultureInfo.InvariantCulture);
             if (done == GroundScienceCompletionDecision.Timeout)
             {
                 FinishGroundScience("ERROR", null, "step-timeout", elapsed,
-                    $"landed={Bool(landed)} horizontal={h} situation={kerbal.situation}");
+                    $"landed={Bool(landed)} horizontal={h} offTarget={off} moves={moves} situation={kerbal.situation}");
                 return;
             }
             ParsekLog.Info(Tag, $"evagroundscience step complete kerbal={kerbal.vesselName} "
-                + $"anchor={groundSciStepAnchor.vesselName} horizontal={h} situation={kerbal.situation}");
+                + $"anchor={groundSciStepAnchor.vesselName} horizontal={h} situation={kerbal.situation} "
+                + $"offTarget={off} moves={moves}");
             FinishGroundScience("OK", TestCommandEvaGroundScience.BuildCompletePayload(
                 EvaGroundScienceAction.Step, groundSciPart, 0u, groundSciStepAnchor.persistentId,
                 -1, 0, double.IsNaN(horizontal) ? 0 : horizontal), null, elapsed);

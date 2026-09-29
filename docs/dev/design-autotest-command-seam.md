@@ -3608,8 +3608,21 @@ spot is that compass bearing from the anchor on the body's latitude / longitude 
 (`OffsetLatLonAlongBearing`, the local tangent-plane offset), so a lane's layout does not depend
 on which way the anchor or the kerbal faces; without it he moves straight out along his own
 horizontal bearing from the anchor (an anchor-local east/north basis; no bearing falls back to
-the anchor's right axis). Then `IgnoreGForces(240)`, `SetPosition` at the PQS `TerrainAltitude`
-+ 0.5 m, `SetWorldVelocity(zero)`, and gravity settles him. KSP has no walk API a seam can
+the anchor's right axis). The move first sets `framesToSkip` (5) on every part's
+`CollisionEnhancer`, then `IgnoreGForces(240)`, `SetPosition` at the PQS `TerrainAltitude` + 0.5 m,
+`SetWorldVelocity(zero)`, and gravity settles him. The skip is load-bearing: every
+`FixedUpdate` in which a part moved more than 0.1 m, `CollisionEnhancer` (stock, and the
+KSPCommunityFixes `CollisionEnhancerFastUpdate` override the harness instance runs, which logs
+`[Collision Enhancer] TRANSLATE_BACK on "kerbalEVA"`) linecasts old -> new position against the
+terrain layer and puts the part back at the hit point; a kerbal standing on the ground starts
+that segment at the terrain, so without the skip every step from a standing kerbal was put
+straight back (EVA-8 `2026-09-29_1618`: all seven steps stuck at 9.79 m, `step-timeout`). A
+skipped frame only re-reads `lastPos`, and both implementations honour `framesToSkip` before
+the linecast. Completion is measured against the TARGET SPOT (horizontal distance within 1.5 m,
+landed, held 30 frames), not the distance from the anchor; a kerbal still more than 1.5 m off
+it 20 frames after a move is moved again, at most 3 moves (`ShouldReapplyStep`), each logged
+`evagroundscience step move kerbal=<name> move=<n> collisionEnhancersSkipped=<k> skipFrames=5`
+(and `step off-target ... moving again` before a repeat). KSP has no walk API a seam can
 drive, so this is a teleport. Inside a live recording it leaves a jump in the kerbal's
 trajectory, replayed by the ghost as a fast slide; no recorder path or analyzer rule reads a
 same-body position jump as a boundary or a defect, and the 0.5 m drop is a brief airborne run
@@ -3617,10 +3630,11 @@ the optimizer's surface-graze rule should suppress (the lanes' recording-count p
 split). The `anchor=` may be a `${label.vesselPid}`
 capture of an earlier place step (a lane steps up to the part it is about to pick up). Logs
 `evagroundscience step start ... anchorPid=<pid> from=<m> to=<m> lat= lon= terrain= situation=
-bearing=<deg|own>` and, once he is landed within 1.5 m of the requested distance for 30 frames,
-`evagroundscience step complete kerbal=<name> anchor=<name> horizontal=<m> situation=<sit>`.
-Pure half `TryParseStepArgs` / `TryParseStepBearing` / `OffsetLatLonAlongBearing` /
-`StepHorizontalOffset` / `DecideStepCompletion`.
+bearing=<deg|own>` and, once he is landed within 1.5 m of the target spot for 30 frames,
+`evagroundscience step complete kerbal=<name> anchor=<name> horizontal=<m> situation=<sit>
+offTarget=<m> moves=<n>` (a timeout carries the same `offTarget=` / `moves=`). Pure half
+`TryParseStepArgs` / `TryParseStepBearing` / `OffsetLatLonAlongBearing` /
+`StepHorizontalOffset` / `ShouldReapplyStep` / `DecideStepCompletion`.
 
 **Phases.** TWO-PHASE on a 120 s budget (the EvaExit size), NOT a `DEFERRED_SEAM_VERB`;
 `RequiresFlight` plus the EVA family's `not-eva` defer. hlib tail role world-mutating,

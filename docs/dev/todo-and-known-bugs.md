@@ -15,6 +15,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~EVA-STEP-TRANSLATED-BACK: every `EvaGroundScience action=step` from a standing kerbal was put straight back by the collision guard~~ [FILED AND FIXED 2026-09-29 from EVA-8 `2026-09-29_1618`, branch `deployables-lanes`, harness seam only, no product change]
+
+EVA-8's re-cut first flight (integration DLL; INVALID driver-verdict-mismatch): each `step start`
+was followed within 11 ms by `[Collision Enhancer] TRANSLATE_BACK on "kerbalEVA" (vel: 0)`. The
+first step (Jeb still falling off the ladder, `from=1.12 to=13.00 bearing=60`) stopped at
+horizontal 9.79 m, and every later step was put straight back to 9.79, so all seven timed out
+`step-timeout ... horizontal=9.79 situation=LANDED`, the places then failed
+`placement-not-accepted` and `${seis.vesselPid}` never resolved. Cause (decompiled stock
+`CollisionEnhancer.FixedUpdate` and the KSPCommunityFixes `CollisionEnhancerFastUpdate` override
+the harness instance runs): a part that moved more than 0.1 m in one physics frame is linecast
+from its last position to the new one against the terrain layer and put back at the hit point; a
+teleport from a kerbal standing on the ground starts that segment at the terrain. Fix: the move
+sets `framesToSkip` on every part's `CollisionEnhancer` first (both implementations re-read
+`lastPos` on a skipped frame, before the linecast), completion is measured against the target
+spot itself rather than the distance from the anchor, and a kerbal still more than 1.5 m off it
+20 frames after a move is moved again (at most 3 moves). Pure `ShouldReapplyStep` /
+`DecideStepCompletion` xUnit-covered; the three cluster lanes require `step move ... move=1
+collisionEnhancersSkipped=[1-9]`. Re-flight owed.
+
 ## IN-FLIGHT-COMMIT-SKIPS-OPTIMIZATION-PASS: a tree committed in flight is never optimized (no boring-tail trim, no split / merge) until the next cold load [FILED 2026-09-29 from EVA-9 `2026-09-29_1528`, branch `deployables-lanes`. OPEN, product inconsistency, needs a ruling; no product change made]
 
 **In gameplay terms.** When a tree is committed WITHOUT leaving the flight scene - the

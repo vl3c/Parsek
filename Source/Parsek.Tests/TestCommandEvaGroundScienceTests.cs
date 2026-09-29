@@ -432,20 +432,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DecideStepCompletion_NeedsLandedAtTheDistanceForTheSettleWindow()
+        public void DecideStepCompletion_NeedsLandedOnTheTargetSpotForTheSettleWindow()
         {
             int settle = TestCommandEvaGroundScience.SettleFrames;
             double tol = TestCommandEvaGroundScience.StepToleranceMeters;
             Assert.Equal(GroundScienceCompletionDecision.CompleteOk,
-                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, 4.0 + tol, 4.0, settle));
+                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, tol, settle));
+            Assert.Equal(GroundScienceCompletionDecision.CompleteOk,
+                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, 0.0, settle));
+            // Off the spot by more than the tolerance: EVA-8 `2026-09-29_1618`, where the
+            // collision guard put Jeb back 3.2 m short of a 13 m step.
             Assert.Equal(GroundScienceCompletionDecision.StillWaiting,
-                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, 4.0 + tol + 0.01, 4.0, settle));
+                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, tol + 0.01, settle));
             Assert.Equal(GroundScienceCompletionDecision.StillWaiting,
-                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, false, 4.0, 4.0, settle));
+                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, double.NaN, settle));
             Assert.Equal(GroundScienceCompletionDecision.StillWaiting,
-                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, 4.0, 4.0, settle - 1));
+                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, false, 0.0, settle));
+            Assert.Equal(GroundScienceCompletionDecision.StillWaiting,
+                TestCommandEvaGroundScience.DecideStepCompletion(2, 120, true, 0.0, settle - 1));
             Assert.Equal(GroundScienceCompletionDecision.Timeout,
-                TestCommandEvaGroundScience.DecideStepCompletion(120, 120, false, 4.0, 4.0, 0));
+                TestCommandEvaGroundScience.DecideStepCompletion(120, 120, true, 3.2, settle));
+        }
+
+        [Fact]
+        public void ShouldReapplyStep_OnlyOffTargetAfterTheMoveSettledAndBounded()
+        {
+            double tol = TestCommandEvaGroundScience.StepToleranceMeters;
+            int wait = TestCommandEvaGroundScience.StepReapplyFrames;
+            int max = TestCommandEvaGroundScience.MaxStepMoves;
+            // On target: never again.
+            Assert.False(TestCommandEvaGroundScience.ShouldReapplyStep(tol, wait, 1));
+            Assert.False(TestCommandEvaGroundScience.ShouldReapplyStep(0.2, 1000, 1));
+            // Off target, but the move has not had its frames yet.
+            Assert.False(TestCommandEvaGroundScience.ShouldReapplyStep(3.2, wait - 1, 1));
+            // Off target (or unmeasurable) after the wait: move again.
+            Assert.True(TestCommandEvaGroundScience.ShouldReapplyStep(3.2, wait, 1));
+            Assert.True(TestCommandEvaGroundScience.ShouldReapplyStep(double.NaN, wait, 1));
+            Assert.True(TestCommandEvaGroundScience.ShouldReapplyStep(3.2, wait, max - 1));
+            // The move budget is spent: wait out the step's own budget instead.
+            Assert.False(TestCommandEvaGroundScience.ShouldReapplyStep(3.2, wait, max));
+            Assert.False(TestCommandEvaGroundScience.ShouldReapplyStep(3.2, int.MaxValue, max + 1));
+            Assert.True(max >= 2, "one retry at least");
+            Assert.True(TestCommandEvaGroundScience.StepCollisionSkipFrames >= 1);
         }
 
         [Fact]

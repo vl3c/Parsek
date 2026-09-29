@@ -131,9 +131,42 @@ namespace Parsek.TestCommands
         /// gravity from there (PQS height ignores surface colliders by a few centimetres).</summary>
         internal const double StepLiftMeters = 0.5;
 
-        /// <summary>How far the settled kerbal's horizontal distance from the anchor may
-        /// sit from the requested one (a landing kerbal slides a little).</summary>
+        /// <summary>How far, horizontally, the settled kerbal may stand from the step's
+        /// target spot (a landing kerbal slides a little).</summary>
         internal const double StepToleranceMeters = 1.5;
+
+        /// <summary>
+        /// Physics frames stock's <c>CollisionEnhancer</c> on each of the kerbal's parts is
+        /// told to skip around a step move (its public <c>framesToSkip</c>). Decompiled
+        /// KSP 1.12.5: every <c>FixedUpdate</c> in which a part moved more than ~0.1 m since
+        /// the last one, it linecasts from the old position to the new one against the
+        /// terrain layer and, on a hit, puts the part back at the hit point
+        /// (<c>TRANSLATE_BACK</c>, the anti-tunnelling guard). A kerbal standing on the
+        /// ground starts that segment at the terrain, so every teleport from a standing
+        /// kerbal was translated straight back (EVA-8 `2026-09-29_1618`). A skipped frame
+        /// just re-reads the part's position, so the move is not seen as a sweep.
+        /// </summary>
+        internal const int StepCollisionSkipFrames = 5;
+
+        /// <summary>Frames after a move before a kerbal still off target gets the move
+        /// again (the move's own settle).</summary>
+        internal const int StepReapplyFrames = 20;
+
+        /// <summary>Moves one step may make before it waits out its budget.</summary>
+        internal const int MaxStepMoves = 3;
+
+        /// <summary>
+        /// Should the step move the kerbal again? Only while he is still more than
+        /// <see cref="StepToleranceMeters"/> (horizontal) from the target, only once the last
+        /// move had <see cref="StepReapplyFrames"/> frames to land, and at most
+        /// <see cref="MaxStepMoves"/> moves in all.
+        /// </summary>
+        internal static bool ShouldReapplyStep(double offTargetMeters, int framesSinceMove, int movesSoFar)
+        {
+            if (movesSoFar >= MaxStepMoves) return false;
+            if (framesSinceMove < StepReapplyFrames) return false;
+            return double.IsNaN(offTargetMeters) || offTargetMeters > StepToleranceMeters;
+        }
 
         /// <summary>Optional <c>faceAway=true</c> on place: turn the kerbal away from the
         /// nearest other loaded vessel first (a kerbal just off a ladder faces the hull, and
@@ -276,14 +309,14 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>A step completes once the kerbal is landed within
-        /// <see cref="StepToleranceMeters"/> of the requested horizontal distance, held for
-        /// the settle window.</summary>
+        /// <see cref="StepToleranceMeters"/> (horizontal) of the target spot itself, held for
+        /// the settle window. The spot, not the distance from the anchor: a kerbal put back
+        /// elsewhere at the right range must not pass.</summary>
         internal static GroundScienceCompletionDecision DecideStepCompletion(
-            double elapsed, double budget, bool landed, double horizontalDistance,
-            double requestedDistance, int settledFrames)
+            double elapsed, double budget, bool landed, double offTargetMeters, int settledFrames)
         {
-            bool atDistance = Math.Abs(horizontalDistance - requestedDistance) <= StepToleranceMeters;
-            if (landed && atDistance && settledFrames >= SettleFrames)
+            bool atTarget = !double.IsNaN(offTargetMeters) && offTargetMeters <= StepToleranceMeters;
+            if (landed && atTarget && settledFrames >= SettleFrames)
                 return GroundScienceCompletionDecision.CompleteOk;
             return elapsed >= budget
                 ? GroundScienceCompletionDecision.Timeout

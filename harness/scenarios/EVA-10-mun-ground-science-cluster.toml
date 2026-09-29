@@ -1080,6 +1080,9 @@ required = [
   "Ground part placed: tree member created part='DeployedSeismicSensor' [^\\r\\n]*rec=([0-9a-f]+) [\\s\\S]*evagroundscience pickup complete part=DeployedSeismicSensor[\\s\\S]*Ground part placed: tree member created part='DeployedSeismicSensor' vesselPid=[0-9]+ partPid=([0-9]+) rec=(?!\\1)([0-9a-f]+) [^\\r\\n]*snapshot=True[\\s\\S]*Part event captured: InventoryPartPlaced 'DeployedSeismicSensor' pid=\\2 via onDeployGroundPart rec=\\3",
   # Off the lander before the recording (the step's completion line).
   "evagroundscience step complete kerbal=Jebediah Kerman anchor=[^\\r\\n]* horizontal=[0-9.]+ situation=LANDED",
+  # Every step move told the kerbal's CollisionEnhancer to skip its next frames (EVA-8
+  # `2026-09-29_1618`: without it the anti-tunnelling guard put him straight back).
+  "evagroundscience step move kerbal=Jebediah Kerman move=1 collisionEnhancersSkipped=[1-9][0-9]* skipFrames=",
   # THE LAYOUT: every spot at its own compass bearing on the 19 m ring.
   "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=19\\.00 [^\\r\\n]*bearing=60\\.0",
   "evagroundscience step start kerbal=Jebediah Kerman anchor=[^\\r\\n]* to=19\\.00 [^\\r\\n]*bearing=75\\.0",
