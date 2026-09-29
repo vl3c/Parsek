@@ -106,6 +106,7 @@ namespace Parsek
             else
             {
                 action.Effective = false;
+                action.NotCountedReason = GameActionNotCountedReason.MilestoneAlreadyAchieved;
                 ParsekLog.Verbose("Milestones",
                     $"Duplicate milestone '{milestoneId}' zeroed at UT={action.UT.ToString("F1", IC)}" +
                     $" (recording={action.RecordingId ?? "null"})");

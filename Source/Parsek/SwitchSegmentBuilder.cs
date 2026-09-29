@@ -203,7 +203,8 @@ namespace Parsek
         /// (filtered optionally by <paramref name="focusedVesselRecordingIdHint"/>) forward
         /// through <see cref="Recording.ChildBranchPointId"/> / branch-point
         /// <see cref="BranchPoint.ChildRecordingIds"/> to terminal leaves
-        /// (<see cref="Recording.ChildBranchPointId"/> == null), keeping only those
+        /// (<see cref="Recording.ChildBranchPointId"/> == null, or a breakup-continuous
+        /// recording whose branch point has no same-PID child), keeping only those
         /// terminal leaves whose own <see cref="Recording.VesselPersistentId"/> matches
         /// the focused vessel PID. The resolver is purely read-only — it never
         /// mutates the tree (plan §"Parent Selection Risk" item 1).
@@ -330,8 +331,10 @@ namespace Parsek
         /// Recursive forward walk: follows ChildBranchPointId on each visited
         /// recording into the branch point's ChildRecordingIds, only accepting
         /// children whose VesselPersistentId still matches the focused vessel.
-        /// Each PID-coherent terminal leaf (ChildBranchPointId == null) is
-        /// added to <paramref name="leaves"/>. Visited recording IDs are
+        /// Each PID-coherent terminal leaf (ChildBranchPointId == null, or a
+        /// breakup-continuous recording whose branch point has no same-PID child,
+        /// <c>RecordingTree.IsVesselLineEnd</c>)
+        /// is added to <paramref name="leaves"/>. Visited recording IDs are
         /// tracked in <paramref name="visited"/> to short-circuit cycles
         /// in malformed trees.
         /// </summary>
@@ -418,6 +421,23 @@ namespace Parsek
 
                 WalkToTerminalLeaves(tree, child, focusedVesselPersistentId,
                     leaves, visited);
+            }
+
+            // Breakup-continuous: the branch point's children are only the stages and
+            // debris this recording dropped (no same-PID child), so the recording itself
+            // is still the vessel's terminal leaf.
+            if ((focusedVesselPersistentId == 0
+                    || rec.VesselPersistentId == focusedVesselPersistentId)
+                && RecordingTree.IsVesselLineEnd(rec, tree.Recordings, tree.BranchPoints))
+            {
+                ParsekLog.Verbose("SwitchSegmentResolver",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "breakup-continuous leaf treeId={0} recordingId={1} childBpId={2} type={3}",
+                        tree.Id ?? "<null>",
+                        rec.RecordingId,
+                        bp.Id,
+                        bp.Type));
+                leaves.Add(rec.RecordingId);
             }
         }
 
@@ -506,7 +526,8 @@ namespace Parsek
                         entryReason, intentId, sessionId);
                 }
 
-                if (!string.IsNullOrEmpty(parentRec.ChildBranchPointId))
+                if (!string.IsNullOrEmpty(parentRec.ChildBranchPointId)
+                    && !RecordingTree.IsVesselLineEnd(parentRec, tree.Recordings, tree.BranchPoints))
                 {
                     return Refuse(result, "parent-not-terminal-leaf", focusedVesselPersistentId,
                         focusedVesselName, sourceVesselPersistentId, switchUT,

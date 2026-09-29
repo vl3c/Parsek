@@ -207,8 +207,22 @@ required = [
   # --- the verb's own terminals for the two scene changes ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=editor act=open item=Jumping_Flea .*scene=EDITOR",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=editor act=close .*scene=SPACECENTER",
+  # --- overlay-gaps (2026-09-27): the owner's one-sentence wording on the button tooltips, and
+  #     stock's own strategy refusal followed by the committed activation fact (gap 2) ---
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] R&D actionButton: reason shown on the disabled button's stock tooltip: Researched on [^\\r\\n]+, blocked by timeline until then\\.",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] MissionControl Accept: reason shown on the disabled button's stock tooltip: Accepted on [^\\r\\n]+, blocked by timeline until then\\.",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] MissionControl Cancel: reason shown on the disabled button's stock tooltip: Completed on [^\\r\\n]+, blocked by timeline until then\\.",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] Administration cancel: reason shown on the disabled button's stock tooltip: Deactivated on [^\\r\\n]+, blocked by timeline until then\\.",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StrategyReservation\\] activation refused by stock strategy=OutsourcedResearchCfg - stock's reason kept first, committed activation fact appended",
 ]
-forbidden = []
+# The K2 EVA / transfer patches must bind in the live game (no committed fixture boots a held
+# kerbal aboard a live vessel, so their controls are not photographed here).
+forbidden = [
+  "KerbalPortrait\\.Update\\(\\) not found",
+  "CrewHatchDialog\\.CreateList\\(List<ProtoCrewMember>\\) not found",
+  "FlightEVA\\.spawnEVA\\(ProtoCrewMember, Part, Transform, bool\\) not found",
+  "CrewTransfer\\.Create\\(Part, ProtoCrewMember, Callback\\) not found",
+]
 
 [runtime]
 # ~30 stock-screen steps, ~25 captures, one editor round trip. The census lanes measured

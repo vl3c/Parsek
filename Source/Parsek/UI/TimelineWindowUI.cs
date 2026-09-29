@@ -175,6 +175,19 @@ namespace Parsek
         private List<TimelineEntry> cachedTimeline;
         private bool timelineDirty = true;
 
+        // The ERS recordings the cached timeline was built from (the launch hover walks a
+        // launch's chain and tree over them).
+        private IReadOnlyList<Recording> cachedTimelineRecordings;
+
+        // Row hover: which row the help strip explains and the memoized text per entry.
+        // Reset whenever the cached timeline rebuilds.
+        private readonly TimelineRowHoverTracker rowHover = new TimelineRowHoverTracker();
+        private Func<TimelineEntry, bool, string> rowHoverBuilder;
+
+        /// <summary>The "now" divider's hover (the rows under it are the future).</summary>
+        internal const string NowDividerTooltip =
+            "Rows below happen on their date and hold stock controls until then.";
+
         // The archive-filter value the cached list was BUILT with. The filter is shared
         // cross-window state (see ShowArchivedRecordings), so the Recordings tab's own
         // Archive header toggle can change it while this cache is warm and nothing else
@@ -783,7 +796,13 @@ namespace Parsek
                     GetCurrentGameMode(),
                     showArchivedRows);
                 cachedTimelineShowedArchived = showArchivedRows;
+                cachedTimelineRecordings = recordings;
                 timelineDirty = false;
+                int droppedHovers = rowHover.MemoCount;
+                rowHover.Reset();
+                if (droppedHovers > 0)
+                    ParsekLog.Verbose("Timeline",
+                        $"Row hover memo cleared on rebuild: dropped={droppedHovers}");
 
                 // Rebuild recording lookup cache (ERS-scoped so cross-link
                 // navigation only resolves to visible recordings).
@@ -1769,6 +1788,7 @@ namespace Parsek
 
             bool dividerDrawn = false;
             bool countdownRowDrawn = false;
+            rowHover.BeginList(Event.current.type == EventType.Repaint);
 
             for (int i = 0; i < cachedTimeline.Count; i++)
             {
@@ -1788,7 +1808,7 @@ namespace Parsek
                 }
 
                 bool isFuture = entry.UT > currentUT;
-                DrawEntryRow(entry, isFuture, currentUT, showCountdownTime);
+                DrawEntryRow(entry, i, isFuture, currentUT, showCountdownTime);
             }
 
             // Draw divider at the end if all entries are in the past
@@ -1796,6 +1816,8 @@ namespace Parsek
             {
                 DrawNowDivider(currentUT);
             }
+
+            rowHover.EndList();
 
             GUILayout.EndVertical();
             GUILayout.EndScrollView();
@@ -1921,7 +1943,8 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             // First column: the current-time label, sized to the UT column so the rule starts
             // where the entry rows' description column does.
-            GUILayout.Label($"\u2500\u2500 {utText} (now)", timelineGrayStyle,
+            string nowLabel = $"\u2500\u2500 {utText} (now)";
+            GUILayout.Label(new GUIContent(nowLabel, NowDividerTooltip), timelineGrayStyle,
                 GUILayout.Width(TimeColumnWidth));
             GUILayout.Space(14f);
             // Second column: a thin rule that fills the remaining width and grows on resize,
@@ -1955,7 +1978,7 @@ namespace Parsek
         }
 
         private void DrawEntryRow(
-            TimelineEntry entry, bool isFuture, double currentUT, bool showCountdownTime)
+            TimelineEntry entry, int rowIndex, bool isFuture, double currentUT, bool showCountdownTime)
         {
             GUILayout.BeginHorizontal();
 
@@ -1998,7 +2021,18 @@ namespace Parsek
             string description = entry.IsArchivedRecording
                 ? entry.DisplayText + "   [archived]"
                 : entry.DisplayText;
-            GUILayout.Label(description, style, GUILayout.ExpandWidth(true));
+            // Row hover: only the row hovered on the last Repaint gets a tooltip (its text is
+            // memoized per entry), so no hover string is built per row per frame. Either way
+            // this is ONE Label, so the Layout and Repaint control counts stay identical.
+            string hover = rowHover.WantsTooltip(rowIndex)
+                ? rowHover.GetText(entry, isFuture, rowHoverBuilder ?? (rowHoverBuilder = BuildRowHover))
+                : null;
+            if (hover != null)
+                GUILayout.Label(new GUIContent(description, hover), style, GUILayout.ExpandWidth(true));
+            else
+                GUILayout.Label(description, style, GUILayout.ExpandWidth(true));
+            if (Event.current.type == EventType.Repaint)
+                rowHover.ObserveRow(rowIndex, GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition));
 
             // R/FF + GoTo for RecordingStart entries (R/FF first, GoTo last for alignment)
             if (entry.Type == TimelineEntryType.RecordingStart && !string.IsNullOrEmpty(entry.RecordingId))
@@ -2334,6 +2368,115 @@ namespace Parsek
                 && slotListIndex >= 0
                 && rp.ChildSlots != null
                 && slotListIndex < rp.ChildSlots.Count;
+        }
+
+        /// <summary>
+        /// The hover text of one row, composed from the pure builders: the walk's not-counted
+        /// reason on a greyed row, the stock control a future row holds
+        /// (<see cref="ReservationExplanation.ForTimelineRow"/>, the click-blocks' own
+        /// predicates over the committed-future index), then the row kind's details. Called
+        /// through the memo only, for the hovered row.
+        /// </summary>
+        private string BuildRowHover(TimelineEntry entry, bool isFuture)
+        {
+            if (entry == null) return null;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string notCounted = null;
+            string hold = null;
+            string details = null;
+            try
+            {
+                if (!entry.IsEffective && entry.Action != null)
+                    notCounted = TimelineRowHover.NotCounted(entry.Action.NotCountedReason);
+                if (isFuture && entry.Action != null)
+                    hold = ReservationExplanation.ForTimelineRow(
+                        entry,
+                        CommittedFutureIndexCache.Current,
+                        CommittedFutureIndexCache.CurrentUT(),
+                        ReservationExplanation.DefaultDateFormatter,
+                        IsPartPurchaseBlockedLive,
+                        IsStrategyActiveNowLive);
+                details = BuildRowHoverDetails(entry);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Timeline",
+                    $"Row hover build failed: type={entry.Type} ut={entry.UT.ToString("F1", ic)} " +
+                    $"({ex.GetType().Name}: {ex.Message})");
+            }
+            string text = TimelineRowHover.Compose(notCounted, hold, details);
+            ParsekLog.Verbose("Timeline",
+                $"Row hover built: type={entry.Type} ut={entry.UT.ToString("F1", ic)} " +
+                $"future={isFuture} effective={entry.IsEffective} notCounted={notCounted != null} " +
+                $"hold={hold != null} details={details != null} len={(text != null ? text.Length : 0)}");
+            return text;
+        }
+
+        private string BuildRowHoverDetails(TimelineEntry entry)
+        {
+            switch (entry.Type)
+            {
+                case TimelineEntryType.ContractAccept:
+                    return TimelineRowHover.ContractAccept(
+                        entry.Action,
+                        entry.PairedContractComplete,
+                        entry.Action != null
+                            ? CommittedFutureIndexCache.ContractAgentTitleFromSnapshot(entry.Action.ContractId)
+                            : null,
+                        ReservationExplanation.DefaultDateFormatter);
+                case TimelineEntryType.ContractComplete:
+                case TimelineEntryType.ContractFail:
+                case TimelineEntryType.ContractCancel:
+                    return TimelineRowHover.ContractOutcome(entry.Action, entry.VesselName);
+                case TimelineEntryType.RecordingStart:
+                {
+                    Recording rec = FindRecordingById(entry.RecordingId);
+                    if (rec == null) return null;
+                    var crew = CrewReservationManager.ExtractCrewFromSnapshot(
+                        rec.GhostVisualSnapshot ?? rec.VesselSnapshot);
+                    if (crew.Count == 0 && !string.IsNullOrEmpty(rec.EvaCrewName))
+                        crew.Add(rec.EvaCrewName);
+                    Recording end = TimelineRowHover.ResolveLaunchEnd(rec, cachedTimelineRecordings);
+                    Mission mission = string.IsNullOrEmpty(rec.TreeId)
+                        ? null
+                        : MissionStore.FindOriginalMission(rec.TreeId);
+                    return TimelineRowHover.Launch(
+                        crew, TimelineRowHover.LaunchEnd(end), mission != null ? mission.Name : null);
+                }
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>Whether stock has the strategy active now (the Administration gate's own
+        /// read, <c>StrategyReservationGate.ActiveStrategyIds</c>).</summary>
+        private static bool IsStrategyActiveNowLive(string strategyId)
+        {
+            if (string.IsNullOrEmpty(strategyId)) return false;
+            try
+            {
+                foreach (string id in Parsek.Patches.StrategyReservationGate.ActiveStrategyIds())
+                    if (string.Equals(id, strategyId, StringComparison.Ordinal)) return true;
+            }
+            catch (Exception)
+            {
+            }
+            return false;
+        }
+
+        /// <summary>The live part-purchase decision (<c>StockUiPartPurchase.DecideLive</c>).</summary>
+        private static bool IsPartPurchaseBlockedLive(string partName)
+        {
+            if (string.IsNullOrEmpty(partName)) return false;
+            try
+            {
+                AvailablePart ap = PartLoader.getPartInfoByName(partName);
+                return ap != null && StockUiPartPurchase.DecideLive(ap).Blocked;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         /// <summary>

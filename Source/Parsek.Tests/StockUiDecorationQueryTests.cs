@@ -87,7 +87,7 @@ namespace Parsek.Tests
             Assert.Equal(StockUiScreen.RnD, ahead.Screen);
             Assert.Equal("Tree", ahead.Tab);
             Assert.Equal(500.0, ahead.UT);
-            Assert.StartsWith("Researched on D5 on your committed timeline.", ahead.Why);
+            Assert.Equal("Researched on D5, blocked by timeline until then.", ahead.Why);
             Assert.All(d.Where(x => x.Id != "ahead"), x =>
             {
                 Assert.False(x.Marked);
@@ -141,7 +141,7 @@ namespace Parsek.Tests
             Assert.True(resolved.Marked);
             Assert.True(resolved.Blocked);
             Assert.Equal(StockUiDecorationKind.ContractResolution, resolved.Kind);
-            Assert.Equal("Completes on D6", resolved.Title);
+            Assert.Equal("Completed on D6", resolved.Title);
             Assert.False(d.Single(x => x.Id == "c-resolved" && x.Tab == "Archive").Marked);
         }
 
@@ -231,8 +231,7 @@ namespace Parsek.Tests
             Assert.True(d.Marked);
             Assert.True(d.Blocked);
             Assert.Equal("Reserved until D130", d.Title);
-            Assert.Equal("Flies 'Mun Lander 3' on your committed timeline. "
-                + ReservationExplanation.CrewRule + " Free after D130.", d.Why);
+            Assert.Equal("Reserved by timeline for 'Mun Lander 3' until D130.", d.Why);
         }
 
         [Fact]
@@ -256,7 +255,7 @@ namespace Parsek.Tests
 
             Assert.Equal(StockUiDecorationKind.KerbalLost, d.Kind);
             Assert.Equal("Lost", d.Title);
-            Assert.StartsWith("Lost on the committed flight 'Mun Lander 3'.", d.Why);
+            Assert.StartsWith("Lost on 'Mun Lander 3' on ", d.Why);
         }
 
         [Fact]

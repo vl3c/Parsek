@@ -370,6 +370,24 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Stock already refuses the activation for its own reason (a full Administration,
+        /// a conflict, the cost): stock's reason stays first and decides, and when the
+        /// committed timeline activates this strategy later, Parsek's fact follows it on its
+        /// own line in the same stock reason field, so the player learns the activation is
+        /// already scheduled. No committed activation ahead: stock's reason unchanged. Pure.
+        /// </summary>
+        internal static string AppendCommittedActivationToStockReason(
+            string stockReason, CommittedFutureEntry committedActivation, Func<double, string> formatDate)
+        {
+            if (committedActivation == null) return stockReason;
+            string fact = ReservationExplanation.StrategyActivation(committedActivation, formatDate).Fact;
+            if (string.IsNullOrEmpty(fact)) return stockReason;
+            if (string.IsNullOrEmpty(stockReason)) return fact;
+            if (stockReason.EndsWith(fact, StringComparison.Ordinal)) return stockReason;
+            return stockReason + "\n" + fact;
+        }
+
         internal static ReservationText ExplainDeactivation(
             CommittedFutureIndex index, string strategyId, double currentUT, Func<double, string> formatDate)
         {

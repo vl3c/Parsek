@@ -15,6 +15,139 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~BREAKUP-CONTINUOUS-LEAF-READERS: readers that took any `ChildBranchPointId` as "the vessel's flight ended here"~~ [FOUND 2026-09-28 by the audit that followed GS8-WATCH-HOLD-LANDS-ON-THE-PROBE-CHILD; FIXED 2026-09-28, branch `breakup-continuous-leaf-audit`]
+
+**In gameplay terms.** Every staging or decouple of the focused vessel goes through the crash
+coalescer, and `ParsekFlight.WireBreakupIntoTree` stamps that branch on a recording that keeps
+flying to its own terminal (children: the different-PID stages and debris it dropped). The
+post-switch Launch branch has the same shape. Splits that close their parent (`CreateSplitBranch`
+Undock / EVA, `BackgroundRecorder.CloseParentRecording`) leave a same-PID child; Dock / Board
+continue the vessel in the merged child. Readers that treated any branch as "ended here" lost the
+staged vessel: see the CHANGELOG entry for the player-visible list.
+
+**Fix.** Two predicates, chosen by whether the reader can trust UTs:
+- `RecordingTree.IsVesselLineEnd` / `ChildBranchLeavesVesselLineOpen` (live-safe, reads no UTs):
+  the branch is a Breakup / JointBreak / Launch (`BranchTypeCanLeaveParentRecording`), no child
+  shares the PID, the recording was not closed AT the branch (`ExplicitEndUT <= bp.UT`, which
+  `BackgroundRecorder.CloseParentRecording` writes synchronously; its "parent vessel destroyed"
+  path leaves no same-PID child and no terminal, and the PR review showed such a parent would
+  otherwise re-enter the BackgroundMap, get stretched to commit UT and respawn), and no later chain
+  segment continues the recording. Used on live trees, where the recorder may not have flushed
+  the parent's points yet. `MissionEventDigest` opts out of the closed-at-branch refusal
+  (`allowClosedAtBranch`) because it already reads the recording's own terminal.
+- `GhostPlaybackLogic.RecordingContinuesPastChildBranch` (committed trees): the same shape plus
+  PR #1918's `RecordingContinuedPastBranchPoint` end-UT test, for readers that must still follow a
+  child when the parent ended AT the split (a crash breakup).
+
+**Audit (every `ChildBranchPointId` read in `Source/Parsek`, re-derived from callers).** WRONG and
+fixed, each with tests both ways (`BreakupContinuousLeafTests`, one CommNet cell in
+`GhostCommNetTests`):
+- `GhostChainWalker.IsTreeFullyTerminated`: dock claim, then the merged craft staged a stage that
+  crashed; the tree read fully terminated and the station's claim was dropped (the #174 hypothesis,
+  reproduced).
+- `GhostChainWalker.WalkToLeaf`: same tree, the chain tip fell back to the dropped debris.
+- `RecordingTree.IsBackgroundMapEligible`: after a switch away and a reload, the staged rocket left
+  the BackgroundMap and stopped recording.
+- `RecordingTree.AreAllLeavesTerminal` / `AreAllActiveCrashBlockersDebris`: a crash of the switched-to
+  vessel could finalize the tree while the staged rocket still flew (tree overloads added).
+- `RecordingTree.GetSpawnableLeaves` / `GetAllLeaves`: the staged rocket missed pre-switch commit
+  adoption and the merge dialog's vessel decisions (`BuildDefaultVesselDecisions`).
+- `SwitchSegmentBuilder` resolver + creator: Switch-To back onto a staged rocket started a standalone
+  segment (`no-terminal-leaf`) instead of continuing it. The attached continuation overwrites the
+  parent's staging link; a scoped Discard now restores it from the latest surviving Breakup /
+  JointBreak / Launch branch that lists the parent (`FindOverwrittenContinuingBranchPointId`)
+  instead of nulling it.
+- `ParsekFlight.CreateSplitBranchFromBackgroundParent`: EVA from a switched-back staged rocket aborted
+  "already has child branch" (guard extracted as `BackgroundParentAlreadySplit`).
+- `ParsekFlight.ShouldAllowFinalEndpointSegmentPhase`: staged flights got no final SegmentPhase.
+- `ParsekFlight.StashActiveTreeAsPendingLimbo`: the #268 pre-capture skipped a non-active staged rocket
+  (not unit-testable; inline in the live scene path).
+- `RecordingStore.CollectSwitchSegmentSubtreeRecordingIds`: a later staging overwrote the link to an
+  earlier one, so scoped Discard missed the first stage's children; it now walks every branch point
+  that lists the recording as a parent (`EnqueueParentedBranchChildren`).
+- `MissionEventDigest.AddTerminalRows`: every staged main vessel lost its terminal row.
+- `TimelineBuilder` (`isTreeLeaf`): a tree child that staged had no VesselSpawn row
+  (`IsBreakupContinuousSpawnLeaf` mirrors the spawn gate).
+- `MissionCrossTreeDock.FindBranchSuccessor`: a post-switch Launch branch walked the partner journey
+  onto the unrelated switched-to vessel.
+- `GhostCommNetMath.ApplyContinuationHold`: a superseded breakup-continuous tip lost its CommNet hold.
+
+Already handled (IsEffectiveLeafForVessel or an equivalent): `ShouldSpawnAtRecordingEnd`,
+`IsFinalSpawnSegment`, `RecordingVisualClassifier`, `ShouldEnsureActiveRecordingTerminalState`,
+`FinalizeIndividualRecording`, `IsCommittedSpawnedRecordingRestorable`,
+`ShouldRefreshActiveEffectiveLeafSnapshot`, `ParsekScenario.IsTerminalEventTarget`,
+`RecordingOptimizer.TailTrim.IsLeafRecording`, `KerbalsModule.ResolveSplitHandoffUT`,
+`TimelineBuilder.HasSamePidTreeContinuation`, `EffectiveState.ComputeSubtreeClosureInternal`, and the
+watch readers (PR #1918). Correct as written (copies, serialization, topology walks, fences, conservative
+refusals): the codec, `Recording` / `SessionMerger` / `RecordingOptimizer` copies, optimizer / splitter BP
+moves, cleanup nulling, `VesselSpawner` / `ParsekKSC` post-gate coordinate picks, `AnchorDetector`,
+`ParsekFlight.TerminalOrbit`, `FindPreferredChildRecording`, `BackgroundRecorder.CheckDebrisTTL`,
+`EffectiveState` slot walks (they hop only closing switch / own-EVA / Board types), `SupersedeCommit`,
+`MergeDialog.IsTerminalLinkedToParentBranch`, `RecordingOptimizer.CanAutoMerge`,
+`UnfinishedFlightClassifier` rewind-point lookup and shape gates. Follow-ups filed below; the
+`downstreamBp` one was ruled and fixed on the same branch.
+
+## ~~UF-DOWNSTREAM-BP-ON-DEBRIS-OR-LAUNCH: does a debris-only staging or a post-switch Launch branch end re-flyability of an earlier split?~~ [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OWNER RULING 2026-09-28 (interview): neither ends it. FIXED 2026-09-28, branch `breakup-continuous-leaf-audit`]
+
+`UnfinishedFlightClassifier.TryQualify` rejects `downstreamBp` when the walked tip's
+`ChildBranchPointId` differs from the rewind point's branch and the terminal is not Destroyed. A
+slot vessel that later dropped only debris (JointBreak with debris children), or that was switched
+away from while idle (post-switch Launch branch stamped on it), is therefore no longer an
+Unfinished Flight at the earlier split, although nothing re-flyable happened downstream. For a
+real controllable split the rule is intended. If ruled wrong: block only when the downstream branch
+has a same-PID child, a non-debris child, or a resolved rewind point; excluding Launch settles
+that half outright.
+
+**Ruling and fix.** Owner ruling 2026-09-28: a debris-only staging and a post-switch Launch branch
+do not end re-flyability at the earlier split; a controllable child still does.
+`UnfinishedFlightClassifier.HasBlockingDownstreamBranch` checks every branch point the walked tip
+parents at or after the rewind point's own branch (by parent id, so an earlier controllable split
+overwritten by a later debris staging still blocks) and ignores the two non-blocking shapes
+(`IsNonBlockingDownstreamBranch`, which needs at least one recorded child, all debris). Follow-up
+ruling 2026-09-28 (the review found Site B-1 still sealing through the structural-mutation gate):
+a debris-only staging DURING a Re-Fly does not seal the slot either;
+`SupersedeCommit.HasReFlySessionStructuralMutation` skips the same shape. Design:
+`docs/parsek-rewind-to-separation-design.md` section 1.7. Tests: five cells in
+`SwitchContinuationTerminalWalkTests` (debris-only qualifies, controllable child rejects, Launch
+qualifies, overwritten controllable split rejects, a pre-rewind branch is not downstream), two in
+`SupersedeCommitTests` (debris-only session staging is not a mutation, controllable still is) and
+the edge cells in `BreakupContinuousLeafTests` (Breakup type, same-pid debris, missing / no child,
+no tree, missing rewind branch).
+
+## CHILD-BRANCH-SINGLE-SLOT-OVERWRITE: a second split overwrites a breakup-continuous recording's `ChildBranchPointId` [FILED 2026-09-28 from BREAKUP-CONTINUOUS-LEAF-READERS. OPEN, low; owner ruling 2026-09-28: leave filed until a player-visible defect shows]
+
+`WireBreakupIntoTree`, `CreateSplitBranch` and the switch-continuation creator all overwrite
+`ChildBranchPointId`; the earlier branch still lists the recording in `ParentRecordingIds`. Walks
+that follow only `ChildBranchPointId` lose the earlier branch's children: `AnchorDetector`'s
+replay-point affinity (rank only), `GhostChainWalker.TraceLineagePids` (a dropped probe's pid could
+read as a background vessel), the cleanup sites that null the field when the latest branch is
+removed. The switch-segment subtree walk now finds branches by parent id (fixed above); the rest
+are unaudited for impact. Fix direction: the same parent-id lookup where a walk needs every child.
+
+## ~~TIMELINE-ROW-HOVERS: the Timeline explains every row, past and future~~ [DONE 2026-09-28, branch `timeline-row-hovers`, owner direction]
+
+**In gameplay terms.** The Timeline is the Parsek window that explains every element; the
+stock screens explain their blocks. Before this, a row's description had no hover at all (only
+its buttons did). Hovering a row now explains it in the bottom help line: a future row names
+the stock control it holds (the same predicate the click-block reads, so it never names a hold
+stock does not enforce), a contract accept names its deadline / advance / rewards / agent, a
+contract end names its flight and the rest of its rewards or penalty, a launch names its crew,
+how it ends and its mission, a greyed row says why it did not count, and the "now" divider
+says the rows below hold stock controls until their date. The same change replaces "your
+timeline" / "the timeline" / "committed" with "timeline" in Parsek's own windows.
+
+**Fix.** `Timeline/TimelineRowHover.cs` (pure builders + `TimelineRowHoverTracker`),
+`ReservationExplanation.ForTimelineRow`, `GameAction.NotCountedReason` (runtime only, not a
+schema change), `TimelineEntry.Action` / `PairedContractComplete`. Contract of record:
+`design-gui-inventory.md` 3.3 "Row hover". Tests: `TimelineRowHoverTests`,
+`TooltipEchoBudgetTests.TimelineRowHovers_FitTheTimelineStrip`.
+
+**Not done (by choice).** Tech rows do not list the parts they unlock (the part list needs
+`PartLoader`, a live-scene dependency); a facility repair row claims no hold (the repair block
+depends on the building being destroyed at click time, which a row cannot know); a future
+contract accept's hover (hold plus terms) is longer than one strip line and scrolls in the
+marquee.
+
 ## ~~GHOST-SURFACE-HEIGHT-FLICKER-ON-PORTRAIT-FRAMES: surface ghosts alternate between their raw and terrain-clamped heights~~ [FILED AND FIXED 2026-09-28 from the operator's `2026-09-28_2231_deployables` collection (Sandbox, KSP 1.12.5, deployed origin/main `235503259`), branch `ghost-ground-flicker`]
 
 **In gameplay terms.** After Rewind-to-Launch, the replayed EVA kerbal (Bob) and the Breaking Ground
@@ -2048,6 +2181,13 @@ panel; reserved kerbals greyed in both crew lists. The findings, none fixed here
    this slot`) over stock's own on all ten inactive strategies. Section 4 S1 says an overflow at
    now is stock's own check; whether the Parsek reason should then stand aside is for the
    overlay program to rule.
+   Follow-up (branch `overlay-gaps`): with stock-first in place the selected strategy showed
+   only stock's slot reason and nothing said the committed timeline activates it later. The
+   `CanBeActivated` postfix now appends the committed activation fact after stock's reason
+   when stock refuses and a committed StrategyActivate of THAT strategy is ahead
+   (`StrategyReservationPredicates.AppendCommittedActivationToStockReason`); stock's refusal
+   stays the block. Wording since the owner's 2026-09-27 rule: stock's reason, then
+  `Activated on DATE, blocked by timeline until then.`
 
 Two kerbal-side readings the same captures show, outside the overlay code:
 
@@ -2310,7 +2450,51 @@ pairing rule):
   T2; the Career window already skips it). The index is built from the effective ledger on
   its own cache cycle, not from the walk, so reading the walk's `Effective` there is not a
   trivially safe change; left for the overlay program.
-- K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.
+- ~~K2: EVA / crew transfer / rescue of a reserved kerbal aboard a live vessel has no guard.~~
+  Fixed (branch `overlay-gaps`) as a block at the stock controls, not a flight fix. Predicate
+  `StockUiFlightCrewDecoration.IsMoveRefused`: the crew dialog's
+  (`KerbalsModule.ShouldFilterFromCrewDialog`, live Re-Fly carve-out included) narrowed to a
+  kerbal a committed flight holds now (`ReservedActive`: on-flight or lost; a retired stand-in
+  is not held, his flights are over) aboard a vessel that continues no committed flight (a
+  Parsek-spawned or adopted vessel, `CrewReservationManager.ActiveVesselIsParsekSpawned`, is
+  exempt, the flight-ready swap's own exemption), and never while a Re-Fly session is active
+  (design 3.3.1: the origin's rows stay effective until the merge, and the crew dialog's
+  pid-only carve-out misses a decoupled / undocked child or a dock that keeps the other pid,
+  so the whole block stands down for the session; review blocker on PR #1917). Marks: `KerbalPortrait.Update` postfix greys
+  the portrait EVA button with the reason in stock's `evaTooltip` (after stock's own locked
+  reason when stock also refuses); `CrewHatchDialog.CreateList` postfix greys the hatch row's
+  EVA and Transfer with the reason in a stock tooltip and the status on the row's name label.
+  Backstops, same text via `CommittedActionDialog`: prefixes on `FlightEVA.spawnEVA` (returns
+  null, stock's own no-EVA result) and `CrewTransfer.Create` (no transfer host), the only stock
+  entry points (whole-assembly IL scan). Code: `StockUiFlightCrewDecoration.cs`,
+  `Patches/FlightCrewReservationPatches.cs`; cells `StockUiFlightCrewTests`. Not covered:
+  boarding from EVA (`KerbalEVA.BoardPart`) is left alone, because refusing it would strand an
+  already-EVA held kerbal in the open and the EVA itself is refused; docking a vessel that
+  carries a held kerbal is not a crew move. Not proven in game: no committed fixture boots a
+  held kerbal aboard a live non-continuation vessel (on `career-earned-pad` the flight-ready
+  swap takes Jeb out of the only vessel first); see the overlay-gaps PR notes for the smallest
+  fixture that would.
+- ~~Mission Control read "fails" / "Fails on" for a committed ContractFail row that is the
+  deadline running out, where the Timeline reads "Expired" and the Career window "expires".~~
+  Fixed (branch `overlay-gaps`): `CommittedFutureIndex.Build` stamps a fail row
+  `DeadlineExpiry` through the Timeline's own test (`GameActionDisplay.IsExpiredContractFail`
+  against the accept the fail closes, `FindAcceptForOutcome`), and
+  `ReservationExplanation.ContractResolution` reads "Expired" for it (the owner's 2026-09-27
+  participle wording), so the Active-row label, the detail panel and the Cancel refusal say
+  "expired" / "Expired on".
+- ~~The reservation text was fact + "fixed once committed" rule + way out, said "your
+  committed timeline", and a greyed stock button (Research, Accept / Decline / Cancel,
+  Administration Accept / Cancel) had no hover saying why.~~ Owner wording and coverage
+  rules of 2026-09-27, applied (branch `overlay-gaps`): one sentence per text
+  (`<Participle> on <date and time>, blocked by timeline until then.`; kerbals `Reserved by
+  timeline for 'Flight' until <date>.`), never "committed" / "your timeline" / "the timeline"
+  (pinned by `ReservationExplanationTests`), and every Parsek-greyed stock button carries the
+  reason in a stock tooltip (`StockUiReasonTooltip`); the facility menu also shows it in its
+  description. Final strings and the per-screen matrix: reference sections 6.1 and 6.2. Left
+  without text: the slot-refused Mission Control rows (no row mark by design, C2) and the
+  crew portrait element (its EVA button carries it). The Lost text no longer names the Re-Fly
+  way back on stock screens (the owner dropped every way-out sentence); the Kerbals window
+  keeps it.
 
 **Defects in the existing PR #721 layer:**
 - ~~The Mission Control badges are lost on a tab switch.~~ Fixed by PR 2b: the badge is gone;

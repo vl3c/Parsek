@@ -190,8 +190,7 @@ namespace Parsek.Tests
             Assert.True(d.Blocked);
             Assert.Equal(StockUiDecorationKind.KerbalRetiredStandIn, d.Kind);
             Assert.Equal("Retired", d.Title);
-            Assert.Equal("Stood in for Jebediah Kerman on a committed flight. Jebediah Kerman is free again, "
-                + "so Parsek has retired this stand-in and they cannot join a new crew.", d.Why);
+            Assert.Equal("Retired after standing in for Jebediah Kerman, kept off new crews by timeline.", d.Why);
             AssertHouseStyle(d.Why);
         }
 
@@ -218,7 +217,7 @@ namespace Parsek.Tests
             Assert.True(d.Blocked);
             Assert.Equal(StockUiDecorationKind.KerbalLost, d.Kind);
             Assert.Equal("Lost", d.Title);
-            Assert.StartsWith("Lost on", d.Why);
+            Assert.StartsWith("Lost", d.Why);
             AssertHouseStyle(d.Why);
         }
 
@@ -287,7 +286,7 @@ namespace Parsek.Tests
             var jeb = decorations.Single(d => d.Id == "Jeb");
             Assert.Equal(StockUiDecorationKind.KerbalOnFlight, jeb.Kind);
             Assert.StartsWith("Reserved", jeb.Title);
-            Assert.StartsWith("Flies ", jeb.Why);
+            Assert.StartsWith(ReservationExplanation.ReservedByTimeline, jeb.Why);
             Assert.Equal(StockUiDecorationKind.KerbalOnFlight, decorations.Single(d => d.Id == "Bill").Kind);
             Assert.Equal(StockUiDecorationKind.KerbalLost, decorations.Single(d => d.Id == "Val").Kind);
             foreach (var d in decorations.Where(x => x.Blocked)) AssertHouseStyle(d.Why);

@@ -154,6 +154,106 @@ namespace Parsek.Tests
                 && l.Contains("reason=downstreamBp"));
         }
 
+        // Owner ruling 2026-09-28: a debris-only staging the slot vessel flew past, and a
+        // post-switch Launch branch, leave nothing re-flyable downstream, so they do not end
+        // the Unfinished Flight at the earlier split. A controllable child still does.
+        private RecordingTree BuildDownstreamStagingTree(BranchPointType type, bool childIsDebris)
+        {
+            var tree = BuildGs3Tree(
+                originTerminal: TerminalState.Orbiting,
+                segmentTerminal: TerminalState.Destroyed,
+                switchBpType: type);
+            tree.Recordings["rec_origin"].VesselPersistentId = 50;
+            tree.Recordings["rec_origin"].ExplicitEndUT = 400;
+            tree.Recordings["rec_segment"].VesselPersistentId = 60;
+            tree.Recordings["rec_segment"].IsDebris = childIsDebris;
+            return tree;
+        }
+
+        [Fact]
+        public void DownstreamDebrisOnlyStaging_OriginStillQualifies()
+        {
+            var tree = BuildDownstreamStagingTree(BranchPointType.JointBreak, childIsDebris: true);
+            var rp = InstallGs3Scenario();
+            var origin = tree.Recordings["rec_origin"];
+
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                origin, rp.ChildSlots[1], rp, out string reason, tree));
+            Assert.Equal("stableLeafUnconcluded", reason);
+            Assert.Contains(logLines, l => l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_origin") && l.Contains("ignored"));
+        }
+
+        [Fact]
+        public void DownstreamStagingWithControllableChild_StillRejectsDownstreamBp()
+        {
+            var tree = BuildDownstreamStagingTree(BranchPointType.JointBreak, childIsDebris: false);
+            var rp = InstallGs3Scenario();
+
+            Assert.False(UnfinishedFlightClassifier.TryQualify(
+                tree.Recordings["rec_origin"], rp.ChildSlots[1], rp, out string reason, tree));
+            Assert.Equal("downstreamBp", reason);
+        }
+
+        [Fact]
+        public void DownstreamPostSwitchLaunchBranch_OriginStillQualifies()
+        {
+            var tree = BuildDownstreamStagingTree(BranchPointType.Launch, childIsDebris: false);
+            var rp = InstallGs3Scenario();
+
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                tree.Recordings["rec_origin"], rp.ChildSlots[1], rp, out string reason, tree));
+            Assert.Equal("stableLeafUnconcluded", reason);
+        }
+
+        [Fact]
+        public void DownstreamControllableSplitOverwrittenByDebrisStaging_StillRejects()
+        {
+            // The vessel dropped a probe (controllable) at 150 and then only debris at 200; the
+            // second staging overwrote ChildBranchPointId. The earlier split still blocks.
+            var tree = BuildDownstreamStagingTree(BranchPointType.JointBreak, childIsDebris: false);
+            var debris = Rec("rec_debris2", TerminalState.Destroyed, parentBranchPointId: "bp_debris2");
+            debris.VesselPersistentId = 70;
+            debris.IsDebris = true;
+            AddToTree(tree, debris);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp_debris2",
+                UT = 200.0,
+                Type = BranchPointType.JointBreak,
+                ParentRecordingIds = new List<string> { "rec_origin" },
+                ChildRecordingIds = new List<string> { "rec_debris2" },
+            });
+            tree.Recordings["rec_origin"].ChildBranchPointId = "bp_debris2";
+            var rp = InstallGs3Scenario();
+
+            Assert.False(UnfinishedFlightClassifier.TryQualify(
+                tree.Recordings["rec_origin"], rp.ChildSlots[1], rp, out string reason, tree));
+            Assert.Equal("downstreamBp", reason);
+        }
+
+        [Fact]
+        public void HasBlockingDownstreamBranch_BranchBeforeTheRewindPoint_NotDownstream()
+        {
+            var tree = BuildDownstreamStagingTree(BranchPointType.JointBreak, childIsDebris: true);
+            var early = Rec("rec_early", TerminalState.Orbiting, parentBranchPointId: "bp_early");
+            early.VesselPersistentId = 80;
+            AddToTree(tree, early);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp_early",
+                UT = 50.0,
+                Type = BranchPointType.JointBreak,
+                ParentRecordingIds = new List<string> { "rec_origin" },
+                ChildRecordingIds = new List<string> { "rec_early" },
+            });
+            var origin = tree.Recordings["rec_origin"];
+
+            Assert.False(UnfinishedFlightClassifier.HasBlockingDownstreamBranch(
+                origin, origin, RpBpId, tree, out string blocking));
+            Assert.Null(blocking);
+        }
+
         [Fact]
         public void DanglingSwitchBranchPoint_NoChildRecording_BehavesAsBeforeWithoutThrowing()
         {
