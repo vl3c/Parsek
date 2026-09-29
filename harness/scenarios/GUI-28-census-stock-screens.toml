@@ -55,7 +55,7 @@ tier = "operator"
 # ORDER: the Space Center screens first, the launch-site picker next, and the editor (a
 # scene change) last, because a driver-INVALID run still harvests every picture taken
 # before its failing step.
-description = "GUI census of Parsek's annotations on STOCK KSP screens over a rewound career whose committed timeline researches, accepts, completes, hires, holds, upgrades, buys and swaps strategies after the clock: R&D (node tint, tooltip, greyed Research, part tooltip), Astronaut Complex from the KSC and the VAB, Mission Control Available / slot block / Active, Administration, the Tracking Station facility menu, the launch-site crew picker, the VAB part tooltip and crew panel."
+description = "GUI census of Parsek's annotations on STOCK KSP screens over a rewound career whose committed timeline researches, accepts, completes, hires, holds, upgrades, buys and swaps strategies after the clock: R&D (node tint, tooltip, greyed Research, part tooltip), Astronaut Complex from the KSC and the VAB, Mission Control Available / slot block / Active, Administration, the Tracking Station facility menu, the launch-site crew picker, the VAB part tooltip and crew panel, and the SPH part tooltip."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "career", "stock-ui", "GUI-28", "pending-operator"]
 
@@ -147,7 +147,7 @@ steps = [
   { cmd = "StockScreen", args = { screen = "launchsite", act = "close" }, expect = "OK" },
 
   # ============================== the VAB ==============================
-  # UiAction is refused in the editor (no Parsek UI host), so the verb parks the cursor
+  # UiAction is refused in the editor (no Parsek UI host; op=dismiss excepted), so the verb parks the cursor
   # itself: every non-hover StockScreen call despawns the current stock tooltip and
   # parks a cursor its own hover moved.
   { cmd = "StockScreen", args = { screen = "editor", act = "open", item = "Jumping Flea" }, expect = "OK" },
@@ -161,6 +161,14 @@ steps = [
   { cmd = "StockScreen", args = { screen = "astronaut", act = "open" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "stk-ac-editor" }, expect = "OK" },
   { cmd = "StockScreen", args = { screen = "astronaut", act = "close" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "editor", act = "close" }, expect = "OK" },
+
+  # ============================== the SPH ==============================
+  # The part tooltip in the Spaceplane Hangar (2026-09-28): the same PartListTooltip as the
+  # VAB, reached through the SPH building's own entry (GoToEditor, no craft loaded).
+  { cmd = "GoToEditor", args = { facility = "SPH" }, expect = "OK", budget = 120 },
+  { cmd = "StockScreen", args = { screen = "editor", act = "hover", part = "probeCoreSphere.v2" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "stk-part-tooltip-sph" }, expect = "OK" },
   { cmd = "StockScreen", args = { screen = "editor", act = "close" }, expect = "OK" },
 
   { cmd = "FlushAndQuit", expect = "OK" },
@@ -198,6 +206,7 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-launchpicker screen=CrewAssignment",
   "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-part-tooltip-editor screen=PartTooltip",
   "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-crewdialog screen=CrewAssignment",
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] record label=stk-part-tooltip-sph screen=PartTooltip tab=Editor item=probeCoreSphere\\.v2 kind=PartPurchase marked=true blocked=true why=\"Purchased on ",
   # --- the stock controls as stock holds them at capture time (the fact behind a greyed look) ---
   "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=stk-rnd-node-panel screen=RnD name=actionButton:basicRocketry ",
   "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=stk-rnd-unblocked-panel screen=RnD name=actionButton:engineering101 ",

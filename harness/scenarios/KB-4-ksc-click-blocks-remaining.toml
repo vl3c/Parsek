@@ -1,0 +1,289 @@
+schema = 1
+id = "KB-4-ksc-click-blocks-remaining"
+# =====================================================================================
+# THE REMAINING STOCK-SCREEN CLICK-BLOCKS AFTER A REWIND, LIVE: contract Decline, contract
+# Cancel, the contract-slot block (C2), strategy Activate and Deactivate (S1), Astronaut
+# Complex dismiss (K1), part purchase and R&D purchase-all (P1), and the VAB crew-dialog
+# seat (K1).
+#
+# WHY THIS LANE EXISTS. KB-3 presses four stock-screen blocks (tech, upgrade, hire,
+# accept) and KB-2 one (repair). A review of the overlay program
+# (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md, section 4) listed every
+# other shipped block with no behavioural proof: each was proven only headless or through
+# H45's in-game batch, which asks a backstop for its DECISION and never presses a control.
+# This lane presses all of them.
+#
+# THE HOST IS GUI-28's (and KB-3's). `stock-screen-census` (a rewound career: save clock
+# UT 409.56, every committed row 30000 s or more after it; built by
+# Source/Parsek.Tests/StockScreenCensusFixture.cs) already carries every reservation:
+#   Mission Control  survey 90e4faaf accepted later           -> Decline blocked (C3)
+#                    decoupler test 07c8e34d Active, completed later by the Census Hopper
+#                    flight                                   -> Cancel blocked (C4)
+#                    one Active + the committed accept fill both level-1 slots from
+#                    UT 50000                                 -> any other Offered row's
+#                                                                Accept blocked (C2)
+#   Administration   AppreciationCampaignCfg active now, deactivated later -> Cancel blocked
+#                    OutsourcedResearchCfg activated later     -> Accept blocked
+#   Astronaut Cplx   Bill Kerman held by Census Hopper         -> dismiss blocked
+#   R&D / VAB        probeCoreSphere.v2 bought later           -> purchase and the start
+#                                                                node's purchase-all blocked
+#   VAB crew panel   Bill Kerman held                          -> seat assignment blocked
+#
+# ONE IN-LANE STEP CHANGES STATE ON PURPOSE. The census Administration is level 1, whose
+# single strategy slot AppreciationCampaignCfg fills, so STOCK refuses OutsourcedResearchCfg
+# for want of a slot and Parsek stands aside (stock-first precedence, research doc S1).
+# To reach Parsek's own activation refusal the lane first upgrades the Administration
+# (`KscAction upgrade-facility`, a present-day upgrade the committed timeline does not
+# make, so it is allowed and charged): one FacilityUpgrade ledger row, 26 -> 27. Nothing
+# else in the lane may add a row.
+#
+# FOR EACH BLOCK, pinned below:
+#   (a) THE CONTROL. The stock screen is opened and the row selected / hovered through
+#       `StockScreen`; the capture writes the decision the screen draws
+#       (`[StockUiOverlay] record label=<capture> ... why="..."`) and the stock state of
+#       the control (`control ... interactable=false`), or the reason the greyed button's
+#       stock tooltip carries (`... reason shown on the disabled button's stock tooltip:`).
+#   (b) THE REFUSED CLICK. `KscAction` makes the call the stock control makes:
+#       decline-contract -> Contract.Decline() (Mission Control's Decline),
+#       cancel-contract -> Contract.Cancel() (Cancel), accept-contract on a slot-starved
+#       offer -> Contract.Accept() (Accept), press-strategy ->
+#       Administration.BtnInputAccept("accept" | "cancel") on the open screen's selected
+#       strategy (the Accept / Cancel button), activate-strategy -> Strategy.Activate()
+#       behind stock's CanBeActivated (the primitive; refused there by the postfix),
+#       sack-kerbal -> KerbalRoster.SackAvailable (the Astronaut Complex's dismiss),
+#       purchase-part -> RDTech.PurchasePart on the open R&D screen's own node (both R&D
+#       purchase paths end there), purchase-all -> RDController.ActionButtonClick("purchase")
+#       with the start node selected, assign-crew -> the crew dialog's assign button
+#       (ListItemButtonClick, after the dialog's own Clear empties the seats). Each is
+#       refused by the backstop that reads the control's own predicate (the pairing rule),
+#       which writes its Blocking line and shows the blocked dialog; the seam reads the
+#       target's state and the funds / science (and, for contracts and strategies,
+#       reputation) pools identical on both sides of the call (backreferences).
+#   (c) THE SAME TEXT. Each dialog line `[CommittedAction] Blocked action: <title> -
+#       <body>` must END in exactly the `why` its control carried, captured and
+#       backreferenced across the log (`\1`).
+#   (d) NOTHING ELSE CHANGED. No game-state event for any blocked kind, no ledger row
+#       other than the Administration upgrade, and the last ledger save holds 27.
+#
+# THE STRATEGY DEACTIVATION PRIMITIVE IS NOT PRESSED. `Strategy.Deactivate()` is left
+# unpatched by design (KSPCF's auto-expiry calls it; research doc S1), so only the
+# Administration Cancel button's backstop refuses a player deactivation; that is what
+# press-strategy drives.
+#
+# A POINTER LANE. The `act=hover` steps move the OS cursor machine-wide (the verb writes
+# `stockscreen pointer moving the OS cursor ...`); a hover capture that looks wrong reads
+# back against "someone was using the mouse". Nothing gated depends on the pictures.
+#
+# DRIVER NOTE. A KscAction refused for any reason reads REJECTED, including a seam
+# pre-check; the step verdict alone would pass on it. The `kscaction refused ...
+# reason=blocked-committed` (or `button-no-effect` for press-strategy, whose allowed path
+# opens stock's confirmation dialog and so changes nothing either) tokens, beside each
+# backstop's own Blocking line, are what say the committed-timeline backstop refused.
+tier = "nightly"
+description = "Rewound career whose committed timeline accepts an offer, completes the Active contract, needs both contract slots, swaps strategies, holds Bill Kerman and buys the Stayputnik after the clock: Mission Control's Decline, Cancel and a slot-starved Accept, Administration's Accept and Cancel (after an allowed Administration upgrade frees a slot), the Astronaut Complex dismiss, the R&D part purchase and purchase-all, and the VAB crew-dialog seat are each refused at the stock call with the blocked dialog carrying the control's own explanation, changing no state, funds, science, reputation or ledger row."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "stock-ui", "action-blocking", "career", "KB-4"]
+
+[fixture]
+saveTemplate = "fixtures/saves/stock-screen-census"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # Vessel-less, so the NoVesselSpaceCenter route (GUI-28's boot).
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-ksc" }, expect = "OK" },
+
+  # ---- Mission Control: the three controls, then the three refused calls ----
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "open", pane = "available" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "select", item = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27", pane = "available" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-mc-offered" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "select", item = "375b4446-c861-4b4d-bf97-ef38407246a4", pane = "available" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-mc-slot" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "select", item = "07c8e34d-0464-4416-a973-1e2b472bc347", pane = "active" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-mc-active" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "missioncontrol", act = "close" }, expect = "OK" },
+
+  # C3: Decline an offer the committed timeline accepts later.
+  { cmd = "KscAction", args = { action = "decline-contract", contract = "90e4faaf-2029-4c6b-8bc1-40226bb0fc27" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-decline-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  # C2: Accept another offer while the committed accept needs the last free slot.
+  { cmd = "KscAction", args = { action = "accept-contract", contract = "375b4446-c861-4b4d-bf97-ef38407246a4" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-slot-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  # C4: Cancel the Active contract the committed timeline completes later.
+  { cmd = "KscAction", args = { action = "cancel-contract", contract = "07c8e34d-0464-4416-a973-1e2b472bc347" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-cancel-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  # ---- S1: a second strategy slot, then both Administration buttons ----
+  { cmd = "KscAction", args = { action = "upgrade-facility", facility = "SpaceCenter/Administration" }, expect = "OK", budget = 60 },
+  { cmd = "StockScreen", args = { screen = "administration", act = "open" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "administration", act = "select", item = "OutsourcedResearchCfg" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-admin-activate" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "press-strategy", strategy = "OutsourcedResearchCfg" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-activate-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "administration", act = "select", item = "AppreciationCampaignCfg" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-admin-deactivate" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "press-strategy", strategy = "AppreciationCampaignCfg" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-deactivate-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "administration", act = "close" }, expect = "OK" },
+  # The activation primitive behind the button, refused by the CanBeActivated postfix.
+  { cmd = "KscAction", args = { action = "activate-strategy", strategy = "OutsourcedResearchCfg" }, expect = "REJECTED", budget = 60 },
+
+  # ---- K1: the Astronaut Complex dismiss ----
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "open" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "hover", item = "Bill Kerman" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-ac-bill" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "astronaut", act = "close" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "sack-kerbal", kerbal = "Bill Kerman" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-dismiss-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+
+  # ---- P1: the R&D part purchase and the start node's purchase-all ----
+  { cmd = "StockScreen", args = { screen = "rnd", act = "open" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "rnd", act = "select", item = "start" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-rnd-start" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "rnd", act = "hover", part = "probeCoreSphere.v2" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-rnd-part" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "purchase-part", part = "probeCoreSphere.v2" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-purchase-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "purchase-all", node = "start" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-purchase-all-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "rnd", act = "close" }, expect = "OK" },
+
+  # ---- K1: the VAB crew-dialog seat (a scene change, so last) ----
+  { cmd = "StockScreen", args = { screen = "editor", act = "open", item = "Jumping Flea" }, expect = "OK", budget = 120 },
+  { cmd = "StockScreen", args = { screen = "crewdialog", act = "open" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "crewdialog", act = "hover", item = "Bill Kerman" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-crew-bill" }, expect = "OK" },
+  { cmd = "KscAction", args = { action = "assign-crew", kerbal = "Bill Kerman" }, expect = "REJECTED", budget = 60 },
+  { cmd = "CaptureScreenshot", args = { label = "kb4-seat-refused" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "dismiss", popup = "actionblocked", press = "OK" }, expect = "OK" },
+  { cmd = "StockScreen", args = { screen = "editor", act = "close" }, expect = "OK", budget = 120 },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["contracts", "strategies", "kerbals", "facilities", "action-blocking"]
+D14 = ["career", "scene-ksc", "scene-editor"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's three committed recordings (GUI-28's host); nothing in this lane records.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  # ================= C3: Decline =================
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb4-mc-offered screen=MissionControl name=btnDecline:90e4faaf-2029-4c6b-8bc1-40226bb0fc27 state=- interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[ContractDeclinePatch\\] blocking decline for guid=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 - committed future accept ut=\\d+ nowUT=\\d+ recording=\\(ksc\\)",
+  "kscaction decline-contract not applied: target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 stateBefore=Offered stateAfter=Offered fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0 repBefore=(\\S+) repAfter=\\3 repDelta=0",
+  "kscaction refused action=decline-contract reason=blocked-committed target=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+  "record label=kb4-mc-offered screen=MissionControl tab=Available item=90e4faaf-2029-4c6b-8bc1-40226bb0fc27 kind=ContractAccept marked=true blocked=true why=\"(Accepted on [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot decline \"[^\r\n]*?\" - \\1\\r?\\n",
+
+  # ================= C2: the slot-starved Accept =================
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb4-mc-slot screen=MissionControl name=btnAccept:375b4446-c861-4b4d-bf97-ef38407246a4 state=- interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[ContractAcceptPatch\\] blocking accept for guid=375b4446-c861-4b4d-bf97-ef38407246a4 - the committed timeline needs every free contract slot nowUT=",
+  "kscaction accept-contract not applied: target=375b4446-c861-4b4d-bf97-ef38407246a4 stateBefore=Offered stateAfter=Offered fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=accept-contract reason=blocked-committed target=375b4446-c861-4b4d-bf97-ef38407246a4",
+  "record label=kb4-mc-slot screen=MissionControl tab=Available item=375b4446-c861-4b4d-bf97-ef38407246a4 kind=ContractSlot marked=false blocked=true why=\"(Slot needed [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot accept \"[^\r\n]*?\" - \\1\\r?\\n",
+
+  # ================= C4: Cancel =================
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb4-mc-active screen=MissionControl name=btnCancel:07c8e34d-0464-4416-a973-1e2b472bc347 state=- interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[ContractCancelPatch\\] blocking cancel for guid=07c8e34d-0464-4416-a973-1e2b472bc347 - committed \\S+ ut=\\d+ nowUT=\\d+ recording=\\S+",
+  "kscaction cancel-contract not applied: target=07c8e34d-0464-4416-a973-1e2b472bc347 stateBefore=Active stateAfter=Active fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0 repBefore=(\\S+) repAfter=\\3 repDelta=0",
+  "kscaction refused action=cancel-contract reason=blocked-committed target=07c8e34d-0464-4416-a973-1e2b472bc347",
+  "record label=kb4-mc-active screen=MissionControl tab=Active item=07c8e34d-0464-4416-a973-1e2b472bc347 kind=ContractResolution marked=true blocked=true why=\"(Completed on [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot cancel \"[^\r\n]*?\" - \\1\\r?\\n",
+
+  # ================= S1: the allowed upgrade that frees a strategy slot =================
+  "kscaction action=upgrade-facility target=SpaceCenter/Administration applied=true",
+  # ================= S1: Activate (the Accept button, then the primitive) =================
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb4-admin-activate screen=Administration name=btnAcceptCancel:OutsourcedResearchCfg state=accept interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[StrategyReservation\\] blocking activation click for strategy=OutsourcedResearchCfg",
+  "kscaction press-strategy not applied: target=OutsourcedResearchCfg activeBefore=False activeAfter=False fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0 repBefore=(\\S+) repAfter=\\3 repDelta=0",
+  "kscaction refused action=press-strategy reason=button-no-effect target=OutsourcedResearchCfg",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] Administration accept: reason shown on the disabled button's stock tooltip: (Activated on [^\\r\\n]+)\\r?\\n[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot activate \"[^\r\n]*?\" - \\1\\r?\\n",
+  "kscaction refused action=activate-strategy reason=strategy-cannot-activate Activated on [^\\r\\n]+, blocked by timeline until then\\. target=OutsourcedResearchCfg",
+  # ================= S1: Deactivate (the Cancel button) =================
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb4-admin-deactivate screen=Administration name=btnAcceptCancel:AppreciationCampaignCfg state=cancel interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[StrategyReservation\\] blocking deactivation click for strategy=AppreciationCampaignCfg",
+  "kscaction press-strategy not applied: target=AppreciationCampaignCfg activeBefore=True activeAfter=True fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0 repBefore=(\\S+) repAfter=\\3 repDelta=0",
+  "kscaction refused action=press-strategy reason=button-no-effect target=AppreciationCampaignCfg",
+  "\\[Parsek\\]\\[VERBOSE\\]\\[StockUiOverlay\\] Administration cancel: reason shown on the disabled button's stock tooltip: (Deactivated on [^\\r\\n]+)\\r?\\n[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot deactivate \"[^\r\n]*?\" - \\1\\r?\\n",
+
+  # ================= K1: dismiss =================
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=astronaut act=hover item=Bill_Kerman ",
+  "\\[Parsek\\]\\[INFO\\]\\[KerbalDismissal\\] Blocked dismissal of 'Bill Kerman' via KerbalRoster\\.SackAvailable - managed by Parsek or named by a committed flight",
+  "kscaction sack-kerbal not applied: target=Bill_Kerman typeBefore=Crew typeAfter=Crew fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=sack-kerbal reason=blocked-committed target=Bill Kerman",
+  "record label=kb4-ac-bill screen=AstronautComplex tab=Available item=Bill Kerman kind=KerbalOnFlight marked=true blocked=true why=\"([^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot dismiss \"Bill Kerman\" - \\1\\r?\\n",
+
+  # ================= P1: part purchase =================
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb4-rnd-part screen=PartTooltip name=buttonPurchase state=- interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[PartPurchasePatch\\] Blocking part purchase: 'probeCoreSphere\\.v2' \\([^)]*\\) source=RDTech\\.PurchasePart - committed future purchase ut=\\d+ nowUT=\\d+",
+  "kscaction purchase-part not applied: target=probeCoreSphere\\.v2 purchasedBefore=False purchasedAfter=False fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0",
+  "kscaction refused action=purchase-part reason=blocked-committed target=probeCoreSphere\\.v2",
+  "record label=kb4-rnd-part screen=PartTooltip tab=RnD item=probeCoreSphere\\.v2 kind=PartPurchase marked=true blocked=true why=\"(Purchased on [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot purchase \"[^\r\n]*?\" - \\1\\r?\\n",
+  # ================= P1: purchase-all on the start node =================
+  "\\[Parsek\\]\\[INFO\\]\\[StockUiOverlay\\] control label=kb4-rnd-start screen=RnD name=actionButton:start state=purchase interactable=false visible=true",
+  "\\[Parsek\\]\\[INFO\\]\\[PartPurchasePatch\\] R&D purchase all: node=start unpurchased=1 skippedBlocked=1 skipped=\\[probeCoreSphere\\.v2\\]",
+  "\\[Parsek\\]\\[INFO\\]\\[PartPurchasePatch\\] Blocking part purchase: 'probeCoreSphere\\.v2' \\([^)]*\\) source=R&D purchase all - committed future purchase",
+  "kscaction purchase-all not applied: target=start purchasedBefore=(\\d+/\\d+) purchasedAfter=\\1 fundsBefore=(\\S+) fundsAfter=\\2 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\3 scienceDelta=0",
+  "kscaction refused action=purchase-all reason=blocked-committed target=start",
+  "record label=kb4-rnd-part screen=PartTooltip tab=RnD item=probeCoreSphere\\.v2 kind=PartPurchase marked=true blocked=true why=\"(Purchased on [^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot purchase these parts - [^:\\r\\n]+: \\1\\r?\\n",
+
+  # ================= K1: the VAB crew-dialog seat =================
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stockscreen ok screen=editor act=open item=Jumping_Flea .*scene=EDITOR",
+  "\\[Parsek\\]\\[INFO\\]\\[CrewDialog\\] Blocked crew assignment of 'Bill Kerman' via MoveCrewToEmptySeat - reserved by the committed timeline",
+  "kscaction assign-crew not applied: target=Bill_Kerman seatedBefore=False seatedAfter=False fundsBefore=(\\S+) fundsAfter=\\1 fundsDelta=0 scienceBefore=(\\S+) scienceAfter=\\2 scienceDelta=0 emptySeat=True rosterBefore=Available rosterAfter=Available",
+  "kscaction refused action=assign-crew reason=blocked-committed target=Bill Kerman",
+  "record label=kb4-crew-bill screen=CrewAssignment tab=Available item=Bill Kerman kind=KerbalOnFlight marked=true blocked=true why=\"([^\"]+)\"[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[CommittedAction\\] Blocked action: Cannot assign \"Bill Kerman\" - \\1\\r?\\n",
+
+  # ---- every blocked dialog was up and was dismissed (nine times) ----
+  "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dismiss ok popup=actionblocked press=OK open=false){9}",
+
+  # ---- (d) the ledger: 26 rows on load, the one upgrade row, 27 on the last save ----
+  "\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Loaded ledger from '[^']*': version=0, actions=26, parseErrors=0",
+  "\\[Ledger\\] Added action: type=FacilityUpgrade",
+  "kscaction refused action=assign-crew [\\s\\S]*\\[Parsek\\]\\[VERBOSE\\]\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=27\\r?\\n",
+]
+forbidden = [
+  # (d) no ledger row other than the Administration upgrade; no other save count.
+  "\\[Ledger\\] Added action: type=(?!FacilityUpgrade)",
+  "\\[Ledger\\] Saved ledger to '[^']*': version=0, actions=(?!2[67]\\r?\\n)",
+  # No game-state event of a blocked kind, no reputation or science move, and no funds
+  # move other than the upgrade's construction charge.
+  "Game state: (ContractAccepted|ContractDeclined|ContractCancelled|CrewRemoved|StrategyActivated|StrategyDeactivated|PartPurchased|ReputationChanged|ScienceChanged)",
+  "Game state: CrewStatusChanged 'Bill Kerman'",
+  "Game state: FundsChanged [^(]*\\((?!StructureConstruction)",
+  # No backstop let a click through, and no seam call took effect.
+  "allowing decline for guid=90e4faaf-2029-4c6b-8bc1-40226bb0fc27",
+  "allowing cancel for guid=07c8e34d-0464-4416-a973-1e2b472bc347",
+  "allowing accept for guid=375b4446-c861-4b4d-bf97-ef38407246a4",
+  "kscaction action=(decline-contract|cancel-contract|accept-contract|press-strategy|activate-strategy|sack-kerbal|purchase-part|purchase-all|assign-crew) .*applied=true",
+]
+
+[runtime]
+# One LoadGame (~300 s ceiling), ~40 UI steps, eleven 60 s KscActions, one editor round
+# trip; GUI-28's 900 s class plus the editor load.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
