@@ -15,6 +15,56 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~REWIND-KEPT-VESSEL-RESPAWNED-BY-STANDALONE-SEGMENT: after a Rewind-to-Launch a standalone 2-point segment of the kept lander replays and spawns a second lander on top of it~~ [FILED 2026-09-29 from EVA-10 `2026-09-29_2012` / `_2018` on branch `deployables-lanes`; FIXED 2026-09-29, branch `rewind-standalone-twin`. The filing entry lives on `deployables-lanes`: deduplicate the two when both land]
+
+**In gameplay terms.** After rewinding, the lander the rewind kept as history got a twin spawned
+into the same spot; the two collided and shed parts. Not reachable through ordinary play (see
+Reachability); the harness boot produced it.
+
+**Root cause (two defects, both in the standalone fallback commit).**
+1. Producer. The EVA-10 boot resumed the committed lander recording (copy-on-write restore,
+   before `onFlightReady`), then the seam's `StopRecording` ran before `onFlightReady` fired.
+   `OnFlightReady` then took the full-reset path (`ShouldIgnoreFlightReadyReset` needs a LIVE
+   recorder) and `ResetFlightReadyState` nulled `activeTree` but kept the stopped recorder and its
+   `CaptureAtStop` (every other tree-drop site nulls the recorder too). The next `StartRecording`
+   committed that capture through `FallbackCommitSplitRecorder` ->
+   `RecordingStore.CommitRecordingDirect` as a standalone recording (`mode=sa`, rec `4d86f58c`,
+   23258.4-23258.5). OnSave writes only RECORDING_TREE nodes, so that recording existed in memory
+   only (the unexplained 19th `.prec` sidecar and the 17-vs-18 `ListHandles` gap), yet it replayed
+   within the session.
+2. Identity. `ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording` never stamped
+   `VesselPersistentId` (the capture from `FlightRecorder.BuildCaptureRecording` leaves it 0; only
+   the guid was forwarded). Every launch-identity guard keys on it:
+   `RecordingStore.IsSpawnedVesselReproducedByRewindReplay`'s `same-vessel-recording-replays`
+   route (`other.VesselPersistentId == pid`) could not connect the standalone to the kept lander's
+   holder, so the strip scope logged `keep ... (no recording that replays after adjustedUT=23248.6
+   re-produces it)`; and spawn adoption (`VesselSpawner.MaterializedSourceVesselExists(Recording)`
+   / `TryAdoptExistingSourceVesselForSpawn`, the one path FLIGHT, KSC and the Tracking Station all
+   use) returns false at `VesselPersistentId == 0`, so `Vessel spawn for #11 (Kerbal X)` built the
+   twin. The spawn collision check skips the active vessel, which the kept lander was.
+
+**Reachability.** `CommitRecordingDirect` has one caller, `FallbackCommitSplitRecorder`, which
+commits standalone only when `TryAppendCapturedToTree` finds no active tree. In always-tree mode
+that needs a stopped tree-bound recorder outliving its tree: `ParsekFlight.StopRecording` has no
+player caller (only the M-A2 `StopRecording` / `DiscardTree` seam verbs), and every tree-drop site
+but `ResetFlightReadyState` drops the recorder. The split-fallback coroutines
+(`DeferredUndockBranch` / `DeferredEvaBranch` / `DeferredJointBreakCheck` / `ResumeSplitRecorder`)
+reach it only if the tree was committed or discarded in the frame between a split and its deferred
+check. A player cannot practically hit the twin.
+
+**Fix.** (1) `ParsekFlight.TryDiscardCaptureOfDroppedTree`: when no tree is active but the
+recorder was bound to one, `FallbackCommitSplitRecorder` discards the capture instead of committing
+it standalone (Info `FallbackCommitSplitRecorder: discarded capture of dropped tree '<name>' (id=...)
+vessel='...' pid=N points=N - no standalone commit outside a tree`). (2) The standalone recording
+now carries the recorder's `RecordingVesselId` (fallback: the snapshot's `persistentId`,
+`ResolveStandaloneRecordedVesselPid`), so if one is ever committed, the strip scope strips a kept
+vessel it re-produces and a spawn adopts a live same-launch vessel instead of building a copy; a
+relaunch of the same craft (different guid) is still neither stripped nor adopted, and a vessel the
+rewind stripped still respawns. Tests: `StandaloneFallbackIdentityTests` (5 of 11 red on the
+pre-fix code). EVA-10 expected change: no standalone recording (one fewer committed recording,
+the lander kept, no `Vessel spawn for #N (Kerbal X)` line), so a forbid on that line should hold;
+confirm on the next flight before arming it.
+
 ## ~~IDLE-ON-PAD-DISCARDS-PLACED-GROUND-PARTS: a tree whose EVA kerbal placed ground parts within 30 m was auto-discarded as idle on pad~~ [FILED AND FIXED 2026-09-29 from the deployables flights `2026-09-29_1856` / `_1901` / `_1905` / `_1916` (EVA-9 / EVA-10), branch `placed-parts-not-idle`]
 
 `ParsekFlight.IsTreeIdleOnPad` (and its live-tree mirror `IsActiveTreeIdleOnPad`, read by

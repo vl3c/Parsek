@@ -4839,12 +4839,25 @@ namespace Parsek
         /// <summary>
         /// Copies a stopped split capture onto the standalone fallback recording when no
         /// active tree accepts the capture.
+        /// <para>The recorded vessel pid is stamped too. The capture itself does not carry
+        /// it (<c>FlightRecorder.BuildCaptureRecording</c> leaves
+        /// <c>VesselPersistentId</c> at 0), and every launch-identity guard keys on it: the
+        /// rewind strip scope's same-vessel route, spawn adoption in FLIGHT / KSC /
+        /// Tracking Station (<c>VesselSpawner.MaterializedSourceVesselExists(Recording)</c>)
+        /// and the live-vessel ghost skip. A standalone recording without it reads as "no
+        /// vessel", so a rewind keeps the live vessel it records and its terminal spawn
+        /// builds a second copy of that vessel on top of it.</para>
         /// </summary>
-        internal static void ApplyCapturedSplitStateToStandaloneRecording(Recording rec, Recording captured)
+        /// <param name="recordedVesselPid">The recorder's <c>RecordingVesselId</c>; 0 falls
+        /// back to the capture snapshot's <c>persistentId</c>.</param>
+        internal static void ApplyCapturedSplitStateToStandaloneRecording(
+            Recording rec, Recording captured, uint recordedVesselPid = 0)
         {
             if (rec == null || captured == null)
                 return;
 
+            rec.VesselPersistentId = ResolveStandaloneRecordedVesselPid(
+                recordedVesselPid, captured);
             rec.VesselSnapshot = captured.VesselSnapshot;
             rec.GhostVisualSnapshot = captured.GhostVisualSnapshot;
             // The capture already carries the launch guid (FlightRecorder stamps it in
@@ -4874,6 +4887,59 @@ namespace Parsek
                 rec.StampTerminalState(TerminalState.Destroyed, "FallbackCommitSplitRecorder");
                 ParsekLog.Verbose("Flight", "FallbackCommitSplitRecorder: set TerminalState=Destroyed");
             }
+        }
+
+        /// <summary>
+        /// The recorded vessel pid for a standalone fallback recording: the recorder's own
+        /// <c>RecordingVesselId</c> when known, else the capture snapshot's top-level
+        /// <c>persistentId</c>, else 0.
+        /// </summary>
+        internal static uint ResolveStandaloneRecordedVesselPid(uint recordedVesselPid, Recording captured)
+        {
+            if (recordedVesselPid != 0)
+                return recordedVesselPid;
+            if (captured?.VesselSnapshot == null)
+                return 0u;
+            uint snapshotPid;
+            string raw = captured.VesselSnapshot.GetValue("persistentId");
+            if (!string.IsNullOrEmpty(raw)
+                && uint.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out snapshotPid))
+                return snapshotPid;
+            return 0u;
+        }
+
+        /// <summary>
+        /// Always-tree mode: every recorder is bound to a tree (<c>StartRecording</c> wraps a
+        /// lone recording in a single-node tree and every resume sets
+        /// <c>recorder.ActiveTree</c>). A stopped capture whose recorder was bound to a tree
+        /// while NO tree is active belongs to a tree the scene already dropped. Every
+        /// tree-drop site except <c>ResetFlightReadyState</c> drops the recorder with it;
+        /// that one keeps a stopped recorder, and the next <c>StartRecording</c> resolves its
+        /// capture here. A standalone commit of it is never written by OnSave (only
+        /// RECORDING_TREE nodes are saved), so it would live until the next cold load only
+        /// while replaying the dropped session's tail: after a Rewind-to-Launch that kept
+        /// the vessel it records, its terminal spawn would build a second copy of that
+        /// vessel on the same spot. Returns true (and logs) when the capture must be
+        /// discarded instead of committed.
+        /// </summary>
+        internal static bool TryDiscardCaptureOfDroppedTree(
+            RecordingTree liveActiveTree,
+            RecordingTree recorderTree,
+            Recording captured,
+            uint recordedVesselPid)
+        {
+            if (liveActiveTree != null || recorderTree == null)
+                return false;
+
+            ParsekLog.Info("Flight", string.Format(CultureInfo.InvariantCulture,
+                "FallbackCommitSplitRecorder: discarded capture of dropped tree '{0}' (id={1}) " +
+                "vessel='{2}' pid={3} points={4} - no standalone commit outside a tree",
+                recorderTree.TreeName ?? "<unnamed>",
+                recorderTree.Id ?? "<no-id>",
+                captured?.VesselName ?? "<unnamed>",
+                recordedVesselPid,
+                captured?.Points?.Count ?? 0));
+            return true;
         }
 
         /// <summary>
@@ -6810,6 +6876,10 @@ namespace Parsek
             if (TryAppendCapturedToTree(activeTree, captured))
                 return;
 
+            if (TryDiscardCaptureOfDroppedTree(
+                    activeTree, splitRec.ActiveTree, captured, splitRec.RecordingVesselId))
+                return;
+
             var rec = RecordingStore.CreateRecordingFromFlightData(
                 captured.Points, captured.VesselName,
                 orbitSegments: captured.OrbitSegments,
@@ -6823,7 +6893,7 @@ namespace Parsek
             }
 
             // Copy snapshot/vessel state and location context to the recording.
-            ApplyCapturedSplitStateToStandaloneRecording(rec, captured);
+            ApplyCapturedSplitStateToStandaloneRecording(rec, captured, splitRec.RecordingVesselId);
 
             // Tag segment phase if untagged
             TagSegmentPhaseIfMissing(rec, FlightGlobals.ActiveVessel);
@@ -13173,11 +13243,13 @@ namespace Parsek
             // Commit orphaned CaptureAtStop from a previous recorder that was stopped
             // by vessel switch but never committed (e.g., auto-record started on new
             // vessel before scene change). Without this, the old recording data is lost.
+            // A capture of a tree the scene already dropped is discarded, not committed
+            // (TryDiscardCaptureOfDroppedTree).
             if (recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null
                 && activeTree == null)
             {
                 FallbackCommitSplitRecorder(recorder);
-                ParsekLog.Info("Flight", "Committed orphaned recording before starting new one");
+                ParsekLog.Info("Flight", "Resolved orphaned recorder capture before starting new one");
             }
 
             uint activePid = FlightGlobals.ActiveVessel?.persistentId ?? 0u;
